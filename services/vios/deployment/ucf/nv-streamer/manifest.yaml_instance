@@ -1,0 +1,178 @@
+type: msapplication
+specVersion: 2.5.0
+name:  ucf.svc.nvstreamer
+chartName: nvstreamer-instance
+description: media streaming service
+version: 0.0.20
+displayName: "Media streaming server"
+category:
+  functional: "Media Service"
+  industry: "IVA"
+tags: []
+keywords: []
+eula: ""
+nSpectId: NSPECT-1H82-JYCQ
+
+
+ingress-endpoints:
+  - name: http-in
+    description: Nvstreamer http api
+    scheme: http
+    data-flow: in-out
+
+#egress-endpoints:
+#- name: "redis"
+#  description: Redis message broker
+#  protocol: TCP
+#  scheme: asyncio
+#  mandatory: True
+#  data-flow: out
+
+tests:
+  - name: dev-params1
+    app: tests/dev/app.yaml
+    params: tests/dev/params1.yaml
+    ciTrigger: true
+    timeout: 25
+    duration: 10
+    installPreReqs: true  # Wether to install foundational services
+    namespace: default  # Kubernetes namespace
+    gpuNodeLabels: ""
+    watchAllPods: false # OR set to false and set list of pods to watch below
+    watchPods:
+    - vms-test
+    testerPods:  # At least one tester pod is required
+    - name: vms-test  # Name of the test pod
+      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+      - "test case failed"
+
+params:
+  rtspServerPortRange: 10
+  #> description: rtspserver instances port range
+  #> type: integer
+
+  image: nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer
+  #> type: string
+  #> description: VST docker container path on ngc
+
+  tag: 2.1.0-26.05.2
+  #> type: string
+  #> description: Tag for VST docker container
+
+---
+
+spec:
+  - name: deployment
+    type: ucf.k8s.app.deployment
+    parameters:
+      apptype: statefull
+      statefulSetServiceName: svc
+      extraSpecs:
+        podManagementPolicy: OrderedReady
+
+  - name: nvstreamer-container
+    type: ucf.k8s.container
+    parameters:
+      image:
+          repository: $params.image
+          tag: $params.tag
+          pullPolicy: IfNotPresent
+      args: [--vstConfigFile, /opt/configs/vst_config.json, --adaptorConfigFile, /opt/configs/adaptor_config.json]
+      env:
+      - name: POD_NAMESPACE
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.namespace
+      - name: SERVICE_NAME
+        value: "nvstreamer-instance-deployment-svc"
+      - name: POD_METADATA_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.name
+      - name: POD_NAME
+        value: "$(POD_METADATA_NAME).$(SERVICE_NAME).$(POD_NAMESPACE)"
+      volumeMounts:
+        - name: data-storage
+          mountPath: /opt/vmounts/streamer-database
+          subPath: streamer_database
+        - name: data-storage
+          mountPath: /opt/vmounts/streamer-videos
+          subPath: streamer_videos
+      ports:
+      - containerPort: 31000
+        protocol: TCP
+        name: http-in
+      livenessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /api/version
+          port: http-in
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 20
+        successThreshold: 1
+        timeoutSeconds: 2
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /api/version
+          port: http-in
+          scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 15
+        successThreshold: 1
+        timeoutSeconds: 2
+
+  - name: restartPolicy
+    type: ucf.k8s.restartPolicy
+    parameters:
+      policy: Always # Always / OnFailure / Never
+
+  - name: podSecurityContext
+    type: ucf.k8s.podSecurityContext
+    parameters:
+      runAsGroup: 1000
+      runAsUser: 1000
+
+  - name: svc
+    type: ucf.k8s.service
+    parameters:
+      ports:
+      - port: 31000
+        protocol: TCP
+        name: http-in
+      - port: 31554
+        protocol: TCP
+        name: rtsp
+        range: $params.rtspServerPortRange
+
+  - name: data-storage
+    type: ucf.k8s.volumeClaimTemplate
+    parameters:
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: mdx-local-path
+        resources:
+          requests:
+            storage: 300G
+
+  # - name: data-storage
+  #   type: ucf.k8s.volume
+  #   parameters:
+  #     persistentVolumeClaim:
+  #       claimName: nvstreamer-instance-local-storage
+
+  # - name: local-storage
+  #   type: ucf.k8s.pvc
+  #   parameters:
+  #     annotations:
+  #       helm.sh/resource-policy: "keep"
+  #     spec:
+  #       storageClassName: mdx-local-path
+  #       accessModes: [ReadWriteOnce]
+  #       resources:
+  #         requests:
+  #           storage: 1000Gi
+

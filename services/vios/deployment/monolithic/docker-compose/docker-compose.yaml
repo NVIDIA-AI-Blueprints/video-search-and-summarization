@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  vst-ms:
+    image: ${VST_IMAGE}
+    user: "0:0"
+    runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "if [ \"$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - CONTAINER_NAME=vst-ms
+      - ADAPTOR=${VST_ADAPTOR}
+      - HTTP_PORT=${VST_HTTP_PORT}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+    volumes:
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
+      - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
+    network_mode: host
+    container_name: vst-ms
+    restart: unless-stopped
+
+  vst-mcp:
+    image: ${VST_MCP_IMAGE}
+    user: "0:0"
+    environment:
+      - MCP_GATEWAY_CPP_API_BASE_URL=${MCP_GATEWAY_CPP_API_BASE_URL}
+      - MCP_GATEWAY_CPP_API_TIMEOUT=${MCP_GATEWAY_CPP_API_TIMEOUT}
+      - MCP_GATEWAY_SERVER_NAME=${MCP_GATEWAY_SERVER_NAME}
+      - MCP_GATEWAY_SERVER_VERSION=${MCP_GATEWAY_SERVER_VERSION}
+      - MCP_GATEWAY_SERVER_HOST=${MCP_GATEWAY_SERVER_HOST}
+      - MCP_GATEWAY_SERVER_PORT=${MCP_GATEWAY_SERVER_PORT}
+      - MCP_GATEWAY_LOG_LEVEL=${MCP_GATEWAY_LOG_LEVEL}
+      - MCP_GATEWAY_ENABLE_JSONRPC_LOGGING=${MCP_GATEWAY_ENABLE_JSONRPC_LOGGING}
+    network_mode: host
+    container_name: vst-mcp
+    restart: always
+    depends_on:
+      vst-ms:
+        condition: service_started

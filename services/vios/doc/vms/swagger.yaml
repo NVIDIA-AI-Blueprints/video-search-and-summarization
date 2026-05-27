@@ -1,0 +1,2594 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+openapi: 3.0.1
+info:
+  title: Nvidia VST
+  license:
+    name: Apache-2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0
+  version: 1.2.22
+servers:
+- url: https://localhost/api
+- url: http://localhost/api
+paths:
+  /getIceCandidate:
+    get:
+      tags:
+      - Misc
+      summary: Get list of ICE Candidates
+      operationId: api_getIceCandidate
+      parameters:
+      - name: peerid
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  required:
+                  - candidate
+                  - sdpMLineIndex
+                  - sdpMid
+                  type: object
+                  properties:
+                    candidate:
+                      type: string
+                      example: candidate:878186389 1 udp 2122260223 192.168.55.1 43519
+                        typ host generation 0 ufrag IUnY network-id 2 network-cost
+                        50
+                    sdpMLineIndex:
+                      type: integer
+                      example: 0
+                    sdpMid:
+                      type: string
+                      example: "0"
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /getPeerConnectionList:
+    get:
+      tags:
+      - Misc
+      summary: Get peer connection list
+      operationId: api_peerConnectionList
+      responses:
+        200:
+          description: json object array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    additionalProperties:
+                      required:
+                      - ice_state
+                      - pc_state
+                      - sdp
+                      - signaling_state
+                      - streams
+                      type: object
+                      properties:
+                        ice_state:
+                          type: string
+                        pc_state:
+                          type: string
+                        sdp:
+                          type: string
+                        signaling_state:
+                          type: string
+                        streams:
+                          $ref: '#/components/schemas/Streams'
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /getIceServers:
+    get:
+      tags:
+      - Misc
+      summary: Get URL or URLs of the servers to be used for ICE negotiations. These
+        are typically STUN and/or TURN servers
+      operationId: api_getIceServers
+      parameters:
+      - name: peerId
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                required:
+                - iceServers
+                type: object
+                properties:
+                  iceServers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Ice_servers'
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /version:
+    get:
+      tags:
+      - Misc
+      summary: Get API specification version
+      operationId: api_version
+      responses:
+        200:
+          description: get API specification version
+          content:
+            application/json:
+              schema:
+                type: string
+                example: v0.5.4
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /help:
+    get:
+      tags:
+      - Misc
+      summary: Get supported API list
+      operationId: api_help
+      responses:
+        200:
+          description: json array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /addIceCandidate:
+    post:
+      tags:
+      - Misc
+      summary: Add new remote candidate to the RTCPeerConnection's remote description
+      operationId: api_addIceCandidate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+              - candidate
+              - peerid
+              type: object
+              properties:
+                peerid:
+                  type: string
+                  example: "0.8595207664173294"
+                candidate:
+                  required:
+                  - candidate
+                  - sdpMLineIndex
+                  - sdpMid
+                  type: object
+                  properties:
+                    candidate:
+                      type: string
+                      example: candidate:878186389 1 udp 2122260223 192.168.55.1 43519
+                        typ host generation 0 ufrag IUnY network-id 2 network-cost
+                        50
+                    sdpMLineIndex:
+                      type: integer
+                      example: 0
+                    sdpMid:
+                      type: string
+                      example: "0"
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /stream/seek:
+    post:
+      tags:
+      - Stream
+      summary: Seek forward (+10s), seek backward (-10s), rewind and fast forward
+      operationId: api_seek
+      requestBody:
+        description: json object containing seek information
+        content:
+          application/json:
+            schema:
+              required:
+              - action
+              - peerid
+              - seek_value
+              type: object
+              properties:
+                peerid:
+                  type: string
+                  example: "0.8595207664173294"
+                action:
+                  type: string
+                  enum:
+                  - seek_forward
+                  - seek_backward
+                  - fast_forward
+                  - rewind
+                seek_value:
+                  type: string
+                  example: "0"
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /stream/pause:
+    post:
+      tags:
+      - Stream
+      summary: Pause the recorded stream playback
+      operationId: api_pause
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+              - peerid
+              type: object
+              properties:
+                peerid:
+                  type: string
+                  example: "0.8595207664173294"
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /stream/resume:
+    post:
+      tags:
+      - Stream
+      summary: Resume the recorded stream playback
+      operationId: api_resume
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+              - peerid
+              type: object
+              properties:
+                peerid:
+                  type: string
+                  example: "0.8595207664173294"
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /stream/stop:
+    post:
+      tags:
+      - Stream
+      summary: Stop webrtc streaming
+      operationId: api_stop
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+              - peerid
+              type: object
+              properties:
+                peerid:
+                  type: string
+                  example: "0.8595207664173294"
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /stream/switch:
+    post:
+      tags:
+      - Stream
+      summary: Switch stream type
+      operationId: api_switch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+              - peerid
+              - streamId
+              type: object
+              properties:
+                peerid:
+                  type: string
+                  example: "0.8595207664173294"
+                streamId:
+                  type: string
+                  example: 0b6b62ea-b49a-49dc-906a-0010be31b7d7
+                startTime:
+                  type: string
+                  format: date-time
+                endTime:
+                  type: string
+                  format: date-time
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /stream/start:
+    post:
+      tags:
+      - Stream
+      summary: Start webrtc streaming
+      operationId: api_stream_start
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+              - options
+              - peerid
+              - sensorId
+              - sessionDescription
+              type: object
+              properties:
+                is_client:
+                  type: boolean
+                  example: true
+                startTime:
+                  type: string
+                  format: date-time
+                endTime:
+                  type: string
+                  format: date-time
+                peerid:
+                  type: string
+                  example: "0.8595207664173294"
+                options:
+                  $ref: '#/components/schemas/Options'
+                sensorId:
+                  type: string
+                  example: 0b6b62ea-b49a-49dc-906a-0010be31b7d7
+                sessionDescription:
+                  required:
+                  - sdp
+                  - type
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      example: offer
+                    sdp:
+                      type: string
+                      example: "v=0\r\no=- 6606466324718744866 2 IN IP4 127.0.0.1\r\
+                        \ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=extmap-allow-mixed\r\
+                        \na=msid-semantic: WMS\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\
+                        \ 103 104 9 0 8 106 105 13 110 112 113 126\r\nc=IN IP4 0.0.0.0\r\
+                        \na=rtcp:9 IN IP4 0.0.0.0\r\na=ice-ufrag:Ikys\r\na=ice-pwd:pWgvktNDZU8ZBadF/0SEJ1bA\r\
+                        \na=ice-options:trickle\r\na=fingerprint:sha-256 91:67:A7:BF:AC:0A:DF:5C:F8:BA:A9:16:F6:F5:C5:EB:63:CC:13:C0:DC:8A:35:D5:18:B8:37:65:6E:D5:52:1C\r\
+                        \na=setup:actpass\r\na=mid:0\r\na=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\
+                        \na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\
+                        \na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\
+                        \na=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid\r\na=extmap:5\
+                        \ urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id\r\na=extmap:6\
+                        \ urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id\r\
+                        \na=recvonly\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\n\
+                        a=rtcp-fb:111 transport-cc\r\na=fmtp:111 minptime=10;useinbandfec=1\r\
+                        \na=rtpmap:103 ISAC/16000\r\na=rtpmap:104 ISAC/32000\r\na=rtpmap:9\
+                        \ G722/8000\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\
+                        \na=rtpmap:106 CN/32000\r\na=rtpmap:105 CN/16000\r\na=rtpmap:13\
+                        \ CN/8000\r\na=rtpmap:110 telephone-event/48000\r\na=rtpmap:112\
+                        \ telephone-event/32000\r\na=rtpmap:113 telephone-event/16000\r\
+                        \na=rtpmap:126 telephone-event/8000\r\nm=video 9 UDP/TLS/RTP/SAVPF\
+                        \ 96 97 98 99 100 101 122 102 121 127 120 125 107 108 109\
+                        \ 35 36 124 119 123 118 114 115 116 37\r\nc=IN IP4 0.0.0.0\r\
+                        \na=rtcp:9 IN IP4 0.0.0.0\r\na=ice-ufrag:Ikys\r\na=ice-pwd:pWgvktNDZU8ZBadF/0SEJ1bA\r\
+                        \na=ice-options:trickle\r\na=fingerprint:sha-256 91:67:A7:BF:AC:0A:DF:5C:F8:BA:A9:16:F6:F5:C5:EB:63:CC:13:C0:DC:8A:35:D5:18:B8:37:65:6E:D5:52:1C\r\
+                        \na=setup:actpass\r\na=mid:1\r\na=extmap:14 urn:ietf:params:rtp-hdrext:toffset\r\
+                        \na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\
+                        \na=extmap:13 urn:3gpp:video-orientation\r\na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\
+                        \na=extmap:12 http://www.webrtc.org/experiments/rtp-hdrext/playout-delay\r\
+                        \na=extmap:11 http://www.webrtc.org/experiments/rtp-hdrext/video-content-type\r\
+                        \na=extmap:7 http://www.webrtc.org/experiments/rtp-hdrext/video-timing\r\
+                        \na=extmap:8 http://www.webrtc.org/experiments/rtp-hdrext/color-space\r\
+                        \na=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid\r\na=extmap:5\
+                        \ urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id\r\na=extmap:6\
+                        \ urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id\r\
+                        \na=recvonly\r\na=rtcp-mux\r\na=rtcp-rsize\r\na=rtpmap:96\
+                        \ VP8/90000\r\na=rtcp-fb:96 goog-remb\r\na=rtcp-fb:96 transport-cc\r\
+                        \na=rtcp-fb:96 ccm fir\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96\
+                        \ nack pli\r\na=rtpmap:97 rtx/90000\r\na=fmtp:97 apt=96\r\n\
+                        a=rtpmap:98 VP9/90000\r\na=rtcp-fb:98 goog-remb\r\na=rtcp-fb:98\
+                        \ transport-cc\r\na=rtcp-fb:98 ccm fir\r\na=rtcp-fb:98 nack\r\
+                        \na=rtcp-fb:98 nack pli\r\na=fmtp:98 profile-id=0\r\na=rtpmap:99\
+                        \ rtx/90000\r\na=fmtp:99 apt=98\r\na=rtpmap:100 VP9/90000\r\
+                        \na=rtcp-fb:100 goog-remb\r\na=rtcp-fb:100 transport-cc\r\n\
+                        a=rtcp-fb:100 ccm fir\r\na=rtcp-fb:100 nack\r\na=rtcp-fb:100\
+                        \ nack pli\r\na=fmtp:100 profile-id=2\r\na=rtpmap:101 rtx/90000\r\
+                        \na=fmtp:101 apt=100\r\na=rtpmap:122 VP9/90000\r\na=rtcp-fb:122\
+                        \ goog-remb\r\na=rtcp-fb:122 transport-cc\r\na=rtcp-fb:122\
+                        \ ccm fir\r\na=rtcp-fb:122 nack\r\na=rtcp-fb:122 nack pli\r\
+                        \na=fmtp:122 profile-id=1\r\na=rtpmap:102 H264/90000\r\na=rtcp-fb:102\
+                        \ goog-remb\r\na=rtcp-fb:102 transport-cc\r\na=rtcp-fb:102\
+                        \ ccm fir\r\na=rtcp-fb:102 nack\r\na=rtcp-fb:102 nack pli\r\
+                        \na=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f\r\
+                        \na=rtpmap:121 rtx/90000\r\na=fmtp:121 apt=102\r\na=rtpmap:127\
+                        \ H264/90000\r\na=rtcp-fb:127 goog-remb\r\na=rtcp-fb:127 transport-cc\r\
+                        \na=rtcp-fb:127 ccm fir\r\na=rtcp-fb:127 nack\r\na=rtcp-fb:127\
+                        \ nack pli\r\na=fmtp:127 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f\r\
+                        \na=rtpmap:120 rtx/90000\r\na=fmtp:120 apt=127\r\na=rtpmap:125\
+                        \ H264/90000\r\na=rtcp-fb:125 goog-remb\r\na=rtcp-fb:125 transport-cc\r\
+                        \na=rtcp-fb:125 ccm fir\r\na=rtcp-fb:125 nack\r\na=rtcp-fb:125\
+                        \ nack pli\r\na=fmtp:125 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\r\
+                        \na=rtpmap:107 rtx/90000\r\na=fmtp:107 apt=125\r\na=rtpmap:108\
+                        \ H264/90000\r\na=rtcp-fb:108 goog-remb\r\na=rtcp-fb:108 transport-cc\r\
+                        \na=rtcp-fb:108 ccm fir\r\na=rtcp-fb:108 nack\r\na=rtcp-fb:108\
+                        \ nack pli\r\na=fmtp:108 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f\r\
+                        \na=rtpmap:109 rtx/90000\r\na=fmtp:109 apt=108\r\na=rtpmap:35\
+                        \ AV1X/90000\r\na=rtcp-fb:35 goog-remb\r\na=rtcp-fb:35 transport-cc\r\
+                        \na=rtcp-fb:35 ccm fir\r\na=rtcp-fb:35 nack\r\na=rtcp-fb:35\
+                        \ nack pli\r\na=rtpmap:36 rtx/90000\r\na=fmtp:36 apt=35\r\n\
+                        a=rtpmap:124 H264/90000\r\na=rtcp-fb:124 goog-remb\r\na=rtcp-fb:124\
+                        \ transport-cc\r\na=rtcp-fb:124 ccm fir\r\na=rtcp-fb:124 nack\r\
+                        \na=rtcp-fb:124 nack pli\r\na=fmtp:124 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f\r\
+                        \na=rtpmap:119 rtx/90000\r\na=fmtp:119 apt=124\r\na=rtpmap:123\
+                        \ H264/90000\r\na=rtcp-fb:123 goog-remb\r\na=rtcp-fb:123 transport-cc\r\
+                        \na=rtcp-fb:123 ccm fir\r\na=rtcp-fb:123 nack\r\na=rtcp-fb:123\
+                        \ nack pli\r\na=fmtp:123 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f\r\
+                        \na=rtpmap:118 rtx/90000\r\na=fmtp:118 apt=123\r\na=rtpmap:114\
+                        \ red/90000\r\na=rtpmap:115 rtx/90000\r\na=fmtp:115 apt=114\r\
+                        \na=rtpmap:116 ulpfec/90000\r\na=rtpmap:37 flexfec-03/90000\r\
+                        \na=rtcp-fb:37 goog-remb\r\na=rtcp-fb:37 transport-cc\r\n\
+                        a=fmtp:37 repair-window=10000000\r\n"
+        required: true
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                required:
+                - sdp
+                - type
+                type: object
+                properties:
+                  sdp:
+                    type: string
+                    example: "v=0\r\no=- 8317793669341292934 2 IN IP4 127.0.0.1\r\n\
+                      s=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=extmap-allow-mixed\r\
+                      \na=msid-semantic: WMS 0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411\r\
+                      \nm=audio 9 UDP/TLS/RTP/SAVPF 111 103 104 9 0 8 106 105 13 110\
+                      \ 112 113 126\r\nc=IN IP4 0.0.0.0\r\na=rtcp:9 IN IP4 0.0.0.0\r\
+                      \na=ice-ufrag:SO0K\r\na=ice-pwd:z7WgqAAsQ1r5b3bmf5xgMNrG\r\n\
+                      a=ice-options:trickle\r\na=fingerprint:sha-256 21:0A:F0:E8:30:58:41:4F:A5:B3:34:61:A0:5E:0A:9D:D3:36:CB:F1:C4:A9:39:13:40:2A:1F:FB:6A:E9:7C:96\r\
+                      \na=setup:active\r\na=mid:0\r\na=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\
+                      \na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\
+                      \na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\
+                      \na=inactive\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\n\
+                      a=rtcp-fb:111 transport-cc\r\na=fmtp:111 minptime=10;useinbandfec=1\r\
+                      \na=rtpmap:103 ISAC/16000\r\na=rtpmap:104 ISAC/32000\r\na=rtpmap:9\
+                      \ G722/8000\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\
+                      \na=rtpmap:106 CN/32000\r\na=rtpmap:105 CN/16000\r\na=rtpmap:13\
+                      \ CN/8000\r\na=rtpmap:110 telephone-event/48000\r\na=rtpmap:112\
+                      \ telephone-event/32000\r\na=rtpmap:113 telephone-event/16000\r\
+                      \na=rtpmap:126 telephone-event/8000\r\nm=video 9 UDP/TLS/RTP/SAVPF\
+                      \ 102 121 127 120 125 107 108 109 114 115 116\r\nc=IN IP4 0.0.0.0\r\
+                      \na=rtcp:9 IN IP4 0.0.0.0\r\na=ice-ufrag:SO0K\r\na=ice-pwd:z7WgqAAsQ1r5b3bmf5xgMNrG\r\
+                      \na=ice-options:trickle\r\na=fingerprint:sha-256 21:0A:F0:E8:30:58:41:4F:A5:B3:34:61:A0:5E:0A:9D:D3:36:CB:F1:C4:A9:39:13:40:2A:1F:FB:6A:E9:7C:96\r\
+                      \na=setup:active\r\na=mid:1\r\na=extmap:14 urn:ietf:params:rtp-hdrext:toffset\r\
+                      \na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\
+                      \na=extmap:13 urn:3gpp:video-orientation\r\na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\
+                      \na=extmap:12 http://www.webrtc.org/experiments/rtp-hdrext/playout-delay\r\
+                      \na=extmap:11 http://www.webrtc.org/experiments/rtp-hdrext/video-content-type\r\
+                      \na=extmap:7 http://www.webrtc.org/experiments/rtp-hdrext/video-timing\r\
+                      \na=extmap:8 http://www.webrtc.org/experiments/rtp-hdrext/color-space\r\
+                      \na=sendonly\r\na=rtcp-mux\r\na=rtcp-rsize\r\na=rtpmap:102 H264/90000\r\
+                      \na=rtcp-fb:102 goog-remb\r\na=rtcp-fb:102 transport-cc\r\n\
+                      a=rtcp-fb:102 ccm fir\r\na=rtcp-fb:102 nack\r\na=rtcp-fb:102\
+                      \ nack pli\r\na=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f\r\
+                      \na=rtpmap:121 rtx/90000\r\na=fmtp:121 apt=102\r\na=rtpmap:127\
+                      \ H264/90000\r\na=rtcp-fb:127 goog-remb\r\na=rtcp-fb:127 transport-cc\r\
+                      \na=rtcp-fb:127 ccm fir\r\na=rtcp-fb:127 nack\r\na=rtcp-fb:127\
+                      \ nack pli\r\na=fmtp:127 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f\r\
+                      \na=rtpmap:120 rtx/90000\r\na=fmtp:120 apt=127\r\na=rtpmap:125\
+                      \ H264/90000\r\na=rtcp-fb:125 goog-remb\r\na=rtcp-fb:125 transport-cc\r\
+                      \na=rtcp-fb:125 ccm fir\r\na=rtcp-fb:125 nack\r\na=rtcp-fb:125\
+                      \ nack pli\r\na=fmtp:125 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\r\
+                      \na=rtpmap:107 rtx/90000\r\na=fmtp:107 apt=125\r\na=rtpmap:108\
+                      \ H264/90000\r\na=rtcp-fb:108 goog-remb\r\na=rtcp-fb:108 transport-cc\r\
+                      \na=rtcp-fb:108 ccm fir\r\na=rtcp-fb:108 nack\r\na=rtcp-fb:108\
+                      \ nack pli\r\na=fmtp:108 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f\r\
+                      \na=rtpmap:109 rtx/90000\r\na=fmtp:109 apt=108\r\na=rtpmap:114\
+                      \ red/90000\r\na=rtpmap:115 rtx/90000\r\na=fmtp:115 apt=114\r\
+                      \na=rtpmap:116 ulpfec/90000\r\na=ssrc-group:FID 513608573 1454517393\r\
+                      \na=ssrc:513608573 cname:UlqyiT/pgyUcK04I\r\na=ssrc:513608573\
+                      \ msid:0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411\
+                      \ 0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411_video\r\
+                      \na=ssrc:513608573 mslabel:0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411\r\
+                      \na=ssrc:513608573 label:0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411_video\r\
+                      \na=ssrc:1454517393 cname:UlqyiT/pgyUcK04I\r\na=ssrc:1454517393\
+                      \ msid:0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411\
+                      \ 0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411_video\r\
+                      \na=ssrc:1454517393 mslabel:0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411\r\
+                      \na=ssrc:1454517393 label:0b6b62ea-b49a-49dc-906a-0010be31b7d7||udp60|05252202272141411_video\r\
+                      \n"
+                  type:
+                    type: string
+                    example: answer
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /stream/status:
+    get:
+      tags:
+      - Stream
+      summary: Get stream error status and playback status like PLAYING, PAUSED, NOT
+        PLAYING
+      operationId: api_stream_status
+      parameters:
+      - name: peerid
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /stream/stats:
+    get:
+      tags:
+      - Stream
+      summary: Get stream stats like frame rate, total encoded and decoded frames
+      operationId: api_stream_stats
+      parameters:
+      - name: peerid
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /stream/query:
+    get:
+      tags:
+      - Stream
+      summary: Get stream last played timestamp and related metadata, if available
+      operationId: api_stream_query
+      parameters:
+      - name: peerid
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: metadata
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/streams:
+    get:
+      tags:
+      - Device
+      summary: Get list of live urls, replay urls, sub streams and other stream related
+        information
+      operationId: api_device_streams
+      responses:
+        200:
+          description: json object array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    additionalProperties:
+                      type: array
+                      items:
+                        required:
+                        - bitrate
+                        - codec
+                        - framerate
+                        - govlength
+                        - id
+                        - is_main
+                        - live_url
+                        - name
+                        - replay_url
+                        - resolution
+                        type: object
+                        properties:
+                          bitrate:
+                            type: string
+                            example: "8000"
+                          codec:
+                            type: string
+                            example: H264
+                          framerate:
+                            type: string
+                            example: "30"
+                          govlength:
+                            type: string
+                            example: "25"
+                          id:
+                            type: string
+                            example: 1d22e7d3-e3fb-42d8-b48d-24933a2ea556
+                          is_main:
+                            type: boolean
+                            example: true
+                          live_url:
+                            type: string
+                            example: rtsp://10.24.216.202/live/1d22e7d3-e3fb-42d8-b48d-24933a2ea556
+                          name:
+                            type: string
+                            example: Sony
+                          replay_url:
+                            type: string
+                            example: rtsp://10.24.216.202/vod/1d22e7d3-e3fb-42d8-b48d-24933a2ea556
+                          resolution:
+                            type: string
+                            example: 1920x1080
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/new:
+    post:
+      tags:
+      - Device
+      summary: Add device manually providing RTSP url OR device IP address and device
+        details
+      operationId: api_device_new
+      requestBody:
+        description: url field can be omitted in case of add device using IP address
+          and ip, username and password fields can be omitted in case of add device
+          using RTSP url
+        content:
+          application/json:
+            schema:
+              required:
+              - ip
+              - password
+              - url
+              - username
+              type: object
+              properties:
+                url:
+                  type: string
+                name:
+                  type: string
+                location:
+                  type: string
+                hardware:
+                  type: string
+                ip:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
+                manufacturer:
+                  type: string
+                serial_number:
+                  type: string
+                firmware_version:
+                  type: string
+                hardware_id:
+                  type: string
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /device/{deviceId}/info:
+    get:
+      tags:
+      - Device
+      summary: Get information for particular device
+      operationId: api_device_info_get
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  firmware_version:
+                    type: string
+                  hardware:
+                    type: string
+                  hardware_id:
+                    type: string
+                  id:
+                    type: string
+                  ip:
+                    type: string
+                  location:
+                    type: string
+                  manufacturer:
+                    type: string
+                  name:
+                    type: string
+                  position:
+                    $ref: '#/components/schemas/Position'
+                  serial_number:
+                    type: string
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+      - Device
+      summary: Set information for particular device
+      operationId: api_device_info_post
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                position:
+                  $ref: '#/components/schemas/Position'
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /device/list:
+    get:
+      tags:
+      - Device
+      summary: Get list of devices with some details
+      operationId: api_device_list
+      responses:
+        200:
+          description: json object array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  required:
+                  - firmware_version
+                  - hardware
+                  - hardware_id
+                  - id
+                  - ip
+                  - location
+                  - manufacturer
+                  - name
+                  - position
+                  - serial_number
+                  type: object
+                  properties:
+                    firmware_version:
+                      type: string
+                    hardware:
+                      type: string
+                    hardware_id:
+                      type: string
+                    id:
+                      type: string
+                    ip:
+                      type: string
+                    location:
+                      type: string
+                    manufacturer:
+                      type: string
+                    name:
+                      type: string
+                    position:
+                      $ref: '#/components/schemas/Position'
+                    serial_number:
+                      type: string
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/record:
+    get:
+      tags:
+      - Device
+      summary: Get device record states
+      operationId: api_device_record_get
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recording_status:
+                    type: string
+                    enum:
+                    - recording_on_schedule
+                    - recording_on_user
+                    - recording_error
+                    - recording_status_unknown
+                    - recording_off
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+      - Device
+      summary: Start/Stop Recording
+      operationId: api_device_record_post
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              required:
+              - action
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - start
+                  - stop
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+    delete:
+      tags:
+      - Device
+      summary: Delete recorded video between specified time
+      operationId: api_device_deviceId_record_delete
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: start_time
+        in: query
+        description: 2022-09-08T09:18:13.767Z
+        required: true
+        schema:
+          type: string
+      - name: end_time
+        in: query
+        description: 2022-09-08T09:20:13.767Z
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: deleted files size in MB
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_videos_file_size:
+                    type: integer
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/record/files:
+    get:
+      tags:
+      - Device
+      summary: Get video file details for particular device
+      operationId: api_device_record_files
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: start_time
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: end_time
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  required:
+                  - file_duration
+                  - file_path
+                  - start_time
+                  type: object
+                  properties:
+                    file_duration:
+                      type: integer
+                      example: 60104
+                    file_path:
+                      type: string
+                      example: /home/nvidia/user/vst/vst_video/0b6b62ea-b49a-49dc-906a-0010be31b7d7/1920x1080/2021/05/31/24/1622505489.mkv
+                    start_time:
+                      type: integer
+                      example: 1622505489
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/download:
+    get:
+      tags:
+      - Device
+      summary: Download video files of a particular device
+      operationId: api_device_download
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: start_time
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: end_time
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: full_length
+        in: query
+        schema:
+          type: string
+      responses:
+        200:
+          description: HTTP OK
+          content: {}
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/record/schedule:
+    get:
+      tags:
+      - Device
+      summary: Get device record schdule for particular device
+      operationId: api_device_record_schedule_get
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  required:
+                  - end_time
+                  - start_time
+                  type: object
+                  properties:
+                    end_time:
+                      type: string
+                      example: 0 14 * * 2
+                    start_time:
+                      type: string
+                      example: 0 13 * * 2
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+      - Device
+      summary: Sets/Update device record schdule for particular device
+      operationId: api_device_record_schedule_post
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                required:
+                - end_time
+                - start_time
+                type: object
+                properties:
+                  end_time:
+                    type: string
+                    example: 0 14 * * 2
+                  start_time:
+                    type: string
+                    example: 0 13 * * 2
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+    delete:
+      tags:
+      - Device
+      summary: Un-schedule device record schdule for particular device
+      operationId: api_device_deviceId_record_schedule_delete
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: start_time
+        in: query
+        description: 0 13 * * 2
+        required: true
+        schema:
+          type: string
+      - name: end_time
+        in: query
+        description: 0 14 * * 2
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/record/size:
+    get:
+      tags:
+      - Device
+      summary: Get total recorded video size
+      operationId: api_device_record_size
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/record/timelines:
+    get:
+      tags:
+      - Device
+      summary: Get timeline of recorded video between specified time
+      operationId: api_device_record_timelines
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  required:
+                  - endTime
+                  - startTime
+                  type: object
+                  properties:
+                    endTime:
+                      type: string
+                      format: date-time
+                    startTime:
+                      type: string
+                      format: date-time
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/credentials:
+    post:
+      tags:
+      - Device
+      summary: Sets/updates device username and password
+      operationId: api_device_deviceId_credentials
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              required:
+              - password
+              - username
+              type: object
+              properties:
+                password:
+                  type: string
+                username:
+                  type: string
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /device/scan:
+    post:
+      tags:
+      - Device
+      summary: Make vst to scan devices from network
+      operationId: api_device_scan
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/settings:
+    get:
+      tags:
+      - Device
+      summary: Get device Image, Encode parameters like brightness, saturation, bitrate
+        etc
+      operationId: api_device_settings_get
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  additionalProperties:
+                    type: object
+                    properties:
+                      Encode:
+                        $ref: '#/components/schemas/Get_encode'
+                      Image:
+                        $ref: '#/components/schemas/Get_image'
+    post:
+      tags:
+      - Device
+      summary: Set/Update device image and encode parameters supported by device
+      operationId: api_device_settings_post
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Encode:
+                  $ref: '#/components/schemas/Set_encode'
+                Image:
+                  $ref: '#/components/schemas/Set_image'
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /device/{deviceId}/settings/Encode:
+    get:
+      tags:
+      - Device
+      summary: Get device encode settings
+      operationId: api_device_encode_settings_get
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  additionalProperties:
+                    type: object
+                    properties:
+                      Encode:
+                        $ref: '#/components/schemas/Get_encode'
+  /device/{deviceId}/settings/Image:
+    get:
+      tags:
+      - Device
+      summary: Get device image settings
+      operationId: api_device_image_settings_get
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  additionalProperties:
+                    type: object
+                    properties:
+                      Image:
+                        $ref: '#/components/schemas/Get_image'
+  /device/status:
+    get:
+      tags:
+      - Device
+      summary: Get device error and state for all devices
+      operationId: api_device_status
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  additionalProperties:
+                    required:
+                    - error_code
+                    - error_message
+                    - name
+                    - state
+                    type: object
+                    properties:
+                      error_code:
+                        type: string
+                        example: NoError
+                      error_message:
+                        type: string
+                        example: No Error
+                      name:
+                        type: string
+                        example: March_0010be31b7d7
+                      state:
+                        type: string
+                        enum:
+                        - online
+                        - offline
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/status:
+    get:
+      tags:
+      - Device
+      summary: Get device error and state for particular device
+      operationId: api_device_deviceId_status
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                required:
+                - error_code
+                - error_message
+                - name
+                - state
+                type: object
+                properties:
+                  error_code:
+                    type: string
+                    example: NoError
+                  error_message:
+                    type: string
+                    example: No Error
+                  name:
+                    type: string
+                    example: March_0010be31b7d7
+                  state:
+                    type: string
+                    enum:
+                    - online
+                    - offline
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}:
+    delete:
+      tags:
+      - Device
+      summary: Remove device entry from vst
+      operationId: api_device_deviceId_delete
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/replace:
+    post:
+      tags:
+      - Device
+      summary: Replace inactive device
+      operationId: api_device_replace
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceid:
+                  type: string
+                  example: 0b6b62ea-b49a-49dc-906a-0010be31b7d7
+        required: true
+      responses:
+        200:
+          description: 'null'
+          content: {}
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /device/qos:
+    get:
+      tags:
+      - Device
+      summary: Get qos stats
+      operationId: api_device_qos
+      responses:
+        200:
+          description: qos stats of each device
+          content:
+            application/json:
+              example:
+              - avg_fps: 30.27503809528606
+                avg_framecount: 29.972287622865036
+                bitrate_kbps_avg: 6612.712848322057
+                bitrate_kbps_max: 10062.911645925
+                bitrate_kbps_min: 1852.331733149473
+                elapsed_measurement_time: 3579.019229
+                errors: ""
+                inter_packet_gap_ms_avg: 1.6741093426524636
+                inter_packet_gap_ms_max: 49.057
+                inter_packet_gap_ms_min: 0.004
+                name: HIKVISION%20DS-2CD2045FWD-I
+                packet_loss_percentage_avg: 0.0
+                packet_loss_percentage_max: 0.0
+                packet_loss_percentage_min: 0.0
+                rtsp_url: rtsp://10.24.219.235/live/efa354fd-6519-4f4c-894d-c7df876e8c4f
+                timestamp: 2021-12-01T06:21:01Z
+                total_packets_lost: 0
+                total_packets_received: 2138198
+              - avg_fps: 25.99473551549843
+                avg_framecount: 25.742126551089385
+                bitrate_kbps_avg: 12390.564338271713
+                bitrate_kbps_max: 26563.242197183623
+                bitrate_kbps_min: 1795.4952091368145
+                elapsed_measurement_time: 3573.884585
+                errors: ""
+                inter_packet_gap_ms_avg: 0.8864725820262719
+                inter_packet_gap_ms_max: 990.581
+                inter_packet_gap_ms_min: 0.004
+                name: Sony
+                packet_loss_percentage_avg: 0.0
+                packet_loss_percentage_max: 0.0
+                packet_loss_percentage_min: 0.0
+                rtsp_url: rtsp://10.24.219.235/live/f26a6ce6-dff9-47cb-a509-993f45b97271
+                timestamp: 2021-12-01T06:21:01Z
+                total_packets_lost: 0
+                total_packets_received: 4031534
+              - num_active_rtsp_connections: 2
+            required:
+              example:
+              - avg_fps
+              - avg_framecount
+              - bitrate_kbps_avg
+              - bitrate_kbps_max
+              - bitrate_kbps_min
+              - elapsed_measurement_time
+              - errors
+              - inter_packet_gap_ms_avg
+              - inter_packet_gap_ms_max
+              - inter_packet_gap_ms_min
+              - name
+              - packet_loss_percentage_avg
+              - packet_loss_percentage_max
+              - packet_loss_percentage_min
+              - rtsp_url
+              - timestamp
+              - total_packets_lost
+              - total_packets_received
+              - num_active_rtsp_connections
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/syncTime:
+    post:
+      tags:
+      - Device
+      summary: Synchronize the device time as per NTP source
+      operationId: api_device_synctime
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /device/{deviceId}/picture:
+    get:
+      tags:
+      - Device
+      summary: Get picture (jpeg) from device
+      operationId: api_picture
+      parameters:
+      - name: deviceId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: startTime
+        in: query
+        schema:
+          type: string
+          format: date-time
+        example: 2021-06-21T06:51:00.000Z
+      - name: width
+        in: query
+        schema:
+          type: string
+        example: "1920"
+      - name: height
+        in: query
+        schema:
+          type: string
+        example: "1080"
+      responses:
+        200:
+          description: JPEG Image
+          content: {}
+        default:
+          description: error
+          content:
+            image/jpeg:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /vst/record/size:
+    get:
+      tags:
+      - VST
+      summary: Get total recorded video size
+      operationId: api_vst_record_size
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                required:
+                - total
+                type: object
+                properties:
+                  total:
+                    required:
+                    - remaining_storage_days
+                    - size_in_mb
+                    type: object
+                    properties:
+                      remaining_storage_days:
+                        type: integer
+                      size_in_mb:
+                        type: integer
+                  additionalproperties:
+                    type: object
+                    properties:
+                      size_in_mb:
+                        type: integer
+                      state:
+                        type: string
+                        enum:
+                        - connected
+                        - disconnected
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /vst/settings:
+    get:
+      tags:
+      - VST
+      summary: Get various vst specific settings
+      operationId: api_vst_settings
+      responses:
+        200:
+          description: |
+            **VST settings description**
+            | Setting | Description |
+            | ------- | --------|
+            | device_discovery_interfaces   | network interface to be used in device discovery   |
+            | device_discovery_timeout_secs   | device discovery timeout in seconds   |
+            | enable_perf_logging   | enable-disable VST perf logging   |
+            | enable_stream_monitoring   | enable-disable stream monitoring   |
+            | http_port   | http port to use   |
+            | max_devices_supported   | maximum number of devices that the user can add   |
+            | max_webrtc_connections   | maximum number of peer connections allowed   |
+            | onvif_request_timeout_secs   | onvif request timeout in seconds   |
+            | recorded_video_dir_root   | directory where recorded files are kept   |
+            | redis_server_env_var   | redis server environment variable   |
+            | rtsp_preferred_network_iface   | preferred network interface for rtsp   |
+            | storage_lower_threshold_percentage   | storage manager will delete files and fall back to lower threshold percentage   |
+            | storage_monitoring_frequency_secs   | frequency at which storage manager checks the storage size   |
+            | storage_upper_threshold_percentage   | storage manager will start deleting files once upper threshold is reached. The deletion will continue until no videos are left or lower threshold percentage is reached   |
+            | stream_monitor_interval_secs   | stream monitor interval in seconds   |
+            | stunurl   | stun url addresses   |
+            | turnurl   | turn url addresses   |
+            | total_video_storage_size_MB   | maximum storage available for recordings   |
+            | video_metadata_query_batch_size_num_frames   | batch size for fetching video metadata   |
+            | video_metadata_server   | video metadata server address   |
+            | vst_data_path   | directory where vst database will be created   |
+            | vst_ip   | vst ip address   |
+            | webservice_access_control_list   | limit the web service to specified subnets or ip addresses   |
+            | qos_data_capture_interval_sec | interval to capture qos stats |
+            | qos_data_publish_interval_sec | interval to publish qos stats |
+            | qos_logfile_path | location of qos log file |
+            | recorded_video_total_size_MB | VST record size |
+            | server_domain_name | domain name of server |
+          content:
+            application/json:
+              schema:
+                required:
+                - device_discovery_interfaces
+                - device_discovery_timeout_secs
+                - enable_perf_logging
+                - enable_stream_monitoring
+                - http_port
+                - max_devices_supported
+                - max_webrtc_connections
+                - onvif_request_timeout_secs
+                - qos_data_capture_interval_sec
+                - qos_data_publish_interval_sec
+                - qos_logfile_path
+                - recorded_video_dir_root
+                - recorded_video_total_size_MB
+                - redis_server_env_var
+                - rtsp_preferred_network_iface
+                - server_domain_name
+                - storage_lower_threshold_percentage
+                - storage_monitoring_frequency_secs
+                - storage_upper_threshold_percentage
+                - stream_monitor_interval_secs
+                - stunurl
+                - total_video_storage_size_MB
+                - turnurl
+                - video_metadata_query_batch_size_num_frames
+                - video_metadata_server
+                - vst_data_path
+                - vst_ip
+                - webservice_access_control_list
+                type: object
+                properties:
+                  device_discovery_interfaces:
+                    type: array
+                    items:
+                      type: string
+                      example: eth0
+                  device_discovery_timeout_secs:
+                    type: integer
+                  enable_perf_logging:
+                    type: boolean
+                  enable_stream_monitoring:
+                    type: boolean
+                  http_port:
+                    type: string
+                    example: "81"
+                  max_devices_supported:
+                    type: integer
+                    example: 8
+                  max_webrtc_connections:
+                    type: integer
+                    example: 2
+                  onvif_request_timeout_secs:
+                    type: integer
+                    example: 10
+                  recorded_video_dir_root:
+                    type: string
+                    example: /home/nvidia/vst/vst_video
+                  recorded_video_total_size_MB:
+                    type: integer
+                    example: 10000
+                  redis_server_env_var:
+                    type: string
+                    example: ROSIE_REDIS_SVC_SERVICE_HOST:6379
+                  rtsp_preferred_network_iface:
+                    type: string
+                  storage_lower_threshold_percentage:
+                    type: integer
+                    example: 90
+                  storage_monitoring_frequency_secs:
+                    type: integer
+                    example: 2
+                  storage_upper_threshold_percentage:
+                    type: integer
+                    example: 95
+                  stream_monitor_interval_secs:
+                    type: integer
+                  stunurl:
+                    type: array
+                    items:
+                      type: string
+                      example: stun.l.google.com:19302
+                  turnurl:
+                    type: array
+                    items:
+                      type: string
+                      example: rosie:Nvidia123@turn-server-rcb-prod.com:3478r
+                  total_video_storage_size_MB:
+                    type: integer
+                    example: 100000
+                  video_metadata_query_batch_size_num_frames:
+                    type: integer
+                    example: 300
+                  video_metadata_server:
+                    type: string
+                    example: metropolis-n1:31080/elastic/metromind-its-raw-day2-*/logs
+                  vst_data_path:
+                    type: string
+                    example: /home/nvidia/vst/vst_data
+                  vst_ip:
+                    type: string
+                    example: 10.24.219.235
+                  webservice_access_control_list:
+                    type: string
+                    example: +10.42.0.0/32
+                  qos_data_capture_interval_sec:
+                    type: integer
+                    example: 1
+                  qos_data_publish_interval_sec:
+                    type: integer
+                    example: 5
+                  qos_logfile_path:
+                    type: string
+                    example: /root/vst_release/webroot/log/
+                  server_domain_name:
+                    type: string
+                    example: ""
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /debug/stats:
+    get:
+      tags:
+      - Debug
+      summary: Get system stats
+      operationId: api_debug_stats
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                required:
+                - cpu_usage
+                - dec_usage
+                - enc_usage
+                - gpu_usage
+                - open_files_count
+                - rss_MB
+                - system_memory_usage_MB
+                - total_gpu_mem
+                - total_gpu_mem_usage
+                type: object
+                properties:
+                  cpu_usage:
+                    type: integer
+                    example: 7
+                  dec_usage:
+                    type: integer
+                    example: 13
+                  enc_usage:
+                    type: integer
+                    example: 19
+                  gpu_usage:
+                    type: integer
+                    example: 1
+                  open_files_count:
+                    type: integer
+                    example: 155
+                  rss_MB:
+                    type: integer
+                    example: 100
+                  system_memory_usage_MB:
+                    type: integer
+                    example: 433
+                  total_gpu_mem:
+                    type: integer
+                    example: 24576
+                  total_gpu_mem_usage:
+                    type: integer
+                    example: 501
+                  tegrastats:
+                    type: object
+                    properties:
+                      total:
+                        type: object
+                        properties:
+                          CPU:
+                            type: string
+                            example: 32%@878,20%@1036,11%@1036,12%@1113,4%@1190,6%@1190,9%@1445,12%@1497
+                          EMC_FREQ_MHz:
+                            type: string
+                            example: 1%@408
+                          GR3D_FREQ_MHz:
+                            type: string
+                            example: 0%@114
+                          MEM_MB:
+                            type: string
+                            example: 982/15825
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /debug/device/unplug:
+    post:
+      tags:
+      - Debug
+      summary: Simulate device plug-unplug
+      operationId: api_debug_device_unplug
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+              - action
+              - ip
+              type: object
+              properties:
+                ip:
+                  type: string
+                  example: 10.24.213.119
+                action:
+                  type: string
+                  example: unplug
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /debug/device/plug:
+    post:
+      tags:
+      - Debug
+      summary: Simulate device plug-unplug
+      operationId: api_debug_device_plug
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+              - action
+              - ip
+              type: object
+              properties:
+                ip:
+                  type: string
+                  example: 10.24.213.119
+                action:
+                  type: string
+                  example: plug
+        required: true
+      responses:
+        200:
+          description: boolean value
+          content:
+            application/json:
+              schema:
+                type: boolean
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      x-codegen-request-body-name: body
+  /debug/device/status:
+    get:
+      tags:
+      - Debug
+      summary: Check if device is plugged or unplugged
+      operationId: api_debug_device_status
+      parameters:
+      - name: ip
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - plug
+                    - unplug
+components:
+  schemas:
+    Ice_servers:
+      required:
+      - urls
+      type: object
+      properties:
+        urls:
+          type: array
+          items:
+            type: string
+            example: stun:stun.l.google.com:19302
+    Position:
+      required:
+      - depth
+      - direction
+      - field_of_view
+      - gps
+      type: object
+      properties:
+        depth:
+          type: string
+        direction:
+          type: string
+        field_of_view:
+          type: string
+        coordinates:
+          $ref: '#/components/schemas/Coordinates'
+        geo_location:
+          $ref: '#/components/schemas/GeoLocation'
+        origin:
+          $ref: '#/components/schemas/Origin'
+    Coordinates:
+      type: object
+      properties:
+        latitude:
+          type: string
+        longitude:
+          type: string
+    GeoLocation:
+      type: object
+      properties:
+        latitude:
+          type: string
+        longitude:
+          type: string
+    Origin:
+      type: object
+      properties:
+        x:
+          type: string
+        y:
+          type: string
+    Get_encode:
+      type: object
+      properties:
+        Bitrate:
+          $ref: '#/components/schemas/Range_setting'
+        Encoding:
+          $ref: '#/components/schemas/Enum_setting'
+        EncodingInterval:
+          $ref: '#/components/schemas/Range_setting'
+        FrameRate:
+          $ref: '#/components/schemas/Range_setting'
+        GovLength:
+          $ref: '#/components/schemas/Range_setting'
+        H264Profile:
+          $ref: '#/components/schemas/Enum_setting'
+        Quality:
+          $ref: '#/components/schemas/Range_setting'
+        Resolution:
+          $ref: '#/components/schemas/Resolution_setting'
+    Get_image:
+      type: object
+      properties:
+        BacklightCompensationLevel:
+          $ref: '#/components/schemas/Range_setting'
+        BacklightCompensationMode:
+          $ref: '#/components/schemas/Enum_setting'
+        Brightness:
+          $ref: '#/components/schemas/Range_setting'
+        ColorSaturation:
+          $ref: '#/components/schemas/Range_setting'
+        Contrast:
+          $ref: '#/components/schemas/Range_setting'
+        ExposureGain:
+          $ref: '#/components/schemas/Range_setting'
+        ExposureMaxGain:
+          $ref: '#/components/schemas/Range_setting'
+        ExposureMode:
+          $ref: '#/components/schemas/Enum_setting'
+        ExposurePriority:
+          $ref: '#/components/schemas/Enum_setting'
+        ExposureTime:
+          $ref: '#/components/schemas/Range_setting'
+        ExposureWindow:
+          $ref: '#/components/schemas/Enum_setting'
+        IrCutFilterMode:
+          $ref: '#/components/schemas/Enum_setting'
+        MaxExposureTime:
+          $ref: '#/components/schemas/Range_setting'
+        MinExposureTime:
+          $ref: '#/components/schemas/Range_setting'
+        Sharpness:
+          $ref: '#/components/schemas/Range_setting'
+        WhiteBalanceMode:
+          $ref: '#/components/schemas/Enum_setting'
+        WhiteBalanceYbGain:
+          $ref: '#/components/schemas/Range_setting'
+        WhiteBalanceYrGain:
+          $ref: '#/components/schemas/Range_setting'
+        WideDynamicRangeLevel:
+          $ref: '#/components/schemas/Range_setting'
+        WideDynamicRangeMode:
+          $ref: '#/components/schemas/Enum_setting'
+    Range_setting:
+      required:
+      - Max
+      - Min
+      - Value
+      type: object
+      properties:
+        Max:
+          type: string
+        Min:
+          type: string
+        Value:
+          type: string
+    Enum_setting:
+      required:
+      - AllowedValues
+      - Value
+      type: object
+      properties:
+        AllowedValues:
+          type: array
+          items:
+            type: string
+        Value:
+          type: string
+    Resolution_setting:
+      required:
+      - AllowedValues
+      - Value
+      type: object
+      properties:
+        AllowedValues:
+          type: array
+          items:
+            required:
+            - Height
+            - Width
+            type: object
+            properties:
+              Height:
+                type: string
+              Width:
+                type: string
+        Value:
+          required:
+          - Height
+          - Width
+          type: object
+          properties:
+            Height:
+              type: string
+            Width:
+              type: string
+    Set_encode:
+      type: object
+      properties:
+        Bitrate:
+          type: string
+        Encoding:
+          type: string
+        EncodingInterval:
+          type: string
+        FrameRate:
+          type: string
+        GovLength:
+          type: string
+        H264Profile:
+          type: string
+        Quality:
+          type: string
+        Resolution:
+          type: object
+          properties:
+            Height:
+              type: string
+            Width:
+              type: string
+    Set_image:
+      type: object
+      properties:
+        BacklightCompensationLevel:
+          type: string
+        BacklightCompensationMode:
+          type: string
+        Brightness:
+          type: string
+        ColorSaturation:
+          type: string
+        Contrast:
+          type: string
+        ExposureGain:
+          type: string
+        ExposureMaxGain:
+          type: string
+        ExposureMode:
+          type: string
+        ExposurePriority:
+          type: string
+        ExposureTime:
+          type: string
+        ExposureWindow:
+          type: string
+        IrCutFilterMode:
+          type: string
+        MaxExposureTime:
+          type: string
+        MinExposureTime:
+          type: string
+        Sharpness:
+          type: string
+        WhiteBalanceMode:
+          type: string
+        WhiteBalanceYbGain:
+          type: string
+        WhiteBalanceYrGain:
+          type: string
+        WideDynamicRangeLevel:
+          type: string
+        WideDynamicRangeMode:
+          type: string
+    Streams:
+      type: object
+      properties:
+        additionalProperties:
+          type: object
+          properties:
+            additionalProperties:
+              required:
+              - height
+              - kind
+              - state
+              - width
+              type: object
+              properties:
+                height:
+                  type: integer
+                kind:
+                  type: string
+                  enum:
+                  - video
+                  - audio
+                state:
+                  type: integer
+                width:
+                  type: integer
+    Device_settings:
+      required:
+      - Device ID
+      - Encoding
+      - Encoding Profile
+      - Resolution
+      - frameRate
+      type: object
+      properties:
+        Device ID:
+          type: string
+          example: 1c74d195-3fcd-48fa-b8a8-e64fe8ae2b1c
+        Encoding:
+          type: string
+          example: H264
+        Encoding Profile:
+          type: string
+          example: Baseline
+        Resolution:
+          required:
+          - height
+          - width
+          type: object
+          properties:
+            height:
+              type: string
+              example: "1080"
+            width:
+              type: string
+              example: "1920"
+        frameRate:
+          type: string
+          example: "30"
+    Stream_stats:
+      type: object
+      properties:
+        additionalProperties:
+          type: object
+          properties:
+            additionalProperties:
+              required:
+              - Current Frame Rate
+              - Decode
+              - Encode
+              type: object
+              properties:
+                Current Frame Rate:
+                  type: string
+                  example: "31"
+                Decode:
+                  required:
+                  - '# Frames Decoded'
+                  - Average Decoding Latency / frame [ms]
+                  - Max Decoding Latency / frame [ms]
+                  - Min Decoding Latency / frame [ms]
+                  - Total Decoding Time [sec]
+                  type: object
+                  properties:
+                    '# Frames Decoded':
+                      type: integer
+                      example: 9
+                    Average Decoding Latency / frame [ms]:
+                      type: number
+                      example: 4.390408039093018
+                    Max Decoding Latency / frame [ms]:
+                      type: number
+                      example: 0.0
+                    Min Decoding Latency / frame [ms]:
+                      type: number
+                      example: 2.0
+                    Total Decoding Time [sec]:
+                      type: number
+                      example: 56.84700012207031
+                Encode:
+                  required:
+                  - '# Frames Encoded'
+                  - Average Encoding Time / frame [ms]
+                  - Total Encoding Time [s]
+                  type: object
+                  properties:
+                    '# Frames Encoded':
+                      type: integer
+                      example: 9
+                    Average Encoding Time / frame [ms]:
+                      type: number
+                      example: 4.390408039093018
+                    Total Encoding Time [s]:
+                      type: number
+                      example: 56.84700012207031
+    Options:
+      required:
+      - rtptransport
+      - streamId
+      - timeout
+      - quality
+      - overlay
+      type: object
+      properties:
+        rtptransport:
+          type: string
+          enum:
+          - udp
+          - tcp
+        timeout:
+          type: integer
+          example: 60
+        streamId:
+          type: string
+          example: 0b6b62ea-b49a-49dc-906a-0010be31b7d7
+        quality:
+          type: string
+          enum: ["low", "medium", "high", "auto"]
+        overlay:
+          type: object
+          required:
+            - enabled
+            - color
+            - thickness
+          properties:
+            enabled:
+              type: boolean
+              example: true
+            objectId:
+              type: array
+              items:
+                type: number
+                example: [23, 25, 30]
+            color:
+              type: string
+              example: "red"
+            thickness:
+              type: number
+              example: 6
+            debug:
+              type: boolean
+              example: false
+    Error:
+      required:
+      - error_code
+      - error_message
+      type: object
+      properties:
+        error_code:
+          type: string
+          example: VMSInternalError
+        error_message:
+          type: string
+          example: VMS internal processing error

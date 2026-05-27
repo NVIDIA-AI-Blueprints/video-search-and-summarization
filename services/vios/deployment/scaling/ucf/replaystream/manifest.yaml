@@ -1,0 +1,202 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+type: msapplication
+specVersion: 2.5.0
+name:  ucf.svc.vst-replaystream
+chartName: replaystream
+description: replaystream service
+version: 1.0.0
+displayName: "Replaystream Service"
+category:
+  functional: "Media Service"
+  industry: "IVA"
+tags: []
+keywords: []
+eula: ""
+nSpectId: NSPECT-1H82-JYCQ
+
+ingress-endpoints:
+  - name: http-api
+    description: replaystream http api
+    scheme: http
+    data-flow: in-out
+
+tests:
+  - name: dev-params1
+    app: tests/dev/app.yaml
+    params: tests/dev/params1.yaml
+    ciTrigger: true
+    timeout: 25
+    duration: 10
+    installPreReqs: true  # Wether to install foundational services
+    namespace: default  # Kubernetes namespace
+    gpuNodeLabels: ""
+    watchAllPods: false # OR set to false and set list of pods to watch below
+    watchPods:
+    - vms-test
+    testerPods:  # At least one tester pod is required
+    - name: vms-test  # Name of the test pod
+      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+      - "test case failed"
+
+params:
+  image: nvcr.io/rxczgrvsg8nx/vst-dev/vst-replaystream
+  #> type: string
+  #> description: VST replaystream docker container path on ngc. Use nvcr.io/eevaigoeixww/media-service/vst for Tokkio-prod
+
+  tag: 2.1.0-26.05.2
+  #> type: string
+  #> description: Tag for vst replaystream docker container
+
+  httpPort: 35000
+  #> type: integer
+  #> description: Tag for vst replaystream httpPort
+
+  messageBrokerServer: "redis-timeseries-redis-timeseries-svc"
+  #> type: string
+  #> description: Message broker redis/kafka server address
+
+  messageBrokerPort: "6379"
+  #> type: string
+  #> description: Message broker redis/kafka server port
+
+---
+
+spec:
+  - name: deployment
+    type: ucf.k8s.app.deployment
+    parameters:
+      apptype: statefull
+      statefulSetServiceName: svc
+      extraSpecs:
+        podManagementPolicy: OrderedReady
+
+  - name: check-db-up
+    type: ucf.k8s.initcontainer
+    parameters:
+      image: docker.io/curlimages/curl:8.17.0
+      imagePullPolicy: IfNotPresent
+      command: [sh, -c]
+      args: ["until curl --connect-timeout 1 vst-postgres-deployment-svc:5432 2>&1 | grep -q 'Empty reply from server'; do echo \"Waiting for postgres\"; sleep 0.5; done"]
+
+  - name: replaystream
+    type: ucf.k8s.container
+    parameters:
+      image:
+        repository: $params.image
+        tag: $params.tag
+        pullPolicy: IfNotPresent
+      args: [--vstConfigFile, /opt/configs/vst_config.json]
+      env:
+      - name: ADAPTOR
+        value: "replaystream-ms"
+      - name: STORAGE_MODULE_ENDPOINT
+        value: storage-deployment-svc:33000
+      - name: CENTRALIZE_DB_NAME
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_NAME
+      - name: CENTRALIZE_DB_USERNAME
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_USERNAME
+      - name: CENTRALIZE_DB_PASSWORD
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_PASSWORD
+      - name: CENTRALIZE_DB_HOSTADDR
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_HOSTADDR
+      - name: CENTRALIZE_DB_PORT
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_PORT
+      volumeMounts:
+        - name: data-storage
+          mountPath: /opt/vmounts/vst-data
+          subPath: vms_data
+        - name: data-storage
+          mountPath: /opt/vmounts/video-data
+          subPath: vms_video
+      ports:
+        - containerPort: $params.httpPort
+          protocol: TCP
+          name: http-api
+      readinessProbe:
+        failureThreshold: 5
+        httpGet:
+          port: http-api
+          path: /api/v1/replay/version
+          scheme: HTTP
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 2
+      livenessProbe:
+        failureThreshold: 3
+        httpGet:
+          port: http-api
+          path: /api/v1/replay/version
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 20
+        successThreshold: 1
+        timeoutSeconds: 2
+
+  - name: restartPolicy
+    type: ucf.k8s.restartPolicy
+    parameters:
+      policy: Always
+
+  - name: podSecurityContext
+    type: ucf.k8s.podSecurityContext
+    parameters:
+      runAsGroup: 1000
+      runAsUser: 1000
+
+  - name: svc
+    type: ucf.k8s.service
+    parameters:
+      ports:
+      - port: $params.httpPort
+        protocol: TCP
+        name: http-api
+
+  - name: data-storage
+    type: ucf.k8s.volume
+    parameters:
+      persistentVolumeClaim:
+        claimName: storage-vst-scaling-store
+
+#  - name: local-storage
+#    type: ucf.k8s.pvc
+#    parameters:
+#      annotations:
+#        helm.sh/resource-policy: "keep"
+#      spec:
+#        storageClassName: mdx-local-path
+#        accessModes: [ReadWriteOnce]
+#        resources:
+#          requests:
+#            storage: 100Gi

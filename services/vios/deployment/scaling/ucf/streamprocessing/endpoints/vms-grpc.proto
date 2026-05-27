@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package vstserver;
+
+service VstGrpcServer {
+  rpc CreateUDPDevice (CreateUDPConnectionRequest) returns (CreateUDPConnectionReply) {}
+}
+
+message CreateUDPConnectionRequest {
+  message VideoParams  {
+    string codec = 1;
+    int32 framerate = 2;
+  }
+
+  message AudioParams  {
+    string codec = 1;
+    int32 sample_rate_Hz = 2;
+    int32 bits_per_sample = 3;
+  }
+
+  VideoParams video_params = 1;
+  AudioParams audio_params = 2;
+  string connection_id = 3;
+}
+
+message CreateUDPConnectionReply {
+  int32 video_port = 1;
+  int32 audio_port = 2;
+}

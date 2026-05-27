@@ -1,0 +1,643 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<block-diagram>
+    <title>Video Source Pipeline Architecture - Refactored Design</title>
+    
+    <!-- High-Level Architecture -->
+    <architecture>
+        <component name="CommonVideoSource" type="main-controller">
+            <description>Main video source controller with backward compatibility</description>
+            <responsibilities>
+                <item>Pipeline lifecycle management</item>
+                <item>Legacy interface maintenance</item>
+                <item>WebRTC integration coordination</item>
+            </responsibilities>
+        </component>
+        
+        <component name="PipelineManager" type="pipeline-orchestrator">
+            <description>Manages pipeline creation, lifecycle, and component access</description>
+            <responsibilities>
+                <item>Builder selection (Single vs Composite)</item>
+                <item>Pipeline lifecycle coordination</item>
+                <item>Component access delegation</item>
+            </responsibilities>
+        </component>
+        
+        <component name="PipelineBuilder" type="abstract-builder">
+            <description>Abstract base class for pipeline construction</description>
+            <responsibilities>
+                <item>Define pipeline construction interface</item>
+                <item>Common component management</item>
+                <item>Pipeline lifecycle operations</item>
+            </responsibilities>
+        </component>
+    </architecture>
+    
+    <!-- Pipeline Types -->
+    <pipeline-types>
+        <pipeline name="SingleStreamPipeline" builder="SingleStreamPipelineBuilder">
+            <description>Single video stream processing pipeline</description>
+            <variants>
+                <variant name="StandardPipeline">
+                    <flow>Decoder → Transform → Encoder → WebRTC Consumer</flow>
+                    <flow>Decoder → Transform → Overlay → Encoder → WebRTC Consumer</flow>
+                </variant>
+                <variant name="PassThroughPipeline">
+                    <flow>VideoWebRTCSender (Direct)</flow>
+                    <description>Bypasses encoding, streams directly to WebRTC</description>
+                </variant>
+                <variant name="NativeStreamPipeline">
+                    <flow>NativeStreamProducer → Transform → Encoder → WebRTC Consumer</flow>
+                    <description>For native camera streams</description>
+                </variant>
+                <variant name="GodsEyeViewPipeline">
+                    <flow>Decoder → Transform → Encoder → WebRTC Consumer</flow>
+                    <description>For recorded file playback</description>
+                </variant>
+                <variant name="IPCPipeline">
+                    <flow>IPCProducer → Transform → Overlay → WebRTC Consumer</flow>
+                    <description>Jetson platform specific</description>
+                </variant>
+                <variant name="ImageCapturePipeline">
+                    <flow>Decoder → Transform → ImageEncoder</flow>
+                    <description>For JPEG image capture</description>
+                </variant>
+            </variants>
+        </pipeline>
+        
+        <pipeline name="CompositePipeline" builder="CompositePipelineBuilder">
+            <description>Multi-stream video wall/compositor pipeline</description>
+            <variants>
+                <variant name="VideoCompositorPipeline">
+                    <flow>Multiple Decoders → Overlays → Compositor → Transform → Encoder → WebRTC Consumer</flow>
+                    <flow>Multiple Decoders → Overlays → Compositor → TransformSink → WebRTC Consumer</flow>
+                    <description>Hardware vs Software encoding paths</description>
+                </variant>
+                <variant name="ImageCapturePipeline">
+                    <flow>First Decoder → Transform → ImageEncoder</flow>
+                    <description>Composite image capture from first stream</description>
+                </variant>
+            </variants>
+        </pipeline>
+    </pipeline-types>
+    
+    <!-- Video Source Directory Structure -->
+    <directory-structure>
+        <root path="src/framework/media/">
+            <description>Media framework with modular video source and overlay components</description>
+            
+            <directory name="overlays">
+                <description>Video overlay and OSD components - Separate library</description>
+                <files>
+                    <file name="ll_overlay.h/cpp">Low-level overlay processing</file>
+                    <file name="overlay_internal.h/cpp">Internal overlay implementation</file>
+                    <file name="Makefile">Separate build configuration for overlay library</file>
+                </files>
+                <build_info>
+                    <target>libnvoverlays.so</target>
+                    <dependencies>libmmutils.so, libjsoncpp</dependencies>
+                </build_info>
+            </directory>
+            
+            <directory name="video_source">
+                <description>Modular video source architecture with organized component hierarchy</description>
+            
+            <directory name="core">
+                <description>Main video source classes and configuration management</description>
+                <files>
+                    <file name="CommonVideoSource.h/cpp">Main video source controller with backward compatibility</file>
+                    <file name="PipelineManager.h/cpp">Pipeline lifecycle management and component access</file>
+                    <file name="PipelineConfiguration.h/cpp">Configuration parsing and validation</file>
+                </files>
+            </directory>
+            
+            <directory name="builders">
+                <description>Pipeline construction logic using Builder pattern</description>
+                <files>
+                    <file name="PipelineBuilder.h/cpp">Abstract base class for pipeline builders</file>
+                    <file name="SingleStreamPipelineBuilder.h/cpp">Single stream pipeline construction</file>
+                    <file name="CompositePipelineBuilder.h/cpp">Multi-stream pipeline construction</file>
+                </files>
+            </directory>
+            
+            <directory name="processors">
+                <description>Video processing components organized by functionality</description>
+                <subdirectory name="transforms">
+                    <description>Video transformation and scaling components</description>
+                    <files>
+                        <file name="ll_transform.h/cpp">Low-level video transformation</file>
+                    </files>
+                </subdirectory>
+                <subdirectory name="compositors">
+                    <description>Multi-stream composition components</description>
+                    <files>
+                        <file name="nvcompositor.h/cpp">Video compositor for video wall</file>
+                    </files>
+                </subdirectory>
+            </directory>
+            
+            
+            <directory name="decoders">
+                <description>Video decoding and decoder pool management</description>
+                <files>
+                    <file name="gstnvvideodecoder.h/cpp">GStreamer NVIDIA video decoder</file>
+                    <file name="decoderpool.h">Decoder pool management and lifecycle</file>
+                </files>
+            </directory>
+            
+            <directory name="encoders">
+                <description>Video encoding and image capture components</description>
+                <files>
+                    <file name="nvvideoencoder.h/cpp">NVIDIA hardware video encoder</file>
+                    <file name="libnv_encoder.h/cpp">Low-level NVIDIA encoder interface</file>
+                    <file name="image_encoder.h/cpp">JPEG image encoding</file>
+                    <file name="nvjpegenc_loader.h/cpp">JPEG encoder loader</file>
+                </files>
+            </directory>
+            
+            <directory name="senders">
+                <description>Video transmission and WebRTC integration</description>
+                <files>
+                    <file name="videowebRTCsender.h/cpp">WebRTC video sender for pass-through</file>
+                    <file name="videosenderpool.h">Video sender pool management</file>
+                    <file name="webrtc_sink_consumer.h/cpp">WebRTC sink consumer</file>
+                </files>
+            </directory>
+            
+            <directory name="producers">
+                <description>Data source producers and stream monitoring</description>
+                <files>
+                    <file name="nativestreamproducer.h/cpp">Native camera stream producer</file>
+                    <file name="native_stream_monitor.h/cpp">Native stream monitoring</file>
+                    <file name="webrtcstreamproducer.h">WebRTC stream producer</file>
+                    <file name="gstnvipcproducer.h/cpp">IPC producer (Jetson)</file>
+                    <file name="ipcproducerpool.h">IPC producer pool (Jetson)</file>
+                </files>
+            </directory>
+        </root>
+        
+        <build-system>
+            <library name="libnvvideo_source.so">
+                <description>Standalone video source shared library</description>
+                <dependencies>
+                    <dependency>utilities</dependency>
+                    <dependency>stream_monitor</dependency>
+                    <dependency>media_pipelines (remaining generic components)</dependency>
+                </dependencies>
+            </library>
+            <integration>
+                <description>webrtc_streamer module now depends on video_source library</description>
+                <dependency-chain>webrtc_streamer → video_source → utilities</dependency-chain>
+            </integration>
+        </build-system>
+    </directory-structure>
+
+    <!-- Component Hierarchy -->
+    <components>
+        <!-- Source Components -->
+        <component-group name="SourceComponents">
+            <component name="GstNvVideoDecoder" type="decoder">
+                <description>GStreamer-based NVIDIA video decoder</description>
+                <capabilities>
+                    <capability>H.264/H.265 decoding</capability>
+                    <capability>RTSP/File input support</capability>
+                    <capability>Hardware acceleration</capability>
+                </capabilities>
+            </component>
+            
+            <component name="NativeStreamProducer" type="producer">
+                <description>Native camera stream producer</description>
+                <capabilities>
+                    <capability>Direct camera access</capability>
+                    <capability>Real-time streaming</capability>
+                </capabilities>
+            </component>
+            
+            <component name="VideoWebRTCSender" type="sender">
+                <description>WebRTC video sender for pass-through mode</description>
+                <capabilities>
+                    <capability>Direct WebRTC streaming</capability>
+                    <capability>Frame synchronization</capability>
+                    <capability>Multiple client support via VideoSenderPool</capability>
+                </capabilities>
+            </component>
+            
+            <component name="VideoSenderPool" type="resource-pool">
+                <description>Resource pool for VideoWebRTCSender instances</description>
+                <capabilities>
+                    <capability>Singleton pattern for global access</capability>
+                    <capability>Stream URL-based resource sharing</capability>
+                    <capability>Automatic lifecycle management</capability>
+                    <capability>Thread-safe operations</capability>
+                </capabilities>
+                <usage>
+                    <scenario>Multiple WebRTC clients connecting to same camera</scenario>
+                    <scenario>Pass-through mode resource optimization</scenario>
+                    <scenario>Dynamic stream addition and removal</scenario>
+                </usage>
+            </component>
+            
+            <component name="NvIPCProducer" type="producer" platform="jetson">
+                <description>Jetson IPC producer for bbox overlay</description>
+                <capabilities>
+                    <capability>Inter-process communication</capability>
+                    <capability>Bounding box overlay support</capability>
+                </capabilities>
+            </component>
+        </component-group>
+        
+        <!-- Processing Components -->
+        <component-group name="ProcessingComponents">
+            <component name="NvLLTransform" type="transform">
+                <description>Low-level video transform component</description>
+                <capabilities>
+                    <capability>Video scaling</capability>
+                    <capability>Format conversion</capability>
+                    <capability>Hardware acceleration</capability>
+                </capabilities>
+            </component>
+            
+            <component name="NvLLOverlay" type="overlay">
+                <description>Low-level video overlay component</description>
+                <capabilities>
+                    <capability>OSD (On-Screen Display)</capability>
+                    <capability>Sensor name overlay</capability>
+                    <capability>Bounding box overlay</capability>
+                </capabilities>
+            </component>
+            
+            <component name="NvCompositor" type="compositor">
+                <description>Multi-stream video compositor</description>
+                <capabilities>
+                    <capability>Video wall creation</capability>
+                    <capability>Grid layout support</capability>
+                    <capability>Real-time composition</capability>
+                </capabilities>
+            </component>
+        </component-group>
+        
+        <!-- Output Components -->
+        <component-group name="OutputComponents">
+            <component name="NvEncoderVideoConsumer" type="encoder">
+                <description>NVIDIA hardware video encoder</description>
+                <capabilities>
+                    <capability>H.264/H.265 encoding</capability>
+                    <capability>Hardware acceleration</capability>
+                    <capability>Quality control</capability>
+                </capabilities>
+            </component>
+            
+            <component name="WebrtcSinkConsumer" type="consumer">
+                <description>WebRTC sink consumer</description>
+                <capabilities>
+                    <capability>WebRTC streaming</capability>
+                    <capability>Peer connection management</capability>
+                </capabilities>
+            </component>
+            
+            <component name="ImageEnc" type="encoder">
+                <description>Image encoder for JPEG capture</description>
+                <capabilities>
+                    <capability>JPEG encoding</capability>
+                    <capability>Image capture</capability>
+                </capabilities>
+            </component>
+        </component-group>
+    </components>
+    
+    <!-- Data Flow Patterns -->
+    <data-flows>
+        <!-- Single Stream Standard Flow -->
+        <flow name="SingleStreamStandard" type="standard">
+            <path>
+                <step>Source (Decoder/NativeStream)</step>
+                <step>Transform (Optional)</step>
+                <step>Overlay (Optional)</step>
+                <step>Encoder</step>
+                <step>WebRTC Consumer</step>
+            </path>
+            <description>Standard video processing pipeline with optional overlay</description>
+        </flow>
+        
+        <!-- Single Stream Pass-Through Flow -->
+        <flow name="SingleStreamPassThrough" type="pass-through">
+            <path>
+                <step>Source (Decoder)</step>
+                <step>VideoWebRTCSender (Direct)</step>
+            </path>
+            <description>Direct streaming without re-encoding</description>
+        </flow>
+        
+        <!-- Composite Flow -->
+        <flow name="CompositeFlow" type="composite">
+            <path>
+                <step>Multiple Sources (Decoders)</step>
+                <step>Overlays (Optional)</step>
+                <step>Compositor</step>
+                <step>Transform/TransformSink</step>
+                <step>Encoder (Optional)</step>
+                <step>WebRTC Consumer</step>
+            </path>
+            <description>Multi-stream composition for video wall</description>
+        </flow>
+        
+        <!-- Image Capture Flow -->
+        <flow name="ImageCaptureFlow" type="capture">
+            <path>
+                <step>Source (Decoder)</step>
+                <step>Transform (Optional)</step>
+                <step>ImageEncoder</step>
+                <step>JPEG Output</step>
+            </path>
+            <description>Image capture pipeline for JPEG output</description>
+        </flow>
+    </data-flows>
+    
+    <!-- Pipeline Selection Logic -->
+    <pipeline-selection>
+        <decision-point name="PipelineTypeSelection">
+            <condition>config.getCompositor().enabled</condition>
+            <true-path>CompositePipelineBuilder</true-path>
+            <false-path>SingleStreamPipelineBuilder</false-path>
+        </decision-point>
+        
+        <decision-point name="SingleStreamTypeSelection">
+            <condition>config.isPassThrough()</condition>
+            <true-path>PassThroughPipeline</true-path>
+            <false-path>
+                <condition>config.isNativeStream()</condition>
+                <true-path>NativeStreamPipeline</true-path>
+                <false-path>
+                    <condition>config.isGodsEyeView()</condition>
+                    <true-path>GodsEyeViewPipeline</true-path>
+                    <false-path>
+                        <condition>config.getOverlay().enabled && config.getOverlay().bboxEnabled</condition>
+                        <true-path>IPCPipeline</true-path>
+                        <false-path>StandardPipeline</false-path>
+                    </condition>
+                </false-path>
+            </false-path>
+        </decision-point>
+        
+        <decision-point name="CompositeTypeSelection">
+            <condition>config.isImageCapture()</condition>
+            <true-path>ImageCapturePipeline</true-path>
+            <false-path>VideoCompositorPipeline</false-path>
+        </decision-point>
+    </pipeline-selection>
+    
+    <!-- Component Lifecycle Management -->
+    <lifecycle-management>
+        <phase name="Creation">
+            <step>1. Create PipelineBuilder based on config</step>
+            <step>2. Build pipeline components</step>
+            <step>3. Establish component connections</step>
+            <step>4. Setup consumer chains</step>
+        </phase>
+        
+        <phase name="Startup">
+            <step>1. Start source producers</step>
+            <step>2. Set consumer ready states</step>
+            <step>3. Begin data flow</step>
+        </phase>
+        
+        <phase name="Operation">
+            <step>1. Maintain component states</step>
+            <step>2. Handle dynamic changes</step>
+            <step>3. Monitor pipeline health</step>
+        </phase>
+        
+        <phase name="Shutdown">
+            <step>1. Stop data flow</step>
+            <step>2. Remove consumer connections</step>
+            <step>3. Clear producer references</step>
+            <step>4. Destroy components</step>
+            <step>5. Clean up resources</step>
+        </phase>
+    </lifecycle-management>
+    
+    <!-- Error Handling and Recovery -->
+    <error-handling>
+        <strategy name="GracefulDegradation">
+            <description>Pipeline continues operation with reduced functionality</description>
+            <examples>
+                <example>Overlay disabled if OSD libraries unavailable</example>
+                <example>Software encoding fallback if hardware unavailable</example>
+            </examples>
+        </strategy>
+        
+        <strategy name="ComponentIsolation">
+            <description>Individual component failures don't crash entire pipeline</description>
+            <examples>
+                <example>Decoder pool management</example>
+                <example>Producer-consumer decoupling</example>
+            </examples>
+        </strategy>
+        
+        <strategy name="ResourceCleanup">
+            <description>Proper cleanup during pipeline destruction</description>
+            <examples>
+                <example>Thread synchronization during shutdown</example>
+                <example>Component reference cleanup</example>
+            </examples>
+        </strategy>
+    </error-handling>
+    
+    <!-- Performance Considerations -->
+    <performance-considerations>
+        <optimization name="HardwareAcceleration">
+            <description>Leverage NVIDIA hardware for encoding/decoding</description>
+            <benefits>
+                <benefit>Reduced CPU usage</benefit>
+                <benefit>Lower latency</benefit>
+                <benefit>Higher throughput</benefit>
+            </benefits>
+        </optimization>
+        
+        <optimization name="SharedStreams">
+            <description>Multiple consumers share single decoder instance</description>
+            <benefits>
+                <benefit>Reduced memory usage</benefit>
+                <benefit>Eliminated duplicate decoding</benefit>
+            </benefits>
+        </optimization>
+        
+        <optimization name="AsynchronousProcessing">
+            <description>Non-blocking pipeline operations</description>
+            <benefits>
+                <benefit>Improved responsiveness</benefit>
+                <benefit>Better resource utilization</benefit>
+            </benefits>
+        </optimization>
+    </performance-considerations>
+
+    <!-- Explicit block-and-flow diagrams for each pipeline variant -->
+    <diagrams>
+        <diagram name="SingleStreamStandard">
+            <blocks>
+                <block id="src"  name="Media Producer (RTSP)"  type="source"/>
+                <block id="dec"  name="Decoder"               type="process"/>
+                <block id="tr"   name="Transform"             type="process"/>
+                <block id="ov"   name="Overlay"               type="process" optional="true"/>
+                <block id="enc"  name="Encoder"               type="process"/>
+                <block id="wrtc" name="WebRTC Consumer"       type="sink"/>
+            </blocks>
+            <flows>
+                <edge from="src" to="dec"  label="RTSP stream"/>
+                <edge from="dec" to="tr"   label="raw frames"/>
+                <edge from="tr"  to="enc"  label="processed frames"/>
+                <alt description="with overlay">
+                    <edge from="tr" to="ov"   label="processed frames"/>
+                    <edge from="ov" to="enc"  label="overlay frames"/>
+                </alt>
+                <edge from="enc" to="wrtc" label="H.264/H.265 bitstream"/>
+            </flows>
+        </diagram>
+
+        <diagram name="SingleStreamPassThrough">
+            <blocks>
+                <block id="src"   name="Media Producer (RTSP)"   type="source"/>
+                <block id="dec"   name="Decoder"                 type="process"/>
+                <block id="sender" name="VideoWebRTCSender"      type="process"/>
+                <block id="wrtc"   name="WebRTC Consumer"        type="sink"/>
+            </blocks>
+            <flows>
+                <edge from="src"   to="dec"    label="RTSP stream"/>
+                <edge from="dec"   to="sender" label="encoded frames (passthrough)"/>
+                <edge from="sender" to="wrtc"   label="webrtc frames"/>
+            </flows>
+        </diagram>
+
+        <diagram name="SingleStreamNative">
+            <blocks>
+                <block id="src"  name="NativeStreamProducer" type="source"/>
+                <block id="tr"   name="Transform"           type="process"/>
+                <block id="enc"  name="Encoder"             type="process"/>
+                <block id="wrtc" name="WebRTC Consumer"     type="sink"/>
+            </blocks>
+            <flows>
+                <edge from="src" to="tr"   label="raw frames"/>
+                <edge from="tr"  to="enc"  label="processed frames"/>
+                <edge from="enc" to="wrtc" label="H.264/H.265 bitstream"/>
+            </flows>
+        </diagram>
+
+        <diagram name="SingleStreamGodsEyeView">
+            <blocks>
+                <block id="src"  name="File Source (GST)"       type="source"/>
+                <block id="dec"  name="Decoder"                 type="process"/>
+                <block id="tr"   name="Transform"               type="process"/>
+                <block id="enc"  name="Encoder"                 type="process"/>
+                <block id="wrtc" name="WebRTC Consumer"         type="sink"/>
+            </blocks>
+            <flows>
+                <edge from="src" to="dec"  label="file stream"/>
+                <edge from="dec" to="tr"   label="raw frames"/>
+                <edge from="tr"  to="enc"  label="processed frames"/>
+                <edge from="enc" to="wrtc" label="H.264/H.265 bitstream"/>
+            </flows>
+        </diagram>
+
+        <diagram name="SingleStreamIPC (Jetson)">
+            <blocks>
+                <block id="ipc"  name="IPCProducer"        type="source"/>
+                <block id="tr"   name="Transform"          type="process"/>
+                <block id="ov"   name="Overlay (BBoxes)"   type="process"/>
+                <block id="wrtc" name="WebRTC Consumer"    type="sink"/>
+            </blocks>
+            <flows>
+                <edge from="ipc" to="tr"  label="raw frames"/>
+                <edge from="tr"  to="ov"  label="processed frames"/>
+                <edge from="ov"  to="wrtc" label="webrtc frames (platform path)"/>
+            </flows>
+        </diagram>
+
+        <diagram name="ImageCapture">
+            <blocks>
+                <block id="src" name="Media Producer/File Source" type="source"/>
+                <block id="dec" name="Decoder"                   type="process"/>
+                <block id="tr"  name="Transform"                 type="process" optional="true"/>
+                <block id="img" name="ImageEncoder"              type="sink" format="JPEG"/>
+            </blocks>
+            <flows>
+                <edge from="src" to="dec" label="stream"/>
+                <edge from="dec" to="img" label="raw frames"/>
+                <alt description="with transform">
+                    <edge from="dec" to="tr"  label="raw frames"/>
+                    <edge from="tr"  to="img" label="processed frames"/>
+                </alt>
+            </flows>
+        </diagram>
+
+        <diagram name="Composite (Hardware Encode Path)">
+            <blocks>
+                <block id="s1"   name="Media Producer #1" type="source"/>
+                <block id="s2"   name="Media Producer #2" type="source"/>
+                <block id="sn"   name="Media Producer #N" type="source"/>
+                <block id="d1"   name="Decoder #1"       type="process"/>
+                <block id="d2"   name="Decoder #2"       type="process"/>
+                <block id="dn"   name="Decoder #N"       type="process"/>
+                <block id="o1"   name="Overlay #1"       type="process" optional="true"/>
+                <block id="o2"   name="Overlay #2"       type="process" optional="true"/>
+                <block id="on"   name="Overlay #N"       type="process" optional="true"/>
+                <block id="comp" name="Compositor"       type="process"/>
+                <block id="tr"   name="Transform"        type="process"/>
+                <block id="enc"  name="Encoder"          type="process"/>
+                <block id="wrtc" name="WebRTC Consumer"  type="sink"/>
+            </blocks>
+            <flows>
+                <edge from="s1" to="d1"   label="RTSP stream"/>
+                <edge from="s2" to="d2"   label="RTSP stream"/>
+                <edge from="sn" to="dn"   label="RTSP stream"/>
+                <edge from="d1" to="comp" label="raw frames"/>
+                <edge from="d2" to="comp" label="raw frames"/>
+                <edge from="dn" to="comp" label="raw frames"/>
+                <alt description="with overlays">
+                    <edge from="d1" to="o1"   label="raw frames"/>
+                    <edge from="o1" to="comp" label="overlay frames"/>
+                    <edge from="d2" to="o2"   label="raw frames"/>
+                    <edge from="o2" to="comp" label="overlay frames"/>
+                    <edge from="dn" to="on"   label="raw frames"/>
+                    <edge from="on" to="comp" label="overlay frames"/>
+                </alt>
+                <edge from="comp" to="tr"   label="composited frames"/>
+                <edge from="tr"   to="enc"  label="processed frames"/>
+                <edge from="enc"  to="wrtc" label="H.264/H.265 bitstream"/>
+            </flows>
+        </diagram>
+
+        <diagram name="Composite (Software Path)">
+            <blocks>
+                <block id="s1"    name="Media Producer #1" type="source"/>
+                <block id="s2"    name="Media Producer #2" type="source"/>
+                <block id="sn"    name="Media Producer #N" type="source"/>
+                <block id="d1"    name="Decoder #1"        type="process"/>
+                <block id="d2"    name="Decoder #2"        type="process"/>
+                <block id="dn"    name="Decoder #N"        type="process"/>
+                <block id="o1"    name="Overlay #1"        type="process" optional="true"/>
+                <block id="o2"    name="Overlay #2"        type="process" optional="true"/>
+                <block id="on"    name="Overlay #N"        type="process" optional="true"/>
+                <block id="comp"  name="Compositor"        type="process"/>
+                <block id="trs"   name="TransformSink"     type="process"/>
+                <block id="wrtc"  name="WebRTC Consumer"   type="sink"/>
+            </blocks>
+            <flows>
+                <edge from="s1" to="d1"   label="RTSP stream"/>
+                <edge from="s2" to="d2"   label="RTSP stream"/>
+                <edge from="sn" to="dn"   label="RTSP stream"/>
+                <edge from="d1" to="comp" label="raw frames"/>
+                <edge from="d2" to="comp" label="raw frames"/>
+                <edge from="dn" to="comp" label="raw frames"/>
+                <alt description="with overlays">
+                    <edge from="d1" to="o1"   label="raw frames"/>
+                    <edge from="o1" to="comp" label="overlay frames"/>
+                    <edge from="d2" to="o2"   label="raw frames"/>
+                    <edge from="o2" to="comp" label="overlay frames"/>
+                    <edge from="dn" to="on"   label="raw frames"/>
+                    <edge from="on" to="comp" label="overlay frames"/>
+                </alt>
+                <edge from="comp" to="trs"  label="composited frames"/>
+                <edge from="trs"  to="wrtc" label="webrtc frames"/>
+            </flows>
+        </diagram>
+    </diagrams>
+</block-diagram>

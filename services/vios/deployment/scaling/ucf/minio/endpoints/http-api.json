@@ -1,0 +1,19 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "VST Minio",
+    "license": {
+      "name": "Copyright (c) 2025"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "paths": {},
+  "components": {
+    "schemas": {}
+  }
+} 

@@ -1,0 +1,189 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: MIT
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+
+vst-streamprocessing:
+  applicationSpecs:
+    deployment:
+      containers:
+        streamprocessing:
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+  configs:
+    vst_config.json:
+      network:
+        rtsp_streaming_over_tcp: true
+        stunurl_list:
+          - stun.l.google.com:19302
+          - stun1.l.google.com:19302
+        # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
+        static_turnurl_list:
+          - admin:admin@10.24.217.99:3478
+        # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
+        use_coturn_auth_secret: false
+        coturn_turnurl_list_with_secret:
+        # Twilio account details userId & auth_token.
+        use_twilio_stun_turn: false
+        twilio_account_sid: ""
+        twilio_auth_token: ""
+        use_reverse_proxy: false
+        reverse_proxy_server_address: REVERSE_PROXY_SERVER_ADDRESS:100
+      notifications:
+        enable_notification: true
+        use_message_broker: "redis"
+        message_broker_topic: vst_events
+        message_broker_payload_key: "sensor.id"
+        redis_server_env_var: mdx-redis-master:6379
+    vst_storage.json:
+      total_video_storage_size_MB: 100000
+    rtsp_streams.json:
+      streams:
+      - enabled: true
+        stream_in: rtsp://10.24.218.113:41554/nvstream/home/vst/vst_release/streamer_videos/1608033221.mkv
+        name: Sample_input
+
+vst-sensor:
+  configs:
+    vst_config.json:
+      notifications:
+        enable_notification: true
+        use_message_broker: "redis"
+        message_broker_topic: vst_events
+        message_broker_payload_key: "sensor.id"
+        redis_server_env_var: mdx-redis-master:6379
+    rtsp_streams.json:
+      streams:
+      - enabled: true
+        stream_in: rtsp://10.24.218.113:41554/nvstream/home/vst/vst_release/streamer_videos/1608033221.mkv
+        name: 1608033221
+
+  applicationSpecs:
+    sensor:
+      volumes:
+      - name: data-storage
+        persistentVolumeClaim:
+          claimName: streamprocessing-local-storage
+      initContainers:
+      - name: check-db-up
+        args:
+        - until curl --connect-timeout 2 vst-postgres-deployment-svc:5432 2>&1 | grep -q 'Empty reply from server'; do echo "Waiting for postgres"; sleep 0.5; done
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+      - name: check-sdr-up
+        args:
+        - until curl --connect-timeout 2 --silent --head sdr-streamprocessing-sdr-streamprocessing-agent-xds-service:4000/healthz>/dev/null; do echo "Waiting for sdr"; sleep 0.5; done
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+sdr-streamprocessing:
+  sdrImage: nvcr.io/0539907589386975/mega-dev/sdr
+  sdrImageTag: 2.5.1-prd.3
+  envoyImage: nvcr.io/0539907589386975/mega-dev/envoy-proxy
+  envoyImageTag: 0.15.5
+  wdmWlRedisServer: "mdx-redis-master"
+  wdmWlRedisPort: "6379"
+  applicationSpecs:
+    sdr-streamprocessing:
+      initContainers:
+      - name: check-streamprocessing-up
+        args:
+        - until curl --connect-timeout 2 --silent --fail streamprocessing-deployment-svc:30001/v1/startup >/dev/null; do echo "Waiting for streamprocessing"; sleep 0.5; done
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+      containers:
+        agent-container:
+          env:
+          - name: WDM_WL_CONFIG_PORT
+            value: "30001"
+          - name: WDM_K8S_HEADLESS_DEFAULT_POD_PORT
+            value: "30001"
+          - name: WDM_MAX_REPLICAS
+            value: "1"
+          - name: WDM_WL_THRESHOLD
+            value: "100"
+          - name: WDM_KFK_ENABLE
+            value: "false"
+          - name: WDM_KFK_BOOTSTRAP_URL
+            value: "mdx-kafka-controller-headless:9092"
+          - name: WDM_WL_REDIS_SERVER
+            value: "mdx-redis-master"
+          - name: WDM_WL_REDIS_PORT
+            value: "6379"
+          - name: WDM_MSG_KEY
+            value: "vst_events"
+          - name: WDM_MSG_TOPIC
+            value: "sensor.id"
+          - name: WDM_WL_REDIS_MSG_FIELD
+            value: "sensor.id"
+          - name: WDM_WL_CHANGE_ID_ADD
+            value: "camera_proxy"
+          - name: WDM_WL_ADD_URL
+            value: "/api/v1/proxy/stream/add"
+          - name: WDM_WL_DELETE_URL
+            value: "/api/v1/proxy/stream/"
+          - name: WDM_CONSUMER_GRP_ID
+            value: "sdr-streamprocessing-cg"
+          - name: WDM_WL_OBJECT_NAME
+            value: "streamprocessing-deployment"
+          - name: WDM_K8S_HEADLESS_BASE_DOMAIN
+            value: "streamprocessing-deployment-svc"
+          - name: WDM_CLUSTER_TYPE
+            value: "k8s-headless"
+          - name: WDM_INITIALIZE_FROM_VST
+            value: "false"
+          - name: WDM_REAPPLY_ON_WL_RESTART
+            value: "true"
+          - name: WDM_REDIS_CACHE_OBJECT
+            value: "streamprocessing-data"
+          - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+            value: "20"
+          - name: WDM_WL_PROXY_URL
+            value: "/"
+          - name: WDM_TARGET_PORT_MAPPING
+            value: "{\"default\": 30001}"
+          - name: ENVOY_ROUTE_URL_PREFIX_REWRITE
+            value: "/"
+          - name: ENVOY_ROUTE_URL_PREFIX
+            value: "/"
+          - name:  OTEL_SDK_DISABLED
+            value: "true" # true/false to disable/enable OTEL trace generation
+          - name:  OTEL_SERVICE_NAME
+            value: "SDR_AGENT"
+          - name:  WDM_CLEAR_DATA_WL
+            value: "false"
+          - name:  WDM_RESET_ON_WLOBJ_CRASH
+            value: "false"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "120"
+        envoy-container:
+          env:
+          - name: ENVOYROUTEHEADER
+            value: "streamid"
+          - name: NOHEADERTARGETCONTAINER
+            value: "streamprocessing-deployment-0.streamprocessing-deployment-svc"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "120"
+
+

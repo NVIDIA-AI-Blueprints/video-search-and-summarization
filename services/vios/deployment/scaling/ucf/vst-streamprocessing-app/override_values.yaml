@@ -1,0 +1,239 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: MIT
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+
+################ Override values to vst-streamprocessing-app chart ################
+
+# Message broker details
+messageBroker: &messageBroker "redis"
+messageBrokerAddress: &messageBrokerAddress "mdx-redis-master"
+messageBrokerPort: &messageBrokerPort "6379"
+messageBrokerTopic: &messageBrokerTopic "mdx-notification"
+messageBrokerKey: &messageBrokerKey "sensor"
+messageBrokerFullEndpoint: &messageBrokerFullEndpoint "mdx-redis-master:6379"
+
+# Streamprocessing scaling params
+streamprocessingReplicaCount: &streamprocessingReplicaCount "1"
+maxStreamsPerStreamprocessingPod: &maxStreamsPerStreamprocessingPod "50"
+
+#Update this to the correct turn server address for live and recorded webrtc playback
+turnServerAddress: &turnServerAddress ""
+
+
+############### Microservices configuration #####################
+# VST sensor management service
+sensor:
+  applicationSpecs:
+    sensor:
+      containers:
+        sensor-container:
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts: []
+      volumes: []
+      initContainers:
+      - name: check-redis-up
+        args:
+        - until curl --connect-timeout 1 $REDIS_SERVER_ADDRESS:$REDIS_SERVER_PORT 2>&1 | grep 'Empty reply from server' >/dev/null; do echo "Waiting for redis $REDIS_SERVER_ADDRESS:6379"; sleep 0.5; done
+        command: [sh, -c]
+        env:
+          - name: REDIS_SERVER_ADDRESS
+            value: *messageBrokerAddress
+          - name: REDIS_SERVER_PORT
+            value: *messageBrokerPort
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+      - name: check-sdr-up
+        args:
+        - until curl --connect-timeout 2 --silent --head sdr-streamprocessing-sdr-streamprocessing-agent-xds-service:4000/healthz>/dev/null; do echo "Waiting for sdr"; sleep 0.2; done
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: 30000
+      onvif:
+        max_devices_supported: 100
+      notifications:
+        enable_notification: true
+        use_message_broker: *messageBroker
+        redis_server_env_var: *messageBrokerFullEndpoint
+        message_broker_topic: *messageBrokerTopic
+        message_broker_payload_key: *messageBrokerKey
+      data:
+        max_network_db_connections: 2
+
+# VST streamprocessing service
+streamprocessing:
+  replicas: *streamprocessingReplicaCount
+  applicationSpecs:
+    deployment:
+      containers:
+        streamprocessing:
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+      initContainers:
+      - name: check-db-up
+        args:
+        - "until curl --connect-timeout 1 vst-postgres-deployment-svc:5432 2>&1 | grep -q 'Empty reply from server'; do echo \"Waiting for postgres\"; sleep 0.5; done"
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: 30001
+        static_turnurl_list:
+          - *turnServerAddress
+        use_twilio_stun_turn: false
+        twilio_account_sid: ""
+        twilio_auth_token: ""
+        max_webrtc_out_connections: 8
+        max_webrtc_in_connections: 8
+        rtsp_server_port: 30554
+        rtsp_server_instances_count: 10
+        rtsp_streaming_over_tcp: false
+        rx_socket_buffer_size: 1000000
+        tx_socket_buffer_size: 1000000
+      notifications:
+        enable_notification: true
+        use_message_broker: *messageBroker
+        redis_server_env_var: *messageBrokerFullEndpoint
+        message_broker_topic: *messageBrokerTopic
+        message_broker_payload_key: *messageBrokerKey
+      data:
+        enable_rtsp_server_sei_metadata: false
+        max_network_db_connections: 10
+        always_recording: true
+        event_recording: false
+        event_record_length_secs: 10
+        record_buffer_length_secs: 2
+        recorder_enable_frame_drop: true
+        recorder_max_frame_queue_size_bytes: 16000000
+      overlay:
+        video_metadata_server: "mdx-elasticsearch-cluster-master-headless:9200/mdx-raw*"
+        use_video_metadata_protobuf: true
+
+############### SDR configs #################
+# SDR for VST streamprocessing service
+sdr-streamprocessing:
+  wdmWlRedisServer: *messageBrokerAddress
+  wdmWlRedisPort: *messageBrokerPort
+  applicationSpecs:
+    sdr-streamprocessing:
+      containers:
+        agent-container:
+          env:
+          - name: WDM_WL_CONFIG_PORT
+            value: "30001"
+          - name: WDM_MAX_REPLICAS
+            value: *streamprocessingReplicaCount
+          - name: WDM_WL_THRESHOLD
+            value: *maxStreamsPerStreamprocessingPod
+          - name: WDM_WL_REDIS_SERVER
+            value: *messageBrokerAddress
+          - name: WDM_WL_REDIS_PORT
+            value: *messageBrokerPort
+          - name: WDM_MSG_KEY
+            value: *messageBrokerTopic
+          - name: WDM_MSG_TOPIC
+            value: *messageBrokerKey
+          - name: WDM_WL_REDIS_MSG_FIELD
+            value: *messageBrokerKey
+          - name: WDM_WL_CHANGE_ID_ADD
+            value: "camera_proxy"
+          - name: WDM_WL_ADD_URL
+            value: "/api/v1/proxy/stream/add"
+          - name: WDM_WL_DELETE_URL
+            value: "/api/v1/proxy/stream/"
+          - name: WDM_CONSUMER_GRP_ID
+            value: "sdr-streamprocessing-cg"
+          - name: WDM_WL_OBJECT_NAME
+            value: "streamprocessing-deployment"
+          - name: WDM_CLUSTER_TYPE
+            value: "k8s"
+          - name: WDM_INITIALIZE_FROM_VST
+            value: "false"
+          - name: WDM_REAPPLY_ON_WL_RESTART
+            value: "true"
+          - name: WDM_REDIS_CACHE_OBJECT
+            value: "streamprocessing-data"
+          - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+            value: "20"
+          - name: WDM_WL_PROXY_URL
+            value: "/"
+          - name: WDM_TARGET_PORT_MAPPING
+            value: "{\"default\": 30001}"
+          - name: ENVOY_ROUTE_URL_PREFIX_REWRITE
+            value: "/"
+          - name: ENVOY_ROUTE_URL_PREFIX
+            value: "/"
+          - name:  OTEL_SDK_DISABLED
+            value: "true" # true/false to disable/enable OTEL trace generation
+          - name:  OTEL_SERVICE_NAME
+            value: "SDR_AGENT"
+          - name:  WDM_CLEAR_DATA_WL
+            value: "false"
+          - name:  WDM_RESET_ON_WLOBJ_CRASH
+            value: "false"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+          - name: WDM_WL_NAME_IGNORE_REGEX
+            value: ""
+        envoy-container:
+          env:
+          - name: ENVOYROUTEHEADER
+            value: "streamid"
+          - name: NOHEADERTARGETCONTAINER
+            value: "streamprocessing-deployment-0.streamprocessing-deployment-svc.default"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+      initContainers:
+      - name: check-redis-up
+        args:
+        - until curl --connect-timeout 1 $REDIS_SERVER_ADDRESS:$REDIS_SERVER_PORT 2>&1 | grep 'Empty reply from server' >/dev/null; do echo "Waiting for redis $REDIS_SERVER_ADDRESS:6379"; sleep 0.5; done
+        command: [sh, -c]
+        env:
+          - name: REDIS_SERVER_ADDRESS
+            value: *messageBrokerAddress
+          - name: REDIS_SERVER_PORT
+            value: *messageBrokerPort
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+      - name: check-streamprocessing-up
+        args:
+        - until curl --connect-timeout 2 --silent --fail streamprocessing-deployment-$(($NUM_STREAMPROCESSING_POD - 1)).streamprocessing-deployment-svc:30001/v1/startup
+          >/dev/null; do echo "Waiting for streamprocessing"; sleep 0.5; done
+        command: [sh, -c]
+        env:
+          - name: NUM_STREAMPROCESSING_POD
+            value: *streamprocessingReplicaCount
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+

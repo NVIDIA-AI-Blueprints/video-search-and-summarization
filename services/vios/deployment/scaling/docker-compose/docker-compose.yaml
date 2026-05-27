@@ -1,0 +1,217 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+include:
+  - path: ./sdr-rtspserver-http/sdr-compose.yaml
+  - path: ./sdr-recorder-http/sdr-compose.yaml
+  - path: ./sdr-replaystream-http/sdr-compose.yaml
+  - path: ./sdr-livestream-http/sdr-compose.yaml
+  - path: ./monitoring/docker-compose.yml
+  - path: ./minio/minio-compose.yaml
+
+x-host-service: &host_service
+  user: "0:0"
+  network_mode: host
+
+x-healthcheck-http-ready-base: &healthcheck_http_ready_base
+  test:
+    - CMD-SHELL
+    - >
+      bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT}; printf "GET /v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+  timeout: 3s
+
+x-depends-on-core: &depends_on_core
+  redis:
+    condition: service_healthy
+  centralizedb:
+    condition: service_healthy
+
+services:
+  centralizedb:
+    <<: *host_service
+    image: ${POSTGRES_IMAGE}
+    restart: always
+    environment:
+      - POSTGRES_USER=${CENTRALIZE_DB_USERNAME}
+      - POSTGRES_DB=${CENTRALIZE_DB_NAME}
+      - POSTGRES_PASSWORD=${CENTRALIZE_DB_PASSWORD}
+    volumes:
+      - ${VST_VOLUME}/postgres/db:/var/lib/postgresql/data
+      - ${VST_CONFIG_PATH}/postgresql.conf:/etc/postgresql/postgresql.conf
+    container_name: centralizedb
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 2s
+
+  vst-ingress:
+    <<: *host_service
+    image: ${NGINX_IMAGE}
+    volumes:
+      - ${VST_CONFIG_PATH}/nginx-${NGINX_MODE:-vst}.conf:/etc/nginx/nginx.conf
+    container_name: vst-ingress
+    restart: always    # Nginx should always restart as it's critical for routing
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/30888; printf "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+          || (test -s /tmp/nginx/nginx.pid && kill -0 "$(cat /tmp/nginx/nginx.pid)" >/dev/null 2>&1 && nginx -t -q)
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
+    depends_on:
+      sensor-ms:
+        condition: service_healthy
+
+  redis:
+    <<: *host_service
+    image: ${REDIS_IMAGE}
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    container_name: redis-server
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
+
+  sensor-ms:
+    <<: *host_service
+    image: ${VST_SENSOR_IMAGE}
+    runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - CONTAINER_NAME=sensor-ms
+      - ADAPTOR=${VST_ADAPTOR}
+      - NEED_RECORDING=false
+      - NEED_RTSPSERVER=false
+      - NEED_STORAGE=false
+      - NEED_STREAM_MONITORING=true
+      - HTTP_PORT=${SENSOR_HTTP_PORT}
+      - PROMETHEUS_PORT=${SENSOR_PROMETHEUS_PORT}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - CENTRALIZE_DB_PASSWORD=${CENTRALIZE_DB_PASSWORD}
+      - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
+      - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
+      - RTSP_SERVER_MODULE_ENDPOINT=${RTSP_SERVER_MODULE_ENDPOINT}
+      - RECORDER_MODULE_ENDPOINT=${RECORDER_MODULE_ENDPOINT}
+      - STORAGE_MODULE_ENDPOINT=${STORAGE_MODULE_ENDPOINT}
+    volumes:
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+    container_name: sensor-ms
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck_http_ready_base
+      interval: 10s
+      retries: 20
+      start_period: 5s
+    depends_on:
+      <<: *depends_on_core
+      minio-server:
+        condition: service_healthy
+        required: false
+      sdr-http-rtspserver:
+        condition: service_healthy
+      sdr-http-recorder:
+        condition: service_healthy
+      sdr-http-livestream:
+        condition: service_healthy
+      sdr-http-replaystream:
+        condition: service_healthy
+
+  storage-ms:
+    <<: *host_service
+    image: ${VST_STORAGE_IMAGE}
+    runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}  # Set to true when needed
+      - CONTAINER_NAME=storage-ms
+      - NVIDIA_VISIBLE_DEVICES=all
+      - ADAPTOR=${VST_ADAPTOR}
+      - NEED_RECORDING=false
+      - NEED_RTSPSERVER=false
+      - NEED_STORAGE=true
+      - NEED_STREAM_MONITORING=false
+      - HTTP_PORT=${STORAGE_HTTP_PORT}
+      - PROMETHEUS_PORT=${STORAGE_PROMETHEUS_PORT}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - CENTRALIZE_DB_PASSWORD=${CENTRALIZE_DB_PASSWORD}
+      - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
+      - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+      - REPLAYSTREAM_MODULE_ENDPOINT=${REPLAYSTREAM_MODULE_ENDPOINT}
+      - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
+    volumes:
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
+      - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
+      - ${VST_CONFIG_PATH}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+    container_name: storage-ms
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck_http_ready_base
+      interval: 15s
+      retries: 60
+      start_period: 30s
+    depends_on:
+      <<: *depends_on_core
+      minio-server:
+        condition: service_healthy
+        required: false
+
+  vst-mcp:
+    <<: *host_service
+    image: ${VST_MCP_IMAGE}
+    restart: always
+    environment:
+      - MCP_GATEWAY_CPP_API_BASE_URL=${MCP_GATEWAY_CPP_API_BASE_URL}
+      - MCP_GATEWAY_CPP_API_TIMEOUT=${MCP_GATEWAY_CPP_API_TIMEOUT}
+      - MCP_GATEWAY_SERVER_NAME=${MCP_GATEWAY_SERVER_NAME}
+      - MCP_GATEWAY_SERVER_VERSION=${MCP_GATEWAY_SERVER_VERSION}
+      - MCP_GATEWAY_SERVER_HOST=${MCP_GATEWAY_SERVER_HOST}
+      - MCP_GATEWAY_SERVER_PORT=${MCP_GATEWAY_SERVER_PORT}
+      - MCP_GATEWAY_LOG_LEVEL=${MCP_GATEWAY_LOG_LEVEL}
+      - MCP_GATEWAY_ENABLE_JSONRPC_LOGGING=${MCP_GATEWAY_ENABLE_JSONRPC_LOGGING}
+    container_name: vst-mcp
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          bash -ec 'h="$${MCP_GATEWAY_SERVER_HOST:-127.0.0.1}"; [[ "$${h}" == "0.0.0.0" ]] && h="127.0.0.1"; exec 3<>/dev/tcp/"$${h}"/$${MCP_GATEWAY_SERVER_PORT:-8001}'
+      interval: 15s
+      timeout: 3s
+      retries: 60
+      start_period: 2s
+    depends_on:
+      sensor-ms:
+        condition: service_healthy
+      vst-ingress:
+        condition: service_healthy

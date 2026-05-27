@@ -1,0 +1,78 @@
+---
+description: "Deep reference: Image/picture capture end-to-end flow -- API to JPEG output"
+globs: "src/framework/apis/common/vst_common.*,src/framework/media/video_source/encoders/image_encoder.*,src/framework/media/media_pipelines/gstnvimageencode.*"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Image Capture Flow
+
+## API Entry Points
+
+GET with `action == "picture"` on stream endpoints. All call `vst_common::getCameraPicture()`.
+
+| Module | File | Line |
+|--------|------|------|
+| Live | `src/modules/webrtc_live/LivePeerConnection.cpp` | 499 |
+| Replay | `src/modules/webrtc_replay/ReplayPeerConnection.cpp` | 543 |
+| StreamBridge | `src/modules/webrtc_stream_bridge/StreamBridgeService.cpp` | 430 |
+
+## Orchestration (vst_common.cpp)
+
+- `getCameraPicture()` (line 1313): resolves sensor/stream, builds opts with `image_capture=true`, `peerid=image_capture`
+- `getCameraPictureDisconnected()` (line 1220): handles capture from recorded/file sources
+- Creates dedicated `CommonVideoSource(url, opts)`, calls `getBuffer()`, async cleanup via detached thread
+
+## Pipeline Selection (PipelineConfiguration.cpp:64)
+
+`m_imageCapture = (opts.find("image_capture") != opts.end())`
+
+## Pipeline Wiring (SingleStreamPipelineBuilder.cpp:370-455)
+
+| Variant | Chain |
+|---------|-------|
+| Full (overlay+transform+transformSink) | Decoder -> Transform -> Overlay -> TransformSink -> ImageEncoder |
+| Overlay+transform | Decoder -> Transform -> Overlay -> ImageEncoder |
+| Overlay only | Decoder -> Overlay -> ImageEncoder |
+| Transform only | Decoder -> Transform -> ImageEncoder |
+| Minimal | Decoder -> ImageEncoder |
+| Native stream | Same patterns with NativeStreamProducer |
+| Composite | First Decoder -> Transform -> ImageEncoder |
+
+## ImageEnc Class (encoders/image_encoder.h/.cpp)
+
+Implements `IMediaDataConsumer`. Two encode paths:
+
+- **SW path** (`pushBuffer()`): copies raw frame -> `appsrc -> videoparse -> videoscale -> capsfilter(I420) -> jpegenc -> appsink`
+- **HW path** (`hwEncode()`): `NvJpegEncLoader::nvjpegEncodeFromFd()` direct GPU JPEG encode from fd
+
+Key methods:
+- `onFrame()` -- receives decoded RawFrameParams, routes to SW/HW
+- `getImageBuffer()` -- blocks up to 75s on condvar, returns JPEG buffer
+- `processJpegImageFromSink()` -- appsink callback, stores JPEG, signals condvar
+- `create()` -- builds GStreamer SW pipeline
+
+## Response
+
+- Raw JPEG: `response["content_type"] = "image/jpeg"`, `response["data"] = buffer`
+- URL mode (`isURLRequested`): writes to temp file, returns URL with expiry
+
+## Legacy Paths
+
+- `NvImageEncode` (gstnvimageencode.h/.cpp) -- older standalone image encoder
+- `LiveGstNvVideoSource::getBuffer()` (livevideosource.h:733) -- via `m_gstdecoder->getImageBuffer()`
+- `GstNvVideoDecoder::getImageBuffer()` (gstnvvideodecoder.cpp:3579) -- older decoder-level capture

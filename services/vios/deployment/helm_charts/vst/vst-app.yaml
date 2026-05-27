@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 2.5.0
+version: 1.0.31
+name: vst
+
+description: Developer app for vst ucf service
+
+dependencies:
+- ucf.svc.vms:1.2.39
+
+components:
+- name: vst
+  type: ucf.svc.vms
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    - name: imagepullsecret
+
+#    applicationSpecs:
+#      vms:
+#        containers:
+#          vms-container:
+#            image:
+#              repository: nvcr.io/rxczgrvsg8nx/vst-1-0/vst
+#              tag: testdocker_x86_64
+#            readinessProbe:
+#              httpGet:
+#                port: http
+#              initialDelaySeconds: 150
+#            livenessProbe:
+#              httpGet:
+#                port: http
+#              initialDelaySeconds: 150
+
+    configs:
+      vst_config.json:
+        network:
+          server_domain_name:
+          stunurl_list:
+            - stun.l.google.com:19302
+          # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
+          static_turnurl_list: []
+          # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
+          use_coturn_auth_secret: false
+          coturn_turnurl_list_with_secret:
+          # Twilio account details userId & auth_token.
+          use_twilio_stun_turn: false
+          twilio_account_sid: ""
+          twilio_auth_token: ""
+          # Reverse Proxy details
+          use_reverse_proxy: false
+          reverse_proxy_server_address: REVERSE_PROXY_SERVER_ADDRESS:100
+          rtsp_streaming_over_tcp: true
+          max_webrtc_out_connections: 50
+          max_webrtc_in_connections: 50
+          enable_grpc: false
+          grpc_server_port: 50051
+        data:
+          gpu_indices: [0]
+          always_recording: false
+          use_software_path: false
+          webrtc_out_set_idr_interval: 30
+          webrtc_in_passthrough: true
+          webrtc_sender_quality: "pass_through"
+          use_webrtc_hw_dec: false
+        notifications:
+          enable_notification: false
+          # supported - redis, kafka
+          use_message_broker: "kafka"
+          # Redis stream name
+          message_broker_topic: mdx_notification
+          message_broker_payload_key: "sensor"
+          redis_server_env_var: REDIS_SVC_SERVICE_HOST:9092
+          kafka_server_address: mdx-kafka-cluster-kafka-brokers:9092
+        debug:
+          enable_debug_apis: true
+          dump_webrtc_input_stats: false
+          enable_frameid_in_webrtc_stream: false
+          enable_network_bandwidth_notification: false
+          enable_latency_logging: false
+
+      vst_storage.json:
+        total_video_storage_size_MB: 100000
+
+      adaptor_config.json:
+        vst:
+        - enabled: false
+          control_adaptor_lib_path: prebuilts/arch/onvif_client.so
+          discovery_adaptor_lib_path: prebuilts/arch/onvif_discovery.so
+          id: 044bc643-33c5-479a-b988-10d0bbc4e05c
+          name: onvif
+          need_recording: true
+          need_rtsp_server: true
+          type: vst
+        - enabled: true
+          control_adaptor_lib_path: prebuilts/arch/rtsp_streams.so
+          id: 6cdec7d7-0f30-450c-a78a-756c3e132fd3
+          name: vst_rtsp
+          need_recording: true
+          need_rtsp_server: true
+          type: vst
+
+      # Known rtsp urls can be provided statically in below config
+      rtsp_streams.json:
+        streams:
+        - enabled: false
+          stream_in: rtsp://vst-streamer-deployment-svc:8554/tokkio_sample_clip.mkv
+          name: Sample_input
+

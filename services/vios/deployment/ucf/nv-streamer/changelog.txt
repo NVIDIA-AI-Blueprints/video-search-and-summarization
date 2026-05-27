@@ -1,0 +1,10 @@
+List of changes in the current version w.r.t previous version:
+
+New Features:
+-	On Webui default option for streaming is changed to webrtc instead of HLS.
+-	Docker migration to ubuntu20.04
+-	Fixed stability issues found in previous releases.
+
+Bug to be tested:
+-	https://nvbugs/3696618 [AILP/NvStreamer] BUG: Nvstreamer on LaunchPad not working. Blocking issue for Lumeo trial
+-	https://nvbugs/3693284 [AILP/NvStreamer] BUG: Nvstreamer on Firefox shows 'e is null' on browser and does not do any operations correctly

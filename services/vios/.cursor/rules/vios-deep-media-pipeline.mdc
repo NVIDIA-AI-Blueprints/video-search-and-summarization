@@ -1,0 +1,95 @@
+---
+description: "Deep reference: VIOS media pipeline architecture -- GStreamer, WebRTC, RTSP, overlays, codecs"
+globs: "src/framework/media/**,src/framework/live555/**,src/framework/webrtc_streamer/**,src/framework/stream_monitor/**"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Core Classes
+
+- **CommonVideoSource** (media/video_source/core/CommonVideoSource.h) -- main controller, delegates to PipelineManager
+- **PipelineManager** (core/PipelineManager.h) -- owns pipeline lifecycle, selects builder from PipelineConfiguration
+- **PipelineConfiguration** (core/PipelineConfiguration.h) -- URI, peer ID, quality, compositor, overlay options
+- **DecoderPool** (decoders/decoderpool.h) -- singleton pool of GstNvVideoDecoder keyed by URL (shared for live, dedicated for record/capture)
+- **VideoSenderPool** (senders/videosenderpool.h) -- singleton pool of VideoWebRTCSender for pass-through
+
+# Producer-Consumer Model
+
+- **IMediaDataProducer**: StreamMonitor (RTSP/live555), WebrtcStreamProducer, CloudStreamProducer, ClipReaderProducer
+- **IMediaDataConsumer** (media_consumer.h): NvEncoderVideoConsumer, NvLLOverlay, NvCompositor, WebrtcSinkConsumer, ImageEnc, TranscodeWriterConsumer, RemuxWriterConsumer
+
+# Pipeline Selection (PipelineBuilder pattern)
+
+```
+compositor.enabled -> CompositePipelineBuilder (multi-stream tiles)
+else -> SingleStreamPipelineBuilder:
+  isPassThrough()    -> PassThroughPipeline (no re-encode)
+  isNativeStream()   -> NativeStreamPipeline (/dev/video*)
+  isGodsEyeView()    -> GodsEyeViewPipeline (file playback)
+  ipc_path enabled   -> IPCPipeline (Jetson bbox)
+  else               -> StandardPipeline (decode->overlay->encode->WebRTC)
+```
+
+# Pipeline Chains by Use Case
+
+| Use Case | Chain |
+|----------|-------|
+| Live view | RTSP/StreamMonitor -> GstNvVideoDecoder -> NvLLTransform -> NvLLOverlay -> NvEncoderVideoConsumer -> WebrtcSinkConsumer |
+| Pass-through | RTSP -> GstNvVideoDecoder -> VideoWebRTCSender (direct H.264/H.265 to WebRTC) |
+| Recording (transcode) | appsrc -> transcodebin (decode->overlay->encode) -> mux -> filesink |
+| Recording (remux) | appsrc -> parser -> mux -> filesink (no decode/encode) |
+| Composite | Decoder[1..N] -> Overlay[1..N] -> NvCompositor (GridLayout) -> Transform -> Encoder -> WebRTC |
+| Image capture | Decoder -> Transform -> Overlay -> ImageEnc -> JPEG buffer |
+
+# Overlay System
+
+- **NvLLOverlay** (overlays/ll_overlay.h) -- IMediaDataConsumer, uses draw thread with queue + condvar
+- **NvLLOverlayInternal** (overlays/overlay_internal.h) -- OSD via NvOsdLibs (CUDA), draws bbox/tripwire/ROI/pose/halo
+- Metadata from **LiveMetadataStore** (Redis) or **ElasticMetadataStore** (Elasticsearch)
+- Flow: Decoder -> `onFrame(RawFrameParams)` -> queue -> `doDrawTask` -> `NvLLOverlayInternal::doDraw()` -> consumer
+
+# WebRTC Flow
+
+- **NvGstVideoSource** (webrtc_streamer/nvgstvideosource.h) -- wraps CommonVideoSource + rtc::VideoBroadcaster
+- **WebrtcSinkConsumer** -- receives YUV (I420Buffer -> webrtc::VideoFrame -> broadcaster) or bitstream (-> VideoWebRTCSender)
+- **PeerConnectionManager** -- creates PeerConnection instances, handles SDP/ICE, uses CapturerFactory
+
+# RTSP Client (live555)
+
+- **RTSPConnection** (live555helper/rtspconnectionclient.h) -- wraps live555 RTSPClient, supports UDP/TCP/HTTP
+- **SessionSink** (live555helper/SessionSink.h) -- `afterGettingFrame()` -> `SessionCallback::onData()` with RTP payload
+- **StreamMonitor** -- IMediaDataProducer + SessionCallback, `QosRtspClient` manages RTSP session
+- `registerDataCallback(url, consumer)` adds decoder as consumer; frames delivered via `onFrame(FrameParams&)` -> `pushBufferToDecoder()` into appsrc
+
+# Buffer Management
+
+- **RawFrameParams** (media_consumer.h:79-151) -- holds `GstBuffer*`, `GstMapInfo`, fd, `NvBufSurface`; `m_owns_gstBuffer` controls ownership
+- Supports NVMM (`memory:NVMM`) for zero-copy GPU buffers
+- **NvSurfacePool** -- reusable surface pool for encoder/overlay
+
+# HW Acceleration
+
+- **NvDecodeBin** (gstnvdecodebin.h) -- builds nvh264dec/nvh265dec when `NvHwDetection::m_useNvV4l2Dec`; software fallback otherwise
+- **NvEncoderVideoConsumer** -- uses nvv4l2h264enc/nvv4l2h265enc when `NvHwDetection::m_useNvV4l2Enc`
+- Guards: `#ifdef USE_NV_ENC` / `#ifdef USE_NV_DEC` (aarch64)
+
+# Error Recovery
+
+- **GstNvVideoDecoder**: bus handler, non-fatal errors retry `m_resetAttempts` (3) then `controlStream("reset_pipeline")`. Fatal (GPU gone): `exit(EXIT_GPU_NOT_FOUND)`
+- **GstMux**: `pipelineReset()` on muxer error, recreate on next IDR
+- **ClipReaderProducer**: `retryPipeline()` on empty stream, `MAX_EMPTY_STREAM_RETRIES`, resume from `mResumePts`
+- Graceful degradation: overlay disabled if OSD libs fail; software encode if HW unavailable

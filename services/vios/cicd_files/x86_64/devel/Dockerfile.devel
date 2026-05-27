@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+FROM nvcr.io/nvidia/cuda:13.0.0-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+	DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
+	g++ \
+	lbzip2 \
+	libcurl4-openssl-dev \
+	libcurl3-gnutls \
+	libgtest-dev  \
+	libjsoncpp-dev \
+	libssl-dev  \
+	libxml2-dev libxml2 \
+	sqlite3 libsqlite3-dev \
+	uuid uuid-dev \
+	iputils-ping \
+	gstreamer1.0-plugins-base \
+	gstreamer1.0-plugins-good \
+	gstreamer1.0-plugins-ugly \
+	gstreamer1.0-plugins-bad \
+	libgstreamer1.0-0 \
+	libgstreamer-plugins-base1.0-dev \
+	libboost-all-dev \
+	make \
+	build-essential autoconf libtool \
+	git \
+	pkg-config \
+	wget \
+	librdkafka-dev \
+	libopencv-dev \
+	python3 \
+	python3-pip \
+	ca-certificates \
+	gnupg \
+	lsb-release \
+	ntp \
+	ntpstat \
+	libhiredis1.1.0 \
+	libldap2-dev \
+	libpq-dev \
+	libpqxx-dev \
+	libpaho-mqttpp-dev \
+	libpaho-mqtt-dev \
+	&& apt-get clean
+
+RUN pip3 install --break-system-packages requests
+
+# install cmake 3.19.6 required by grpc
+ENV MY_INSTALL_DIR=/usr/local
+RUN wget -q -O cmake-linux.sh https://github.com/Kitware/CMake/releases/download/v3.19.6/cmake-3.19.6-Linux-x86_64.sh
+RUN sh cmake-linux.sh -- --skip-license --prefix=$MY_INSTALL_DIR
+
+# clone and install grpc
+RUN git clone --recurse-submodules -b v1.50.0 --depth 1 --shallow-submodules https://github.com/grpc/grpc /var/local/git/grpc
+RUN cd /var/local/git/grpc && \
+    mkdir -p cmake/build && \
+	cd cmake/build && \
+	cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=$MY_INSTALL_DIR ../.. && \
+    make -j12 && \
+    make install

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VMS Shim Technical Documentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 20px;
+            margin-bottom: 40px;
+            text-align: center;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+        }
+
+        .header h1 {
+            font-size: 3em;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.3em;
+            opacity: 0.9;
+        }
+
+        .docs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .doc-card {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            border: 3px solid transparent;
+        }
+
+        .doc-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            border-color: #667eea;
+        }
+
+        .doc-icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .doc-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .doc-description {
+            color: #6c757d;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .doc-button {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .doc-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .features-section {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .features-title {
+            color: #667eea;
+            font-size: 2em;
+            margin-bottom: 30px;
+            text-align: center;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .feature-item {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 20px;
+            border-radius: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .feature-title {
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 10px;
+        }
+
+        .feature-description {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: #6c757d;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 10px;
+            }
+            
+            .header h1 {
+                font-size: 2.5em;
+            }
+            
+            .docs-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>VMS Shim Technical Documentation</h1>
+            <p>Comprehensive architecture and design documentation for the Video Management System</p>
+        </div>
+
+        <div class="docs-grid">
+            <div class="doc-card">
+                <div class="doc-icon">📊</div>
+                <div class="doc-title">Interactive HTML Documentation</div>
+                <div class="doc-description">
+                    Modern, responsive web interface with interactive navigation, visual components, and professional styling.
+                </div>
+                <a href="video_source_pipeline_architecture.html" class="doc-button">View HTML Documentation</a>
+            </div>
+
+            <div class="doc-card">
+                <div class="doc-icon">🔧</div>
+                <div class="doc-title">XML Specification</div>
+                <div class="doc-description">
+                    Structured XML format for programmatic processing, tool integration, and automated documentation generation.
+                </div>
+                <a href="video_source_pipeline_architecture.xml" class="doc-button">View XML Specification</a>
+            </div>
+
+            <div class="doc-card">
+                <div class="doc-icon">📖</div>
+                <div class="doc-title">README Guide</div>
+                <div class="doc-description">
+                    Quick overview and navigation guide with architecture summary and usage instructions.
+                </div>
+                <a href="README.md" class="doc-button">View README</a>
+            </div>
+        </div>
+
+        <div class="features-section">
+            <h2 class="features-title">Documentation Features</h2>
+            <div class="features-grid">
+                <div class="feature-item">
+                    <div class="feature-title">🎯 Architecture Overview</div>
+                    <div class="feature-description">Complete system architecture with component relationships and data flows</div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-title">🔗 Pipeline Types</div>
+                    <div class="feature-description">Detailed breakdown of single stream and composite pipeline variants</div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-title">⚙️ Component Details</div>
+                    <div class="feature-description">Comprehensive component hierarchy with capabilities and responsibilities</div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-title">📊 Data Flow Patterns</div>
+                    <div class="feature-description">Visual representation of data flow through different pipeline configurations</div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-title">🌳 Decision Logic</div>
+                    <div class="feature-description">Pipeline selection decision trees and configuration logic</div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-title">🔄 Lifecycle Management</div>
+                    <div class="feature-description">Complete pipeline lifecycle from creation to shutdown</div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-title">🛡️ Error Handling</div>
+                    <div class="feature-description">Strategies for graceful degradation and system recovery</div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-title">🚀 Performance</div>
+                    <div class="feature-description">Optimization strategies and hardware acceleration considerations</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>VMS Shim Project</strong> - Technical Documentation Portal</p>
+            <p>Generated from comprehensive architecture analysis | Last updated: <span id="lastUpdated"></span></p>
+        </div>
+    </div>
+
+    <script>
+        // Set last updated date
+        document.getElementById('lastUpdated').textContent = new Date().toLocaleDateString();
+        
+        // Add smooth scrolling for better UX
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+    </script>
+</body>
+</html>

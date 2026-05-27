@@ -1,0 +1,112 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+type: msapplication
+specVersion: 2.5.0
+name:  ucf.svc.nvstreamer-ingress-mgr
+chartName: nvstreamer-ingress
+description: nvstreamer-ingress service
+version: 1.0.0
+displayName: "nvstreamer-ingress Service"
+category:
+  functional: "Media Service"
+  industry: "IVA"
+tags: []
+keywords: []
+eula: ""
+nSpectId: NSPECT-1H82-JYCQ
+
+ingress-endpoints:
+  - name: app
+    description: nvstreamer app ingress endpoint
+    scheme: http
+    data-flow: in-out
+  - name: health
+    description: nvstreamer app health endpoint
+    scheme: http
+    data-flow: in-out
+
+tests:
+  - name: dev
+    app: tests/dev/app.yaml
+    params: tests/dev/params1.yaml
+    ciTrigger: true
+    timeout: 5
+    duration: 2
+    installPreReqs: true
+    namespace: default
+    gpuNodeLabels: ""
+    watchAllPods: true
+    watchPods:
+    - nvstreamer-ingress-mgr
+    testerPods:
+    - name: nvstreamer-ingress-mgr
+      startSignature: "TBD"
+      endSignature: "TBD"
+      errorSignatures:
+      - "TBD"
+
+
+---
+
+spec:
+  - name: deployment
+    type: ucf.k8s.app.deployment
+    parameters:
+      apptype: stateless
+
+  - name: nvstreamer-ingress-mgr
+    type: ucf.k8s.container
+    parameters:
+      image:
+        repository: nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer-ingress
+        tag: 2.1.0-26.02.1.2
+        pullPolicy: IfNotPresent
+      #command: ["nginx", "-c", "/etc/nginx/conf.d/nginx.conf"]
+      ports:
+      - containerPort: 8000
+        name: ingress-http
+
+      livenessProbe:
+        httpGet:
+          port: 8000
+          path: /health
+
+      readinessProbe:
+        httpGet:
+          port: 8000
+          path: /health
+
+  - name: restartPolicy
+    type: ucf.k8s.restartPolicy
+    parameters:
+      policy: Always
+
+ # - name: podSecurityContext
+ #   type: ucf.k8s.podSecurityContext
+ #   parameters:
+ #    runAsGroup: 1000
+ #     runAsUser: 1000
+
+  - name: svc
+    type: ucf.k8s.service
+    parameters:
+      ports:
+        - port: 8000
+          targetPort: ingress-http
+          nodePort: 30889
+          protocol: TCP
+          name: ingress-http
+      type: NodePort

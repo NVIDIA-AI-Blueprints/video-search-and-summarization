@@ -1,0 +1,17 @@
+{
+	"vst":
+	[
+		{
+			"enabled":true,
+			"id":"640c3667-81e6-460f-b926-b8008a130dba",
+			"name":"streamer",
+			"type":"streamer",
+			"need_rtsp_server": true,
+			"need_stream_monitoring": false,
+			"need_recording": false,
+			"need_storage_management": true,
+			"control_adaptor_lib_path":"prebuilts/arch/liblocalstreams.so",
+			"discovery_adaptor_lib_path":"prebuilts/arch/libsensordata.so"
+		}
+	]
+}

@@ -1,0 +1,6 @@
+{
+    "livestream-ms-1": {
+      "provisioning_address": "localhost:30017",
+      "process_type": "docker"
+    }
+}

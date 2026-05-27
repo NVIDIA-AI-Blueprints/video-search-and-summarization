@@ -1,0 +1,45 @@
+---
+alwaysApply: true
+---
+# VST BDD Test Suite Rules
+
+## Core Principles
+- All test parameters in `config.json` (never hardcode)
+- Use detailed error reporting via `test_utils.assert_with_detailed_failure()`
+- Prefix test uploads: `test_upload_*` for sensors/filenames
+- Tests auto-cleanup resources via `conftest.py`
+
+## Test Structure
+- Categories: file_upload, file_download, picture, webrtc, perf
+- Pattern: features/*.feature + tests/test_*.py + *_test_utils.py + conftest.py
+- Use pytest-bdd: `@given`, `@when`, `@then`
+- Context object stores state between BDD steps
+
+## Configuration
+- Read from `config['tests']['<category>_tests']['test_parameters']`
+- Support CLI overrides (e.g., `--perf-iterations`)
+- Timeouts, URLs, iterations all configurable
+
+## Testing
+- Functional tests: use `--count` for repetition
+- Latency tests: use `--perf-iterations` for iterations/scenario
+- Live tests: exclude `test_upload_*` sensors
+- Validation tests: use `assert_with_detailed_failure()`
+
+## Reports
+- Main: `reports/report.html`, `reports/junit.xml`
+- Stats: `reports/stats/` (container monitoring)
+- Latency: `reports/latency/` (CSV + viewer)
+- Performance: `reports/performance/`
+
+## Code Style
+- Type hints required
+- Use pathlib.Path
+- Async with aiohttp for parallel operations
+- Docstrings for public functions
+- Follow PEP8
+
+## Avoid
+- Hardcoded values
+- Manual iteration loops
+- Creating documentation files unless asked

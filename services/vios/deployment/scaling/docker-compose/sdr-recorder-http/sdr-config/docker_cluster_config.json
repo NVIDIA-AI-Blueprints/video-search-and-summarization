@@ -1,0 +1,22 @@
+{
+  "recorder-ms-1": {
+    "provisioning_address": "localhost:30006",
+    "process_type": "docker"
+  },
+  "recorder-ms-2": {
+    "provisioning_address": "localhost:30007",
+    "process_type": "docker"
+  },
+  "recorder-ms-3": {
+    "provisioning_address": "localhost:30008",
+    "process_type": "docker"
+  },
+  "recorder-ms-4": {
+    "provisioning_address": "localhost:30009",
+    "process_type": "docker"
+  },
+  "recorder-ms-5": {
+    "provisioning_address": "localhost:30010",
+    "process_type": "docker"
+  }
+}

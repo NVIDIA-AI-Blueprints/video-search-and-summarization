@@ -1,0 +1,112 @@
+---
+description: VIOS build system, container deployment, and common build pitfalls
+alwaysApply: true
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Build System
+
+Use `./build.sh` -- **do not invoke `make` directly**. Run `./build.sh help` for all options. Use `/build-help` skill if unsure which flags to use.
+
+Valid modules: `sensor`, `rtspserver`, `recorder`, `livestream`, `replaystream`, `streambridge`, `storage`, `streamprocessing`
+
+**Registry:** Always use the GitLab registry (`gitlab` flag) for dev and testing. NVCR is for production/release only.
+
+# Build and Deploy Workflow
+
+VIOS runs inside Docker containers. The dev build-deploy cycle is:
+
+1. **Build + containerize**: `./build.sh container module=<modules>` (compiles C++, packages, creates Docker image)
+2. **Deploy via docker-compose**: `python3 deployment/oneclick_dc_deployment_for_dev.py` (interactive one-click deployment)
+
+## IMPORTANT: Auto-run build and deploy commands
+
+When the user asks to build, deploy, stop, or redeploy -- run the commands immediately without asking for confirmation. Always use `--auto --force` flags on the deployment script to avoid interactive prompts. Do NOT ask the user "shall I proceed?" or "want me to run this?" -- just execute.
+
+- Build: `./build.sh container module=<modules>` -- run directly, long-running (~20min for all modules)
+- Deploy: `python3 deployment/oneclick_dc_deployment_for_dev.py deploy --auto --force` -- run directly
+- Stop: `python3 deployment/oneclick_dc_deployment_for_dev.py stop` or `stop --target vios` -- run directly
+- Full cycle (build + deploy): run build first, then deploy sequentially -- no confirmation needed
+
+## build.sh Options
+
+- `./build.sh module=sensor` -- plain build (compile only, no packaging)
+- `./build.sh package module=sensor,rtspserver` -- build + package into deployable archives
+- `./build.sh container module=sensor,rtspserver,recorder,livestream,replaystream,storage,streambridge,streamprocessing` -- build + package + create Docker containers for all modules
+- `./build.sh container module=streamprocessing push=1` -- build + push to registry
+- `./build.sh container tag=mytag module=sensor` -- custom image tag
+- `./build.sh container ingress` -- build ingress container
+- `./build.sh container mcp` -- build MCP gateway container
+- `./build.sh debug module=sensor` -- debug build
+
+## One-Click Deployment Script
+
+**Script:** `deployment/oneclick_dc_deployment_for_dev.py`
+
+Deploys VIOS microservices via docker-compose. Uses `<action> --target <target>` syntax.
+
+Targets: `vios` (default, stream-processor at `deployment/stream-processing/docker-compose/`), `scaled` (all microservices at `deployment/scaling/docker-compose/`), `nvstreamer`, `all`.
+
+```
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --auto --force                        # deploy VIOS (default target)
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target scaled --auto --force         # deploy all microservices
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target nvstreamer --auto --force     # deploy NVStreamer only
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target all --auto --force            # deploy VIOS + NVStreamer
+python3 deployment/oneclick_dc_deployment_for_dev.py stop                                         # stop all services
+python3 deployment/oneclick_dc_deployment_for_dev.py stop --target vios                            # stop only VIOS
+python3 deployment/oneclick_dc_deployment_for_dev.py stop --target nvstreamer                      # stop only NVStreamer
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --fresh-start --auto --force           # clean start
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --with-minio --auto --force            # deploy with MinIO
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --with-monitoring --auto --force       # deploy with Grafana/Prometheus
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --pull-always --auto --force           # pull latest images
+```
+
+**Key paths (stream-processor / default):**
+- Compose files: `deployment/stream-processing/docker-compose/docker-compose.yaml`
+- Config: `deployment/stream-processing/docker-compose/configs/`
+- Compose env: `deployment/stream-processing/docker-compose/compose.env`
+
+**Key paths (scaled / all microservices via `--target scaled`):**
+- Compose files: `deployment/scaling/docker-compose/docker-compose.yaml`
+- Config: `deployment/scaling/docker-compose/configs/`
+- Volume: `deployment/scaling/docker-compose/vst_volume/`
+- Compose env: `deployment/scaling/docker-compose/compose.env`
+
+**Access URLs (after deploy):**
+- VIOS UI: `http://<HOST_IP>:30888/vios/#/dashboard`
+- Grafana: `http://<HOST_IP>:3000` (with `--with-monitoring`)
+- MinIO: `http://<HOST_IP>:9001` (with `--with-minio`)
+
+**VIOS containers:** `centralizedb`, `vios-ingress`, `redis-server`, `sensor-ms`, `storage-ms`, `vios-mcp`, plus per-module containers (rtsp, recorder, livestream, replay, streambridge)
+
+## Debugging: Source changes require container rebuild
+
+Since VIOS runs in Docker, editing source files alone does NOT affect the running service. The full cycle is:
+1. Edit source files
+2. `./build.sh container module=<affected_modules>` -- rebuilds container image
+3. `python3 deployment/oneclick_dc_deployment_for_dev.py deploy --auto --force` -- redeploys with new image
+4. Check logs: `sudo docker compose -f docker-compose.yaml --env-file ./compose.env logs -f` (from `deployment/scaling/docker-compose/`)
+
+# Common Build Pitfalls
+
+1. **Use `./build.sh`, not `make`** -- arch detection, Docker, and module flags won't be set correctly otherwise.
+2. **Wrong arch prebuilts** -- `PREBUILT_DIR` is `prebuilts/$(arch)/`; wrong arch links silently against the wrong libs.
+3. **Missing module define** -- features gated by a `CPPFLAGS` define silently no-op if `module=` is omitted.
+4. **Kafka consumer depends on `notification_proto`** -- enforced in the Makefile; do not remove it.
+5. **OpenTelemetry on aarch64/SBSA** -- `USE_OTEL=0`; OTEL headers are not available there.
+6. **Multi-module plain build** -- `module=a,b` without `package` or `container` will error out.
+7. **Source edits not visible at runtime** -- VIOS runs in Docker; must rebuild container and redeploy.

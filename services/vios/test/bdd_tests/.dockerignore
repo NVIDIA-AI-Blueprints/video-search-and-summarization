@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Test artifacts
+reports/
+test-results/
+*.mp4
+*.avi
+*.jpg
+*.jpeg
+*.png
+*.log
+/tmp/vst_*/
+clip_*.mp4
+test_upload_*.mp4
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Docker
+.dockerignore
+
+# Documentation (exclude most, keep README)
+*.md
+!README.md
+
+# Include feature files (needed for pytest-bdd)
+!features/
+!**/*.feature
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Unwanted plugins
+pytest_html_report.html
+output.json
+archive/

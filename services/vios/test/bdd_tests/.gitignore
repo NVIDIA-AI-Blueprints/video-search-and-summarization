@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Poetry
+# Note: poetry.lock is intentionally not ignored (should be committed for applications)
+
+# Pytest
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+.nox/
+*.xml
+
+# Pytest-bdd
+.pytest-bdd/
+
+# Test reports and results
+# Keep HTML viewers, ignore generated data
+reports/junit.xml
+reports/report.html
+reports/stats/*.json
+reports/stats/*.csv
+reports/stats/*.txt
+reports/latency/*.csv
+reports/performance/*.csv
+test-results/
+allure-results/
+allure-report/
+junit.xml
+report.html
+assets/
+
+# Pytest-html-reporter artifacts (unwanted plugin)
+pytest_html_report.html
+output.json
+archive/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test artifacts and temporary files
+# Ignore test-generated video clips
+clip_*.mp4
+test_upload_*.mp4
+concurrent_*.mp4
+vst_test_images/
+vst_test_videos/
+vst_*_test_*/
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+*.mkv
+*.log
+
+# Temporary directories
+/tmp/vst_*/
+
+# Local configuration overrides
+config.local.json
+.env
+.env.local
+

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Login Form</title>
+    <script>
+      async function sendCredentials() {
+        const rawResponse = await fetch(
+          `${window.location.protocol}//${window.location.hostname}:${window.location.port}/api/user/login`,
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              username: document.getElementById("Uname").value,
+              password: document.getElementById("Pass").value,
+            }),
+          }
+        );
+        console.log(rawResponse);
+      }
+    </script>
+  </head>
+  <body>
+    <h2>Login</h2>
+    <br />
+    <div class="login">
+      <label><b>User Name </b> </label>
+      <input type="text" name="Uname" id="Uname" placeholder="Username" />
+      <br /><br />
+      <label><b>Password </b> </label>
+      <input type="Password" name="Pass" id="Pass" placeholder="Password" />
+      <br /><br />
+      <input
+        type="button"
+        name="log"
+        id="log"
+        value="Log in"
+        onclick="sendCredentials()"
+      />
+      <br />
+    </div>
+  </body>
+</html>

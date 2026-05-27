@@ -1,0 +1,65 @@
+---
+description: Testing and CI/CD conventions for VIOS
+globs: "**/test/**"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Testing
+
+- Unit tests: `test/gtests/` -- binary is `vst_test`, built with `-D UNIT_TEST`
+- BDD tests: `test/bdd_tests/` -- pytest-bdd, requires a running VIOS service; run via `cd test/bdd_tests && poetry run pytest tests/`
+- Use `/bdd-test` skill to write tests for new features
+
+# CI/CD
+
+- Pipeline: `.gitlab-ci.yml` -- stages: `coverity` -> `deploy` -> `push_helm_chart`
+- `/test` folder excluded from nspect scans (`.nspect-allowlist.toml`)
+- Code review automation: `.coderabbit.yaml`
+
+# Branch Naming Convention
+
+Pattern: `<type>/<username>/<ticket-id>-<short-description>`
+
+Username and ticket ID are optional. Minimal form: `<type>/<short-description>`
+
+## Rules
+
+- Lowercase for type prefix and description (ticket IDs retain their original case)
+- Use hyphens as word separators (never underscores)
+- Description: 2-5 words max
+- Include Jira/GitLab issue ID when one exists
+- Username segment is optional but recommended for shared repos
+
+## Valid type prefixes
+
+| Prefix | When to use |
+|---|---|
+| `feat/` | New feature or capability |
+| `fix/` | Bug fix |
+| `refactor/` | Code restructuring, no behavior change |
+| `cicd/` | CI/CD, build system, deployment changes |
+| `test/` | Test-only changes |
+| `docs/` | Documentation only |
+| `release/` | Release preparation |
+| `hotfix/` | Urgent production fix |
+
+## Examples
+
+Good: `feat/prakhar/VIOS-1234-rtsp-latency-optimization`, `fix/VIOS-890-sonarqube-violations`, `cicd/build-optimization`
+
+Bad: `latency_optimization` (no prefix, underscores), `dev_mmj` (vague, no prefix), `vss-3.0-EA-release` (wrong prefix format)

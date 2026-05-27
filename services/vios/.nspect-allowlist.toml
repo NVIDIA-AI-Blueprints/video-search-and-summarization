@@ -1,0 +1,17 @@
+version = "1.0.0"
+
+[oss]
+
+# if you are not adding excluded directories then remove [oss.excluded] and [[oss.excluded.directories]] both tag from file.
+[oss.excluded]
+
+# Excluded all automation packages from nspect scan for all programs using this source code location
+[[oss.excluded.directories]]
+paths = ['test', 'test/bdd_tests', 'test/gtests']
+comment = 'Automation test packages'
+
+[[pulse-trufflehog.files]]
+file = "src/framework/database/include/database_schema.h"
+  [[pulse-trufflehog.files.secrets]]
+  type = "Password"
+  values = [ "pas**************ORD\"" ]

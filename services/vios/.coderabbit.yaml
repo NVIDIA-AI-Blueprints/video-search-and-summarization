@@ -1,0 +1,6 @@
+reviews:
+  auto_review:
+    enabled: true
+    base_branches:
+      - master
+      - v2.1

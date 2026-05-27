@@ -1,0 +1,216 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+x-healthcheck-http-ready-base: &healthcheck_http_ready_base
+  test:
+    - CMD-SHELL
+    - >
+      bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT}; printf "GET /v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+  interval: 20s
+  timeout: 3s
+  retries: 60
+  start_period: 20s
+
+x-depends-on-redis-streamprocessing: &depends_on_redis_streamprocessing
+  redis:
+    condition: service_healthy
+  streamprocessing-ms-1:
+    condition: service_healthy
+  # [Pod 2 disabled] To enable the second stream-processing pod, uncomment the
+  # dependency below and the streamprocessing-ms-2 service definition further down.
+  # Also restore the corresponding entries in compose.env, envoy.yaml, and
+  # docker_cluster_config.json.
+  # streamprocessing-ms-2:
+  #   condition: service_healthy
+
+x-streamprocessing-base: &streamprocessing_base
+  image: ${VST_STREAM_PROCESSOR_IMAGE}
+  network_mode: host
+  runtime: nvidia
+  user: "0:0"
+  entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+  restart: unless-stopped
+  ulimits:
+    nofile:
+      soft: 8192
+      hard: 8192
+  deploy:
+    restart_policy:
+      condition: always
+
+services:
+  streamprocessing-ms-1:
+    <<: *streamprocessing_base
+    container_name: streamprocessing-ms-1
+    environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB:-}
+      - CONTAINER_NAME=streamprocessing-ms-1
+      - ADAPTOR=${VST_ADAPTOR}
+      - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT_1}
+      - PROMETHEUS_PORT=${STREAM_PROCESSOR_PROMETHEUS_PORT_1}
+      - RTSP_SERVER_PORT=${RTSP_SERVER_PORT_1}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - CENTRALIZE_DB_PASSWORD=${CENTRALIZE_DB_PASSWORD}
+      - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
+      - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
+      - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+      - ENABLE_AGING_POLICY=true
+    volumes:
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
+      - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
+    healthcheck:
+      <<: *healthcheck_http_ready_base
+    depends_on:
+      centralizedb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # [Pod 2 disabled] Second stream-processing pod. Uncomment to deploy a second
+  # instance alongside streamprocessing-ms-1. When enabling, also uncomment:
+  #   - streamprocessing-ms-2 dependency in x-depends-on-redis-streamprocessing above
+  #   - STREAM_PROCESSOR_HTTP_PORT_2, RTSP_SERVER_PORT_2, STREAM_PROCESSOR_PROMETHEUS_PORT_2 in compose.env
+  #   - Second endpoint (port 30002) in envoy.yaml headerless_service cluster
+  #   - streamprocessing-ms-2 entry in docker_cluster_config.json
+  #   - streamprocessing-ms-2 in WDM_TARGET_PORT_MAPPING of sdr-streamprocessing service below
+  # streamprocessing-ms-2:
+  #   <<: *streamprocessing_base
+  #   container_name: streamprocessing-ms-2
+  #   environment:
+  #     - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+  #     - CONTAINER_NAME=streamprocessing-ms-2
+  #     - ADAPTOR=${VST_ADAPTOR}
+  #     - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT_2}
+  #     - PROMETHEUS_PORT=${STREAM_PROCESSOR_PROMETHEUS_PORT_2}
+  #     - RTSP_SERVER_PORT=${RTSP_SERVER_PORT_2}
+  #     - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+  #     - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+  #     - CENTRALIZE_DB_PASSWORD=${CENTRALIZE_DB_PASSWORD}
+  #     - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
+  #     - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
+  #     - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
+  #     - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+  #     - ENABLE_AGING_POLICY=false
+  #   volumes:
+  #     - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+  #     - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+  #     - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+  #     - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
+  #     - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
+  #   healthcheck:
+  #     <<: *healthcheck_http_ready_base
+  #   depends_on:
+  #     centralizedb:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+
+  sdr-streamprocessing:
+    image: ${SDR_IMAGE}
+    user: "0:0"
+    network_mode: "host"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "8192m"
+        max-file: "3"
+    container_name: sdr-streamprocessing
+    volumes:
+      - ./sdr-config:/wdm-configs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${VST_DATA_PATH}/sdr/streamprocessing/log:/log
+    environment:
+      PORT: 4003
+      WDM_CLUSTER_CONFIG_FILE: /wdm-configs/docker_cluster_config.json
+      CONTAINER_NAME: sdr-streamprocessing
+      WDM_MSG_KEY: ${REDIS_MSG_KEY}
+      WDM_WL_REDIS_SERVER: ${REDIS_HOSTADDR}
+      WDM_WL_REDIS_PORT: ${REDIS_PORT}
+      WDM_WL_REDIS_MSG_FIELD: sensor.id
+      WDM_WL_ADD_URL: /api/v1/proxy/stream/add
+      WDM_WL_DELETE_URL: /api/v1/proxy/stream/
+      WDM_WL_HEALTH_CHECK_URL: /api/v1/proxy/configuration
+      WDM_WL_CHANGE_ID_ADD: camera_proxy
+      WDM_WL_CHANGE_ID_DEL: camera_remove
+      WDM_PRELOAD_WORKLOAD: ./tests/event_pre-roll.json
+      WDM_CLEAR_DATA_WL: true
+      WDM_KFK_ENABLE: false
+      WDM_MSG_TOPIC: vst_events
+      WDM_KFK_BOOTSTRAP_URL: ${KAFKA_BOOTSTRAP_URL}
+      WDM_DS_SWAP_ID_NAME: false
+      WDM_WL_THRESHOLD: ${MAX_STREAMS_PER_POD:-100}
+      WDM_ADD_REMOVE_RETRY_ATTEMPTS: 50
+      WDM_CLUSTER_TYPE: docker
+      WDM_POD_WATCH_DOCKER_DELAY: 0.5
+      WDM_RESTART_DS_ON_ADD_FAIL: false
+      WDM_DISABLE_WERKZEUG_LOGGING: true
+      WDM_WL_OBJECT_NAME: streamprocessing-ms
+      WDM_CONSUMER_GRP_ID: sdr-streamprocessing-cg
+      WDM_CLUSTER_CONTAINER_NAMES: '["streamprocessing-ms"]'
+      VST_STREAMS_ENDPOINT: http://localhost:30000/api/v1/sensor/streams
+      VST_STATUS_ENDPOINT: http://localhost:30000/api/v1/sensor/status
+      OTEL_SDK_DISABLED: true
+      WDM_INITIALIZE_FROM_VST: false
+      ENVOY_REQUEST_TIMEOUT: 300
+      # [Pod 2 disabled] Original mapping with both pods; uncomment and replace the line below to enable pod 2
+      #WDM_TARGET_PORT_MAPPING: "{\"streamprocessing-ms-1\": ${STREAM_PROCESSOR_HTTP_PORT_1}, \"streamprocessing-ms-2\": ${STREAM_PROCESSOR_HTTP_PORT_2}}"
+      WDM_TARGET_PORT_MAPPING: "{\"streamprocessing-ms-1\": ${STREAM_PROCESSOR_HTTP_PORT_1}}"
+      OTEL_SERVICE_NAME: SDR_AGENT
+      WDM_REDIS_CACHE_OBJECT: "streamprocessing-data"
+      WDM_WL_NAME_IGNORE_REGEX: ""
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+      restart_policy:
+        condition: always
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${PORT}; printf "GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+      interval: 15s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    depends_on:
+      <<: *depends_on_redis_streamprocessing
+
+  envoy-streamprocessing:
+    image: ${ENVOY_PROXY_IMAGE}
+    user: "0:0"
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id ${STREAMPROCESSING_BASE_ID}
+    network_mode: "host"
+    container_name: envoy-streamprocessing
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    restart: unless-stopped
+    environment:
+      WDM_WL_REDIS_SERVER: ${REDIS_HOSTADDR}
+      CONTAINER_NAME: envoy-streamprocessing
+      WDM_WL_REDIS_PORT: ${REDIS_PORT}
+      WDM_KFK_BOOTSTRAP_URL: ${KAFKA_BOOTSTRAP_URL}
+      WDM_WL_OBJECT_NAME: streamprocessing-ms
+      ENVOYROUTEHEADER: "streamid"
+      NOHEADERTARGETCONTAINER: "streamprocessing-ms-1"
+    depends_on:
+      <<: *depends_on_redis_streamprocessing

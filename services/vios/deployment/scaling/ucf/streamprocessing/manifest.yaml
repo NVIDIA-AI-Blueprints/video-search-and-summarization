@@ -1,0 +1,245 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: MIT
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+
+type: msapplication
+specVersion: 2.5.0
+name:  ucf.svc.vst-streamprocessing
+chartName: streamprocessing
+description: vst streamprocessing service
+version: 1.0.0
+displayName: "VST Streamprocessing Service"
+category:
+  functional: "Streamprocessing Service"
+  industry: "IVA"
+
+ingress-endpoints:
+  - name: http-api
+    description: vst streamprocessing http api
+    scheme: http
+    data-flow: in-out
+
+tests:
+  - name: dev-params1
+    app: tests/dev/app.yaml
+    params: tests/dev/params1.yaml
+    ciTrigger: true
+    timeout: 10
+    duration: 10
+    installPreReqs: true  # Wether to install foundational services
+    namespace: default  # Kubernetes namespace
+    gpuNodeLabels: ""
+    watchAllPods: false # OR set to false and set list of pods to watch below
+    watchPods:
+    - streamprocessing-test
+    testerPods:  # At least one tester pod is required
+    - name: streamprocessing-test  # Name of the test pod
+      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+      - "test case failed"
+
+params:
+  image: nvcr.io/rxczgrvsg8nx/vst-dev/vst-streamprocessing
+  #> type: string
+  #> description: VST docker container path on ngc.
+
+  tag: 2.1.0-26.05.2
+  #> type: string
+  #> description: Tag for VST docker container
+
+  httpPort: 30001
+  #> type: integer
+  #> description: Tag for vst livestream httpPort
+
+  rtspServerPort: 30554
+  #> type: integer
+  #> description: Tag for vst rtspserver port
+
+  rtspServerPortRange: 20
+  #> type: integer
+  #> description: Tag for vst rtspserver port range
+
+  messageBrokerServer: "mdx-redis-master"
+  #> type: string
+  #> description: Message broker redis/kafka server address
+
+  messageBrokerPort: "6379"
+  #> type: string
+  #> description: Message broker redis/kafka server port
+
+
+---
+
+spec:
+  - name: deployment
+    type: ucf.k8s.app.deployment
+    parameters:
+      apptype: statefull
+      statefulSetServiceName: svc
+
+  - name: check-db-up
+    type: ucf.k8s.initcontainer
+    parameters:
+      image: docker.io/alpine/curl:8.12.1
+      imagePullPolicy: IfNotPresent
+      command: [sh, -c]
+      args: ["until curl --connect-timeout 1 vst-postgres-deployment-svc:5432 2>&1 | grep -q 'Empty reply from server'; do echo \"Waiting for postgres\"; sleep 0.5; done"]
+
+  - name: streamprocessing
+    type: ucf.k8s.container
+    parameters:
+      image:
+        repository: $params.image
+        tag: $params.tag
+        pullPolicy: IfNotPresent
+      command:
+        - "/bin/bash"
+        - "-c"
+        - |
+          /home/vst/vst_release/tools/user_additional_install.sh
+          exec /home/vst/vst_release/launch_vst \
+            --vstConfigFile /opt/configs/vst_config.json
+      args: []
+      volumeMounts:
+        - name: data-storage
+          mountPath: /opt/vmounts/vst-data
+          subPath: vms_data
+        - name: data-storage
+          mountPath: /opt/vmounts/video-data
+          subPath: vms_video
+        - name: data-storage
+          mountPath: /opt/vmounts/streamer-videos
+          subPath: clip_storage
+        - name: data-storage
+          mountPath: /home/vst/vst_release/webroot/temp_files
+          subPath: temp_files
+      ports:
+        - containerPort: $params.httpPort
+          protocol: TCP
+          name: http-api
+        - containerPort: $params.rtspServerPort
+          protocol: TCP
+          name: rtspserver-port
+      env:
+      - name: ADAPTOR
+        value: "streamprocessing-ms"
+      - name: VST_INGRESS_ENDPOINT
+        value: 'vst-ingress-deployment-svc:8000/vst'
+      - name: REDIS_SERVER_ADDRESS
+        value: $params.messageBrokerServer
+      - name: REDIS_SERVER_PORT
+        value: $params.messageBrokerPort
+      - name: POD_NAMESPACE
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.namespace
+      - name: SERVICE_NAME
+        value: "streamprocessing-deployment-svc"
+      - name: POD_METADATA_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.name
+      - name: POD_NAME
+        value: "$(POD_METADATA_NAME).$(SERVICE_NAME).$(POD_NAMESPACE)"
+      - name: SENSOR_MODULE_ENDPOINT
+        value: sensor-sensor-svc:30000
+      - name: CENTRALIZE_DB_NAME
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_NAME
+      - name: CENTRALIZE_DB_USERNAME
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_USERNAME
+      - name: CENTRALIZE_DB_PASSWORD
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_PASSWORD
+      - name: CENTRALIZE_DB_HOSTADDR
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_HOSTADDR
+      - name: CENTRALIZE_DB_PORT
+        valueFrom:
+          configMapKeyRef:
+            name: postgres-cm
+            key: CENTRALIZE_DB_PORT
+      livenessProbe:
+        failureThreshold: 20
+        httpGet:
+          path: /v1/ready
+          port: http-api
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 20
+        successThreshold: 1
+        timeoutSeconds: 2
+      readinessProbe:
+        failureThreshold: 50
+        httpGet:
+          path: /v1/startup
+          port: http-api
+          scheme: HTTP
+        initialDelaySeconds: 20
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 2
+
+  - name: podSecurityContext
+    type: ucf.k8s.podSecurityContext
+    parameters:
+      runAsGroup: 1000
+      runAsUser: 1000
+
+  - name: svc
+    type: ucf.k8s.service
+    parameters:
+      clusterIP: None
+      ports:
+      - port: $params.httpPort
+        protocol: TCP
+        name: http-api
+      - port: $params.rtspServerPort
+        protocol: TCP
+        name: rtspserver-port
+        range: $params.rtspServerPortRange
+
+  - name: data-storage
+    type: ucf.k8s.volume
+    parameters:
+      persistentVolumeClaim:
+        claimName: streamprocessing-local-storage
+
+  - name: local-storage
+    type: ucf.k8s.pvc
+    parameters:
+      annotations:
+        helm.sh/resource-policy: "keep"
+      spec:
+        storageClassName: mdx-local-path
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 100Gi

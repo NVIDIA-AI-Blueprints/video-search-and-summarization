@@ -1,0 +1,151 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 1.5.0
+
+version: 0.0.1
+
+name: vms-nvstreamer-test
+
+description: Developer tests for vms & nvstreamer
+
+dependencies:
+- ucf.svc.nvstreamer:0.0.4
+- ucf.svc.vms:1.1.25
+
+components:
+- name: vms
+  type: ucf.svc.vms
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    - name: imagepullsecret
+    - name: registypullsecret
+    configs:
+      vst_config.json:
+        network:
+          stunurl_list:
+            - stun.l.google.com:19302
+          # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
+          static_turnurl_list:
+            - coturn-admin:Uq3CFRYKr6rFVFcc@15.206.12.240:3478
+          # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
+          use_coturn_auth_secret: false
+          coturn_turnurl_list_with_secret:
+          # Twilio account details userId & auth_token.
+          use_twilio_stun_turn: false
+          twilio_account_sid: ""
+          twilio_auth_token: ""
+          ntp_servers:
+          # Keep this true if rtsp input is from outside cluster/subnet.
+          rtsp_streaming_over_tcp: true
+          # Max webrtc in/out connections
+          max_webrtc_out_connections: 8
+          max_webrtc_in_connections: 1
+          enable_grpc: false
+          grpc_server_port: 50051
+          udp_latency_ms: 200
+          udp_drop_on_latency: false
+          webrtc_latency_ms: 500
+          enable_frame_drop: false
+          webrtc_in_audio_sender_max_bitrate: 128000
+          webrtc_in_video_degradation_preference: "resolution"
+          webrtc_in_video_sender_max_framerate: 30
+        data:
+          total_video_storage_size_MB: 100000
+          always_recording: false
+          use_software_path: false
+          webrtc_in_fixed_resolution: "1280x720"
+          webrtc_in_max_framerate: 30
+          webrtc_in_video_bitrate_thresold_percentage: 50
+          enable_rtsp_server_sei_metadata: false
+        notifications:
+          enable_notification: false
+          # supported - redis, kafka
+          use_message_broker: "redis"
+          # Redis stream name
+          message_broker_topic: vst_events
+          redis_server_env_var: REDIS_SVC_SERVICE_HOST:9092
+          kafka_server_address: 10.0.0.1:9092
+      rtsp_streams.json:
+        streams:
+        - enabled: true
+          stream_in: rtsp://admin:nvidia123@10.110.23.2:554/cam/realmonitor?channel=1&subtype=0
+          name: Kiosk
+        - enabled: false
+          stream_in: rtsp://vst-streamer-deployment-svc:8554/tokkio_sample_clip.mkv
+          name: Sample_input
+        - enabled: false
+          stream_in: udp
+          name: Tokkio_Avatar
+          video:
+            codec: h264
+            framerate: 30
+            port: 30031
+          audio:
+            bits_per_sample: 32
+            codec: pcm
+            enabled: true
+            port: 30032
+            sample_rate_Hz: 44100
+
+- name: nvstreamer
+  type: ucf.svc.nvstreamer
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    - name: imagepullsecret
+    - name: registypullsecret
+    configs:
+      vst_config.json:
+        data:
+          nv_streamer_loop_playback: false
+          nv_streamer_seekable: false
+          nv_streamer_max_upload_file_size_MB: 10000
+          nv_streamer_media_container_supported:
+            - mp4
+            - mkv
+          nv_streamer_metadata_container_supported:
+            - json
+          supported_video_codecs:
+            - h264
+          supported_audio_codecs:
+            - pcmu
+            - mpeg4-generic
+          use_software_path: false
+          enable_rtsp_server_sei_metadata: false
+        network:
+          stunurl_list:
+            - stun.l.google.com:19302
+          static_turnurl_list:
+            - coturn-admin:Uq3CFRYKr6rFVFcc@15.206.12.240:3478
+          use_coturn_auth_secret: false
+          coturn_turnurl_list_with_secret:
+          use_twilio_stun_turn: false
+          twilio_account_sid: ""
+          twilio_auth_token: ""
+        notifications:
+          enable_notification: false
+          # supported - redis, kafka
+          use_message_broker: "redis"
+          # Redis stream name
+          message_broker_topic: nvstreamer_events
+          redis_server_env_var: REDIS_SVC_SERVICE_HOST:9092
+          kafka_server_address: 10.0.0.1:9092
+
+connections:
+  #some-app/vms-http: vms/vms
+  #some-app/nvstreamer-http: nvstreamer/http-in
+

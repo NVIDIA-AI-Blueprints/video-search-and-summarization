@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Latency Test Results - VST BDD Tests</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .controls {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        
+        .controls label {
+            display: inline-block;
+            margin-right: 10px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .controls select, .controls input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-right: 20px;
+        }
+        
+        .controls button {
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .controls button:hover {
+            background: #5568d3;
+        }
+        
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .summary-card.pass {
+            background: linear-gradient(135deg, #56ab2f 0%, #a8e063 100%);
+        }
+        
+        .summary-card.fail {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+        }
+        
+        .summary-card.partial {
+            background: linear-gradient(135deg, #f2994a 0%, #f2c94c 100%);
+        }
+        
+        .summary-card h3 {
+            font-size: 12px;
+            font-weight: normal;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+        
+        .summary-card .value {
+            font-size: 28px;
+            font-weight: bold;
+        }
+        
+        .summary-card .subvalue {
+            font-size: 11px;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+        
+        .chart-section {
+            margin: 30px 0;
+        }
+        
+        .chart-container {
+            background: #fafafa;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            margin-bottom: 20px;
+        }
+        
+        .chart-container h2 {
+            font-size: 18px;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+        
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+            position: sticky;
+            top: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        th:hover {
+            background: #e9ecef;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .badge.PASS { background: #d4edda; color: #155724; }
+        .badge.FAIL { background: #f8d7da; color: #721c24; }
+        .badge.PARTIAL { background: #fff3cd; color: #856404; }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px;
+            font-size: 18px;
+            color: #7f8c8d;
+        }
+        
+        .filter-info {
+            color: #666;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        
+        .section-header {
+            font-size: 20px;
+            color: #2c3e50;
+            margin: 40px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Latency Test Results Viewer</h1>
+        <div class="subtitle">VST API - Comprehensive Latency Analysis</div>
+        
+        <div id="loading" class="loading">Loading latency test results...</div>
+        <div id="error" class="error" style="display:none;"></div>
+        
+        <div id="content" style="display:none;">
+            <div class="controls">
+                <label>CSV File:</label>
+                <select id="csvSelector" onchange="loadSelectedCSV()">
+                    <option value="">Select a CSV file...</option>
+                </select>
+                
+                <label>Filter by API:</label>
+                <select id="apiFilter" onchange="applyFilters()">
+                    <option value="all">All</option>
+                    <option value="video-download">Video Download</option>
+                    <option value="picture-api">Picture API</option>
+                </select>
+                
+                <label>Filter by Result:</label>
+                <select id="resultFilter" onchange="applyFilters()">
+                    <option value="all">All</option>
+                    <option value="PASS">Pass</option>
+                    <option value="FAIL">Fail</option>
+                    <option value="PARTIAL">Partial</option>
+                </select>
+                
+                <button onclick="exportToCSV()">Export Filtered CSV</button>
+                <div class="filter-info" id="filterInfo"></div>
+            </div>
+            
+            <div class="summary" id="summary"></div>
+            
+            <div class="chart-section">
+                <div class="chart-container">
+                    <h2>Latency Distribution by API Type</h2>
+                    <div class="chart-wrapper">
+                        <canvas id="latencyByTypeChart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <h2>P50, P90, P99 Latency Comparison</h2>
+                    <div class="chart-wrapper">
+                        <canvas id="percentileChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <h2 class="section-header">Test Results</h2>
+            <div id="table-container"></div>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+        let filteredData = [];
+        let csvFiles = [];
+        
+        async function loadCSVFiles() {
+            try {
+                // Try to get list of CSV files
+                const response = await fetch('.');
+                const text = await response.text();
+                
+                // Parse directory listing to find CSV files
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, 'text/html');
+                const links = doc.querySelectorAll('a');
+                
+                csvFiles = [];
+                links.forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href && href.endsWith('.csv') && href.includes('api_latency')) {
+                        csvFiles.push(href);
+                    }
+                });
+                
+                if (csvFiles.length === 0) {
+                    // Fallback: try common naming pattern
+                    csvFiles = ['api_latency_comprehensive_latest.csv'];
+                }
+                
+                // Populate selector
+                const selector = document.getElementById('csvSelector');
+                csvFiles.forEach(file => {
+                    const option = document.createElement('option');
+                    option.value = file;
+                    option.textContent = file;
+                    selector.appendChild(option);
+                });
+                
+                // Auto-load most recent (last in list)
+                if (csvFiles.length > 0) {
+                    selector.value = csvFiles[csvFiles.length - 1];
+                    loadSelectedCSV();
+                }
+            } catch (error) {
+                // If directory listing fails, try to load any CSV directly
+                tryLoadAnyCSV();
+            }
+        }
+        
+        async function tryLoadAnyCSV() {
+            // Try to find any CSV file in current directory
+            const commonNames = [
+                'api_latency_comprehensive_latest.csv',
+                ...Array.from({length: 10}, (_, i) => {
+                    const date = new Date();
+                    date.setDate(date.getDate() - i);
+                    return `api_latency_comprehensive_${date.toISOString().split('T')[0].replace(/-/g, '')}_*.csv`;
+                })
+            ];
+            
+            for (const name of commonNames) {
+                try {
+                    await loadCSV(name);
+                    return;
+                } catch (e) {
+                    continue;
+                }
+            }
+            
+            showError('No CSV files found. Please select a CSV file from the dropdown above.');
+        }
+        
+        async function loadSelectedCSV() {
+            const selector = document.getElementById('csvSelector');
+            const csvFile = selector.value;
+            
+            if (!csvFile) return;
+            
+            try {
+                await loadCSV(csvFile);
+            } catch (error) {
+                showError('Error loading CSV: ' + error.message);
+            }
+        }
+        
+        async function loadCSV(filename) {
+            const response = await fetch(filename);
+            if (!response.ok) {
+                throw new Error(`Failed to load ${filename}`);
+            }
+            
+            const csvText = await response.text();
+            
+            Papa.parse(csvText, {
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    allData = results.data.filter(row => row['Stream UUID']); // Remove empty rows
+                    filteredData = allData;
+                    displayData();
+                }
+            });
+        }
+        
+        function applyFilters() {
+            const apiFilter = document.getElementById('apiFilter').value;
+            const resultFilter = document.getElementById('resultFilter').value;
+            
+            filteredData = allData.filter(row => {
+                const apiMatch = apiFilter === 'all' || row.API === apiFilter;
+                const resultMatch = resultFilter === 'all' || row.Result === resultFilter;
+                return apiMatch && resultMatch;
+            });
+            
+            const filterInfo = document.getElementById('filterInfo');
+            filterInfo.textContent = `Showing ${filteredData.length} of ${allData.length} scenarios`;
+            
+            displayData();
+        }
+        
+        function displayData() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+            
+            displaySummary();
+            displayCharts();
+            displayTable();
+        }
+        
+        function displaySummary() {
+            const summary = document.getElementById('summary');
+            
+            const totalScenarios = filteredData.length;
+            const passed = filteredData.filter(r => r.Result === 'PASS').length;
+            const failed = filteredData.filter(r => r.Result === 'FAIL').length;
+            const partial = filteredData.filter(r => r.Result === 'PARTIAL').length;
+            const passRate = totalScenarios > 0 ? ((passed / totalScenarios) * 100).toFixed(1) : 0;
+            
+            const avgLatency = filteredData.length > 0
+                ? (filteredData.reduce((sum, r) => sum + (r['Avg Latency(ms)'] || 0), 0) / filteredData.length).toFixed(0)
+                : 0;
+            
+            const p99Latencies = filteredData.map(r => r['P99(ms)'] || 0);
+            const maxP99 = p99Latencies.length > 0 ? Math.max(...p99Latencies) : 0;
+            const avgP99 = p99Latencies.length > 0
+                ? (p99Latencies.reduce((sum, val) => sum + val, 0) / p99Latencies.length).toFixed(0)
+                : 0;
+            
+            summary.innerHTML = `
+                <div class="summary-card">
+                    <h3>Total Scenarios</h3>
+                    <div class="value">${totalScenarios}</div>
+                    <div class="subvalue">${allData.length} total in file</div>
+                </div>
+                <div class="summary-card pass">
+                    <h3>Passed</h3>
+                    <div class="value">${passed}</div>
+                    <div class="subvalue">${passRate}% pass rate</div>
+                </div>
+                <div class="summary-card fail">
+                    <h3>Failed</h3>
+                    <div class="value">${failed}</div>
+                    <div class="subvalue">${failed > 0 ? 'Needs attention' : 'All good!'}</div>
+                </div>
+                <div class="summary-card partial">
+                    <h3>Partial</h3>
+                    <div class="value">${partial}</div>
+                    <div class="subvalue">${partial > 0 ? 'Some iterations failed' : 'None'}</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Avg Latency</h3>
+                    <div class="value">${avgLatency}ms</div>
+                    <div class="subvalue">Across all scenarios</div>
+                </div>
+                <div class="summary-card">
+                    <h3>P99 Latency</h3>
+                    <div class="value">${avgP99}ms</div>
+                    <div class="subvalue">Max: ${maxP99}ms</div>
+                </div>
+            `;
+        }
+        
+        function displayCharts() {
+            // Chart 1: Latency by API Type
+            const apiGroups = {};
+            filteredData.forEach(row => {
+                const api = row.API || 'Unknown';
+                if (!apiGroups[api]) {
+                    apiGroups[api] = { avg: [], p50: [], p90: [], p99: [] };
+                }
+                apiGroups[api].avg.push(row['Avg Latency(ms)'] || 0);
+                apiGroups[api].p50.push(row['P50(ms)'] || 0);
+                apiGroups[api].p90.push(row['P90(ms)'] || 0);
+                apiGroups[api].p99.push(row['P99(ms)'] || 0);
+            });
+            
+            const ctx1 = document.getElementById('latencyByTypeChart').getContext('2d');
+            new Chart(ctx1, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(apiGroups),
+                    datasets: [
+                        {
+                            label: 'Average',
+                            data: Object.values(apiGroups).map(g => 
+                                g.avg.reduce((sum, val) => sum + val, 0) / g.avg.length
+                            ),
+                            backgroundColor: 'rgba(102, 126, 234, 0.6)',
+                            borderColor: 'rgba(102, 126, 234, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'P99',
+                            data: Object.values(apiGroups).map(g => 
+                                g.p99.reduce((sum, val) => sum + val, 0) / g.p99.length
+                            ),
+                            backgroundColor: 'rgba(235, 51, 73, 0.6)',
+                            borderColor: 'rgba(235, 51, 73, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(0) + 'ms';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Latency (ms)' }
+                        }
+                    }
+                }
+            });
+            
+            // Chart 2: Percentile comparison
+            const scenarios = filteredData.map((r, i) => `Scenario ${i + 1}`);
+            const p50Data = filteredData.map(r => r['P50(ms)'] || 0);
+            const p90Data = filteredData.map(r => r['P90(ms)'] || 0);
+            const p99Data = filteredData.map(r => r['P99(ms)'] || 0);
+            
+            const ctx2 = document.getElementById('percentileChart').getContext('2d');
+            new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: scenarios,
+                    datasets: [
+                        {
+                            label: 'P50',
+                            data: p50Data,
+                            borderColor: '#4BC0C0',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: false
+                        },
+                        {
+                            label: 'P90',
+                            data: p90Data,
+                            borderColor: '#FFCE56',
+                            backgroundColor: 'rgba(255, 206, 86, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: false
+                        },
+                        {
+                            label: 'P99',
+                            data: p99Data,
+                            borderColor: '#FF6384',
+                            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(0) + 'ms';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Latency (ms)' }
+                        },
+                        x: {
+                            display: filteredData.length <= 20,
+                            ticks: { maxRotation: 90, minRotation: 45 }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function displayTable() {
+            const tableContainer = document.getElementById('table-container');
+            
+            let html = '<table id="resultsTable">';
+            html += '<thead><tr>';
+            html += '<th onclick="sortTable(0)">Stream UUID ▴▾</th>';
+            html += '<th onclick="sortTable(1)">Type ▴▾</th>';
+            html += '<th onclick="sortTable(2)">API ▴▾</th>';
+            html += '<th onclick="sortTable(3)">Duration ▴▾</th>';
+            html += '<th onclick="sortTable(4)">Offset(ms) ▴▾</th>';
+            html += '<th onclick="sortTable(5)">Recency ▴▾</th>';
+            html += '<th onclick="sortTable(6)">Transcode ▴▾</th>';
+            html += '<th onclick="sortTable(7)">Result ▴▾</th>';
+            html += '<th onclick="sortTable(8)">Avg(ms) ▴▾</th>';
+            html += '<th onclick="sortTable(9)">P50(ms) ▴▾</th>';
+            html += '<th onclick="sortTable(10)">P90(ms) ▴▾</th>';
+            html += '<th onclick="sortTable(11)">P99(ms) ▴▾</th>';
+            html += '<th onclick="sortTable(12)">Max(ms) ▴▾</th>';
+            html += '<th onclick="sortTable(13)">Pass/Total ▴▾</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+            
+            filteredData.forEach(row => {
+                const passTotal = `${row['Pass Count']}/${row['Pass Count'] + row['Fail Count']}`;
+                const resultBadge = row.Result ? `<span class="badge ${row.Result}">${row.Result}</span>` : '';
+                
+                html += '<tr>';
+                html += `<td title="${row['Stream UUID']}">${(row['Stream UUID'] || '').substring(0, 12)}...</td>`;
+                html += `<td>${row['Stream Type'] || ''}</td>`;
+                html += `<td>${row.API || ''}</td>`;
+                html += `<td>${row['Clip Duration'] || ''}</td>`;
+                html += `<td>${row['Offset(ms)'] || ''}</td>`;
+                html += `<td>${row['Recency pattern'] || ''}</td>`;
+                html += `<td>${row['Transcode option'] || ''}</td>`;
+                html += `<td>${resultBadge}</td>`;
+                html += `<td>${row['Avg Latency(ms)'] || 0}</td>`;
+                html += `<td>${row['P50(ms)'] || 0}</td>`;
+                html += `<td>${row['P90(ms)'] || 0}</td>`;
+                html += `<td>${row['P99(ms)'] || 0}</td>`;
+                html += `<td>${row['Max(ms)'] || 0}</td>`;
+                html += `<td>${passTotal}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            tableContainer.innerHTML = html;
+        }
+        
+        function sortTable(columnIndex) {
+            const table = document.getElementById('resultsTable');
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            
+            const sortedRows = rows.sort((a, b) => {
+                const aText = a.cells[columnIndex].textContent.trim();
+                const bText = b.cells[columnIndex].textContent.trim();
+                
+                // Try to compare as numbers first
+                const aNum = parseFloat(aText);
+                const bNum = parseFloat(bText);
+                
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    return bNum - aNum; // Descending
+                }
+                
+                return aText.localeCompare(bText);
+            });
+            
+            // Clear and re-add rows
+            tbody.innerHTML = '';
+            sortedRows.forEach(row => tbody.appendChild(row));
+        }
+        
+        function exportToCSV() {
+            const headers = ['Stream UUID', 'Stream Type', 'API', 'Clip Duration', 'Offset(ms)',
+                           'Recency pattern', 'Transcode option', 'Result',
+                           'Avg Latency(ms)', 'P50(ms)', 'P90(ms)', 'P99(ms)', 'Max(ms)',
+                           'Pass Count', 'Fail Count'];
+            
+            let csv = headers.join(',') + '\n';
+            
+            filteredData.forEach(row => {
+                const values = headers.map(h => {
+                    const val = row[h] || '';
+                    return typeof val === 'string' && val.includes(',') ? `"${val}"` : val;
+                });
+                csv += values.join(',') + '\n';
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `filtered_latency_results_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+        }
+        
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error').textContent = message;
+        }
+        
+        // Load CSV files on page load
+        loadCSVFiles();
+    </script>
+</body>
+</html>
+

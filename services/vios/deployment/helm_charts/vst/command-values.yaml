@@ -1,0 +1,161 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+vms:
+  imagePullSecrets:
+  - name: ngc-docker-reg-secret
+  - name: ngc-api-key-secret
+  applicationSpecs:
+    vms:
+      containers:
+        vms-container:
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          env:
+          - name: NVIDIA_VISIBLE_DEVICES
+            value: '0'
+
+  configs:
+    vst_config.json:
+      network:
+        server_domain_name: ""
+        stunurl_list:
+          - stun.l.google.com:19302
+        # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
+        static_turnurl_list: ["admin:admin@10.24.218.113:3478"]
+        # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
+        use_coturn_auth_secret: false
+        coturn_turnurl_list_with_secret:
+        # Twilio account details userId & auth_token.
+        use_twilio_stun_turn: false
+        twilio_account_sid: ""
+        twilio_auth_token: ""
+        # Reverse Proxy details
+        use_reverse_proxy: false
+        reverse_proxy_server_address: REVERSE_PROXY_SERVER_ADDRESS:100
+        use_sensor_ntp_time: false
+        rtsp_server_instances_count: 1
+        # Camera to vst streaming, UDP option might not work in k8s cluster
+        rtsp_streaming_over_tcp: false
+        max_webrtc_out_connections: 20
+        max_webrtc_in_connections: 20
+        webrtc_peer_conn_timeout_sec: 10
+        enable_grpc: false
+        grpc_server_port: 50051
+        enable_frame_drop: false
+        webrtc_port_range:
+          min: 0
+          max: 0
+        enable_websocket_pingpong: true
+        websocket_keep_alive_ms: 10000
+      data:
+        device_name: "VST"
+        device_location: "Pune"
+        gpu_indices: [0]
+        always_recording: false
+        use_software_path: false
+        #use_webrtc_inbuilt_encoder: ""
+        webrtc_out_enable_insert_sps_pps: true
+        webrtc_out_set_idr_interval: 30
+        webrtc_in_passthrough: true
+        webrtc_sender_quality: "pass_through"
+      notifications:
+        enable_notification: false
+        # supported - redis, kafka
+        use_message_broker: "kafka"
+        # Redis stream name
+        message_broker_topic: mdx-notification
+        message_broker_payload_key: "sensor"
+        redis_server_env_var: REDIS_SVC_SERVICE_HOST:9092
+        kafka_server_address: mdx-kafka-cluster-kafka-brokers:9092
+      overlay:
+        video_metadata_server: "mdx-elasticsearch-cluster-master-headless:9200/mdx-raw*"
+        video_metadata_query_batch_size_num_frames: 300
+        use_video_metadata_protobuf: true
+      debug:
+        enable_perf_logging: true
+        enable_prometheus: false
+        prometheus_port: "8080"
+        enable_debug_apis: true
+        dump_webrtc_input_stats: false
+        enable_frameid_in_webrtc_stream: false
+
+    vst_storage.json:
+      total_video_storage_size_MB: 100000
+
+    # Choose adaptor type between onvif (auto-detect onvif cameras) & vst_rtsp (pre-defined rtsp urls in file)
+    adaptor_config.json:
+      vst:
+      - enabled: false
+        control_adaptor_lib_path: prebuilts/arch/onvif_client.so
+        discovery_adaptor_lib_path: prebuilts/arch/onvif_discovery.so
+        id: 044bc643-33c5-479a-b988-10d0bbc4e05c
+        name: onvif
+        need_recording: true
+        need_rtsp_server: true
+        type: vst
+      - enabled: true
+        control_adaptor_lib_path: prebuilts/arch/rtsp_streams.so
+        id: 6cdec7d7-0f30-450c-a78a-756c3e132fd3
+        name: vst_rtsp
+        need_recording: true
+        need_rtsp_server: true
+        type: vst
+      - enabled: false
+        control_adaptor_lib_path: prebuilts/arch/libremotedevice.so
+        id: 780bd844-5d1c-11ee-8c99-0242ac120002
+        name: remote
+        need_recording: true
+        need_rtsp_server: true
+        type: vst
+
+    # Known rtsp urls can be provided statically in below config
+    rtsp_streams.json:
+      streams:
+        - enabled: true
+          stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Endeavor_Cafeteria.mp4
+          name: Endeavor_Cafeteria
+        - enabled: true
+          stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam1.mp4
+          name: Building_K_Cam1
+        - enabled: false
+          stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam2.mp4
+          name: Building_K_Cam2
+        - enabled: false
+          stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam7.mp4
+          name: Building_K_Cam7
+        - enabled: false
+          stream_in: rtsp://vst-streamer-deployment-svc:8554/tokkio_sample_clip.mkv
+          name: Sample_input
+
+  ingress:
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: '0'
+      nginx.ingress.kubernetes.io/rewrite-target: /$1
+    className: nginx
+    enabled: true
+    rules:
+    - http:
+        paths:
+        - backend:
+            service:
+              name: vms-vms-svc
+              port:
+                number: 30000
+          path: /vms/(.*)
+          pathType: Prefix
+
+

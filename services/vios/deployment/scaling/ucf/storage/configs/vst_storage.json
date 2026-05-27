@@ -1,0 +1,5 @@
+{
+	"data_path": "/opt/vmounts/vst-data/",
+	"video_path": "/opt/vmounts/video-data/",
+	"total_video_storage_size_MB": 100000
+}

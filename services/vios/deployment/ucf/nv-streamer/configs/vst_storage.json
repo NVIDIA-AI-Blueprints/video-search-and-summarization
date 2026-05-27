@@ -1,0 +1,5 @@
+{
+	"data_path": "/opt/vmounts/streamer-database/",
+	"video_path": "/opt/vmounts/streamer-videos/",
+	"total_video_storage_size_MB": 10000
+}

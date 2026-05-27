@@ -1,0 +1,134 @@
+podTemplate(cloud:'sc-ipp-blossom-prod', yaml: '''
+apiVersion: v1
+kind: Pod
+spec:
+  imagePullSecrets:
+  - name: svc-tokkio-ngc-ro
+  containers:
+  - name: ms-val-base
+    image: nvcr.io/metropolis/ms-validator/ms-validator-base:0.5.2-ucf-tools-2.8-rc1
+    imagePullPolicy: Always
+    env:
+    - name: LC_ALL
+      value: "C.UTF-8"
+    command:
+    - sleep
+    args:
+    - 1d
+  - name: docker
+    image: docker:19.03.1-dind
+    securityContext:
+      privileged: true
+    env:
+      - name: DOCKER_TLS_CERTDIR
+        value: ""
+  nodeSelector:
+    kubernetes.io/os: linux  
+    
+''') {
+    node(POD_LABEL) {
+        container('docker') {
+            stage ("docker-promote") {
+                docker.withRegistry('https://nvcr.io', 'NGC_API_KEY_SVC_TOKKIO_NGC'){
+                    echo "Promoting Docker Containers to ngc team"
+                    //Containers 
+                    //sh 'docker pull nvcr.io/rxczgrvsg8nx/vst-1-0/vst:v1.2.58_x86_64'
+                    //docker tagging for pushing it to tokkio prod
+                    //sh 'docker tag nvcr.io/rxczgrvsg8nx/vst-1-0/vst:v1.2.58_x86_64 nvcr.io/eevaigoeixww/media-service/vst:1.2.58'
+                    //Container
+                    //sh 'docker push nvcr.io/eevaigoeixww/media-service/vst:1.2.58'
+
+                }
+            }
+        }
+
+
+        container('ms-val-base') {
+            withCredentials([string(credentialsId: 'ngc_nv_ucf_pak', variable: 'NGC_CLI_API_KEY')]) {
+
+                stage ("checkout") {
+                    gitlabCommitStatus(name: 'checkout', connection: gitLabConnection('gitlab-master-media-service')) {
+                        checkout scm
+                        sh "ls -lrt"
+                        sh 'env | sort'
+                    }
+                }
+
+                stage('parameter-validation') {
+                    //Any Parameter Validation code should go here.
+                    echo "Received ${params.PUSH_TO_PROD}"
+                    if ( !(params.PUSH_TO_PROD?.trim()) || (params.PUSH_TO_PROD != "True" &&  params.PUSH_TO_PROD != "False")) {
+                        currentBuild.result = 'ABORTED'
+                        error("Invalid Value in PUSH_TO_PROD")
+                    }
+                }
+
+                stage ("resources-promote") {
+                    gitlabCommitStatus(name: 'resources-promote', connection: gitLabConnection('gitlab-master-media-service')) {
+                        echo "Promoting resources to ngc team"                    
+                    }
+                }
+
+                stage ("models-promote") {
+                    gitlabCommitStatus(name: 'models-promote', connection: gitLabConnection('gitlab-master-media-service')) {
+                        echo "Promoting models to ngc team"
+                    }
+                }
+                stage('ucf-cli-setup') {
+                    gitlabCommitStatus(name: 'ucf-cli-setup', connection: gitLabConnection('gitlab-master-media-service')) {
+                        echo "Starting MS Build using UCF-tool CLI"
+                        sh """#!/bin/bash -xe
+                        pwd
+                        ls -alrth
+                        locale
+                        export LC_ALL=C.UTF-8
+                        ucf_ms_builder_cli registry repo set-api-key -a \${NGC_CLI_API_KEY}
+                        ucf_app_builder_cli --version
+                        """
+                    }
+                }
+
+                stage('ucf-ms-build') {
+                    gitlabCommitStatus(name: 'ucf-ms-build', connection: gitLabConnection('gitlab-master-media-service')) {
+                        echo "Starting MS Build using UCF-tool CLI"
+                        sh """#!/bin/bash -xe
+                            MAN_MS_VER=`cat deployment/ucf/vst/ucf.svc.vms/manifest.yaml | grep version | cut -d ' ' -f2`
+                            if [[ "\$MAN_MS_VER" == "\$UCF_MS_VERSION" ]]; then
+                                 echo "Version matches, will progress pipeline for ms build"
+ 
+                            else
+                                  echo "Please enter MS version correctly while building the pipeline compare with version configured in manifest.yaml file"
+                                  exit 1
+ 
+                            fi
+                        """                        
+                        // Keep the MS path consistent in repo for MS build
+                        sh "pwd ;cd deployment/ucf/vst/ucf.svc.vms/"
+                        sh "pwd ;ls -alrth"
+                        //Cleanup ouput directory on each run
+                        sh ("rm -rf deployment/ucf/vst/ucf.svc.vms/output")
+                        //sh ("ucf_ms_builder_cli registry cache clear; ucf_ms_builder_cli registry repo clear; ucf_ms_builder_cli service sync -n ucf.svc.${params.UCF_MS_NAME} -v ${params.UCF_MS_VERSION} ; ucf_ms_builder_cli service remove -n ucf.svc.${params.UCF_MS_NAME} -s ${params.UCF_MS_VERSION} ; ucf_ms_builder_cli service versions -n ucf.svc.${params.UCF_MS_NAME} ")
+                        sh ("ucf_ms_builder_cli service build -d deployment/ucf/vst/ucf.svc.vms/ --push")
+                        sh ("ls -alrth deployment/ucf/vst/ucf.svc.vms/")
+                        echo "================================= Done building MS ucf.svc.${params.UCF_MS_NAME}:${params.UCF_MS_VERSION} ==================================="
+                    }
+                }
+
+                stage('ucf-ms-validate') {
+                    gitlabCommitStatus(name: 'ucf-ms-validate', connection: gitLabConnection('gitlab-master-media-service')) {
+                        if (params.PUSH_TO_PROD == 'True') {
+                            sh ("ucf_ms_builder_cli service validate -n ucf.svc.${params.UCF_MS_NAME} -v ${params.UCF_MS_VERSION} --push_to_prod")
+                        }
+                        if (params.PUSH_TO_PROD == 'False') {
+                            sh ("ucf_ms_builder_cli service validate -n ucf.svc.${params.UCF_MS_NAME} -v ${params.UCF_MS_VERSION}")
+                        }
+                        sh ("ucf_ms_builder_cli registry cache clear; ucf_ms_builder_cli registry repo clear; ucf_ms_builder_cli service sync -n ucf.svc.${params.UCF_MS_NAME} -v ${params.UCF_MS_VERSION}")
+                        sh "bash /apps/status_check_ms_val.sh"
+                        sh ("ucf_ms_builder_cli service info -n ucf.svc.${params.UCF_MS_NAME} -v ${params.UCF_MS_VERSION}")
+                        echo "================================= Done Validating MS ucf.svc.${params.UCF_MS_NAME}:${params.UCF_MS_VERSION} ==================================="
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,99 @@
+---
+description: "Deep reference: VIOS configuration system, threading, logging, utilities, and DeviceManager"
+globs: "src/framework/utilities/**,include/device_manager.h,include/error_code.h"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Configuration (config.h, config.cpp)
+
+## Config Files
+
+| File | Default Path | Purpose |
+|------|--------------|---------|
+| `vst_config.json` | `configs/vst_config.json` | Main config (overridable: `--viosConfigFile`) |
+| `adaptor_config.json` | `configs/adaptor_config.json` | Adaptor selection (overridable: `--adaptorConfigFile`) |
+| `vst_storage.json` | `configs/vst_storage.json` | Storage paths |
+
+## vst_config.json Sections
+
+- **network**: `http_port` (81), `stunurl_list`, `max_webrtc_{out,in}_connections` (8), `rtsp_server_port`, `grpc_server_port` (50051), `webrtc_peer_conn_timeout_sec` (10), `rx/tx_socket_buffer_size`, `enable_websocket_pingpong`
+- **onvif**: `device_discovery_timeout_secs` (10), `device_discovery_freq_secs` (15), `max_devices_supported` (8), `default_bitrate/framerate/resolution/gov_length`
+- **data**: `storage_threshold_percentage` (95), `use_software_path`, `webrtc_in_passthrough`, `webrtc_sender_quality`, encoder settings (idr_interval, iframe_interval, enc_preset), `centralize_db_*`, `enable_cloud_storage`, `gpu_indices`
+- **notifications**: `enable_notification`, `use_message_broker` (redis/kafka/mqtt), `message_broker_topic`, broker addresses
+- **debug**: `enable_perf_logging`, `enable_qos_monitoring`, `enable_prometheus`, `prometheus_port`, `enable_system_metric`
+- **overlay**: `video_metadata_server`, `use_video_metadata_protobuf`, `bbox_tolerance_ms`, `overlay_color_code`, `overlay_class_labels`
+- **security**: `use_https`, `use_multi_user`, `session_max_age_sec`, `use_http_digest_authentication`, `use_rtsp_authentication`
+- **observability**: `enable_telemetry`, `otlp_endpoint`
+
+## Command Line (cmdline_parser.cpp)
+
+`--viosConfigFile`, `--adaptorConfigFile`, `--onvifFile`, `--rtspStreamsFile`, `--debug-level 1-5` (error/warning/info/verbose/verbose2), `--log-to-file <path>`
+
+# Logging (logger.h, logger.cpp)
+
+- Levels: `error=1, warning, info, verbose, verbose2`
+- Macros: `LOG(level)` -> `Logger::log(Level, __FUNCTION__, __FILENAME__, __LINE__)` + stream
+- `LOG_QOS(...)` -- CSV to separate QoS file
+- Output: console (colored if `enable_highlighting_logs`), file (`--log-to-file`), WebSocket log stream (non-release)
+- Thread-safe: `std::mutex m_LogLock`
+- No built-in rotation; QoS creates new file per run
+
+# Threading
+
+## EventLoop (event_loop.h)
+
+Single worker thread + message queue. `postMsg(shared_ptr<EventLoopData>)` enqueues; optional sync wait. Timeouts: `POST_MESSAGE_MAX_WAIT_SEC=15`, `PROCESS_FUNCTION_MAX_WAIT_SEC=10`.
+
+## ctpl Thread Pool (`include/3rdparty/Bosma/Scheduler/ctpl_stl.h`)
+
+`ctpl::thread_pool` -- lock-free queue (boost variant) or STL queue. `push()` returns `std::future`. Default queue: 100.
+
+## Bosma Scheduler (`include/3rdparty/Bosma/Scheduler/Scheduler.h`)
+
+Wraps ctpl pool. Task types: `InTask`, `EveryTask`, `CronTask`. Pool size: `max_n_tasks + 1`.
+
+## GarbageCollector (garbagecollector.h)
+
+Background thread every 5s, deletes `shared_ptr<void>` older than 5s. `insert(ptr, need_deletion)`.
+
+## SyncObject (syncobject.h)
+
+`wait(duration_ms)` + `signal()` using mutex/condvar/atomic.
+
+## Async Library
+
+`libasync++` -- `async::spawn()` for GMainLoop thread and parallel work. `std::async`/`std::future` for WebRTC, RTSP, SystemMonitoring.
+
+# DeviceManager (include/device_manager.h)
+
+- Identity: `name`, `id`, `location`, `ip`, `user`, `password`, `port`, `url`, `type`
+- State: `isOnline`, `isRemoteDevice`, `isRtspAdaptor`, `enabled`
+- Capabilities: `needRtspServer`, `needRecording`, `needStorageMngt`, `needStreamMonitoring`
+- Sensor map: `std::map<string, shared_ptr<SensorInfo>> sensors` protected by `m_sensorsMutex`
+- Methods: CRUD sensors, streams, PTZ, device info, `deviceManagerInit(module_id)`
+- Adaptor pairs: `m_sensorControlobjectPair`, `m_sensorDiscoveryObjectPairList`
+
+# Key Utilities (utils.h/cpp)
+
+- **Config loaders**: `loadVmsConfig()`, `loadStorageConfig()`, `getAdaptorInfo()`, `getMediaAdaptorLibPath()`
+- **String**: `replaceString()`, `splitString()`, `secureUrlForLogging()`, `maskSensitiveData()`, `truncateString()`
+- **Time**: `getCurrentTimeMS()`, `getEpocTimeInMS()`, `convertEpocToISO8601()`, `validateISOTime()`
+- **Network**: `getHostIP()`, `validateIpAddress()`, `ping()`, `getRedisServerEndpoint()`, `getKafkaServerEndpoint()`
+- **Error mapping**: `translateVmsErrorCodeToCameraHttpErrorCode()`, `getCameraErrorCodeString()`
+- **System**: `runCMD()`, `getAvailableMemory()`, `getSystemStats()`, `detectGPU()`
+- **Encoding**: `base64_encode/decode()`, `get_aes_key()`, `generate_uuid()`

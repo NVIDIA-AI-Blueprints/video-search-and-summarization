@@ -1,0 +1,19 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Nvidia VST",
+    "license": {
+      "name": "Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved."
+    },
+    "version": "1.0.8"
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "paths": {
+  },
+  "components": {
+  }
+}

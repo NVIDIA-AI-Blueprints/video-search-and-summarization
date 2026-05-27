@@ -1,0 +1,253 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+################ Build override values to vst scaling-app chart ################
+
+
+messageBrokerAddressValue: &messageBrokerAddressValue "mdx-redis-master"
+#messageBrokerAddressValue: &messageBrokerAddressValue "redis-timeseries-redis-timeseries-svc"
+messageBrokerPortValue: &messageBrokerPortValue "6379"
+
+# VST sensor managemanet service #
+vst-sensor:
+  imagePullSecrets:
+  - name: ngc-docker-reg-secret
+  messageBrokerServer: *messageBrokerAddressValue
+  messageBrokerPort: *messageBrokerPortValue
+
+  applicationSpecs:
+    sensor:
+      volumes: []
+      containers:
+        sensor-container:
+          volumeMounts: []
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: 30000
+      onvif:
+        max_devices_supported: 16
+      notifications:
+        enable_notification: false
+        # supported - redis, kafka
+        use_message_broker: "redis"
+      data:
+        max_network_db_connections: 2
+
+# VST rtsp server service #
+vst-rtspserver:
+  replicas: 2
+  imagePullSecrets:
+  - name: ngc-docker-reg-secret
+  messageBrokerServer: *messageBrokerAddressValue
+  messageBrokerPort: *messageBrokerPortValue
+
+  applicationSpecs:
+    deployment:
+      volumes: []
+      containers:
+        rtspserver:
+          volumeMounts: []
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: 31000
+        server_domain_name:
+        rtsp_server_port: 31554
+        rtsp_server_instances_count: 1
+        rtsp_preferred_network_iface:
+        rtcp_rtp_port_multiplex: true
+        rtsp_streaming_over_tcp: false
+        rx_socket_buffer_size: 1000000
+        tx_socket_buffer_size: 1000000
+      data:
+        enable_rtsp_server_sei_metadata: false
+        max_network_db_connections: 2
+        enable_cloud_storage: true
+        cloud_storage_type: "minio"
+        cloud_storage_endpoint: "http://vst-minio-deployment-svc:9000"
+        cloud_storage_access_key: "admin"
+        cloud_storage_secret_key: "nvidia123!"
+        cloud_storage_bucket: "videos"
+      notifications:
+        enable_notification: false
+        # supported - redis, kafka
+        use_message_broker: "redis"
+
+# VST recorder service #
+vst-recorder:
+  replicas: 2
+  imagePullSecrets:
+  - name: ngc-docker-reg-secret
+  messageBrokerServer: *messageBrokerAddressValue
+  messageBrokerPort: *messageBrokerPortValue
+
+  applicationSpecs:
+    deployment:
+      volumes: []
+      containers:
+        recorder:
+          volumeMounts: []
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: 32000
+        server_domain_name:
+      data:
+        always_recording: true
+        event_recording: false
+        event_record_length_secs: 10
+        record_buffer_length_secs: 2
+        recorder_enable_frame_drop: true
+        recorder_max_frame_queue_size_bytes: 16000000
+        max_network_db_connections: 10
+        enable_cloud_storage: true
+        cloud_storage_type: "minio"
+        cloud_storage_endpoint: "http://vst-minio-deployment-svc:9000"
+        cloud_storage_access_key: "admin"
+        cloud_storage_secret_key: "nvidia123!"
+        cloud_storage_bucket: "videos"
+      notifications:
+        enable_notification: false
+        # supported - redis, kafka
+        use_message_broker: "redis"
+
+# VST storage service #
+vst-storage:
+  imagePullSecrets:
+  - name: ngc-docker-reg-secret
+
+  applicationSpecs:
+    deployment:
+      volumes:  []
+      containers:
+        storage:
+          volumeMounts: []
+  storageClaims: []
+
+  configs:
+    vst_storage.json:
+      total_video_storage_size_MB: 100000
+    vst_config.json:
+      network:
+        http_port: 33000
+        server_domain_name:
+      data:
+        storage_threshold_percentage: 95
+        storage_monitoring_frequency_secs: 2
+        max_video_download_size_MB: 1000
+        use_software_path: false
+        max_network_db_connections: 5
+        enable_cloud_storage: true
+        cloud_storage_type: "minio"
+        cloud_storage_endpoint: "http://vst-minio-deployment-svc:9000"
+        cloud_storage_access_key: "admin"
+        cloud_storage_secret_key: "nvidia123!"
+        cloud_storage_bucket: "videos"
+      overlay:
+        video_metadata_server:
+        use_video_metadata_protobuf: false
+        enable_gem_drawing: true
+        overlay_text_font_type: "DejaVuSansMono.ttf"
+
+# VST livestream service #
+vst-livestream:
+  replicas: 1
+  imagePullSecrets:
+  - name: ngc-docker-reg-secret
+  messageBrokerServer: *messageBrokerAddressValue
+  messageBrokerPort: *messageBrokerPortValue
+
+  applicationSpecs:
+    deployment:
+      volumes: []
+      containers:
+        livestream:
+          volumeMounts: []
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: 34000
+        max_webrtc_out_connections: 8
+        max_webrtc_in_connections: 8
+      data:
+        max_network_db_connections: 1
+
+# VST replaystream service #
+vst-replaystream:
+  replicas: 1
+  imagePullSecrets:
+  - name: ngc-docker-reg-secret
+  messageBrokerServer: *messageBrokerAddressValue
+  messageBrokerPort: *messageBrokerPortValue
+
+  applicationSpecs:
+    deployment:
+      volumes: []
+      containers:
+        replaystream:
+          volumeMounts: []
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: 35000
+        max_webrtc_out_connections: 8
+        max_webrtc_in_connections: 8
+      data:
+        max_network_db_connections: 1
+        enable_cloud_storage: true
+        cloud_storage_type: "minio"
+        cloud_storage_endpoint: "http://vst-minio-deployment-svc:9000"
+        cloud_storage_access_key: "admin"
+        cloud_storage_secret_key: "nvidia123!"
+        cloud_storage_bucket: "videos"
+
+# VST postgres service #
+#vst-postgres:
+#  configMaps:
+#    postgres-cm:
+#      data:
+#        CENTRALIZE_DB_NAME: "nvcentralizedb"
+#        CENTRALIZE_DB_USERNAME: "vst"
+#        CENTRALIZE_DB_PASSWORD: "nvidia123"
+#        CENTRALIZE_DB_HOSTADDR: "vst-postgres-deployment-svc"
+#        CENTRALIZE_DB_PORT: "5432"
+
+########## SDR configs #################
+
+# SDR-envoy for VST rtsp server service #
+vst-rtspserver-sdr:
+  wdmMaxReplica: 2
+  wdmMaxStreamsPerReplica: 4
+
+# SDR-envoy for VST rtsp server service #
+vst-recorder-sdr:
+  wdmMaxReplica: 2
+  wdmMaxStreamsPerReplica: 4
+
+# SDR-envoy for VST livestream service #
+vst-livestream-sdr:
+  wdmMaxReplica: 2
+  wdmMaxStreamsPerReplica: 4
+
+# SDR-envoy for VST replaystream service #
+vst-replaystream-sdr:
+  wdmMaxReplica: 2
+  wdmMaxStreamsPerReplica: 4

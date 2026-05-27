@@ -1,0 +1,6 @@
+List of changes in the current version w.r.t previous version:
+
+1. Updated README.md format
+2. updated the display name & attributes
+3. ASR issue fix
+

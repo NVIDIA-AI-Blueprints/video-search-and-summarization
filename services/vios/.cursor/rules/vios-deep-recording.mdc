@@ -1,0 +1,78 @@
+---
+description: "Deep reference: Recording module -- stream recorder, muxer, storage writer, aging, cloud"
+globs: "src/modules/stream_recorder/**,src/framework/media/media_pipelines/gstmux.*,src/framework/media/media_pipelines/VideoQueue.*,src/framework/unified_storage/**"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Recording Module
+
+## Key Classes
+
+| Class | File | Role |
+|-------|------|------|
+| StreamRecorder | `stream_recorder/streamrecorder.h` | Top-level IVstModule, owns recorders, schedules |
+| NvGstVideoRecorder | `stream_recorder/nvgstvideowriter.h` | Per-stream recorder, owns GstMux |
+| RecordScheduler | `stream_recorder/streamrecorder.h:148` | Bosma cron/at schedules |
+| GstMux | `media_pipelines/gstmux.h` | IMediaDataConsumer, owns UnifiedStorageWriter, VideoQueue |
+| VideoQueue | `media_pipelines/VideoQueue.h` | Frame queue with buffer for event recording |
+| UnifiedLocalStorageWriter | `unified_storage/writer/` | Local filesink |
+| UnifiedCloudStorageWriter | `unified_storage/writer/` | S3/MinIO/GCS/Azure via appsink |
+
+## Recording Lifecycle
+
+1. `startRecord(streamId, state)`: StreamMonitor adds stream -> `NvGstVideoRecorder::Create()` -> `GstMux::create()` -> `muxerProcessThread` started
+2. Frame flow: `StreamMonitor::onData()` -> `GstMux::onFrame()` -> `VideoQueue::push()` -> `muxerProcessThread` pulls and muxes
+3. `stopRecord(streamId, state)`: Event mode keeps pipeline, OFF stops and erases
+
+## Muxer Pipeline
+
+`appsrc(video) -> h264parse/h265parse -> matroskamux -> filesink(local)/appsink(cloud)`
+`appsrc(audio) -> rawaudioparse/aacparse -> matroskamux` (when audio supported)
+
+Container: MKV (`matroskamux`, `min-index-interval=500ms`)
+
+## File Naming
+
+`{recorded_video_root}/{deviceId}/{resolution}/{year}/{month}/{day}/{hour}/{timestamp}.mkv`
+
+## Segmentation
+
+Event-driven (not fixed duration):
+- **FirstFrame**: create new file via `createNewFileAndSetPlayState()`
+- **LastFrame**: frame gap -> `sendEOSAndUpdateDuration()`, close file
+- **Codec change**: `checkIfCodecChanged()` -> `pipelineReset()`
+- **Error**: `pipelineReset()` on IDR frame
+
+## Storage Aging (storage_management.cpp)
+
+`StorageMonitorTask` periodic: when `availableDiskSpace < targetFreeSpace` or `currentRecordSize >= threshold`, `deleteOldMediaFiles()` deletes oldest first.
+
+## Cloud Storage
+
+`enable_cloud_storage` + `cloud_storage_type == "minio"`: `UnifiedCloudStorageWriter` with `appsink` -> `CloudStorageWriter` (S3/MinIO/GCS/Azure). Buffer: 25MB, max 1500 frames, 30fps.
+
+## Error Recovery
+
+- Muxer error: `pipelineReset()` on IDR -> `create(recreate_muxer=true)`
+- Session start: `MAX_SESSION_RETRY=3` with exponential backoff
+- Disk full: `checkStorageCapacity()` -> `VMSInsufficientStorage`
+- Error watch thread: `g_async_queue_push()` on pipeline failure -> `stopRecord(ERROR)`
+
+## DB Indexing
+
+Table `VIDEO_RECORD_DETAILS`: sensor_id, stream_id, resolution, start_time, duration, file_path, file_size, codec, storage_location, bucket_name. Insert on new file, async update via `VideoRecordUpdater`.

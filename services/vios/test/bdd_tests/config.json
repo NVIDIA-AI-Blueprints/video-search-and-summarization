@@ -1,0 +1,211 @@
+{
+  "api": {
+    "base_url": "http://localhost:30888",
+    "verify_ssl": false
+  },
+  "reporting": {
+    "junit_xml": "reports/junit.xml",
+    "html_report": "reports/report.html",
+    "stats_dir": "reports/stats",
+    "latency_csv_dir": "reports/latency",
+    "perf_csv_dir": "reports/performance"
+  },
+  "container_monitoring": {
+    "enabled": true,
+    "interval_seconds": 30
+  },
+  "tests": {
+    "picture_tests": {
+      "test_parameters": {
+        "timeout": 30,
+        "parallelism": 1,
+        "temp_image_dir": "/tmp/vst_test_images",
+        "auto_cleanup_after_test": true
+      }
+    },
+    "file_download_tests": {
+      "test_parameters": {
+        "timeout": 30,
+        "download_timeout": 120,
+        "video_duration_seconds": 10,
+        "url_request_timeout": 300,
+        "video_durations": [
+          3
+        ],
+        "expiry_minutes": [
+          1
+        ],
+        "parallelism": 1,
+        "url_request_stagger_sec": 0.25,
+        "offset_ms": 5000,
+        "duration_ms": 30000,
+        "post_upload_wait_sec": 0,
+        "enable_transcode": false,
+        "transcode_config": {
+          "overlay": {
+            "bbox": {
+              "showAll": false,
+              "objectId": []
+            },
+            "color": "red",
+            "thickness": 6,
+            "opacity": 255,
+            "debug": true
+          }
+        },
+        "disable_audio": true,
+        "temp_download_dir": "/tmp/vst_test_downloads",
+        "auto_cleanup_after_test": true,
+        "inter_test_cooldown_sec": 2.0,
+        "video_ready_poll_interval_sec": 3,
+        "video_ready_max_wait_sec": 180,
+        "video_ready_check_timeout_sec": 15,
+        "video_ready_max_retries": 3,
+        "delay_before_mp4_url_access_sec": 2,
+        "expiry_grace_period_sec": 10,
+        "expiry_check_buffer_sec": 5,
+        "mediainfo_timeout_sec": 30,
+        "iterations": 1,
+        "parallel_download_concurrent_levels": [
+          3,
+          7,
+          20
+        ],
+        "parallel_download_durations_sec": [
+          5,
+          15,
+          30
+        ],
+        "parallel_download_max_streams": 3,
+        "min_timeline_duration_ms": 70000,
+        "timeouts": {
+          "fetch_streams": 30,
+          "fetch_timelines": 30
+        }
+      }
+    },
+    "webrtc_tests": {
+      "test_parameters": {
+        "timeout": 60,
+        "signaling_timeout": 120,
+        "replay_duration_seconds": 15,
+        "parallelism": 1,
+        "min_fps": 5.0,
+        "min_frames_for_validation": 60,
+        "min_duration_for_validation": 8.0,
+        "picture_burst_total_requests": 100,
+        "picture_burst_max_inflight": 4,
+        "picture_burst_submit_stagger_sec": 0.2,
+        "picture_burst_min_success_ratio": 0.95
+      }
+    },
+    "file_upload_tests": {
+      "test_parameters": {
+        "race_condition_thread_count": 3,
+        "concurrent_different_files_count": 3,
+        "multipart_files_per_iteration": 3,
+        "auto_cleanup_after_test": true,
+        "inter_test_cooldown_sec": 4.0,
+        "upload_submit_stagger_sec": 0.3
+      }
+    },
+    "url_optimization_tests": {
+      "test_parameters": {
+        "timeout": 30,
+        "url_request_timeout": 300,
+        "expiry_minutes": 5,
+        "video_duration_seconds": 5,
+        "auto_cleanup_after_test": true
+      }
+    },
+    "unit_tests": {
+      "test_parameters": {
+        "timeout": 30
+      }
+    },
+    "performance_tests": {
+      "test_parameters": {
+        "latency_test_iterations": 10,
+        "video_download_durations_sec": [
+          10,
+          15
+        ],
+        "video_download_offsets_ms": {
+          "15s": [
+            2000,
+            1000,
+            500,
+            200
+          ],
+          "30s": [
+            1000,
+            10000
+          ],
+          "60s": [
+            1000,
+            10000
+          ],
+          "15s_with_transcode": [
+            2000,
+            1000,
+            500,
+            200,
+            10000
+          ]
+        },
+        "picture_api_iterations": 5,
+        "picture_api_offsets_ms": [
+          1000,
+          10000
+        ],
+        "picture_api_concurrent_levels": [
+          3,
+          7,
+          10
+        ],
+        "picture_api_delay_between_calls_sec": 0.5,
+        "picture_api_delay_between_concurrent_tests_sec": 2,
+        "video_concurrent_levels": [
+          3,
+          7,
+          10
+        ],
+        "video_concurrent_duration_sec": 15,
+        "video_concurrent_offset_ms": 10000,
+        "min_timeline_duration_ms": 70000,
+        "timeouts": {
+          "fetch_streams": 30,
+          "fetch_timelines": 30,
+          "video_download": 300,
+          "picture_api": 60,
+          "mediainfo": 30
+        },
+        "timeout": 120,
+        "temp_perf_dir": "/tmp/vst_perf_tests",
+        "auto_cleanup_after_test": true,
+        "latency_limits": {
+          "video_download": {
+            "max_p99_ms": 30000,
+            "max_avg_ms": 15000,
+            "min_success_rate_per_scenario": 90.0
+          },
+          "picture_api": {
+            "max_p99_ms": 5000,
+            "max_avg_ms": 2000,
+            "min_success_rate_per_scenario": 90.0
+          },
+          "concurrent_video": {
+            "max_p99_ms": 60000,
+            "max_avg_ms": 30000,
+            "min_success_rate_per_scenario": 80.0
+          },
+          "concurrent_picture": {
+            "max_p99_ms": 10000,
+            "max_avg_ms": 5000,
+            "min_success_rate_per_scenario": 80.0
+          }
+        }
+      }
+    }
+  }
+}

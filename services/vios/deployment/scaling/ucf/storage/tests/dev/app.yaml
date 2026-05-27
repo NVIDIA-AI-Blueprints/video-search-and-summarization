@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 2.5.0
+
+version: 0.0.1
+
+name: vst-storage-test-app
+
+description: Developer tests for storage service
+
+dependencies:
+- ucf.svc.vst-storage:1.0.0
+- ucf.svc.vms-test:0.0.6
+
+components:
+- name: vst-storage
+  type: ucf.svc.vst-storage
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    configs:
+      vst_config.json:
+        network:
+          http_port: 33000
+          server_domain_name:
+        data:
+          gpu_indices: [0]
+          storage_threshold_percentage: 95
+          storage_monitoring_frequency_secs: 2
+          max_video_download_size_MB: 1000
+          use_software_path: false
+        overlay:
+          video_metadata_server:
+          use_video_metadata_protobuf: false
+          enable_gem_drawing: true
+          overlay_text_font_type: "DejaVuSansMono.ttf"
+
+- name: vms-test
+  type: ucf.svc.vms-test
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+connections:
+  vms-test/vms-web-server: vst-storage/http-api

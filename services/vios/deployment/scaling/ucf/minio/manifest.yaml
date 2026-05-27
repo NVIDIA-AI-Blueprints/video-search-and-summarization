@@ -1,0 +1,197 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+type: msapplication
+specVersion: 2.5.0
+name:  ucf.svc.vst-minio
+chartName: vst-minio
+description: vst minio service
+version: 1.0.0
+displayName: "VST Minio Service"
+category:
+  functional: "Storage Service"
+  industry: "IVA"
+tags: []
+keywords: []
+eula: ""
+nSpectId: NSPECT-1H82-JYCQ
+
+ingress-endpoints:
+  - name: http-api
+    description: minio http api
+    scheme: http
+    data-flow: in-out
+
+tests:
+  - name: dev-params1
+    app: tests/dev/app.yaml
+    params: tests/dev/params1.yaml
+    ciTrigger: true
+    timeout: 25
+    duration: 10
+    installPreReqs: true  # Wether to install foundational services
+    namespace: default  # Kubernetes namespace
+    gpuNodeLabels: ""
+    watchAllPods: false # OR set to false and set list of pods to watch below
+    watchPods:
+    - vms-test
+    testerPods:  # At least one tester pod is required
+    - name: vms-test  # Name of the test pod
+      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+      - "test case failed"
+
+params:
+  image: quay.io/minio/minio
+  #> type: string
+  #> description: VST minio storage service container path
+  tag: RELEASE.2025-09-07T16-13-09Z
+  #> type: string
+  #> description: Tag for vst minio storage service container
+  httpPort: 9000
+  #> type: integer
+  #> description: Tag for vst minio storage service httpPort
+  consolePort: 9001
+  #> type: integer
+  #> description: Tag for vst minio storage service consolePort
+  minioRootUser: admin
+  #> type: string
+  #> description: Tag for vst minio storage service minioRootUser
+  minioRootPassword: nvidia123!
+  #> type: string
+  #> description: Tag for vst minio storage service minioRootPassword
+  minioDataPath: /data
+  #> type: string
+  #> description: Tag for vst minio storage service minioDataPath
+  minioApiDeleteCleanupInterval: 20s
+  #> type: string
+  #> description: Tag for vst minio storage service minioApiDeleteCleanupInterval
+  minioApiStaleUploadsCleanupInterval: 300s
+  #> type: string
+  #> description: Tag for vst minio storage service minioApiStaleUploadsCleanupInterval
+  minioApiStaleUploadsExpiry: 7d
+  #> type: string
+  #> description: Tag for vst minio storage service minioApiStaleUploadsExpiry
+
+---
+
+spec:
+  - name: deployment
+    type: ucf.k8s.app.deployment
+    parameters:
+      apptype: statefull
+      statefulSetServiceName: service
+      extraSpecs:
+        podManagementPolicy: Parallel
+
+  - name: minio
+    type: ucf.k8s.container
+    parameters:
+      image:
+        repository: $params.image
+        tag: $params.tag
+        pullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c"]
+      args:
+        - minio server /data --address ":${MINIO_API_PORT}" --console-address ":${MINIO_CONSOLE_PORT}"
+      env:
+      - name: MINIO_ROOT_USER
+        value: $params.minioRootUser
+      - name: MINIO_ROOT_PASSWORD
+        value: $params.minioRootPassword
+      - name: MINIO_API_PORT
+        value: "(($params.httpPort))"
+      - name: MINIO_CONSOLE_PORT
+        value: "(($params.consolePort))"
+      - name: MINIO_DATA_PATH
+        value: $params.minioDataPath
+      - name: MINIO_API_DELETE_CLEANUP_INTERVAL
+        value: $params.minioApiDeleteCleanupInterval
+      - name: MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL
+        value: $params.minioApiStaleUploadsCleanupInterval
+      - name: MINIO_API_STALE_UPLOADS_EXPIRY
+        value: $params.minioApiStaleUploadsExpiry
+      volumeMounts:
+        - name: data-storage
+          mountPath: $params.minioDataPath
+          subPath: minio_data
+      ports:
+        - containerPort: $params.httpPort
+          protocol: TCP
+          name: http-api
+        - containerPort: $params.consolePort
+          protocol: TCP
+          name: console-api
+      readinessProbe:
+        failureThreshold: 5
+        httpGet:
+          port: $params.httpPort
+          path: /minio/health/live
+          scheme: HTTP
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 2
+      livenessProbe:
+        failureThreshold: 3
+        httpGet:
+          port: $params.httpPort
+          path: /minio/health/live
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 20
+        successThreshold: 1
+        timeoutSeconds: 2
+
+  - name: restartPolicy
+    type: ucf.k8s.restartPolicy
+    parameters:
+      policy: Always
+
+  - name: podSecurityContext
+    type: ucf.k8s.podSecurityContext
+    parameters:
+      runAsGroup: 1000
+      runAsUser: 1000
+
+  - name: svc
+    type: ucf.k8s.service
+    parameters:
+      ports:
+      - port: $params.httpPort
+        protocol: TCP
+        name: http-api
+      - port: $params.consolePort
+        protocol: TCP
+        name: console-api
+
+  - name: data-storage
+    type: ucf.k8s.volume
+    parameters:
+      persistentVolumeClaim:
+        claimName: vst-minio-vst-storage
+
+  - name: vst-storage
+    type: ucf.k8s.pvc
+    parameters:
+      annotations:
+        helm.sh/resource-policy: "keep"
+      spec:
+        storageClassName: mdx-local-path
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1000Gi

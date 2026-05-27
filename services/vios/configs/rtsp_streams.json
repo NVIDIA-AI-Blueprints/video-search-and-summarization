@@ -1,0 +1,59 @@
+{
+    "streams":
+    [
+        {
+            "enabled":false,
+            "stream_in":"rtsp://admin:admin@10.24.216.161/h264",
+            "name":"March"
+        },
+        {
+            "enabled":false,
+            "stream_in":"rtsp://admin:nvidia123@10.24.217.243:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif",
+            "name":"Amcrest"
+        },
+        {
+            "enabled":true,
+            "stream_in":"rtsp://admin:nvidia123@10.24.218.101:554/Streaming/Channels/101?transportmode=unicast&profile=Profile_1",
+            "name":"Hikvision"
+        },
+        {
+            "enabled":false,
+            "stream_in":"rtsp://nvidia:dsdsdsds@10.24.218.105/profile?token=media_profile1&SessionTimeout=60",
+            "name":"Sony"
+        },
+        {
+            "enabled":false,
+            "stream_in":"udp",
+            "name":"Tokkio_Avatar",
+            "video":
+            {
+                "port":30031,
+                "codec":"h264",
+                "framerate":30
+            },
+            "audio":
+            {
+                "enabled":true,
+                "port":30032,
+                "codec":"pcm",
+                "sample_rate_Hz":44100,
+                "bits_per_sample":32
+            }
+        }
+    ],
+    "Nvstreamer":
+    [
+        {
+            "enabled": false,
+            "endpoint": "10.0.0.1:30081/nvstreamer/",
+            "api": "/api/v1/sensor/streams",
+            "max_stream_count": 10
+        },
+        {
+            "enabled": false,
+            "endpoint": "10.0.0.1:30081/nvstreamer-2/",
+            "api": "/api/v1/sensor/streams",
+            "max_stream_count": 10
+        }
+    ]
+}

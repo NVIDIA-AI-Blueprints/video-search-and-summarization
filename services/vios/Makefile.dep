@@ -1,0 +1,11 @@
+DEPS := $(SRCS:.cpp=.d)
+DEPS += $(TEST_SRCS:.cpp=.d)
+soclean clean: depclean
+depclean:
+	@rm -rf $(DEPS)
+	@echo removed $(DEPS)
+DEPFLAGS = -MT $@ -MMD -MP -MF $*.d
+DEPFILES := $(SRCS:%.cpp=%.d)
+DEPFILES += $(TEST_SRCS:%.cpp=%.d)
+$(DEPFILES):
+include $(wildcard $(DEPFILES))

@@ -1,0 +1,3 @@
+<LICENSE for the microservice>
+
+<LICENSE for any 3rdparty software used>

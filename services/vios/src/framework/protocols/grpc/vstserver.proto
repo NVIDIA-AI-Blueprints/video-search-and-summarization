@@ -1,0 +1,88 @@
+// Copyright (c) 2022-2023 NVIDIA Corporation.  All rights reserved.
+//
+// NVIDIA Corporation and its licensors retain all intellectual property
+// and proprietary rights in and to this software, related documentation
+// and any modifications thereto.  Any use, reproduction, disclosure or
+// distribution of this software and related documentation without an express
+// license agreement from NVIDIA Corporation is strictly prohibited.
+
+syntax = "proto3";
+
+package vstserver;
+
+service VstGrpcServer {
+  rpc CreateUDPConnection (CreateUDPConnectionRequest) returns (CreateUDPConnectionReply) {}
+  rpc CreateWebrtcConnection (CreateWebrtcConnectionRequest) returns (CreateWebrtcConnectionReply) {}
+}
+
+message CreateUDPConnectionRequest {
+  message VideoParams  {
+    string codec = 1;
+    int32 framerate = 2;
+  }
+
+  message AudioParams  {
+    string codec = 1;
+    int32 sample_rate_Hz = 2;
+    int32 bits_per_sample = 3;
+  }
+
+  message ClientUdpPorts {
+   int32 video_port = 1;
+   int32 audio_port = 2;
+  }
+  VideoParams video_params = 1;
+  AudioParams audio_params = 2;
+  string connection_id = 3;
+  ClientUdpPorts client_ports = 4;
+}
+
+message CreateUDPConnectionReply {
+  int32 video_port = 1;
+  int32 audio_port = 2;
+  string host_address = 3;
+}
+
+message CreateWebrtcConnectionRequest {
+  string webrtc_vendor = 1;
+  string connection_id = 2;
+  string host_address = 3;
+  int32 signaling_port = 4;
+  int32 media_port = 5;
+  int32 width = 6;
+  int32 height = 7;
+  int32 framerate = 8;
+}
+
+message CreateWebrtcConnectionReply {
+  int32 error_code = 1;
+  string message = 2;
+}
+
+service VstGrpcWebRTCSignalingServer {
+  rpc sdpExchange (Sdp) returns (Sdp) {}
+  rpc iceCandidateExchange (stream IceCandidate) returns (stream IceCandidate) {}
+}
+
+message SessionId {
+  string stream_id = 1;
+  // webapp client id, OPTIONAL field, can be empty​
+  optional string client_id = 2;
+}
+
+enum SdpType {
+  OFFER = 0;
+  ANSWER = 1;
+  UNKNOWN = 2;
+}
+
+message Sdp {
+  SessionId id = 1;
+  string sdp = 2;
+  SdpType type = 3;
+}
+
+message IceCandidate {
+  SessionId id = 1;
+  repeated string ice_candidate = 2;
+}

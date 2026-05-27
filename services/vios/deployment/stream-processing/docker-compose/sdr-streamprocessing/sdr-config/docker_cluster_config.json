@@ -1,0 +1,6 @@
+{
+  "streamprocessing-ms-1": {
+    "provisioning_address": "localhost:30001",
+    "process_type": "docker"
+  }
+}

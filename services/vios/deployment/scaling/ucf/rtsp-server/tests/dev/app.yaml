@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 2.5.0
+
+version: 0.0.1
+
+name: vst-rtspserver-test-app
+
+description: Developer tests for rtspserver service
+
+dependencies:
+- ucf.svc.vst-rtspserver:1.0.0
+- ucf.svc.vst-streamer:0.0.1
+- ucf.svc.vms-test:0.0.6
+
+components:
+- name: vst-rtspserver
+  type: ucf.svc.vst-rtspserver
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    configs:
+      vst_config.json:
+        network:
+          http_port: 31000
+          server_domain_name:
+          rtsp_server_port: 31554
+          rtsp_server_instances_count: 1
+          rtsp_preferred_network_iface:
+          rtcp_rtp_port_multiplex: true
+          rtsp_streaming_over_tcp: false
+          rx_socket_buffer_size: 1000000
+          tx_socket_buffer_size: 1000000
+        data:
+          gpu_indices: [0]
+          enable_rtsp_server_sei_metadata: false
+
+- name: vms-test
+  type: ucf.svc.vms-test
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+- name: vst-streamer
+  type: ucf.svc.vst-streamer
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    timeToSleep: 1000000
+
+connections:
+  vms-test/vms-web-server: vst-rtspserver/http-api

@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 1.5.0
+
+version: 0.0.10
+
+name: nvstreamer-test
+
+description: Developer tests for nvstreamer service
+
+dependencies:
+- ucf.svc.nvstreamer:0.0.19
+- ucf.svc.vms-test:0.0.5
+
+components:
+- name: nvstreamer
+  type: ucf.svc.nvstreamer
+  parameters:
+    #image: nvcr.io/rxczgrvsg8nx/vst-1-0/vst
+    #tag: v1.1.28_x86_64
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    - name: imagepullsecret
+    - name: registypullsecret
+    configs:
+      vst_config.json:
+        data:
+          gpu_indices: [0]
+          nv_streamer_loop_playback: true
+          nv_streamer_seekable: false
+          nv_streamer_max_upload_file_size_MB: 10000
+          nv_streamer_media_container_supported:
+            - mp4
+            - mkv
+          nv_streamer_metadata_container_supported:
+            - json
+          supported_video_codecs:
+            - h264
+          supported_audio_codecs:
+            - pcmu
+            - mpeg4-generic
+          use_software_path: false
+          enable_rtsp_server_sei_metadata: false
+        network:
+          server_domain_name:
+          stunurl_list:
+            - stun.l.google.com:19302
+          static_turnurl_list:
+            - coturn-admin:Uq3CFRYKr6rFVFcc@15.206.12.240:3478
+          use_coturn_auth_secret: false
+          coturn_turnurl_list_with_secret:
+          use_twilio_stun_turn: false
+          twilio_account_sid: ""
+          twilio_auth_token: ""
+        notifications:
+          enable_notification: false
+          # supported - redis, kafka
+          use_message_broker: "redis"
+          # Redis stream name
+          message_broker_topic: vst_events
+          redis_server_env_var: REDIS_SVC_SERVICE_HOST:9092
+          kafka_server_address: 10.0.0.1:9092
+
+- name: vms-test
+  type: ucf.svc.vms-test
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+connections:
+  vms-test/vms-web-server: nvstreamer/http-in

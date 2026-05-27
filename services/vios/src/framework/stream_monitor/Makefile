@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+PREBUILT=$(TOP)/$(PREBUILT_DIR)
+TARGET := $(PREBUILT)libstream_monitor.so
+
+SRCS := stream_monitor.cpp \
+	stream_event_manager.cpp
+
+CPP = c++
+OBJS := $(SRCS:.cpp=.o)
+CPPFLAGS += -I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp \
+            -I $(TOP)/src/framework/media/video_source/producers \
+            -I $(TOP)/src/framework/media/media_pipelines \
+            -I $(TOP)/include
+LDFLAGS := -ljsoncpp -rdynamic -shared
+
+all: $(TARGET)
+
+%.o: %.cpp %.d
+	@echo "Compiling: $<"
+	$(CXX) $(DEPFLAGS) $(CPPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJS)
+	@echo "Linking: $@"
+	$(CXX) -o $@ $(OBJS) $(CPPFLAGS) $(LDFLAGS)
+
+include $(TOP)/Makefile.dep
+
+clean:
+	$(AT)rm -rf $(TARGET) $(OBJS)

@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+asyncapi: 2.2.0
+info:
+  title: AsyncIO API schema for vms redis endpoint
+  version: 0.0.1
+channels:
+  <topic>:
+    publish:
+      message:
+        payload:
+          summary: Inform about vms events
+          contentType: application/json
+          type: object
+          properties:
+            version:
+              type: string
+              description: Message payload schema version
+              enum:
+               - '4.0'
+            id:
+              type: string
+              description: Message identifier string
+            camera_id:
+              type: string
+              description: Camera id for which event is generated
+            camera_name:
+              type: string
+              description: Camera name for which event is generated
+            created_at:
+              type: string
+              description: vms event timestamp
+            camera_url:
+              type: string
+              description: Camera url for which event is generated
+            change:
+              type: string
+              description: camera add/remove or streaming status
+          required:
+          - version
+          - id
+          - camera_id
+          - camera_name
+          - created_at
+          - camera_url 
+          - change
+

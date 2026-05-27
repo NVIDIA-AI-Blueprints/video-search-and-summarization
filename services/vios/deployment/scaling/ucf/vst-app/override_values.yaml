@@ -1,0 +1,689 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+################ Override values to vst scaling-app chart ################
+
+# Scaling params
+maxStreamsSupported: &maxStreamsSupported 500
+
+rtspServerReplicaCount: &rtspServerReplicaCount "5"
+maxStreamsPerRtspServerPod: &maxStreamsPerRtspServerPod "100"
+
+recorderReplicaCount: &recorderReplicaCount "5"
+maxStreamsPerRecorderPod: &maxStreamsPerRecorderPod "100"
+
+livestreamReplicaCount: &livestreamReplicaCount "1"
+maxStreamsPerLivestreamPod: &maxStreamsPerLivestreamPod "500"
+
+replaystreamReplicaCount: &replaystreamReplicaCount "1"
+maxStreamsPerReplaystreamPod: &maxStreamsPerReplaystreamPod "500"
+
+# Message broker details
+messageBroker: &messageBroker "redis"  # redis or kafka
+
+#messageBrokerAddress: &messageBrokerAddress "redis-timeseries-redis-timeseries-svc"
+messageBrokerAddress: &messageBrokerAddress "mdx-redis-master"                     # MDX/ITS specific
+messageBrokerPort: &messageBrokerPort "6379"
+messageBrokerTopic: &messageBrokerTopic "mdx-notification"
+messageBrokerKey: &messageBrokerKey "sensor"
+#messageBrokerFullEndpoint: &messageBrokerFullEndpoint "redis-timeseries-redis-timeseries-svc:6379"
+messageBrokerFullEndpoint: &messageBrokerFullEndpoint "mdx-redis-master:6379"      # MDX/ITS specific
+
+#Update this to the correct turn server address for live and recorded webrtc playback
+turnServerAddress: &turnServerAddress ""
+
+
+#Update this to enable/disable MEGA simulation
+enableMegaSimulation: &enableMegaSimulation false
+
+## Additional comments
+# For some of the use-cases like audio, software encoding, downloading etc. additional packages (includes GPL libraries) are needed.
+# In that case 'user_additional_install.sh' script needs to be run. Uncomment the script from all the places below in that case.
+
+
+############### Microservices configuration #####################
+# VST sensor managemanet service
+sensor:
+  applicationSpecs:
+    sensor:
+      containers:
+        sensor-container:
+          command:
+            - "/bin/bash"
+            - "-c"
+            - |
+              /home/vst/vst_release/tools/user_additional_install.sh
+              exec /home/vst/vst_release/launch_vst --vstConfigFile /opt/configs/vst_config.json --adaptorConfigFile /opt/configs/adaptor_config.json --rtspStreamsFile /opt/configs/rtsp_streams.json
+          args: []
+      initContainers:
+      - name: check-redis-up
+        args:
+        - until curl --connect-timeout 1 $REDIS_SERVER_ADDRESS:$REDIS_SERVER_PORT 2>&1 | grep 'Empty reply from server' >/dev/null; do echo "Waiting for redis $REDIS_SERVER_ADDRESS:6379"; sleep 0.5; done
+        command: [sh, -c]
+        env:
+          - name: REDIS_SERVER_ADDRESS
+            value: *messageBrokerAddress
+          - name: REDIS_SERVER_PORT
+            value: *messageBrokerPort
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+      - name: check-rtspserver-up
+        args:
+        - until curl --connect-timeout 2 --silent --head rtspserver-deployment-$(($NUM_RTSP_SERVER_POD - 1)).rtspserver-deployment-svc.default:31000/healthz >/dev/null; do echo "Waiting for rtspserver"; sleep 0.2; done
+        command: [sh, -c]
+        env:
+          - name: NUM_RTSP_SERVER_POD
+            value: *rtspServerReplicaCount
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+      - name: check-recorder-up
+        args:
+        - until curl --connect-timeout 2 --silent --head recorder-deployment-$(($NUM_RECORDER_POD - 1)).recorder-deployment-svc.default:32000/healthz>/dev/null; do echo "Waiting for recorder"; sleep 0.2; done
+        command: [sh, -c]
+        env:
+          - name: NUM_RECORDER_POD
+            value: *recorderReplicaCount
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: 30000
+      onvif:
+        max_devices_supported: *maxStreamsSupported
+      notifications:
+        enable_notification: true
+        # supported - redis, kafka
+        use_message_broker: *messageBroker
+        redis_server_env_var: *messageBrokerFullEndpoint
+        # Redis stream name
+        message_broker_topic: *messageBrokerTopic
+        message_broker_payload_key: *messageBrokerKey
+      data:
+        max_network_db_connections: 2
+        enable_mega_simulation: *enableMegaSimulation
+    rtsp_streams.json:
+      # Add streams from Nvstreamer here #
+      Nvstreamer:
+      - enabled: true
+        ## Change namespace if other than default. Also we can use ingress endpoint "10.0.0.1:30889/nvstreamer/"
+        endpoint: "nvstreamer-instance-deployment-0.nvstreamer-instance-deployment-svc.default:31000"
+        api: "/api/v1/sensor/streams"
+        max_stream_count: 100
+      - enabled: true
+        ## Change namespace if other than default. Also we can use ingress endpoint "10.0.0.1:30889/nvstreamer-1/"
+        endpoint: "nvstreamer-instance-deployment-1.nvstreamer-instance-deployment-svc.default:31000"
+        api: "/api/v1/sensor/streams"
+        max_stream_count: 100
+      - enabled: true
+        endpoint: "nvstreamer-instance-deployment-2.nvstreamer-instance-deployment-svc.default:31000"
+        api: "/api/v1/sensor/streams"
+        max_stream_count: 100
+      - enabled: true
+        endpoint: "nvstreamer-instance-deployment-3.nvstreamer-instance-deployment-svc.default:31000"
+        api: "/api/v1/sensor/streams"
+        max_stream_count: 100
+      - enabled: true
+        endpoint: "nvstreamer-instance-deployment-4.nvstreamer-instance-deployment-svc.default:31000"
+        api: "/api/v1/sensor/streams"
+        max_stream_count: 100
+
+      streams:
+      - enabled: false
+        stream_in: rtsp://nvstreamer-nvstreamer-svc:31556/nvstream/opt/vmounts/streamer-videos/Warehouse_Synthetic_Cam001.mp4
+        name: Warehouse_Synthetic_Cam001
+      - enabled: false
+        stream_in: rtsp://nvstreamer-nvstreamer-svc:31560/nvstream/opt/vmounts/streamer-videos/Warehouse_Synthetic_Cam002.mp4
+        name: Warehouse_Synthetic_Cam002
+
+# VST rtsp server service #
+rtspServerHttpPort: &rtspServerHttpPort "31000"
+rtspserver:
+  replicas: *rtspServerReplicaCount
+  applicationSpecs:
+    deployment:
+      containers:
+        rtspserver:
+          command:
+            - "/bin/bash"
+            - "-c"
+            - |
+              /home/vst/vst_release/tools/user_additional_install.sh
+              exec /home/vst/vst_release/launch_vst --vstConfigFile /opt/configs/vst_config.json
+          args: []
+      initContainers:
+      - name: check-db-up
+        args:
+        - "until curl --connect-timeout 1 vst-postgres-deployment-svc:5432 2>&1 | grep -q 'Empty reply from server'; do echo \"Waiting for postgres\"; sleep 0.5; done"
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+      - name: check-sdr-up
+        args:
+        - until curl --connect-timeout 2 --silent --head sdr-envoy-rtspserver-sdr-envoy-rtspserver-agent-xds-service:4000/healthz>/dev/null; do echo "Waiting for sdr"; sleep 0.2; done
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: *rtspServerHttpPort
+        rtsp_server_port: 31554
+        rtsp_server_instances_count: 10
+        rtsp_preferred_network_iface:
+        rtcp_rtp_port_multiplex: true
+        rtsp_streaming_over_tcp: false
+        rx_socket_buffer_size: 1000000
+        tx_socket_buffer_size: 1000000
+      notifications:
+        enable_notification: true
+        # supported - redis, kafka
+        use_message_broker: *messageBroker
+        redis_server_env_var: *messageBrokerFullEndpoint
+        # Redis stream name
+        message_broker_topic: *messageBrokerTopic
+        message_broker_payload_key: *messageBrokerKey
+      data:
+        enable_rtsp_server_sei_metadata: false
+        max_network_db_connections: 2
+        enable_mega_simulation: *enableMegaSimulation
+        mega_simulation_delay_min_ms: 0
+        mega_simulation_delay_max_ms: 5000
+        mega_simulation_base_time: "2024-09-27T10:00:00.123456Z"
+      overlay:
+        video_metadata_server: "mdx-elasticsearch-cluster-master-headless:9200/mdx-raw*"
+        use_video_metadata_protobuf: true
+
+# VST recorder service #
+recorderHttpPort: &recorderHttpPort "32000"
+recorder:
+  replicas: *recorderReplicaCount
+  applicationSpecs:
+    deployment:
+      containers:
+        recorder:
+          command:
+            - "/bin/bash"
+            - "-c"
+            - |
+              /home/vst/vst_release/tools/user_additional_install.sh
+              exec /home/vst/vst_release/launch_vst --vstConfigFile /opt/configs/vst_config.json
+          args: []
+      initContainers:
+      - name: check-db-up
+        args:
+        - "until curl --connect-timeout 1 vst-postgres-deployment-svc:5432 2>&1 | grep -q 'Empty reply from server'; do echo \"Waiting for postgres\"; sleep 0.5; done"
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+      - name: check-sdr-up
+        args:
+        - until curl --connect-timeout 2 --silent --head sdr-envoy-recorder-sdr-envoy-recorder-agent-xds-service:4000/healthz>/dev/null; do echo "Waiting for sdr"; sleep 0.2; done
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: *recorderHttpPort
+        server_domain_name:
+      data:
+        always_recording: true
+        event_recording: false
+        event_record_length_secs: 10
+        record_buffer_length_secs: 2
+        recorder_enable_frame_drop: true
+        recorder_max_frame_queue_size_bytes: 16000000
+        max_network_db_connections: 10
+        enable_mega_simulation: *enableMegaSimulation
+      notifications:
+        enable_notification: true
+        # supported - redis, kafka
+        use_message_broker: *messageBroker
+        redis_server_env_var: *messageBrokerFullEndpoint
+        # Redis stream name
+        message_broker_topic: *messageBrokerTopic
+        message_broker_payload_key: *messageBrokerKey
+
+# VST storage service #
+storage:
+  applicationSpecs:
+    deployment:
+      containers:
+        storage:
+          command:
+            - "/bin/bash"
+            - "-c"
+            - |
+              /home/vst/vst_release/tools/user_additional_install.sh
+              exec /home/vst/vst_release/launch_vst --vstConfigFile /opt/configs/vst_config.json
+          args: []
+  configs:
+    vst_storage.json:
+      total_video_storage_size_MB: 1000000
+    vst_config.json:
+      network:
+        http_port: 33000
+        server_domain_name:
+      data:
+        storage_threshold_percentage: 95
+        storage_monitoring_frequency_secs: 2
+        max_video_download_size_MB: 1000
+        use_software_path: false
+        max_network_db_connections: 5
+        enable_mega_simulation: *enableMegaSimulation
+      overlay:
+        video_metadata_server:
+        use_video_metadata_protobuf: false
+        enable_gem_drawing: true
+        overlay_text_font_type: "DejaVuSansMono.ttf"
+
+# VST livestream service #
+livestreamHttpPort: &livestreamHttpPort "34000"
+livestream:
+  replicas: *livestreamReplicaCount
+  applicationSpecs:
+    deployment:
+      containers:
+        livestream:
+          command:
+            - "/bin/bash"
+            - "-c"
+            - |
+              /home/vst/vst_release/tools/user_additional_install.sh
+              exec /home/vst/vst_release/launch_vst --vstConfigFile /opt/configs/vst_config.json
+          args: []
+      initContainers:
+      - name: check-db-up
+        args:
+        - "until curl --connect-timeout 1 vst-postgres-deployment-svc:5432 2>&1 | grep -q 'Empty reply from server'; do echo \"Waiting for postgres\"; sleep 0.5; done"
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: *livestreamHttpPort
+        static_turnurl_list:
+          - *turnServerAddress
+        max_webrtc_out_connections: 8
+        max_webrtc_in_connections: 8
+      data:
+        max_network_db_connections: 1
+        enable_mega_simulation: *enableMegaSimulation
+      notifications:
+        enable_notification: false
+        # supported - redis, kafka
+        use_message_broker: *messageBroker
+        redis_server_env_var: *messageBrokerFullEndpoint
+        # Redis stream name
+        message_broker_topic: *messageBrokerTopic
+        message_broker_payload_key: *messageBrokerKey
+      overlay:
+        video_metadata_server: "mdx-elasticsearch-cluster-master-headless:9200/mdx-raw*"
+        use_video_metadata_protobuf: true
+
+# VST replaystream service #
+replaystreamHttpPort: &replaystreamHttpPort "35000"
+replaystream:
+  replicas: *replaystreamReplicaCount
+  applicationSpecs:
+    deployment:
+      containers:
+        replaystream:
+          command:
+            - "/bin/bash"
+            - "-c"
+            - |
+              /home/vst/vst_release/tools/user_additional_install.sh
+              exec /home/vst/vst_release/launch_vst --vstConfigFile /opt/configs/vst_config.json
+          args: []
+      initContainers:
+      - name: check-db-up
+        args:
+        - "until curl --connect-timeout 1 vst-postgres-deployment-svc:5432 2>&1 | grep -q 'Empty reply from server'; do echo \"Waiting for postgres\"; sleep 0.5; done"
+        command: [sh, -c]
+        image: docker.io/curlimages/curl:8.17.0
+        imagePullPolicy: IfNotPresent
+
+  configs:
+    vst_config.json:
+      network:
+        http_port: *replaystreamHttpPort
+        static_turnurl_list:
+          - *turnServerAddress
+        max_webrtc_out_connections: 8
+        max_webrtc_in_connections: 8
+      data:
+        max_network_db_connections: 1
+        enable_mega_simulation: *enableMegaSimulation
+      notifications:
+        enable_notification: false
+        # supported - redis, kafka
+        use_message_broker: *messageBroker
+        redis_server_env_var: *messageBrokerFullEndpoint
+        # Redis stream name
+        message_broker_topic: *messageBrokerTopic
+        message_broker_payload_key: *messageBrokerKey
+      overlay:
+        video_metadata_server: "mdx-elasticsearch-cluster-master-headless:9200/mdx-raw*"
+        use_video_metadata_protobuf: true
+
+############### SDR configs #################
+
+# SDR-envoy for VST rtsp server service #
+sdr-envoy-rtspserver:
+  wdmWlRedisServer: *messageBrokerAddress
+  wdmWlRedisPort: *messageBrokerPort
+  applicationSpecs:
+    sdr-envoy-rtspserver:
+      containers:
+        agent-container:
+          env:
+          - name: WDM_WL_CONFIG_PORT
+            value: *rtspServerHttpPort
+          - name: WDM_MAX_REPLICAS
+            value: *rtspServerReplicaCount
+          - name: WDM_WL_THRESHOLD
+            value: *maxStreamsPerRtspServerPod
+          - name: WDM_WL_REDIS_SERVER
+            value: *messageBrokerAddress
+          - name: WDM_WL_REDIS_PORT
+            value: *messageBrokerPort
+          - name: WDM_MSG_KEY
+            value: *messageBrokerTopic
+          - name: WDM_MSG_TOPIC
+            value: *messageBrokerKey
+          - name: WDM_WL_REDIS_MSG_FIELD
+            value: *messageBrokerKey
+          - name: WDM_WL_CHANGE_ID_ADD
+            value: "camera_proxy"
+          - name: WDM_WL_ADD_URL
+            value: "/api/v1/proxy/stream/add"
+          - name: WDM_WL_DELETE_URL
+            value: "/api/v1/proxy/stream/"
+          - name: WDM_CONSUMER_GRP_ID
+            value: "sdr-rtspserver-cg"
+          - name: WDM_WL_OBJECT_NAME
+            value: "rtspserver-deployment"
+          - name: WDM_CLUSTER_TYPE
+            value: "k8s"
+          - name: WDM_INITIALIZE_FROM_VST
+            value: "false"
+          - name: WDM_REAPPLY_ON_WL_RESTART
+            value: "true"
+          - name: WDM_REDIS_CACHE_OBJECT
+            value: "rtspserver-data"
+          - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+            value: "20"
+          - name: WDM_WL_PROXY_URL
+            value: "/"
+          - name: WDM_TARGET_PORT_MAPPING
+            value: "{\"default\": 31000}"
+          - name: ENVOY_ROUTE_URL_PREFIX_REWRITE
+            value: "/"
+          - name: ENVOY_ROUTE_URL_PREFIX
+            value: "/"
+          - name:  OTEL_SDK_DISABLED
+            value: "true" # true/false to disable/enable OTEL trace generation
+          - name:  OTEL_SERVICE_NAME
+            value: "SDR_AGENT"
+          - name:  WDM_CLEAR_DATA_WL
+            value: "false"
+          - name:  WDM_RESET_ON_WLOBJ_CRASH
+            value: "false"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+          - name: WDM_WL_NAME_IGNORE_REGEX
+            value: ""
+        envoy-container:
+          env:
+          - name: ENVOYROUTEHEADER
+            value: "streamid"
+          - name: NOHEADERTARGETCONTAINER
+            value: "rtspserver-deployment-0.rtspserver-deployment-svc.default"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+
+
+# SDR-envoy for VST recorder server service #
+sdr-envoy-recorder:
+  wdmWlRedisServer: *messageBrokerAddress
+  wdmWlRedisPort: *messageBrokerPort
+  applicationSpecs:
+    sdr-envoy-recorder:
+      containers:
+        agent-container:
+          env:
+          - name: WDM_WL_CONFIG_PORT
+            value: *recorderHttpPort
+          - name: WDM_MAX_REPLICAS
+            value: *recorderReplicaCount
+          - name: WDM_WL_THRESHOLD
+            value: *maxStreamsPerRecorderPod
+          - name: WDM_WL_REDIS_SERVER
+            value: *messageBrokerAddress
+          - name: WDM_WL_REDIS_PORT
+            value: *messageBrokerPort
+          - name: WDM_MSG_KEY
+            value: *messageBrokerTopic
+          - name: WDM_MSG_TOPIC
+            value: *messageBrokerKey
+          - name: WDM_WL_REDIS_MSG_FIELD
+            value: *messageBrokerKey
+          - name: WDM_WL_CHANGE_ID_ADD
+            value: "camera_streaming"
+          - name: WDM_WL_ADD_URL
+            value: "/api/v1/record/stream/add"
+          - name: WDM_WL_DELETE_URL
+            value: "/api/v1/record/"
+          - name: WDM_CONSUMER_GRP_ID
+            value: "sdr-recorder-cg"
+          - name: WDM_WL_OBJECT_NAME
+            value: "recorder-deployment"
+          - name: WDM_CLUSTER_TYPE
+            value: "k8s"
+          - name: WDM_INITIALIZE_FROM_VST
+            value: "false"
+          - name: WDM_REAPPLY_ON_WL_RESTART
+            value: "true"
+          - name: WDM_REDIS_CACHE_OBJECT
+            value: "recorder-data"
+          - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+            value: "20"
+          - name: WDM_WL_PROXY_URL
+            value: "/"
+          - name: WDM_TARGET_PORT_MAPPING
+            value: "{\"default\": 32000}"
+          - name: ENVOY_ROUTE_URL_PREFIX_REWRITE
+            value: "/"
+          - name: ENVOY_ROUTE_URL_PREFIX
+            value: "/"
+          - name:  OTEL_SDK_DISABLED
+            value: "true" # true/false to disable/enable OTEL trace generation
+          - name:  OTEL_SERVICE_NAME
+            value: "SDR_AGENT"
+          - name:  WDM_CLEAR_DATA_WL
+            value: "false"
+          - name:  WDM_RESET_ON_WLOBJ_CRASH
+            value: "false"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+          - name: WDM_WL_NAME_IGNORE_REGEX
+            value: ""
+        envoy-container:
+          env:
+          - name: ENVOYROUTEHEADER
+            value: "streamid"
+          - name: NOHEADERTARGETCONTAINER
+            value: "recorder-deployment-0.recorder-deployment-svc.default"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+
+# SDR-envoy for VST livestream server service #
+sdr-envoy-livestream:
+  wdmWlRedisServer: *messageBrokerAddress
+  wdmWlRedisPort: *messageBrokerPort
+  applicationSpecs:
+    sdr-envoy-livestream:
+      containers:
+        agent-container:
+          env:
+          - name: WDM_WL_CONFIG_PORT
+            value: *livestreamHttpPort
+          - name: WDM_MAX_REPLICAS
+            value: *livestreamReplicaCount
+          - name: WDM_WL_THRESHOLD
+            value: *maxStreamsPerLivestreamPod
+          - name: WDM_WL_REDIS_SERVER
+            value: *messageBrokerAddress
+          - name: WDM_WL_REDIS_PORT
+            value: *messageBrokerPort
+          - name: WDM_MSG_KEY
+            value: *messageBrokerTopic
+          - name: WDM_MSG_TOPIC
+            value: *messageBrokerKey
+          - name: WDM_WL_REDIS_MSG_FIELD
+            value: *messageBrokerKey
+          - name: WDM_WL_CHANGE_ID_ADD
+            value: "camera_streaming"
+          - name: WDM_WL_ADD_URL
+            value: "/api/v1/live/stream/add"
+          - name: WDM_WL_DELETE_URL
+            value: "/api/v1/live/stream/"
+          - name: WDM_CONSUMER_GRP_ID
+            value: "sdr-livestream-cg"
+          - name: WDM_WL_OBJECT_NAME
+            value: "livestream-deployment"
+          - name: WDM_CLUSTER_TYPE
+            value: "k8s"
+          - name: WDM_INITIALIZE_FROM_VST
+            value: "false"
+          - name: WDM_RESET_ON_INITIATOR_CRASH
+            value: "false"
+          - name: WDM_REAPPLY_ON_WL_RESTART
+            value: "true"
+          - name: WDM_REDIS_CACHE_OBJECT
+            value: "livestream-data"
+          - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+            value: "20"
+          - name: WDM_WL_PROXY_URL
+            value: "/"
+          - name: WDM_TARGET_PORT_MAPPING
+            value: "{\"default\": 34000}"
+          - name: ENVOY_ROUTE_URL_PREFIX_REWRITE
+            value: "/"
+          - name: ENVOY_ROUTE_URL_PREFIX
+            value: "/"
+          - name:  OTEL_SDK_DISABLED
+            value: "true" # true/false to disable/enable OTEL trace generation
+          - name:  OTEL_SERVICE_NAME
+            value: "SDR_AGENT"
+          - name:  WDM_CLEAR_DATA_WL
+            value: "false"
+          - name:  WDM_RESET_ON_WLOBJ_CRASH
+            value: "false"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+          - name: WDM_WL_NAME_IGNORE_REGEX
+            value: ""
+        envoy-container:
+          env:
+          - name: ENVOYROUTEHEADER
+            value: "streamid"
+          - name: NOHEADERTARGETCONTAINER
+            value: "livestream-deployment-0.livestream-deployment-svc.default"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+
+# SDR-envoy for VST replaystream server service #
+sdr-envoy-replaystream:
+  wdmWlRedisServer: *messageBrokerAddress
+  wdmWlRedisPort: *messageBrokerPort
+  applicationSpecs:
+    sdr-envoy-replaystream:
+      containers:
+        agent-container:
+          env:
+          - name: WDM_WL_CONFIG_PORT
+            value: *replaystreamHttpPort
+          - name: WDM_MAX_REPLICAS
+            value: *replaystreamReplicaCount
+          - name: WDM_WL_THRESHOLD
+            value: *maxStreamsPerReplaystreamPod
+          - name: WDM_WL_REDIS_SERVER
+            value: *messageBrokerAddress
+          - name: WDM_WL_REDIS_PORT
+            value: *messageBrokerPort
+          - name: WDM_MSG_KEY
+            value: *messageBrokerTopic
+          - name: WDM_MSG_TOPIC
+            value: *messageBrokerKey
+          - name: WDM_WL_REDIS_MSG_FIELD
+            value: *messageBrokerKey
+          - name: WDM_WL_CHANGE_ID_ADD
+            value: "camera_streaming"
+          - name: WDM_WL_ADD_URL
+            value: "/api/v1/replay/stream/add"
+          - name: WDM_WL_DELETE_URL
+            value: "/api/v1/replay/stream/"
+          - name: WDM_CONSUMER_GRP_ID
+            value: "sdr-replaystream-cg"
+          - name: WDM_WL_OBJECT_NAME
+            value: "replaystream-deployment"
+          - name: WDM_CLUSTER_TYPE
+            value: "k8s"
+          - name: WDM_INITIALIZE_FROM_VST
+            value: "false"
+          - name: WDM_RESET_ON_INITIATOR_CRASH
+            value: "false"
+          - name: WDM_REAPPLY_ON_WL_RESTART
+            value: "true"
+          - name: WDM_REDIS_CACHE_OBJECT
+            value: "replaystream-data"
+          - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+            value: "20"
+          - name: WDM_WL_PROXY_URL
+            value: "/"
+          - name: WDM_TARGET_PORT_MAPPING
+            value: "{\"default\": 35000}"
+          - name: ENVOY_ROUTE_URL_PREFIX_REWRITE
+            value: "/"
+          - name: ENVOY_ROUTE_URL_PREFIX
+            value: "/"
+          - name:  OTEL_SDK_DISABLED
+            value: "true" # true/false to disable/enable OTEL trace generation
+          - name:  OTEL_SERVICE_NAME
+            value: "SDR_AGENT"
+          - name:  WDM_CLEAR_DATA_WL
+            value: "false"
+          - name:  WDM_RESET_ON_WLOBJ_CRASH
+            value: "false"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"
+          - name: WDM_WL_NAME_IGNORE_REGEX
+            value: ""
+        envoy-container:
+          env:
+          - name: ENVOYROUTEHEADER
+            value: "streamid"
+          - name: NOHEADERTARGETCONTAINER
+            value: "replaystream-deployment-0.replaystream-deployment-svc.default"
+          - name: ENVOY_REQUEST_TIMEOUT
+            value: "30"

@@ -1,0 +1,129 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 2.5.0
+
+version: 2.0.10-minio
+
+name: vst-app
+
+description: VST scaling app
+
+dependencies:
+- ucf.svc.vst-ingress-mgr:1.0.0
+- ucf.svc.vst-sensor:1.0.0
+- ucf.svc.vst-rtspserver:1.0.0
+- ucf.svc.vst.rtspserver-sdr-envoy:1.0.0
+- ucf.svc.vst-recorder:1.0.0
+- ucf.svc.vst.recorder-sdr-envoy:1.0.0
+- ucf.svc.vst-storage:1.0.0
+- ucf.svc.vst-livestream:1.0.0
+- ucf.svc.vst-replaystream:1.0.0
+- ucf.svc.vst.livestream-sdr-envoy:1.0.0
+- ucf.svc.vst.replaystream-sdr-envoy:1.0.0
+- ucf.svc.vst-postgres:1.0.0
+- ucf.svc.vst-minio:1.0.0
+
+components:
+- name: vst-ingress
+  type: ucf.svc.vst-ingress-mgr
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# VST sensor managemanet service #
+- name: vst-sensor
+  type: ucf.svc.vst-sensor
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# VST rtsp server service #
+- name: vst-rtspserver
+  type: ucf.svc.vst-rtspserver
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# SDR-envoy for VST rtsp server service #
+- name: vst-rtspserver-sdr
+  type: ucf.svc.vst.rtspserver-sdr-envoy
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# VST recorder service #
+- name: vst-recorder
+  type: ucf.svc.vst-recorder
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# SDR-envoy for VST rtsp server service #
+- name: vst-recorder-sdr
+  type: ucf.svc.vst.recorder-sdr-envoy
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# VST storage service #
+- name: vst-storage
+  type: ucf.svc.vst-storage
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# VST livestream service #
+- name: vst-livestream
+  type: ucf.svc.vst-livestream
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# SDR-envoy for VST livestream service #
+- name: vst-livestream-sdr
+  type: ucf.svc.vst.livestream-sdr-envoy
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# VST replaystream service #
+- name: vst-replaystream
+  type: ucf.svc.vst-replaystream
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# SDR-envoy for VST replaystream service #
+- name: vst-replaystream-sdr
+  type: ucf.svc.vst.replaystream-sdr-envoy
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# VST database service #
+- name: vst-postgres
+  type: ucf.svc.vst-postgres
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+# VST minio service #
+- name: vst-minio
+  type: ucf.svc.vst-minio
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+

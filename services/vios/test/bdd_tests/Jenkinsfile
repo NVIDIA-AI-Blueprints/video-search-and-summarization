@@ -1,0 +1,67 @@
+pipeline {
+    agent any
+    
+    environment {
+        POETRY_HOME = "${WORKSPACE}/.poetry"
+        PATH = "${POETRY_HOME}/bin:${PATH}"
+    }
+    
+    stages {
+        stage('Setup') {
+            steps {
+                sh '''
+                    if ! command -v poetry &> /dev/null; then
+                        echo "Installing Poetry..."
+                        curl -sSL https://install.python-poetry.org | python3 -
+                    fi
+                '''
+                dir('tools/bdd_tests') {
+                    echo 'Installing dependencies...'
+                    sh 'poetry install'
+                    sh 'poetry run setup-system-deps || echo "jpeginfo already installed"'
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                dir('tools/bdd_tests') {
+                    echo 'Running BDD tests...'
+                    sh '''
+                        mkdir -p reports
+                        poetry run pytest
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Publish JUnit test results
+            junit 'reports/junit.xml'
+            
+            // Archive HTML report
+            publishHTML([
+                allowMissing: false,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'reports',
+                reportFiles: 'report.html',
+                reportName: 'Test Report'
+            ])
+            
+            // Clean up workspace
+            cleanWs()
+        }
+        
+        success {
+            echo 'Tests passed successfully!'
+        }
+        
+        failure {
+            echo 'Tests failed!'
+        }
+    }
+}
+

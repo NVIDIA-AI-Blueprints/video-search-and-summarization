@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 1.5.0
+version: 1.0.7
+name: mms
+
+description: Helm chart for media-service
+
+dependencies:
+- ucf.svc.vms:1.2.3
+
+components:
+- name: vst
+  type: ucf.svc.vms
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    - name: imagepullsecret
+
+    applicationSpecs:
+      vms:
+        containers:
+          vms-container:
+            readinessProbe:
+              httpGet:
+                port: http
+              initialDelaySeconds: 120
+            livenessProbe:
+              httpGet:
+                port: http
+              initialDelaySeconds: 120
+        extraPodSpecs:
+          hostNetwork: true
+        services:
+          svc:
+            ports:
+            - name: vms
+              port: 30000
+              protocol: TCP
+            - name: rtsp
+              port: 30554
+              protocol: TCP
+            type: ClusterIP
+
+    configs:
+      vst_config.json:
+        network:
+          server_domain_name:
+          stunurl_list:
+            - stun.l.google.com:19302
+          # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
+          static_turnurl_list: []
+          # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
+          use_coturn_auth_secret: false
+          coturn_turnurl_list_with_secret:
+          # Twilio account details userId & auth_token.
+          use_twilio_stun_turn: false
+          twilio_account_sid: ""
+          twilio_auth_token: ""
+          rtsp_streaming_over_tcp: true
+          max_webrtc_out_connections: 8
+          enable_grpc: false
+          grpc_server_port: 50051
+        data:
+          gpu_indices: [0]
+          total_video_storage_size_MB: 100000
+          always_recording: false
+          use_software_path: false
+        notifications:
+          enable_notification: false
+          # supported - redis, kafka
+          use_message_broker: "kafka"
+          # Redis stream name
+          message_broker_topic: vst_events
+          redis_server_env_var: REDIS_SVC_SERVICE_HOST:9092
+          kafka_server_address: 10.24.217.28:9092
+
+      adaptor_config.json:
+        vst:
+        - enabled: true
+          id: 8ada39c7-5e93-43c5-ae5e-21451c8a8d1b
+          name: milestone_onvif
+          type: mms
+          ip: 10.31.177.245
+          user: ""
+          password: ""
+          port: 580
+          need_rtsp_server: false
+          need_stream_monitoring: false
+          need_recording: false
+          control_adaptor_lib_path: prebuilts/arch/onvif_client.so
+

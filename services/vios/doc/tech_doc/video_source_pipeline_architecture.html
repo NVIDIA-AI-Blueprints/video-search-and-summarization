@@ -1,0 +1,1376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Source Pipeline Architecture - Refactored Design</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .nav-tabs {
+            display: flex;
+            background: white;
+            border-radius: 10px;
+            padding: 5px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+
+        .nav-tab {
+            padding: 15px 25px;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 500;
+            color: #666;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .nav-tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 3px 10px rgba(102, 126, 234, 0.4);
+        }
+
+        .nav-tab:hover:not(.active) {
+            background: #f8f9fa;
+            color: #333;
+        }
+
+        .content-section {
+            display: none;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+
+        .content-section.active {
+            display: block;
+        }
+
+        .section-title {
+            color: #667eea;
+            font-size: 1.8em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .component-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 2px solid #dee2e6;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .component-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            border-color: #667eea;
+        }
+
+        .component-name {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #495057;
+            margin-bottom: 10px;
+        }
+
+        .component-type {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+
+        .component-description {
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+
+        .responsibilities, .capabilities {
+            margin-top: 15px;
+        }
+
+        .responsibilities h4, .capabilities h4 {
+            color: #495057;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .responsibilities ul, .capabilities ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .responsibilities li, .capabilities li {
+            background: white;
+            padding: 8px 15px;
+            margin: 5px 0;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .pipeline-variant {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border: 2px solid #2196f3;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .variant-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+
+        .flow-diagram {
+            background: #f8f9fa;
+            border: 2px dashed #6c757d;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            color: #495057;
+            text-align: center;
+        }
+
+        .decision-tree {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            border: 2px solid #ff9800;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .decision-point {
+            background: white;
+            border: 2px solid #ff9800;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+
+        .condition {
+            font-weight: bold;
+            color: #e65100;
+            margin-bottom: 5px;
+        }
+
+        .path {
+            color: #f57c00;
+            font-style: italic;
+        }
+
+        .lifecycle-phase {
+            background: linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%);
+            border: 2px solid #4caf50;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .phase-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #2e7d32;
+            margin-bottom: 15px;
+        }
+
+        .phase-steps {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .phase-steps li {
+            background: white;
+            padding: 10px 15px;
+            margin: 8px 0;
+            border-radius: 8px;
+            border-left: 4px solid #4caf50;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .strategy-card {
+            background: linear-gradient(135deg, #fce4ec 0%, #f8bbd9 100%);
+            border: 2px solid #e91e63;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .strategy-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #c2185b;
+            margin-bottom: 10px;
+        }
+
+        .strategy-description {
+            color: #ad1457;
+            margin-bottom: 15px;
+        }
+
+        .examples {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .examples h4 {
+            color: #c2185b;
+            margin-bottom: 10px;
+        }
+
+        .examples li {
+            color: #ad1457;
+            margin: 5px 0;
+            padding: 5px 10px;
+            background: #fce4ec;
+            border-radius: 5px;
+        }
+
+        .optimization-card {
+            background: linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%);
+            border: 2px solid #009688;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .optimization-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #00695c;
+            margin-bottom: 10px;
+        }
+
+        .optimization-description {
+            color: #004d40;
+            margin-bottom: 15px;
+        }
+
+        .benefits {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .benefits h4 {
+            color: #00695c;
+            margin-bottom: 10px;
+        }
+
+        .benefits li {
+            color: #004d40;
+            margin: 5px 0;
+            padding: 5px 10px;
+            background: #e0f2f1;
+            border-radius: 5px;
+        }
+
+        .block-diagram {
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+
+        .block-row {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            min-width: fit-content;
+        }
+
+        .block-row.alternate {
+            opacity: 0.7;
+            font-style: italic;
+        }
+
+        .block {
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.9em;
+            text-align: center;
+            min-width: 120px;
+            margin: 0 5px;
+            white-space: nowrap;
+        }
+
+        .block.small {
+            min-width: 80px;
+            padding: 6px 10px;
+            font-size: 0.8em;
+        }
+
+        .block.source {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border: 2px solid #2196f3;
+            color: #1976d2;
+        }
+
+        .block.process {
+            background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+            border: 2px solid #9c27b0;
+            color: #7b1fa2;
+        }
+
+        .block.sink {
+            background: linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%);
+            border: 2px solid #4caf50;
+            color: #2e7d32;
+        }
+
+        .block.optional {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            border: 2px dashed #ff9800;
+            color: #f57c00;
+        }
+
+        .block.compositor {
+            background: linear-gradient(135deg, #fce4ec 0%, #f8bbd9 100%);
+            border: 2px solid #e91e63;
+            color: #c2185b;
+            font-weight: bold;
+        }
+
+        .arrow {
+            color: #666;
+            font-weight: 500;
+            font-size: 0.85em;
+            margin: 0 8px;
+            white-space: nowrap;
+        }
+
+        .legend {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+
+        .legend-item span {
+            margin-left: 15px;
+            color: #6c757d;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .nav-tabs {
+                flex-direction: column;
+            }
+            
+            .nav-tab {
+                text-align: center;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Video Source Pipeline Architecture</h1>
+            <p>Refactored Design - Comprehensive Technical Documentation</p>
+        </div>
+
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="showSection('overview')">Overview</button>
+            <button class="nav-tab" onclick="showSection('directory')">Directory Structure</button>
+            <button class="nav-tab" onclick="showSection('architecture')">Architecture</button>
+            <button class="nav-tab" onclick="showSection('pipelines')">Pipeline Types</button>
+            <button class="nav-tab" onclick="showSection('components')">Components</button>
+            <button class="nav-tab" onclick="showSection('dataflows')">Data Flows</button>
+            <button class="nav-tab" onclick="showSection('selection')">Pipeline Selection</button>
+            <button class="nav-tab" onclick="showSection('lifecycle')">Lifecycle</button>
+            <button class="nav-tab" onclick="showSection('errorhandling')">Error Handling</button>
+            <button class="nav-tab" onclick="showSection('performance')">Performance</button>
+            <button class="nav-tab" onclick="showSection('diagrams')">Block Diagrams</button>
+        </div>
+
+        <!-- Overview Section -->
+        <div id="overview" class="content-section active">
+            <h2 class="section-title">Architecture Overview</h2>
+            <p>The refactored video source architecture implements the <strong>Builder Pattern</strong> with clean separation of concerns:</p>
+            
+            <div class="flow-diagram">
+                CommonVideoSource (Controller)<br>
+                ↓<br>
+                PipelineManager (Orchestrator)<br>
+                ↓<br>
+                PipelineBuilder (Abstract Builder)<br>
+                ↓<br>
+                SingleStreamPipelineBuilder | CompositePipelineBuilder
+            </div>
+
+            <h3>Key Benefits</h3>
+            <ul>
+                <li><strong>Modularity:</strong> Each pipeline type has its own builder</li>
+                <li><strong>Extensibility:</strong> Easy to add new pipeline types</li>
+                <li><strong>Maintainability:</strong> Clear separation of pipeline construction logic</li>
+                <li><strong>Backward Compatibility:</strong> Legacy interfaces preserved</li>
+                <li><strong>Performance:</strong> Hardware acceleration and shared stream optimization</li>
+            </ul>
+        </div>
+
+        <!-- Directory Structure Section -->
+        <div id="directory" class="content-section">
+            <h2 class="section-title">Video Source Directory Structure</h2>
+            <p>The refactored video source module is organized into a clean, modular directory structure:</p>
+            
+            <div class="component-card">
+                <div class="component-name">src/framework/media/video_source/</div>
+                <div class="component-type">root-directory</div>
+                <div class="component-description">Modular video source architecture with organized component hierarchy</div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">core/</div>
+                <div class="component-type">main-classes</div>
+                <div class="component-description">Main video source classes and configuration management</div>
+                <div class="responsibilities">
+                    <h4>Files:</h4>
+                    <ul>
+                        <li><strong>CommonVideoSource.h/cpp</strong> - Main video source controller with backward compatibility</li>
+                        <li><strong>PipelineManager.h/cpp</strong> - Pipeline lifecycle management and component access</li>
+                        <li><strong>PipelineConfiguration.h/cpp</strong> - Configuration parsing and validation</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">builders/</div>
+                <div class="component-type">pipeline-construction</div>
+                <div class="component-description">Pipeline construction logic using Builder pattern</div>
+                <div class="responsibilities">
+                    <h4>Files:</h4>
+                    <ul>
+                        <li><strong>PipelineBuilder.h/cpp</strong> - Abstract base class for pipeline builders</li>
+                        <li><strong>SingleStreamPipelineBuilder.h/cpp</strong> - Single stream pipeline construction</li>
+                        <li><strong>CompositePipelineBuilder.h/cpp</strong> - Multi-stream pipeline construction</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">processors/</div>
+                <div class="component-type">video-processing</div>
+                <div class="component-description">Video processing components organized by functionality</div>
+                <div class="responsibilities">
+                    <h4>Subdirectories:</h4>
+                    <ul>
+                        <li><strong>transforms/</strong> - ll_transform.h/cpp (Video transformation and scaling)</li>
+                        <li><strong>compositors/</strong> - nvcompositor.h/cpp (Multi-stream composition for video wall)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">decoders/</div>
+                <div class="component-type">video-decoding</div>
+                <div class="component-description">Video decoding and decoder pool management</div>
+                <div class="responsibilities">
+                    <h4>Files:</h4>
+                    <ul>
+                        <li><strong>gstnvvideodecoder.h/cpp</strong> - GStreamer NVIDIA video decoder</li>
+                        <li><strong>decoderpool.h</strong> - Decoder pool management and lifecycle</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">encoders/</div>
+                <div class="component-type">video-encoding</div>
+                <div class="component-description">Video encoding and image capture components</div>
+                <div class="responsibilities">
+                    <h4>Files:</h4>
+                    <ul>
+                        <li><strong>nvvideoencoder.h/cpp</strong> - NVIDIA hardware video encoder</li>
+                        <li><strong>libnv_encoder.h/cpp</strong> - Low-level NVIDIA encoder interface</li>
+                        <li><strong>image_encoder.h/cpp</strong> - JPEG image encoding</li>
+                        <li><strong>nvjpegenc_loader.h/cpp</strong> - JPEG encoder loader</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">senders/</div>
+                <div class="component-type">video-transmission</div>
+                <div class="component-description">Video transmission and WebRTC integration</div>
+                <div class="responsibilities">
+                    <h4>Files:</h4>
+                    <ul>
+                        <li><strong>videowebRTCsender.h/cpp</strong> - WebRTC video sender for pass-through mode</li>
+                        <li><strong>videosenderpool.h</strong> - Video sender pool management for resource sharing</li>
+                        <li><strong>webrtc_sink_consumer.h/cpp</strong> - WebRTC sink consumer for regular mode</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">producers/</div>
+                <div class="component-type">data-sources</div>
+                <div class="component-description">Data source producers and stream monitoring</div>
+                <div class="responsibilities">
+                    <h4>Files:</h4>
+                    <ul>
+                        <li><strong>nativestreamproducer.h/cpp</strong> - Native camera stream producer</li>
+                        <li><strong>native_stream_monitor.h/cpp</strong> - Native stream monitoring</li>
+                        <li><strong>webrtcstreamproducer.h</strong> - WebRTC stream producer</li>
+                        <li><strong>gstnvipcproducer.h/cpp</strong> - IPC producer (Jetson platform)</li>
+                        <li><strong>ipcproducerpool.h</strong> - IPC producer pool management (Jetson)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="optimization-card">
+                <div class="optimization-name">Build System Integration</div>
+                <div class="optimization-description">New modular build system with standalone video source library</div>
+                <div class="benefits">
+                    <h4>Components:</h4>
+                    <ul>
+                        <li><strong>libnvvideo_source.so</strong> - Standalone video source shared library</li>
+                        <li><strong>Dependency Chain:</strong> webrtc_streamer → video_source → utilities</li>
+                        <li><strong>Modular Compilation:</strong> Independent building and testing</li>
+                        <li><strong>Resource Sharing:</strong> VideoSenderPool for efficient resource management</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="strategy-card">
+                <div class="strategy-name">VideoSenderPool Resource Management</div>
+                <div class="strategy-description">Efficient resource sharing for pass-through mode streaming</div>
+                <div class="examples">
+                    <h4>Key Features:</h4>
+                    <ul>
+                        <li><strong>Singleton Pattern:</strong> Global access point for VideoWebRTCSender instances</li>
+                        <li><strong>URL-Based Sharing:</strong> Multiple clients share same VideoWebRTCSender for same stream URL</li>
+                        <li><strong>Memory Optimization:</strong> Prevents duplicate processing pipelines</li>
+                        <li><strong>Thread Safety:</strong> Mutex-protected operations for concurrent access</li>
+                        <li><strong>Automatic Cleanup:</strong> Shared pointer reference counting for lifecycle management</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="strategy-card">
+                <div class="strategy-name">DecoderPool Resource Management</div>
+                <div class="strategy-description">Efficient decoder instance sharing for regular mode streaming</div>
+                <div class="examples">
+                    <h4>Key Features:</h4>
+                    <ul>
+                        <li><strong>Instance Reuse:</strong> Multiple consumers share same decoder for same stream</li>
+                        <li><strong>Lifecycle Management:</strong> Automatic creation, reuse, and cleanup</li>
+                        <li><strong>Resource Efficiency:</strong> Eliminates duplicate decoding processes</li>
+                        <li><strong>Thread Synchronization:</strong> Proper shutdown sequence with condition variables</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Architecture Section -->
+        <div id="architecture" class="content-section">
+            <h2 class="section-title">High-Level Architecture</h2>
+            
+            <div class="component-card">
+                <div class="component-name">CommonVideoSource</div>
+                <div class="component-type">main-controller</div>
+                <div class="component-description">Main video source controller with backward compatibility</div>
+                <div class="responsibilities">
+                    <h4>Responsibilities:</h4>
+                    <ul>
+                        <li>Pipeline lifecycle management</li>
+                        <li>Legacy interface maintenance</li>
+                        <li>WebRTC integration coordination</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">PipelineManager</div>
+                <div class="component-type">pipeline-orchestrator</div>
+                <div class="component-description">Manages pipeline creation, lifecycle, and component access</div>
+                <div class="responsibilities">
+                    <h4>Responsibilities:</h4>
+                    <ul>
+                        <li>Builder selection (Single vs Composite)</li>
+                        <li>Pipeline lifecycle coordination</li>
+                        <li>Component access delegation</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">PipelineBuilder</div>
+                <div class="component-type">abstract-builder</div>
+                <div class="component-description">Abstract base class for pipeline construction</div>
+                <div class="responsibilities">
+                    <h4>Responsibilities:</h4>
+                    <ul>
+                        <li>Define pipeline construction interface</li>
+                        <li>Common component management</li>
+                        <li>Pipeline lifecycle operations</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pipeline Types Section -->
+        <div id="pipelines" class="content-section">
+            <h2 class="section-title">Pipeline Types</h2>
+            
+            <h3>Single Stream Pipeline (SingleStreamPipelineBuilder)</h3>
+            <p>Single video stream processing pipeline</p>
+            
+            <div class="pipeline-variant">
+                <div class="variant-name">Standard Pipeline</div>
+                <div class="flow-diagram">Decoder → Transform → Encoder → WebRTC Consumer</div>
+                <div class="flow-diagram">Decoder → Transform → Overlay → Encoder → WebRTC Consumer</div>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Pass-Through Pipeline</div>
+                <div class="flow-diagram">VideoWebRTCSender (Direct)</div>
+                <p>Bypasses encoding, streams directly to WebRTC</p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Native Stream Pipeline</div>
+                <div class="flow-diagram">NativeStreamProducer → Transform → Encoder → WebRTC Consumer</div>
+                <p>For native camera streams</p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Gods Eye View Pipeline</div>
+                <div class="flow-diagram">Decoder → Transform → Encoder → WebRTC Consumer</div>
+                <p>For recorded file playback</p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">IPC Pipeline</div>
+                <div class="flow-diagram">IPCProducer → Transform → Overlay → WebRTC Consumer</div>
+                <p>Jetson platform specific</p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Image Capture Pipeline</div>
+                <div class="flow-diagram">Decoder → Transform → ImageEncoder</div>
+                <p>For JPEG image capture</p>
+            </div>
+
+            <h3>Composite Pipeline (CompositePipelineBuilder)</h3>
+            <p>Multi-stream video wall/compositor pipeline</p>
+            
+            <div class="pipeline-variant">
+                <div class="variant-name">Video Compositor Pipeline</div>
+                <div class="flow-diagram">Multiple Decoders → Overlays → Compositor → Transform → Encoder → WebRTC Consumer</div>
+                <div class="flow-diagram">Multiple Decoders → Overlays → Compositor → TransformSink → WebRTC Consumer</div>
+                <p>Hardware vs Software encoding paths</p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Image Capture Pipeline</div>
+                <div class="flow-diagram">First Decoder → Transform → ImageEncoder</div>
+                <p>Composite image capture from first stream</p>
+            </div>
+        </div>
+
+        <!-- Components Section -->
+        <div id="components" class="content-section">
+            <h2 class="section-title">Component Hierarchy</h2>
+            
+            <h3>Source Components</h3>
+            <div class="component-card">
+                <div class="component-name">GstNvVideoDecoder</div>
+                <div class="component-type">decoder</div>
+                <div class="component-description">GStreamer-based NVIDIA video decoder</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>H.264/H.265 decoding</li>
+                        <li>RTSP/File input support</li>
+                        <li>Hardware acceleration</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">NativeStreamProducer</div>
+                <div class="component-type">producer</div>
+                <div class="component-description">Native camera stream producer</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>Direct camera access</li>
+                        <li>Real-time streaming</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">VideoWebRTCSender</div>
+                <div class="component-type">sender</div>
+                <div class="component-description">WebRTC video sender for pass-through mode</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>Direct WebRTC streaming</li>
+                        <li>Frame synchronization</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3>Processing Components</h3>
+            <div class="component-card">
+                <div class="component-name">NvLLTransform</div>
+                <div class="component-type">transform</div>
+                <div class="component-description">Low-level video transform component</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>Video scaling</li>
+                        <li>Format conversion</li>
+                        <li>Hardware acceleration</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">NvLLOverlay</div>
+                <div class="component-type">overlay</div>
+                <div class="component-description">Low-level video overlay component</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>OSD (On-Screen Display)</li>
+                        <li>Sensor name overlay</li>
+                        <li>Bounding box overlay</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">NvCompositor</div>
+                <div class="component-type">compositor</div>
+                <div class="component-description">Multi-stream video compositor</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>Video wall creation</li>
+                        <li>Grid layout support</li>
+                        <li>Real-time composition</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3>Output Components</h3>
+            <div class="component-card">
+                <div class="component-name">NvEncoderVideoConsumer</div>
+                <div class="component-type">encoder</div>
+                <div class="component-description">NVIDIA hardware video encoder</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>H.264/H.265 encoding</li>
+                        <li>Hardware acceleration</li>
+                        <li>Quality control</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">WebrtcSinkConsumer</div>
+                <div class="component-type">consumer</div>
+                <div class="component-description">WebRTC sink consumer</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>WebRTC streaming</li>
+                        <li>Peer connection management</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="component-card">
+                <div class="component-name">ImageEnc</div>
+                <div class="component-type">encoder</div>
+                <div class="component-description">Image encoder for JPEG capture</div>
+                <div class="capabilities">
+                    <h4>Capabilities:</h4>
+                    <ul>
+                        <li>JPEG encoding</li>
+                        <li>Image capture</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Flows Section -->
+        <div id="dataflows" class="content-section">
+            <h2 class="section-title">Data Flow Patterns</h2>
+            
+            <div class="pipeline-variant">
+                <div class="variant-name">Single Stream Standard Flow</div>
+                <div class="flow-diagram">Source (Decoder/NativeStream) → Transform (Optional) → Overlay (Optional) → Encoder → WebRTC Consumer</div>
+                <p>Standard video processing pipeline with optional overlay</p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Single Stream Pass-Through Flow</div>
+                <div class="flow-diagram">Source (Decoder) → VideoWebRTCSender (Direct)</div>
+                <p>Direct streaming without re-encoding</p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Composite Flow</div>
+                <div class="flow-diagram">Multiple Sources (Decoders) → Overlays (Optional) → Compositor → Transform/TransformSink → Encoder (Optional) → WebRTC Consumer</div>
+                <p>Multi-stream composition for video wall</p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Image Capture Flow</div>
+                <div class="flow-diagram">Source (Decoder) → Transform (Optional) → ImageEncoder → JPEG Output</div>
+                <p>Image capture pipeline for JPEG output</p>
+            </div>
+        </div>
+
+        <!-- Pipeline Selection Section -->
+        <div id="selection" class="content-section">
+            <h2 class="section-title">Pipeline Selection Logic</h2>
+            
+            <div class="decision-tree">
+                <h3>Pipeline Type Selection</h3>
+                <div class="decision-point">
+                    <div class="condition">config.getCompositor().enabled</div>
+                    <div class="path">True: CompositePipelineBuilder</div>
+                    <div class="path">False: SingleStreamPipelineBuilder</div>
+                </div>
+            </div>
+
+            <div class="decision-tree">
+                <h3>Single Stream Type Selection</h3>
+                <div class="decision-point">
+                    <div class="condition">config.isPassThrough()</div>
+                    <div class="path">True: PassThroughPipeline</div>
+                    <div class="path">False: Continue to next condition</div>
+                </div>
+                <div class="decision-point">
+                    <div class="condition">config.isNativeStream()</div>
+                    <div class="path">True: NativeStreamPipeline</div>
+                    <div class="path">False: Continue to next condition</div>
+                </div>
+                <div class="decision-point">
+                    <div class="condition">config.isGodsEyeView()</div>
+                    <div class="path">True: GodsEyeViewPipeline</div>
+                    <div class="path">False: Continue to next condition</div>
+                </div>
+                <div class="decision-point">
+                    <div class="condition">config.getOverlay().enabled && config.getOverlay().bboxEnabled</div>
+                    <div class="path">True: IPCPipeline</div>
+                    <div class="path">False: StandardPipeline</div>
+                </div>
+            </div>
+
+            <div class="decision-tree">
+                <h3>Composite Type Selection</h3>
+                <div class="decision-point">
+                    <div class="condition">config.isImageCapture()</div>
+                    <div class="path">True: ImageCapturePipeline</div>
+                    <div class="path">False: VideoCompositorPipeline</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lifecycle Management Section -->
+        <div id="lifecycle" class="content-section">
+            <h2 class="section-title">Component Lifecycle Management</h2>
+            
+            <div class="lifecycle-phase">
+                <div class="phase-name">Creation</div>
+                <ol class="phase-steps">
+                    <li>Create PipelineBuilder based on config</li>
+                    <li>Build pipeline components</li>
+                    <li>Establish component connections</li>
+                    <li>Setup consumer chains</li>
+                </ol>
+            </div>
+
+            <div class="lifecycle-phase">
+                <div class="phase-name">Startup</div>
+                <ol class="phase-steps">
+                    <li>Start source producers</li>
+                    <li>Set consumer ready states</li>
+                    <li>Begin data flow</li>
+                </ol>
+            </div>
+
+            <div class="lifecycle-phase">
+                <div class="phase-name">Operation</div>
+                <ol class="phase-steps">
+                    <li>Maintain component states</li>
+                    <li>Handle dynamic changes</li>
+                    <li>Monitor pipeline health</li>
+                </ol>
+            </div>
+
+            <div class="lifecycle-phase">
+                <div class="phase-name">Shutdown</div>
+                <ol class="phase-steps">
+                    <li>Stop data flow</li>
+                    <li>Remove consumer connections</li>
+                    <li>Clear producer references</li>
+                    <li>Destroy components</li>
+                    <li>Clean up resources</li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Error Handling Section -->
+        <div id="errorhandling" class="content-section">
+            <h2 class="section-title">Error Handling and Recovery</h2>
+            
+            <div class="strategy-card">
+                <div class="strategy-name">Graceful Degradation</div>
+                <div class="strategy-description">Pipeline continues operation with reduced functionality</div>
+                <div class="examples">
+                    <h4>Examples:</h4>
+                    <ul>
+                        <li>Overlay disabled if OSD libraries unavailable</li>
+                        <li>Software encoding fallback if hardware unavailable</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="strategy-card">
+                <div class="strategy-name">Component Isolation</div>
+                <div class="strategy-description">Individual component failures don't crash entire pipeline</div>
+                <div class="examples">
+                    <h4>Examples:</h4>
+                    <ul>
+                        <li>Decoder pool management</li>
+                        <li>Producer-consumer decoupling</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="strategy-card">
+                <div class="strategy-name">Resource Cleanup</div>
+                <div class="strategy-description">Proper cleanup during pipeline destruction</div>
+                <div class="examples">
+                    <h4>Examples:</h4>
+                    <ul>
+                        <li>Thread synchronization during shutdown</li>
+                        <li>Component reference cleanup</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Section -->
+        <div id="performance" class="content-section">
+            <h2 class="section-title">Performance Considerations</h2>
+            
+            <div class="optimization-card">
+                <div class="optimization-name">Hardware Acceleration</div>
+                <div class="optimization-description">Leverage NVIDIA hardware for encoding/decoding</div>
+                <div class="benefits">
+                    <h4>Benefits:</h4>
+                    <ul>
+                        <li>Reduced CPU usage</li>
+                        <li>Lower latency</li>
+                        <li>Higher throughput</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="optimization-card">
+                <div class="optimization-name">Shared Streams</div>
+                <div class="optimization-description">Multiple consumers share single decoder instance</div>
+                <div class="benefits">
+                    <h4>Benefits:</h4>
+                    <ul>
+                        <li>Reduced memory usage</li>
+                        <li>Eliminated duplicate decoding</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="optimization-card">
+                <div class="optimization-name">Asynchronous Processing</div>
+                <div class="optimization-description">Non-blocking pipeline operations</div>
+                <div class="benefits">
+                    <h4>Benefits:</h4>
+                    <ul>
+                        <li>Improved responsiveness</li>
+                        <li>Better resource utilization</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Block Diagrams Section -->
+        <div id="diagrams" class="content-section">
+            <h2 class="section-title">Technical Block Diagrams</h2>
+            <p>Detailed block-level diagrams showing components and data flows for each pipeline variant.</p>
+            
+            <h3>Single Stream Pipelines</h3>
+            
+            <div class="pipeline-variant">
+                <div class="variant-name">Standard Pipeline</div>
+                <div class="block-diagram">
+                    <div class="block-row">
+                        <div class="block source">Media Producer (RTSP)</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process">Transform</div>
+                        <div class="arrow">processed frames →</div>
+                        <div class="block process">Encoder</div>
+                        <div class="arrow">H.264/H.265 →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                    <div class="block-row alternate">
+                        <div class="block source">Media Producer (RTSP)</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process">Transform</div>
+                        <div class="arrow">processed frames →</div>
+                        <div class="block process optional">Overlay</div>
+                        <div class="arrow">overlay frames →</div>
+                        <div class="block process">Encoder</div>
+                        <div class="arrow">H.264/H.265 →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Pass-Through Pipeline</div>
+                <div class="block-diagram">
+                    <div class="block-row">
+                        <div class="block source">Media Producer (RTSP)</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder</div>
+                        <div class="arrow">encoded frames →</div>
+                        <div class="block process">VideoWebRTCSender</div>
+                        <div class="arrow">webrtc frames →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Native Stream Pipeline</div>
+                <div class="block-diagram">
+                    <div class="block-row">
+                        <div class="block source">NativeStreamProducer</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process">Transform</div>
+                        <div class="arrow">processed frames →</div>
+                        <div class="block process">Encoder</div>
+                        <div class="arrow">H.264/H.265 →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Gods Eye View Pipeline</div>
+                <div class="block-diagram">
+                    <div class="block-row">
+                        <div class="block source">File Source (GST)</div>
+                        <div class="arrow">file stream →</div>
+                        <div class="block process">Decoder</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process">Transform</div>
+                        <div class="arrow">processed frames →</div>
+                        <div class="block process">Encoder</div>
+                        <div class="arrow">H.264/H.265 →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">IPC Pipeline (Jetson)</div>
+                <div class="block-diagram">
+                    <div class="block-row">
+                        <div class="block source">IPCProducer</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process">Transform</div>
+                        <div class="arrow">processed frames →</div>
+                        <div class="block process">Overlay (BBoxes)</div>
+                        <div class="arrow">webrtc frames →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Image Capture Pipeline</div>
+                <div class="block-diagram">
+                    <div class="block-row">
+                        <div class="block source">Media Producer/File Source</div>
+                        <div class="arrow">stream →</div>
+                        <div class="block process">Decoder</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block sink">ImageEncoder (JPEG)</div>
+                    </div>
+                    <div class="block-row alternate">
+                        <div class="block source">Media Producer/File Source</div>
+                        <div class="arrow">stream →</div>
+                        <div class="block process">Decoder</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process optional">Transform</div>
+                        <div class="arrow">processed frames →</div>
+                        <div class="block sink">ImageEncoder (JPEG)</div>
+                    </div>
+                </div>
+            </div>
+
+            <h3>Composite Pipelines</h3>
+            
+            <div class="pipeline-variant">
+                <div class="variant-name">Composite - Hardware Encode Path</div>
+                <div class="block-diagram">
+                    <div class="block-row">
+                        <div class="block source">Media Producer #1</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #1</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process compositor">Compositor</div>
+                        <div class="arrow">composited frames →</div>
+                        <div class="block process">Transform</div>
+                        <div class="arrow">processed frames →</div>
+                        <div class="block process">Encoder</div>
+                        <div class="arrow">H.264/H.265 →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                    <div class="block-row">
+                        <div class="block source">Media Producer #2</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #2</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process compositor">↑</div>
+                    </div>
+                    <div class="block-row">
+                        <div class="block source">Media Producer #N</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #N</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process compositor">↑</div>
+                    </div>
+                    <div class="block-row alternate" style="margin-top: 15px;">
+                        <div class="block source">Media Producer #1</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #1</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process optional">Overlay #1</div>
+                        <div class="arrow">overlay frames →</div>
+                        <div class="block process compositor">Compositor</div>
+                        <div class="arrow">composited frames →</div>
+                        <div class="block process">Transform</div>
+                        <div class="arrow">processed frames →</div>
+                        <div class="block process">Encoder</div>
+                        <div class="arrow">H.264/H.265 →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                    <div class="block-row alternate">
+                        <div class="block source">Media Producer #2</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #2</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process optional">Overlay #2</div>
+                        <div class="arrow">overlay frames →</div>
+                        <div class="block process compositor">↑</div>
+                    </div>
+                    <div class="block-row alternate">
+                        <div class="block source">Media Producer #N</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #N</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process optional">Overlay #N</div>
+                        <div class="arrow">overlay frames →</div>
+                        <div class="block process compositor">↑</div>
+                    </div>
+                </div>
+                <p><em>With overlays: Sensor name display and bounding box overlays</em></p>
+            </div>
+
+            <div class="pipeline-variant">
+                <div class="variant-name">Composite - Software Path</div>
+                <div class="block-diagram">
+                    <div class="block-row">
+                        <div class="block source">Media Producer #1</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #1</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process compositor">Compositor</div>
+                        <div class="arrow">composited frames →</div>
+                        <div class="block process">TransformSink</div>
+                        <div class="arrow">webrtc frames →</div>
+                        <div class="block sink">WebRTC Consumer</div>
+                    </div>
+                    <div class="block-row">
+                        <div class="block source">Media Producer #2</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #2</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process compositor">↑</div>
+                    </div>
+                    <div class="block-row">
+                        <div class="block source">Media Producer #N</div>
+                        <div class="arrow">RTSP stream →</div>
+                        <div class="block process">Decoder #N</div>
+                        <div class="arrow">raw frames →</div>
+                        <div class="block process compositor">↑</div>
+                    </div>
+                </div>
+                <p><em>Software encoding path when hardware encoder unavailable</em></p>
+            </div>
+
+            <h3>Legend</h3>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="block source small">Source</div>
+                    <span>Data input components (Media Producers, File Sources)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="block process small">Process</div>
+                    <span>Processing components (decoder, transform, overlay, encoder)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="block sink small">Sink</div>
+                    <span>Output components (WebRTC consumer, image encoder)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="block optional small">Optional</div>
+                    <span>Optional components (may be bypassed)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="block compositor small">Compositor</div>
+                    <span>Multi-stream composition component</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Video Source Pipeline Architecture Documentation | VMS Shim Project</p>
+            <p>Generated from XML specification | Last updated: <span id="lastUpdated"></span></p>
+        </div>
+    </div>
+
+    <script>
+        function showSection(sectionId) {
+            // Hide all sections
+            const sections = document.querySelectorAll('.content-section');
+            sections.forEach(section => {
+                section.classList.remove('active');
+            });
+
+            // Remove active class from all tabs
+            const tabs = document.querySelectorAll('.nav-tab');
+            tabs.forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected section
+            document.getElementById(sectionId).classList.add('active');
+
+            // Add active class to clicked tab
+            event.target.classList.add('active');
+        }
+
+        // Set last updated date
+        document.getElementById('lastUpdated').textContent = new Date().toLocaleDateString();
+
+        // Add smooth scrolling for better UX
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+    </script>
+</body>
+</html>

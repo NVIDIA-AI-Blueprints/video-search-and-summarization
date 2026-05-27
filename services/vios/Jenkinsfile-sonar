@@ -1,0 +1,85 @@
+pipeline {
+    agent {
+        kubernetes {
+            cloud 'sc-ipp-blossom-prod'
+            yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: main
+    image: urm.nvidia.com/sw-embedded-metropolis-a3ieng-docker/pipeline-util:0.0.6
+    command: ['sleep', '99d']
+
+  - name: sonar-scanner
+    image: sonarsource/sonar-scanner-cli:12.0
+    command: ['sleep', '99d']
+    env:
+    - name: SONAR_USER_HOME
+      value: /tmp/sonar
+    resources:
+      requests:
+        memory: "24Gi"
+        cpu: "8"
+      limits:
+        memory: "24Gi"
+        cpu: "8"
+
+  nodeSelector:
+    kubernetes.io/os: linux
+            '''
+        }
+    }
+
+    stages {
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonarqube-server') {
+                    container('sonar-scanner') {
+                        script {
+                            def sonarParams = [
+                                    "-Dsonar.projectKey=TEGRASW_VST_VST_vms_shim",
+                                    "-Dsonar.projectName=VST",
+                                    "-Dsonar.sources=.",
+                                    "-Dsonar.exclusions=**/tests/**,**/test/**,**/__pycache__/**,**/venv/**,**/prebuilts/**,**/*.so,**/*.so.*,**/tools/**,**/doc/**,**/webroot/**,**/deployment/**,**/include/3rdparty/**,**/include/opentelemetry/**,**/include/ds/**,**/include/streamsdk/**,**/webrtc_headers/**,**/civetweb/**,**/live/**,**/live555helper/**",
+                                    "-Dsonar.sourceEncoding=UTF-8"
+                            ]
+
+                            // Add coverage report if it exists
+                            if (fileExists('coverage/coverage.xml')) {
+                                echo "📈 Including coverage report in SonarQube analysis"
+                                sonarParams.add("-Dsonar.python.coverage.reportPaths=coverage/coverage.xml")
+                            } else {
+                                echo "⚠️  Coverage report not found, skipping coverage in SonarQube"
+                            }
+
+                            // Auto-detect branch or merge request
+                            if (env.CHANGE_ID) {
+                                echo "🔍 Scanning Merge Request !${env.CHANGE_ID}"
+                                sonarParams.add("-Dsonar.pullrequest.key=${env.CHANGE_ID}")
+                                sonarParams.add("-Dsonar.pullrequest.branch=${env.CHANGE_BRANCH}")
+                                sonarParams.add("-Dsonar.pullrequest.base=${env.CHANGE_TARGET}")
+                            } else if (env.BRANCH_NAME) {
+                                echo "🔍 Scanning Branch: ${env.BRANCH_NAME}"
+                                sonarParams.add("-Dsonar.branch.name=${env.BRANCH_NAME}")
+                            }
+
+                            // Give scanner more heap for large C++ analysis (avoids OOM)
+                            env.SONAR_SCANNER_OPTS = '-Xmx12g -Xms4g'
+
+                            sh 'sonar-scanner ' + sonarParams.join(' ')
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
+                }
+            }
+        }
+    }
+}

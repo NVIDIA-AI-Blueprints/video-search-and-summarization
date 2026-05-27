@@ -1,0 +1,112 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 1.5.0
+
+version: 0.0.9
+
+name: vms-test-app
+
+description: Developer tests for vms service
+
+dependencies:
+- ucf.svc.vst-streamer:0.0.1
+- ucf.svc.vms:1.2.38
+- ucf.svc.vms-test:0.0.6
+
+components:
+- name: vms
+  type: ucf.svc.vms
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    configs:
+      vst_config.json:
+        network:
+          rtsp_streaming_over_tcp: true
+          udp_latency_ms: 200
+          udp_drop_on_latency: false
+          stunurl_list:
+            - stun.l.google.com:19302
+            - stun1.l.google.com:19302
+          # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
+          static_turnurl_list:
+            - admin:admin@13.56.254.166:3478
+          # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
+          use_coturn_auth_secret: false
+          coturn_turnurl_list_with_secret:
+          # Twilio account details userId & auth_token.
+          use_twilio_stun_turn: false
+          twilio_account_sid: "ACafbcfa1a2b27f48b5df04bdd69f48809"
+          twilio_auth_token: "d60a5a972a3e8c7ca7260fe198c1fdd4"
+          ntp_servers:
+          max_webrtc_out_connections: 8
+          max_webrtc_in_connections: 1
+          enable_grpc: false
+          grpc_server_port: 50051
+          webrtc_in_audio_sender_max_bitrate: 128000
+          webrtc_in_video_degradation_preference: "resolution"
+          webrtc_in_video_sender_max_framerate: 30
+        data:
+          always_recording: false
+          webrtc_in_fixed_resolution: "1280x720"
+          webrtc_in_max_framerate: 30
+        notifications:
+          enable_notification: true
+          # supported - redis, kafka
+          use_message_broker: "redis"
+          # Redis stream name
+          message_broker_topic: vst.event
+          redis_server_env_var: REDIS_SVC_SERVICE_HOST:9092
+          kafka_server_address: 10.0.0.1:9092
+      vst_storage.json:
+        total_video_storage_size_MB: 100000
+      rtsp_streams.json:
+        streams:
+        - enabled: false
+          stream_in: rtsp://admin:nvidia123@10.110.22.252:554/cam/realmonitor?channel=1\u0026subtype=0
+          name: Kiosk
+        - enabled: true
+          stream_in: rtsp://vst-streamer-deployment-svc:8554/tokkio_sample_clip.mkv
+          name: Sample_input
+        - enabled: true
+          stream_in: udp
+          name: Tokkio_Avatar
+          video:
+            codec: h264
+            framerate: 30
+            port: 30031
+          audio:
+            bits_per_sample: 32
+            codec: pcm
+            enabled: true
+            port: 30032
+            sample_rate_Hz: 44100
+
+- name: vms-test
+  type: ucf.svc.vms-test
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+- name: vst-streamer
+  type: ucf.svc.vst-streamer
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+    timeToSleep: 1000000
+
+connections:
+  vms-test/vms-web-server: vms/vms

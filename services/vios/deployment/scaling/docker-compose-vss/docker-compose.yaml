@@ -1,0 +1,106 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+
+  vst-ingress:
+    image: ${NGINX_IMAGE}
+    user: "0:0"
+    volumes:
+      - ${VST_CONFIG_PATH}/nginx.conf:/etc/nginx/nginx.conf
+    network_mode: host
+    container_name: vst-ingress
+    restart: always    # Nginx should always restart as it's critical for routing
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/30888; printf "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
+    depends_on:
+      storage-ms:
+        condition: service_healthy
+      replaystream-ms-1:
+        condition: service_healthy
+
+  storage-ms:
+    image: ${VST_STORAGE_IMAGE}
+    user: "0:0"
+    runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}  # Set to true when needed
+      - CONTAINER_NAME=storage-ms
+      - NVIDIA_VISIBLE_DEVICES=all
+      - ADAPTOR=storage
+      - NEED_RECORDING=false
+      - NEED_RTSPSERVER=false
+      - NEED_STORAGE=true
+      - NEED_STREAM_MONITORING=false
+      - HTTP_PORT=${STORAGE_HTTP_PORT}
+      - REPLAYSTREAM_MODULE_ENDPOINT=${REPLAYSTREAM_MODULE_ENDPOINT}
+    volumes:
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
+    network_mode: host
+    container_name: storage-ms
+    restart: on-failure    # Restart only if the container exits with non-zero status
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT}; printf "GET /v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+      interval: 15s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+
+  replaystream-ms-1:
+    image: ${VST_REPLAYSTREAM_IMAGE}
+    user: "0:0"
+    runtime: nvidia
+    container_name: replaystream-ms-1
+    network_mode: host
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - CONTAINER_NAME=replaystream-ms-1
+      - ADAPTOR=replaystream-ms
+      - HTTP_PORT=${REPLAYSTREAM_HTTP_PORT_1}
+      - STORAGE_MODULE_ENDPOINT=${STORAGE_MODULE_ENDPOINT}
+    volumes:
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
+    restart: on-failure    # Restart only if the container exits with non-zero status
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT}; printf "GET /v1/startup HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+      interval: 15s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    depends_on:
+      storage-ms:
+        condition: service_healthy

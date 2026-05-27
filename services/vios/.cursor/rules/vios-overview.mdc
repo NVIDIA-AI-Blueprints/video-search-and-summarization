@@ -1,0 +1,73 @@
+---
+description: VIOS project overview, architecture, directory layout, and key dependencies
+alwaysApply: true
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# VIOS Project Overview
+
+**VIOS (Video IO & Storage)** is an NVIDIA C++17 Video Management System abstraction layer. It provides a pluggable adaptor architecture that normalizes access to multiple VMS backends (Milestone, ONVIF, native sensors) and exposes REST/WebSocket APIs with WebRTC streaming. Part of the NVIDIA Metropolis Media Service (MMS) stack.
+
+Current version: see `src/app/vstmodule.cpp` (update this file on each release, do not hardcode here).
+
+# Directory Layout
+
+```
+src/
+  app/           Application entry points (Main.cpp, server.cpp, vstmodule.cpp)
+  framework/     Reusable framework components
+    apis/        REST/WebSocket API handlers
+    web/         HTTP server (civetweb), WebSocket, schema validation
+    media/       GStreamer pipelines, WebRTC streamer, video source graph
+    live555/     RTSP client
+    protocols/   SOAP, gRPC, Prometheus, Elasticsearch clients
+    notification/ Redis, Kafka, MQTT pub/sub
+    database/    SQLite + PostgreSQL backends
+    StreamSdk/   Stream SDK integration
+  modules/       Feature modules (selected at build time via module= flag)
+  adaptors/      VMS backend adaptors (pluggable shared libs)
+include/         Third-party and SDK headers
+prebuilts/       Pre-built static/shared libs per arch (x86_64, aarch64, sbsa)
+test/gtests/     Google Test unit tests
+test/bdd_tests/  Python BDD tests (pytest-bdd + Gherkin)
+deployment/      Kubernetes Helm charts and UCF deployment configs
+cicd_files/      CI/CD scripts, Dockerfiles per arch
+mcp/             MCP gateway (Python)
+```
+
+# Module System
+
+Each module sets its own `CPPFLAGS` defines (e.g., `-DRTSP_SERVER_MODULE`) and links corresponding prebuilt shared libs. Do not assume a module's symbols are present unless its define is active.
+
+# Adaptor Pattern
+
+Adaptors are loaded dynamically via `adaptor_loader.cpp`. Use `/new-adaptor` skill to scaffold one correctly.
+
+# Key Dependencies
+
+| Library | Purpose |
+|---|---|
+| GStreamer 1.0 | Media pipeline |
+| live555 | RTSP client |
+| civetweb | HTTP + WebSocket server |
+| jsoncpp | JSON serialization |
+| libcurl / libxml2 / nvsoap | REST, SOAP, ONVIF |
+| gRPC + protobuf | Inter-service RPC (x86_64) |
+| libpqxx / sqlite3 | PostgreSQL / embedded DB |
+| Redis / Kafka / paho-mqtt | Pub/sub and event streaming |
+| Prometheus cpp / OpenTelemetry | Metrics and tracing |
+| OpenCV 4 / Boost | Image processing, utilities |

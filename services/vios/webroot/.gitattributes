@@ -1,0 +1,2 @@
+static/js/*.js filter=lfs diff=lfs merge=lfs -text
+static/js/*.map filter=lfs diff=lfs merge=lfs -text

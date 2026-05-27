@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+specVersion: 2.5.0
+
+version: 0.0.2
+
+name: sdr-envoy-replaystream-test
+
+description: Developer tests for replaystream-sdr-envoy service
+
+dependencies:
+- ucf.svc.vst.replaystream-sdr-envoy:1.0.0
+- ucf.svc.core.redis-timeseries:0.0.19
+
+components:
+- name: testapp-wdm-redis
+  type: ucf.svc.core.redis-timeseries
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+- name: sdr-envoy-replaystream
+  type: ucf.svc.vst.replaystream-sdr-envoy
+  parameters:
+    timeToSleep: 1200000
+    podAnnotations:
+      test-app-pod-annotation: annotation-value
+    podLabels:
+      test-app-pod-label: label-value
+    svcAnnotations:
+      test-app-svc-annotation: annotation-value
+    svcLabels:
+      test-app-svc-label: label-value
+
+#  secrets:
+#    some-secret-name: vaultAgent/some-kv-secret
+    #some-secret-name: k8sSecret/<k8sSecretName>/<keyInK8sSecret>
+- name: some-external-endpoint
+  type: ucf.svc.external-endpoint
+  parameters:
+    service: localhost
+    port: 8080
+
+#connections:
+#  testapp-wdm-envoy/testapp-wdm-envoy-endpoint-name: some-external-endpoint/endpoint
+

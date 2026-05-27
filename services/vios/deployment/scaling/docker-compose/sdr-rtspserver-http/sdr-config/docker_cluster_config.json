@@ -1,0 +1,22 @@
+{
+  "rtspserver-ms-1": {
+    "provisioning_address": "localhost:30001",
+    "process_type": "docker"
+  },
+  "rtspserver-ms-2": {
+    "provisioning_address": "localhost:30002",
+    "process_type": "docker"
+  },
+  "rtspserver-ms-3": {
+    "provisioning_address": "localhost:30003",
+    "process_type": "docker"
+  },
+  "rtspserver-ms-4": {
+    "provisioning_address": "localhost:30004",
+    "process_type": "docker"
+  },
+  "rtspserver-ms-5": {
+    "provisioning_address": "localhost:30005",
+    "process_type": "docker"
+  }
+}

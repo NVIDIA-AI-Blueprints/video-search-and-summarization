@@ -1,0 +1,114 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+.video-player {
+    position: relative;
+    width: 100%;
+    margin: auto;
+}
+
+.video-element {
+    width: 100%;
+    height: auto;
+}
+
+.controls {
+    display: flex;
+    justify-content: space-between;
+    position: absolute;
+    bottom: 10px;
+    width: 100%;
+    padding: 10px;
+    background: rgba(51, 51, 51, 0.5);
+    z-index: 10;
+}
+
+.settings-button {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+}
+
+.settings-menu {
+    position: absolute;
+    align-items: flex-end;
+    right: 10px;
+    bottom: 50px;
+    width: 150px; /* Adjust as needed */
+    max-height: 200px; /* Adjust as needed */
+    overflow-y: auto; /* Make menu scrollable */
+    background: rgba(51, 51, 51, 0.5);
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    z-index: 20;
+}
+
+.settings-menu::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.settings-menu {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+}
+
+.sub-settings {
+    flex-direction: column;
+    max-height: 200px; /* Adjust as needed */
+    justify-content: flex-end;
+}
+
+.sub-settings::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.sub-settings {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+}
+
+.sub-settings.active {
+    display: flex;
+}
+
+.back-button {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    margin-bottom: 10px;
+}
+
+.sub-settings ul {
+    list-style: none;
+    padding: 0;
+}
+
+.sub-settings li {
+    padding: 5px 10px;
+    cursor: pointer;
+    color: #aaa;
+}
+
+.sub-settings li.active {
+    color: white;
+}
+
+/* Additional styles for sub-settings components */

@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+FROM nvcr.io/ea-linux4tegra/l4t-cuda:12.2.11-runtime
+
+RUN apt-get update && apt-get upgrade -y
+
+RUN DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
+	libcurl4 \
+	libxml2 \
+	libssl-dev \
+	libjsoncpp-dev \
+	sqlite3 \
+	uuid \
+	gstreamer1.0-plugins-base \
+	gstreamer1.0-plugins-good \
+	gstreamer1.0-plugins-ugly \
+	gstreamer1.0-plugins-bad \
+	libgstreamer1.0-0 \
+	gstreamer1.0-libav \
+	libgstreamer-plugins-base1.0 \
+	libboost-filesystem-dev \
+	libboost-regex-dev \
+	libboost-thread-dev \
+	iptables \
+	librdkafka-dev \
+	v4l-utils \
+	libpq-dev \
+	libpqxx-dev \
+	libhiredis1.1.0
+
+ARG PKG_LOCATION
+
+# Add the package to /opt
+ADD ${PKG_LOCATION}/vst_release.tbz2 /opt
+
+# Ensure all users can read and execute files in /opt/vst_release
+RUN chmod -R 755 /opt/vst_release
+
+RUN rm -rf /usr/lib/aarch64-linux-gnu/libgstapp-1.0.so.0.2001.0
+RUN mv /opt/vst_release/prebuilts/aarch64/gst-plugins/libgstapp-1.0.so.0.1603.0.so /usr/lib/aarch64-linux-gnu/libgstapp-1.0.so.0.2001.0
+
+WORKDIR /opt/vst_release
+ENV LD_PRELOAD /usr/lib/aarch64-linux-gnu/libgomp.so.1:/lib/aarch64-linux-gnu/libGLdispatch.so.0
+ENV LD_LIBRARY_PATH /opt/vst_release/prebuilts/aarch64/gst-plugins/:/opt/vst_release/prebuilts/aarch64/
+ENV GST_PLUGIN_PATH /opt/vst_release/prebuilts/aarch64/gst-plugins/
+
+ENTRYPOINT  ["/opt/vst_release/launch_vst"]
