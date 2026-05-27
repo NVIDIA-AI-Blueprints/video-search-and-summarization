@@ -258,3 +258,4 @@ corresponding step.
 | `get rtvi-cv metrics` | API USAGE |
 | `generate text embeddings via rtvi-cv` | API USAGE |
 
+<!-- NVSkills CI request marker. -->

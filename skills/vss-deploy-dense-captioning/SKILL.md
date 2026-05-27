@@ -334,3 +334,4 @@ Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response mo
 - **File upload is multipart, not JSON.** Use `-F file=@path -F purpose=vision -F media_type=video`; a `-d` body returns 422.
 - **Live-stream lifecycle cleanup must unregister the stream:** `DELETE /v1/streams/delete/{stream_id}` removes the RTSP source. If the live schema also exposes `DELETE /v1/generate_captions/{stream_id}`, call it first to stop inference explicitly.
 
+<!-- NVSkills CI request marker. -->
