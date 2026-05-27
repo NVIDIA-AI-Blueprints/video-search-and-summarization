@@ -34,7 +34,11 @@ cd "$repo_root/services/agent"
 uv sync --frozen --no-default-groups --quiet
 uv pip install --quiet pip-licenses
 
+# Both halves of the pipe run inside the agent's uv venv: pip-licenses needs
+# the venv to enumerate installed packages, and check_python_licenses.py needs
+# it too — the PEP 639 fallback (importlib.metadata) reads each wheel's
+# METADATA to recover `License-Expression` when pip-licenses reports UNKNOWN.
 uv run --no-sync --quiet pip-licenses --format=csv \
-  | python3 "$repo_root/.github/scripts/check_python_licenses.py" \
+  | uv run --no-sync --quiet python3 "$repo_root/.github/scripts/check_python_licenses.py" \
       --overrides "$repo_root/.github/scripts/license_allowlist_overrides.txt" \
       --denylist  "$repo_root/.github/scripts/license_denylist.txt"
