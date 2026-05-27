@@ -80,7 +80,7 @@ permissions:
 # `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy marker
 # carries `<profile_tag>|<run_id>`, so a marker from this run never matches
 # the next run's desired marker and the next run always tears down + redeploys.
-# Same path handles SIGKILL (the 8h timeout-minutes terminator) and host reboots
+# Same path handles SIGKILL (the 12h timeout-minutes terminator) and host reboots
 # — there's no exit-side cleanup machinery to bypass.
 concurrency:
   group: skills-eval-${{ github.ref }}
@@ -95,20 +95,21 @@ jobs:
     name: Eval changed skills against PR
     runs-on: [self-hosted, vss-skill-eval-runner]
 
-    # 8-hour hard cap on the whole job. A full PR touching every currently
+    # 12-hour hard cap on the whole job. A full PR touching every currently
     # evaluable skill queues ~14 trials (5 vss-deploy-profile +
     # 3 vss-manage-video-io-storage + 4 vss-search-archive +
-    # 2 vss-deploy-dense-captioning). Run 24980753743 hit the prior
-    # 180m cap with 3 vss-search-archive trials done and
-    # vss-summarize-video not yet started — observed avg trial
-    # wall-clock is closer to ~30m once /vss-deploy-profile + ingest +
-    # judge per-check gather complete. 480m gives margin for
-    # cold-box transitions and redeploys at profile boundaries (handled
-    # by the active-deploy.txt marker but still ~20m each). No
-    # teardown cooldown — the vss-eval-* pool is operator-managed and
-    # stays warm across runs. The lock-hold timeout in AGENTS.md
-    # (flock -w) is set in lockstep below.
-    timeout-minutes: 480
+    # 2 vss-deploy-dense-captioning). Observed avg trial wall-clock is
+    # ~30m once /vss-deploy-profile + ingest + judge per-check gather
+    # complete; 14 × 30m = 420m typical. The per-trial agent-exec
+    # ceiling is now 1h (AGENTS.md `--agent-timeout-multiplier 6.0`,
+    # raised from 30m), so a run with several cold-box trials hitting
+    # the ceiling can push past the prior 480m cap. 720m absorbs that
+    # without uncapping retries: e.g. (4 × 60m at ceiling) + (10 × 30m
+    # typical) = 540m, comfortably inside. No teardown cooldown — the
+    # vss-eval-* pool is operator-managed and stays warm across runs.
+    # The lock-hold timeout in AGENTS.md (flock -w) is set in lockstep
+    # below.
+    timeout-minutes: 720
 
     # Allow mirror-branch pushes OR manual full-sweep dispatch. Never run
     # on develop/main pushes — those aren't covered by either trigger.

@@ -420,7 +420,7 @@ curl -s "http://<VST_ENDPOINT>/vst/api/v1/sensor/<sensorId>/network" | jq .
 ```
 Response: `{ipAddressV4, ipAddressV6, subnetMaskV4, subnetMaskV6, dhcpV4, dhcpV6, isIpv4Enabled, isIpv6Enabled}`.
 - `dhcpV4`/`dhcpV6` are strings (e.g. `"false"`, `"Off"`), not booleans.
-- `subnetMaskV4` is a dotted-quad string (e.g. `"255.255.252.0"`).
+- `subnetMaskV4` is a dotted-quad string (e.g. `"255.255.255.0"`).
 - `subnetMaskV6` is a numeric prefix-length **string** (e.g. `"64"`), NOT a dotted netmask — asymmetric with IPv4.
 
 **Set sensor network info** (POST, not PUT):

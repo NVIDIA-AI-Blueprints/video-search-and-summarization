@@ -1,20 +1,52 @@
 ---
 name: vss-setup-behavior-analytics
-description: >
-  Deploy the `vss-behavior-analytics` service standalone — no agent, no perception, no UI.
-  Use when the user says "deploy behavior analytics", "run behavior-analytics standalone",
-  "set up behavior analytics service", "change the analytics entrypoint", "swap the
-  behavior-analytics config / calibration", "run analytics 2D / 3D / mv3dt / dev_example /
-  fusion_search by itself", or wants to point behavior-analytics at a custom config /
-  calibration file without redeploying the full warehouse blueprint. Walks the user
-  through entrypoint selection, config-source choice, optional calibration, and the
-  dynamic-config / dynamic-calibration flows once a broker is reachable.
+description: Use to deploy the vss-behavior-analytics service standalone (entrypoint, config-source, optional calibration). Not for the full warehouse deploy.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment behavior-analytics"
 ---
+## Purpose
+
+Deploy the behavior-analytics service standalone with the user's chosen entrypoint, config, and calibration.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest
+contains a runnable scenario). Run a Tier-3 evaluation to replay them:
+
+```bash
+nv-base validate skills/vss-setup-behavior-analytics --agent-eval
+```
+
+A minimal standalone bring-up looks like:
+
+```bash
+cd $REPO/deploy/docker
+docker compose -f services/perception/behavior-analytics/compose.yml \
+  --env-file dev-profile-warehouse/.env up -d vss-behavior-analytics
+```
+
+Follow `references/deploy-behavior-analytics-service.md` for the full
+workflow (entrypoint pick, config source, dynamic updates).
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
+- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # VSS Setup Behavior Analytics — Standalone
 
@@ -90,3 +122,4 @@ Both flows live entirely on the broker — the producer can be `video-analytics-
 - If the user wants to publish a runtime config / calibration update to an already-running container: walk the [Dynamic updates](#dynamic-updates-runtime-no-restart) section above. Both flows need a reachable broker.
 - If the user describes a behavior-analytics behavior change they want to validate (new incident type, new ROI rule, new sensor): point them at [`references/configuration.md`](references/configuration.md), [`references/dynamic-config.md`](references/dynamic-config.md), or [`references/dynamic-calibration.md`](references/dynamic-calibration.md) before editing the JSON.
 
+bump:1

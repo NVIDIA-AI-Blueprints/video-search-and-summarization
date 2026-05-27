@@ -74,27 +74,22 @@ Status messages, error recovery, and agent-vs-script responsibility tables for t
 
 ## Error Recovery
 
-| Error | Cause | Fix |
-|---|---|---|
-| `ngc: command not found` | NGC CLI missing on host or old image | Install NGC CLI (`pip install ngcsdk`) or run inside the container where it's pre-installed |
-| NGC auth error | Bad API key or wrong org | Back up the bad config (`mv ~/.ngc/config ~/.ngc/config.bak`), re-prompt user |
-| `nvidia-container-cli: device error` | GPU index wrong or driver mismatch | Check `nvidia-smi`; try `--gpus all` instead of `--gpus "device=N"` |
-| `bind: address already in use` (port 9000) | Another RTVI-CV or dashboard holds 9000 | Stop conflicting process or change `REST_API_PORT` in main config |
-| Display (eglsink) shows nothing | X11 forwarding not set up | `xhost +` on host, confirm `DISPLAY` env, mount `/tmp/.X11-unix` |
-| `** ERROR: <main:2216>: Failed to set pipeline to PAUSED` (eglsink) | `DISPLAY` inside container is unset, empty, or malformed (e.g. literal `1` instead of `:1`). Happens most on **reused** containers launched earlier with a bad `-e DISPLAY=...`. | Do NOT restart the container. Re-launch with `docker exec -d -e DISPLAY=:<N> -e XAUTHORITY=/root/.Xauthority ...` (see `start-app.md` § 5.b.2). Run the 5.b.1 pre-flight (`xdpyinfo` probe) first to confirm the display resolves before re-launch. |
-| `ERROR: [TRT]: ... kFP16` followed by `Retrying without explicit FP16 flag` | nvinfer applies `kFP16` by default; strongly-typed FP16 ONNX models (RT-DETR ships this way) conflict with that flag on the first build attempt. | **Do nothing — this is expected.** The retry succeeds and writes the engine. Wait for `serialize cuda engine to file: ... successfully`. |
-| Sparse4D engine build fails | `LD_PRELOAD` not set before setup | Export `LD_PRELOAD=$SPARSE4D_REPO/libmsda_fp16.so` then re-run `setup_sparse4d.sh` |
-| GDINO `model.plan` missing | Setup script didn't run or ONNX not found | Re-run `setup_gdino.sh --batch <N>` (check `$RESOURCES` for the ONNX) |
-| Batch size change didn't take effect | Edit hit the wrong file | Check `*.bak` files in `$CONFIGS/<usecase>/` to diff; re-run `update_batch_size.sh <uc> <N>` |
-| Docker image arch mismatch | Wrong tag for platform (e.g. non-SBSA image on Spark) | Ask user for a different tag; SBSA needs `-sbsa-` in the tag |
-| Sparse4D detections look wrong / BEV projection off | Picked the wrong videos directory for warehouse-3d — `.mp4` stems don't match `calibration.json` `sensors[].id` | Re-run Step 4.a's video-dir picker and select the directory whose stems match calibration; if the NGC resource supplies multiple, the picker shows all options |
-| Stale cached engine gives wrong output | Cache has an old engine (ONNX changed, but cache file name matched batch) | `FORCE_ENGINE_REBUILD=1 /tmp/scripts/setup_<model>.sh --batch <N>` or pass `--force`; or delete the stale file from `$ENGINE_CACHE_DIR` |
-| Engine cache not persisting across runs | `/opt/storage` mount missing from `docker run` | Add `-v $HOME/rtvicv-storage:/opt/storage` to docker run — cache lives at `/opt/storage/engines/` |
-| Parallel container fails to bind `:9000` | Another RTVI-CV container already holds port 9000 on `--network=host` | Switch to user-defined bridge network, or in the main config set `[http-server] http-port=9001` (and use that URL for stream add). The skill's "parallel" path does this automatically. |
-| Reused container has stale configs | User picked "reuse" but the baked configs inside the container don't reflect new NGC resource / batch | Pick "restart" instead, OR ensure `reference-configs` is mounted from the host so config edits persist correctly. |
-| Filedump sink fails with `Failed to create sink_sub_bin_encoder1` / `no element "x264enc"` | Software encoder deps not installed (should have been auto-installed by `update_output_sink.sh filedump`, but was skipped — e.g. `--skip-encoder-install` was passed, or the install script failed silently) | Simplest fix: re-run `docker exec <CONTAINER_NAME> /tmp/scripts/update_output_sink.sh <usecase> filedump` — the new `ensure_encoder_deps` will detect the missing plugin via `gst-inspect-1.0 x264enc` and reinstall even if the marker file is present. If that still fails, inspect `/tmp/ds_user_install.log` inside the container. Last-resort: flip `[sink2] enc-type=0` to use hardware `nvv4l2h264enc` instead. |
-| Filedump `.mp4` file won't play in a strict MP4 parser (cloud pipeline, browser `<video>` fallback) | By default the skill writes `.mp4` filename + MKV muxer (container=2) for on-kill recoverability — decoupled from the filename. Most players auto-detect by content, but strict MP4 parsers expect real moov atoms and reject the MKV bytes. | Re-run `update_output_sink.sh <usecase> filedump --container 1` to force true MP4 bytes. Accept the tradeoff: the file is unplayable if the app is killed before writing the moov atom. Delete the old output file first. |
-| Filedump output is empty or zero-bytes after `docker stop` | App was killed before MP4 muxer wrote the moov atom (this is why the default muxer is MKV, container=2). | Stop using `--container 1` for development runs; revert to the default (MKV muxer + `.mp4` filename). The file will stay playable through the last written frame even on SIGKILL. |
+For the consolidated symptom → cause → fix table covering engine builds,
+sinks, X11, stream binding, reused-container config drift, and filedump
+muxer issues, see [`troubleshooting.md` § Common Failures](troubleshooting.md#common-failures).
+The workflow-reference-specific notes that don't fit there:
+
+- `ngc: command not found` — install NGC CLI (`pip install ngcsdk`) or run
+  inside the container where it's pre-installed.
+- Batch size change didn't take effect — edit hit the wrong file. Check
+  `*.bak` files in `$CONFIGS/<usecase>/` to diff, then re-run
+  `update_batch_size.sh <usecase> <N>`.
+- Reused container has stale configs — user picked "reuse" but the baked
+  configs don't reflect new NGC resource / batch. Pick "restart" instead,
+  OR mount `reference-configs/` from the host so config edits persist.
+- Filedump MP4 muxer choice — by default the skill writes `.mp4` filename +
+  MKV muxer (container=2) for on-kill recoverability. Pass `--container 1`
+  to force true MP4 bytes (unplayable if killed before moov atom write).
 
 ## Bash Batching (reduce permission prompts)
 
