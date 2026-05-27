@@ -88,6 +88,18 @@ if [[ $HARDWARE_PROFILE == "DGX-THOR" ]]; then
     fi
 fi
 
+TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
+echo "##### Updating minTrackerConfidence in $TRACKER_CONFIG... #####"
+if [[ -f "$TRACKER_CONFIG" ]]; then
+    sed -i '/^TargetManagement:/,/^[A-Z][a-zA-Z]*:/ {s/^[[:space:]]*minTrackerConfidence:.*/  minTrackerConfidence: 0.2513/;}' "$TRACKER_CONFIG"
+    echo "##### Updated minTrackerConfidence to 0.2513 in TargetManagement section... #####"
+else
+    echo "Warning: Tracker config $TRACKER_CONFIG not found, skipping minTrackerConfidence update..."
+fi
+
+echo "##### Contents of $TRACKER_CONFIG: #####"
+cat $TRACKER_CONFIG
+
 echo "##### Batch size configurations updated successfully in $CONFIG_FILE... #####"
 
 if [[ $MODEL_NAME_2D == "GDINO" ]]; then
