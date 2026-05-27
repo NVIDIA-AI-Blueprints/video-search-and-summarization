@@ -110,6 +110,17 @@ LVS_ENABLE_MCP=true
 LVS_MCP_PORT=38112
 ```
 
+### Build the container locally
+
+From the `services/video-summarization` directory:
+
+```sh
+make -C docker build
+```
+
+This builds the `via-engine` Docker image used by the `lvs` service in the compose file.
+The image name is `via-engine-<username>`.
+
 ### Start Video Summarization using Docker Compose
 
 The compose file is available at
