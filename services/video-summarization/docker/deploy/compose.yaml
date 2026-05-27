@@ -56,69 +56,6 @@ services:
     networks:
     - app-network
     restart: 'no'
-  wait-for-milvus:
-    image: curlimages/curl:latest
-    command:
-    - sh
-    - -c
-    - |
-      RETRY=0
-      MAX_RETRIES=60
-      until curl -f http://milvus-standalone:${MILVUS_DB_HTTP_PORT:-9091}/healthz; do
-        echo "Waiting for Milvus to be ready... (attempt $$RETRY/$$MAX_RETRIES)"
-        RETRY=$$((RETRY + 1))
-        if [ $$RETRY -ge $$MAX_RETRIES ]; then
-          echo "ERROR: Milvus not ready after $$MAX_RETRIES attempts (2 minutes)"
-          exit 1
-        fi
-        sleep 2
-      done
-      echo 'Milvus is ready!'
-    networks:
-    - app-network
-    restart: 'no'
-  wait-for-graph-db:
-    image: curlimages/curl:latest
-    command:
-    - sh
-    - -c
-    - |
-      RETRY=0
-      MAX_RETRIES=60
-      until curl -f http://graph-db:${GRAPH_DB_HTTP_PORT:-7474}; do
-        echo "Waiting for Neo4j to be ready... (attempt $$RETRY/$$MAX_RETRIES)"
-        RETRY=$$((RETRY + 1))
-        if [ $$RETRY -ge $$MAX_RETRIES ]; then
-          echo "ERROR: Neo4j not ready after $$MAX_RETRIES attempts (2 minutes)"
-          exit 1
-        fi
-        sleep 2
-      done
-      echo 'Neo4j is ready!'
-    networks:
-    - app-network
-    restart: 'no'
-  wait-for-arango-db:
-    image: curlimages/curl:latest
-    command:
-    - sh
-    - -c
-    - |
-      RETRY=0
-      MAX_RETRIES=60
-      until curl -sf -o /dev/null http://arango-db:${ARANGO_DB_PORT:-8529}/_admin/server/availability; do
-        echo "Waiting for ArangoDB to be ready... (attempt $$RETRY/$$MAX_RETRIES)"
-        RETRY=$$((RETRY + 1))
-        if [ $$RETRY -ge $$MAX_RETRIES ]; then
-          echo "ERROR: ArangoDB not ready after $$MAX_RETRIES attempts (2 minutes)"
-          exit 1
-        fi
-        sleep 2
-      done
-      echo 'ArangoDB is ready!'
-    networks:
-    - app-network
-    restart: 'no'
   lvs:
     image: via-engine-${USER:-user}
     container_name: lvs
@@ -137,19 +74,6 @@ services:
       ENABLE_DENSE_CAPTION: ${ENABLE_DENSE_CAPTION:-}
       ENABLE_VIA_HEALTH_EVAL: ${ENABLE_VIA_HEALTH_EVAL:-false}
       LVS_ENABLE_MCP: ${LVS_ENABLE_MCP:-true}
-      GRAPH_DB_HOST: graph-db
-      GRAPH_DB_USERNAME: neo4j
-      GRAPH_DB_PASSWORD: passneo4j
-      GRAPH_DB_HTTP_PORT: ${GRAPH_DB_HTTP_PORT:-7474}
-      GRAPH_DB_BOLT_PORT: ${GRAPH_DB_BOLT_PORT:-7687}
-      ARANGO_DB_HOST: arango-db
-      ARANGO_DB_USERNAME: root
-      ARANGO_DB_PASSWORD: passroot
-      ARANGO_DB_PORT: ${ARANGO_DB_PORT:-8529}
-      MILVUS_DB_HOST: milvus-standalone
-      MILVUS_DB_GRPC_PORT: ${MILVUS_DB_GRPC_PORT:-19530}
-      MINIO_USERNAME: minio
-      MINIO_PASSWORD: minio123
       VLM_MODEL_TO_USE: openai-compat
       MODEL_PATH: ${MODEL_PATH}
       VIA_ENABLE_OTEL: ${VIA_ENABLE_OTEL:-false}
@@ -210,18 +134,6 @@ services:
       elasticsearch:
         condition: service_started
       wait-for-elasticsearch:
-        condition: service_completed_successfully
-      milvus-standalone:
-        condition: service_healthy
-      wait-for-milvus:
-        condition: service_completed_successfully
-      graph-db:
-        condition: service_started
-      wait-for-graph-db:
-        condition: service_completed_successfully
-      arango-db:
-        condition: service_started
-      wait-for-arango-db:
         condition: service_completed_successfully
       wait-for-llm:
         condition: service_completed_successfully
@@ -393,75 +305,6 @@ services:
     ports:
     - ${LOGSTASH_API_PORT:-9600}:9600
 
-  milvus-standalone:
-    image: milvusdb/milvus:v2.5.4
-    container_name: milvus-standalone
-    command: |
-      sh -c "
-      cat <<EOF > /milvus/configs/embedEtcd.yaml
-      listen-client-urls: http://0.0.0.0:2379
-      advertise-client-urls: http://0.0.0.0:2379
-      quota-backend-bytes: 4294967296
-      auto-compaction-mode: revision
-      EOF
-      cat <<EOF >  /milvus/configs/user.yaml
-      log:
-        level: error
-      proxy:
-        port: ${MILVUS_DB_GRPC_PORT:-19530}
-      EOF
-      milvus run standalone
-      "
-    environment:
-      ETCD_USE_EMBED: 'true'
-      ETCD_DATA_DIR: /var/lib/milvus/etcd
-      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
-      COMMON_STORAGETYPE: local
-      METRICS_PORT: ${MILVUS_DB_HTTP_PORT:-9091}
-    ports:
-    - ${MILVUS_DB_HTTP_PORT:-9091}:${MILVUS_DB_HTTP_PORT:-9091}
-    - ${MILVUS_DB_GRPC_PORT:-19530}:${MILVUS_DB_GRPC_PORT:-19530}
-    networks:
-    - app-network
-    restart: 'no'
-    healthcheck:
-      test:
-      - CMD
-      - curl
-      - -f
-      - http://localhost:${MILVUS_DB_HTTP_PORT:-9091}/healthz
-      interval: 30s
-      timeout: 20s
-      retries: 3
-      start_period: 90s
-
-  graph-db:
-    image: neo4j:5.26.4
-    container_name: graph-db
-    environment:
-      NEO4J_AUTH: ${GRAPH_DB_USERNAME:-neo4j}/${GRAPH_DB_PASSWORD:-passneo4j}
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_server_bolt_listen__address: 0.0.0.0:${GRAPH_DB_BOLT_PORT:-7687}
-      NEO4J_server_http_listen__address: 0.0.0.0:${GRAPH_DB_HTTP_PORT:-7474}
-    ports:
-    - ${GRAPH_DB_HTTP_PORT:-7474}:${GRAPH_DB_HTTP_PORT:-7474}
-    - ${GRAPH_DB_BOLT_PORT:-7687}:${GRAPH_DB_BOLT_PORT:-7687}
-    networks:
-    - app-network
-    restart: 'no'
-
-  arango-db:
-    image: arangodb/arangodb:3.12.4
-    container_name: arango-db
-    environment:
-      ARANGO_DB_USERNAME: ${ARANGO_DB_USERNAME:-root}
-      ARANGO_ROOT_PASSWORD: ${ARANGO_DB_PASSWORD:-passroot}
-    ports:
-    - ${ARANGO_DB_PORT:-8529}:${ARANGO_DB_PORT:-8529}
-    command: ["arangod", "--experimental-vector-index", "--server.endpoint", "http://0.0.0.0:${ARANGO_DB_PORT:-8529}"]
-    networks:
-    - app-network
-    restart: 'no'
 
   # ── RTVI VLM service (profile-gated: only starts when COMPOSE_PROFILES includes "rtvi") ──
   rtvi-vlm:
