@@ -257,3 +257,4 @@ corresponding step.
 | `is rtvi-cv ready on localhost:9000` | API USAGE |
 | `get rtvi-cv metrics` | API USAGE |
 | `generate text embeddings via rtvi-cv` | API USAGE |
+

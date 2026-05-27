@@ -242,3 +242,4 @@ If `get_incidents` returns zero results, return a one-line report stating the ra
 - **`/vss-query-analytics`** — incident retrieval (and verdict / reasoning enrichment) for Mode B Step 2.
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
+
