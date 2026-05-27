@@ -42,6 +42,41 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+
+# Internal-only Ingress that fronts the vss-rtvi-cv and vss-rtvi-embed
+# Services with consistent-hash routing on the x-stream-id header. Default
+# OFF — the chart's in-cluster path is vss-agent -> ClusterIP, which never
+# hits this Ingress. Flip enabled=true only when ALL of the following are true:
+#
+#   1. The HAProxy Technologies kubernetes-ingress controller is installed
+#      in the cluster (the upstream open-source ingress, NOT a vanilla
+#      nginx-ingress — only haproxytech/kubernetes-ingress honors the
+#      backend-config-snippet + hdr() load-balance combo used here).
+#   2. You scale vss-rtvi-cv and/or vss-rtvi-embed beyond 1 replica
+#      (replicas=1 makes the affinity work redundant).
+#   3. You repoint the agent at the ingress controller's in-cluster Service:
+#        RTVI_CV_BASE_URL=http://<controller-svc>.<controller-ns>.svc.cluster.local/rtvi-cv
+#        RTVI_EMBED_BASE_URL=http://<controller-svc>.<controller-ns>.svc.cluster.local/rtvi-embed
+#      (The path prefix is what this Ingress matches; haproxy.org/path-rewrite
+#      strips it before forwarding to the backend Service so rtvi-cv /
+#      rtvi-embed see their normal API paths.)
+#
+# Without step 3 the Ingress object is harmless but unused — kube-proxy still
+# round-robins ClusterIP traffic. The chart never auto-rewrites the agent URLs
+# because each cluster's ingress controller Service name/namespace differs.
+rtviInternalIngress:
+  enabled: false
+  className: haproxy
+  # When empty, the Ingress is created with no `host` field so it acts as
+  # a fallback / catch-all on whatever Host the agent sends. Set this to
+  # a cluster-internal hostname if you also configure CoreDNS to resolve
+  # it to the ingress controller's Service IP.
+  host: ''
+  hashHeader: x-stream-id
+  rtviCvPath: /rtvi-cv
+  rtviEmbedPath: /rtvi-embed
+  annotations: {}
+  tls: []
 sharedStorage:
   streamerVideos:
     # Disabled: same role as vios.vstStorage + streamprocessing persistence.streamerVideos (matches dev-profile-alerts; avoids a second PVC).
