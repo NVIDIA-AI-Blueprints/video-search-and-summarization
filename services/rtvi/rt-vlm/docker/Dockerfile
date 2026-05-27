@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.2"
+ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4"
 FROM ${BASE_IMAGE}
 
 # Overlay the open-source RTVI VLM Python sources on top of the base image.
