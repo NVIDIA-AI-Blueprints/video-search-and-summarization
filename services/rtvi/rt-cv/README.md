@@ -108,6 +108,8 @@ sudo docker run --name=perception_docker --network=host \
   <RTVI_CV_IMAGE>
 ```
 
+> Replace `--gpus "device=0"` with `--runtime=nvidia` for aarch64 devices
+
 ### SBSA (Spark)
 
 ```bash
