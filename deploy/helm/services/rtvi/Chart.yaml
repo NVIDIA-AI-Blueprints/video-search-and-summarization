@@ -24,10 +24,6 @@ dependencies:
     version: 26.04.2
     repository: "file://./charts/rtvi-cv"
     condition: vss-rtvi-cv.enabled
-  - name: vss-rtvi-cv-sdr
-    version: 26.04.2
-    repository: "file://./charts/rtvi-cv-sdr"
-    condition: vss-rtvi-cv-sdr.enabled
   - name: vss-rtvi-vlm
     version: 26.04.2
     repository: "file://./charts/rtvi-vlm"

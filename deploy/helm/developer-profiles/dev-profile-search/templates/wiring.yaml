@@ -43,7 +43,7 @@ data:
 
   # ── VST Pipeline ──────────────────────────────────────────────────────────
   SENSOR_MS_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-sensor") }}:7000"
-  SDR_ENVOY_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-envoy-proxy") }}:10000"
+  SDR_ENVOY_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "sdrc-controller") }}:{{ dig "infra" "sdrc" "service" "controller" "port" 5003 .Values }}"
   VST_INGRESS_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}:8000"
   STREAMPROCESSING_HEADLESS: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-streamprocessing-headless") }}"
 
