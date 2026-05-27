@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE="gitlab-master.nvidia.com:5005/via/via-engine-base"
+ARG BASE_IMAGE="via-engine-base"
 
 # Package installer: ubuntu base for shell + uv (uv is discarded; only site-packages reach final image)
 FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1 AS pkg-installer

@@ -120,7 +120,7 @@ services:
     - app-network
     restart: 'no'
   lvs:
-    image: nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc11-d65196a
+    image: via-engine-${USER:-user}
     container_name: lvs
     environment:
       NGC_API_KEY: ${NGC_API_KEY:-}
