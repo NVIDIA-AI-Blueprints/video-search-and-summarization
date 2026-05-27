@@ -168,32 +168,20 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 
 ## Upgrade And Rollback
 
-1. Update `RTVI_EMBED_IMAGE` and `RTVI_EMBED_TAG` to the target build.
-2. `docker compose -f rtvi-embed-docker-compose.yml pull rtvi-embed`.
-3. `docker compose -f rtvi-embed-docker-compose.yml --profile bp_developer_search_2d up -d rtvi-embed`.
-4. Watch `/v1/ready` until it returns 200.
-5. To roll back, re-pin `RTVI_EMBED_TAG` to the previous build and repeat. Named volumes persist across the swap.
+See [Upgrade & Rollback](references/deploy-vss-deploy-video-embedding.md#upgrade--rollback)
+in the deployment reference for the full image-swap and rollback steps; named
+volumes persist across the swap.
 
 ## Tear Down
 
 ```bash
-# Preserve caches (named volumes survive).
-docker compose -f rtvi-embed-docker-compose.yml down
-
-# WARNING: removes rtvi-hf-cache, rtvi-ngc-model-cache, rtvi-triton-model-repo.
-# Next start will re-download the model and rebuild the Triton repo (20+ min).
-docker compose -f rtvi-embed-docker-compose.yml down -v
+docker compose -f rtvi-embed-docker-compose.yml down       # keeps caches
+docker compose -f rtvi-embed-docker-compose.yml down -v    # also removes the named caches; first re-start re-downloads the model and rebuilds the Triton repo (20+ min)
 ```
 
 ## References
 
-| File | When to read |
-|---|---|
-| [references/README.md](references/README.md) | Table of contents for all reference files. |
-| [references/deploy-vss-deploy-video-embedding.md](references/deploy-vss-deploy-video-embedding.md) | Build Vision Agent deployment reference: image, GPU, storage, startup, prerequisites, known issues. |
-| [references/integrate-vss-deploy-video-embedding.md](references/integrate-vss-deploy-video-embedding.md) | Build Vision Agent integration reference: peers, inputs/outputs, env vars, network, example Compose snippet. |
-| [references/api.md](references/api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
-| [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
-| [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |
+See [`references/README.md`](references/README.md) for the full reference index
+(deploy, integrate, API catalog, environment matrix, troubleshooting).
 
 bump:1

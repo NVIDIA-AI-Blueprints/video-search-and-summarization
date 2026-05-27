@@ -217,7 +217,9 @@ r.raise_for_status()
 project_id = r.json()["project_id"]
 print(f"[1] Created project {project_name} → {project_id}")
 
-# Step 2 — Upload videos (sorted alphabetically; upload order defines camera indices)
+# Step 2 — Upload videos — see references/videos.md for the canonical multipart
+# upload implementation; sample dataset just feeds the bundled cam_*.mp4 files
+# (sorted alphabetically; upload order defines camera indices).
 files, handles = [], []
 for v in videos:
     f = open(v, "rb"); handles.append(f)
@@ -248,38 +250,12 @@ with open(gt_zip, "rb") as f:
     r.raise_for_status()
 print(f"[5] Uploaded GT zip")
 
-# Shared Calibration Tail — see SKILL.md
-r = s.post(f"{BASE_URL}/verify_project/{project_id}")
-r.raise_for_status()
-state = r.json()["project_state"]
-print(f"[A] verify_project → {state}")
-assert state == "READY", f"Expected READY, got {state}"
-
-r = s.post(f"{BASE_URL}/calibrate/{project_id}", json={"detector_type": "resnet"})
-r.raise_for_status()
-print(f"[B] Calibration started (detector=resnet)")
-
-print(f"[C] Polling (expect 10–30 min)...")
-start = time.time()
-last_state = ""
-while time.time() - start < 3600:
-    r = s.get(f"{BASE_URL}/get_project_info/{project_id}")
-    r.raise_for_status()
-    st = r.json()["project_info"]["project_state"]
-    elapsed = int(time.time() - start)
-    if st != last_state:
-        print(f"    [{elapsed:>4}s] {st}", flush=True)
-        last_state = st
-    if st == "COMPLETED":
-        print(f"[C] Completed in {elapsed}s")
-        break
-    if st == "ERROR":
-        sys.exit(f"Calibration failed. Pull log: GET {BASE_URL}/amc/calibrate/{project_id}/log")
-    time.sleep(10)
-else:
-    sys.exit("Timed out after 60 min")
-
-# Step D — Evaluation statistics (GT was uploaded, so this should return metrics)
+# Shared Calibration Tail — see references/calibration-tail.md for the snippet
+# (verify_project → calibrate → poll → fetch evaluation_statistics)
+# Note: detector_type is hard-coded to "resnet" for the sample dataset.
+DETECTOR_TYPE = "resnet"
+# Run the snippet from references/calibration-tail.md here.
+# Then fetch the evaluation statistics:
 r = s.get(f"{BASE_URL}/result/{project_id}/evaluation_statistics")
 if r.status_code == 200:
     stats = r.json().get("statistics", r.json())

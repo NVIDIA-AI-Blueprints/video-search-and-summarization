@@ -766,56 +766,29 @@ box in its text reply afterward, leaving a redundant unreadable stub
 plus the real box. **Boxes are pure text — they belong in the
 assistant message body, not in tool output.**
 
-**Production flow — render directly in the text reply:**
+**Production flow — render directly in the text reply** (top border copied
+verbatim from the table below, body rows as `│ ` + content padded to 124
+chars + ` │`, bottom border always the same 128-char `└─...─┘`). Empty rows
+`│ ` + 124 spaces + ` │` act as section separators.
 
-1. **Top border**: copy a pre-rendered string from the verbatim table
-   below (every entry is verified at 128 chars).
-2. **Body rows**: build each as `│ ` + content + spaces-padded-to-124-chars
-   + ` │` (every row exactly 128 chars). Use empty rows
-   `│ ` + 124 spaces + ` │` as section separators.
-3. **Bottom border**: always the same 128-char `└─...─┘` (also in the
-   table below).
+**Self-check rule** — every top / body / bottom line is exactly 128 monospace
+chars. If a row overflows, shorten the annotation; never let the closing
+`│` drift.
 
-**Self-check rule** — before sending the reply, mentally count: every
-top / body / bottom line is exactly 128 monospace chars. If a row
-overflows, shorten the annotation; never let the closing `│` drift.
-
-**`render_box.sh` is a VERIFICATION tool, not a runtime renderer.**
-Run it offline (in a development scratch shell) when you're authoring
-new templates and want to confirm widths. **Don't run it during a
-live deploy** — it produces a duplicate-and-collapsed copy that just
-clutters the scrollback.
+**`render_box.sh` is a VERIFICATION tool, not a runtime renderer** — run it
+offline when authoring new templates, never during a live deploy.
 
 **Forbidden:**
-- ❌ Running `bash render_box.sh ...` during a deploy and then
-  re-emitting the box in the text reply. That leaves the user with a
-  "+N lines (ctrl+o to expand)" stub PLUS the same box in the
-  follow-up text — redundant, ugly, and the stub is unreadable until
-  expanded.
-- ❌ **Using `python3 - <<'PY'` / `python3 -c '...'` / `cat <<EOF` /
-  `printf` / `awk` / `sed` through Bash to compute or print box
-  characters.** This is the same anti-pattern as `render_box.sh` —
-  the box ends up in collapsed Bash output. Same for any Container,
-  Apply configuration, Perception Application — Plan/result, Deployment
-  summary, Metrics & FPS, Liveness / readiness box. **Build the box
-  string with literal characters in the assistant text body.**
+
+- ❌ Running `bash render_box.sh ...` during a deploy and re-emitting the box
+  in the text reply (leaves a collapsed `+N lines` stub plus the real box).
+- ❌ Using `python3 -c …` / `python3 - <<'PY'` / `cat <<EOF` / `printf` /
+  `awk` / `sed` through Bash to compute or print box characters — same anti-
+  pattern; the box ends up in collapsed Bash output. Build the box string with
+  literal characters in the assistant text body.
 - ❌ Rendering a box ONLY via Bash output (no text-reply duplicate).
-  The collapsed stub is unreadable; the user has to expand it manually.
-- ❌ Computing dash padding by hand for the top border. Always copy
-  from the verbatim table — the agent's been making off-by-one
-  errors in centering math.
-
-**Required:** every Container / Apply configuration / Perception
-Application — Plan / Results / Metrics & FPS box is constructed in
-the assistant text reply by:
-
-1. Pasting the verbatim 128-char top border for that title from the
-   table below.
-2. Writing each body row as literal text inside a fenced code block
-   in the reply (so monospace is preserved): `│ ` + content +
-   right-padded spaces + ` │`, exactly 128 chars per row.
-3. Pasting the verbatim 128-char bottom border (always the same
-   `└─...─┘`).
+- ❌ Computing dash padding by hand for the top border — always copy from the
+  verbatim table below.
 
 If you find yourself reaching for `python3` or any text-processing
 tool to build the box, STOP — you're about to violate this rule.
@@ -1013,49 +986,9 @@ All scripts are licensed Apache-2.0 and live in
 
 ## File Structure
 
-```
-vss-deploy-detection-tracking-2d/
-├── SKILL.md                              # This file (entry point + workflow map)
-├── README.md                             # Marketing-side overview + invocation examples
-├── LICENSE                               # Apache-2.0
-├── nvbase.json                           # Skill metadata
-├── scripts/                              # All Apache-2.0 + SPDX-headed
-│   ├── common.sh                         # Shared library
-│   ├── apply_config.sh                   # Step 4 (single exec)
-│   ├── run_app_and_wait.sh               # Step 5 (single exec)
-│   ├── fetch_resources.sh                # NGC fetch / extract / scan
-│   ├── update_batch_size.sh              # Batch touch-points
-│   ├── update_output_sink.sh             # Sink (fakesink/eglsink/filedump)
-│   ├── update_stream_sources.sh          # [source-list] key management
-│   ├── setup_gdino.sh                    # GDINO build / cache
-│   ├── setup_sparse4d.sh                 # Sparse4D build / cache
-│   ├── prelaunch_nvinfer_engine.sh       # Pre-launch engine lookup
-│   ├── cache_nvinfer_engine.sh           # Post-launch engine symlink
-│   ├── discover_streams.sh               # Deterministic stream enumeration
-│   ├── add_streams.sh                    # REST /stream/add loop
-│   ├── load_defaults.sh                  # Platform + YAML defaults
-│   ├── collect_metrics.sh                # Averaged perf metrics
-│   └── write_deployment_log.sh           # Structured per-deploy log
-├── references/
-│   ├── task-list.md                      # Step 0 — TodoWrite templates
-│   ├── usecases.md                       # Per-use-case NGC refs, configs, run commands
-│   ├── platforms.md                      # Docker run per platform + display / file-dump variants
-│   ├── ngc-setup.md                      # NGC credential caching + downloads
-│   ├── resource-plan.md                  # Resource decision logic, source precedence
-│   ├── environment.md                    # Secrets, mounts, env vars, GPU, ports, dry run
-│   ├── pipeline-config.md                # Batch / source / sink decision tree
-│   ├── container-reuse.md                # Reuse / restart / parallel detection
-│   ├── apply-config.md                   # Step 4 detailed bash
-│   ├── start-app.md                      # Step 5 detailed bash + Plan/Results box templates
-│   ├── next-steps.md                     # Post-deploy interaction
-│   ├── teardown-flow.md                  # 5-step teardown
-│   ├── troubleshooting.md                # Common failures + gotchas + cache hygiene
-│   ├── upgrade-rollback.md               # Image upgrade + rollback + cache survival
-│   ├── workflow-reference.md             # Status prints, errors, agent-vs-script split
-│   ├── ux-conventions.md                 # Visual vocabulary (✔ ◼ ⚠ ℹ)
-│   └── deploy-defaults.yml               # Per-platform / per-usecase defaults
-└── eval/                                 # Trigger-phrase fixtures
-```
+See [SKILL.md § What lives where](../SKILL.md#what-lives-where) for the
+authoritative file-tree layout. Specific scripts referenced in this runbook
+are explained inline; the full inventory is in the SKILL.md tree.
 
 ---
 

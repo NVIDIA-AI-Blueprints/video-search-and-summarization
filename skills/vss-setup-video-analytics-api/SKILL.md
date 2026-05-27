@@ -54,21 +54,9 @@ The compose-file edits, config options, deploy + verify commands, REST API endpo
 
 ## REST API capabilities
 
-Once the container is up and Elasticsearch is reachable, the API serves these endpoint groups:
-
-| Endpoint | What it does |
-|---|---|
-| `/livez` | Health check — returns 200 when routes are registered and ES ping succeeded. |
-| `/sensor` | CRUD for sensor metadata (GET / POST / DELETE), supports file uploads. |
-| `/config` | Dynamic config management — GET retrieves current config; POST publishes config updates to Kafka. |
-| `/behavior` | Query behavior data from Elasticsearch. |
-| `/alerts` | Query alert data with time-range and sensor filters. |
-| `/events` | Query event data from Elasticsearch. |
-| `/incidents` | Query incident data from Elasticsearch. |
-| `/frames` | Query frame-level data from Elasticsearch. |
-| `/metrics` | Aggregation / computation metrics (occupancy, behavior metrics). |
-| `/tracker` | Tracker data queries. |
-| `/clustering` | Clustering analysis queries. |
+Once the container is up and Elasticsearch is reachable, the API serves the
+endpoint groups listed in [`references/deploy-video-analytics-api-service.md`
+§ REST API endpoints](references/deploy-video-analytics-api-service.md#rest-api-endpoints).
 
 All endpoints except `/livez` require Elasticsearch. Endpoints that publish notifications (config, calibration) also require Kafka.
 

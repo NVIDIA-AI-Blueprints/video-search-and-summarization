@@ -95,17 +95,9 @@ Use the `.env` block in §12 as the starting point.
 | 111 | `${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache` (named) | **yes** | **YES — re-download weights** |
 | 112 | `${RTVI_VLM_LOG_DIR:-/dummy}${RTVI_VLM_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}` (optional bind) | no | no |
 
-**Required host-path setup** — `VSS_DATA_DIR` is not optional:
-
-```bash
-# Container runs as UID 1001; host dir must be writable by that UID
-export VSS_DATA_DIR=/abs/path/to/vss-data
-mkdir -p "$VSS_DATA_DIR/data_log/vst/clip_storage"
-sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"
-# No sudo? Grant UID 1001 via ACL:
-#   sudo setfacl -R -m u:1001:rwx "$VSS_DATA_DIR/data_log/vst/clip_storage"
-# Avoid `chmod 777` — exposes clip storage to every user on the host.
-```
+**Required host-path setup** — `VSS_DATA_DIR` is not optional. See **Step 2** in the
+Quick-Start section below for the exact commands to prepare the VST clip-storage
+host directory.
 
 Optional host-path overrides:
 

@@ -76,7 +76,7 @@ Because there's no local videos directory to anchor the scan, ask the user for t
 UI fallback details for any of these live in [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallback-pattern).
 
 ### Required when no calibration-settings file is provided
-6. **Detector type** — `resnet` (default, fast) or `transformer` (slower, better under occlusion). Ask via `AskUserQuestion`. Mandatory if there's no config file because the detector is a separate `/calibrate` argument.
+6. **Detector type** — see [SKILL.md § Step B — Start Calibration](../SKILL.md#step-b--start-calibration) for the choice and the AskUserQuestion fallback.
 
 ### Optional
 7. **`sensor_id`** per stream — if VIOS already has the sensor registered, pass the ID to skip re-registration. Leave null and the MS auto-registers via VIOS.
@@ -86,14 +86,8 @@ For nvstreamer setup details and sensor pre-registration, see your VIOS deployme
 
 ## Step 3 — Create Project
 
-```
-POST /v1/create_project
-Content-Type: application/x-www-form-urlencoded
-
-project_name=<your_project_name>
-```
-
-Save the returned `project_id`.
+See [`common-steps.md` § Create project](common-steps.md#create-project) for the
+endpoint shape. Save the returned `project_id`.
 
 ## Step 4 — Start RTSP Capture
 
@@ -165,7 +159,7 @@ UI fallback details — see [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallba
 
 ## Step 7 — Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), continue with [SKILL.md Step A onward](../SKILL.md#step-a--verify-project) (verify → calibrate → poll → results).
+See [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calibration-tail).
 
 ---
 
@@ -317,31 +311,8 @@ if ui_tasks:
             f"Alignment files missing under {manual_dir}."
         )
 
-# Step A/B/C/D — Shared calibration tail (see SKILL.md)
-s.post(f"{BASE_URL}/verify_project/{project_id}").raise_for_status()
-s.post(f"{BASE_URL}/calibrate/{project_id}",
-       json={"detector_type": DETECTOR_TYPE}).raise_for_status()
-print(f"[B] Calibration started (detector={DETECTOR_TYPE})")
-
-start = time.time(); last = ""
-while time.time() - start < 3600:
-    info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json()
-    st = info["project_info"]["project_state"]
-    elapsed = int(time.time() - start)
-    if st != last:
-        print(f"    [{elapsed:>4}s] {st}", flush=True); last = st
-    if st == "COMPLETED":
-        print(f"[C] Done in {elapsed}s"); break
-    if st == "ERROR":
-        raise RuntimeError(f"Calibration ERROR — see GET {BASE_URL}/amc/calibrate/{project_id}/log")
-    time.sleep(10)
-
-r = s.get(f"{BASE_URL}/result/{project_id}/evaluation_statistics")
-if r.status_code == 200:
-    for k, v in (r.json().get("statistics") or r.json()).items():
-        print(f"    {k}: {v}")
-
-print(f"\nProject: {project_id}")
+# Step A/B/C/D — see references/calibration-tail.md for the shared snippet
+# (verify_project → calibrate → poll get_project_info → fetch evaluation_statistics)
 ```
 
 ## Mode-specific Troubleshooting

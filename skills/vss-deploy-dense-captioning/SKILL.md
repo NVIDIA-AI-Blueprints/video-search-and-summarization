@@ -211,7 +211,7 @@ curl -X DELETE "$BASE_URL/v1/files/$FILE_ID" -H "Authorization: Bearer $API_KEY"
 ### 2. Dense captions from an RTSP live stream
 
 ```bash
-# Register the stream
+# Register the stream (see POST /v1/streams/add above for the full parameter set)
 STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
   -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \

@@ -82,14 +82,10 @@ Two `-f` flags: the frag compose defines `vss-agent`, the UI compose defines
 ### Step 6: Verify deployment
 
 ```bash
-# Check containers are running
 docker ps --format "table {{.Names}}\t{{.Status}}"
-
-# Health check
-curl -sf --max-time 5 "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health" >/dev/null \
-  && echo "VSS frag agent is running" \
-  || echo "VSS frag agent is NOT reachable"
 ```
+
+See [Quick Commands § Health check](#health-check) below to probe the agent.
 
 ### Tear down
 

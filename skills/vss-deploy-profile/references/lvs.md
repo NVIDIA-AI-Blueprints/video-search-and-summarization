@@ -146,9 +146,9 @@ The RT-VLM container reads sizing knobs from `dev-profile-lvs/.env` with the `RT
 
 The sizing flow is identical to base: pick the fraction with the formula in [`base.md`](base.md#sizing-math), write it into `dev-profile-lvs/generated.env` (one place — there is no per-hardware `hw-*.env` for RT-VLM), re-resolve the compose, deploy, watch the rtvi-vlm logs for `Maximum concurrency for X tokens per GPU: Y x` to confirm the KV-cache budget.
 
-## Worked example — shared mode, Nano 9B + CR2 8B on 1 × H100 80 GB
+## LVS-specific write location for the worked example
 
-Math is identical to [`base.md` § Worked example](base.md#worked-example--nemotron-nano-9b--cosmos-reason2-8b-on-h100-80-gb-shared) — LLM fraction `≈ 0.449`, VLM fraction `≈ 0.40`. The difference for LVS is **where** the VLM fraction is written:
+Run the math from [`base.md` § Worked example](base.md#worked-example--nemotron-nano-9b--cosmos-reason2-8b-on-h100-80-gb-shared) — the fractions are identical. The only LVS-specific bit is **where** the VLM fraction is written:
 
 ```bash
 # LLM — same file as base

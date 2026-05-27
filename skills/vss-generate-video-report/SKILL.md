@@ -14,19 +14,10 @@ Generate a video analysis report by routing to one of two backends — **never v
 
 | Mode | Trigger | Backend |
 |---|---|---|
-| **A. Video clip** | "report on `<sensor>`", "report on this video", "analyze warehouse_01.mp4" | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
-| **B. Incident range** | "report on incidents from `<t1>` to `<t2>`", "report on alerts today", "what incidents happened on `<sensor>` last hour" | `/vss-query-analytics` → incident list → narrative report |
+| **A. Video clip** | "report on `<sensor>`", "report on this video", "analyze warehouse_01.mp4", "generate a report for this video" | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
+| **B. Incident range** | "report on incidents from `<t1>` to `<t2>`", "report on alerts today", "what incidents happened on `<sensor>` last hour", "summarize alerts on `<sensor>` between `<t1>` and `<t2>`" | `/vss-query-analytics` → incident list → narrative report |
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range.
-
----
-
-## When to Use
-
-- "Generate a report for this video" / "for `<sensor-id>`" — **Mode A**
-- "Create an analysis report on the uploaded video" — **Mode A**
-- "Report on incidents from 12:31Z to 12:32Z" — **Mode B**
-- "Summarize alerts on `<sensor>` between `<t1>` and `<t2>`" — **Mode B**
 
 ---
 

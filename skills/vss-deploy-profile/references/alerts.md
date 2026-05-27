@@ -73,13 +73,17 @@ The default is a **2-GPU layout**: RT-CV alone on GPU 0, LLM + RT-VLM shared on 
 
 Real-time mode (`MODE=2d_vlm`) doesn't deploy RT-CV, so GPU 0 is free in that mode — often given to RT-VLM for more KV-cache headroom.
 
-## VLM serving paths
+## RT-VLM serving paths (alerts-specific)
 
-Pick the path that matches the user's VLM choice. Default is **integrated**.
+The alerts profile reuses the LVS VLM serving model — see
+[`lvs.md` § VLM serving paths](lvs.md#vlm-serving-paths) for the full
+integrated / remote / BYO matrix and `VLM_NAME` slug rules. The
+alerts-specific differences are noted below.
 
-### Path A — Integrated (RT-VLM loads Cosmos Reason)
+### Path A — Integrated (alerts profile)
 
-Default. RT-VLM serves the VLM locally. Supported integrated checkpoints (same set as LVS):
+Default for alerts. RT-VLM serves the VLM locally. Same integrated checkpoint
+set as LVS:
 
 | VLM | `RTVI_VLM_MODEL_PATH` | `RTVI_VLM_MODEL_TO_USE` |
 |---|---|---|

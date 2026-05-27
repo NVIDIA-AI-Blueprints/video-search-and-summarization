@@ -58,11 +58,13 @@ Run before every deploy. Do not proceed if any check fails.
 # 1. GPU visible
 nvidia-smi --query-gpu=index,name --format=csv,noheader
 
-# 2. NVIDIA runtime in Docker
-docker info 2>/dev/null | grep -i "runtimes"
-
-# 3. NVIDIA runtime works end-to-end
-docker run --rm --gpus all ubuntu:22.04 nvidia-smi 2>&1 | head -5
+# 2. NVIDIA Container Toolkit + runtime end-to-end
+# Full validation steps and remediation live in references/prerequisites.md
+# (§ NVIDIA runtime check). The single-line smoke test is:
+docker info 2>/dev/null | grep -i "runtimes" \
+  && docker run --rm --gpus all ubuntu:22.04 nvidia-smi >/dev/null 2>&1 \
+  && echo "nvidia runtime OK" \
+  || echo "nvidia runtime FAILED — see references/prerequisites.md"
 
 # 4. Edge platforms only — cache cleaner running (auto-start if missing).
 #    DGX-Spark / IGX-Thor / AGX-Thor share unified memory; without
