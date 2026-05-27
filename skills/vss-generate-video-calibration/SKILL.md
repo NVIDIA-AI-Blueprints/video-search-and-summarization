@@ -1,12 +1,36 @@
 ---
 name: vss-generate-video-calibration
-description: Calibrate a multi-camera dataset with AutoMagicCalib — from local MP4s, live RTSP streams, or the bundled sample dataset. Also handles deploying the AMC microservice (`vss-auto-calibration`) when the user hasn't set it up yet. Use when the user says "calibrate my videos", "run AMC on these videos", "calibrate from video files", "calibrate RTSP streams", "calibrate from live cameras", "run AMC on RTSP", "test sample dataset", "run sample calibration", "verify AMC install", "launch and test", "launch AMC", "deploy AMC", "deploy auto-calibration", "set up auto-magic-calib", "start AMC microservice", or provides RTSP URLs / local cam_*.mp4 files. Routes to the deploy / videos / rtsp / sample-dataset workflow based on user intent.
+description: Use to run AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, and to deploy vss-auto-calibration when needed. Not for non-AMC calibration or runtime analytics.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+## Purpose
+
+Run AutoMagicCalib end-to-end on local files, RTSP streams, or the bundled sample dataset and (when needed) deploy the AMC microservice.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
+- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # VSS Generate Video Calibration
 
@@ -197,7 +221,8 @@ Downstream skill flow:
 
 ## Related Skills
 
-- [`vios`](../vios/SKILL.md) — VIOS API skill; only the `rtsp` calibration mode depends on VIOS being reachable.
+- [`vss-manage-video-io-storage`](../vss-manage-video-io-storage/SKILL.md) — VIOS API skill; only the `rtsp` calibration mode depends on VIOS being reachable.
 
 Root `README.md` "Custom Dataset" and "Calibration Workflow (UI)" sections document input-video guidelines and the UI-driven alternative to this API flow.
 
+bump:1

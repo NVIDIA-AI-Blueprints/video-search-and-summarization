@@ -11,7 +11,7 @@ interactive reference implementation.
 A Brev-managed instance sets `BREV_ENV_ID=<instance-id>` in `/etc/environment`.
 If that file doesn't contain `BREV_ENV_ID`, you're not on a Brev-provisioned
 instance and this reference doesn't apply — use the normal host IP + port
-access pattern from [`base.md`](base.md).
+access pattern from `base.md`.
 
 ## Architecture
 
@@ -54,7 +54,7 @@ Ports that should NOT get their own secure link (they're behind the nginx proxy)
 
 Before `docker compose up`, set `EXTERNAL_IP` in the profile `generated.env`
 to the Brev secure-link domain (the skill's per-deploy working copy — see
-[`SKILL.md`](../SKILL.md) Step 1c/1d). The profile's other `VSS_PUBLIC_*`
+``SKILL.md`` (see `../SKILL.md`) Step 1c/1d). The profile's other `VSS_PUBLIC_*`
 vars derive from `EXTERNAL_IP`, so this single edit propagates through
 haproxy and the agent's URL renders.
 

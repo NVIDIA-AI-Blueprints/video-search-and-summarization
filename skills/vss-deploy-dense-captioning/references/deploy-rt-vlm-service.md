@@ -42,7 +42,7 @@ live-authoritative schema — see §16.
 - **Free port**: `${RTVI_VLM_PORT}` (whatever you pick)
 - **Outbound**: `nvcr.io`, `huggingface.co`, any remote NIM/OpenAI endpoints
 
-> ⚠️ **Profiles are mandatory.** Service declares **6 blueprint profiles**
+> ⚠ **Profiles are mandatory.** Service declares **6 blueprint profiles**
 > (§12). Plain `docker compose up` starts **nothing** — pass `--profile <name>`.
 
 ## 4. NGC / Registry Preflight
@@ -56,7 +56,7 @@ echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.04.1}"
 ```
 
-> ⚠️ **`docker compose pull` fails on standalone deployments** (recent Docker
+> ⚠ **`docker compose pull` fails on standalone deployments** (recent Docker
 > Compose): the compose file's `depends_on` references sibling NIM services
 > that are not defined in this single-file project. Compose rejects this as
 > `invalid compose project` at project-load time even when every reference is
@@ -81,7 +81,7 @@ rewrite to canonical container-side names at the compose boundary.
 | `VLM_NAME` | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | Remote model name | Your backend |
 | `REDIS_PASSWORD` | `REDIS_PASSWORD` | Only when `ENABLE_REDIS_ERROR_MESSAGES=true` | Your Redis |
 
-> ⚠️ **Minimum to boot**: `NGC_CLI_API_KEY` + whatever the sibling NIM needs.
+> ⚠ **Minimum to boot**: `NGC_CLI_API_KEY` + whatever the sibling NIM needs.
 
 Use the `.env` block in §12 as the starting point.
 
@@ -95,17 +95,9 @@ Use the `.env` block in §12 as the starting point.
 | 111 | `${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache` (named) | **yes** | **YES — re-download weights** |
 | 112 | `${RTVI_VLM_LOG_DIR:-/dummy}${RTVI_VLM_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}` (optional bind) | no | no |
 
-**Required host-path setup** — `VSS_DATA_DIR` is not optional:
-
-```bash
-# Container runs as UID 1001; host dir must be writable by that UID
-export VSS_DATA_DIR=/abs/path/to/vss-data
-mkdir -p "$VSS_DATA_DIR/data_log/vst/clip_storage"
-sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"
-# No sudo? Grant UID 1001 via ACL:
-#   sudo setfacl -R -m u:1001:rwx "$VSS_DATA_DIR/data_log/vst/clip_storage"
-# Avoid `chmod 777` — exposes clip storage to every user on the host.
-```
+**Required host-path setup** — `VSS_DATA_DIR` is not optional. See **Step 2** in the
+Quick-Start section below for the exact commands to prepare the VST clip-storage
+host directory.
 
 Optional host-path overrides:
 
@@ -117,7 +109,7 @@ mkdir -p ./rtvi-logs && sudo chown 1001:1001 ./rtvi-logs
 # .env: RTVI_VLM_LOG_DIR=$(pwd)/rtvi-logs
 ```
 
-> ⚠️ `docker compose down -v` wipes `rtvi-hf-cache` + `rtvi-ngc-model-cache` →
+> ⚠ `docker compose down -v` wipes `rtvi-hf-cache` + `rtvi-ngc-model-cache` →
 > **20–80 GB re-download** on next up.
 
 ## 7. Required Environment Variables
@@ -364,6 +356,26 @@ fi
 grep -c 'depends_on' rtvi-vlm-docker-compose.yml
 
 # 1. Config — set model vars per §11 (Options A–E)
+#
+# SECURITY NOTE: Writing API keys to `.env` via the shell (`cat > .env`)
+# puts the secret into the shell process for the duration of the heredoc.
+# To minimise exposure, prefer ONE of:
+#
+#   (a) `printf` from an already-set env var that you exported with
+#       `read -rs NGC_CLI_API_KEY`, so the key is never on the
+#       command-line and never echoed.
+#   (b) Render the file from a templated source with an external secret
+#       manager (HashiCorp Vault, AWS Secrets Manager, sealed-secrets).
+#   (c) Manage `.env` with `chmod 600` and `chown $(id -u):$(id -g)`
+#       immediately after writing it, and add the path to `.gitignore`
+#       (it already is — keep it that way).
+#
+# In all cases, NEVER commit `.env` to a repository, NEVER leave it in
+# `/tmp`, NEVER paste the value into chat history, and clear the shell
+# history for the writing shell (`history -c && history -w`) before
+# leaving the host. Rotate `NGC_CLI_API_KEY` if it ever leaves this
+# host's trust boundary.
+umask 077  # ensure the file is created mode 0600
 cat > .env <<EOF
 NGC_CLI_API_KEY=<your-ngc-key>
 RTVI_VLM_PORT=8100
@@ -375,8 +387,9 @@ RT_VLM_DEVICE_ID=0
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:1208-fp8-static-kv8
 EOF
+chmod 600 .env
 
-# 2. Prepare VST clip-storage host dir (required)
+# 2. Prepare VST clip-storage host dir (required per §6 above)
 mkdir -p "$VSS_DATA_DIR/data_log/vst/clip_storage"
 sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"
 
@@ -385,7 +398,7 @@ echo "<your-ngc-key>" | sudo docker login nvcr.io -u '$oauthtoken' --password-st
 # Or preserve env: sudo --preserve-env=NGC_CLI_API_KEY bash -c \
 #   'echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u $oauthtoken --password-stdin'
 
-# 4. Pull image directly (docker compose pull fails on standalone — see §4)
+# 4. Pull image directly (as described in §4 above)
 sudo docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${VLM_TAG}"
 
 # 5. Bring up — plain `up` (no profile) starts nothing
@@ -490,7 +503,7 @@ once the service is up):
 | Metadata | Service metadata and version info |
 | NIM Compatible | OpenAI-compatible endpoints for interop |
 
-> ⚠️ **Docs API page is a landing page only** — concrete paths, request/response
+> ⚠ **Docs API page is a landing page only** — concrete paths, request/response
 > schemas, and error codes were not retrievable from the upstream HTML.
 > `GET /openapi.json` on the running service is authoritative for specifics.
 

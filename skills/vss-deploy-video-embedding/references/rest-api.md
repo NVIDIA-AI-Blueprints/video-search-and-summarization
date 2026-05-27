@@ -2,7 +2,7 @@
 
 The service exposes a v1 REST API on container port `8000`. The OpenAPI spec uses a relative server URL, so callers must set `BASE_URL` to the deployed host and port (for example, `http://localhost:${RTVI_EMBED_PORT}`).
 
-The OpenAPI spec annotates every endpoint with a Bearer token security scheme. Compose-based local deployments typically do not enforce Bearer auth on the loopback interface; treat the API as deployment-gated and inject an `Authorization: Bearer <token>` header at the caller boundary when exposing it beyond localhost.
+The OpenAPI spec annotates every endpoint with a Bearer token security scheme. Compose-based **local** deployments may not enforce Bearer auth on the loopback interface, **but** Bearer auth MUST be enabled before exposing the API on any non-loopback interface, in staging, or in production. Treat the unauthenticated bring-up as a localhost-only debug shortcut: bind only to `127.0.0.1`, never to `0.0.0.0`, never to a publicly routable IP, and never to a shared host without first restoring the Bearer header. Operators who copy the local pattern into staging or prod will expose an unauthenticated embedding API to the network — this is a credential-equivalent disclosure risk for any RAG corpus reachable through it. Always inject `Authorization: Bearer <token>` at the caller boundary the moment the service leaves the developer laptop.
 
 All examples below assume:
 
@@ -114,7 +114,18 @@ curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
   }'
 ```
 
-Supported `url` schemes per the spec: `http://`, `https://`, `s3://`, `file://` (requires server-side `FILE_URL_ALLOWED_DIRS`), and `data:` URIs.
+Supported `url` schemes per the spec: `http://`, `https://`, `s3://`, `file://`, and `data:` URIs.
+
+> **Security warning — `file://`**: this scheme causes the embedding server
+> to read **arbitrary local files** from its own filesystem. It is gated by
+> the `FILE_URL_ALLOWED_DIRS` env var and MUST stay restricted to a
+> narrow allow-list of directories that hold only intended media. An
+> empty / overly broad allow-list combined with an exposed (or
+> unauthenticated) endpoint lets a caller read any file the container
+> process can see — config, secrets, mounted data. Set
+> `FILE_URL_ALLOWED_DIRS` to the smallest dataset directory possible and
+> prefer `https://` / `s3://` whenever the caller can reach the media
+> over the network.
 
 #### Response schema
 
@@ -122,8 +133,8 @@ A synchronous (non-SSE) response looks like:
 
 ```json
 {
-  "id": "3a5c1703-717c-47e2-950f-dba57e749826",
-  "created": 1715760000,
+  "id": "<uuid>",
+  "created": "<unix-epoch>",
   "model": "cosmos-embed1-448p",
   "media_info": { "type": "offset", "start_offset": 0, "end_offset": 130 },
   "usage": {
@@ -134,9 +145,8 @@ A synchronous (non-SSE) response looks like:
     "total_tokens": null
   },
   "chunk_responses": [
-    { "start_time": "0.0",   "end_time": "60.0",    "embeddings": [0.0282, 0.0331, ...] },
-    { "start_time": "50.0",  "end_time": "110.0",   "embeddings": [0.0594, 0.0294, ...] },
-    { "start_time": "100.0", "end_time": "130.434", "embeddings": [0.0585, 0.0488, ...] }
+    { "start_time": "0", "end_time": "60",  "embeddings": ["<float>", "<float>", "..."] },
+    { "start_time": "50", "end_time": "110", "embeddings": ["<float>", "<float>", "..."] }
   ]
 }
 ```
@@ -181,11 +191,11 @@ curl -fsS -X POST "$BASE_URL/v1/generate_text_embeddings" \
 
 ```json
 {
-  "id": "...",
-  "created": 1715760000,
+  "id": "<uuid>",
+  "created": "<unix-epoch>",
   "model": "cosmos-embed1-448p",
   "data": [
-    { "text_input": "a forklift moving pallets", "embeddings": [-0.0712, 0.0065, ...] }
+    { "text_input": "a forklift moving pallets", "embeddings": ["<float>", "<float>", "..."] }
   ]
 }
 ```
@@ -236,19 +246,19 @@ Per-chunk SSE events use the same envelope as the file-mode response, but **time
 
 ```json
 {
-  "id": "8183c6fd-f965-4db9-9ff6-b971ea3490f8",
-  "created": 1778739794,
+  "id": "<uuid>",
+  "created": "<unix-epoch>",
   "model": "cosmos-embed1-448p",
   "media_info": {
     "type": "timestamp",
-    "start_timestamp": "2026-05-14T06:23:18.106Z",
-    "end_timestamp":   "2026-05-14T06:23:26.881Z"
+    "start_timestamp": "<ISO-8601-UTC>",
+    "end_timestamp":   "<ISO-8601-UTC>"
   },
   "chunk_responses": [
     {
-      "start_time": "2026-05-14T06:23:18.106Z",
-      "end_time":   "2026-05-14T06:23:26.881Z",
-      "embeddings": [-0.0074, -0.0539, 0.0281, ...]
+      "start_time": "<ISO-8601-UTC>",
+      "end_time":   "<ISO-8601-UTC>",
+      "embeddings": ["<float>", "<float>", "..."]
     }
   ]
 }

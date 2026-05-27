@@ -352,16 +352,12 @@ export TRITON_REPO=/opt/nvidia/deepstream/deepstream/sources/TritonGdino/triton_
 export RESOURCES=/opt/storage/resources
 ```
 
-Mount the skill's scripts into the container (or `docker cp` them):
+Mount the skill's scripts into the container (or `docker cp` them).
 
-```bash
-# Option 1 — add to docker run
--v <skill-dir>/scripts:/tmp/scripts:ro
-
-# Option 2 — copy after launch (rm first to prevent nested /tmp/scripts/scripts/ bug)
-docker exec <CONTAINER_NAME> rm -rf /tmp/scripts && \
-docker cp <skill-dir>/scripts <CONTAINER_NAME>:/tmp/
-```
+See [§ ONE-CALL FAST PATH](#one-call-fast-path--use-this-single-permission-prompt-for-all-of-step-4)
+above for the single-permission-prompt variant and the canonical
+`docker cp src /tmp/scripts` nesting-gotcha note (always `rm -rf
+/tmp/scripts` first to avoid nested `/tmp/scripts/scripts/`).
 
 ---
 

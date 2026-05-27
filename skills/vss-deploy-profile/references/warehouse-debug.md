@@ -2,7 +2,7 @@
 
 Live debugging of an **already-running** VSS Warehouse deployment. Triage container health, perception FPS, GPU/CPU/disk resources, broker connectivity, and (3D / MV3DT) BEV camera timestamp synchronization via Elasticsearch. Identify root cause, propose a fix, then ask the user before applying it.
 
-Companion to [`warehouse.md`](warehouse.md). Use this reference when the stack is already up but something is wrong — low FPS, containers restarting, streams missing, BEV out of sync, or general unhealthy state. For first-time install / redeploy / tear-down, go to `warehouse.md`.
+Companion to `warehouse.md`. Use this reference when the stack is already up but something is wrong — low FPS, containers restarting, streams missing, BEV out of sync, or general unhealthy state. For first-time install / redeploy / tear-down, go to `warehouse.md`.
 
 Reference tables (container map, deps, log patterns, ES indices, GPU layout, endpoints, BEV thresholds) are in the top half; operational triage phases are in the bottom half.
 
@@ -216,41 +216,10 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 
 ## Service Access Points
 
-**Prefer the HAProxy ingress (port `7777`)** — single browser-reachable origin, paths rewritten to internal services. Direct ports are only useful for diagnostics from the host. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
-
-### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_PORT>` — default `<EXTERNAL_IP>:7777`)
-
-| Path | Backend | Profile |
-|---|---|---|
-| `/` | `vss-agent-ui` (Next.js) | `bp_wh` (returns 503 in `bp_wh_kafka`/`bp_wh_redis` — no UI backend) |
-| `/vst`, `/vst/...` | `vss-vios-ingress` (VST / VIOS UI) | All |
-| `/storage`, `/storage/...` | `vst-storage` (compat → `/vst/storage/...`) | All |
-| `/kibana`, `/kibana/...` | `kibana` | `bp_wh`, or kafka/redis extended (2D or 3D) |
-| `/video-analytics-api`, `.../...` | `vss-video-analytics-api` | `bp_wh`, or kafka/redis extended |
-| `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | All |
-| `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | All |
-| `/alert-bridge`, `.../...` | `vss-alert-bridge` | `bp_wh` only |
-| `/phoenix`, `.../...` | `phoenix` | `bp_wh` only |
-| `/va-mcp`, `.../...` | `vss-va-mcp` | `bp_wh` only |
-| `/api`, `/api/...` | `vss-agent` | `bp_wh` only |
-| `/api/chat`, `.../...` | `vss-agent-ui` | `bp_wh` only |
-| `/chat`, `/static`, `/websocket` | `vss-agent` | `bp_wh` only |
-
-### Direct ports (no HAProxy route — diagnostics only)
-
-| Service | URL | Profile |
-|---|---|---|
-| NvStreamer UI | `http://<HOST_IP>:31000` | All |
-| Auto-Calibration UI | `http://<HOST_IP>:5000` | `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt` |
-| Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
-| VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
-| VST MCP (direct) | `http://<HOST_IP>:8001` | All |
-| Phoenix (direct) | `http://<HOST_IP>:6006` | `bp_wh` only (prefer `/phoenix` via HAProxy) |
-| Kibana (direct) | `http://<HOST_IP>:5601` | Prefer `/kibana` via HAProxy |
-| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
-| VST UI (direct) | `http://<HOST_IP>:30888/vst` | Prefer `/vst` via HAProxy |
-
-`h_main` ACL only routes when the `Host:` header matches `${VSS_PUBLIC_HOST}`, `${EXTERNAL_IP}`, `${HOST_IP}`, `localhost`, or `127.0.0.1` (with or without `:${HAPROXY_PORT}`). Unknown Host headers get a 404 from haproxy itself.
+For the full HAProxy ingress route table, direct-port diagnostics table, and
+the `h_main` Host-header ACL rules, see
+[`warehouse.md` § Access Points](warehouse.md#access-points). The canonical
+tables live there to avoid drift when ports/services change.
 
 ## BEV Sync Thresholds
 
