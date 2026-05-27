@@ -69,7 +69,7 @@ docker-workload-rtvi-cv:
 docker-workload-alerts-2d:
   wl_obj_name: vss-rtvi-vlm
   port: 4003
-  enable: true
+  enable: ${ALERTS_2D_ENABLE}
   REDIS_MSG_KEY: vst.event
   WDM_REDIS_MSG_KEY: vst.event
   WDM_INITIALIZE_FROM_VST: false
