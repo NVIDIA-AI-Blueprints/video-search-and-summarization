@@ -77,7 +77,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- else if $mv3dt.mqttServiceName -}}
 {{- $mv3dt.mqttServiceName -}}
 {{- else -}}
-{{- printf "%s-mosquitto" (include "vss-rtvi-cv.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}
+{{- if $usePrefix -}}
+{{- printf "%s-mosquitto" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "mosquitto" -}}
+{{- end -}}
 {{- end -}}
 {{- end }}
 

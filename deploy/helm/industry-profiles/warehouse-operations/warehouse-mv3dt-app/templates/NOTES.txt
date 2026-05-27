@@ -1,11 +1,17 @@
-{{- $rtviCv := index (index .Subcharts "rtvi").Subcharts "vss-rtvi-cv" -}}
-{{- $name := include "vss-rtvi-cv.fullname" $rtviCv -}}
+{{- $name := "vss-rtvi-cv" -}}
+{{- $mqttHost := "mosquitto" -}}
+{{- with index .Subcharts "rtvi" -}}
+{{- with index .Subcharts "vss-rtvi-cv" -}}
+{{- $name = include "vss-rtvi-cv.fullname" . -}}
+{{- $mqttHost = include "vss-rtvi-cv.mv3dtMqttHost" . -}}
+{{- end -}}
+{{- end -}}
 Warehouse MV3DT app profile rendered.
 
 Main workloads:
   StatefulSet: {{ $name }}
   Fusion Deployment: {{ $name }}-mv3dt-fusion
-  Mosquitto Deployment: {{ $name }}-mosquitto
+  Mosquitto Deployment/Service: {{ $mqttHost }}
   Profile: standalone-mv3dt
 
 Set rtvi.vss-rtvi-cv.ngcAppDataResourceVersion to the target NGC warehouse app-data resource before installing.

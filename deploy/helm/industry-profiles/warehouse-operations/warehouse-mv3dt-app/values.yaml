@@ -145,6 +145,15 @@ infra:
     persistence:
       storageClass: ""
       size: 5Gi
+  mosquitto:
+    enabled: true
+    image:
+      repository: eclipse-mosquitto
+      tag: "2"
+      pullPolicy: IfNotPresent
+    port: 1883
+    service:
+      type: ClusterIP
   sdrc:
     enabled: true
     configFilePath: configs/sdrc/config.yml
@@ -333,15 +342,6 @@ rtvi:
           sensorTimeoutMs: "100"
           maxExpectedSensors: "4"
           bufferDurationS: "2.0"
-        mosquitto:
-          enabled: true
-          image:
-            repository: eclipse-mosquitto
-            tag: "2"
-            pullPolicy: IfNotPresent
-          service:
-            type: ClusterIP
-            port: 1883
     persistence:
       storageClass: ""
       models:
