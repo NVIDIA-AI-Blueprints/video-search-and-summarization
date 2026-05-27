@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.tools.vst.utils import delete_vst_sensor
 from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_sensor_id_from_stream_id
 from vss_agents.utils.time_measure import TimeMeasure
@@ -297,6 +298,15 @@ def create_video_delete_router(
                 success, msg = await delete_vst_storage(vst_url, video_id)
             results.append(success)
             logger.info("Delete VST storage: %s", "OK" if success else msg)
+
+            # --- Delete VST sensor (using shared vst utils) ---
+            # Required: delete_vst_storage only removes stored files, not the
+            # sensor registration — the two must be paired to fully remove a
+            # video. Without this, sensors are orphaned in VST.
+            with TimeMeasure("video_delete: delete VST sensor"):
+                success, msg = await delete_vst_sensor(vst_url, video_id)
+            results.append(success)
+            logger.info("Delete VST sensor: %s", "OK" if success else msg)
 
         # --- Determine overall status ---
         all_success = bool(results) and all(results)
