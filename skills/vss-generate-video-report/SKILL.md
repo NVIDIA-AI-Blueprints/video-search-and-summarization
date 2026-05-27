@@ -49,6 +49,57 @@ If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or
 
 ---
 
+## Browser-playable clip URL (always do this before embedding any clip in the report)
+
+VST returns clip URLs of the form `http://${HOST_IP}:30888/vst/storage/temp_files/<name>.mp4` and incidents from `/vss-query-analytics` carry the same shape. **Those URLs use the agent-internal host:port** — they are reachable from in-cluster services (VLM, RT-VLM) but **not** from the user's browser, where they time out (`ERR_CONNECTION_TIMED_OUT`). Every clip URL surfaced **in the rendered report** must be rewritten to the HAProxy ingress (port 7777, the single browser-facing front door — `deploy/docker/services/infra/haproxy/haproxy.cfg.template` routes `/vst/*` → `bk_vst_ingress`).
+
+On Brev, the HAProxy port is further exposed as the secure-link domain `7777-<BREV_ENV_ID>.brevlab.com` over HTTPS — same convention `vss-deploy-profile` uses for `EXTERNAL_IP` (see `vss-deploy-profile/references/brev.md`).
+
+### Rewrite recipe
+
+```bash
+# Convert any VST URL ("http://<host>:<port>/vst/..." or "/storage/...") into a
+# browser-playable URL for the current deployment. Brev-aware.
+to_browser_clip_url() {
+  local raw="$1"
+
+  # Path: VST sometimes returns /storage/... (HAProxy backwards-compat rewrites
+  # that to /vst/storage/...). Normalize to /vst/storage/... up-front so the
+  # output works regardless of which path VST emitted.
+  local path
+  path=$(printf '%s' "$raw" | sed -E 's|^https?://[^/]+||; s|^/storage/|/vst/storage/|; s|^/storage$|/vst/storage|')
+
+  # Pick the browser-facing host:port for this deploy.
+  local brev_env_id
+  brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment 2>/dev/null)
+  if [ -n "$brev_env_id" ]; then
+    printf 'https://7777-%s.brevlab.com%s\n' "$brev_env_id" "$path"
+  elif [ -n "${EXTERNAL_IP:-}" ]; then
+    # EXTERNAL_IP may already contain a port (e.g. "7777-<id>.brevlab.com")
+    # or be a bare host — handle both.
+    case "$EXTERNAL_IP" in
+      *.brevlab.com) printf 'https://%s%s\n' "$EXTERNAL_IP" "$path" ;;
+      *:*)           printf 'http://%s%s\n'  "$EXTERNAL_IP" "$path" ;;
+      *)             printf 'http://%s:7777%s\n' "$EXTERNAL_IP" "$path" ;;
+    esac
+  else
+    printf 'http://%s:7777%s\n' "${HOST_IP:-localhost}" "$path"
+  fi
+}
+```
+
+### When to apply
+
+| Surface | Internal URL (input) | Action |
+|---|---|---|
+| **VLM `video_url` content block in Mode A Step 3** | VST URL with `HOST_IP:30888` | **Leave as-is** — the VLM is in-cluster and fetches frames from the internal URL. |
+| **Mode A Step 4 "Video Source" / "Clip URL" template field** | Same internal URL | `to_browser_clip_url "$VIDEO_URL"` — the report is for the user's browser. |
+| **Mode B incident clip URL** (the `clip_url` / equivalent field returned with each incident) | Same shape | `to_browser_clip_url "$INCIDENT_CLIP_URL"` before pasting into the per-incident bullet. |
+
+If `to_browser_clip_url` produces the same value as the input (no rewrite needed because the URL is already external), pass it through unchanged.
+
+---
+
 ## Mode A — Report on a recorded video clip
 
 **If the VSS `lvs` profile is deployed** — `curl -sf --max-time 5 "http://${HOST_IP}:38111/v1/ready"` returns HTTP 200 — run `/vss-summarize-video` to produce the summary, then paste its output into the report template in Step 4 and skip Steps 1–3 (the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
@@ -65,7 +116,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
-   That gives a direct `mp4` URL that the VLM can pull frames from. Bind it to `VIDEO_URL`.
+   That gives a direct `mp4` URL that the VLM can pull frames from. Bind it to `VIDEO_URL` (used in-cluster by the VLM in Step 3) **and** compute `BROWSER_CLIP_URL=$(to_browser_clip_url "$VIDEO_URL")` for the Step 4 report template — the user's browser cannot reach `$VIDEO_URL` directly.
    Mode A requires the selected VLM endpoint to be able to fetch `VIDEO_URL`.
    Local NIM/RT-VLM deployments normally can; remote endpoints generally cannot
    fetch `localhost`, private `HOST_IP`, or VST-internal URLs. If the live
@@ -162,6 +213,7 @@ If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), 
 | **Time of Analysis** | <HH:MM:SS> |
 | **Video Source** | <sensor_id or filename> |
 | **Clip Range** | <startTime> – <endTime> |
+| **Clip URL** | `<BROWSER_CLIP_URL>` (from `to_browser_clip_url "$VIDEO_URL"` — NEVER paste the raw `HOST_IP:30888` URL here) |
 | **VLM** | <VLM_MODEL (NIM or RT-VLM)> |
 | **Analysis Request** | <user's request> |
 
@@ -199,7 +251,7 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
 }
 ```
 
-For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`.
+For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Run every clip URL through `to_browser_clip_url` (see *Browser-playable clip URL* above) before pasting it into the report.** The raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
 
 ### Step 3 — Fill the Incident Range Report template
 
@@ -224,6 +276,7 @@ Group by sensor (or by category if no sensor scope), tally verdicts, list each i
 
 - **<timestamp>** — <category> — verdict: **<confirmed|rejected|unverified>**
   - <info.reasoning (1–2 lines)>
+  - clip: `<to_browser_clip_url result>` (omit row when the incident carries no clip URL — never paste a raw `HOST_IP:30888` URL)
   - objects: <objectIds joined>
 - …
 
