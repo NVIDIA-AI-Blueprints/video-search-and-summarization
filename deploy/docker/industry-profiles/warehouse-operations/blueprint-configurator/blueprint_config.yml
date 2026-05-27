@@ -595,7 +595,7 @@ H100:
   3d:
     max_streams_supported: 16
   mv3dt:
-    max_streams_supported: 13
+    max_streams_supported: 61
 
 L4:
   2d:
@@ -603,7 +603,7 @@ L4:
   3d:
     max_streams_supported: 2
   mv3dt:
-    max_streams_supported: 2
+    max_streams_supported: 7
 
 L40S:
   2d:
@@ -611,7 +611,7 @@ L40S:
   3d:
     max_streams_supported: 6
   mv3dt:
-    max_streams_supported: 7
+    max_streams_supported: 23
 
 RTXA6000:
   2d:
@@ -619,7 +619,7 @@ RTXA6000:
   3d:
     max_streams_supported: 2
   mv3dt:
-    max_streams_supported: 2
+    max_streams_supported: 4
 
 RTXA6000ADA:
   2d:
@@ -627,7 +627,7 @@ RTXA6000ADA:
   3d:
     max_streams_supported: 6
   mv3dt:
-    max_streams_supported: 6
+    max_streams_supported: 22
 
 RTXPRO6000BW:
   2d:
@@ -635,7 +635,7 @@ RTXPRO6000BW:
   3d:
     max_streams_supported: 19
   mv3dt:
-    max_streams_supported: 18
+    max_streams_supported: 39
 
 IGX-THOR:
   2d:
@@ -683,7 +683,7 @@ IGX-THOR:
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
   mv3dt:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -735,7 +735,7 @@ DGX-SPARK:
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
   mv3dt:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
