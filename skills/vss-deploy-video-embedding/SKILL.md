@@ -196,3 +196,4 @@ docker compose -f rtvi-embed-docker-compose.yml down -v
 | [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
 | [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |
 
+
