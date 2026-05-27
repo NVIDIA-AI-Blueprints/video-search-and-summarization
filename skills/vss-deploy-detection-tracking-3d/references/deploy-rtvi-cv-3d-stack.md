@@ -122,17 +122,32 @@ This is the directory containing the **extracted** `vss-warehouse-app-data` tarb
 └── auto-calib/vggt/          optional VGGT model
 ```
 
-If you haven't extracted it yet:
+If you haven't extracted it yet, discover the latest tag rather than relying on a pinned one — release cuts and staging snapshots get re-published over time, and the most recent tag is rarely the one any doc still references:
 
 ```bash
 export NGC_CLI_API_KEY='<your-key>'
-ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0"
-# OR: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-04282026 for staging keys
-cd vss-warehouse-app-data_v3.2.0
+
+# Discover what's actually published for your key. Try both orgs — most
+# keys see one or the other (not both). Release tags follow <maj>.<min>.<patch>;
+# staging tags are dated (e.g. v3.2.0-MMDDYYYY). Pick the most recent
+# UPLOAD_COMPLETE row that matches the perception/fusion image tag base
+# in .env (PERCEPTION_TAG=<base>-...). Mismatching app-data and image
+# versions is a common silent-deploy bug.
+NGC_CLI_ORG=nvidia    ngc registry resource list "nvidia/vss-warehouse/vss-warehouse-app-data:*"    --format_type ascii | head -10
+NGC_CLI_ORG=nvstaging ngc registry resource list "nvstaging/vss-warehouse/vss-warehouse-app-data:*" --format_type ascii | head -10
+
+ORG=<nvidia-or-nvstaging>
+TAG=<picked-tag>
+NGC_CLI_ORG="$ORG" ngc registry resource download-version "${ORG}/vss-warehouse/vss-warehouse-app-data:${TAG}"
+
+# The tarball extracts into a nested vss-warehouse-app-data/ directory — flatten it.
+cd "vss-warehouse-app-data_v${TAG#v}" || cd "vss-warehouse-app-data_${TAG}"
 tar -xvf vss-warehouse-app-data.tar.gz
 sudo chmod -R a+rX /path/to/vss-warehouse-app-data
 # Then point VSS_DATA_DIR at /path/to/vss-warehouse-app-data
 ```
+
+After extraction, run the `mkdir -p` + `chmod -R 777 $VSS_DATA_DIR/data_log` step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it.
 
 > Always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's `mv3dt` cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying.
 
@@ -244,8 +259,10 @@ Once perception logs an FPS line and `/tmp/fusion_ready` exists (check via `dock
 ## When deploy fails
 
 - Image pull 401 / 403 → re-run `docker login nvcr.io`; verify `ngc registry image list "nvstaging/vss-core/*"` (or `nvidia/vss-core/*`) returns results.
+- `error from registry: Incorrect Repository Format` mid-pull → Docker/Compose version incompatibility with the bare-tag local-build services in `services/infra/compose.yml`. See [`troubleshooting.md`](troubleshooting.md) — "`error from registry: Incorrect Repository Format` during compose pull" for a version-independent pre-build workaround and the Docker-pin alternative.
 - `unknown or invalid runtime name: nvidia` → install NVIDIA Container Toolkit (`vss-deploy-profile/references/prerequisites.md` §2.3).
-- `redis ... Can't open the log file: Permission denied` or `vss-configurator-mv3dt` exits 1 immediately → confirm `VSS_DATA_DIR` points at the extracted app-data directory, not the repo. See Step 0 checks.
+- `redis ... Can't open the log file: Permission denied`, `kafka ... /tmp/kafka-data/cluster_id: Permission denied`, or elasticsearch `AccessDeniedException` → `$VSS_DATA_DIR/data_log` perms weren't opened up. Run the `mkdir -p` + `chmod -R 777` step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 and redeploy. Don't recursive-chown.
+- `vss-configurator-mv3dt` exits 1 immediately → almost always `VSS_DATA_DIR` pointing at the repo instead of the extracted app-data directory. See Step 0 checks.
 - Containers in `Created` state forever → almost always the same `VSS_DATA_DIR` issue. Stop everything, fix `.env`, redeploy.
 - Profile mismatch (e.g. expected containers not in `docker compose config`) → confirm `MODE=mv3dt`, `BP_PROFILE` is one of `bp_wh_kafka` / `bp_wh_redis`. Other failure modes → [`troubleshooting.md`](troubleshooting.md).
 

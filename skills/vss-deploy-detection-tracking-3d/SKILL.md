@@ -146,9 +146,32 @@ test -d "${DATA_DIR}/videos/${DATASET}" \
 # fewer videos than the dataset name implies — verify and source any missing
 # cams separately if your GPU's mv3dt cap is high enough to use them all.
 ls "${DATA_DIR}/videos/${DATASET}/"*.mp4 2>/dev/null | wc -l
+
+# Ensure every per-service subdir under data_log/ exists, then open perms.
+# kafka / elasticsearch / redis run as different non-root UIDs against
+# bind-mounted host paths — without 777 the daemons exit with
+# "Permission denied" (kafka cluster_id), "AccessDeniedException" (ES),
+# or "Can't open the log file" (redis). chmod 777 is the documented fix;
+# do NOT recursive-chown — see data-directory.md for the per-UID rationale.
+mkdir -p \
+  "${DATA_DIR}/data_log/analytics_cache" \
+  "${DATA_DIR}/data_log/calibration_toolkit" \
+  "${DATA_DIR}/data_log/elastic/data" \
+  "${DATA_DIR}/data_log/elastic/logs" \
+  "${DATA_DIR}/data_log/kafka" \
+  "${DATA_DIR}/data_log/redis/data" \
+  "${DATA_DIR}/data_log/redis/log"
+chmod -R 777 "${DATA_DIR}/data_log"
 ```
 
-If app-data isn't extracted yet: download via `ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:<version>"` and `tar -xvf` (see [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) for the version pin and full steps).
+> **Easy miss, hard to recover from.** The `mkdir -p` + `chmod -R 777` step
+> on `${DATA_DIR}/data_log` is required, not optional. Newly extracted
+> `vss-warehouse-app-data` trees are owned by the extracting user (whoever
+> ran `tar -xvf`) and container UIDs won't match. The deeper per-container
+> UID table lives in [`../vss-deploy-profile/references/data-directory.md`](../vss-deploy-profile/references/data-directory.md);
+> the same doc explains why recursive chown is the wrong fix.
+
+If app-data isn't extracted yet: download via `ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:<version>"` and `tar -xvf` (see [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) for tag discovery and full steps).
 
 ### 5. Pre-flight (system)
 

@@ -218,6 +218,47 @@ nc -zu stun.l.google.com 19302                                            # bloc
 
 In the VST UI itself, overlays are off by default per stream — enable via the video player's options menu.
 
+### `error from registry: Incorrect Repository Format` during compose pull
+
+**Symptom:** `docker compose up --pull always --build` aborts mid-pull with `error from registry: Incorrect Repository Format`. No containers are created. Failure is non-deterministic across Docker / Compose versions — what works on one host fails on another with the same `.env`.
+
+**Cause:** A handful of services in `services/infra/compose.yml` are locally built but declared with bare-tag `image:` fields (e.g. `image: elasticsearch` — no registry, no version). With `--pull always`, compose tries to resolve those references against the default registry (Docker Hub) before considering the build context. Some Docker / Compose versions reject the resolution outright and abort the whole `up`; others fall through to the build and succeed. The repo-side fix is to scope these references (e.g. `image: <project>-elasticsearch:local`); until that lands, work around it from the deploy side.
+
+**Workaround A — pre-build the locally-built services, then `up` without `--pull always` (version-independent, no system changes):**
+
+```bash
+cd "${VSS_APPS_DIR}"
+
+# Discover services whose resolved image: lacks a registry/host prefix —
+# these are the ones compose tries (and may fail) to pull as Docker Hub refs.
+LOCAL_SVCS=$(docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env config 2>/dev/null \
+  | python3 -c "
+import sys, yaml
+d = yaml.safe_load(sys.stdin)
+for n, s in (d.get('services') or {}).items():
+    img = s.get('image', '')
+    head = img.split(':')[0]
+    if s.get('build') and '/' not in head and '.' not in head:
+        print(n)
+")
+echo "Will pre-build: $LOCAL_SVCS"
+
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env build $LOCAL_SVCS
+
+# Now bring up the rest. Drop --pull always (default --pull missing will
+# fetch registry images that aren't local; the pre-built ones are skipped).
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  up --detach --force-recreate
+```
+
+**Workaround B — pin Docker / Compose to a known-good version.** The warehouse-deploy skill documents this in [`../../vss-deploy-profile/references/warehouse.md`](../../vss-deploy-profile/references/warehouse.md) (search "Incorrect Repository Format"). Two caveats specific to this fallback:
+
+- Downgrading the Docker engine often switches the underlying containerd major version. The local image store from the previous Docker is invisible to the older containerd snapshotter — the first `compose up` after the pin re-pulls every NGC image (10+ GB).
+- It's a system-wide change. Workaround A is the safer first attempt if anything else on the host depends on the current Docker version.
+
 ### Image pull 401 / 403 from `nvcr.io`
 
 **Cause(s):**
