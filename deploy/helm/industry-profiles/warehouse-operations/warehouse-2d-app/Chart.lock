@@ -5,11 +5,17 @@ dependencies:
 - name: infra
   repository: file://../../../services/infra
   version: 26.04.2
+- name: bp-configurator
+  repository: file://../../../services/bp-configurator
+  version: 26.04.2
+- name: calibration-import
+  repository: file://../../../services/calibration-import
+  version: 26.04.2
 - name: rtvi
   repository: file://../../../services/rtvi
   version: 26.04.2
 - name: analytics
   repository: file://../../../services/analytics
   version: 26.04.2
-digest: sha256:48fa8ee689d5d787ce57777fe195257c903e8b6b8a17beeabed359e1b59d90f3
-generated: "2026-05-26T12:49:52.19618631-07:00"
+digest: sha256:80ae80836bc1fec79532a4427420ffcd5c23224ab4006753d96c18fb52d51483
+generated: "2026-05-27T14:59:45.159659127-07:00"

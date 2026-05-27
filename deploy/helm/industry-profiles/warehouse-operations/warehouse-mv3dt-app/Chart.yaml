@@ -23,6 +23,14 @@ dependencies:
     version: 26.04.2
     repository: "file://../../../services/infra"
     condition: infra.enabled
+  - name: bp-configurator
+    version: 26.04.2
+    repository: "file://../../../services/bp-configurator"
+    condition: bp-configurator.enabled
+  - name: calibration-import
+    version: 26.04.2
+    repository: "file://../../../services/calibration-import"
+    condition: calibration-import.enabled
   - name: rtvi
     version: 26.04.2
     repository: "file://../../../services/rtvi"

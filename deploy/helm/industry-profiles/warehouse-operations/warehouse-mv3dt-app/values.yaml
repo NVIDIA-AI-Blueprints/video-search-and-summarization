@@ -7,93 +7,94 @@ global:
   storageClass: ""
   useReleaseNamePrefix: false
 
+bp-configurator:
+  enabled: true
+  name: bp-configurator-mv3dt
+  image:
+    repository: nvcr.io/nvstaging/vss-core/vss-configurator
+    tag: "3.2-2026.05.04"
+    pullPolicy: IfNotPresent
+  init:
+    enabled: true
+    streamType: kafka
+    kafkaHost: kafka-kafka
+    kafkaPort: "9092"
+    redisHost: redis
+    redisPort: "6379"
+  env:
+    - name: SENSOR_INFO_SOURCE
+      value: nvstreamer
+    - name: ENABLE_PROFILE_CONFIGURATOR
+      value: "true"
+    - name: ENABLE_SENSOR_CONFIGURATOR
+      value: "true"
+    - name: ENABLE_REDIS_DUPLICATOR_THREAD
+      value: "false"
+    - name: CALL_SENSOR_ADD_API
+      value: "true"
+    - name: PROFILE_CONFIG_FILE
+      value: /opt/warehouse/blueprint-configurator/blueprint_config.yml
+    - name: NUM_STREAMS
+      value: "4"
+    - name: MODE
+      value: mv3dt
+    - name: LOG_LEVEL
+      value: INFO
+    - name: NVSTREAMER_STREAMS_ENDPOINT
+      value: http://vss-vios-nvstreamer:31000/api/v1/sensor/streams
+    - name: NVSTREAMER_SENSOR_STATUS_ENDPOINT
+      value: http://vss-vios-nvstreamer:31000/api/v1/sensor/status
+    - name: VST_CAMERA_ADD_ENDPOINT
+      value: http://vss-vios-ingress:30888/vst/api/v1/sensor/add
+    - name: CALIBRATION_MODE
+      value: mount
+    - name: CALIBRATION_DIR_MOUNT_PATH
+      value: /opt/data
+    - name: CALIBRATION_FILE_NAME
+      value: calibration.json
+    - name: PORT
+      value: "5001"
+    - name: DS_CONFIG_DIR
+      value: /opt/warehouse/deepstream/configs
+    - name: NVSTREAMER_CONFIG_DIR
+      value: /opt/warehouse/nvstreamer/configs
+    - name: MESSAGE_BROKER_TYPE
+      value: kafka
+    - name: WDM_REDIS_HOST
+      value: redis
+    - name: WDM_REDIS_PORT
+      value: "6379"
+    - name: WDM_REDIS_STREAM_NAME
+      value: vst.event
+    - name: WDM_REDIS_MSG_KEY
+      value: sensor.id
+    - name: WDM_KFK_MSG_KEY
+      value: vst.event
+    - name: WDM_KFK_BOOTSTRAP_URL
+      value: kafka-kafka:9092
+    - name: WDM_KFK_TOPIC
+      value: mdx-notification
+    - name: WDM_WL_ID_FIELD
+      value: camera_id
+    - name: WDM_WL_EVENT_FIELD
+      value: event
+    - name: RECOMPUTE_BEV_CENTERS_ENABLED
+      value: "true"
+    - name: CHECK_SENSOR_IN_CALIBRATION_FILE
+      value: "true"
+    - name: SEND_CONFIG_TO_SDR
+      value: "true"
+    - name: ENABLE_CALIBRATION_PROCESS
+      value: "true"
+
+calibration-import:
+  name: import-calibration-output-mv3dt
+  existingClaim: ""
+  apiUrl: http://vss-video-analytics-api:8081
+  mountPath: /opt/vss
+
 warehouse:
   mode: mv3dt
-  bpConfigurator:
-    enabled: true
-    name: bp-configurator-mv3dt
-    image:
-      repository: nvcr.io/nvstaging/vss-core/vss-configurator
-      tag: "3.2-2026.05.04"
-      pullPolicy: IfNotPresent
-    init:
-      enabled: true
-      streamType: kafka
-      kafkaHost: kafka-kafka
-      kafkaPort: "9092"
-      redisHost: redis
-      redisPort: "6379"
-    env:
-      - name: SENSOR_INFO_SOURCE
-        value: nvstreamer
-      - name: ENABLE_PROFILE_CONFIGURATOR
-        value: "true"
-      - name: ENABLE_SENSOR_CONFIGURATOR
-        value: "true"
-      - name: ENABLE_REDIS_DUPLICATOR_THREAD
-        value: "false"
-      - name: CALL_SENSOR_ADD_API
-        value: "true"
-      - name: PROFILE_CONFIG_FILE
-        value: /opt/warehouse/blueprint-configurator/blueprint_config.yml
-      - name: NUM_STREAMS
-        value: "4"
-      - name: MODE
-        value: mv3dt
-      - name: LOG_LEVEL
-        value: INFO
-      - name: NVSTREAMER_STREAMS_ENDPOINT
-        value: http://vss-vios-nvstreamer:31000/api/v1/sensor/streams
-      - name: NVSTREAMER_SENSOR_STATUS_ENDPOINT
-        value: http://vss-vios-nvstreamer:31000/api/v1/sensor/status
-      - name: VST_CAMERA_ADD_ENDPOINT
-        value: http://vss-vios-ingress:30888/vst/api/v1/sensor/add
-      - name: CALIBRATION_MODE
-        value: mount
-      - name: CALIBRATION_DIR_MOUNT_PATH
-        value: /opt/data
-      - name: CALIBRATION_FILE_NAME
-        value: calibration.json
-      - name: PORT
-        value: "5001"
-      - name: DS_CONFIG_DIR
-        value: /opt/warehouse/deepstream/configs
-      - name: NVSTREAMER_CONFIG_DIR
-        value: /opt/warehouse/nvstreamer/configs
-      - name: MESSAGE_BROKER_TYPE
-        value: kafka
-      - name: WDM_REDIS_HOST
-        value: redis
-      - name: WDM_REDIS_PORT
-        value: "6379"
-      - name: WDM_REDIS_STREAM_NAME
-        value: vst.event
-      - name: WDM_REDIS_MSG_KEY
-        value: sensor.id
-      - name: WDM_KFK_MSG_KEY
-        value: vst.event
-      - name: WDM_KFK_BOOTSTRAP_URL
-        value: kafka-kafka:9092
-      - name: WDM_KFK_TOPIC
-        value: mdx-notification
-      - name: WDM_WL_ID_FIELD
-        value: camera_id
-      - name: WDM_WL_EVENT_FIELD
-        value: event
-      - name: RECOMPUTE_BEV_CENTERS_ENABLED
-        value: "true"
-      - name: CHECK_SENSOR_IN_CALIBRATION_FILE
-        value: "true"
-      - name: SEND_CONFIG_TO_SDR
-        value: "true"
-      - name: ENABLE_CALIBRATION_PROCESS
-        value: "true"
-  calibrationImport:
-    enabled: false
-    name: import-calibration-output-mv3dt
-    existingClaim: ""
-    apiUrl: http://vss-video-analytics-api:8081
-    mountPath: /opt/vss
   behaviorAnalytics:
     calibrationFile: files/behavior-analytics/calibration.json
 
