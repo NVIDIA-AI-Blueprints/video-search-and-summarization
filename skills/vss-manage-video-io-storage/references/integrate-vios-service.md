@@ -86,20 +86,35 @@ component_services:
   - key: vst-ingress
     file: services/vios/foundational/docker-compose.yaml
     role: Public REST gateway for /sensor, /storage, /record, /replay, /live, /proxy.
-  # SDRC controller — required, single variant. Combined WDM controller + Envoy router;
-  # replaces the legacy sdr-streamprocessing + envoy-streamprocessing pair (deprecated
-  # in 3.2, source tree slated for removal). Co-deploys with its five one-shot init
-  # containers (init-dirs, render-config, wdm-env-from-config, wait-for-redis,
-  # wait-for-docker-workloads) from the same docker-compose.yaml — Step 6.5 must add
-  # the invented profile flag to every service in that file, not just sdr-controller.
-  # Step 6.5 must ALSO materialize a
-  # config.yml.tmpl + docker_cluster_config-streamprocessing.json.tmpl pair under the
-  # build-output's SDR_CONTROLLER_CONFIG_PATH/configs (model after
-  # developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/ — single-workload form);
-  # render-config substitutes ${HOST_IP} / ${NUM_STREAMS} / ${NUM_SENSORS} in place.
+  # SDRC stack — required, single variant. Combined WDM controller + Envoy router
+  # (sdr-controller) plus 5 one-shot init containers from the same docker-compose.yaml.
+  # Replaces the legacy sdr-streamprocessing + envoy-streamprocessing pair (deprecated
+  # in 3.2, source tree slated for removal). All 6 services are enumerated below so
+  # Step 6.5 Patch 1 adds the invented profile flag to each. The render-config init
+  # container additionally requires the build-output to materialize config.yml.tmpl
+  # + docker_cluster_config-streamprocessing.json.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs
+  # (model: developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/ — single-workload
+  # form); see SKILL.md § Step 6.5 Patch 3 > "SDRC config templates" for the
+  # materialization directive (templates are not compose services, so they are not in
+  # component_services — but they are a hard requirement for the SDRC chain to boot).
+  - key: init-dirs
+    file: services/infra/sdrc/docker-compose.yaml
+    role: One-shot — chmod 0777 ./log + ./.wdm-env so the host user can clean up later. Strict prereq for sdr-controller.
+  - key: render-config
+    file: services/infra/sdrc/docker-compose.yaml
+    role: One-shot — renders every *.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs in place, substituting ${HOST_IP} / ${NUM_STREAMS} / ${NUM_SENSORS}. Strict prereq for sdr-controller.
+  - key: wdm-env-from-config
+    file: services/infra/sdrc/docker-compose.yaml
+    role: One-shot — writes ./.wdm-env from the rendered config.yml. Gates downstream peer consumers (wait-for-redis / wait-for-docker-workloads); NOT consumed by sdr-controller.
+  - key: wait-for-redis
+    file: services/infra/sdrc/docker-compose.yaml
+    role: One-shot — blocks until Redis is up on WDM_WL_REDIS_SERVER:WDM_WL_REDIS_PORT. Gates downstream peer consumers; NOT consumed by sdr-controller.
+  - key: wait-for-docker-workloads
+    file: services/infra/sdrc/docker-compose.yaml
+    role: One-shot — blocks until the docker workloads listed in config.yml exist. Gates downstream peer consumers; NOT consumed by sdr-controller.
   - key: sdr-controller
     file: services/infra/sdrc/docker-compose.yaml
-    role: WDM controller + Envoy router; advertises streamprocessing-ms on the rendered Envoy listener (WDM_MS_LISTENER_PORT, default 10000) so vss-vios-sensor's STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:10000 contract is honored. Requires the build-output to materialize the SDRC config templates per the comment above — there is no separate component_services entry for templates because they aren't a compose service.
+    role: WDM controller + Envoy router; advertises streamprocessing-ms on the rendered Envoy listener (WDM_MS_LISTENER_PORT, default 10000) so vss-vios-sensor's STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:10000 contract is honored.
   # Sensor microservice — sibling-variant branching by sensor topology
   - variants:
       key: sensor_topology
@@ -158,7 +173,7 @@ component_services:
   - `GET /sensor/list` — list all sensors (returns array with `sensorId`, `name`, `state`, `sensorIp`, `hardwareId`, `tags`, `type`, `isTimelinePresent`, `isRemoteSensor`)
   - `GET /sensor/{sensorId}/info` — hardware metadata
   - `GET /sensor/{sensorId}/status` and `/sensor/status` — sensor state + error info (`state: online` after VIOS validates the upstream RTSP connection)
-  - `GET /sensor/{sensorId}/streams` — returns `streamId`, `url` (live RTSP proxy), `vodUrl` (recorded-replay RTSP), codec, framerate, resolution per stream. After `sdr-controller` (SDRC) registers the stream, the VIOS Kafka `camera_streaming` event also carries `camera_url=rtsp://<host>:30554/live/<id>` and `camera_vod_url=rtsp://<host>:30564/vod/<id>`.
+  - `GET /sensor/{sensorId}/streams` — returns `streamId`, `url` (live RTSP proxy), `vodUrl` (recorded-replay RTSP), codec, framerate, resolution per stream. After `sdr-controller` (SDRC) registers the stream, the VIOS Kafka `camera_streaming` event also carries `camera_url=rtsp://<host>:30554/live/<id>` and `camera_vod_url=rtsp://<host>:30564/vod/<id>`. **Post-upload / post-add race (Finding 11, 2026-05-26):** the first call to this endpoint immediately after `POST /sensor/add` or `PUT /storage/file/...` can return an empty response body (not even `[]`) because sensor registration and stream-metadata creation race inside `vss-vios-sensor`. Clients must retry with backoff — typical resolution within 1–3 retries (~200–500 ms total). Once any retry returns a JSON array, subsequent calls are stable.
   - `POST /record/{streamId}/start`, `POST /record/{streamId}/stop` — explicit recording control (recording is registered automatically on sensor-add but is in state `0` until /start is called or schedule kicks in)
   - `DELETE /sensor/{sensorId}` — remove sensor
   Source: `references/api-reference.md` § 1–2 + `met-blueprint-docs/vst-sensor-management-api.rst` + verified live 2026-05-23.

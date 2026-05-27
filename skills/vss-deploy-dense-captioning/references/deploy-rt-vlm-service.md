@@ -33,6 +33,12 @@ live-authoritative schema — see §16.
   (`docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` must succeed)
 - **Git LFS** (HF-backed models)
 - **≥ 50 GB disk** for image + 20–80 GB for model weights on first run
+- **CPU**: ≥ 8 cores recommended. The vLLM scheduler, RTSP decoder, and FastAPI server all need CPU headroom.
+- **RAM**: ≥ 32 GB. Model weights live in VRAM but vLLM keeps significant CPU-side state for batch + scheduler.
+- **Container resource requirements (set in the upstream compose, do NOT override):**
+  - `shm_size: '16gb'` — required for vLLM IPC. Source: `real-time-vlm.rst` § Sample docker-compose.yml line 278.
+  - `ulimits: { memlock: { soft: -1, hard: -1 }, stack: 67108864 }` — required for vLLM page-locked allocations. Source: lines 378–382.
+  - `ipc: host` — required so vLLM shared-memory IPC reaches the host kernel SHM segment. Source: line 383.
 - **Kafka on host** reachable at `${HOST_IP}:9092` (compose does NOT bundle Kafka)
 - **Sibling NIM compose** providing the VLM backend: rtvi-vlm `depends_on`
   `cosmos-reason1-7b` / `cosmos-reason2-8b` / `qwen3-vl-8b-instruct`, all
@@ -244,6 +250,12 @@ NGC_CLI_API_KEY=<ngc-key>
 locally-served vLLM-compatible model. Reference:
 https://docs.nvidia.com/vss/latest/real-time-vlm.html#hugging-face-models-locally
 
+**VRAM scaling note:** the 8B Cosmos Reason models (Options C) need ~16–20 GB
+VRAM. The **30B Qwen3-VL** (validated below) needs significantly more — **≥ 48 GB
+VRAM recommended, often multi-GPU** via `VSS_NUM_GPUS_PER_VLM_PROC` /
+`NUM_GPUS` for tensor-parallel vLLM. Plan GPU allocation accordingly when
+selecting this option.
+
 ```bash
 # .env — authenticate via HF_TOKEN env var:
 RTVI_VLM_MODEL_TO_USE=vllm-compatible
@@ -396,9 +408,13 @@ sudo --preserve-env=NGC_CLI_API_KEY \
 # 6. Wait for healthy — start_period is 1200s (20 MIN) on first boot.
 #    Model weight download + vLLM warmup can take the full window.
 #    Do NOT kill as "stuck" before 20 minutes have elapsed.
+#
+#    Warm-cache restart (rtvi-hf-cache + rtvi-ngc-model-cache preserved across
+#    `down` without -v) completes in ~55 seconds. IN-1 reference reruns
+#    logged 54s and 56s in this window.
 until [ "$(sudo docker compose -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
   | jq -r '[.[].Health] | all(. == "healthy")')" = "true" ]; do
-  echo "waiting for rtvi-vlm… (up to 20 minutes on first run)"
+  echo "waiting for rtvi-vlm… (~55s warm-cache, up to 20 minutes on first run)"
   sleep 15
 done
 
