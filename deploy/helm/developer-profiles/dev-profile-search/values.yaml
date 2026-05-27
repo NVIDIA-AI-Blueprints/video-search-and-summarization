@@ -604,11 +604,6 @@ vss-agent-ui:
       value: "false"
     - name: NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED
       value: "false"
-    - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON
-      # TODO: This is used by the Video Management Tab. Change to have its own env var.
-      value: '{"fields":[{"field-name":"embedding","field-type":"boolean","field-default-value":true,"changeable":false,"tooltip-info":""}]}'
-    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON
-      value: '{"fields":[{"field-name":"embedding","field-type":"boolean","field-default-value":true,"changeable":false,"tooltip-info":""}]}'
     - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE
       value: "true"
     - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE
