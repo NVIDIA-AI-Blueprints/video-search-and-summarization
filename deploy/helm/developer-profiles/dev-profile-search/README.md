@@ -231,8 +231,6 @@ helm upgrade --install vss-search ./dev-profile-search \
   --wait=false
 ```
 
-
-
 ### Option B: Deploy with Local NIMs
 
 Runs all LLM/VLM NIMs on-cluster via the NIM Operator. Requires additional GPUs for Nemotron and Cosmos (unless `ENABLE_CRITIC` is `false`). See [GPU Requirements](#with-local-nims-option-b).
@@ -283,7 +281,6 @@ This single chart deploys all application components:
 ### Disabling the Critic Agent
 
 The critic agent (VLM-based verification of search results) is **enabled by default**. With NVIDIA Build Endpoint (Option A), it uses the hosted VLM endpoint and local Cosmos NIM is not deployed. With Local NIMs (Option B), its backing **Cosmos Reason2 8B** NIM is enabled by default.
-
 For NVIDIA Build Endpoint or another remote VLM endpoint, disable critic verification with:
 
 ```bash
