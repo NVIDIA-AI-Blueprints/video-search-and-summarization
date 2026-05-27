@@ -275,8 +275,6 @@ services:
       NETWORK_HEIGHT: 540
       HARDWARE_PROFILE: $HARDWARE_PROFILE
     depends_on:
-      # sdr-streamprocessing:
-      #   condition: service_started
       sdr-controller:
         condition: service_started
       sensor-ms-3d:
