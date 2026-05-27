@@ -5,11 +5,11 @@ description: >
   Use this skill when the user asks for a new VSS profile or extension to an existing
   one (e.g. "create a profile for streaming dense captioning", "add agentic search to
   my base deployment", "integrate my third-party camera system with VSS"). The skill
-  reads per-microservice reference files (`integrate-<microservice>.md`,
-  `deploy-<microservice>.md`) as ground truth, invents a unique compose-profile flag
+  reads per-microservice reference files (`integrate-{microservice}.md`,
+  `deploy-{microservice}.md`) as ground truth, invents a unique compose-profile flag
   per generation, patches local copies of the relevant upstream service composes
   (never upstream itself), and outputs a validated, self-contained Docker Compose
-  deployment under `_builds/<build-name>/` (at the repository root) along with a
+  deployment under `_builds/{build-name}/` (at the repository root) along with a
   generated per-deployment deploy skill.
 license: Apache-2.0
 metadata:
@@ -95,43 +95,15 @@ After resolving, record `<BUILD_DIR>` in the in-session context. Every subsequen
 
 #### Enumerate ALL `.env` files in the source repo
 
-VSS spreads its environment configuration across **multiple `.env` files** by concern. A skill that only reads the per-profile `dev-profile-*/.env` will miss component-internal variables and produce a `.env` that fails dry-run with errors like `invalid spec: :/home/vst/vst_release/streamer_videos: empty section between colons` (caused by an unset `${CLIP_STORAGE_PATH}` collapsing the host portion of a volume mount).
+VSS spreads its environment configuration across **multiple `.env` files** by concern. A skill that reads only the per-profile `dev-profile-*/.env` will miss component-internal variables and fail dry-run with errors like `invalid spec: :/home/vst/vst_release/streamer_videos: empty section between colons` (caused by an unset `${CLIP_STORAGE_PATH}` collapsing the host portion of a volume mount).
 
-Run a recursive `.env` discovery against the source repo and record every file found:
+Run a recursive `.env` discovery against the source repo:
 
 ```bash
 find <repo>/deploy -type f -name '.env' -not -path '*/_builds/*' -not -path '*/build-output/*' | sort
 ```
 
-For the current upstream, the canonical set is **10 core `.env` files** (4 developer profiles, 1 industry profile, 5 service-internal) plus a NIM hardware-tier set selected per host architecture (see below the table):
-
-| File | Owns variables for |
-|---|---|
-| `deploy/docker/developer-profiles/dev-profile-base/.env` | base profile (deployment shape, hardware, NIM placement, paths) |
-| `deploy/docker/developer-profiles/dev-profile-lvs/.env` | LVS profile additions (`VLM_PORT`, `LVS_IMAGE`, `LVS_BACKEND_URL`, etc.) |
-| `deploy/docker/developer-profiles/dev-profile-search/.env` | search profile additions (Kafka + ELK on, embedding service, video-analytics, etc.) |
-| `deploy/docker/developer-profiles/dev-profile-alerts/.env` | alerts profile additions (alert verification, vlm-as-verifier, behavior analytics) |
-| `deploy/docker/services/vios/vst.env` | **VIOS-internal vars** — `CLIP_STORAGE_PATH`, `VST_TEMP_FILES_PATH`, `SDR_IMAGE`, `ENVOY_PROXY_IMAGE`, `VST_STREAM_PROCESSOR_IMAGE`, `KAFKA_BOOTSTRAP_URL`, `REDIS_HOSTADDR`, `REDIS_PORT`, `REDIS_MSG_KEY`, `STREAM_PROCESSOR_HTTP_PORT`, `RTSP_SERVER_PORT`, `SENSOR_MODULE_ENDPOINT`, `VST_INGRESS_ENDPOINT`, `VST_INSTALL_ADDITIONAL_PACKAGES`, `MCP_GATEWAY_*` (the canonical image names live here too — `vss-vios-sensor`, not the historical `vss-vst-*`) |
-| `deploy/docker/services/vios/compose-defaults.env` | Compose defaults — empty/placeholder values for variables referenced across all composes included by `deploy/docker/compose.yml`, suppressing `docker compose` warnings when a profile does not use a particular service. Override per-variable in the active profile `.env`. |
-| `deploy/docker/services/video-summarization/.env` | LVS-component-internal vars (LVS image tag, backend port wiring) |
-| `deploy/docker/services/rtvi/rtvi-vlm/.env` | RT-VLM-component-internal defaults |
-| `deploy/docker/services/rtvi/rtvi-embed/.env` | RT-Embedding-component-internal defaults |
-| `deploy/docker/industry-profiles/warehouse-operations/.env` | Industry-profile variant — `warehouse-operations` stack additions and overrides (separate from the developer-profile category) |
-
-
-#### NIM hardware-tier `.env` files (new structural category)
-
-Beyond the 10 core files above, the NIM service tree carries a **per-hardware-tier `.env` set**: one file per (model × hardware) combination, plus `-shared` variants for shared-GPU mode. Selection is by `HW_PROFILE` (set in `dev-profile-base/.env` or equivalent), not by enumeration.
-
-Layout: `deploy/docker/services/nim/<model>/hw-<HW_PROFILE>.env` (standalone) and `hw-<HW_PROFILE>-shared.env` (shared-GPU). Plus `deploy/docker/services/nim/fallback-override.env` for cross-model overrides.
-
-Models present upstream (as of this writing): `cosmos-reason1-7b`, `cosmos-reason2-8b`, `qwen3-vl-8b-instruct`, `gpt-oss-20b`, `llama-3.3-nemotron-super-49b-v1.5`, `nemotron-3-nano`, `nvidia-nemotron-nano-9b-v2`, `nvidia-nemotron-nano-9b-v2-fp8`.
-
-Hardware tiers: `H100`, `RTXPRO6000BW`, `L40S`, `DGX-SPARK`, `AGX-THOR`, `IGX-THOR`, `OTHER` (not every model has every tier — `cosmos-reason1-7b` skips DGX-SPARK / Thor tiers, etc.).
-
-**Step 0 must determine `HW_PROFILE` first**, then pick the matching NIM env file(s) for every NIM model the profile uses. Do not blindly fold all hardware-tier files into one `.env` — they contain mutually-exclusive `MODEL_PROFILE` / `LIMITS_*` values per tier and would clobber each other.
-
-When generating the output `.env` in Step 6, **fold in every variable referenced by any selected service's compose** — even if it lives outside the per-profile `.env`. Cross-reference each candidate's `integrate-<microservice>.md` § Environment Variables for the authoritative per-service list, and walk the actual compose YAML for `${VAR}` substitutions to catch any the reference file missed.
+The canonical set is **10 core `.env` files** (4 developer profiles, 1 industry profile, 5 service-internal) plus a NIM hardware-tier set selected by `HW_PROFILE`. Read the full enumeration, per-file ownership table, NIM hardware-tier layout, and the variable-folding rule for Step 6 in `references/env-file-enumeration.md`.
 
 If any of the following is unclear and the answer materially changes the architecture, **stop and ask** before proceeding:
 
@@ -198,67 +170,9 @@ Present a structured proposal to the user before generating any output. Required
 
 #### Architecture diagram (Mermaid)
 
-Render the proposal as a Mermaid `flowchart LR` (left-to-right) so the user can SEE the wiring, not just read it. Mermaid is text-based, displays inline in any Markdown renderer (Claude Code, GitHub, IDE extensions), and persists losslessly in `<BUILD_DIR>/MANIFEST.md` (Step 6 must embed the same diagram there for permanent reference).
+Render the proposal as a Mermaid `flowchart LR` (left-to-right) so the user can SEE the wiring, not just read it. Mermaid is text-based, displays inline in any Markdown renderer, and persists losslessly in `<BUILD_DIR>/MANIFEST.md`.
 
-The diagram MUST include:
-
-- **One node per allow-listed service**, labeled with `<service-key><br/>:<port>` where the service exposes a host port. Group services into `subgraph` blocks by logical layer (ingestion / inference / storage / search / infra) AND annotate each subgraph with its network mode (`network_mode: host` vs. bridge) and any GPU assignment (`GPU 0`, `GPU 1`, `local_shared`).
-- **One edge per connection** declared in the integrate refs' `§ Integration Interfaces`. Label each edge with the protocol + port/topic:
-  - REST calls: `POST /vst/api/v1/sensor/add` etc.
-  - Kafka: `mdx-vlm-captions (nv.VisionLLM proto)` (topic + schema)
-  - Shared bind mounts: dashed edge labeled `shared host vol<br/>clip_storage`
-  - RTSP / live media: `RTSP :30554 live` / `RTSP :30564 vod`
-  - Direction: producer → consumer
-- **External actors** (operator, external RTSP camera, sample RTSP source) as top-level nodes outside any subgraph, with edges INTO the deployment showing how data / requests enter.
-- **Deployment shape** in the diagram title or a top-level comment (e.g. `%% deployment_shape: streaming-and-uploaded-dense-captioning`).
-
-Canonical IN-1 example (use as a template for the shape; swap services/labels per the actual allow-list):
-
-```mermaid
-flowchart LR
-  %% deployment_shape: streaming-and-uploaded-dense-captioning
-  %% flag: bp_developer_in_1
-
-  operator(["operator"])
-  rtsp_src(["external RTSP source<br/>(camera | mediamtx + ffmpeg)"])
-
-  subgraph vios["VIOS — ingestion + storage<br/>(network_mode: host)"]
-    cdb[(centralizedb<br/>postgres)]
-    ing[vst-ingress<br/>:30888]
-    sen[sensor-ms<br/>:30000]
-    sp[streamprocessing-ms<br/>:30001 :30554 :30564]
-    sdrc[sdr-controller<br/>+ 5 inits<br/>:10000 :5003]
-  end
-
-  subgraph rtvlm["RT-VLM — inference<br/>(bridge, GPU 0)"]
-    vlm[rtvi-vlm<br/>:8018]
-  end
-
-  subgraph elk["ELK + Kafka — caption pipeline<br/>(bridge)"]
-    k[kafka<br/>:9092]
-    log[logstash]
-    es[elasticsearch<br/>:9200]
-    kib[kibana<br/>:5601]
-    redis[(redis<br/>:6379)]
-    phx[phoenix]
-    bhc[/broker-health-check/]
-  end
-
-  operator -->|"PUT /storage/file/<name>?timestamp<br/>POST /sensor/add"| ing
-  rtsp_src -->|"RTSP push"| sen
-  ing --> sen
-  sen -->|"localhost:10000"| sdrc
-  sdrc --> sp
-  sp -.->|"shared host vol<br/>clip_storage"| vlm
-  sp -->|"RTSP :30554 live"| vlm
-  vlm -->|"Kafka<br/>mdx-vlm-captions<br/>(nv.VisionLLM proto)"| k
-  k --> log
-  log -->|"via-ctx-rag schema<br/>default_&lt;collection_id&gt;"| es
-  es --> kib
-  bhc -.-> k
-```
-
-If the diagram exceeds ~30 nodes (combined profiles with many microservices), split it into two diagrams — one per logical sub-system (e.g. "ingestion + storage" and "inference + indexing") — and reference both from the proposal text.
+Required content (one node per allow-listed service grouped by logical layer; one labeled edge per connection from the integrate refs' `§ Integration Interfaces`; external actors as top-level nodes; deployment shape in a comment), the canonical IN-1 example to use as a template, and the multi-diagram split rule (>~30 nodes) are spelled out in `references/architecture-diagram-template.md`.
 
 Step 6 MUST embed this same diagram verbatim in `<BUILD_DIR>/MANIFEST.md § Architecture` so the operator (and any future regeneration / re-deploy) has a permanent record. Do NOT regenerate the diagram in Step 6 — copy the Step 4 output verbatim.
 
@@ -280,67 +194,9 @@ Wait for confirmation before continuing. The only exception is **autonomous mode
 
 Once the user confirms the architecture, synthesize a flat allow-list of upstream compose service-keys by **unioning the `component_services:` blocks** of every microservice in the proposal, **resolving each `variants:` block against the user's chosen `deployment_shape`**, and dropping any entry whose `required: false` is excluded by the architecture (e.g. an optional MQTT broker that the user opted out of).
 
-Write the result to `build-output/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time.
+Write the result to `<BUILD_DIR>/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time. Persist the sidecar before invoking Step 6, which expects the flag chosen here to be reused.
 
-Sidecar schema (defined in `references/component-services-schema.md`):
-
-```yaml
-# build-output/allow-list.yml — generated by Step 4
-flag: bp_developer_in_1                              # invented per-generation in Step 6
-deployment_shape: streaming-and-uploaded-dense-captioning
-services:
-  - key: elasticsearch
-    file: services/infra/compose.yml
-  - key: elasticsearch-init-container
-    file: services/infra/compose.yml
-  - key: kafka
-    file: services/infra/compose.yml
-  - key: kafka-topic-init-container
-    file: services/infra/compose.yml
-  - key: redis
-    file: services/infra/compose.yml
-  - key: kibana
-    file: services/infra/compose.yml
-  - key: logstash
-    file: services/infra/compose.yml
-  - key: broker-health-check
-    file: services/infra/compose.yml
-  - key: phoenix
-    file: services/infra/compose.yml
-  - key: centralizedb
-    file: services/vios/foundational/docker-compose.yaml
-  - key: vst-ingress
-    file: services/vios/foundational/docker-compose.yaml
-  - key: sensor-ms                                   # variant-resolved from sensor_topology=rtsp-and-uploaded
-    file: services/vios/initiator/docker-compose.yaml
-  - key: streamprocessing-ms                         # variant-resolved from sensor_topology=rtsp-and-uploaded
-    file: services/vios/sdr/streamprocessing/docker-compose.yaml
-  # SDRC stack (replaces legacy sdr-streamprocessing + envoy-streamprocessing)
-  - key: init-dirs
-    file: services/infra/sdrc/docker-compose.yaml
-  - key: render-config
-    file: services/infra/sdrc/docker-compose.yaml
-  - key: wdm-env-from-config
-    file: services/infra/sdrc/docker-compose.yaml
-  - key: wait-for-redis
-    file: services/infra/sdrc/docker-compose.yaml
-  - key: wait-for-docker-workloads
-    file: services/infra/sdrc/docker-compose.yaml
-  - key: sdr-controller
-    file: services/infra/sdrc/docker-compose.yaml
-  - key: rtvi-vlm
-    file: services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
-```
-
-**Union rules.**
-
-- Every top-level (non-`variants:`) entry in every confirmed microservice's `component_services:` block is contributed, unless its `required: false` is excluded by the architecture proposal.
-- For each `variants:` block, exactly one `cases:` entry is contributed — the case-name matching the chosen `deployment_shape` for that variant's selector key. If no case matches, the synthesizer errors and reports the variant + the chosen shape.
-- If two microservices both contribute the same `(key, file)` pair, the entry is deduplicated to one row.
-- If two microservices contribute the same `key` with **different** `file:` paths, that is a catalog inconsistency — error and stop.
-- `container_name` collisions are impossible by construction as long as each `variants:` block resolves to at most one service-key per `container_name`. The synthesizer does NOT need a separate dedup pass.
-
-Persist the sidecar before invoking Step 6 (which expects the flag chosen here to be reused).
+The sidecar schema, a worked IN-1 example, and the union rules (per-microservice contribution; variant case selection; dedup of identical `(key, file)` pairs; catalog-inconsistency error on conflicting `file:` paths) live in `references/allow-list-sidecar.md`. The full schema for `component_services:` blocks is in `references/component-services-schema.md`.
 
 ### Step 5 — Read `deploy-<microservice>.md` for Each Selected Service
 
@@ -417,154 +273,16 @@ build-output/
 
 ### Step 6.5 — Apply Standalone-Compose Patches
 
-The build-output deploys a unique, never-before-seen profile generated by the skill. To make that work against the upstream's existing compose tree **without modifying upstream files**, the skill copies the involved upstream service composes into `build-output/patched/` and applies two patches to each copy.
+The build-output deploys a unique, never-before-seen profile generated by the skill. To make that work against the upstream's existing compose tree **without modifying upstream files**, the skill copies the involved upstream service composes into `<BUILD_DIR>/patched/` and applies four patches:
 
-#### Pre-flight host preparation (Patch 0, applied at deploy time)
+- **Patch 0** — pre-flight host preparation (run at deploy time): validate `.env` secrets, create bind-mount dirs with permissions, clear conflicting named volumes, kill orphan containers from prior generations, NGC login, profile-flag collision check.
+- **Patch 1** — insert the invented gating flag into the `profiles:` list of every `(key, file)` pair in `<BUILD_DIR>/allow-list.yml`. Additive (preserves upstream flags); each sidecar entry is patched at exactly one site. Handles both inline and block-style `profiles:` lists.
+- **Patch 2** — strip undefined `depends_on` entries. Compose ≥ v2.36 rejects standalone projects with unresolvable `depends_on` even when `required: false`. For each allow-listed service, walk its `depends_on:` — keep defined peers, strip undefined peers with `required: false`, error on undefined peers without `required: false` (allow-list/upstream inconsistency).
+- **Patch 3** — materialize relative-path bind-mount source files. The patched tree under `<BUILD_DIR>/patched/` contains only the patched YAML; Docker would silently create empty directories for `./envoy.yaml`, `./sdr-config`, etc., causing obscure container exits. Walk every patched compose's `volumes:` and `cp -r` upstream sources into the patched copy. Sub-case: SDRC config templates (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`) are env-var-resolved (not relative), so handle them explicitly when `sdr-controller` is in the allow-list.
 
-Before `docker compose up -d` is invoked, the generated deploy skill must run a pre-flight that addresses these gaps surfaced by live deployment on VSS 3.2:
+The full Patch 0 pre-flight checklist, the Patch 1 / Patch 2 / Patch 3 pseudocode and rationale, the "why an allow-list, not patch-then-exclude" architectural note, the VIOS + SDRC mandatory-stack note, and the per-allow-listed-service IN-1 behavior breakdown all live in `references/standalone-compose-patches.md`. Read it before modifying any patch logic — every entry there is grounded in a live deploy failure mode.
 
-- **Validate `.env` secrets are filled.** Refuse to deploy when `NGC_CLI_API_KEY=` or `HF_TOKEN=` are still empty/template placeholders. Cite the specific .env line; do not silently proceed (the agent's compose hangs without prompt on auth-required image pulls).
-- **Create host bind-mount directories with permissions.** `mkdir -p` the following (and `chmod -R 777` the parent), or Compose fails to start ES with `failed to mount local volume … no such file or directory`:
-  - `${VSS_DATA_DIR}/data_log/elastic/data`
-  - `${VSS_DATA_DIR}/data_log/elastic/logs`
-  - `${VSS_DATA_DIR}/data_log/kafka`
-  - `${MDX_DATA_DIR}/data_log/vst/clip_storage` (for VIOS / RT-VLM shared video)
-- **Clear conflicting named volumes when driver_opts have drifted.** If `mdx_mdx-elastic-data` / `mdx_mdx-elastic-logs` / `mdx_mdx-kafka` exist with bind paths different from the current `.env`, Compose prompts interactively and unattended deploys hang. Either `docker volume rm` them or pass `--yes` to `docker compose up`. The deploy skill should detect drift and surface the choice to the user before bring-up, not at it.
-- **Clean up orphan containers from prior generations of the same project.** `docker compose down` only stops services in the *current* project graph — containers spawned by an earlier generation whose service set has since changed survive past teardown and continue to hold host ports / `network_mode: host` bindings. Two real failure modes seen 2026-05-26 during the SDRC rebase: (1) a legacy `vss-vios-sdr` container from a pre-rebase generation stayed `Up (healthy)` after teardown because the new IN-1 generation's allow-list no longer contains `sdr-streamprocessing`, so `down` skipped it; (2) `vss-vios-streamprocessing` from a prior generation held host port 10000, conflicting with the new `sdr-controller`'s Envoy listener and causing the new deploy to fail with `bind: address already in use`. Run `docker ps --filter "label=com.docker.compose.project=<project-name>" --format '{{.Names}}\t{{.Image}}\t{{.Status}}'` (or grep by VSS-specific container_name patterns: `vss-vios-*`, `sdr-*`, `sdrc-*`, `envoy-*`, `mdx-*`, `vss-rtvi-*`, `vss-broker-*`, `vss-elasticsearch-*`, `vss-kafka-*`, `mediamtx`, `ffmpeg-push`) before `up -d`. If any are present and are NOT in the current allow-list's expected container_name set, surface the list to the user and offer to `docker rm -f` them. Do not silently proceed — the deploy will fail with cryptic port-conflict errors otherwise.
-- **NGC login to `/root/.docker/config.json`.** `echo "$NGC_CLI_API_KEY" | sudo docker login nvcr.io -u '$oauthtoken' --password-stdin` — write to root's docker config (the agent learned this; `sudo --preserve-env=DOCKER_CONFIG` deadlocks on futex).
-- **Verify the chosen profile flag isn't already in use** by any project on the host (`docker compose ls`). If `mdx` (or whichever project name) is already deployed, surface the conflict; teardown requires explicit user authorization.
-
-#### Patch 1 — Insert the new gating flag (allow-list-driven)
-
-Add the invented flag (chosen in Step 6's compose-profile gating bullet — e.g., `bp_developer_in_1`) to **only the `(key, file)` pairs listed in `build-output/allow-list.yml` under `services:`** (the sidecar generated by Step 4). The flag is **additive** — upstream flags already in each `profiles:` list (`bp_developer_alerts_2d_vlm`, `bp_developer_search_2d`, `bp_wh_*`, etc.) stay. Services NOT in the allow-list keep their upstream `profiles:` list byte-identical to upstream and are naturally excluded when the deploy runs with `--profile bp_developer_<flag>`.
-
-Each sidecar entry is patched at exactly one site, so `PATCHES.md` records `len(sidecar.services)` added flag-sites in total. Note: a single upstream file may contain several allow-listed services (e.g. `services/vios/sdr/streamprocessing/docker-compose.yaml` contributes `streamprocessing-ms`, `sdr-streamprocessing`, and `envoy-streamprocessing` to IN-1 — three sites in one file).
-
-> **Why an allow-list, not "patch every site then exclude"?** The patch-everything-then-exclude model was architecturally wrong: it (a) coupled every generation to whichever upstream flag (`bp_developer_base_2d`) was most-commonly co-listed in the patched files, inheriting services the user did not ask for; (b) required an ever-growing `EXCLUDE_SERVICES` set for sibling services that happened to share a file with a wanted service (e.g. `sensor-bp-wait-bp-configurator` sharing `initiator/docker-compose.yaml` with `sensor-ms`); (c) triggered `container_name` collisions when sibling services upstream share a `container_name` (`vss-vios-sensor` is used by `sensor-ms`, `sensor-ms-2d`, `sensor-ms-3d`, `sensor-ms-mv3dt`); patching all four caused Compose to refuse the project until a dedup pass was added. The allow-list eliminates all three problems by construction — Step 4's variant resolution explicitly picks one sibling-variant per container_name, the wait-container is simply not contributed by any microservice's `component_services:`, and there is no exclude list to grow.
-
-> **VIOS + SDRC stack (mandatory; SDRC rebase 2026-05-26):** VIOS's `component_services:` block declares the SDRC-routed Topology A stack across (a) per-shape sensor-ms + streamprocessing-ms variants resolved by `sensor_topology`, and (b) six top-level SDRC entries that apply to every shape: `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller` (all in `services/infra/sdrc/docker-compose.yaml`). A common bug is to think only `streamprocessing-ms` is needed because its name visibly mentions "streamprocessing" — but `sensor-ms` calls the SDRC-rendered Envoy listener on `localhost:10000` for every sensor-add, and without the full SDRC stack running, `POST /sensor/add` fails with `Invalid Parameters`. The legacy `sdr-streamprocessing` + `envoy-streamprocessing` pair (still in the source tree at `services/vios/sdr/streamprocessing/docker-compose.yaml`) is **gated to a dead profile** in `develop` and must NOT be contributed by any `component_services:` block — adding it back will surface as duplicate-port-10000 conflicts or duplicate Envoy listener errors at deploy time. Do not edit the integrate-vios-service.md component_services block without re-reading § Required Peer Services + § Known Integration Constraints.
-
-Record the chosen flag at the top of `build-output/MANIFEST.md` and use it in every bring-up / tear-down command surfaced to the user.
-
-##### Patch 1 — Implementation reference (works without `yq`)
-
-```python
-# pseudocode
-import yaml
-from pathlib import Path
-
-sidecar = yaml.safe_load(Path("build-output/allow-list.yml").read_text())
-flag = sidecar["flag"]                                       # e.g. "bp_developer_in_1"
-# (key, file) tuples — each entry pinpoints exactly one upstream service in exactly one file
-allow_entries = [(e["key"], e["file"]) for e in sidecar["services"]]
-
-for key, rel_file in allow_entries:
-    patched = Path("build-output/patched") / rel_file
-    # locate the service block; handle both inline and block-style profiles:
-    services = parse_compose_services(patched)   # returns {key: (start_line, end_line)}
-    start, end = services[key]
-    patch_profiles_in_service(patched, start, end, flag)
-```
-
-Both inline (`profiles: [a, b]`) and block-style (`profiles:\n  - a\n  - b`) lists must be handled — upstream uses both freely (e.g., `streamprocessing-ms` is inline; `sensor-ms` is block-style). Insert the new flag preserving the file's existing format.
-
-#### Patch 2 — Strip undefined `depends_on` entries
-
-Recent Docker Compose (≥ v2.36) validates the entire compose project at load time and **rejects `depends_on` references to services that are not defined within the same project**, even when those references carry `required: false`. `--no-deps` does NOT bypass this validation. The full VSS `deploy/docker/compose.yml` works because it `include:`s every sibling compose and therefore every `depends_on` target resolves. A *standalone* compose generated by this skill — one that includes only the subset needed for a focused generation — does not have that property and will fail with errors like:
-
-```
-service "rtvi-vlm" depends on undefined service "cosmos-reason1-7b": invalid compose project
-```
-
-The patch is generalized across **every** allow-listed service (not RT-VLM only), driven by `build-output/allow-list.yml`.
-
-**Detection.** For each `(key, file)` pair under `services:` in `build-output/allow-list.yml`, locate the named service in its patched compose file and:
-
-1. Walk its `depends_on:` block.
-2. For each peer key, look up whether the peer is **defined** (has a `services:` entry) anywhere in the patched compose tree (walk the `include:` graph rooted at `build-output/compose.yml`).
-3. Classify:
-   - **Defined peer (in allow-list or not)** → entry stays. Compose evaluates the dependency against the active project graph at deploy time and skips it cleanly if the peer is not in any active profile.
-   - **Undefined peer with `required: false`** → strip the entry. The upstream author already said "this dependency is optional"; the skill respects that and removes the unresolvable reference.
-   - **Undefined peer WITHOUT `required: false`** → **error and stop**. The allow-list is inconsistent with the upstream compose — the allow-listed service genuinely needs this peer to start, and the operator must reconcile by (a) re-running Step 4 with a different variant choice that contributes the peer, or (b) accepting that the deployment cannot ship. Surface the gap; do not silently strip.
-
-```bash
-# pseudocode
-for compose in build-output/patched/**/*.{yml,yaml} build-output/compose.yml; do
-  scan compose for services: → set of defined service keys
-done
-defined_keys = union across the include graph
-
-for each key in allow-list.yml:
-  locate its block in the patched tree
-  for each entry in its depends_on:
-    if entry.target in defined_keys:
-      keep
-    elif entry.required is False:
-      strip
-    else:
-      raise AllowListInconsistencyError(key, entry.target)
-# (driven entirely by sidecar.services — never re-parses integrate-*.md or the catalog)
-```
-
-For the IN-1 generation, the per-allow-listed-service behavior:
-
-- **rtvi-vlm**: declares `depends_on` on `cosmos-reason1-7b`, `cosmos-reason1-7b-shared-gpu`, `cosmos-reason2-8b`, `cosmos-reason2-8b-shared-gpu`, `qwen3-vl-8b-instruct`, `qwen3-vl-8b-instruct-shared-gpu`, and `broker-health-check` — all with `required: false`. The six NIM peers are undefined in the IN-1 patched tree (the `vlm_backend` variant resolved to `in_process`, so no `nim/...` composes are included) → all six stripped. `broker-health-check` is defined in `services/infra/compose.yml` (contributed by ELK's `always:` list) → entry stays.
-- **sensor-ms**: declares `depends_on` on `centralizedb`, `sensor-bp-wait-bp-configurator (required: false)`, `sdr-streamprocessing (required: false)`, `envoy-streamprocessing (required: false)`, `sdr-controller (required: false)`. In a Topology A / SDRC-routed IN-1, `centralizedb`, `sensor-bp-wait-bp-configurator`, and `sdr-controller` are all defined in the patched include graph → those entries stay. The legacy `sdr-streamprocessing` and `envoy-streamprocessing` services live only in the deprecated `services/vios/sdr/streamprocessing/docker-compose.yaml` (gated to a dead profile in `develop` after the SDRC rebase) and are NOT contributed by the SDRC `component_services:` block, so they are undefined in the allow-listed include graph → both stripped per the `required: false` rule.
-- **sdr-controller**: declares `depends_on` on `broker-health-check (required: false)`, `init-dirs`, `render-config`. `broker-health-check` is contributed by ELK (defined); `init-dirs` and `render-config` are contributed by VIOS's SDRC entries (defined) → no entries stripped.
-- **wdm-env-from-config**, **wait-for-redis**, **wait-for-docker-workloads**: each depends on one or more of `init-dirs` / `render-config` / `wdm-env-from-config` → all defined in the same file → no strips.
-- **vst-ingress**, **streamprocessing-ms**, **centralizedb**, **logstash**, **kibana**, **elasticsearch**, **kafka**, **redis**, **broker-health-check**, **phoenix**, **init-dirs**, **render-config**: all `depends_on` peers (where present) are defined in the include graph → no strips needed.
-
-After applying any strips, **note in `MANIFEST.md`** which `depends_on` entries were stripped from which service in which file, so the operator understands the difference between the patched copy and the upstream original.
-
-#### Patch 3 — Materialize relative-path bind-mount source files
-
-When a patched compose copy declares a bind mount with a **relative source path** (e.g., `./envoy.yaml:/etc/envoy/envoy.yaml`, `./sdr-config:/wdm-configs`, `./configs/kafka:/etc/kafka/configs`), Docker resolves that source against **the directory containing the compose file**. In the patched tree under `build-output/patched/`, that directory is freshly created and contains ONLY the patched YAML — none of the sibling files the upstream tree had. When the operator runs `docker compose up`, Docker tries to bind-mount a non-existent host path and **silently creates it as an empty directory** (owned by root, typically with mode 0755). The container then:
-
-- For a single-file mount (`./envoy.yaml`): the container sees `/etc/envoy/envoy.yaml` as a directory, the application fails to read it as a file, and the container exits with an obscure error (Envoy prints its usage banner; nginx complains about syntax; etc.).
-- For a directory mount (`./sdr-config`): the container sees `/wdm-configs/` as empty, and SDR logs `Cluster config file (/wdm-configs/docker_cluster_config.json) does not exist` before falling into a degraded mode that may or may not crash.
-
-**Fix.** After Patch 1 and Patch 2 are applied, walk every patched compose's `volumes:` list, identify relative-path sources (any path that doesn't start with `/` or `${VAR}/` and doesn't match a named volume), resolve them against the upstream compose's directory, and `cp -r` the source file or directory into the patched compose's directory.
-
-```python
-# pseudocode
-import re, shutil
-from pathlib import Path
-
-for patched in Path("build-output/patched").rglob("*.y*ml"):
-    text = patched.read_text()
-    # Find every volumes: line referencing a relative source
-    for m in re.finditer(r"-\s*([^:\s/${][^:\s]*):/", text):
-        rel = m.group(1)               # e.g., "./envoy.yaml" or "envoy.yaml"
-        upstream_dir = REPO / patched.relative_to("build-output/patched").parent
-        upstream_src = (upstream_dir / rel).resolve()
-        patched_dst  = (patched.parent / rel).resolve()
-        if upstream_src.exists() and not patched_dst.exists():
-            if upstream_src.is_file():
-                patched_dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(upstream_src, patched_dst)
-            else:
-                shutil.copytree(upstream_src, patched_dst)
-            print(f"materialized {rel} from {upstream_src} → {patched_dst}")
-```
-
-The canonical case is the VIOS SDR/Envoy pair: `services/vios/sdr/streamprocessing/docker-compose.yaml` declares `./envoy.yaml:/etc/envoy/envoy.yaml` (a file) and `./sdr-config:/wdm-configs` (a directory containing `docker_cluster_config.json` + `data_wl.yaml`). Both must be copied into `build-output/patched/services/vios/sdr/streamprocessing/` alongside the patched YAML. Without this, the IN-1 (or any Topology A) deployment fails on bring-up. Source: live verification 2026-05-23 with the IN-1 build-output.
-
-##### Patch 3 sub-case — SDRC config templates (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`)
-
-SDRC's `render-config` init container mounts an **env-var-resolved** host directory into `/tmpl` (`${SDR_CONTROLLER_CONFIG_PATH:-"./configs"}/configs:/tmpl`) and iterates `*.tmpl` files inside it, substituting `${HOST_IP}` / `${NUM_STREAMS}` / `${NUM_SENSORS}` in place. The general Patch 3 walk above only catches **relative-path** sources — an env-driven path is not matched. When `sdr-controller` is in the allow-list, the skill must additionally:
-
-1. Resolve a build-output-local `SDR_CONTROLLER_CONFIG_PATH` (default: `<BUILD_DIR>/sdrc/configs`).
-2. Create `<BUILD_DIR>/sdrc/configs/configs/` (note: the SDRC compose mounts `${SDR_CONTROLLER_CONFIG_PATH}/configs` — so the templates live in a *nested* `configs/` directory).
-3. Copy two templates from upstream:
-   - `deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/config.yml.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/config.yml.tmpl`
-   - `deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/docker_cluster_config-streamprocessing.json.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/docker_cluster_config-streamprocessing.json.tmpl`
-4. Write `SDR_CONTROLLER_CONFIG_PATH=<BUILD_DIR>/sdrc/configs` (absolute path) into `<BUILD_DIR>/.env` so the SDRC compose's bind mount resolves correctly.
-
-These templates model the **single-workload SDRC form** (one `streamprocessing-ms` workload — no `rtvi-cv` sibling). They are upstream-byte-identical — do NOT hand-edit; `render-config` substitutes the runtime values from the build-output `.env`.
-
-Without this materialization, `sdrc-render-config` exits with `render-config: no *.tmpl files found in /tmpl`, the whole SDRC chain stalls, `sdr-controller` never boots, and `POST /sensor/add` fails with `InvalidParameterError: Invalid Parameters` because the SDRC-rendered Envoy listener on `localhost:10000` is absent. Source: live verification, IN-1 SDRC rebase 2026-05-26.
-
-Add a row to `PATCHES.md` for every file/directory materialized, citing the upstream source path and the patched destination, so the operator can audit.
+Record the chosen flag at the top of `<BUILD_DIR>/MANIFEST.md`, note every stripped `depends_on` entry in `MANIFEST.md`, and add a row to `PATCHES.md` for every materialized file/directory so the operator can audit.
 
 ### Step 7 — Dry-Run Validation
 
@@ -639,7 +357,13 @@ skills/vss-build-vision-agent/
 ├── references/
 │   ├── integrate-microservice-schema.md               # canonical schema for integrate-<microservice>.md
 │   ├── deploy-microservice-schema.md                  # canonical schema for deploy-<microservice>.md
+│   ├── component-services-schema.md                   # schema for component_services: blocks (always/variants)
 │   ├── microservice-catalog.md                        # index: capability tags → service → reference paths
+│   ├── env-file-enumeration.md                        # Step 0 detail — 10 core .env files + NIM hw-tier set
+│   ├── architecture-diagram-template.md               # Step 4 detail — Mermaid flowchart requirements + IN-1 example
+│   ├── allow-list-sidecar.md                          # Step 4 detail — sidecar schema, IN-1 example, union rules
+│   ├── standalone-compose-patches.md                  # Step 6.5 detail — Patch 0/1/2/3 pseudocode + per-service notes
+│   ├── example-walkthroughs.md                        # concrete streaming-dense-captioning walkthrough (IN-1)
 │   ├── vss-compose-patterns.md                        # (planned) include-based compose, env_overrides, dry-run
 │   ├── vss-helm-patterns.md                           # (planned, post-v1)
 │   ├── shared-infrastructure.md                       # (planned) Kafka / ES / Redis sharing decision tree
@@ -650,33 +374,7 @@ skills/vss-build-vision-agent/
 
 ## IN-1 Walkthrough — Concrete Example
 
-User prompt:
-> "Create a profile for streaming and on-demand video dense captioning. Streamed dense captions should be published to the kafka message bus and stored in elasticsearch."
-
-Skill execution:
-
-1. **Step 0 — Parse**: capability = "streaming + on-demand dense captioning, Kafka + ES storage". No existing deployment, no 3P descriptor. Output target = compose (default). Net-new.
-
-2. **Step 1 — Catalog**: tag-match against `microservice-catalog.md`. Candidates: RT-VLM (`dense-captioning`, `streaming-inference`, `on-demand-inference`), VIOS (`rtsp-ingestion`, `video-upload`), ELK (`caption-storage`, `kafka-ingestion`). All required peers satisfiable from within the candidate set plus `kafka` from the foundational stack.
-
-3. **Step 2 — Read integrate refs**: `integrate-rt-vlm.md`, `integrate-vios-service.md`, `integrate-elk.md`. Note: RT-VLM's `clip_storage` mount must be the same host path as VIOS's `${VST_VIDEO_STORAGE_PATH}`. RT-VLM publishes to `${RTVI_VLM_KAFKA_TOPIC}`. **VSS 3.2 ships with two Logstash pipelines** at `deploy/docker/services/infra/elk/logstash/pipelines/kafka/`: `mdx-logstash.conf` subscribes to `mdx-vlm-incidents` + `mdx-vlm-alerts` (alert path); `mdx-lvs-logstash.conf` subscribes to `mdx-vlm-captions` + `mdx-structured-events-summary` (caption path → indexes via via-ctx-rag schema). **For plain captions to reach ES, the skill must set `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions`** — the raw compose default `vision-llm-messages` and the pre-3.2 legacy `mdx-vlm` are both unsubscribed.
-
-4. **Step 3 — Conflicts**: none for net-new. Note that VIOS uses `network_mode: host` while RT-VLM uses default bridge — wiring crosses through `${HOST_IP}:9092` for Kafka and a shared volume for video.
-
-5. **Step 4 — Proposal**:
-   - Services to add: VIOS (4 containers), RT-VLM (1 container + sibling NIM), ELK (4 containers), Kafka (foundational), Redis (foundational), `broker-health-check`.
-   - Sibling VLM NIM choice: `cosmos-reason2-8b` by default. Confirm or ask.
-   - GPU assignment: RT-VLM on GPU 0; sibling NIM on GPU 0 (`local_shared`) or GPU 1 (`local`). Ask.
-   - Shared ES: single instance (default).
-   - Caption topic: emit `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` (the VSS-3.2 upstream-subscribed topic). Do NOT use the raw compose default `vision-llm-messages` (unsubscribed) or the pre-3.2 `mdx-vlm` (also unsubscribed). Caption docs will land in ES indices named `<collection>_<id>` per the via-ctx-rag schema, not in `mdx-vlm-*` date indices.
-
-6. **Step 5 — Read deploy refs**: `deploy-rt-vlm.md`, `deploy-vios-service.md`, `deploy-elk.md`. Validate host has GPU with ≥ 16 GB VRAM for the cosmos-reason2-8b backend.
-
-7. **Step 6 — Generate**: write `<BUILD_DIR>/compose.yml` plus per-service includes, `.env.template`, `MANIFEST.md`, and `<BUILD_DIR>/allow-list.yml` (the per-generation union from Step 4). Invent a fresh flag (e.g. `bp_developer_in_1`) and record it under `flag:` in `allow-list.yml`; pass it as `--profile <flag>` at deploy time. Step 6.5 will copy the upstream `rtvi-vlm`, VIOS, **SDRC** (`services/infra/sdrc/docker-compose.yaml`), and foundational ELK/Kafka composes into `<BUILD_DIR>/patched/` and add the flag to every service-key in `allow-list.yml`; every other service in those files stays unmodified, and upstream files stay untouched. Patch 3 additionally materializes the SDRC config templates (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`) under `<BUILD_DIR>/sdrc/configs/configs/` (sourced from `developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/`) and sets `SDR_CONTROLLER_CONFIG_PATH=<BUILD_DIR>/sdrc/configs` in the build-output `.env` so the SDRC chain can render. Bundle the `vss-manage-video-io-storage/` and `vss-deploy-dense-captioning/` skills from `<vss-repo>/skills/` into `build-output/skills/` (ELK references already live inside `vss-build-vision-agent/references/`). Scan `<vss-repo>/skills/` for a use-case skill matching "streaming dense captioning" and bundle if present, otherwise skip. Generate `build-output/skills/deploy-<flag-slug>/SKILL.md` with the exact compose path, env path, RT-VLM `1200s` cold-boot window, GPU assignment, healthcheck loop, and bring-up / tear-down commands hardcoded.
-
-8. **Step 7 — Dry-run**: `docker compose --env-file .env.template config > resolved.yml` and confirm no `${...}` remain.
-
-9. **Step 8 — Review and prompt to deploy**: present summary including bundled skills and the generated `deploy-in-1` skill; on confirmation, write to `./build-output/`. Then ask "Deploy this profile now? [y/N]" — on `y`, verify `.env` is filled in and invoke `deploy-in-1`; on `n`, print the bring-up command.
+A worked end-to-end example of the nine-step flow against the **IN-1 streaming + on-demand dense captioning** prompt — including the caption-topic gotcha (`RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions`, since the raw compose default `vision-llm-messages` is unsubscribed by both Logstash pipelines), the GPU-placement and `vlm_backend` decisions surfaced in Step 4, and the SDRC-template materialization done by Step 6.5 / Patch 3 — lives in `references/example-walkthroughs.md`.
 
 ## Operating Principles
 
@@ -708,6 +406,12 @@ rm -rf ./build-output/
 - `references/microservice-catalog.md` — index of all VSS microservices with reference files
 - `references/integrate-microservice-schema.md` — canonical integration-contract schema
 - `references/deploy-microservice-schema.md` — canonical deployment-contract schema
+- `references/component-services-schema.md` — schema for `component_services:` blocks (always/variants)
+- `references/env-file-enumeration.md` — Step 0 `.env` enumeration table + NIM hw-tier layout
+- `references/architecture-diagram-template.md` — Step 4 Mermaid diagram requirements + canonical IN-1 example
+- `references/allow-list-sidecar.md` — Step 4 sidecar schema, IN-1 example, union rules
+- `references/standalone-compose-patches.md` — Step 6.5 Patch 0/1/2/3 pseudocode and per-service IN-1 notes
+- `references/example-walkthroughs.md` — worked end-to-end walkthroughs (currently: IN-1 streaming-dense-captioning)
 - Per-deployment deploy skills are generated by Step 6 at `build-output/skills/deploy-<profile-name>/SKILL.md` — no shared `/deploy` skill exists.
 - VSS docs: <https://docs.nvidia.com/vss/latest/>
 - agentskills.io spec: governs the `name` / `description` / `version` / `license` frontmatter at the top of this file.
