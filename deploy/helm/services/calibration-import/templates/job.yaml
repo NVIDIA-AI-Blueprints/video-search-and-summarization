@@ -62,7 +62,7 @@ spec:
                 sleep "${sleep_seconds}"
               done
               if [ -f "${calibration_file}" ]; then
-                curl -X POST "${api_url}/config/upload-file/calibration" --form configFiles=@"${calibration_file}"
+                curl --fail --show-error -X POST "${api_url}/config/upload-file/calibration" --form configFiles=@"${calibration_file}"
               else
                 echo "Skipping calibration JSON import; ${calibration_file} not found"
               fi
@@ -75,7 +75,7 @@ spec:
                   fi
                 done
                 if [ -n "${form_args}" ]; then
-                  sh -c "curl -X POST ${api_url}/config/calibration/images ${form_args} --form imageMetadata=@${metadata_file}"
+                  sh -c "curl --fail --show-error -X POST ${api_url}/config/calibration/images ${form_args} --form imageMetadata=@${metadata_file}"
                 fi
               else
                 echo "Skipping calibration image import; ${metadata_file} not found"
