@@ -16,7 +16,7 @@
 services:
 
   vss-ui:
-    image: nvcr.io/nvstaging/vss-core/vss-agent-ui:3.2.0-26.05.2-fab1d8616882
+    image: nvcr.io/nvstaging/vss-core/vss-agent-ui:3.2.0-26.05.2-08f9b2c9a17c
     profiles: ["bp_wh_2d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     container_name: vss-agent-ui
     ports:
