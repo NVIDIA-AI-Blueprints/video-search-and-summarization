@@ -20,6 +20,8 @@ interface ToolbarProps {
   isDeleting?: boolean;
   enableAddRtspButton?: boolean;
   enableVideoUpload?: boolean;
+  /** Called when user clicks "Upload Video" — opens the upload dialog directly (bypasses native file picker). */
+  onUploadClick?: () => void;
   /** Only show Video option when API returned at least one video stream */
   hasVideoStreams?: boolean;
   /** Only show RTSP option when API returned at least one RTSP stream */
@@ -41,6 +43,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isDeleting = false,
   enableAddRtspButton = true,
   enableVideoUpload = true,
+  onUploadClick,
   hasVideoStreams = true,
   hasRtspStreams = true,
 }) => {
@@ -155,7 +158,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         />
 
         {enableVideoUpload && (
-          <Button kind="primary" onClick={handleUploadClick}>
+          <Button kind="primary" onClick={onUploadClick ?? handleUploadClick}>
             + Upload Video
           </Button>
         )}

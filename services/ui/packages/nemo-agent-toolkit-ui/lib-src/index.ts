@@ -34,6 +34,13 @@ export {
   type UploadFilesDialogOptions,
   type UploadFileConfigTemplate,
   type UploadFileFieldConfig,
+  UploadProgressPopup,
+  type UploadFileStatus,
+  type UploadProgressFileItem,
+  type UploadProgressPopupProps,
+  UploadSuccessPopup,
+  type UploadResultItem,
+  type UploadSuccessPopupProps,
 } from '@aiqtoolkit-ui/common';
 
 // Chat sidebar (for external rendering)

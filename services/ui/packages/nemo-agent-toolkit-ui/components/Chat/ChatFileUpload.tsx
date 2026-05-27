@@ -2,12 +2,14 @@ import { useRef, useState, useCallback, useContext, useMemo, useEffect, useId } 
 import { flushSync } from 'react-dom';
 
 import toast from 'react-hot-toast';
-import { IconCheck, IconChevronDown, IconCopy, IconX } from '@tabler/icons-react';
 import {
   UploadFilesDialog,
-  copyToClipboard,
+  UploadProgressPopup,
+  UploadSuccessPopup,
   uploadFileChunked,
+  type UploadFilesDialogEntry,
   type UploadFileConfigTemplate,
+  type UploadFileStatus,
   type FileUploadResult,
 } from '@aiqtoolkit-ui/common';
 
@@ -16,267 +18,14 @@ export type { UploadFileConfigTemplate, UploadFileFieldConfig } from '@aiqtoolki
 import HomeContext from '@/pages/api/home/home.context';
 import type { ChatVideoUploadCompletePayload } from '@/types/chatVideoUpload';
 
-// Upload status for each file
-type FileUploadStatus = 'pending' | 'uploading' | 'success' | 'error' | 'cancelled';
-
-// Interface for file with form data
 interface FileWithFormData {
   id: string;
   file: File;
   formData: Record<string, any>;
-  isExpanded: boolean;
-  metadataFile?: File | null;
-  isMetadataExpanded?: boolean;
-  /** Filename sent to upload API (defaults to file.name) */
   uploadFilename?: string;
   uploadProgress?: number;
-  uploadStatus?: FileUploadStatus;
+  uploadStatus?: UploadFileStatus;
   uploadError?: string;
-}
-
-// CSS class constants
-const POPUP_OVERLAY_CLASS = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
-// Border + shadow so the panel reads clearly on the chat surface (shadow alone vanishes on dark:bg-black).
-const POPUP_CONTAINER_CLASS =
-  'mx-4 w-full max-w-xl rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-2xl';
-
-// Upload status display config for progress bar and label styling
-const UPLOAD_STATUS_STYLE: Record<FileUploadStatus, { progressBarClass: string; textClass: string }> = {
-  pending: { progressBarClass: 'bg-gray-300', textClass: 'text-gray-400' },
-  uploading: { progressBarClass: 'bg-[#76b900]', textClass: 'text-[#76b900]' },
-  success: { progressBarClass: 'bg-green-500', textClass: 'text-green-500' },
-  error: { progressBarClass: 'bg-red-500', textClass: 'text-red-500' },
-  cancelled: { progressBarClass: 'bg-orange-500', textClass: 'text-orange-500' },
-};
-
-function getUploadStatusLabel(status: FileUploadStatus, progress?: number): string {
-  switch (status) {
-    case 'uploading': return `${progress ?? 0}%`;
-    case 'success': return 'Done';
-    case 'error': return 'Failed';
-    case 'cancelled': return 'Cancelled';
-    default: return 'Pending';
-  }
-}
-
-type UploadResultItem = { filename: string; result?: FileUploadResult; error?: string; cancelled?: boolean };
-
-function getUploadStatusIcon(status: FileUploadStatus, textClass: string) {
-  switch (status) {
-    case 'uploading':
-      return <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-[#76b900]" />;
-    case 'success':
-      return <IconCheck size={16} className="flex-shrink-0 text-green-500" />;
-    case 'error':
-    case 'cancelled':
-      return <IconX size={16} className={`flex-shrink-0 ${textClass}`} />;
-    default:
-      return <div className="h-4 w-4 rounded-full border-2 border-gray-300" />;
-  }
-}
-
-function UploadProgressPopup({
-  files,
-  onCancelAll,
-  onCancelSingle,
-}: Readonly<{
-  files: FileWithFormData[];
-  onCancelAll: () => void;
-  onCancelSingle: (fileId: string) => void;
-}>) {
-  const hasActive = files.some(f => f.uploadStatus === 'pending' || f.uploadStatus === 'uploading');
-  return (
-    <div className={POPUP_OVERLAY_CLASS}>
-      <div className={POPUP_CONTAINER_CLASS}>
-        <h3 className="mb-4 text-center text-lg font-semibold text-gray-900 dark:text-white">
-          Uploading Files...
-        </h3>
-        {hasActive && (
-          <div className="mb-4 flex justify-center">
-            <button
-              type="button"
-              onClick={onCancelAll}
-              className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 dark:border-red-700 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-            >
-              <IconX size={16} />
-              Cancel All
-            </button>
-          </div>
-        )}
-        <div className="max-h-96 space-y-3 overflow-y-auto">
-          {files.map((fileItem) => {
-            const status = fileItem.uploadStatus ?? 'pending';
-            const style = UPLOAD_STATUS_STYLE[status];
-            const label = getUploadStatusLabel(status, fileItem.uploadProgress);
-            return (
-              <div key={fileItem.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-600">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    {getUploadStatusIcon(status, style.textClass)}
-                    <span className="truncate text-sm text-gray-700 dark:text-gray-300">{fileItem.uploadFilename ?? fileItem.file.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-medium ${style.textClass}`}>{label}</span>
-                    {(status === 'uploading' || status === 'pending') && (
-                      <button
-                        type="button"
-                        onClick={() => onCancelSingle(fileItem.id)}
-                        className="flex-shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-500 dark:hover:bg-gray-700"
-                        title="Cancel upload"
-                      >
-                        <IconX size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
-                  <div
-                    className={`h-1.5 rounded-full transition-all duration-300 ${style.progressBarClass}`}
-                    style={{ width: `${fileItem.uploadProgress ?? 0}%` }}
-                  />
-                </div>
-                {fileItem.uploadError && <p className="mt-1 text-xs text-red-500">{fileItem.uploadError}</p>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function getUploadStatusBanner(allSuccess: boolean, allFailed: boolean, allCancelled: boolean) {
-  if (allSuccess) return { bg: 'bg-green-100 dark:bg-green-900', icon: <IconCheck size={24} className="text-green-600 dark:text-green-400" />, title: 'Upload Complete!', titleClass: 'text-green-700 dark:text-green-400' };
-  if (allFailed) return { bg: 'bg-red-100 dark:bg-red-900', icon: <IconX size={24} className="text-red-600 dark:text-red-400" />, title: 'Upload Failed', titleClass: 'text-red-700 dark:text-red-400' };
-  if (allCancelled) return { bg: 'bg-orange-100 dark:bg-orange-900', icon: <IconX size={24} className="text-orange-600 dark:text-orange-400" />, title: 'Upload Cancelled', titleClass: 'text-orange-700 dark:text-orange-400' };
-  return { bg: 'bg-orange-100 dark:bg-orange-900', icon: <IconCheck size={24} className="text-orange-600 dark:text-orange-400" />, title: 'Upload Partially Complete', titleClass: 'text-gray-900 dark:text-white' };
-}
-
-function getResultItemStyle(item: UploadResultItem) {
-  if (item.result) {
-    return {
-      borderClass: 'border-green-300 dark:border-green-700',
-      bgClass: 'bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30',
-      icon: <IconCheck size={16} className="flex-shrink-0 text-green-500" />,
-      textClass: 'text-green-500',
-      label: 'Success',
-      content: JSON.stringify(item.result, null, 2),
-    };
-  }
-  if (item.cancelled) {
-    return {
-      borderClass: 'border-orange-300 dark:border-orange-700',
-      bgClass: 'bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/20 dark:hover:bg-orange-900/30',
-      icon: <IconX size={16} className="flex-shrink-0 text-orange-500" />,
-      textClass: 'text-orange-500',
-      label: 'Cancelled',
-      content: 'Upload was cancelled',
-    };
-  }
-  return {
-    borderClass: 'border-red-300 dark:border-red-700',
-    bgClass: 'bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30',
-    icon: <IconX size={16} className="flex-shrink-0 text-red-500" />,
-    textClass: 'text-red-500',
-    label: 'Failed',
-    content: `Error: ${item.error}`,
-  };
-}
-
-function UploadSuccessPopup({
-  results,
-  expandedResults,
-  copiedResultIndex,
-  onToggleExpanded,
-  onCopyJson,
-  onClose,
-}: Readonly<{
-  results: UploadResultItem[];
-  expandedResults: Set<number>;
-  copiedResultIndex: number | null;
-  onToggleExpanded: (index: number) => void;
-  onCopyJson: (text?: string, index?: number) => Promise<void>;
-  onClose: () => void;
-}>) {
-  const successCount = results.filter(r => r.result).length;
-  const cancelledCount = results.filter(r => r.cancelled).length;
-  const failedCount = results.length - successCount - cancelledCount;
-  const totalCount = results.length;
-
-  const statusConfig = getUploadStatusBanner(
-    successCount === totalCount,
-    failedCount === totalCount,
-    cancelledCount === totalCount,
-  );
-
-  return (
-    <div className={POPUP_OVERLAY_CLASS}>
-      <div className={POPUP_CONTAINER_CLASS}>
-        <div className="mb-4 flex justify-center">
-          <div className={`flex h-12 w-12 items-center justify-center rounded-full ${statusConfig.bg}`}>
-            {statusConfig.icon}
-          </div>
-        </div>
-        <h3 className={`mb-2 text-center text-lg font-semibold ${statusConfig.titleClass}`}>
-          {statusConfig.title}
-        </h3>
-        <p className="mb-4 text-center text-sm text-gray-600 dark:text-gray-400">
-          {successCount} / {totalCount} files uploaded successfully
-          {cancelledCount > 0 && <span className="ml-1 text-orange-500">({cancelledCount} cancelled)</span>}
-          {failedCount > 0 && <span className="ml-1 text-red-500">({failedCount} failed)</span>}
-        </p>
-        <div className="mb-4 max-h-96 space-y-2 overflow-y-auto">
-          {results.map((item, index) => {
-            const rs = getResultItemStyle(item);
-            return (
-              <div
-                key={`${item.filename}-${index}`}
-                className={`overflow-hidden rounded-lg border ${rs.borderClass}`}
-              >
-                <button
-                  type="button"
-                  onClick={() => onToggleExpanded(index)}
-                  className={`flex w-full items-center justify-between p-3 text-left transition-colors ${rs.bgClass}`}
-                >
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <IconChevronDown size={14} className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${expandedResults.has(index) ? 'rotate-180' : ''}`} />
-                    {rs.icon}
-                    <span className="truncate text-sm font-medium text-gray-700 dark:text-gray-300">{item.filename}</span>
-                  </div>
-                  <span className={`text-xs font-medium ${rs.textClass}`}>{rs.label}</span>
-                </button>
-                {expandedResults.has(index) && (
-                  <div className="border-t border-gray-200 bg-gray-50 p-2 dark:border-gray-600 dark:bg-[#1e1e28]">
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => onCopyJson(rs.content, index)}
-                        className={`absolute right-1 top-1 rounded p-1 transition-colors ${copiedResultIndex === index ? 'text-green-500' : 'text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'}`}
-                        title={copiedResultIndex === index ? 'Copied!' : 'Copy JSON'}
-                      >
-                        {copiedResultIndex === index ? <IconCheck size={14} /> : <IconCopy size={14} />}
-                      </button>
-                      <pre className="max-h-40 overflow-auto rounded bg-gray-100 p-2 pr-8 text-xs text-gray-800 dark:bg-[#0d0d12] dark:text-gray-300">
-                        {rs.content}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <button
-          data-testid="upload-close-button"
-          type="button"
-          onClick={onClose}
-          className="w-full rounded-lg bg-[#76b900] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5a8f00]"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
 }
 
 interface ChatFileUploadProps {
@@ -338,8 +87,6 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   const [showProgressPopup, setShowProgressPopup] = useState(false);
   const [allUploadResults, setAllUploadResults] = useState<{ filename: string; result?: FileUploadResult; error?: string; cancelled?: boolean }[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<FileWithFormData[]>([]);
-  const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set());
-  const [copiedResultIndex, setCopiedResultIndex] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
@@ -449,34 +196,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     setShowProgressPopup(false);
     setAllUploadResults([]);
     setUploadingFiles([]);
-    setExpandedResults(new Set());
-    setCopiedResultIndex(null);
   }, []);
-
-  const toggleResultExpanded = useCallback((index: number) => {
-    setExpandedResults(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(index)) {
-        newSet.delete(index);
-      } else {
-        newSet.add(index);
-      }
-      return newSet;
-    });
-  }, []);
-
-  const handleCopyJson = useCallback(async (text?: string, index?: number) => {
-    const content = text ?? (allUploadResults.length > 0 ? JSON.stringify(allUploadResults, null, 2) : '');
-    if (content) {
-      const success = await copyToClipboard(content);
-      if (success) {
-        if (index !== undefined) {
-          setCopiedResultIndex(index);
-          setTimeout(() => setCopiedResultIndex(null), 2000);
-        }
-      }
-    }
-  }, [allUploadResults]);
 
   // Drag and drop handlers
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -526,6 +246,29 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     [handleDragEnter, handleDragLeave, preventDragDefault, handleDrop]
   );
 
+  const uploadProgressPopupFiles = useMemo(
+    () =>
+      uploadingFiles.map((f) => ({
+        id: f.id,
+        displayName: f.uploadFilename ?? f.file.name,
+        uploadProgress: f.uploadProgress,
+        uploadStatus: f.uploadStatus,
+        uploadError: f.uploadError,
+      })),
+    [uploadingFiles],
+  );
+
+  const uploadSuccessPopupResults = useMemo(
+    () =>
+      allUploadResults.map((r) => ({
+        filename: r.filename,
+        result: r.result as Record<string, unknown> | undefined,
+        error: r.error,
+        cancelled: r.cancelled,
+      })),
+    [allUploadResults],
+  );
+
 
   // Update uploading files progress (for progress popup)
   const updateUploadingFileProgress = useCallback((fileId: string, progress: number) => {
@@ -535,7 +278,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   }, []);
 
   // Update uploading files status (for progress popup)
-  const updateUploadingFileStatus = useCallback((fileId: string, status: FileUploadStatus, error?: string) => {
+  const updateUploadingFileStatus = useCallback((fileId: string, status: UploadFileStatus, error?: string) => {
     setUploadingFiles(prev => prev.map(f => 
       f.id === fileId ? { ...f, uploadStatus: status, uploadError: error } : f
     ));
@@ -560,7 +303,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     setUploadingFiles(prev => prev.map(f => {
       if (f.uploadStatus === 'pending' || f.uploadStatus === 'uploading') {
         cancelledFileIdsRef.current.add(f.id);
-        return { ...f, uploadStatus: 'cancelled' as FileUploadStatus, uploadError: 'Cancelled' };
+        return { ...f, uploadStatus: 'cancelled' as UploadFileStatus, uploadError: 'Cancelled' };
       }
       return f;
     }));
@@ -606,7 +349,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
         file,
         agentApiUrlBase,
         formData,
-        (progress) => updateUploadingFileProgress(fileId, progress),
+        (progress: number) => updateUploadingFileProgress(fileId, progress),
         abortController.signal,
         fileItem.uploadFilename
       );
@@ -655,7 +398,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     // Initialize uploading files for progress popup
     const filesToUpload = files.map(f => ({
       ...f,
-      uploadStatus: 'pending' as FileUploadStatus,
+      uploadStatus: 'pending' as UploadFileStatus,
       uploadProgress: 0,
     }));
     setUploadingFiles(filesToUpload);
@@ -735,14 +478,12 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   };
 
   const handleDialogConfirm = useCallback(
-    (entries: { id: string; file: File; formData: Record<string, any>; uploadFilename?: string; metadataFile?: File | null }[]) => {
+    (entries: UploadFilesDialogEntry[]) => {
       const filesToUpload: FileWithFormData[] = entries.map((e) => ({
         id: e.id,
         file: e.file,
         formData: e.formData,
-        isExpanded: false,
         uploadFilename: e.uploadFilename,
-        metadataFile: e.metadataFile ?? undefined,
       }));
       void processFilesParallel(filesToUpload);
     },
@@ -777,7 +518,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
 
       {showProgressPopup && (
         <UploadProgressPopup
-          files={uploadingFiles}
+          files={uploadProgressPopupFiles}
           onCancelAll={handleCancelAllUploads}
           onCancelSingle={handleCancelSingleUpload}
         />
@@ -785,11 +526,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
 
       {showSuccessPopup && allUploadResults.length > 0 && (
         <UploadSuccessPopup
-          results={allUploadResults}
-          expandedResults={expandedResults}
-          copiedResultIndex={copiedResultIndex}
-          onToggleExpanded={toggleResultExpanded}
-          onCopyJson={handleCopyJson}
+          results={uploadSuccessPopupResults}
           onClose={handleClosePopup}
         />
       )}
