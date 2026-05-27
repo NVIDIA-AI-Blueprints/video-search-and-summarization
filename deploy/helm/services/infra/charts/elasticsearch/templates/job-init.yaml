@@ -19,6 +19,14 @@ spec:
         app.kubernetes.io/component: elasticsearch-init
     spec:
       restartPolicy: OnFailure
+      {{- with (coalesce .Values.init.nodeSelector .Values.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

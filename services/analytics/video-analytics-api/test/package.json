@@ -18,7 +18,7 @@
     "proto3-json-serializer": "2.0.2",
     "protobufjs": "7.5.6",
     "require-dir": "1.2.0",
-    "web-apis": "file:../app",
+    "web-apis": "file:../src/app",
     "winston": "3.13.0",
     "yargs": "17.7.2"
   },

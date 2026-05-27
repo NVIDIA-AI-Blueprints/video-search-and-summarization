@@ -2,23 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """Harbor environment provider for Brev GPU instances.
 
-Two modes:
-
-1. **Reuse an existing instance** (BREV_INSTANCE env var):
-   Validate the instance's GPU meets the task's requirements
-   (gpu_type, gpu_count, min_vram_gb_per_gpu from task.toml [metadata])
-   and fail early if not.
-
-2. **Auto-provision** (no BREV_INSTANCE):
-   Query `brev search --json` for a matching instance type, create
-   one, wait for ready.  The instance is stopped (not deleted) on
-   trial completion so subsequent trials can reuse it.
+Connects to a pre-existing operator-managed `vss-eval-*` pool member
+resolved via the `BREV_INSTANCE` env var (or `brev_instance` in
+task.toml [metadata]). Validates that the resolved instance is
+reachable and that its GPU meets the task's requirements; raises if
+no instance is resolved. The harness does NOT auto-provision — see
+AGENTS.md § 5a for the fleet-selection algorithm the skill-eval
+agent uses to pick a pool member.
 
 Task.toml [metadata] fields consumed:
     gpu_type              — e.g. "L40S", "H100", "RTX PRO 6000"
     gpu_count             — 1 or 2
     min_vram_gb_per_gpu   — e.g. 48, 80
-    brev_search           — (optional) substring override for brev search
+    min_root_disk_gb      — root-disk floor enforced post-resolve
+    min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
 """
 
@@ -48,23 +45,6 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 
 # Timeout for brev copy commands.
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
-
-
-def _record_started_instance(name: str) -> None:
-    """Append an auto-provisioned instance name to the wrapper's
-    cleanup marker (`/tmp/brev/started-by-<run_id>.txt`) so
-    skills_eval_agent.cleanup_instances() tears it down even if the
-    agent never observes the name. No-op outside CI (no GITHUB_RUN_ID)."""
-    run_id = os.environ.get("GITHUB_RUN_ID")
-    if not run_id:
-        return
-    try:
-        marker = Path(f"/tmp/brev/started-by-{run_id}.txt")
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        with marker.open("a") as fh:
-            fh.write(f"{name}\n")
-    except OSError as exc:
-        logger.warning("failed to record %s in started-by marker: %s", name, exc)
 
 
 class BrevEnvironmentType(str, Enum):
@@ -122,7 +102,7 @@ class BrevEnvironment(BaseEnvironment):
         return tomllib.loads(task_toml.read_text()).get("metadata", {}) or {}
 
     def _resolve_instance_name(self) -> str | None:
-        """Resolve instance name: env var > task.toml > None (auto-provision)."""
+        """Resolve instance name: env var > task.toml > None (error)."""
         if DEFAULT_INSTANCE:
             return DEFAULT_INSTANCE
         meta = self._read_task_metadata()
@@ -131,7 +111,9 @@ class BrevEnvironment(BaseEnvironment):
         return None
 
     async def start(self, force_build: bool) -> None:
-        """Validate or provision a Brev instance matching task GPU requirements."""
+        """Validate that the resolved Brev instance is reachable and matches
+        the task's GPU requirements. Errors if no instance is resolved —
+        the harness does not auto-provision."""
         if self._started:
             return
 
@@ -140,7 +122,6 @@ class BrevEnvironment(BaseEnvironment):
             "gpu_type": meta.get("gpu_type"),
             "gpu_count": int(meta.get("gpu_count", 1)),
             "min_vram_gb_per_gpu": int(meta.get("min_vram_gb_per_gpu", 0)),
-            "brev_search": meta.get("brev_search") or meta.get("gpu_type"),
             "min_root_disk_gb": int(meta.get("min_root_disk_gb", 0)),
             "min_gpu_driver_version": meta.get("min_gpu_driver_version"),
         }
@@ -159,61 +140,15 @@ class BrevEnvironment(BaseEnvironment):
                 )
             await _check_instance_matches(instance, requirements)
         else:
-            # Mode 2: auto-provision via brev search + create.
-            # Some platforms (DGX-SPARK, IGX-THOR) aren't provisionable as
-            # cloud instance types — they're physical devices registered via
-            # `brev register`.  Check there first and give a helpful error.
-            if not requirements["brev_search"]:
-                raise RuntimeError(
-                    "No BREV_INSTANCE set and no GPU requirements in task.toml "
-                    "[metadata] — cannot auto-provision."
-                )
-            logger.info("Auto-provisioning Brev instance for %s", requirements)
-            instance_type = await _find_cheapest_matching_type(requirements)
-            if not instance_type:
-                # Before failing, list any registered nodes that might fit.
-                suggestions = await _suggest_registered_devices(requirements)
-                msg = [
-                    f"Cannot auto-provision: no Brev cloud instance type matches",
-                    f"  requirements: {requirements}",
-                ]
-                if suggestions:
-                    msg.append("")
-                    msg.append("Registered device(s) matching (or partially matching) these requirements:")
-                    for s in suggestions:
-                        msg.append(f"  - {s}")
-                    msg.append("")
-                    msg.append(
-                        "Set `BREV_INSTANCE=<name>` or add `brev_instance = \"<name>\"` "
-                        "to task.toml [metadata] to use one of these."
-                    )
-                else:
-                    msg.append("")
-                    msg.append(
-                        "No registered devices match either. Options:\n"
-                        "  1. Register a physical device via `brev register` "
-                        "(DGX Spark / IGX Thor are typically registered, not provisioned).\n"
-                        "  2. Adjust gpu_type / brev_search in the task to a provisionable "
-                        "platform (e.g. H100, L40S, RTX PRO 6000)."
-                    )
-                full_msg = "\n".join(msg)
-                logger.error(full_msg)
-                raise RuntimeError(full_msg)
-            self._instance_name = f"harbor-{uuid.uuid4().hex[:8]}"
-            logger.info("Creating %s as %s", self._instance_name, instance_type)
-            create_result = await _run_brev(
-                "create", self._instance_name, "--detached",
-                stdin_data=instance_type,
-                timeout=120,
+            raise RuntimeError(
+                "No BREV_INSTANCE set and no `brev_instance` in task.toml "
+                "[metadata]. The harness no longer auto-provisions — every "
+                "trial must run on an operator-managed `vss-eval-*` pool "
+                "member. The skill-eval agent picks one per AGENTS.md § 5a "
+                "and exports BREV_INSTANCE before invoking `uvx harbor run`. "
+                "If you're running harbor manually, export "
+                "BREV_INSTANCE=<vss-eval-*-name> first."
             )
-            if create_result.return_code != 0:
-                raise RuntimeError(f"brev create failed: {create_result.stderr}")
-            # Record the harbor-* instance in the wrapper's cleanup marker
-            # so skills_eval_agent.cleanup_instances() tears it down even if
-            # the trial fails before the agent tracks it. Append before
-            # _wait_for_running so a timeout there doesn't leak an orphan.
-            _record_started_instance(self._instance_name)
-            await _wait_for_running(self._instance_name)
 
         # Quick smoke test — ensure exec works
         result = await _run_brev_exec(
@@ -231,11 +166,11 @@ class BrevEnvironment(BaseEnvironment):
                 f"{(result.stdout or '')[:200]!r}"
             )
 
-        # Post-provision resource checks: root disk + GPU driver.
-        # These catch provider quirks that brev search doesn't surface
-        # (e.g. hyperstack_H100x2 lists disk_min_gb=1600 but mounts the
-        # big volume on /ephemeral — / is only ~100 GB, which OOMs on
-        # local NIM pulls).
+        # Live resource checks: root disk + GPU driver. The pool box was
+        # provisioned by the operator and is expected to meet these, but
+        # the checks catch silent regressions (e.g. a driver downgrade or
+        # a box where the big volume mounts on /ephemeral and / is only
+        # ~100 GB — which OOMs on local NIM pulls).
         await _check_live_resources(self._instance_name, requirements)
 
         # Pre-create harbor's expected directories with correct ownership
@@ -310,6 +245,13 @@ class BrevEnvironment(BaseEnvironment):
             # the renamed release/3.2.0 container names while the eval
             # deployed feat/skills's old names).
             "PR_HEAD_SHA", "PR_REPO",
+            # Tag the active-deploy marker with the run id so the next
+            # run's `_ensure_prerequisite_deployed` always reconciles
+            # against a prior run's leftover state, regardless of how
+            # the prior run ended. Consumed by the vss-deploy-profile
+            # adapter's test.sh when it writes the marker on
+            # reward=1.0.
+            "GITHUB_RUN_ID",
         ):
             val = os.environ.get(key)
             if val:
@@ -363,43 +305,57 @@ class BrevEnvironment(BaseEnvironment):
     async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
         """Reconcile the Brev box's deployment state with what this
         trial's task.toml [metadata] declares. Reads a single canonical
-        marker that records what is currently RUNNING on the box — not
-        a deploy log. See specs/stale-marker.spec.
+        marker that records what is currently RUNNING on the box AND
+        which CI run owns it — not a deploy log. See
+        specs/stale-marker.spec.
+
+        Marker format is `<profile_tag>|<run_id>`:
+          - `<profile_tag>` is `<profile>` or `<profile>-<deploy_mode>`
+            (only alerts splits this way: `alerts-verification`,
+            `alerts-real-time`).
+          - `<run_id>` is `$GITHUB_RUN_ID` (or `local-<pid>` outside CI).
+
+        Tagging the marker with the run id makes "fresh between runs"
+        a pull-side reconcile rather than a push-side cleanup: a
+        marker from a prior run NEVER matches the current run's
+        desired marker, so the next worker always reconciles
+        (tear-down + redeploy from its own `PR_HEAD_SHA`) regardless
+        of how the prior run ended — happy path, cancel-in-progress,
+        max-turns, SIGKILL, host reboot. Within a single run, multiple
+        trials with the same profile still hot-skip because both
+        profile and run id match.
 
         Three regimes, derived from `profile` + `prerequisite_deploy_mode`:
 
         1. `profile` set (downstream needs a deployed VSS stack):
-            desired = `<profile>` (e.g. `base`, `lvs`, `search`),
-                  or `<profile>-<deploy_mode>` for alerts variants
-                  (`alerts-verification`, `alerts-real-time`).
-            If marker == desired → hot, no-op.
-            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]` via
-                  `claude --print`. On success OVERWRITE marker.
+            desired = `<profile_tag>|<run_id>`.
+            If marker == desired → hot, no-op (same profile, same run).
+            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]`
+                  via `claude --print`. On success OVERWRITE marker
+                  with the new `<profile_tag>|<run_id>`.
 
         2. `profile` absent (trial needs a clean box, no VSS running):
             desired = `""` (empty marker).
             Always tear down all containers (`docker rm -f $(docker
-                  ps -aq)`) + prune networks; OVERWRITE marker to empty.
-                  An empty marker does not prove a prior standalone
-                  profile-less trial cleaned up every container it started.
-                  Preserves anything `docker rm -f` doesn't touch:
-                  docker image cache, named volumes (postgres / ES /
-                  kafka data), repo clone, and sample-data extract —
-                  the slow caches that make warm reuse valuable for
-                  the next deploy trial. Cleanup failures fail loud:
-                  if either docker command exits non-zero the marker
-                  is NOT overwritten, so the next trial re-attempts
-                  the reconcile instead of running against a
-                  partially-dirty box that pretends to be clean.
+                  ps -aq)`) + prune networks + prune volumes;
+                  OVERWRITE marker to empty. An empty marker does not
+                  prove a prior standalone profile-less trial cleaned
+                  up every container it started. Preserves anything
+                  `docker rm -f` doesn't touch: docker image cache,
+                  repo clone, and sample-data extract — the slow
+                  caches that make warm reuse valuable for the next
+                  deploy trial. Cleanup failures fail loud: if any
+                  docker command exits non-zero the marker is NOT
+                  overwritten, so the next trial re-attempts the
+                  reconcile instead of running against a partially-
+                  dirty box that pretends to be clean.
 
         vss-deploy-profile/* trials don't set `profile` in their task.toml
         [metadata], so they fall into the `desired=""` box-clean branch
         above — wipes containers/networks/volumes and clears the marker
         before the trial deploys from scratch. Their test.sh writes the
-        marker on reward=1.0 for downstream warm-reuse. (Earlier the
-        adapter emitted `profile = "<X>"` here, which mistakenly fired
-        the prereq reconcile below before the trial — see commit
-        history on `adapters/vss-deploy-profile/generate.py`.)
+        marker (tagged with the trial's `$GITHUB_RUN_ID`) on reward=1.0
+        for downstream warm-reuse within the same run.
 
         claude-code is expected on the box from a prior vss-deploy-profile/* trial's
         harbor agent setup; persists across trials on the reused
@@ -408,11 +364,14 @@ class BrevEnvironment(BaseEnvironment):
         profile = meta.get("profile")
         deploy_mode = meta.get("prerequisite_deploy_mode")
         if profile and deploy_mode:
-            desired = f"{profile}-{deploy_mode}"
+            profile_tag = f"{profile}-{deploy_mode}"
         elif profile:
-            desired = profile
+            profile_tag = profile
         else:
-            desired = ""
+            profile_tag = ""
+
+        run_id = os.environ.get("GITHUB_RUN_ID") or f"local-{os.getpid()}"
+        desired = f"{profile_tag}|{run_id}" if profile_tag else ""
 
         marker_path = "/tmp/skill-eval/active-deploy.txt"
         probe = await _run_brev_exec(
@@ -422,10 +381,9 @@ class BrevEnvironment(BaseEnvironment):
         )
         current = (probe.stdout or "").strip()
         if current == desired and desired:
-            state = desired or "<clean>"
             logger.info(
-                "prerequisite %s already current on %s; skipping reconcile",
-                state, self._instance_name,
+                "prerequisite %s already current on %s (run %s); skipping reconcile",
+                profile_tag, self._instance_name, run_id,
             )
             return
         logger.info(
@@ -1316,40 +1274,6 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
     )
 
 
-async def _find_cheapest_matching_type(req: dict) -> str | None:
-    """Find the cheapest `brev search` instance type matching GPU requirements."""
-    result = await _run_brev("search", "--json", timeout=30)
-    search = (req.get("brev_search") or "").lower()
-    required_count = req.get("gpu_count", 1)
-    required_vram = req.get("min_vram_gb_per_gpu", 0)
-    required_disk = req.get("min_root_disk_gb", 0)
-
-    candidates = []
-    for inst in _parse_brev_json(result.stdout):
-        gpu_name = (inst.get("gpu_name") or "").lower()
-        gpu_count = int(inst.get("gpu_count", 0) or 0)
-        total_vram = float(inst.get("total_vram_gb", 0) or 0)
-        disk_min_gb = int(inst.get("disk_min_gb", 0) or 0)
-        if search and search not in gpu_name:
-            continue
-        if gpu_count < required_count:
-            continue
-        if required_vram and (total_vram / max(gpu_count, 1)) < required_vram:
-            continue
-        # Pre-filter by disk_min_gb.  Some providers misreport this (e.g.
-        # hyperstack lists ephemeral-disk size not root), so the live check
-        # in _check_live_resources is authoritative; this filter just prunes
-        # candidates that are obviously undersized.
-        if required_disk and disk_min_gb and disk_min_gb < required_disk:
-            continue
-        candidates.append(inst)
-
-    if not candidates:
-        return None
-    candidates.sort(key=lambda x: float(x.get("price_per_hour", 0) or 0))
-    return candidates[0].get("type")
-
-
 def _version_lt(a: str, b: str) -> bool:
     """Return True if NVIDIA driver version `a` is older than `b`.
 
@@ -1417,56 +1341,3 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
         )
 
 
-async def _suggest_registered_devices(req: dict) -> list[str]:
-    """Query `brev ls nodes --json` for registered physical devices that
-    match the task's requirements (best-effort, by name substring).
-    Returns human-readable strings for error messages."""
-    result = await _run_brev("ls", "nodes", "--json", timeout=15)
-    nodes = _parse_brev_json(result.stdout)
-    if not nodes:
-        return []
-    search = (req.get("brev_search") or req.get("gpu_type") or "").lower()
-    suggestions = []
-    for n in nodes:
-        name = n.get("name") or ""
-        status = n.get("status") or "?"
-        # Node entries don't include GPU specs; fall back to name matching.
-        # If search term appears in node name, it's a likely fit.
-        if search and search in name.lower():
-            suggestions.append(f"{name}  (status={status})  [name matches '{search}']")
-    # Also include all connected nodes as fallback suggestions.
-    if not suggestions:
-        for n in nodes:
-            if n.get("status") == "Connected":
-                suggestions.append(
-                    f"{n.get('name')}  (status=Connected)  "
-                    f"[GPU unknown — verify manually]"
-                )
-    return suggestions
-
-
-async def _wait_for_running(
-    name: str,
-    timeout_sec: int = 2400,
-    poll_interval: int = 15,
-) -> None:
-    """Poll `brev ls` until the named instance reaches RUNNING + shell READY."""
-    elapsed = 0
-    while elapsed < timeout_sec:
-        inst = await _find_brev_instance(name)
-        if inst:
-            status = inst.get("status")
-            shell = inst.get("shell_status")
-            if status == "FAILURE":
-                raise RuntimeError(f"Brev instance {name} creation FAILED")
-            if status == "RUNNING" and shell == "READY":
-                return
-            logger.info(
-                "Waiting for %s (status=%s shell=%s, %ds/%ds)",
-                name, status, shell, elapsed, timeout_sec,
-            )
-        await asyncio.sleep(poll_interval)
-        elapsed += poll_interval
-    raise TimeoutError(
-        f"Brev instance {name} did not become ready within {timeout_sec}s"
-    )

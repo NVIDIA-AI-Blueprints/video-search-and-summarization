@@ -2,12 +2,6 @@ dependencies:
 - name: vss-vios-postgres
   repository: file://./charts/vios-postgres
   version: 26.04.2
-- name: vss-vios-envoy-proxy
-  repository: file://./charts/vios-envoy-proxy
-  version: 26.04.2
-- name: vss-vios-sdr
-  repository: file://./charts/vios-sdr
-  version: 26.04.2
 - name: vss-vios-sensor
   repository: file://./charts/vios-sensor
   version: 26.04.2
@@ -20,5 +14,5 @@ dependencies:
 - name: vss-vios-nvstreamer
   repository: file://./charts/vios-nvstreamer
   version: 26.04.2
-digest: sha256:51c51292e440f0ad24c7716ae43f3bf2bc3973375fd1faedcc38c5ba8aac6a36
-generated: "2026-04-20T18:59:23.087541+05:30"
+digest: sha256:a25d7f4c6aced288b3e0d0df8089e58086be8d4a2b9260c9ca14f711bca5e7ac
+generated: "2026-05-26T11:49:05.166579266Z"

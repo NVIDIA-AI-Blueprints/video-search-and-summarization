@@ -154,8 +154,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`infra.redis.enabled`** | **`true`** | Set **`false`** to disable Redis. |
 | **`vios.enabled`** | **`true`** | Master switch for the **`vios`** umbrella (all bundled **`vss-vios-*`** subcharts). Set **`false`** to omit the entire VST microservice stack from the release. |
 | **`vios.vss-vios-postgres.enabled`** | **`true`** | Set **`false`** to disable centralized DB. Storage sizing/class: subchart **`values.yaml`** or overrides under **`vios.vss-vios-postgres`**. |
-| **`vios.vss-vios-envoy-proxy.enabled`** | **`true`** | Set **`false`** to disable Envoy in front of streamprocessing. |
-| **`vios.vss-vios-sdr.enabled`** | **`true`** | Set **`false`** to disable **SDR** (stream workload discovery). |
+| **`vios.vss-vios-sensor.streamProcessorService`** | **`sdrc`** | Sensor registers streams through the SDRC controller service (**`sdrc-controller:5003`** by default). |
 | **`vios.vss-vios-sensor.enabled`** | **`true`** | Set **`false`** to disable the **sensor** workload. |
 | **`vios.vss-vios-sensor.persistence`** | **`vstData`** / **`vstVideo`**: **`enabled: true`**, **`create: false`**, **`existingClaim: ""`** | Controls whether **sensor** mounts two shared folders (**data** and **video**). **Typical setup:** leave **`existingClaim`** blank—Helm wires the pods to the PVCs created when **`vios.vstStorage.createSharedPvcs`** is **`true`**. **Custom PVCs:** set **`existingClaim`** to your claim name for that volume. **Disable a mount:** set that volume’s **`enabled`** to **`false`** (that path is not mounted). |
 | **`vios.vss-vios-streamprocessing.enabled`** | **`true`** | Set **`false`** to disable **vss-vios-streamprocessing**. |
@@ -200,7 +199,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`agent.vss-agent.vstInternalUrl`** | **`""`** | In-cluster **VST** URL for the agent when the default wiring is insufficient. |
 | **`agent.vss-agent.vstInternalIp`** | **`""`** | In-cluster **VST** host/IP override when defaults are insufficient. |
 | **`agent.vss-agent.vssAgentExternalUrl`** | **`""`** | External **vss-agent** URL override for browser / callbacks when **`global.external*`** is not enough. |
-| **`agent.vss-agent.vssAgentVersion`** | **`3.2.0-26.05.2-b0ba77ae135d`** | Optional version label / env; adjust per release. |
+| **`agent.vss-agent.vssAgentVersion`** | **`3.2.0-26.05.2-e45835c52c4a`** | Optional version label / env; adjust per release. |
 | **`agent.vss-agent.llmName`** | **`""`** | Optional **vss-agent-only** override of **`global.llmName`** (**`LLM_NAME`**). |
 | **`agent.vss-agent.vlmName`** | **`""`** | Optional **vss-agent-only** override of **`global.vlmName`** (**`VLM_NAME`**). |
 | **`agent.vss-agent.llmBaseUrl`** | **`""`** | Optional **vss-agent-only** override of **`global.llmBaseUrl`**. |

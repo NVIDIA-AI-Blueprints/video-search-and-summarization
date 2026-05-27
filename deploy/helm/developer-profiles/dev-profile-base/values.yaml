@@ -71,6 +71,10 @@ infra:
         value: "/phoenix"
   redis:
     enabled: true
+  # Base profile uses direct streamprocessing (sensor → vss-vios-streamprocessing:30001),
+  # mirroring docker dev-profile-base (.env: VST_NGINX_MODE=vst-direct, no SDR/Envoy/SDRC router).
+  sdrc:
+    enabled: false
 
 # VIOS / VST shared charts (helm/services/vios umbrella). Per-service values: vios.<chart-key>.*
 # Required: vios.enabled — parent Chart.yaml condition: vios.enabled. If this is missing/false, Helm installs no VIOS subcharts (no postgres, sensor, ingress, …).
@@ -93,15 +97,10 @@ vios:
     enabled: true
     # storage.data.size / storageClass: see subchart or override
 
-  vss-vios-envoy-proxy:
-    enabled: true
-
-  vss-vios-sdr:
-    enabled: true
-    # clusterType: kubernetes (default) uses K8s API; no Docker socket. Set to "docker" only if mounting host docker.sock.
-
   vss-vios-sensor:
     enabled: true
+    # Direct streamprocessing — sensor talks straight to vss-vios-streamprocessing:30001 (no SDR/Envoy/SDRC router).
+    streamProcessorEndpoint: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-vios-streamprocessing" .Release.Name) "vss-vios-streamprocessing" $pfx }}{{- printf "http://%s:30001" $host }}'
     # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -109,6 +108,8 @@ vios:
 
   vss-vios-streamprocessing:
     enabled: true
+    useSdrEnvoyStyleHeadless: false
+    headlessServiceName: ""
     # Video upload media info (duration/codec) needs libav/ffmpeg in the image. Subchart sets VST_INSTALL_ADDITIONAL_PACKAGES=true so user_additional_install.sh runs at startup if present in image; override env if needed.
     # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video / -vst-streamer-videos (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
     persistence:
@@ -250,7 +251,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-b0ba77ae135d" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-55c5b59b8690" }}'
 vss-agent-ui:
   enabled: true
   # Empty URL fields: deployment uses global.external* then in-cluster defaults.

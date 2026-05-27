@@ -42,6 +42,8 @@ tolerations: []
 
 init:
   enabled: false
+  # Empty: inherits elasticsearch.nodeSelector from the Job template coalesce.
+  nodeSelector: {}
   image:
     repository: alpine
     tag: "3.23.4"

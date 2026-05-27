@@ -86,7 +86,7 @@ function get_detected_hardware_profile() {
   case "${_gpu_lower}" in
     *h100*) echo "H100" ;;
     *l40s*) echo "L40S" ;;
-    *rtx*4500*) echo "RTX4500" ;;
+    *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
     *gb10*) echo "DGX-SPARK" ;;
     *thor*) echo "THOR" ;;
@@ -131,6 +131,7 @@ function get_vlm_slug() {
   case "${_name}" in
     nvidia/cosmos-reason1-7b) echo "cosmos-reason1-7b" ;;
     nvidia/cosmos-reason2-8b) echo "cosmos-reason2-8b" ;;
+    nvidia/cosmos3-reasoner) echo "cosmos3-reasoner" ;;
     Qwen/Qwen3-VL-8B-Instruct) echo "qwen3-vl-8b-instruct" ;;
     *) echo "" ;;
   esac
@@ -308,14 +309,14 @@ function get_rtvi_vllm_gpu_memory_utilization() {
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
       DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
-      L40S|RTX4500) echo "0.8" ;;
+      L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
     return
   fi
 
   case "${_hardware_profile}" in
-    L40S|RTX4500) echo "0.8" ;;
+    L40S|RTXPRO4500BW) echo "0.8" ;;
     *) echo "0.7" ;;
   esac
 }
@@ -323,7 +324,7 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 function get_rtvi_vlm_max_model_len() {
   local _hardware_profile="${1}"
   case "${_hardware_profile}" in
-    RTX4500) echo "20480" ;;
+    RTXPRO4500BW) echo "20480" ;;
     *) echo "" ;;
   esac
 }
@@ -375,7 +376,7 @@ function usage() {
   echo "                                   • One of:"
   echo "                                     - H100"
   echo "                                     - L40S"
-  echo "                                     - RTX4500"
+  echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
   echo "                                     - DGX-SPARK"
   echo "                                     - IGX-THOR"
@@ -412,6 +413,7 @@ function usage() {
   echo "                                   • One of (local):"
   echo "                                     - nvidia/cosmos-reason1-7b"
   echo "                                     - nvidia/cosmos-reason2-8b"
+  echo "                                     - nvidia/cosmos3-reasoner          (set NIM_MODEL_SIZE=nano|super)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -671,9 +673,9 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'L40S' 'RTX4500' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
+      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTX4500, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
 
@@ -947,7 +949,7 @@ function process_args() {
         fi
         if contains_element "vlm" "${options_provided[@]}"; then
           if [[ -z "$(get_vlm_slug "${vlm}")" ]]; then
-            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, Qwen/Qwen3-VL-8B-Instruct"
+            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, Qwen/Qwen3-VL-8B-Instruct"
             ((_all_good++))
           fi
         fi
