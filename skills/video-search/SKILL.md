@@ -14,6 +14,7 @@ metadata:
 
 Search video archives by natural language using Cosmos Embed1 embeddings. Requires the search profile — deploy with the `deploy` skill (`-p search`). These videos sources can be ingested files or RTSP streams.
 
+
 ## When to Use
 
 - "Find all instances of forklifts"
