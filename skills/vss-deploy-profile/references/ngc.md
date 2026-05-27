@@ -84,7 +84,7 @@ Should return resource info without errors.
 
 > **`nvstaging` not `nvidia`** on develop. develop pulls every VSS image from the staging org (`nvcr.io/nvstaging/vss-core/...` per the compose files), so the verify-access check must use the same org — `nvstaging/vss-developer/dev-profile-compose:<release-tag>` exercises that exact path. For main-branch deploys (published org), swap `nvstaging` → `nvidia`.
 >
-> **Why resource and not image?** Image tags on develop carry the build's commit SHA (e.g. `vss-agent:3.2.0-26.05.2-656f61d77d9f` from `VSS_AGENT_VERSION` in `dev-profile-base/.env`), which churns every weekly cut and would make this doc stale immediately. The `dev-profile-compose` resource is versioned with the bare release tag and is stable across SHA-stamped image rebuilds.
+> **Why resource and not image?** Image tags on develop carry the build's commit SHA (e.g. `vss-agent:3.2.0-26.05.5-0cff4ad42e29` from `VSS_AGENT_VERSION` in `dev-profile-base/.env`), which churns every weekly cut and would make this doc stale immediately. The `dev-profile-compose` resource is versioned with the bare release tag and is stable across SHA-stamped image rebuilds.
 
 **Common error:** `Missing org — If Authenticated, org is also required.`
 → Fix: run `ngc config set` and ensure the org matches the one selected when generating the key.
