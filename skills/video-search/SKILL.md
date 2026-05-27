@@ -12,6 +12,8 @@ metadata:
 
 > **Alpha Feature** — not recommended for production use.
 
+<!-- NVSkills CI smoke-test change. -->
+
 Search video archives by natural language using Cosmos Embed1 embeddings. Requires the search profile — deploy with the `deploy` skill (`-p search`). These videos sources can be ingested files or RTSP streams.
 
 ## When to Use
