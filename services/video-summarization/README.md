@@ -333,24 +333,6 @@ http://<host>:38112/sse
 
 ---
 
-## Media Server (Sample Videos)
-
-When launched alongside its `media-server` sidecar (included in the compose stack), sample videos
-are served from an Nginx container reachable at `http://media-server/` from within the Docker network.
-
-**Available sample videos:**
-
-```text
-0.5min.mp4   1min.mp4     2min.mp4     5min.mp4     10min.mp4
-30min.mp4    60min.mp4    120min.mp4   720min.mkv
-```
-
-Use these in requests as: `"url": "http://media-server/<filename>"`
-
-The hostname `media-server` resolves via internal Docker DNS — it is not reachable from the host.
-
----
-
 ## Error Reference
 
 | Code | Meaning | Common Cause |
