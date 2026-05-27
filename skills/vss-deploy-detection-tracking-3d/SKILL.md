@@ -42,7 +42,8 @@ Default to **extended** unless the user explicitly asks for minimal. Extended de
 
 ### Q1 — Data source
 
-Use `AskUserQuestion` (or detect from the user's first message):
+Ask this unless the source is explicit in the user's first message. A bare request
+like "deploy rtvi-cv-3d" does **not** imply `sample`.
 
 - **sample** — the bundled 4-camera synthetic dataset (`warehouse-4cams-20mx20m-synthetic`). Calibration ships in-tree; no AMC run needed.
 - **videos** — the user has local video files (any `*.mp4` named after their cameras). Standalone AMC (`auto_calib` profile) will run if calibration is missing.
