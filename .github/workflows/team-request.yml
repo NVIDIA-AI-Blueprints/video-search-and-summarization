@@ -1,4 +1,4 @@
-name: Team Request NVSkills CI
+name: Request NVSkills CI
 
 on:
   workflow_call:
