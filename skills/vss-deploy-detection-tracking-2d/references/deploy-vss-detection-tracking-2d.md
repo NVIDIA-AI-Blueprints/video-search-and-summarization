@@ -988,7 +988,7 @@ The container itself never receives a `~/.ngc` mount — see
 ## Reusable Scripts (`scripts/`)
 
 All scripts are licensed Apache-2.0 and live in
-[`scripts/`](scripts/). Run any of them with `--help` for full options.
+[`scripts/`](../scripts/). Run any of them with `--help` for full options.
 
 | Script                          | Purpose                                                                  |
 |---------------------------------|--------------------------------------------------------------------------|

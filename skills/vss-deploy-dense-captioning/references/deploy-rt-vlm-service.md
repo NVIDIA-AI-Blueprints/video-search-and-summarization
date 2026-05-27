@@ -376,7 +376,7 @@ RTVI_VLM_MODEL_TO_USE=cosmos-reason2
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:1208-fp8-static-kv8
 EOF
 
-# 2. Prepare VST clip-storage host dir (required)
+# 2. Prepare VST clip-storage host dir (required per §6 above)
 mkdir -p "$VSS_DATA_DIR/data_log/vst/clip_storage"
 sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"
 
@@ -385,7 +385,7 @@ echo "<your-ngc-key>" | sudo docker login nvcr.io -u '$oauthtoken' --password-st
 # Or preserve env: sudo --preserve-env=NGC_CLI_API_KEY bash -c \
 #   'echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u $oauthtoken --password-stdin'
 
-# 4. Pull image directly (docker compose pull fails on standalone — see §4)
+# 4. Pull image directly (as described in §4 above)
 sudo docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${VLM_TAG}"
 
 # 5. Bring up — plain `up` (no profile) starts nothing

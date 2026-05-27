@@ -32,13 +32,6 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
    - Answer → hand off to the `/vss-deploy-profile` skill with `-p alerts -m <mode>`. Return here once it succeeds.
    - If the user declines → stop. No incidents/alerts/metrics to query without the alerts stack up.
 
-   (If your caller has granted explicit pre-authorization to deploy
-   autonomously — e.g. the request says "pre-authorized to deploy
-   prerequisites", or you are running in a non-interactive evaluation
-   harness with that permission — skip the confirmation and invoke
-   `/vss-deploy-profile` directly. Default the mode to `verification` unless the
-   request specifies otherwise.)
-
 3. If the probe passes, proceed.
 
 ---

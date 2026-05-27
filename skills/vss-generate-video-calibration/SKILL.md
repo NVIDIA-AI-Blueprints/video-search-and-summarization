@@ -197,7 +197,7 @@ Downstream skill flow:
 
 ## Related Skills
 
-- [`vios`](../vios/SKILL.md) — VIOS API skill; only the `rtsp` calibration mode depends on VIOS being reachable.
+- [`vss-manage-video-io-storage`](../vss-manage-video-io-storage/SKILL.md) — VIOS API skill; only the `rtsp` calibration mode depends on VIOS being reachable.
 
 Root `README.md` "Custom Dataset" and "Calibration Workflow (UI)" sections document input-video guidelines and the UI-driven alternative to this API flow.
 
