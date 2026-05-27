@@ -8,17 +8,19 @@ For chart internals (templates, ConfigMaps, jobs), see `charts/rtvi-cv/`.
 
 ## Prerequisites
 
+For cluster setup, GPU nodes, Helm, NGC credentials, and storage expectations shared across VSS Helm profiles, see [Prerequisites](../../../../developer-profiles/dev-profile-search/README.md#prerequisites) in the dev-profile-search guide.
+
 - Kubernetes cluster with **NVIDIA GPU** nodes and the NVIDIA device plugin (workload requests `nvidia.com/gpu: 1`).
 - **`helm`** (v3) with network access to pull images (`nvcr.io`, `docker.io`, …).
-- **NGC CLI API key** in a Secret (default key name below). The key must be allowed to download the registry **resource** configured in `ngcAppDataResourceVersion`.
+- **NGC API key** in two Secrets (see [section 2](#2-namespace-and-ngc-secrets-from-scratch)): an **Opaque** secret for NGC CLI download Jobs (`ngc-api` / `NGC_CLI_API_KEY` by default) and a **docker-registry** secret for pulling `nvcr.io` images (`ngc-docker-reg-secret`). The key must be allowed to download the registry **resource** configured in `ngcAppDataResourceVersion`.
 - A **StorageClass** for RWO volumes (or leave `persistence.storageClass` empty to use the cluster default).
-- Optional: **`ngc-docker-reg-secret`** (or equivalent) if your cluster requires pull secrets for private images (`imagePullSecrets`).
+
 
 ---
 
 ## 1. Variables (set once per shell)
 
-Pick a Helm **release name**, **namespace**, and ensure the NGC secret exists in that namespace.
+Pick a Helm **release name**, **namespace**, and ensure the NGC secrets exist in that namespace.
 
 ```bash
 export RELEASE="vss-standalone"
@@ -30,13 +32,20 @@ export PROFILE="standalone-2d"   # or: standalone-3d
 
 ---
 
-## 2. Namespace and NGC secret (from scratch)
+## 2. Namespace and NGC secrets (from scratch)
 
 ```bash
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Create a Secret with the NGC API key. Defaults in `charts/rtvi-cv/values.yaml` expect **`Secret` name `ngc-api`**, key **`NGC_CLI_API_KEY`**:
+Create **two** secrets with the same NGC API key. Defaults in `charts/rtvi-cv/values.yaml`:
+
+| Purpose | Secret name | Type | Data key |
+|--------|-------------|------|----------|
+| NGC CLI (download Jobs) | `ngc-api` | Opaque | `NGC_CLI_API_KEY` |
+| Image pull (`nvcr.io`) | `ngc-docker-reg-secret` | docker-registry | `.dockerconfigjson` |
+
+**1. Opaque secret** (NGC CLI for `job-download-ngc-app-data` / `job-download-models`):
 
 ```bash
 kubectl create secret generic ngc-api \
@@ -45,7 +54,18 @@ kubectl create secret generic ngc-api \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-If you already use another secret name or key (for example `ngc-api-key-secret` / `NGC_API_KEY`), pass `vss-rtvi-cv.ngcApiKeySecretName` and `vss-rtvi-cv.ngcApiKeySecretKey` in Helm values or `--set` flags to match.
+**2. Docker-registry pull secret** (`imagePullSecrets` on Jobs and the StatefulSet):
+
+```bash
+kubectl create secret docker-registry ngc-docker-reg-secret \
+  --namespace "${NAMESPACE}" \
+  --docker-server=nvcr.io \
+  --docker-username='$oauthtoken' \
+  --docker-password='<your-ngc-api-key>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+If you already use other secret names or keys (for example `ngc-api-key-secret` / `NGC_API_KEY` from dev-profile-search), set `vss-rtvi-cv.ngcApiKeySecretName` and `vss-rtvi-cv.ngcApiKeySecretKey` in Helm values or `--set` flags to match. For pull secrets, override `vss-rtvi-cv.imagePullSecrets` or `global.imagePullSecrets`.
 
 ---
 
@@ -60,21 +80,6 @@ If you use packaged dependencies instead of `file://` subcharts, run once:
 ```bash
 cd deploy/helm/services/rtvi
 helm dependency update
-```
-
-### 3.1 Install only the `vss-rtvi-cv` subchart (optional)
-
-From `deploy/helm/services/rtvi/charts/rtvi-cv`, use **flattened** values (no `vss-rtvi-cv.` prefix), for example:
-
-```bash
-cd deploy/helm/services/rtvi/charts/rtvi-cv
-helm upgrade --install "${RELEASE}" . \
-  --namespace "${NAMESPACE}" \
-  --create-namespace \
-  --set enabled=true \
-  --set profileMode="${PROFILE}" \
-  --set downloadNgcAppData=true \
-  --set downloadModelsFromNgc=false
 ```
 
 ---
@@ -175,10 +180,10 @@ If the PVC name differs (prefix / override), list first:
 kubectl get pvc -n "${NAMESPACE}" | grep rtvi-cv
 ```
 
-### 7.3 Remove the NGC secret (optional)
+### 7.3 Remove the NGC secrets (optional)
 
 ```bash
-kubectl delete secret ngc-api -n "${NAMESPACE}"
+kubectl delete secret ngc-api ngc-docker-reg-secret -n "${NAMESPACE}" --ignore-not-found
 ```
 
 ### 7.4 Remove the namespace (optional, destructive)
