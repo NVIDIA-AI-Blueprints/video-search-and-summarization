@@ -39,27 +39,12 @@ build:
 		echo "Successfully pulled base image from registry"; \
 	else \
 		echo "Pull failed, building base image locally..."; \
-		if [ -z "$(ARTIFACTORY_USER)" ] || [ -z "$(ARTIFACTORY_TOKEN)" ]; then \
-			echo "Error: ARTIFACTORY_USER and ARTIFACTORY_TOKEN must be set to build the base image"; \
-			echo "Please export ARTIFACTORY_USER and ARTIFACTORY_TOKEN before building"; \
-			exit 1; \
-		fi; \
-		NETRC_FILE=$$(mktemp); \
-		echo "Generating temporary .netrc file..."; \
-		echo "machine artifactory.nvidia.com" > $$NETRC_FILE; \
-		echo "login $(ARTIFACTORY_USER)" >> $$NETRC_FILE; \
-		echo "password $(ARTIFACTORY_TOKEN)" >> $$NETRC_FILE; \
-		chmod 600 $$NETRC_FILE; \
-		echo "Building base image with Artifactory credentials..."; \
 		DOCKER_BUILDKIT=1 docker build \
 			--network host \
-			--secret id=netrc,src=$$NETRC_FILE \
 			--build-arg ARM_PLATFORM=$(ARM_PLATFORM) \
 			-t $(BASE_IMG_NAME) \
 			--platform=$(BUILD_PLATFORM) \
 			-f Dockerfile ../..; \
 		BUILD_EXIT=$$?; \
-		rm -f $$NETRC_FILE; \
-		echo "Cleaned up temporary .netrc file"; \
 		exit $$BUILD_EXIT; \
 	fi
