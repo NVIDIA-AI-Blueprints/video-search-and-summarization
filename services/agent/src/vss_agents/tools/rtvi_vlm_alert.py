@@ -53,7 +53,7 @@ class RTVIVLMAlertConfig(FunctionBaseConfig, name="rtvi_vlm_alert"):
         description="Default VLM model for caption/alert generation",
     )
     default_alert_type: str = Field(
-        "alert",
+        "vlm-alert",
         description="Default alert_type label assigned to created rules when not provided",
     )
     default_prompt: str | None = Field(

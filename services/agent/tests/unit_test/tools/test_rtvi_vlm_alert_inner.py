@@ -161,6 +161,44 @@ class TestRTVIVLMAlertInner:
         assert "not found" in result.message.lower()
 
     @pytest.mark.asyncio
+    async def test_start_posts_default_vlm_alert_type(self, config, mock_builder):
+        _sensor_to_alert_rule_id.pop("HWY_20", None)
+
+        mock_get_resp = AsyncMock()
+        mock_get_resp.status = 200
+        mock_get_resp.raise_for_status = MagicMock()
+        mock_get_resp.text = AsyncMock(
+            return_value=json.dumps([{"stream-uuid-1": [{"name": "HWY_20", "url": "rtsp://ip/stream"}]}])
+        )
+        mock_get_resp.__aenter__ = AsyncMock(return_value=mock_get_resp)
+        mock_get_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_post_resp = MagicMock()
+        mock_post_resp.status = 201
+        mock_post_resp.text = AsyncMock(return_value=json.dumps({"id": "rule-uuid-1"}))
+        mock_post_cm = AsyncMock()
+        mock_post_cm.__aenter__ = AsyncMock(return_value=mock_post_resp)
+        mock_post_cm.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_get_resp
+        mock_session.post.return_value = mock_post_cm
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session):
+            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
+                inner_fn = await self._get_inner_fn(config, mock_builder)
+                inp = RTVIVLMAlertInput(action="start", sensor_name="HWY_20")
+                result = await inner_fn(inp)
+
+        assert result.success is True
+        assert result.alert_rule_id == "rule-uuid-1"
+        assert mock_session.post.call_args.kwargs["json"]["alert_type"] == "vlm-alert"
+        assert _sensor_to_alert_rule_id["HWY_20"] == "rule-uuid-1"
+        _sensor_to_alert_rule_id.pop("HWY_20", None)
+
+    @pytest.mark.asyncio
     async def test_stop_404_response(self, config, mock_builder):
         """Stop returns success when Alert Bridge reports rule already gone."""
         _sensor_to_alert_rule_id["SENSOR_404"] = "rule-uuid-404"

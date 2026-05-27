@@ -34,7 +34,7 @@ class TestRTVIVLMAlertConfig:
         assert config.alert_bridge_url == "http://localhost:9080"
         assert config.vst_internal_url == "http://10.0.0.1:30888"
         assert config.default_model == "nvidia/cosmos-reason1-7b"
-        assert config.default_alert_type == "alert"
+        assert config.default_alert_type == "vlm-alert"
         assert config.timeout == 180
 
     def test_custom_defaults(self):
