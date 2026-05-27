@@ -293,6 +293,12 @@ def create_video_delete_router(
                 results.append(success)
                 logger.info(f"Remove from RTVI-CV: {'OK' if success else msg}")
 
+            # --- Delete VST storage (using shared vst utils) ---
+            with TimeMeasure("video_delete: delete VST storage"):
+                success, msg = await delete_vst_storage(vst_url, video_id)
+            results.append(success)
+            logger.info("Delete VST storage: %s", "OK" if success else msg)
+
             # --- Delete VST sensor (using shared vst utils) ---
             # Required: delete_vst_storage only removes stored files, not the
             # sensor registration — the two must be paired to fully remove a
@@ -301,12 +307,6 @@ def create_video_delete_router(
                 success, msg = await delete_vst_sensor(vst_url, video_id)
             results.append(success)
             logger.info("Delete VST sensor: %s", "OK" if success else msg)
-
-            # --- Delete VST storage (using shared vst utils) ---
-            with TimeMeasure("video_delete: delete VST storage"):
-                success, msg = await delete_vst_storage(vst_url, video_id)
-            results.append(success)
-            logger.info("Delete VST storage: %s", "OK" if success else msg)
 
         # --- Determine overall status ---
         all_success = bool(results) and all(results)
