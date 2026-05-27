@@ -30,14 +30,46 @@ Video Summarization is composed of the following services:
 | **lvs** | REST API server — orchestrates captioning, summarization, and streaming workflows |
 | **rt-vlm** | Real-Time VLM inference — downloads video, chunks frames, runs VLM, streams captions via SSE or Kafka |
 | **LLM NIM** (e.g. gpt-oss-20b) | Summarization LLM — aggregates captions into structured summaries via Context-Aware RAG |
-| **Elasticsearch** | Default document store for captions and summaries |
-| **Kafka + Logstash** | (Optional) Streaming pipeline — RT-VLM publishes raw events to Kafka, Logstash writes to Elasticsearch |
-| **Milvus** | (Optional) Vector DB backend alternative to Elasticsearch |
-| **Neo4j / ArangoDB** | (Optional) Graph DB backends |
+| **Elasticsearch** | Document store for captions and summaries (default summarization backend) |
+| **Milvus** | Vector DB backend for summarization and embeddings |
+| **Neo4j** | Graph DB backend for QnA retrieval (default QnA backend) |
+| **ArangoDB** | Alternative graph DB backend for QnA retrieval |
+| **Kafka + Logstash** | (Optional, profile-gated) Streaming pipeline — RT-VLM publishes raw events to Kafka, Logstash writes to Elasticsearch |
 
 ## Running Video Summarization
 
 Video Summarization uses Docker Compose for deployment.
+
+### Database backends
+
+The compose file deploys **all four database backends** (Elasticsearch, Milvus, Neo4j, ArangoDB)
+by default. This is intentional — the `lvs` service connects to every backend at startup so you
+can switch between them at any time without restarting the stack.
+
+Two environment variables control which backend is actively used:
+
+| Variable | Purpose | Allowed values | Default |
+|----------|---------|----------------|---------|
+| `LVS_DATABASE_BACKEND` | Backend for **summarization** (caption storage, CA-RAG retrieval) | `elasticsearch_db`, `vector_db`, `graph_db`, `graph_db_arango` | `elasticsearch_db` |
+| `LVS_QA_DATABASE_BACKEND` | Backend for **QnA** retrieval (ingestion and retrieval functions) | `graph_db`, `graph_db_arango`, `vector_db`, `elasticsearch_db` | `graph_db` |
+
+For example, to use Elasticsearch for summarization and Neo4j for QnA (the defaults):
+
+```sh
+LVS_DATABASE_BACKEND=elasticsearch_db
+LVS_QA_DATABASE_BACKEND=graph_db
+```
+
+Or to use Milvus for summarization and ArangoDB for QnA:
+
+```sh
+LVS_DATABASE_BACKEND=vector_db
+LVS_QA_DATABASE_BACKEND=graph_db_arango
+```
+
+> **Note:** Kafka and Logstash are *profile-gated* — they start only when the `kafka` Compose
+> profile is active, and the streaming pipeline (Kafka → Logstash → Elasticsearch) is only
+> supported when `LVS_DATABASE_BACKEND=elasticsearch_db`.
 
 ### Set environment variables
 
@@ -54,10 +86,11 @@ export LVS_LLM_HOST=<>             # Hostname of the summarization LLM (e.g. gpt
 export LVS_LLM_PORT=<>             # Port of the summarization LLM (e.g. 9233)
 export LVS_LLM_MODEL_NAME=<>      # LLM model name (e.g. openai/gpt-oss-20b)
 
-# Database Backend (choose one)
-export LVS_DATABASE_BACKEND=elasticsearch_db  # elasticsearch_db | vector_db | graph_db | graph_db_arango
-export ES_HOST=elasticsearch
-export ES_PORT=9200
+# Database Backend — all four DBs are deployed; these control which one is actively used
+export LVS_DATABASE_BACKEND=elasticsearch_db      # elasticsearch_db | vector_db | graph_db | graph_db_arango
+export LVS_QA_DATABASE_BACKEND=graph_db           # graph_db | graph_db_arango | vector_db | elasticsearch_db
+export ES_HOST=elasticsearch                      # Elasticsearch hostname (default: elasticsearch)
+export ES_PORT=9200                               # Elasticsearch port (default: 9200)
 
 # RT-VLM (Video Language Model backend)
 export RTVI_VLM_URL=http://rtvi-vlm:8000     # URL of the RT-VLM service
@@ -95,7 +128,10 @@ BACKEND_PORT=38111
 LVS_LLM_HOST=gpt-oss-20b
 LVS_LLM_PORT=9233
 LVS_LLM_MODEL_NAME=openai/gpt-oss-20b
+
+# Database backend selection (all DBs are deployed; these pick the active one)
 LVS_DATABASE_BACKEND=elasticsearch_db
+LVS_QA_DATABASE_BACKEND=graph_db
 
 # MCP Server
 LVS_ENABLE_MCP=true
