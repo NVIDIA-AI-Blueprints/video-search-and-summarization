@@ -1,4 +1,4 @@
-name: Request NVSkills CI
+name: Team Request NVSkills CI
 
 on:
   issue_comment:
