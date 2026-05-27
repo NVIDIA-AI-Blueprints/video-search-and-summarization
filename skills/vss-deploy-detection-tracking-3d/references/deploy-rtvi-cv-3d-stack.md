@@ -32,7 +32,7 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 | `vss-video-analytics-api-mv3dt` | Serves overlay data to VST |
 | `vss-import-calibration-output-mv3dt` | Imports the `calibration.json` into Elasticsearch |
 
-In 3.1.0 these were unconditional (no minimal/extended switch existed). In 3.2.0 they share a single `${MINIMAL_PROFILE:+_extended}` gate — i.e. there's no way to enable only a subset.
+These services share a single `${MINIMAL_PROFILE:+_extended}` gate — they come up together as a unit, not individually selectable.
 
 **Recommendation: default to extended** for any user who wants a complete e2e experience including overlays. Drop to minimal only when explicitly asked for the smallest footprint (edge / Thor / "just give me the topic data").
 
@@ -64,7 +64,7 @@ CAM_COUNT=$(ls "${CAL_DIR}/camInfo/"*.{yml,yaml} 2>/dev/null | wc -l)
 echo "Found ${CAM_COUNT} calibration files under ${CAL_DIR}/camInfo/"
 
 # 4. The configurator enforces min(NUM_STREAMS, HARDWARE_PROFILE.max_streams_supported)
-#    and will silently delete excess videos. See SKILL.md Prerequisites §3.
+#    and trims excess videos to match. See SKILL.md Prerequisites §3.
 echo "NUM_STREAMS=${NUM_STREAMS}, HARDWARE_PROFILE=${HARDWARE_PROFILE}"
 echo "If max_streams_supported for ${HARDWARE_PROFILE}.mv3dt is < ${NUM_STREAMS},"
 echo "the configurator will trim videos to that cap at deploy time."
@@ -88,7 +88,7 @@ MINIMAL_PROFILE=""                          # line 54-55 — EXTENDED (default f
 SAMPLE_VIDEO_DATASET="<your-dataset-slug>"  # line 62 — see "Slug" note below
 NUM_STREAMS=4                               # line 206 — must equal camInfo count
 
-# Hardware (canonical keys — IGNORE the comment at .env:65 listing "A6000")
+# Hardware — use the slug from SKILL.md Prerequisites §3 (canonical keys live in blueprint_config.yml)
 HARDWARE_PROFILE=H100                       # line 67 — see SKILL.md Prerequisites §3 table
 RT_CV_DEVICE_ID='0'                         # line 69 — GPU for perception
 LLM_MODE=none                               # line 81 — no LLM/VLM for MV3DT
@@ -134,7 +134,7 @@ sudo chmod -R a+rX /path/to/vss-warehouse-app-data
 # Then point VSS_DATA_DIR at /path/to/vss-warehouse-app-data
 ```
 
-> **Known bad-tarball gotcha (2026-05).** Some published versions of `vss-warehouse-app-data` ship `warehouse-4cams-20mx20m-synthetic/` with **fewer videos than the dataset name implies** (e.g. 2 of 4 cameras present). Whether this matters depends on your GPU's `mv3dt` cap (see SKILL.md Prerequisites §3) — if the cap is at or below the present video count, the configurator's `keep_count` op masks the missing files. On a GPU with a higher cap, the missing files become a real deploy issue. Always verify the video count before deploy (the pre-flight check above prints it) and source any missing cams separately if needed.
+> Always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's `mv3dt` cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying.
 
 ### `SAMPLE_VIDEO_DATASET` slug
 
@@ -198,6 +198,16 @@ If any of the core are missing, `COMPOSE_PROFILES` is wrong — re-check `MODE` 
 
 ## Step 3 — Deploy
 
+> **Redeploying after a dataset / camera-set change?** Reset the MV3DT named volumes first so VST sensor records re-initialize from the new calibration:
+>
+> ```bash
+> cd "${VSS_APPS_DIR}"
+> docker compose -f compose.yml \
+>   --env-file industry-profiles/warehouse-operations/.env down -v
+> ```
+>
+> Plain `docker compose down` (without `-v`) preserves the Kafka log and the VST Postgres DB by design — useful for restarting against the same dataset, less useful when the camera names or count have changed. Full discussion: [`teardown.md`](teardown.md). For first-time deploys on a clean host, skip this and go straight to the commands below.
+
 ```bash
 cd "${VSS_APPS_DIR}"
 
@@ -222,12 +232,12 @@ tail -20 "$LOG"
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'mv3dt|mosquitto|kafka|redis|elasticsearch|logstash|kibana|vios|centralizedb|configurator|behavior'
 ```
 
-First-run gotchas (normal, not bugs):
+Expected first-run timing:
 
 - `vss-rtvi-cv-mv3dt` sits in `(starting)` for 5–10 min while DeepStream builds the BodyPose3DNet TensorRT engine. Tail `docker logs -f vss-rtvi-cv-mv3dt` for `Build engine successfully` lines.
-- `vss-rtvi-cv-bev-fusion` reports unhealthy until `/tmp/fusion_ready` is created (health check on a sentinel file).
-- `broker-health-check` should `Exit 0` once the broker is up and topics are seeded. If it stays running, broker is still booting.
-- Under extended: `elasticsearch-init-container`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt` all `Exit 0` after one-shot init. That's normal — don't restart them.
+- `vss-rtvi-cv-bev-fusion` reports unhealthy until `/tmp/fusion_ready` is created — the health check probes that sentinel file.
+- `broker-health-check` reaches `Exit 0` once the broker is up and topics are seeded. If it stays running, the broker is still booting.
+- Under extended: `elasticsearch-init-container`, `vss-kibana-init-mv3dt`, and `vss-import-calibration-output-mv3dt` are one-shot init containers and reach `Exit 0` after completing — leave them alone.
 
 Once perception logs an FPS line and `/tmp/fusion_ready` exists (check via `docker inspect`), continue to [`verify-and-view.md`](verify-and-view.md).
 
@@ -235,7 +245,7 @@ Once perception logs an FPS line and `/tmp/fusion_ready` exists (check via `dock
 
 - Image pull 401 / 403 → re-run `docker login nvcr.io`; verify `ngc registry image list "nvstaging/vss-core/*"` (or `nvidia/vss-core/*`) returns results.
 - `unknown or invalid runtime name: nvidia` → install NVIDIA Container Toolkit (`vss-deploy-profile/references/prerequisites.md` §2.3).
-- `redis ... Can't open the log file: Permission denied` or `vss-configurator-mv3dt` exits 1 immediately → `VSS_DATA_DIR` is wrong (probably points at the repo dir, not the extracted app-data). See Step 0 checks.
+- `redis ... Can't open the log file: Permission denied` or `vss-configurator-mv3dt` exits 1 immediately → confirm `VSS_DATA_DIR` points at the extracted app-data directory, not the repo. See Step 0 checks.
 - Containers in `Created` state forever → almost always the same `VSS_DATA_DIR` issue. Stop everything, fix `.env`, redeploy.
 - Profile mismatch (e.g. expected containers not in `docker compose config`) → confirm `MODE=mv3dt`, `BP_PROFILE` is one of `bp_wh_kafka` / `bp_wh_redis`. Other failure modes → [`troubleshooting.md`](troubleshooting.md).
 

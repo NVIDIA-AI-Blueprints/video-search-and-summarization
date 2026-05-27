@@ -4,36 +4,75 @@ Parent: [`../SKILL.md`](../SKILL.md). Stop the MV3DT stack, optionally clear dat
 
 This teardown is scoped to whatever this skill brought up — the same compose file the deploy used. It's safe to run repeatedly.
 
-## Step 1 — Stop containers
+## Step 1 — Stop containers and reset named volumes (recommended for redeploys)
 
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
+  down -v
+```
+
+`down -v` removes the MV3DT containers (perception, fusion, mosquitto, broker, VST sensor stack, configurator, nvstreamer, auto-calibration) **and** resets the named docker volumes (Kafka log, Postgres VST DB, Elasticsearch data, Logstash libs). This is the recommended path for any redeploy where:
+
+- the dataset or camera count changed (sensor records re-initialize from the new calibration),
+- the calibration file changed for the same dataset slug,
+- you want each deploy to start from a known-clean state.
+
+Named volumes persist across `docker compose down` by design, which is great when you want to retain Kafka offsets or Elasticsearch history between restarts. For redeploys after a camera-set change, the cleaner path is to let those volumes reset alongside the containers — `down -v` does both in one step.
+
+### Alternate — stop containers, keep volumes
+
+When you intend to bring the same dataset back up against the existing broker / VST history (for example, restarting after a quick config tweak), use plain `down` and skip Step 2:
+
+```bash
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
   down
 ```
 
-This removes the MV3DT containers (perception, fusion, mosquitto, broker, VST sensor stack, configurator, nvstreamer, auto-calibration) but **preserves** named docker volumes (Kafka data, Redis data, Postgres state, etc.).
+## Step 2 — (Optional) Targeted volume cleanup + prune
 
-## Step 2 — Prune dangling volumes (recommended)
+When you stopped with plain `down` in Step 1 but later decide to reset only certain volumes, target them explicitly. Then prune dangling resources:
 
 ```bash
+# Remove MV3DT-named volumes explicitly
+docker volume rm $(docker volume ls -q | grep '^mdx_') 2>/dev/null
+
+# Then clean up dangling resources
 docker volume prune -f
 docker system prune -f
 ```
 
-`volume prune -f` removes only unreferenced volumes — safe after `down`. `system prune -f` clears stopped containers, dangling images, and unused networks. Skip both if you have other docker workloads on this host that share the docker volume namespace.
+`volume prune -f` only removes unreferenced anonymous volumes, so named volumes like `mdx_mdx-kafka` / `mdx_vios_pg_data` survive unless you target them explicitly. Skip the prune if other docker workloads on this host share the volume namespace.
 
-## Step 3 — Clear data logs and state
+## Step 3 — Clear data logs
+
+The shipped cleanup script drops data dirs the warehouse stack writes to (Elasticsearch indexes, Kafka logs, VST sensor state, etc.).
+
+**Pass `--skip-revert-from-oldest-backup`** so the script does not roll your `.env` and other configs back to their packaged backup snapshots. The configurator re-renders those files at next deploy from `.env`, so reverting them isn't needed; leaving the flag off causes the script to source a placeholder `.env`, lose `VSS_DATA_DIR`, and then no-op the data_log deletes without any error.
 
 ```bash
 bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
-  -e industry-profiles/warehouse-operations/.env
+  -e industry-profiles/warehouse-operations/.env \
+  --skip-revert-from-oldest-backup
 ```
 
-The shipped cleanup script drops data dirs the warehouse stack writes to (Elasticsearch state, Kafka logs, VST sensor state, etc.). Same env file you used with `up`. Sudo may prompt for some paths.
+Sudo may prompt for some paths.
 
-## Step 4 — Tear down AMC (only if you deployed it)
+### Verify the cleanup actually ran
+
+The cleanup script doesn't print per-path success, so confirm by disk usage:
+
+```bash
+# Should be small (a few MB at most) or report "No such file or directory"
+du -sh "${VSS_DATA_DIR}/data_log" 2>/dev/null
+du -sh "${VSS_DATA_DIR}/auto-calib"/{vst_storage,nvstreamer_data}/ 2>/dev/null
+```
+
+If you see multi-GB sizes after Step 3, the deletes did not take effect. Confirm `VSS_DATA_DIR` resolves in your shell (`echo "${VSS_DATA_DIR}"`), then re-run Step 3.
+
+## Step 4 — Tear down AMC (only if you deployed it standalone)
 
 If [`calibration-workflow.md`](calibration-workflow.md) deployed `auto_calib` separately and you didn't tear it down already, do it now:
 
@@ -44,41 +83,50 @@ COMPOSE_PROFILES=auto-calib docker compose \
   down
 ```
 
-When AMC was deployed under the warehouse profile gating (i.e. it came up because `bp_wh_*_mv3dt` includes auto-calibration), Step 1 already removed it — no separate teardown needed.
+When AMC came up under the warehouse profile gating (because `bp_wh_*_mv3dt` includes auto-calibration), Step 1 already removed it — no separate teardown needed.
 
 ## What is preserved across teardown
 
 These are intentionally not deleted:
 
-- **Calibration outputs** — `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<slug>/` (bind-mounted, not a docker volume). Your next deploy reuses them.
+- **Calibration outputs** — `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<slug>/` (bind-mounted, not a docker volume). Next deploy reuses them.
 - **AMC project state** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/` (bind-mounted). Lets you re-run VGGT or fetch logs after teardown.
-- **`.env` file** — never touched. Edit it before the next `up`.
 - **NGC images** in `nvcr.io` — local docker image cache is preserved. Next deploy uses cached images unless you `--pull always`.
+
+What is **not** preserved (be aware):
+
+- **Configurator-rendered configs** under `warehouse-mv3dt-app/{vst,nvstreamer,deepstream,vss-behavior-analytics}/configs/` and `services/analytics/video-analytics-api/configs/` — these are re-rendered on next deploy from `.env`, so this is normally fine, but any hand-edits you made between deploys will be overwritten.
+- **`.env` if you omit `--skip-revert-from-oldest-backup` in Step 3** — the cleanup script will roll `.env` back to its packaged snapshot (placeholders for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, `NGC_CLI_API_KEY`). With the flag set as shown above, `.env` is untouched.
 
 ## Nuke option (you're really sure)
 
-When you want to wipe everything including bind-mounted state:
+When you want to wipe everything including bind-mounted state, named volumes, and the cached image layers:
 
 ```bash
 cd "${VSS_APPS_DIR}"
 
-# Stop everything first
+# Stop everything, drop named volumes, drop locally-built images
 docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env down -v --rmi local
 
-# Clear bind-mounted state — DESTRUCTIVE
-DATASET="${SAMPLE_VIDEO_DATASET:?}"
+# Clear bind-mounted AMC state — DESTRUCTIVE
 sudo rm -rf "${VSS_APPS_DIR}/services/auto-calibration/projects/"
-# Only delete your own calibration outputs, not the ship-with-repo sample!
+
+# Clear your own calibration outputs (keep the ship-with-repo sample!)
+DATASET="${SAMPLE_VIDEO_DATASET:?}"
 if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
   sudo rm -rf "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
 fi
 
-bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" -e industry-profiles/warehouse-operations/.env
+# Drop data_log and optionally revert .env (intentional this time)
+bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
+  -e industry-profiles/warehouse-operations/.env
+
 docker volume prune -f
+docker system prune -f
 ```
 
-Don't run this if you have AMC project state you want to keep — calibration projects under `services/auto-calibration/projects/` are wiped.
+Don't run this if you have AMC project state or custom calibration you want to keep — they're both wiped.
 
 ## After teardown — common next steps
 

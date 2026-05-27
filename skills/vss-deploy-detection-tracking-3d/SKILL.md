@@ -3,14 +3,15 @@ name: vss-deploy-detection-tracking-3d
 description: >
   Deploy and operate the RTVI-CV-3D stack (also known as MV3DT, Multi-View 3D
   Tracking, or RTVI-CV-MV3DT) — per-camera DeepStream perception plus BEV
-  Fusion over multiple synchronized warehouse cameras. Use when the user says
+  Fusion over multiple calibrated cameras. Use when the user says
   "deploy RTVI-CV-3D", "deploy rtvi-cv-3d", "deploy MV3DT", "deploy multi-view
-  3D tracking", "deploy rtvi-cv-mv3dt", "run RTVI-CV-3D on my videos", "run
-  MV3DT on my videos", "run RTVI-CV-3D / MV3DT on RTSP", "run on the sample
-  dataset", "set up 3D tracking", or provides a 4-camera warehouse
-  video/RTSP set. Routes between sample-data, custom-videos, and custom-RTSP
-  flows; auto-chains to `vss-generate-video-calibration` when calibration
-  data is missing.
+  3D tracking", "deploy rtvi-cv-mv3dt", "enable multi-camera tracking",
+  "enable multi camera tracking", "set up multi-camera tracking", "multi-camera
+  tracking", "run RTVI-CV-3D on my videos", "run MV3DT on my videos", "run
+  RTVI-CV-3D / MV3DT on RTSP", "run on the sample dataset", "set up 3D
+  tracking", or provides a 4-camera warehouse video/RTSP set. Routes between
+  sample-data, custom-videos, and custom-RTSP flows; auto-chains to
+  `vss-generate-video-calibration` when calibration data is missing.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -18,11 +19,9 @@ metadata:
   tags: "nvidia blueprint mv3dt detection tracking 3d warehouse"
 ---
 
-# VSS Deploy Detection & Tracking — 3D (RTVI-CV-3D / MV3DT)
+# VSS Deploy Detection & Tracking — 3D (RTVI-CV-3D)
 
-"RTVI-CV-3D" is the user-facing name; "MV3DT" (Multi-View 3D Tracking) is the engineering name. Same stack — same compose tree under `warehouse-mv3dt-app/`, same containers (`vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`).
-
-Bring up the RTVI-CV-3D / MV3DT stack from the warehouse blueprint: per-camera DeepStream perception (`vss-rtvi-cv-mv3dt`) + BEV Fusion (`vss-rtvi-cv-bev-fusion`) + mosquitto MQTT bus + broker + VST sensor stack — without the agent / LLM / VLM stack that comes with the full warehouse blueprint.
+Bring up the RTVI-CV-3D stack from the warehouse blueprint: per-camera DeepStream perception (`vss-rtvi-cv-mv3dt`) + BEV Fusion (`vss-rtvi-cv-bev-fusion`) + mosquitto MQTT bus + broker + VST sensor stack — without the agent / LLM / VLM stack that comes with the full warehouse blueprint.
 
 The actual compose machinery lives in `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/`. This skill drives the env overrides, calibration chain, and verification.
 
@@ -36,7 +35,7 @@ Default to **extended** unless the user explicitly asks for minimal. Extended de
 
 | User answer | `MINIMAL_PROFILE` | What you get | When to choose |
 |---|---|---|---|
-| **extended** (default) | `""` | MV3DT core + ELK + analytics API + Kibana. **Overlays work in VST video wall.** Mirrors what the 3.1.0 deepstream-buddy-agent flow always deployed. | "I want the full e2e experience", "I want to see bounding boxes", or no preference stated |
+| **extended** (default) | `""` | MV3DT core + ELK + analytics API + Kibana. **Overlays work in VST video wall.** Recommended for a complete e2e experience. | "I want the full e2e experience", "I want to see bounding boxes", or no preference stated |
 | **minimal** | `"true"` | MV3DT core only. ~5 fewer containers. **No overlays in VST.** Metadata still on Kafka/Redis. | "I only need the data", "edge / Thor host", "minimum footprint" |
 
 > **Note on selective ELK:** there's no "minimal + ELK only" middle path in the current compose. Every `${MINIMAL_PROFILE:+_extended}`-gated service comes up together (ES, Logstash, Kibana, video-analytics-api, kibana-init, import-calibration). `bash`'s `:+` parameter expansion produces the `_extended` suffix when `MINIMAL_PROFILE` is set; extended switches the gating string back to plain `bp_wh_kafka_mv3dt` which the active compose profile already matches. Either you accept the full extended bundle or you stay minimal.
@@ -106,7 +105,7 @@ Make sure the key value also lands in `industry-profiles/warehouse-operations/.e
 
 ### 3. `HARDWARE_PROFILE` slug
 
-> **Beware of an inconsistency in `industry-profiles/warehouse-operations/.env:65`.** That comment line lists `A6000` as a valid value — it is **not**. The canonical keys live in `industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml` (lines 592–642). Setting `HARDWARE_PROFILE=A6000` will silently fall back to defaults; on an RTX A6000 (Ampere) host, use `RTXA6000`.
+> The canonical `HARDWARE_PROFILE` keys live in `industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml` (lines 592–642). Use the slug from the table below — e.g. on an RTX A6000 (Ampere) host the value is `RTXA6000`.
 
 Pick from `nvidia-smi --query-gpu=name --format=csv,noheader`:
 
@@ -121,11 +120,11 @@ Pick from `nvidia-smi --query-gpu=name --format=csv,noheader`:
 | IGX Thor | `IGX-THOR` | 7 |
 | DGX Spark | `DGX-SPARK` | 4 |
 
-**The per-GPU MV3DT cap is enforced silently at deploy time.** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported)` and runs a `keep_count` file-management op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` — **extra `.mp4` files get deleted** (sorted lexicographically, last N kept). If your GPU's `mv3dt` cap (above table) is below your camera count, perception / `mdx-raw` / `mdx-bev` will run with only the cap's worth of streams and no error gets logged. Either pick a GPU with a higher cap or accept the cap explicitly and surface the trade-off to the user.
+**The per-GPU MV3DT cap is enforced at deploy time.** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported)` and applies a `keep_count` file-management op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` so only `final_stream_count` `.mp4` files remain (sorted lexicographically, last N kept). If your GPU's `mv3dt` cap (above table) is below your camera count, perception / `mdx-raw` / `mdx-bev` run with the cap's worth of streams. Either pick a GPU with a higher cap or surface the cap explicitly to the user so they're aware which streams will be processed.
 
 ### 4. App data on disk
 
-`VSS_DATA_DIR` must point at the **extracted `vss-warehouse-app-data` directory** (separate from the repo). Pointing it at the repo's `deploy/docker/` produces silent half-broken deploys (configurator exits 1, redis can't open log file, perception stays in `Created` state).
+`VSS_DATA_DIR` must point at the **extracted `vss-warehouse-app-data` directory** (separate from the repo). Pointing it at the repo's `deploy/docker/` causes the deploy to stall: the configurator can't find the dataset, redis can't open its log file, and perception stays in `Created`. Verify the path before deploy.
 
 Pre-flight check before deploy:
 

@@ -62,7 +62,7 @@ docker logs -f vss-rtvi-cv-mv3dt 2>&1 | grep -i fps
 
 Target FPS depends on `HARDWARE_PROFILE` — see the per-GPU `max_streams_supported` table in `SKILL.md` Prerequisites §3 (anchored at `blueprint_config.yml`). Roughly: ~30 FPS / camera on datacenter-class GPUs running at or below their cap; lower on edge platforms or when running at the cap. Confirm against the canonical table in `blueprint_config.yml` for your GPU before reporting "low FPS" — you may simply be at expected throughput.
 
-**Stream count check.** If perception logs report fewer FPS lines than `NUM_STREAMS`, you've hit the per-GPU cap silently (see [`configure-cameras.md`](configure-cameras.md) Step 2). Compare:
+**Stream count check.** If perception logs report fewer FPS lines than `NUM_STREAMS`, the per-GPU cap has been applied (see [`configure-cameras.md`](configure-cameras.md) Step 2). Compare:
 
 ```bash
 ls "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"*.mp4 | wc -l
@@ -151,7 +151,7 @@ The VST UI loads over TCP/30888, but video playback uses **WebRTC**. The browser
 
 **Symptom of WebRTC failure:** UI loads fine, but clicking play on a sensor shows `Playback Error: Error 22: Failed to create Video Source` — even when the data pipeline is healthy (`mdx-raw` / `mdx-bev` offsets growing, `vss-vios-streamprocessing` is recording chunks).
 
-**Cosmetic red herring.** Even with WebRTC failing, `GET /vst/api/v1/sensor/list` may return `state: "offline"` and `url: null` on each sensor — that's a misleading status, not the root cause. If `streamprocessing` is actively writing files to disk under `${VSS_DATA_DIR}/data_log/`, the data pipeline is fine; the issue is just the browser→host transport.
+**Sensor-status caveat.** Even when WebRTC is failing, `GET /vst/api/v1/sensor/list` may report `state: "offline"` and `url: null` on each sensor. That field reflects browser-reachability, not pipeline health. If `streamprocessing` is actively writing files to disk under `${VSS_DATA_DIR}/data_log/`, the data pipeline is fine — the issue is the browser→host transport.
 
 **Workarounds.**
 

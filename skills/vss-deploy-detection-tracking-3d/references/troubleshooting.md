@@ -4,15 +4,15 @@ Parent: [`../SKILL.md`](../SKILL.md). MV3DT-specific failure modes. For broader 
 
 ## Top failure modes (in order of frequency)
 
-### Only a fraction of cameras actually running (silent stream-count cap)
+### Only a fraction of cameras actually running (per-GPU stream cap)
 
-**Symptom:** You set `NUM_STREAMS=4` but `mdx-raw` only shows 2 sensors, perception logs 2 FPS lines, the VST sensor list has 2 entries. No error in any log.
+**Symptom:** You set `NUM_STREAMS=4` but `mdx-raw` only shows 2 sensors, perception logs 2 FPS lines, the VST sensor list has 2 entries.
 
-**Cause:** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported[HARDWARE_PROFILE].mv3dt)` and runs a `keep_count` op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` — silently deleting `.mp4` files beyond the cap (lex-sorted, last N kept). Per-GPU caps live in `blueprint-configurator/blueprint_config.yml:592-642`; see the table in `SKILL.md` Prerequisites §3.
+**Cause:** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported[HARDWARE_PROFILE].mv3dt)` and applies a `keep_count` op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` so `final_stream_count` `.mp4` files remain (lex-sorted, last N kept). Per-GPU caps live in `blueprint-configurator/blueprint_config.yml:592-642`; see the table in `SKILL.md` Prerequisites §3.
 
-Two common variants of this trap:
-- User set `HARDWARE_PROFILE` to an invalid slug (e.g. `A6000` instead of `RTXA6000`) — the configurator falls back to defaults and may apply an unintended cap.
-- User has more cameras than the GPU's `mv3dt` cap supports — the configurator silently crops the dataset to the cap and never emits a warning.
+Two common variants:
+- `HARDWARE_PROFILE` set to a slug not in the canonical table (e.g. `A6000`) — the configurator falls back to defaults and may apply an unintended cap. Use the slug from SKILL.md Prerequisites §3.
+- More cameras than the GPU's `mv3dt` cap supports — the configurator trims the dataset to the cap.
 
 **Diagnose:**
 ```bash
@@ -22,6 +22,41 @@ docker logs vss-configurator-mv3dt 2>&1 | grep -iE 'keep_count|final_stream_coun
 ```
 
 **Fix:** Either accept the cap (and tell the user explicitly), or move to a GPU with a higher cap. Re-source missing `.mp4` files from a backup; the configurator will trim again on next deploy unless `HARDWARE_PROFILE` covers your camera count. See [`configure-cameras.md`](configure-cameras.md) Step 2 for the lookup table.
+
+### Perception reports `Active sources : 0` after a redeploy with a new dataset
+
+**Symptom:** Containers are all up and healthy; perception logs the configured sensor names but every PERF line shows `0.00000` FPS and `Active sources : 0`. `vss-configurator-mv3dt` logs `Error adding sensor <name>. Received status code 501 from VMS. Retrying...` and `vss-vios-sensor` logs `Sensors count limit reached`. `vss-vios-streamprocessing` may log `ProxyRTSPClient ... RTSP "DESCRIBE" command failed; trying again` for stream URLs that no longer correspond to files on disk.
+
+**Cause:** Named docker volumes (notably `mdx_vios_pg_data` — VST's Postgres) persist across `docker compose down` by design. When a redeploy switches dataset / camera set / camera names, the previous deploy's sensor records remain in the VST DB. VST enforces a per-device sensor cap that matches `max_streams_supported` for the GPU; with the cap already occupied by records from the prior deploy, new registrations from the configurator return HTTP 501. The public DELETE API only reaches sensors whose owning device is currently registered, so some prior records can sit beyond its scope.
+
+**Diagnose:**
+```bash
+docker logs --tail 30 vss-configurator-mv3dt 2>&1 | grep -iE 'status code 501|Sensors count|Successfully added'
+docker logs --tail 30 vss-vios-sensor       2>&1 | grep -iE 'count limit|sensor/add|hasSpace'
+docker logs --tail 30 vss-vios-nvstreamer-mv3dt 2>&1 | grep -iE 'Exceeded sync file|DESCRIBE' | tail
+curl -sf "http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/list" \
+  | jq -r '.[] | "\(.sensorId)  \(.name)"'
+```
+
+If the sensor list shows names from a previous dataset (or more entries than `min(NUM_STREAMS, max_streams_supported)`), VST state is the cause.
+
+**Fix:** Reset VST state and redeploy from a clean slate:
+
+```bash
+cd "${VSS_APPS_DIR}"
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env down -v
+
+bash scripts/cleanup_all_datalog.sh \
+  -e industry-profiles/warehouse-operations/.env \
+  --skip-revert-from-oldest-backup
+
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  up --detach --pull always
+```
+
+`down -v` resets the named volumes (including the VST Postgres DB), so configurator re-registers sensors fresh from the current calibration. See [`teardown.md`](teardown.md) for the full discussion and [`configure-cameras.md`](configure-cameras.md) Step 5 for the targeted-trim alternative when you want to keep most state.
 
 ### `vss-rtvi-cv-bev-fusion` not healthy / `/tmp/fusion_ready` missing
 
@@ -153,7 +188,7 @@ curl -sf "http://localhost:30888/vst/api/v1/sensor/list"   # from the host itsel
 - **Outbound STUN** to `stun.l.google.com:19302` (VST's default `stunurl_list`). Corp / VPN blocks Google STUN frequently.
 - **Inbound UDP** on a random port range (VST's default `webrtc_port_range: {min:0, max:0}`). Corp / cloud / on-prem firewalls that don't pass arbitrary UDP make ICE negotiation fail.
 
-**Cosmetic red herring.** While WebRTC is broken, `GET /vst/api/v1/sensor/list` may report `state: "offline"` and `url: null` for each sensor. That status is misleading — if `streamprocessing` is actively recording chunks, the pipeline is fine. Don't chase the offline-status.
+**Sensor-status caveat.** While WebRTC is blocked, `GET /vst/api/v1/sensor/list` may report `state: "offline"` and `url: null` for each sensor. That field reflects browser-reachability, not pipeline health — if `streamprocessing` is actively recording chunks, the pipeline is fine. Focus diagnostics on the transport layer, not the sensor status.
 
 **Diagnose:**
 ```bash
@@ -177,7 +212,7 @@ nc -zu stun.l.google.com 19302                                            # bloc
 
 ### No bounding-box overlays in VST video wall
 
-**Not a bug under `MINIMAL_PROFILE="true"`.** Overlays require Elasticsearch + `vss-video-analytics-api-mv3dt` + `vss-import-calibration-output-mv3dt`, all gated under `_extended`. None of them deploy in minimal mode. See [`verify-and-view.md`](verify-and-view.md) Step 5.
+**Expected behavior under `MINIMAL_PROFILE="true"`.** Overlays require Elasticsearch + `vss-video-analytics-api-mv3dt` + `vss-import-calibration-output-mv3dt`, all gated under `_extended`. None of them deploy in minimal mode. See [`verify-and-view.md`](verify-and-view.md) Step 5.
 
 **Fix:** Tear down ([`teardown.md`](teardown.md)), set `MINIMAL_PROFILE=""` in `.env`, redeploy ([`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md)). There is no "minimal + just ELK" middle path in the current compose — the `_extended` services share a single gating suffix and come up together.
 
