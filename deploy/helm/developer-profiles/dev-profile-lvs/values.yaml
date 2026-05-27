@@ -566,8 +566,8 @@ nims:
   cosmos:
     enabled: false
     image:
-      repository: nvcr.io/nvstaging/nim/cosmos-reason2-8b
-      tag: "1.7.1.rc0-49630198"
+      repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
+      tag: "1.6.0"
       pullPolicy: IfNotPresent
     # GPU only (no cpu/memory); matches NIMService without cpu/memory limits/requests.
     resources:
