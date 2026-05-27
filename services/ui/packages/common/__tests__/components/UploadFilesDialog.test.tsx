@@ -195,6 +195,22 @@ describe('UploadFilesDialog', () => {
     expect(screen.getByText('initial.mp4')).toBeInTheDocument();
   });
 
+  it('keeps file extension in default uploadFilename', () => {
+    render(<UploadFilesDialog {...defaultProps} open={true} />);
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = createMockFile('my clip.mp4');
+    fireEvent.change(fileInput, { target: { files: createFileList([file]) } });
+    fireEvent.click(screen.getByTestId('upload-confirm-button'));
+    expect(defaultProps.onConfirm).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file,
+          uploadFilename: 'myclip.mp4',
+        }),
+      ]),
+    );
+  });
+
   it('calls onConfirm with entries when Upload is clicked', () => {
     render(<UploadFilesDialog {...defaultProps} open={true} />);
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
