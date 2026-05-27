@@ -222,4 +222,4 @@ If you see double-`http://` prefixes in `imageUrl` or `videoUrl` fields on `/url
 - **Upload timestamp is honored for the recorded timeline:** When uploading a file via `PUT /vst/api/v1/storage/file/<filename>?timestamp=<iso>`, the timeline returned by `GET /storage/<streamId>/timelines` is anchored at the supplied timestamp, not the upload wall-clock time. Subsequent snapshot / clip queries MUST use timestamps within this range — fetch the timeline first. See `references/api-reference.md § 8` and `references/integrate-vios-service.md § Integration Interfaces > Inputs > Upload video file` for the authoritative contract.
 - **Endpoint resolution:** The VST endpoint is provided by the VSS deployment context. Do not attempt manual IP/port discovery. If unavailable, ask the user. All curl examples use `<VST_ENDPOINT>` as a placeholder — substitute the resolved endpoint before executing.
 
-
+bump:1

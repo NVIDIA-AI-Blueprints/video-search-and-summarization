@@ -127,3 +127,4 @@ Replace the `-d` payload in Step 2 with any of the following.
 -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"vst_sensor_list","arguments":{}},"id":1}'
 ```
 
+bump:1
