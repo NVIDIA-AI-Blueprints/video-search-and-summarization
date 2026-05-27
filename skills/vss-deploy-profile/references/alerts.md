@@ -73,19 +73,23 @@ The default is a **2-GPU layout**: RT-CV alone on GPU 0, LLM + RT-VLM shared on 
 
 Real-time mode (`MODE=2d_vlm`) doesn't deploy RT-CV, so GPU 0 is free in that mode — often given to RT-VLM for more KV-cache headroom.
 
-## VLM serving paths
+## RT-VLM serving paths (alerts-specific)
 
-Pick the path that matches the user's VLM choice. Default is **integrated**.
+The alerts profile reuses the LVS VLM serving model — see
+[`lvs-profile.md` § VLM serving paths](lvs-profile.md#vlm-serving-paths) for the full
+integrated / remote / BYO matrix and `VLM_NAME` slug rules. The
+alerts-specific differences are noted below.
 
-### Path A — Integrated (RT-VLM loads Cosmos Reason)
+### Path A — Integrated (alerts profile)
 
-Default. RT-VLM serves the VLM locally. Supported integrated checkpoints (same set as LVS):
+Default for alerts. RT-VLM serves the VLM locally. Same integrated checkpoint
+set as LVS:
 
 | VLM | `RTVI_VLM_MODEL_PATH` | `RTVI_VLM_MODEL_TO_USE` |
 |---|---|---|
 | Cosmos Reason 2 8B (default) | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | `cosmos-reason2` |
 | Cosmos Reason 1 7B | `ngc:nim/nvidia/cosmos-reason1-7b:hf-<tag>` | `cosmos-reason` |
-| Nemotron Nano V3 Omni 30B | `git:https://huggingface.co/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8` | `vllm-compatible` (see [`lvs.md` § Nemotron Omni](lvs.md#path-a--integrated-rt-vlm-loads-the-checkpoint-itself)) |
+| Nemotron Nano V3 Omni 30B | `git:https://huggingface.co/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8` | `vllm-compatible` (see [`lvs-profile.md` § Nemotron Omni](lvs-profile.md#path-a--integrated-rt-vlm-loads-the-checkpoint-itself)) |
 
 Switching VLMs is a `dev-profile-alerts/generated.env` edit; **`VLM_NAME_SLUG` stays `none`** and `VLM_NAME` must match the model basename returned by RT-VLM's `/v1/models` (otherwise alert-bridge fails with HTTP 400). For Cosmos Reason 1 the `VLM_NAME` becomes `nim_nvidia_cosmos-reason1-7b_hf-<tag>`.
 
@@ -202,7 +206,7 @@ Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GP
 ### Hard rules
 
 - **L40S is the floor for shared mode.** 24 GB for the LLM barely fits Nano 9B FP16 (23.4 GB total). Switch to FP8 (`nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, 11.7 GB total) for any breathing room, or move to dedicated mode (LLM on its own GPU, RT-VLM on its own GPU at 0.8 util).
-- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason 2 still serves via RT-VLM** but the agent script uses `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and pins `RT_VLM_DEVICE_ID=0` (unified memory). For the LLM side, follow [`edge.md`](edge.md) (Edge 4B mandatory for shared mode on edge).
+- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason 2 still serves via RT-VLM** but the agent script uses `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and pins `RT_VLM_DEVICE_ID=0` (unified memory). For the LLM side, follow `edge.md` (Edge 4B mandatory for shared mode on edge).
 - **Don't co-deploy a standalone Cosmos NIM with alerts.** `COMPOSE_PROFILES` for alerts has no `vlm_*_<slug>` segment by design. Verify by checking `resolved.yml` doesn't have `cosmos-reason2-8b` / `cosmos-reason2-8b-shared-gpu` services alongside `rtvi-vlm`.
 - **`VLM_NAME` mismatch ⇒ HTTP 400.** dev-profile.sh sets `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` for the default Cosmos2 path. If you change `RTVI_VLM_MODEL_PATH` you must update `VLM_NAME` to match the new model basename — otherwise alert-bridge / agent get "No such model" from `/v1/models`.
 - **`VLM_NAME_SLUG=none` is required.** The alerts compose graph has no `vlm_local_*_<slug>` profiles. Setting a real slug doesn't bring up a VLM service — it just makes the COMPOSE_PROFILES reference dead.
