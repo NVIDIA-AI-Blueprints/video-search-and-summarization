@@ -42,7 +42,7 @@ readinessProbe:
   timeoutSeconds: 3
   failureThreshold: 20
 streamProcessorEndpoint: ""   # override if needed; else derived from streamProcessorService
-streamProcessorService: "vss-vios-envoy-proxy"
+streamProcessorService: "sdrc"
 vstIngressEndpoint: ""        # full URL with scheme. When global.vlmBaseUrl and global.externalHost are set, defaults to <externalScheme>://<externalHost>[:externalPort]/vst for remote VLM. Else in-cluster vst-ingress URL.
 # Redis: used in vst_config.json notifications.redis_server_env_var. Default "" means <Release.Name>-redis:6379.
 redisServerAddress: ""

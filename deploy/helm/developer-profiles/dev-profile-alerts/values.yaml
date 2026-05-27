@@ -177,12 +177,6 @@ vios:
   vss-vios-postgres:
     enabled: true
 
-  vss-vios-envoy-proxy:
-    enabled: false
-
-  vss-vios-sdr:
-    enabled: false
-
   vss-vios-sensor:
     enabled: true
     streamProcessorService: sdrc
@@ -437,11 +431,6 @@ rtvi:
       - model: nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
         sourcePath: mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx
         destPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
-  vss-rtvi-cv-sdr:
-    enabled: false
-    perceptionProvisioningAddress: ""
-    vstStatusEndpoint: ""
-    vstStreamsEndpoint: ""
   vss-rtvi-vlm:
     enabled: false
     useSharedNim: false

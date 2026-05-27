@@ -126,8 +126,6 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`infra.redis.enabled`** | `true` | Set **`false`** to disable Redis only. |
 | **`vios.enabled`** | `true` | Master switch for the **`vios`** umbrella (all bundled **`vss-vios-*`** subcharts). Set **`false`** to omit the entire VST microservice stack from the release. |
 | **`vios.vss-vios-postgres.enabled`** | `true` | Set **`false`** to disable centralized DB. Storage sizing/class: subchart **`values.yaml`** or overrides under **`vios.vss-vios-postgres`**. |
-| **`vios.vss-vios-envoy-proxy.enabled`** | **`false`** | Legacy Envoy router is disabled; sensor talks to streamprocessing directly. |
-| **`vios.vss-vios-sdr.enabled`** | **`false`** | Legacy **SDR** is disabled for base. |
 | **`vios.vss-vios-sensor.streamProcessorEndpoint`** | **`http://<release>-vss-vios-streamprocessing:30001`** | Sensor registers streams against streamprocessing directly (not **:10000**). |
 | **`vios.vss-vios-sensor.enabled`** | `true` | **`false`** to disable **vss-vios-sensor**. |
 | **`vios.vss-vios-sensor.persistence`** | Each of **`vstData`** and **`vstVideo`**: mount on, **`create: false`**, **`existingClaim`** empty by default | Controls whether **sensor** mounts two shared folders (**data** and **video**). **Typical setup:** leave **`existingClaim`** blank—Helm wires the pods to the PVCs created when **`vios.vstStorage.createSharedPvcs`** is **`true`**. **Custom PVCs:** set **`existingClaim`** to your claim name for that volume. **Disable a mount:** set that volume’s **`enabled`** to **`false`** (that path is not mounted). |
