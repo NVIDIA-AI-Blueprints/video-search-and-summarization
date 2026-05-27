@@ -39,12 +39,11 @@ response to the caller and Kafka records for downstream message-bus consumers.
   ```
 
 **Kafka publish** (when `KAFKA_ENABLED=true`):
-- Every caption → **`KAFKA_TOPIC`** (current compose fallback is
-  `vision-llm-messages`; set `RTVI_VLM_KAFKA_TOPIC=mdx-vlm` explicitly if your
-  deployment overrides caption records to the mdx-prefixed topic) with header
+- Every caption → **`KAFKA_TOPIC`** (compose fallback is `mdx-vlm-captions`;
+  override via `RTVI_VLM_KAFKA_TOPIC`) with header
   `message_type: vision_llm` and `info["incidentDetected"] = "true"|"false"`.
-- Alert-positive chunks → **also** published to **`KAFKA_INCIDENT_TOPIC`** (repo `.env` sets
-  `mdx-vlm-incidents`; raw compose fallback is `vision-llm-events-incidents`) with header `message_type: incident`.
+- Alert-positive chunks → **also** published to **`KAFKA_INCIDENT_TOPIC`**
+  (compose fallback is `mdx-vlm-incidents`; override via `RTVI_VLM_KAFKA_INCIDENT_TOPIC`) with header `message_type: incident`.
 - Any upstream/VLM error → **`ERROR_MESSAGE_TOPIC`** (default `vision-llm-errors`)
   with header `message_type: error`.
 - **Partition key:** `<request_id>:<chunk_idx>` — all messages for one (request, chunk)

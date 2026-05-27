@@ -128,7 +128,6 @@ services:
         {"name": "mdx-events"},
         {"name": "mdx-incidents"},
         {"name": "mdx-vlm-incidents"},
-        {"name": "mdx-vlm"},
         {"name": "mdx-vlm-captions"},
         {"name": "mdx-structured-events-summary"},
         {"name": "mdx-embed"},

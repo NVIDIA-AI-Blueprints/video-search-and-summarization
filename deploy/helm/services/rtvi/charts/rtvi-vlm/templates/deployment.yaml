@@ -23,7 +23,7 @@
 {{- $wfkImg := $wfk.image | default dict }}
 {{- $wfkRepo := $wfkImg.repository | default "confluentinc/cp-kafka" }}
 {{- $wfkTag := $wfkImg.tag | default "8.2.0" }}
-{{- $wfkTopics := $wfk.topics | default (list "mdx-vlm" "mdx-vlm-incidents") }}
+{{- $wfkTopics := $wfk.topics | default (list "mdx-vlm-captions" "mdx-vlm-incidents") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

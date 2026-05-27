@@ -240,7 +240,7 @@ curl -X DELETE "$BASE_URL/v1/streams/delete/$STREAM_ID"  -H "Authorization: Bear
 ```bash
 # Pre-req: the container was started with:
 #   RTVI_VLM_KAFKA_ENABLED=true
-#   RTVI_VLM_KAFKA_TOPIC=vision-llm-messages  # or mdx-vlm if your deployment overrides it
+#   RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions     # compose default; override if your deployment uses a different topic
 #   RTVI_VLM_KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
 #   RTVI_VLM_ERROR_MESSAGE_TOPIC=vision-llm-errors
 #   HOST_IP=<kafka-host>

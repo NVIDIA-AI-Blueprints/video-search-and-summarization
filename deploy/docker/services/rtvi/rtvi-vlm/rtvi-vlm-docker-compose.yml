@@ -92,8 +92,8 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "${RTVI_VLM_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}"
       OTEL_METRIC_EXPORT_INTERVAL: "${RTVI_VLM_OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
       KAFKA_ENABLED: "${RTVI_VLM_KAFKA_ENABLED:-true}"
-      KAFKA_TOPIC: "${RTVI_VLM_KAFKA_TOPIC:-vision-llm-messages}"
-      KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-vision-llm-events-incidents}"
+      KAFKA_TOPIC: "${RTVI_VLM_KAFKA_TOPIC:-mdx-vlm-captions}"
+      KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
       ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-vision-llm-errors}"
       # Bounded queue size for the async Kafka sender.
       KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
