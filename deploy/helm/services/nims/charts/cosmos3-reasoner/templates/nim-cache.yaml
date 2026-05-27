@@ -13,26 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# NIMCache CRD – downloads and caches the Cosmos Reason2 8B model weights.
-# The NIM Operator monitors this resource and provisions a 200Gi PVC.
-# Matches the pattern from other-manifests/cosmos-nim-cache.yml.
+# NIMCache CRD – downloads and caches the Cosmos3 Reasoner model weights.
+# The NIM Operator monitors this resource and provisions the PVC.
 apiVersion: apps.nvidia.com/v1alpha1
 kind: NIMCache
 metadata:
-  name: {{ include "cosmos.fullname" . }}
+  name: {{ include "cosmos3.fullname" . }}
   labels:
-    {{- include "cosmos.labels" . | nindent 4 }}
+    {{- include "cosmos3.labels" . | nindent 4 }}
   annotations:
     "helm.sh/resource-policy": keep
 spec:
-  {{- with .Values.nodeSelector }}
-  nodeSelector:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- with .Values.tolerations }}
-  tolerations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
   source:
     ngc:
       modelPuller: {{ .Values.image.repository }}:{{ .Values.image.tag }}
@@ -43,7 +34,7 @@ spec:
           - all
   storage:
     pvc:
-      storageClass: {{ include "cosmos.storageClass" . | quote }}
+      storageClass: {{ include "cosmos3.storageClass" . | quote }}
       create: true
       size: {{ .Values.storage.pvc.size | quote }}
       volumeAccessMode: ReadWriteOnce

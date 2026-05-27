@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Default values for cosmos-reason2-8b.
-# These are overridden by the parent nims chart via alias "cosmos".
+# Default values for cosmos3-reasoner.
+# These are overridden by the parent nims chart via alias "cosmos3".
 
 image:
-  repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
-  tag: "1.6.0"
+  repository: nvcr.io/nvstaging/nim/cosmos3-reasoner
+  tag: "1.7.1.rc0-51870194"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -42,24 +42,24 @@ service:
   type: ClusterIP
   port: 8000
 
-nodeSelector: {}
-
 tolerations:
   - key: "nvidia.com/gpu"
     operator: "Exists"
     effect: "NoSchedule"
 
-# GPU-specific env vars. Populated via GPU override values files.
-# H100:         NIM_KVCACHE_PERCENT=0.7
-# L40S:         NIM_KVCACHE_PERCENT=0.8, NIM_MAX_MODEL_LEN=32768, NIM_MAX_NUM_SEQS=4, MAX_JOBS=4
-# RTXPRO6000BW: NIM_KVCACHE_PERCENT=0.7
+# Cosmos3 Reasoner only. Selects model size baked into the staging NIM:
+#   nano  — default; fits on shared GPU layouts
+#   super — needs a dedicated VLM GPU
+nimModelSize: "nano"
+
+# GPU-specific env vars. Populated by the umbrella chart via gpuProfiles lookup.
 env:
   NIM_KVCACHE_PERCENT: "0.7"
   NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
   NIM_MAX_MODEL_LEN: ""
   NIM_MAX_NUM_SEQS: ""
   MAX_JOBS: ""
-# Keys to import from <cosmos-fullname>-nim-env ConfigMap into NIMService.spec.env.
+# Keys to import from <cosmos3-fullname>-nim-env ConfigMap into NIMService.spec.env.
 # Missing keys are skipped due to optional: true.
 envConfigMapKeys:
   - NIM_KVCACHE_PERCENT

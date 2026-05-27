@@ -16,6 +16,7 @@
 include:
   - path: cosmos-reason1-7b/compose.yml
   - path: cosmos-reason2-8b/compose.yml
+  - path: cosmos3-reasoner/compose.yml
   - path: gpt-oss-20b/compose.yml
   - path: llama-3.3-nemotron-super-49b-v1.5/compose.yml
   - path: nemotron-3-nano/compose.yml

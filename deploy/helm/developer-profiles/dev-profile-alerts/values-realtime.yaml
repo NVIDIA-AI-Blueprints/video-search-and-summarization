@@ -68,8 +68,6 @@ rtvi:
   enabled: true
   vss-rtvi-cv:
     enabled: false
-  vss-rtvi-cv-sdr:
-    enabled: false
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false

@@ -13,41 +13,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# NIMService CRD – runs the Cosmos Reason2 8B inference server.
+# NIMService CRD – runs the Cosmos3 Reasoner inference server.
 # Reads model weights from the NIMCache PVC provisioned above.
-# Matches the pattern from other-manifests/cosmos-nim-service.yml.
 apiVersion: apps.nvidia.com/v1alpha1
 kind: NIMService
 metadata:
-  name: {{ include "cosmos.fullname" . }}
+  name: {{ include "cosmos3.fullname" . }}
   labels:
-    {{- include "cosmos.labels" . | nindent 4 }}
+    {{- include "cosmos3.labels" . | nindent 4 }}
 spec:
-  {{- with .Values.nodeSelector }}
-  nodeSelector:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
   {{- with .Values.tolerations }}
   tolerations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   authSecret: {{ .Values.global.authSecretName | quote }}
   labels:
-    {{- include "cosmos.selectorLabels" . | nindent 4 }}
+    {{- include "cosmos3.selectorLabels" . | nindent 4 }}
   {{- if .Values.metrics.enabled }}
   annotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: {{ .Values.service.port | quote }}
     prometheus.io/path: "/v1/metrics"
   {{- end }}
-  # GPU-tuning env vars read from the nim-env ConfigMap (all optional).
-  # See other-manifests/cosmos-nim-env-*.yml for per-GPU values.
+  # GPU-tuning env vars read from the nim-env ConfigMap (all optional),
+  # plus NIM_MODEL_SIZE selecting the staging RC variant (nano | super).
   env:
+    - name: NIM_MODEL_SIZE
+      value: {{ .Values.nimModelSize | default "nano" | quote }}
     {{- range $key := (.Values.envConfigMapKeys | default (list "NIM_KVCACHE_PERCENT" "NIM_DISABLE_MM_PREPROCESSOR_CACHE")) }}
     - name: {{ $key }}
       valueFrom:
         configMapKeyRef:
-          name: {{ include "cosmos.fullname" $ }}-nim-env
+          name: {{ include "cosmos3.fullname" $ }}-nim-env
           key: {{ $key }}
           optional: true
     {{- end }}
@@ -70,5 +67,5 @@ spec:
     {{- toYaml .Values.resources | nindent 4 }}
   storage:
     nimCache:
-      name: {{ include "cosmos.fullname" . }}
+      name: {{ include "cosmos3.fullname" . }}
     sharedMemorySizeLimit: {{ .Values.storage.sharedMemorySizeLimit | default "32Gi" }}
