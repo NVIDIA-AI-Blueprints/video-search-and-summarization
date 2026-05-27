@@ -116,10 +116,9 @@ infra:
       - name: mdx-events
       - name: mdx-incidents
       - name: mdx-vlm-incidents
-      - name: mdx-vlm
+      - name: mdx-vlm-captions
       - name: mdx-embed
       - name: mdx-embed-filtered
-      - name: mdx-vlm-captions
       - name: mdx-structured-events-summary
     persistence:
       size: 10Gi
@@ -448,7 +447,7 @@ vssIngress:
 
 # RTVI umbrella: LVS always-on rtvi-vlm. By default, rtvi-vlm loads the integrated
 # Cosmos checkpoint in-pod to match the docker LVS profile. LVS deploys Kafka so
-# RTVI can publish mdx-vlm events while the LVS backend and vss-agent call RTVI over HTTP.
+# RTVI can publish mdx-vlm-captions events while the LVS backend and vss-agent call RTVI over HTTP.
 rtvi:
   enabled: true
   vss-rtvi-cv:

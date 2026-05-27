@@ -48,7 +48,7 @@ Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` 
 | `rtvi.vss-rtvi-vlm.enabled` | `true` | Deploy the RTVI-VLM pod. |
 | `rtvi.vss-rtvi-vlm.useSharedNim` | `false` | Load the integrated checkpoint in the RT-VLM pod. Sets `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` and `VLM_MODEL_TO_USE=cosmos-reason2`. |
 | `rtvi.vss-rtvi-vlm.modelPath` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Integrated RT-VLM checkpoint path used when `useSharedNim=false`. |
-| `infra.kafka.enabled` | `true` | Deploy Kafka for RTVI-VLM event publishing and create the default VSS topics, including `mdx-vlm` and `mdx-vlm-incidents`. |
+| `infra.kafka.enabled` | `true` | Deploy Kafka for RTVI-VLM event publishing and create the default VSS topics, including `mdx-vlm-captions` and `mdx-vlm-incidents`. |
 | `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `true` | The RTVI-VLM init container waits for Kafka and required RTVI topics before startup. |
 | `rtvi.vss-rtvi-vlm.env` | full list | Replaces the subchart default `env`. Override individual values (e.g. edge `VLM_INPUT_*`) by editing the list in your overlay. |
 | `vss-summarization.extraEnv` | 2 RTVI vars | `RTVI_VLM_URL`, `RTVI_VLM_URL_PASSTHROUGH`. `RTVI_VLM_URL` is rendered with `tpl`, so it picks up `{{ .Release.Name }}` when `global.useReleaseNamePrefix` is true. |

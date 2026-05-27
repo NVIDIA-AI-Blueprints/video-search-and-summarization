@@ -60,7 +60,7 @@ waitForKafka:
   imagePullPolicy: IfNotPresent
   timeoutSeconds: 1200
   topics:
-    - mdx-vlm
+    - mdx-vlm-captions
     - mdx-vlm-incidents
 redisHost: ""
 redisPort: "6379"
@@ -99,9 +99,9 @@ env:
     value: "openai-compat"
   - name: KAFKA_ENABLED
     value: "true"
-  # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)
+  # Match Compose: docker-compose-out-alert-realtime.yaml
   - name: KAFKA_TOPIC
-    value: "mdx-vlm"
+    value: "mdx-vlm-captions"
   - name: KAFKA_INCIDENT_TOPIC
     value: "mdx-vlm-incidents"
   - name: ERROR_MESSAGE_TOPIC
