@@ -6,7 +6,7 @@ For local MP4s instead, see [`videos.md`](videos.md). For verifying the install 
 
 ## Mode-specific Prerequisites
 
-- **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the [`vios`](../../vios/SKILL.md) skill, else ask them to deploy VIOS.
+- **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the [`vss-manage-video-io-storage`](../../vss-manage-video-io-storage/SKILL.md) skill, else ask them to deploy VIOS.
 - **MS knows where VIOS is** — `VIOS_BASE_URL` is set in the MS container's environment (auto-wired from `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints; otherwise set explicitly in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env)). Required at runtime; Step 1 only uses the 30888 probe to detect whether VIOS is up locally.
 - **RTSP URLs reachable from the VIOS host** — verify with the user before starting capture.
 
@@ -348,7 +348,7 @@ print(f"\nProject: {project_id}")
 
 | Issue | Fix |
 |---|---|
-| VIOS `/vst/api/v1/sensor/list` returns connection refused | VIOS isn't running. Look for the [`vios`](../../vios/SKILL.md) skill; if none, ask user to deploy VIOS and retry. |
+| VIOS `/vst/api/v1/sensor/list` returns connection refused | VIOS isn't running. Look for the [`vss-manage-video-io-storage`](../../vss-manage-video-io-storage/SKILL.md) skill; if none, ask user to deploy VIOS and retry. |
 | Capture endpoint returns 503 / "VIOS not configured" | `VIOS_BASE_URL` not set in MS container env. Either deploy alongside a `bp_wh_*` blueprint (which auto-wires it), or set it in `deploy/docker/industry-profiles/warehouse-operations/.env` and re-run `docker compose --env-file ... up -d` from `deploy/docker/`. |
 | Session stuck in `STARTING` | VIOS received the request but sensors aren't online. Check `curl ${VIOS_BASE_URL}/vst/api/v1/sensor/list` — look for `status: "online"`. Wait 20–30 s after any `sensor-ms` restart. |
 | Session stuck in `RECORDING` past `duration_seconds` | VIOS timer still running; call `POST /v1/rtsp/capture/<pid>/<sid>/stop` to end early. |
