@@ -88,7 +88,7 @@ def download_model(ngc_model: str, download_path_prefix: str, model_type: str = 
                 raise Exception("Could not find the model. Check if model path is correct.")
             raise ex from None
         os.makedirs(download_path_prefix, exist_ok=True)
-        os.system(f"mv {os.path.join(td, f'{model_name}_v{version}')} {model_dir}")
+        shutil.move(os.path.join(td, f"{model_name}_v{version}"), model_dir)
     logger.info(f"Downloaded model to {model_dir}")
     return model_dir
 

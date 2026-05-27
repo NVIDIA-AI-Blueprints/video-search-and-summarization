@@ -25,6 +25,7 @@ import gc
 import json
 import os
 import re
+import tempfile
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -424,12 +425,284 @@ class RTVIServer:
             # Start the RTVI stream handler
             self._stream_handler = RTVIStreamHandler(self._args, service_name="rtvi-vlm")
             self._stream_handler.set_cleanup_executor(self._cleanup_executor)
+            self._install_multi_rtsp_generate_captions_shim()
         except Exception as ex:
             raise ServiceException(
                 f"Failed to load RTVI stream handler - {ex!s}",
                 "InternalServerError",
                 500,
             ) from ex
+
+    def _install_multi_rtsp_generate_captions_shim(self):
+        """Scope multi-query RTSP caption support to the RTVI VLM server."""
+        from types import MethodType
+
+        from server.rtvi_stream_handler import RequestInfo
+
+        try:
+            from opentelemetry import trace
+
+            from utils.otel_helper import get_tracer
+        except ImportError as e:
+            logger.warning("OTEL imports unavailable for RTSP caption shim: %s", e)
+            trace = None
+
+            def get_tracer():
+                return None
+
+        handler = self._stream_handler
+        original_on_vlm_chunk_response = handler._on_vlm_chunk_response
+
+        def _get_live_stream_requests(handler_self, asset_id: str):
+            with handler_self._lock:
+                request_infos = list(handler_self._request_info_map.values())
+            return [
+                req_info
+                for req_info in request_infos
+                if (
+                    req_info.is_live
+                    and req_info.status == RequestInfo.Status.PROCESSING
+                    and req_info.assets
+                    and req_info.assets[0].asset_id == asset_id
+                )
+            ]
+
+        def _get_live_stream_request(handler_self, asset_id: str):
+            live_requests = handler_self._get_live_stream_requests(asset_id)
+            if not live_requests:
+                return None
+            return min(
+                live_requests,
+                key=lambda req_info: (
+                    getattr(req_info, "queue_time", 0) or 0,
+                    req_info.request_id,
+                ),
+            )
+
+        def _make_pipeline_live_asset(asset: Asset, pipeline_stream_id: str):
+            return Asset(
+                asset_id=pipeline_stream_id,
+                path=asset.path,
+                purpose=asset.purpose,
+                media_type=asset.media_type,
+                asset_dir=asset.asset_dir,
+                fileName=asset.filename,
+                username=asset.username,
+                password=asset.password,
+                description=asset.description,
+                video_fps=asset.video_fps,
+                place_name=asset.place_name,
+                place_type=asset.place_type,
+                place_lat=asset.place_lat,
+                place_lon=asset.place_lon,
+                place_alt=asset.place_alt,
+                place_coordinate_x=asset.place_coordinate_x,
+                place_coordinate_y=asset.place_coordinate_y,
+                creation_time=asset.creation_time,
+                url=asset.url,
+                sensor_name=asset.sensor_name,
+                camera_id=asset.camera_id,
+            )
+
+        def _cleanup_failed_live_request(
+            handler_self,
+            req_info,
+            asset,
+            asset_locked,
+            active_counted,
+        ):
+            with handler_self._lock:
+                handler_self._request_info_map.pop(req_info.request_id, None)
+            if active_counted:
+                handler_self._metrics._active_live_streams_counter.add(-1)
+            if req_info._monitor:
+                handler_self.stop_request_profiling(req_info, [])
+            handler_self._cleanup_request_files(req_info)
+            if asset_locked and asset.use_count > 0:
+                asset.unlock()
+
+        def _create_rtsp_vlm_captions_request(handler_self, asset: Asset, query: VlmQuery):
+            if query.chunk_duration <= 0:
+                raise ServiceException("chunk_duration must be greater than 0", "BadParameter", 400)
+
+            req_info = RequestInfo()
+            req_info.query = query
+            req_info.assets = [asset]
+            req_info.is_live = True
+            req_info.pipeline_stream_id = req_info.request_id
+            req_info.status = RequestInfo.Status.PROCESSING
+            req_info.start_time = time.time()
+            req_info.queue_time = time.time()
+            pipeline_asset = _make_pipeline_live_asset(asset, req_info.pipeline_stream_id)
+
+            asset_locked = False
+            active_counted = False
+            try:
+                with handler_self._lock:
+                    active_live_streams = handler_self._count_active_live_streams()
+                    if active_live_streams >= handler_self._args.max_live_streams:
+                        raise ServiceException(
+                            "Server is already processing maximum number of live streams"
+                            f" ({handler_self._args.max_live_streams})",
+                            "ServerBusy",
+                            503,
+                        )
+
+                    asset.lock()
+                    asset_locked = True
+                    handler_self._request_info_map[req_info.request_id] = req_info
+
+                handler_self._metrics._active_live_streams_counter.add(1)
+                active_counted = True
+
+                if handler_self._profile_requests:
+                    log_dir = os.environ.get("RTVI_LOG_DIR") or os.path.join(
+                        tempfile.gettempdir(),
+                        "rtvi-logs",
+                    )
+                    os.makedirs(log_dir, mode=0o700, exist_ok=True)
+                    fd = None
+                    try:
+                        fd, vlm_testdata_file_path = tempfile.mkstemp(
+                            prefix=f"vlm_testdata_{req_info.request_id}_",
+                            suffix=".txt",
+                            dir=log_dir,
+                            text=True,
+                        )
+                        req_info.vlm_testdata_file_handle = os.fdopen(fd, "w")
+                        fd = None
+                        req_info.vlm_testdata_file_handle.write("Chunk_ID,Answer\n")
+                        logger.debug("Opened vlm_testdata_file at %s", vlm_testdata_file_path)
+                    except OSError as e:
+                        if fd is not None:
+                            try:
+                                os.close(fd)
+                            except OSError:
+                                pass
+                        logger.warning("Failed to open vlm_testdata_file: %s", e)
+                        req_info.vlm_testdata_file_handle = None
+
+                handler_self.start_request_profiling(req_info)
+
+                tracer = get_tracer()
+                if tracer and trace:
+                    req_info._e2e_span = tracer.start_span("Pipeline End-to-End")
+                    req_info._e2e_span.set_attribute("request_id", req_info.request_id)
+                    req_info._e2e_span.set_attribute("stream_id", req_info.stream_id)
+                    req_info._e2e_span.set_attribute("is_live", req_info.is_live)
+
+                    req_info.vlm_pipeline_span = tracer.start_span(
+                        "VLM Pipeline Latency",
+                        context=trace.set_span_in_context(req_info._e2e_span),
+                    )
+                    req_info.vlm_pipeline_span.set_attribute("request_id", req_info.request_id)
+                    req_info.vlm_pipeline_span.set_attribute("stream_id", req_info.stream_id)
+                    req_info.vlm_pipeline_span.set_attribute("is_live", req_info.is_live)
+
+                handler_self._vlm_pipeline.add_live_stream(
+                    asset=pipeline_asset,
+                    vlm_query=req_info.query,
+                    on_chunk_result=lambda response, req_info=req_info: (
+                        handler_self._on_vlm_chunk_response(response, req_info)
+                    ),
+                )
+            except Exception:
+                _cleanup_failed_live_request(
+                    handler_self,
+                    req_info,
+                    asset,
+                    asset_locked,
+                    active_counted,
+                )
+                raise
+
+            return req_info.request_id
+
+        def _on_vlm_chunk_response(handler_self, chunk_result, req_info):
+            if req_info.is_live and req_info.status != RequestInfo.Status.PROCESSING:
+                logger.debug(
+                    "Ignoring live-stream chunk for completed query %s",
+                    req_info.request_id,
+                )
+                return
+            if req_info.is_live and chunk_result.chunk:
+                chunk_result.chunk.streamId = req_info.stream_id
+            return original_on_vlm_chunk_response(chunk_result, req_info)
+
+        def remove_rtsp_stream(
+            handler_self,
+            asset: Asset,
+            drain_timeout_sec: Optional[float] = None,
+        ):
+            _start = time.monotonic()
+            try:
+                with handler_self._lock:
+                    existing_requests = handler_self._get_live_stream_requests(asset.asset_id)
+                    if not existing_requests:
+                        logger.debug("RTSP stream for video %s not active", asset.asset_id)
+                    for existing_request in existing_requests:
+                        handler_self._request_info_map.pop(existing_request.request_id, None)
+
+                for existing_request in existing_requests:
+                    pipeline_stream_id = getattr(
+                        existing_request,
+                        "pipeline_stream_id",
+                        asset.asset_id,
+                    )
+                    logger.info(
+                        "Removing live stream %s from pipeline for query %s",
+                        asset.asset_id,
+                        existing_request.request_id,
+                    )
+                    drain_latency = handler_self._vlm_pipeline.remove_live_stream(
+                        pipeline_stream_id,
+                        timeout_sec=drain_timeout_sec,
+                    )
+                    logger.info(
+                        "Removed live stream %s from pipeline for query %s",
+                        asset.asset_id,
+                        existing_request.request_id,
+                    )
+
+                    if drain_latency is not None:
+                        handler_self._metrics._delete_drain_latency.record(drain_latency)
+
+                    if existing_request.status == RequestInfo.Status.PROCESSING:
+                        handler_self._metrics._active_live_streams_counter.add(-1)
+                        if existing_request._monitor:
+                            handler_self.stop_request_profiling(existing_request, [])
+                        handler_self._cleanup_request_files(existing_request)
+                        for request_asset in existing_request.assets or []:
+                            if request_asset.use_count > 0:
+                                request_asset.unlock()
+                        existing_request.status = RequestInfo.Status.SUCCESSFUL
+                        existing_request.status_event.set()
+
+                    handler_self._safe_rmtree(
+                        os.path.join(
+                            tempfile.gettempdir(),
+                            "rtvi",
+                            "cached_frames",
+                            str(pipeline_stream_id),
+                        )
+                    )
+            finally:
+                _elapsed = time.monotonic() - _start
+                handler_self._metrics._delete_latency.record(_elapsed)
+                logger.info(
+                    "Delete live-stream %s total=%.3fs",
+                    asset.asset_id,
+                    _elapsed,
+                )
+
+        handler._get_live_stream_requests = MethodType(_get_live_stream_requests, handler)
+        handler._get_live_stream_request = MethodType(_get_live_stream_request, handler)
+        handler._create_rtsp_vlm_captions_request = MethodType(
+            _create_rtsp_vlm_captions_request,
+            handler,
+        )
+        handler._on_vlm_chunk_response = MethodType(_on_vlm_chunk_response, handler)
+        handler.remove_rtsp_stream = MethodType(remove_rtsp_stream, handler)
 
     async def _handle_text_only_chat(
         self,
@@ -958,35 +1231,24 @@ class RTVIServer:
 
         # Generate request ID
         if asset.is_live:
-            # Check if summarization is already running / already completed
-            existing_request = self._stream_handler._get_live_stream_request(video_id)
-            if existing_request:
-                # Reconnect client to existing summarization stream
-                request_id = existing_request.request_id
-                logger.info(
-                    "Re-connecting to existing live stream query %s for videoId %s",
-                    request_id,
+            # Each live generate request is an independent query, even when it
+            # targets a stream that was already added through /streams/add.
+            try:
+                request_id = await loop.run_in_executor(
+                    self._async_executor,
+                    self._stream_handler.generate_vlm_captions,
+                    [asset],  # Pass as list for consistency
+                    vlm_query,
+                    True,  # is_rtsp=True for rtsp stream
+                )
+            except Exception as ex:
+                self._stream_handler._send_error_message_to_kafka(
+                    VLM_CAPTIONS_ERROR_MESSAGE % str(ex),
                     video_id,
                 )
-            else:
-                # Generate VLM captions (includes stream setup and validation)
-                try:
-                    request_id = await loop.run_in_executor(
-                        self._async_executor,
-                        self._stream_handler.generate_vlm_captions,
-                        [asset],  # Pass as list for consistency
-                        vlm_query,
-                        True,  # is_rtsp=True for rtsp stream
-                    )
-                except Exception as ex:
-                    asset.unlock()
-                    self._stream_handler._send_error_message_to_kafka(
-                        VLM_CAPTIONS_ERROR_MESSAGE % str(ex),
-                        video_id,
-                    )
-                    logger.error(VLM_CAPTIONS_ERROR_MESSAGE, str(ex), exc_info=True)
-                    raise ex from None
-                logger.info("Created live stream query %s for videoId %s", request_id, video_id)
+                logger.error(VLM_CAPTIONS_ERROR_MESSAGE, str(ex), exc_info=True)
+                raise ex from None
+            logger.info("Created live stream query %s for videoId %s", request_id, video_id)
         else:
             if len(video_id_list) == 1:
                 asset_list = [asset]
@@ -2146,11 +2408,13 @@ class RTVIServer:
                 ) from ex
 
             videoId = videoIdList[0]
+            sse_client_key = request_id if asset.is_live else videoId
             loop = asyncio.get_event_loop()
 
             if query.stream:
-                # Allow only a single client for streaming output per live stream
-                if time.time() - self._sse_active_clients.get(videoId, 0) < 3:
+                # Allow only one SSE reader for this request. Live streams can
+                # now have multiple independent requests for the same stream ID.
+                if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
                     )
@@ -2161,118 +2425,130 @@ class RTVIServer:
                     last_status = None
                     total_prompt_tokens = 0
                     total_completion_tokens = 0
-                    while True:
-                        self._sse_active_clients[videoId] = time.time()
-                        try:
-                            message = await asyncio.wait_for(request._receive(), timeout=0.01)
-                            if message.get("type") == "http.disconnect":
-                                self._sse_active_clients.pop(videoId, None)
-                                logger.info(
-                                    "Client %s disconnected for live-stream %s",
-                                    request.client.host,
-                                    videoId,
-                                )
-                                return
-                        except Exception:
-                            pass
-
-                        # Get current response status from the pipeline
-                        try:
-                            if request_id not in self._stream_handler._request_info_map:
-                                break
-                            req_info, resp_list = self._stream_handler.get_response(request_id, 1)
-                        except ServiceException:
-                            break
-                        if (
-                            time.time() - last_status_report_time >= 10
-                            or resp_list
-                            or last_status != req_info.status
-                        ):
-                            last_status_report_time = time.time()
-                            last_status = req_info.status
-                            logger.info(
-                                "Status for query %s is %s, percent complete is %.2f,"
-                                " size of response list is %d",
-                                req_info.request_id,
-                                req_info.status.value,
-                                req_info.progress,
-                                len(resp_list),
-                            )
-
-                        # Response list is empty. Stop generation if request is completed or failed.
-                        if not resp_list:
-                            if req_info.status in [
-                                RequestInfo.Status.SUCCESSFUL,
-                                RequestInfo.Status.FAILED,
-                            ]:
-                                if req_info.status == RequestInfo.Status.FAILED:
-                                    # Create the response json
-                                    response = {
-                                        "id": request_id,
-                                        "model": model_info.id,
-                                        "created": int(req_info.queue_time),
-                                        "usage": None,
-                                    }
-                                    yield json.dumps(response)
-                                break
-                            await asyncio.sleep(0.01)
-                            continue
-
-                        # Set the start/end time info for current response.
-                        while resp_list:
-                            creation_time = (
-                                req_info.assets[0].creation_time
-                                if req_info.assets and len(req_info.assets) > 0
-                                else None
-                            )
-                            from server.rtvi_stream_handler import build_media_info_dict
-
-                            media_info = build_media_info_dict(
-                                req_info.is_live, resp_list[0], creation_time
-                            )
-
-                            if req_info.is_live:
-                                dt = datetime.strptime(
-                                    resp_list[0].chunk.end_ntp, "%Y-%m-%dT%H:%M:%S.%fZ"
-                                ).replace(tzinfo=timezone.utc)
-                                current_time = datetime.now(timezone.utc)
-                                self._stream_handler.update_live_stream_captions_latency(
-                                    (current_time - dt).total_seconds()
-                                )
-
-                            # Build chunk responses for VLM captions
-                            chunk_responses = [
-                                self._build_chunk_response(
-                                    resp,
-                                    req_info.is_live,
-                                    query.enable_audio,
-                                    creation_time,
-                                )
-                                for resp in resp_list
-                            ]
-
-                            for resp in resp_list:
-                                if resp.vlm_model_output:
-                                    total_prompt_tokens += resp.vlm_model_output.input_tokens
-                                    total_completion_tokens += resp.vlm_model_output.output_tokens
-
-                            # Create the response json
-                            response = {
-                                "id": request_id,
-                                "model": model_info.id,
-                                "created": int(req_info.queue_time),
-                                "media_info": media_info,
-                                "chunk_responses": chunk_responses,
-                                "usage": None,
-                            }
-                            # Yield to generate a server-sent event
-                            yield json.dumps(response)
+                    try:
+                        while True:
+                            self._sse_active_clients[sse_client_key] = time.time()
                             try:
+                                if await request.is_disconnected():
+                                    logger.info(
+                                        "Client %s disconnected for live-stream %s",
+                                        request.client.host if request.client else "unknown",
+                                        videoId,
+                                    )
+                                    return
+                            except RuntimeError:
+                                logger.warning(
+                                    "Disconnect polling failed for request %s; closing SSE generator",
+                                    request_id,
+                                    exc_info=True,
+                                )
+                                break
+
+                            # Get current response status from the pipeline
+                            try:
+                                if request_id not in self._stream_handler._request_info_map:
+                                    break
                                 req_info, resp_list = self._stream_handler.get_response(
                                     request_id, 1
                                 )
                             except ServiceException:
                                 break
+                            if (
+                                time.time() - last_status_report_time >= 10
+                                or resp_list
+                                or last_status != req_info.status
+                            ):
+                                last_status_report_time = time.time()
+                                last_status = req_info.status
+                                logger.info(
+                                    "Status for query %s is %s, percent complete is %.2f,"
+                                    " size of response list is %d",
+                                    req_info.request_id,
+                                    req_info.status.value,
+                                    req_info.progress,
+                                    len(resp_list),
+                                )
+
+                            # Response list is empty. Stop generation if request is completed or failed.
+                            if not resp_list:
+                                if req_info.status in [
+                                    RequestInfo.Status.SUCCESSFUL,
+                                    RequestInfo.Status.FAILED,
+                                ]:
+                                    if req_info.status == RequestInfo.Status.FAILED:
+                                        # Create the response json
+                                        response = {
+                                            "id": request_id,
+                                            "model": model_info.id,
+                                            "created": int(req_info.queue_time),
+                                            "usage": None,
+                                        }
+                                        yield json.dumps(response)
+                                    break
+                                await asyncio.sleep(0.01)
+                                continue
+
+                            # Set the start/end time info for current response.
+                            while resp_list:
+                                creation_time = (
+                                    req_info.assets[0].creation_time
+                                    if req_info.assets and len(req_info.assets) > 0
+                                    else None
+                                )
+                                from server.rtvi_stream_handler import (
+                                    build_media_info_dict,
+                                )
+
+                                media_info = build_media_info_dict(
+                                    req_info.is_live, resp_list[0], creation_time
+                                )
+
+                                if req_info.is_live:
+                                    dt = datetime.strptime(
+                                        resp_list[0].chunk.end_ntp, "%Y-%m-%dT%H:%M:%S.%fZ"
+                                    ).replace(tzinfo=timezone.utc)
+                                    current_time = datetime.now(timezone.utc)
+                                    self._stream_handler.update_live_stream_captions_latency(
+                                        (current_time - dt).total_seconds()
+                                    )
+
+                                # Build chunk responses for VLM captions
+                                chunk_responses = [
+                                    self._build_chunk_response(
+                                        resp,
+                                        req_info.is_live,
+                                        query.enable_audio,
+                                        creation_time,
+                                    )
+                                    for resp in resp_list
+                                ]
+
+                                for resp in resp_list:
+                                    if resp.vlm_model_output:
+                                        total_prompt_tokens += resp.vlm_model_output.input_tokens
+                                        total_completion_tokens += (
+                                            resp.vlm_model_output.output_tokens
+                                        )
+
+                                # Create the response json
+                                response = {
+                                    "id": request_id,
+                                    "model": model_info.id,
+                                    "created": int(req_info.queue_time),
+                                    "media_info": media_info,
+                                    "chunk_responses": chunk_responses,
+                                    "usage": None,
+                                }
+                                # Yield to generate a server-sent event
+                                yield json.dumps(response)
+                                try:
+                                    req_info, resp_list = self._stream_handler.get_response(
+                                        request_id, 1
+                                    )
+                                except ServiceException:
+                                    break
+                    finally:
+                        self._sse_active_clients.pop(sse_client_key, None)
 
                     # Generate usage data and send as server-sent event if requested
                     if (
@@ -2302,7 +2578,6 @@ class RTVIServer:
                         except ServiceException:
                             pass
                     yield "[DONE]"
-                    self._sse_active_clients.pop(videoId, None)
 
                 try:
                     return EventSourceResponse(message_generator(), send_timeout=5, ping=1)
@@ -2785,6 +3060,7 @@ class RTVIServer:
                 ) from ex
 
             videoId = videoIdList[0]
+            sse_client_key = request_id if getattr(asset, "is_live", False) else videoId
 
             # Get model info for response
             model_info = self._stream_handler.get_models_info()
@@ -2793,8 +3069,9 @@ class RTVIServer:
             loop = asyncio.get_event_loop()
 
             if vlm_query.stream:
-                # Allow only a single client for streaming output per live stream
-                if time.time() - self._sse_active_clients.get(videoId, 0) < 3:
+                # Allow only one SSE reader for this request. Live streams can
+                # now have multiple independent requests for the same stream ID.
+                if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
                     )
@@ -2803,138 +3080,153 @@ class RTVIServer:
                 async def chat_message_generator():
                     last_status_report_time = 0
                     last_status = None
-                    while True:
-                        self._sse_active_clients[videoId] = time.time()
-                        try:
-                            message = await asyncio.wait_for(request._receive(), timeout=0.01)
-                            if message.get("type") == "http.disconnect":
-                                self._sse_active_clients.pop(videoId, None)
-                                logger.info(
-                                    "Client %s disconnected for live-stream %s",
-                                    request.client.host,
-                                    videoId,
+                    final_created = int(time.time())
+                    try:
+                        while True:
+                            self._sse_active_clients[sse_client_key] = time.time()
+                            try:
+                                if await request.is_disconnected():
+                                    logger.info(
+                                        "Client %s disconnected for live-stream %s",
+                                        request.client.host if request.client else "unknown",
+                                        videoId,
+                                    )
+                                    return
+                            except RuntimeError:
+                                logger.warning(
+                                    "Disconnect polling failed for request %s; closing SSE generator",
+                                    request_id,
+                                    exc_info=True,
                                 )
-                                return
-                        except Exception:
-                            pass
-
-                        # Get current response status from the pipeline
-                        try:
-                            if request_id not in self._stream_handler._request_info_map:
                                 break
-                            req_info, resp_list = self._stream_handler.get_response(request_id, 1)
-                        except ServiceException:
-                            break
-                        if (
-                            time.time() - last_status_report_time >= 10
-                            or resp_list
-                            or last_status != req_info.status
-                        ):
-                            last_status_report_time = time.time()
-                            last_status = req_info.status
-                            logger.info(
-                                "Status for query %s is %s, percent complete is %.2f,"
-                                " size of response list is %d",
-                                req_info.request_id,
-                                req_info.status.value,
-                                req_info.progress,
-                                len(resp_list),
-                            )
 
-                        # Response list is empty. Stop generation if request is completed or failed.
-                        if not resp_list:
-                            if req_info.status in [
-                                RequestInfo.Status.SUCCESSFUL,
-                                RequestInfo.Status.FAILED,
-                            ]:
-                                if req_info.status == RequestInfo.Status.FAILED:
-                                    # Send error as OpenAI-compatible format
+                            # Get current response status from the pipeline
+                            try:
+                                if request_id not in self._stream_handler._request_info_map:
+                                    break
+                                req_info, resp_list = self._stream_handler.get_response(
+                                    request_id, 1
+                                )
+                                final_created = int(req_info.queue_time)
+                            except ServiceException:
+                                break
+                            if (
+                                time.time() - last_status_report_time >= 10
+                                or resp_list
+                                or last_status != req_info.status
+                            ):
+                                last_status_report_time = time.time()
+                                last_status = req_info.status
+                                logger.info(
+                                    "Status for query %s is %s, percent complete is %.2f,"
+                                    " size of response list is %d",
+                                    req_info.request_id,
+                                    req_info.status.value,
+                                    req_info.progress,
+                                    len(resp_list),
+                                )
+
+                            # Response list is empty. Stop generation if request is completed or failed.
+                            if not resp_list:
+                                if req_info.status in [
+                                    RequestInfo.Status.SUCCESSFUL,
+                                    RequestInfo.Status.FAILED,
+                                ]:
+                                    if req_info.status == RequestInfo.Status.FAILED:
+                                        # Send error as OpenAI-compatible format
+                                        response = {
+                                            "id": str(request_id),
+                                            "object": "chat.completion.chunk",
+                                            "created": int(req_info.queue_time),
+                                            "model": model_info.id,
+                                            "choices": [
+                                                {
+                                                    "index": 0,
+                                                    "delta": {},
+                                                    "finish_reason": None,
+                                                }
+                                            ],
+                                        }
+                                        # EventSourceResponse adds "data: " prefix automatically
+                                        yield json.dumps(response)
+                                    break
+                                await asyncio.sleep(1)
+                                continue
+
+                            # Process chunk responses and convert to OpenAI streaming format
+                            while resp_list:
+                                creation_time = (
+                                    req_info.assets[0].creation_time
+                                    if req_info.assets and len(req_info.assets) > 0
+                                    else None
+                                )
+                                from server.rtvi_stream_handler import (
+                                    build_media_info_dict,
+                                )
+
+                                for resp in resp_list:
+                                    content = (
+                                        resp.vlm_model_output.output
+                                        if resp.vlm_model_output
+                                        else ""
+                                    )
+                                    reasoning_description = (
+                                        resp.vlm_model_output.reasoning_description
+                                        if resp.vlm_model_output
+                                        else ""
+                                    )
+                                    content = _build_chat_content_with_think_tags(
+                                        content, reasoning_description
+                                    )
+                                    delta = {"content": content}
+                                    if reasoning_description:
+                                        delta["reasoning_description"] = reasoning_description
+                                    media_info = build_media_info_dict(
+                                        req_info.is_live, resp, creation_time
+                                    )
+                                    if req_info.is_live:
+                                        dt = datetime.strptime(
+                                            resp.chunk.end_ntp, "%Y-%m-%dT%H:%M:%S.%fZ"
+                                        ).replace(tzinfo=timezone.utc)
+                                        current_time = datetime.now(timezone.utc)
+                                        self._stream_handler.update_live_stream_captions_latency(
+                                            (current_time - dt).total_seconds()
+                                        )
+
+                                    # Send as NIM-compatible streaming chunk.
+                                    # Extends OpenAI format with reasoning_description.
                                     response = {
                                         "id": str(request_id),
                                         "object": "chat.completion.chunk",
                                         "created": int(req_info.queue_time),
                                         "model": model_info.id,
+                                        "chunk_id": resp.chunk.chunkIdx if resp.chunk else 0,
+                                        "media_info": media_info,
                                         "choices": [
                                             {
                                                 "index": 0,
-                                                "delta": {},
+                                                "delta": delta,
                                                 "finish_reason": None,
                                             }
                                         ],
                                     }
                                     # EventSourceResponse adds "data: " prefix automatically
                                     yield json.dumps(response)
-                                break
-                            await asyncio.sleep(1)
-                            continue
-
-                        # Process chunk responses and convert to OpenAI streaming format
-                        while resp_list:
-                            creation_time = (
-                                req_info.assets[0].creation_time
-                                if req_info.assets and len(req_info.assets) > 0
-                                else None
-                            )
-                            from server.rtvi_stream_handler import build_media_info_dict
-
-                            for resp in resp_list:
-                                content = (
-                                    resp.vlm_model_output.output if resp.vlm_model_output else ""
-                                )
-                                reasoning_description = (
-                                    resp.vlm_model_output.reasoning_description
-                                    if resp.vlm_model_output
-                                    else ""
-                                )
-                                content = _build_chat_content_with_think_tags(
-                                    content, reasoning_description
-                                )
-                                delta = {"content": content}
-                                if reasoning_description:
-                                    delta["reasoning_description"] = reasoning_description
-                                media_info = build_media_info_dict(
-                                    req_info.is_live, resp, creation_time
-                                )
-                                if req_info.is_live:
-                                    dt = datetime.strptime(
-                                        resp.chunk.end_ntp, "%Y-%m-%dT%H:%M:%S.%fZ"
-                                    ).replace(tzinfo=timezone.utc)
-                                    current_time = datetime.now(timezone.utc)
-                                    self._stream_handler.update_live_stream_captions_latency(
-                                        (current_time - dt).total_seconds()
+                                try:
+                                    req_info, resp_list = self._stream_handler.get_response(
+                                        request_id, 1
                                     )
-
-                                # Send as NIM-compatible streaming chunk.
-                                # Extends OpenAI format with reasoning_description.
-                                response = {
-                                    "id": str(request_id),
-                                    "object": "chat.completion.chunk",
-                                    "created": int(req_info.queue_time),
-                                    "model": model_info.id,
-                                    "chunk_id": resp.chunk.chunkIdx if resp.chunk else 0,
-                                    "media_info": media_info,
-                                    "choices": [
-                                        {
-                                            "index": 0,
-                                            "delta": delta,
-                                            "finish_reason": None,
-                                        }
-                                    ],
-                                }
-                                # EventSourceResponse adds "data: " prefix automatically
-                                yield json.dumps(response)
-                            try:
-                                req_info, resp_list = self._stream_handler.get_response(
-                                    request_id, 1
-                                )
-                            except ServiceException:
-                                break
+                                    final_created = int(req_info.queue_time)
+                                except ServiceException:
+                                    break
+                    finally:
+                        self._sse_active_clients.pop(sse_client_key, None)
 
                     # Send final chunk with finish_reason
                     response = {
                         "id": str(request_id),
                         "object": "chat.completion.chunk",
-                        "created": int(req_info.queue_time),
+                        "created": final_created,
                         "model": model_info.id,
                         "choices": [
                             {
@@ -2948,7 +3240,6 @@ class RTVIServer:
                     yield json.dumps(response)
                     # Send final done message - EventSourceResponse handles this
                     yield "[DONE]"
-                    self._sse_active_clients.pop(videoId, None)
 
                 try:
                     return EventSourceResponse(chat_message_generator(), send_timeout=5, ping=1)

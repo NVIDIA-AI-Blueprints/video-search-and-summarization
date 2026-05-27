@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -60,15 +60,24 @@ logger.addHandler(term_out)
 
 log_path = os.environ.get("LOG_FILE_PATH", "/opt/nvidia/rtvi/log/rtvi/rtvi.log")
 
-# Ensure log directory exists
-log_dir = os.path.dirname(log_path)
-os.makedirs(log_dir, exist_ok=True)
+# Best-effort file-handler setup. In non-Docker test environments the default
+# /opt/nvidia/rtvi/log path is typically not writable; warn and continue with
+# the stream handler rather than raising at import time.
+try:
+    log_dir = os.path.dirname(log_path)
+    os.makedirs(log_dir, exist_ok=True)
 
-
-log_file = logging.handlers.TimedRotatingFileHandler(log_path)
-log_file.setLevel(LOG_PERF_LEVEL)
-log_file.setFormatter(LogFormatter("%(asctime)s %(levelname)s %(message)s"))
-logger.addHandler(log_file)
+    log_file = logging.handlers.TimedRotatingFileHandler(log_path)
+    log_file.setLevel(LOG_PERF_LEVEL)
+    log_file.setFormatter(LogFormatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(log_file)
+except OSError as ex:
+    logger.warning(
+        "Could not set up log file at %s (%s); continuing with stream logging only. "
+        "Set LOG_FILE_PATH to a writable location to enable file logging.",
+        log_path,
+        ex,
+    )
 
 logger.setLevel(logging.INFO)
 if os.environ.get("LOG_LEVEL"):

@@ -28,6 +28,7 @@ Tests cover:
 """
 
 import argparse
+import asyncio
 import os
 import tempfile
 import uuid
@@ -36,10 +37,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from api_models.captions import VlmQuery
+from common.chunk_info import ChunkInfo
+from models.base_vlm_model import VlmModelOutput
 from server.rtvi_stream_handler import RequestInfo
 from server.rtvi_vlm_server import RTVIServer, _build_chat_assistant_message
 from tests.tests_common import TempEnv
-from vlm_pipeline.vlm_pipeline import VlmModelType
+from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmModelType
 
 API_PREFIX = "/v1"
 
@@ -356,6 +360,174 @@ class TestCaptionGeneration:
         assert response.status_code == 400
         assert response.json() == {"code": "RequestError", "message": error_message}
         rtvi_server._stream_handler._send_error_message_to_kafka.assert_not_called()
+
+    def test_process_live_vlm_request_creates_independent_request(self, rtvi_server):
+        """A second live generate request must not reconnect to an active one."""
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+
+        existing_req = RequestInfo()
+        existing_req.is_live = True
+        existing_req.status = RequestInfo.Status.PROCESSING
+        existing_req.assets = [asset]
+        rtvi_server._stream_handler._request_info_map[existing_req.request_id] = existing_req
+
+        rtvi_server._stream_handler.generate_vlm_captions = MagicMock(return_value="new-request")
+        query = VlmQuery(
+            id=uuid.UUID(stream_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+
+        request_id, returned_asset, asset_list = asyncio.run(
+            rtvi_server._process_vlm_request(
+                query,
+                [stream_id],
+                log_prefix="generate_captions",
+            )
+        )
+
+        assert request_id == "new-request"
+        assert returned_asset is asset
+        assert asset_list == []
+        rtvi_server._stream_handler.generate_vlm_captions.assert_called_once_with(
+            [asset],
+            query,
+            True,
+        )
+
+    def test_vlm_server_rtsp_shim_uses_independent_pipeline_streams(self, rtvi_server):
+        """The VLM server shim gives each caption request a private pipeline ID."""
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        query = VlmQuery(
+            id=uuid.UUID(stream_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+
+        first_request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+        second_request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+
+        assert first_request_id != second_request_id
+        assert asset.use_count == 2
+
+        live_requests = [
+            req_info
+            for req_info in rtvi_server._stream_handler._request_info_map.values()
+            if req_info.is_live and req_info.assets and req_info.assets[0] is asset
+        ]
+        assert {req.request_id for req in live_requests} == {
+            first_request_id,
+            second_request_id,
+        }
+        assert {req.pipeline_stream_id for req in live_requests} == {
+            first_request_id,
+            second_request_id,
+        }
+
+        pipeline_assets = [
+            call.kwargs["asset"]
+            for call in rtvi_server._stream_handler._vlm_pipeline.add_live_stream.call_args_list
+        ]
+        assert [pipeline_asset.asset_id for pipeline_asset in pipeline_assets] == [
+            first_request_id,
+            second_request_id,
+        ]
+        assert all(pipeline_asset.path == asset.path for pipeline_asset in pipeline_assets)
+
+    def test_vlm_server_rtsp_shim_removes_all_pipeline_streams_for_asset(self, rtvi_server):
+        """Deleting an added stream drains every caption request created by the shim."""
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        query = VlmQuery(
+            id=uuid.UUID(stream_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+        first_request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+        second_request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+
+        rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.return_value = 0.05
+        rtvi_server._stream_handler._safe_rmtree = MagicMock()
+
+        rtvi_server._stream_handler.remove_rtsp_stream(asset)
+
+        assert asset.use_count == 0
+        assert first_request_id not in rtvi_server._stream_handler._request_info_map
+        assert second_request_id not in rtvi_server._stream_handler._request_info_map
+        assert [
+            call.args[0]
+            for call in rtvi_server._stream_handler._vlm_pipeline.remove_live_stream.call_args_list
+        ] == [first_request_id, second_request_id]
+        removed_frame_dirs = [
+            call.args[0] for call in rtvi_server._stream_handler._safe_rmtree.call_args_list
+        ]
+        assert removed_frame_dirs == [
+            os.path.join(tempfile.gettempdir(), "rtvi", "cached_frames", first_request_id),
+            os.path.join(tempfile.gettempdir(), "rtvi", "cached_frames", second_request_id),
+        ]
+
+    def test_vlm_server_rtsp_shim_reports_original_stream_id(self, rtvi_server):
+        """Private pipeline IDs must not leak into live caption chunks."""
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        query = VlmQuery(
+            id=uuid.UUID(stream_id),
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+            chunk_duration=10,
+        )
+        request_id = rtvi_server._stream_handler.generate_vlm_captions(
+            [asset],
+            query,
+            is_rtsp=True,
+        )
+        req_info = rtvi_server._stream_handler._request_info_map[request_id]
+        chunk = ChunkInfo(
+            streamId=request_id,
+            chunkIdx=0,
+            file=asset.path,
+            start_ntp="2026-05-27T00:00:00.000Z",
+            end_ntp="2026-05-27T00:00:10.000Z",
+        )
+        chunk_result = PipelineChunkResult(
+            chunk=chunk,
+            vlm_model_output=VlmModelOutput(output="ok", input_tokens=1, output_tokens=1),
+        )
+        rtvi_server._stream_handler._process_output = MagicMock()
+
+        rtvi_server._stream_handler._on_vlm_chunk_response(chunk_result, req_info)
+
+        assert chunk.streamId == stream_id
+        rtvi_server._stream_handler._process_output.assert_called_once_with(
+            req_info,
+            False,
+            [chunk_result],
+        )
 
 
 class TestErrorHandling:

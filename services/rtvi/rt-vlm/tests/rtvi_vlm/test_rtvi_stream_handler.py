@@ -598,6 +598,87 @@ class TestKafkaIntegration:
         assert query_params["sensorId"] == "cam-001"
         assert query_params["sensorName"] == "Dock Entrance"
 
+    def test_vision_llm_info_includes_reasoning(self, stream_handler):
+        """Caption schema should expose parsed reasoning in VisionLLM info."""
+        asset = Asset(
+            asset_id="caption-stream",
+            path="rtsp://example.com/warehouse",
+            purpose="",
+            media_type="",
+            asset_dir="",
+            camera_id="cam-001",
+        )
+        req_info = RequestInfo(
+            request_id="request-reasoning-caption",
+            assets=[asset],
+            is_live=True,
+        )
+        chunk = ChunkInfo(
+            file=asset.path,
+            chunkIdx=5,
+            start_pts=0,
+            end_pts=1_000_000_000,
+        )
+        chunk.streamId = asset.asset_id
+        chunk_result = PipelineChunkResult(
+            chunk=chunk,
+            vlm_model_output=VlmModelOutput(
+                output="Nothing unusual.",
+                input_tokens=10,
+                output_tokens=2,
+                reasoning_description="The scene is quiet and unchanged.",
+            ),
+            frame_times=[0.0],
+        )
+
+        vision_llm, incident = stream_handler._chunk_result_to_vision_llm(chunk_result, req_info)
+
+        assert incident is None
+        assert vision_llm.info["reasoning"] == "The scene is quiet and unchanged."
+        assert vision_llm.info["reasoningDescription"] == "The scene is quiet and unchanged."
+
+    def test_incident_info_includes_reasoning(self, stream_handler):
+        """Incident schema should expose parsed reasoning in Incident info."""
+        asset = Asset(
+            asset_id="incident-stream",
+            path="rtsp://example.com/warehouse",
+            purpose="",
+            media_type="",
+            asset_dir="",
+            camera_id="cam-001",
+        )
+        req_info = RequestInfo(
+            request_id="request-reasoning-incident",
+            assets=[asset],
+            is_live=True,
+        )
+        chunk = ChunkInfo(
+            file=asset.path,
+            chunkIdx=6,
+            start_pts=0,
+            end_pts=1_000_000_000,
+        )
+        chunk.streamId = asset.asset_id
+        chunk_result = PipelineChunkResult(
+            chunk=chunk,
+            vlm_model_output=VlmModelOutput(
+                output="Yes, a person entered the restricted area.",
+                input_tokens=12,
+                output_tokens=8,
+                reasoning_description="The person crosses the marked boundary.",
+            ),
+            frame_times=[0.0],
+        )
+
+        vision_llm, incident = stream_handler._chunk_result_to_vision_llm(chunk_result, req_info)
+
+        assert vision_llm.info["incidentDetected"] == "true"
+        assert vision_llm.info["reasoning"] == "The person crosses the marked boundary."
+        assert vision_llm.info["reasoningDescription"] == "The person crosses the marked boundary."
+        assert incident is not None
+        assert incident.info["reasoning"] == "The person crosses the marked boundary."
+        assert incident.info["reasoningDescription"] == "The person crosses the marked boundary."
+
 
 class TestUtilityMethods:
     """Test utility methods"""

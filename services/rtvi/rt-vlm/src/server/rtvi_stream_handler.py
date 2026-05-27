@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum, auto
 from threading import Event, RLock, Thread
-from typing import Callable, Optional
+from typing import Callable, MutableMapping, Optional
 
 import cuda.bindings.runtime
 import gi
@@ -52,6 +52,17 @@ from utils.otel_helper import create_historical_span, get_tracer
 from utils.request_profiler import GPUMonitor, RequestMetrics
 
 from vlm_pipeline import VlmPipeline, PipelineChunkResult  # isort:skip
+
+
+REASONING_INFO_KEY = "reasoning"
+REASONING_DESCRIPTION_INFO_KEY = "reasoningDescription"
+
+
+def _add_reasoning_to_info(info: MutableMapping[str, str], reasoning: str) -> None:
+    if not reasoning:
+        return
+    info[REASONING_INFO_KEY] = reasoning
+    info[REASONING_DESCRIPTION_INFO_KEY] = reasoning
 
 
 # Convert PTS offset to absolute ISO8601 timestamp.
@@ -1341,6 +1352,10 @@ class RTVIStreamHandler:
                 incident.info["systemPrompt"] = req_info.query.system_prompt
             if req_info.query.model:
                 incident.info["requestedModel"] = req_info.query.model
+        if chunk_result.vlm_model_output and chunk_result.vlm_model_output.reasoning_description:
+            _add_reasoning_to_info(
+                incident.info, chunk_result.vlm_model_output.reasoning_description
+            )
 
         return incident
 
@@ -1536,8 +1551,9 @@ class RTVIStreamHandler:
             vision_llm.info["outputTokens"] = str(chunk_result.vlm_model_output.output_tokens)
             if chunk_result.vlm_model_output.reasoning_description:
                 # map <string, string> info = 1;
-                vision_llm.info["reasoningDescription"] = (
-                    chunk_result.vlm_model_output.reasoning_description
+                _add_reasoning_to_info(
+                    vision_llm.info,
+                    chunk_result.vlm_model_output.reasoning_description,
                 )
         elif chunk_result.error:
             query_msg.response = ""
