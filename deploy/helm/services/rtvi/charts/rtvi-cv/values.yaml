@@ -65,6 +65,7 @@ forceModelsStorageFromValues: false
 modelsVolume: {}
 downloadModelsFromNgc: true
 downloadModelsFromNgcWaitSeconds: 900
+# Opaque secret for NGC CLI (download Jobs). Not the docker-registry pull secret.
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
 ngcOrg: "nvidia"

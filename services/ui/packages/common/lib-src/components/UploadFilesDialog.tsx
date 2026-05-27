@@ -129,10 +129,9 @@ function getFieldLabel(fieldName: string): string {
   return fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
 }
 
-/** Sanitize upload filename: no spaces, remove .mp4 suffix if present (for default/display). */
+/** Sanitize upload filename: remove spaces so VST/nvstreamer naming stays consistent with Video Management. */
 function sanitizeUploadFilename(name: string): string {
-  const noSpaces = name.replaceAll(/\s+/g, '');
-  return noSpaces.replace(/\.(mp4|mkv)$/i, '') || noSpaces;
+  return name.replaceAll(/\s+/g, '');
 }
 
 /** Check if upload filename is invalid (empty or contains spaces). */

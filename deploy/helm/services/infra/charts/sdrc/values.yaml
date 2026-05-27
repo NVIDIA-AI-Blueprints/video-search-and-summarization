@@ -46,3 +46,6 @@ serviceAccount:
 
 rbac:
   create: true
+
+nodeSelector: {}
+tolerations: []

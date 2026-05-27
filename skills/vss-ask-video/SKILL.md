@@ -102,3 +102,4 @@ curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
 
 - **vss-manage-video-io-storage** — VST storage/replay URLs so **`VIDEO_URL`** is valid for the VLM.
 - **vss-generate-video-report** — timestamped **reports** via the **VSS agent** (`/generate`); this skill is **direct VLM** for ad-hoc **video Q&A**.
+

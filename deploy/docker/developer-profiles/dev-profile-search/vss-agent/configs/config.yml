@@ -214,8 +214,8 @@ workflow:
     - use_attribute_search: always set to true (enables fusion reranking)
     - use_critic: use the current request option value (verify results with VLM critic agent)
     Optional:
-    - max_results: Number of final results to return to the user (default: 5)
-    - top_k: Number of internal candidates to fetch before reranking (default: 10)
+    - max_results: Final number of results to return. Set this only when the user asks for a specific
+      count (for example, "top 5", "only 5", "limit to 5"); otherwise omit it.
     - start_time: Leave as None unless the user provides explicit timestamps or time references.
       The search_agent's query decomposition handles time extraction from natural language
       (e.g., "between 1pm and 2pm"), so include time references in the query text instead.

@@ -58,8 +58,7 @@ infra:
         value: "/phoenix"
   redis:
     enabled: true
-  # SDRC workload controller — replaces vss-vios-sdr + vss-vios-envoy-proxy from the vios umbrella.
-  # Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
+  #SDRC Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
   sdrc:
     enabled: true
     configFilePath: configs/sdrc/config-lvs.yml
@@ -144,17 +143,9 @@ vios:
   vss-vios-postgres:
     enabled: true
 
-  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-search / dev-profile-alerts.
-  vss-vios-envoy-proxy:
-    enabled: false
-
-  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-search / dev-profile-alerts.
-  vss-vios-sdr:
-    enabled: false
-
   vss-vios-sensor:
     enabled: true
-    # Sensor talks to SDRC (replaces vss-vios-envoy-proxy) — same pattern as dev-profile-search / dev-profile-alerts.
+    # Sensor talks to SDRC — same pattern as dev-profile-search / dev-profile-alerts.
     streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -216,7 +207,7 @@ agent:
     vstInternalUrl: ""
     vstInternalIp: ""
     vssAgentExternalUrl: ""
-    vssAgentVersion: "3.2.0-26.05.2-b0ba77ae135d"
+    vssAgentVersion: "3.2.0-26.05.2-656f61d77d9f"
     evalLlmJudgeName: ""
     evalLlmJudgeBaseUrl: ""
     reportsBaseUrl: ""
@@ -299,7 +290,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-b0ba77ae135d" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-656f61d77d9f" }}'
       # Audio configuration (compose parity: deploy/docker/services/agent/compose.yml).
       # Set enableAudio=true for Nemotron Nano Omni audio-aware VLM.
       - name: ENABLE_AUDIO
@@ -461,8 +452,6 @@ vssIngress:
 rtvi:
   enabled: true
   vss-rtvi-cv:
-    enabled: false
-  vss-rtvi-cv-sdr:
     enabled: false
   vss-rtvi-embed:
     enabled: false

@@ -59,6 +59,10 @@ _VLM_RETRYABLE_ERRORS = (
     aiohttp.ConnectionTimeoutError,
     aiohttp.ServerTimeoutError,
     aiohttp.ServerDisconnectedError,
+    # Truncated responses from upstream VLM (e.g. shared NIM under load returns
+    # headers with Content-Length but cuts the body short). Surfaced as
+    # ContentLengthError, a ClientPayloadError subclass.
+    aiohttp.ClientPayloadError,
 )
 
 
