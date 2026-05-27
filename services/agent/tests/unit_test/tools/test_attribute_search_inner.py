@@ -110,6 +110,42 @@ class TestEnrichAttributeResults:
         assert results[1].metadata.sensor_id == "stream-2"
         mock_get_stream_id.assert_awaited_once_with("camera-2", "http://vst-internal:30888")
 
+    @pytest.mark.asyncio
+    async def test_resolves_with_internal_url_and_builds_external_screenshot_url(self):
+        results = [_make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z")]
+        mock_get_stream_id = AsyncMock(return_value="stream-1")
+
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+            await enrich_attribute_results(
+                results,
+                vst_internal_url="http://vst-internal:30888",
+                vst_external_url="https://7777-brev.brevlab.com",
+            )
+
+        mock_get_stream_id.assert_awaited_once_with("camera-1", "http://vst-internal:30888")
+        assert results[0].metadata.sensor_id == "stream-1"
+        assert results[0].screenshot_url == (
+            "https://7777-brev.brevlab.com/vst/api/v1/replay/stream/stream-1/picture?startTime=2025-01-01T00:00:00Z"
+        )
+
+    @pytest.mark.asyncio
+    async def test_uses_external_url_for_resolution_when_internal_url_is_missing(self):
+        results = [_make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z")]
+        mock_get_stream_id = AsyncMock(return_value="stream-1")
+
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+            await enrich_attribute_results(
+                results,
+                vst_internal_url=None,
+                vst_external_url="https://7777-brev.brevlab.com",
+            )
+
+        mock_get_stream_id.assert_awaited_once_with("camera-1", "https://7777-brev.brevlab.com")
+        assert results[0].metadata.sensor_id == "stream-1"
+        assert results[0].screenshot_url == (
+            "https://7777-brev.brevlab.com/vst/api/v1/replay/stream/stream-1/picture?startTime=2025-01-01T00:00:00Z"
+        )
+
 
 class TestSearchBehaviorFilters:
     """Tests for behavior search filter construction."""
