@@ -13,6 +13,7 @@ The agent gets Bash/Read/Edit/Write/Glob/Grep. It is explicitly told
 (in AGENTS.md) that it must NOT modify anything under `skills/`.
 
 Env (set by the workflow step):
+    SCHEDULED_RUN    Whether this job was triggered by time-based cron or not
     PR_NUMBER        PR being evaluated (e.g. "100")
     PR_BASE          Base branch (e.g. "feat/skills")
     PR_HEAD_SHA      Mirror head SHA (full)
@@ -49,7 +50,6 @@ from pathlib import Path
 #   parents[1] = .github
 #   parents[2] = repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
-AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 
 # Hard cap on the agent's tool loop — one trial burns ~20-30 harness
 # turns (startup + brev wait + `uvx harbor run` exec + reading results +
@@ -108,28 +108,32 @@ async def run_agent() -> int:
         ResultMessage, TextBlock, ToolUseBlock,
     )
 
-    pr_number = _require("PR_NUMBER")
-    pr_base = _require("PR_BASE")
-    pr_head = _require("PR_HEAD_SHA")
-    pr_repo = _require("PR_REPO")
-    run_id = os.environ.get("GITHUB_RUN_ID", f"local-{int(time.time())}")
+    model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
+    scheduled_run = bool(_require("SCHEDULED_RUN"))
+    if not scheduled_run:    
+        pr_number = _require("PR_NUMBER")
+        pr_base = _require("PR_BASE")
+        pr_head = _require("PR_HEAD_SHA")
+        pr_repo = _require("PR_REPO")
+        run_id = os.environ.get("GITHUB_RUN_ID", f"local-{int(time.time())}")
 
-    if not AGENTS_MD.exists():
-        print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
-        return 1
+        AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
+        if not AGENTS_MD.exists():
+            print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
+            return 1
 
-    system_prompt = AGENTS_MD.read_text()
+        system_prompt = AGENTS_MD.read_text()
 
-    user_prompt = f"""
+        user_prompt = f"""
 PR #{pr_number} just pushed new commits touching `skills/` (or eval harness code).
 
 Context:
-  repo          = {pr_repo}
-  PR number     = {pr_number}
-  base branch   = {pr_base}
-  mirror head   = {pr_head}
-  workflow run  = {run_id}
-  working dir   = {REPO_ROOT}
+repo          = {pr_repo}
+PR number     = {pr_number}
+base branch   = {pr_base}
+mirror head   = {pr_head}
+workflow run  = {run_id}
+working dir   = {REPO_ROOT}
 
 Your workspace is the repo at `{REPO_ROOT}` (already checked out to the mirror head).
 The coordinator host is vss-skill-validator; Brev CLI is authenticated, Docker is running.
@@ -144,10 +148,39 @@ When done, emit a one-line final summary starting with `DONE:` so the workflow
 can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
 line starting with `BLOCKED:` followed by the reason.
 """
+        print(f"[agent] starting · pr={pr_number} base={pr_base} head={pr_head[:8]} "
+            f"model={model} max_turns={MAX_TURNS}", flush=True)
+    else:
+        # If this is scheduled run then ...
+        pr_repo = _require("PR_REPO")
+        run_id = os.environ.get("GITHUB_RUN_ID", f"local-{int(time.time())}")
+        AGENTS_MD = Path(__file__).resolve().parent / "AGENTS_DAILY_RUN.md"
+        if not AGENTS_MD.exists():
+            print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
+            return 1
 
-    model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
-    print(f"[agent] starting · pr={pr_number} base={pr_base} head={pr_head[:8]} "
-          f"model={model} max_turns={MAX_TURNS}", flush=True)
+        system_prompt = AGENTS_MD.read_text()
+
+        user_prompt = f"""
+Context:
+repo          = {pr_repo}
+branch        = main
+workflow run  = {run_id}
+working dir   = {REPO_ROOT}
+
+Your workspace is the repo at `{REPO_ROOT}` (already checked out to the mirror head).
+The coordinator host is vss-skill-validator; Brev CLI is authenticated, Docker is running.
+
+Process this run per AGENTS_DAILY_RUN.md: list → detect skills → update or create the
+adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset → acquire
+a Brev lock for the target platform(s) → run harbor trials → gather results →
+post ONE comment per (PR, spec) batch → release the lock → stop/delete any Brev
+instance you brought online.
+
+When done, emit a one-line final summary starting with `DONE:` so the workflow
+can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
+line starting with `BLOCKED:` followed by the reason.
+"""     
 
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,

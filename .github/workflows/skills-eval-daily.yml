@@ -1,0 +1,117 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the skills eval agent (.github/skill-eval/skills_eval_agent.py) on
+# every push to a pull-request/<N> mirror branch that touches anything
+# under skills/ or the eval harness. See .github/skill-eval/AGENTS.md
+# for the agent's system prompt and behaviour.
+
+name: Skills Eval Daily
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+      timezone: "America/Los_Angeles"
+  # The "Run workflow" button in the Actions UI only appears when
+  # `workflow_dispatch:` is configured on the repo's default branch
+  # (`main`). The full manual-sweep harness — skills dropdown input,
+  # agent prompt overrides, $GITHUB_STEP_SUMMARY result table — lives
+  # on `develop` (PR #524). When the operator clicks "Run workflow"
+  # and picks `develop` in the ref dropdown, GitHub runs develop's
+  # version of this file (inputs, env passthrough, agent invocation
+  # all come from develop). No other harness state needs to be ported
+  # back to main; the skills/ tree, adapter names, and agent script
+  # have diverged enough that a full backport would create more churn
+  # than value. If anyone accidentally dispatches against `main`
+  # itself, the job's `if:` guard below (only true for
+  # `pull-request/<N>` refs) makes the job a clean no-op.
+  workflow_dispatch:
+
+# Only one eval runs (or per manual sweep) at a time. A fresh push
+# cancels the in-flight run (lock on /tmp/brev/<id>.lock will be released
+# by the agent's trap).
+concurrency:
+  group: skills-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  eval:
+    name: Eval skills daily
+    runs-on: [self-hosted, vss-eval]
+
+    # 8-hour hard cap on the whole job. A full PR touching every skill
+    # queues ~13 trials (5 deploy + 3 vios + 4 video-search + 1+
+    # video-summarization). Run 24980753743 hit the prior 180m cap with
+    # 3 video-search done and video-summarization not yet started —
+    # observed avg trial wall-clock is closer to ~30m once /deploy +
+    # ingest + judge per-check gather complete. 480m gives margin for
+    # cold-box transitions and redeploys at profile boundaries (handled
+    # by the active-deploy.txt marker but still ~20m each). No
+    # teardown cooldown — the vss-eval-* pool is operator-managed and
+    # stays warm across runs. The lock-hold timeout in AGENTS.md
+    # (flock -w) is set in lockstep below.
+    timeout-minutes: 480
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # agent needs full history to diff against base
+
+      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        run: |
+          # The runner lives on vss-skill-validator; the coordinator keeps
+          # its secrets in a single .env file there. Don't echo contents.
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          # Safety: Anthropic path for claude-agent-sdk in the trial + judge.
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run skills eval agent
+        id: agent
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env   # re-source; GH step env is isolated
+          set +a
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          export GH_TOKEN="${GITHUB_TOKEN}"
+          export SCHEDULED_RUN="true"
+          # `.github` isn't a valid Python package prefix, so we expose the
+          # harness via PYTHONPATH. `envs.brev_env:BrevEnvironment` is what
+          # `uvx harbor run --environment-import-path` expects.
+          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+          mkdir -p /tmp/brev /tmp/skill-eval
+          python3 .github/skill-eval/skills_eval_agent.py
+
+      - name: Collect results for workflow artifact
+        run: |
+          # Agent writes harbor output to /tmp/skill-eval/results/<run_id>/
+          # (runtime-only; not tracked under the repo). Blocker paths
+          # (missing_platforms_declaration, missing_probe, etc.) finish
+          # without producing a results dir — that's a success, not a failure.
+          if [ ! -d /tmp/skill-eval/results ]; then
+            echo "no results dir — agent blocked before running trials (expected for blocker outcomes)"
+            exit 0
+          fi
+          RESULTS=$(find /tmp/skill-eval/results -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
+          if [ -n "$RESULTS" ]; then
+            tar czf /tmp/skills-eval-results.tar.gz -C /tmp/skill-eval results
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files"
+          else
+            echo "results dir exists but empty — nothing to archive"
+          fi
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-results-main-${{ github.event.repository.updated_at }}-${{ github.run_id }}
+          path: /tmp/skills-eval-results.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
