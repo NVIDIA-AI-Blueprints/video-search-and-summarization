@@ -249,7 +249,7 @@ def apply_patch() -> None:
 
     _original_run_workflow_local = EvaluationRun.run_workflow_local
 
-    async def patched_run_workflow_local(self: Any, session_manager: Any) -> None:
+    async def patched_run_workflow_local(self: Any, session_manager: Any, http_connection: Any = None) -> None:
         """Expand multi-turn items, then run turns sequentially within each conversation."""
         from nat.builder.context import ContextState
 
@@ -319,7 +319,7 @@ def apply_patch() -> None:
                 logger.info(f"[Multi-turn] Set conversation_id={conv_id} for {item.id}")
 
                 self.eval_input.eval_input_items = [item]
-                await _original_run_workflow_local(self, session_manager)
+                await _original_run_workflow_local(self, session_manager, http_connection=http_connection)
                 pbar.update(1)
 
                 turn_id = item.full_dataset_entry.get("turn_id", f"turn_{len(conversation_history) + 1}")
@@ -338,7 +338,7 @@ def apply_patch() -> None:
         async def run_non_multi_turn() -> None:
             """Run non-multi-turn items."""
             self.eval_input.eval_input_items = non_multi_turn_items
-            await _original_run_workflow_local(self, session_manager)
+            await _original_run_workflow_local(self, session_manager, http_connection=http_connection)
             pbar.update(len(non_multi_turn_items))
 
         try:
