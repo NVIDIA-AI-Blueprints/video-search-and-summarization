@@ -94,6 +94,18 @@ jobs:
           head_sha="$(printf '%s' "${pr_json}" | jq -r '.head.sha')"
           base_ref="$(printf '%s' "${pr_json}" | jq -r '.base.ref')"
 
+          case "${base_ref}" in
+            main|develop|dev/*) ;;
+            *)
+              {
+                echo "## NVSkills CI request"
+                echo
+                echo "Skipped: PR targets \`${base_ref}\`; only \`main\`, \`develop\`, and \`dev/*\` are enabled."
+              } >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+              ;;
+          esac
+
           if [ "${EVENT_NAME}" != "push" ]; then
             commit_json="$(curl -fsSL \
               -H "Authorization: Bearer ${GH_TOKEN}" \
