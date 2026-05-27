@@ -1,12 +1,52 @@
 ---
 name: vss-deploy-dense-captioning
-description: Use to deploy standalone RT-VLM dense captioning and call its REST API (uploads, captions, streams, chat-completions, Kafka). Not for VSS profile deploy or video-search ingestion.
+description: Use this skill when deploying standalone RT-VLM dense captioning or calling its REST API (uploads, captions, streams, chat-completions, Kafka). Not for VSS profile deploy or video-search ingestion.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
+## Purpose
+
+Stand up the RT-VLM dense-captioning microservice on its own and exercise every endpoint it exposes (file upload, generate_captions, stream add/delete, chat-completions, Kafka topics).
+
+## Prerequisites
+
+For standalone RT-VLM deployment:
+- Docker, Docker Compose, NVIDIA Container Toolkit, and a visible GPU.
+- NGC registry credentials in `$NGC_CLI_API_KEY` for `docker login nvcr.io`,
+  image pulls, and local NGC model/artifact downloads.
+- `curl`, `jq`, and any writable working directory for the standalone compose copy.
+
+For API calls against an existing service:
+- Running RT-VLM service reachable at `$BASE_URL`.
+- Bearer token in `$RTVI_VLM_API_KEY` or `$NGC_CLI_API_KEY`, depending on how the
+  service was configured.
+
+For full VSS profile deployment:
+- Use `../vss-deploy-profile/SKILL.md`; this skill does not deploy full VSS profiles.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+
+## Limitations
+
+- Requires either a standalone RT-VLM service deployed via this skill or an
+  existing RT-VLM service reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
+- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # Deploy and Use RT-VLM Dense Captioning (VSS 3.2)
 
@@ -18,6 +58,69 @@ standalone RT-VLM service when a full VSS profile is not already running, then c
 its `/v1/...` API for caption generation, file upload, live-stream management, health
 checks, NIM-compatible chat completions, or Prometheus metrics. API reference:
 <https://docs.nvidia.com/vss/latest/real-time-vlm-api.html>.
+
+## Deployment Routing
+
+If the user asks to deploy a full VSS profile, use
+[`../vss-deploy-profile/SKILL.md`](../vss-deploy-profile/SKILL.md). That skill
+owns profile routing, `generated.env`, `resolved.yml`, multi-service sizing, and
+full-stack deploy/teardown.
+
+If the user asks for standalone RT-VLM dense captioning, or no VSS profile is
+already running, use the standalone RT-VLM flow in
+[`references/deploy-rt-vlm-service.md`](references/deploy-rt-vlm-service.md)
+before calling the API. This follows the same compose-centric pattern as
+`vss-deploy-profile`: gather context, run preflights, work from a local copy,
+dry-run with `docker compose config`, review, deploy, then wait for health.
+
+## Standalone Deployment Flow
+
+Always follow this sequence. Never skip the dry-run.
+
+```bash
+# 1. Copy deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
+#    into any writable standalone working directory.
+# 2. Derive RTVI_VLM_IMAGE_TAG from that compose copy.
+# 3. Strip the standalone-only dangling depends_on block from the copy.
+# 4. Create a gitignored .env with the required RT-VLM values.
+# 5. Prepare host bind paths such as $VSS_DATA_DIR/data_log/vst/clip_storage.
+# 6. docker compose --env-file .env -f rtvi-vlm-docker-compose.yml config --quiet
+# 7. docker pull the exact RT-VLM image tag.
+# 8. docker compose ... up -d rtvi-vlm, wait for ready, then smoke test.
+```
+
+Run preflights before any pull or `up`; stop and fix failures here before
+debugging RT-VLM itself:
+
+```bash
+nvidia-smi --query-gpu=index,name --format=csv,noheader
+nvidia-container-cli info
+docker compose version
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+```
+
+For standalone single-file deployments, do not run the raw
+`deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` directly: it
+contains `depends_on` references to sibling VLM/NIM services that are only
+defined in the full VSS/met-blueprints compose project. The standalone reference
+shows how to copy the compose file, derive the current image tag from it, strip
+the `depends_on` block, and validate the result before `up`.
+
+If `docker pull` fails with a containerd snapshotter/unpack error on Docker 28+,
+apply the `/etc/docker/daemon.json` `containerd-snapshotter=false` fix in the
+standalone reference before retrying.
+
+Minimum standalone `.env` values:
+
+| Host env var | Required when | Purpose |
+|---|---|---|
+| `NGC_CLI_API_KEY` | Standalone deploy path | NGC registry image pull and NGC model/artifact download |
+| `RTVI_VLM_API_KEY` or `NGC_CLI_API_KEY` | Authenticated API calls | RT-VLM bearer auth after the service is running |
+| `RTVI_VLM_PORT` | Always | Host API port mapped to container `8000` |
+| `HOST_IP` | Always | Kafka bootstrap host (`${HOST_IP}:9092`) |
+| `VSS_DATA_DIR` | Always | Required clip-storage bind mount |
+| `RTVI_VLM_ENDPOINT` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Remote/sibling OpenAI-compatible VLM endpoint |
+| `VLM_NAME` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Model/deployment name exposed by that endpoint |
 
 ## Setup
 
@@ -32,7 +135,8 @@ Every request below uses `Authorization: Bearer $API_KEY`. Health endpoints
 
 **Smoke test before use:**
 ```bash
-curl -fsS "$BASE_URL/v1/health/ready" && curl -fsS "$BASE_URL/v1/models" | jq
+curl -fsS "$BASE_URL/v1/health/ready"
+curl -fsS "$BASE_URL/v1/models" -H "Authorization: Bearer $API_KEY" | jq
 ```
 
 ## Quick Start — dense captions from a local video
@@ -327,4 +431,3 @@ Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response mo
 - **`/v1/metrics` requires auth**, unlike `/v1/health/*`. Prometheus scrapers need the Bearer token.
 - **File upload is multipart, not JSON.** Use `-F file=@path -F purpose=vision -F media_type=video`; a `-d` body returns 422.
 - **Live-stream lifecycle cleanup must unregister the stream:** `DELETE /v1/streams/delete/{stream_id}` removes the RTSP source. If the live schema also exposes `DELETE /v1/generate_captions/{stream_id}`, call it first to stop inference explicitly.
-
