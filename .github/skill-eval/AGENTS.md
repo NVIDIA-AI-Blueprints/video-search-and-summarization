@@ -10,7 +10,7 @@ You run **once per push**, from start to finish, on the
 `vss-skill-validator-v2` self-hosted runner. Your workspace is already
 checked out at the mirror head. You have `Bash`, `Read`, `Edit`,
 `Write`, `Glob`, `Grep`; no human is in the loop while you work. The
-workflow runs your invocation with an 8-hour hard timeout.
+workflow runs your invocation with a 12-hour hard timeout.
 
 ## Startup hygiene (do this first, before step 1)
 
@@ -263,7 +263,7 @@ template is in § Harbor invocation below.
       #   2. lock free (try flock -n)                        (free)
       #   3. instance name asc                               (tiebreak)
       # Pick the first candidate that scores best AND whose flock -n
-      # succeeds. If none free, block on flock -w 28800 of the
+      # succeeds. If none free, block on flock -w 43200 of the
       # best-by-marker candidate.
       INSTANCE_NAME=<picked>
       ```
@@ -283,16 +283,16 @@ template is in § Harbor invocation below.
       If no hardware-matching candidate exists for this platform,
       **wait** for one to appear — the pool is operator-managed and a
       box may come online mid-run. Re-run `brev ls --json` every 5
-      min, up to the same 28800s budget. If the operator scales up or
+      min, up to the same 43200s budget. If the operator scales up or
       another run frees a box during that window, restart selection
-      from the top with the fresh snapshot. Only after the full 28800s
+      from the top with the fresh snapshot. Only after the full 43200s
       budget elapses with zero hardware-matching candidates do you
       emit `BLOCKED: pool exhausted for <platform>` and exit — that's
       a genuine capacity shortfall the operator needs to action.
 
       ```bash
       # Pseudocode for the wait-for-pool case:
-      DEADLINE=$(( $(date +%s) + 28800 ))
+      DEADLINE=$(( $(date +%s) + 43200 ))
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
           brev ls --json > /tmp/skill-eval/brev-snapshot.txt
           # Re-evaluate candidates against the snapshot (same scoring
@@ -306,23 +306,23 @@ template is in § Harbor invocation below.
 
       This is distinct from the trial-supervision polling forbidden
       in § Harbor invocation: pool-wait polls a resource that may not
-      yet exist, the busy-but-locked case (`flock -w 28800` on an
+      yet exist, the busy-but-locked case (`flock -w 43200` on an
       existing box) is symmetric, and both are bounded by the same
-      8h budget. Trial-supervision polling watches in-flight work the
+      12h budget. Trial-supervision polling watches in-flight work the
       synchronous Bash call already blocks on — that's the antipattern.
 
    b. **Acquire the per-box lock** before running anything on the
       chosen instance (filename keys off `$INSTANCE_NAME`):
       ```bash
       exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
-      flock -w 28800 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
+      flock -w 43200 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
       # ... trials ...
       exec {LFD}>&-        # release on exit; the kernel also releases
                            # automatically on process death (no userspace
                            # trap needed for cancel-in-progress / SIGKILL).
       ```
-      8-hour max hold (matches the job timeout). If another worker
-      already holds the lock for this box, wait up to 8 h; beyond
+      12-hour max hold (matches the job timeout). If another worker
+      already holds the lock for this box, wait up to 12 h; beyond
       that, fall back to step 5a and rescore — another box may have
       come free. Final fallback: emit `BLOCKED: lock timeout` and exit.
    c. Drive harbor one trial at a time (they share GPU/ports on the
@@ -409,7 +409,7 @@ template is in § Harbor invocation below.
   run from this agent), and acquiring/releasing the per-box flock.
   If no hardware-matching pool member exists for the trial's
   platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
-  poll, 28800s budget, then `BLOCKED: pool exhausted for
+  poll, 43200s budget, then `BLOCKED: pool exhausted for
   <platform>`) — provisioning is the operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
@@ -478,7 +478,7 @@ naturally — that's how parallelism happens. The pool is
 operator-managed: never `brev create`, `brev start`, `brev stop`,
 `brev reset`, or `brev delete` a fleet member from the agent. If
 no `^vss-eval-*` candidate matches the trial's platform hardware,
-wait/poll within the 28800s budget per § 5a; only emit
+wait/poll within the 43200s budget per § 5a; only emit
 `BLOCKED: pool exhausted for <platform>` after the full window
 elapses with zero hardware-matching candidates.
 
@@ -917,7 +917,7 @@ separate; don't conflate the two.
   have run; include the reward if present.
 - **Pool exhausted for the trial's platform.** `brev ls` shows zero
   RUNNING+READY `^vss-eval-*` boxes whose `gpu_type` matches. Wait
-  per § 5a (5-min `brev ls` poll, up to 28800s budget). If no
+  per § 5a (5-min `brev ls` poll, up to 43200s budget). If no
   matching candidate appears within the window, emit
   `BLOCKED: pool exhausted for <platform>` and exit. Do NOT
   `brev create`, `brev start`, or `brev reset` — the operator
@@ -929,7 +929,7 @@ separate; don't conflate the two.
   3x. If still failing, emit `BLOCKED: anthropic rate limit` and
   exit.
 - **Lock contention** (another CI run holds the Brev lock). Wait up
-  to 8 h (flock `-w 28800`). If you time out, emit `BLOCKED: lock
+  to 12 h (flock `-w 43200`). If you time out, emit `BLOCKED: lock
   timeout on <instance>`.
 
 ## Manual full-sweep mode
