@@ -40,6 +40,7 @@ services:
       - "bp_wh_auto_calib_2d"
       - "bp_wh_auto_calib_3d"
       - "bp_wh_auto_calib_mv3dt"
+      - "bp_smartcities_2d_cv"
     container_name: vss-haproxy-ingress
     network_mode: host
     restart: always

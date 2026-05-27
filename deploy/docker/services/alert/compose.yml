@@ -17,7 +17,7 @@ services:
   alert-bridge:
     image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.65
     container_name: vss-alert-bridge
-    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm","bp_smartcities_2d_cv"]
     network_mode: host
     restart: unless-stopped
     environment:
