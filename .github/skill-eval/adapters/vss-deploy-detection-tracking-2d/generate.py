@@ -108,10 +108,12 @@ def _instruction_intro(kind: str, platform: str) -> str:
     if kind == "usage":
         return (
             f"Use the `/vss-deploy-detection-tracking-2d` skill against the RTVI-CV "
-            f"container (deploy it first on this `{platform}` host, then "
-            "(`http://localhost:9000/api/v1` must respond). The eval harness "
-            "started that container in an earlier trial; do not redeploy it, "
-            "invoke `/vss-deploy-profile`, or call `scripts/dev-profile.sh`.\n"
+            f"container on this `{platform}` host. If the container isn't already "
+            "running, the precheck below brings it up via `docker start` (the "
+            "image is pre-pulled on the box from a prior deploy trial); do not "
+            "invoke `/vss-deploy-profile` or `scripts/dev-profile.sh` for this "
+            "trial — just ensure `http://localhost:9000/api/v1` responds before "
+            "running the query.\n"
             "\n"
             "### MANDATORY container-alive precheck — run this Bash command FIRST, before reading the query\n"
             "\n"

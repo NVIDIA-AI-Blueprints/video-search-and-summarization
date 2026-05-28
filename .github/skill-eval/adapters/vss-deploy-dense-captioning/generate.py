@@ -221,13 +221,6 @@ def generate_task(
                     meta_lines.index(f'platform = "{platform}"'),
                     f'deploy_mode = "{spec.get("deploy_mode")}"',
                 )
-                # which alerts stack (verification vs real-time) the
-                # trial requires. The deploy marker is profile-name
-                # only for non-alerts (base/lvs/search), so we skip
-                # this field when spec.deploy_mode is unset.
-                meta_lines.insert(
-                    meta_lines.index(f'platform = "{platform}"'),
-                )
         else:
             meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'compose_profile = "{COMPOSE_PROFILE}"')
         (step_dir / "task.toml").write_text("\n".join(meta_lines))
