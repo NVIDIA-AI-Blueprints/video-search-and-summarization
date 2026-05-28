@@ -39,6 +39,17 @@ on:
         required: false
         default: "*"
         type: string
+      runner:
+        description: >-
+          Execution runtime for manual sweeps. `claude-code` keeps the
+          existing matrix path; `nemoclaw` prepares OpenClaw/NemoClaw and
+          launches scenarios through hooks.
+        required: false
+        default: "claude-code"
+        type: choice
+        options:
+          - claude-code
+          - nemoclaw
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -81,7 +92,9 @@ jobs:
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
-    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
+    if: >-
+      startsWith(github.ref, 'refs/heads/pull-request/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.runner != 'nemoclaw')
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
@@ -328,4 +341,106 @@ jobs:
           name: skills-eval-results-pr-${{ needs.plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
           path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
-          retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation
+          retention-days: 7
+
+  # ---------------------------------------------------------------------
+  # nemoclaw-eval — deterministic manual NemoClaw/OpenClaw path.
+  # ---------------------------------------------------------------------
+  nemoclaw-eval:
+    name: NemoClaw skills eval
+    if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 240
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run NemoClaw skills eval agent
+        id: nemoclaw-agent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
+          INPUT_SKILLS: ${{ inputs.skills }}
+        run: |
+          mkdir -p "$GH_CONFIG_DIR"
+          set -a
+          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
+          set +a
+          export NEMOCLAW_LOCK_TIMEOUT_SEC=7200
+          export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-base}"
+          export PR_NUMBER=""
+          export PR_BASE="${{ github.ref_name }}"
+          export PR_HEAD_SHA="${{ github.sha }}"
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          if [ "${INPUT_SKILLS}" != "*" ] && [ -n "${INPUT_SKILLS}" ]; then
+            if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
+              echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-deploy-profile' or '*' to sweep all."
+              exit 1
+            fi
+            if [ ! -d "skills/${INPUT_SKILLS}" ]; then
+              echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref."
+              exit 1
+            fi
+          fi
+          export MANUAL_FULL_SWEEP=1
+          export MANUAL_SKILLS_FILTER="${INPUT_SKILLS}"
+          export SKILLS_EVAL_RUNNER="nemoclaw"
+          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+          mkdir -p /tmp/brev /tmp/skill-eval
+          python3 .github/skill-eval/nemoclaw/smoke_runner.py
+
+      - name: Collect results for workflow artifact
+        if: always()
+        env:
+          RUN_RESULTS: /tmp/skill-eval/results/${{ github.run_id }}
+        run: |
+          rm -f /tmp/skills-eval-results.tar.gz
+          if [ ! -d "$RUN_RESULTS" ]; then
+            echo "no results dir for this run — agent blocked before running trials"
+            exit 0
+          fi
+          RESULTS=$(find "$RUN_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
+          if [ -n "$RESULTS" ]; then
+            TAR_PATHS=("results/${{ github.run_id }}")
+            if [ -d /tmp/skill-eval/nemoclaw ]; then
+              TAR_PATHS+=("nemoclaw")
+            fi
+            tar czf /tmp/skills-eval-results.tar.gz \
+              -C /tmp/skill-eval \
+              --exclude='agent' \
+              --exclude='hooks_token' \
+              --exclude='*.sig' \
+              "${TAR_PATHS[@]}"
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files"
+          else
+            echo "current run results dir is empty — nothing to archive"
+          fi
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-results-manual-${{ github.run_id }}
+          path: /tmp/skills-eval-results.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload benchmark report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-benchmark-manual-${{ github.run_id }}
+          path: /tmp/skill-eval/${{ github.run_id }}/benchmark.md
+          if-no-files-found: ignore
+          retention-days: 7

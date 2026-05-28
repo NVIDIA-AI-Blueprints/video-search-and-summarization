@@ -227,6 +227,104 @@ def generate_instruction(profile: str, platform: str, spec_query: str | None = N
     ]) + "\n"
 
 
+def _spec_path_for(skill_dir: Path | None, profile: str) -> Path | None:
+    if skill_dir is None:
+        return None
+    for dirname in ("evals", "eval"):
+        candidate = skill_dir / dirname / f"{profile}.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _requested_runner(spec: dict) -> str:
+    override = os.environ.get("SKILLS_EVAL_RUNNER", "").strip()
+    if override:
+        return override
+    return str(spec.get("runner") or "claude-code").strip()
+
+
+def _uses_nemoclaw(spec: dict) -> bool:
+    return _requested_runner(spec).lower() == "nemoclaw" or bool(spec.get("requires_nemoclaw"))
+
+
+def _toml_string(value: str) -> str:
+    return json.dumps(str(value))
+
+
+def _toml_string_list(values: list[str]) -> str:
+    return "[" + ", ".join(_toml_string(value) for value in values) + "]"
+
+
+def _nemoclaw_required_tools(spec: dict) -> list[str]:
+    tools = spec.get("required_mcp_tools")
+    if isinstance(tools, list) and tools:
+        return [str(tool) for tool in tools]
+    return [
+        "vss_orchestrator__prereqs",
+        "vss_orchestrator__docker_generate",
+        "vss_orchestrator__docker_up",
+        "vss_orchestrator__docker_status",
+    ]
+
+
+def generate_nemoclaw_prompt(profile: str, platform: str, profile_def: dict) -> str:
+    underlying = deploy_profile(profile)
+    deploy_mode = profile_def.get("deploy_mode")
+    mode_phrase = f" in {deploy_mode} mode" if deploy_mode else ""
+    return "\n".join([
+        "You are running inside the automated GitHub VSS skill evaluation with NemoClaw/OpenClaw.",
+        "",
+        f"Deploy the VSS {underlying} profile{mode_phrase} on {platform}.",
+        "",
+        "Requirements:",
+        "- Use the VSS skills installed in this OpenClaw workspace.",
+        "- Use the VSS Orchestrator MCP server for deployment.",
+        "- Do not run raw docker compose, dev-profile.sh, or host shell deploy commands directly.",
+        "- Call the orchestrator flow: prereqs, docker_generate, docker_up, then docker_status until terminal.",
+        "- Summarize the final deployment state and any failing service if deployment fails.",
+        "",
+        "Run autonomously. The evaluation harness has already authorized the deployment.",
+    ]) + "\n"
+
+
+def generate_nemoclaw_launcher_instruction(profile: str, platform: str) -> str:
+    return "\n".join([
+        "This Harbor trial is a thin launcher for NemoClaw/OpenClaw.",
+        "",
+        "Do not deploy VSS directly from Claude Code. Launch the NemoClaw scenario by running:",
+        "",
+        "```bash",
+        "cd \"$HOME/video-search-and-summarization\"",
+        "python3 .github/skill-eval/nemoclaw/headless_runner.py \\",
+        "  --prompt-file /tests/nemoclaw_prompt.md \\",
+        "  --log-dir /logs/agent \\",
+        f"  --wait-profile {deploy_profile(profile)}",
+        "```",
+        "",
+        f"The NemoClaw prompt deploys the `{profile}` profile on `{platform}` through the VSS Orchestrator MCP server.",
+        "After the command exits, report whether the hook launch was accepted.",
+    ]) + "\n"
+
+
+def _nemoclaw_meta_lines(spec: dict, profile: str, platform: str, profile_def: dict) -> list[str]:
+    if not _uses_nemoclaw(spec):
+        return []
+    underlying = deploy_profile(profile)
+    lines = [
+        'runner = "nemoclaw"',
+        "requires_nemoclaw = true",
+        "requires_mcp = true",
+        f"deployment_profile = {_toml_string(underlying)}",
+        f"expected_skill = {_toml_string('vss-deploy-profile')}",
+        f"required_mcp_tools = {_toml_string_list(_nemoclaw_required_tools(spec))}",
+    ]
+    deploy_mode = profile_def.get("deploy_mode")
+    if deploy_mode:
+        lines.append(f"deployment_profile_mode = {_toml_string(deploy_mode)}")
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # Spec rendering
 # ---------------------------------------------------------------------------
@@ -448,6 +546,9 @@ def generate_task(
     task_id = platform_spec["short_name"]
     task_dir = output_root / profile / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
+    spec_path = _spec_path_for(skill_dir, profile)
+    raw_spec = json.loads(spec_path.read_text()) if spec_path else {}
+    nemoclaw = _uses_nemoclaw(raw_spec)
 
     # -- instruction.md --
     # Prefer the spec's expects[0].query (with {{platform}} substituted) so
@@ -474,9 +575,12 @@ def generate_task(
                 print(f"WARN: could not read spec query for {profile}: {exc}",
                       file=sys.stderr)
 
-    (task_dir / "instruction.md").write_text(
-        generate_instruction(profile, platform, spec_query=spec_query),
+    instruction = (
+        generate_nemoclaw_launcher_instruction(profile, platform)
+        if nemoclaw
+        else generate_instruction(profile, platform, spec_query=spec_query)
     )
+    (task_dir / "instruction.md").write_text(instruction)
 
     # -- task.toml --
     meta_lines = [
@@ -500,6 +604,7 @@ def generate_task(
         # _ensure_prerequisite_deployed pre-deploy hook is gone. The
         # `platform` key below is purely informational.
         f'platform = "{platform}"',
+        *_nemoclaw_meta_lines(raw_spec, profile, platform, profile_def),
     ]
     deploy_flag_m = profile_def.get("deploy_mode")
     if deploy_flag_m:
@@ -538,20 +643,15 @@ def generate_task(
     # -- tests/: wrapper + generic judge + rendered eval spec --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    if skill_dir:
-        spec_path = skill_dir / "evals" / f"{profile}.json"
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
-    else:
-        spec_path = None
     if spec_path and spec_path.exists():
-        raw_spec = json.loads(spec_path.read_text())
         rendered = _render_eval_spec(raw_spec, profile, platform)
         spec_name = spec_path.name
         (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
         (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile))
+        if nemoclaw:
+            (tests_dir / "nemoclaw_prompt.md").write_text(
+                generate_nemoclaw_prompt(profile, platform, profile_def)
+            )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
     else:
@@ -594,12 +694,8 @@ def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, int] 
     A warning is printed so authors notice the dead field."""
     if skill_dir is None:
         return None
-    spec_path = skill_dir / "evals" / f"{profile}.json"
-    if not spec_path.exists():
-        legacy = skill_dir / "eval" / f"{profile}.json"
-        if legacy.exists():
-            spec_path = legacy
-    if not spec_path.exists():
+    spec_path = _spec_path_for(skill_dir, profile)
+    if spec_path is None:
         return None
     try:
         spec = json.loads(spec_path.read_text())
