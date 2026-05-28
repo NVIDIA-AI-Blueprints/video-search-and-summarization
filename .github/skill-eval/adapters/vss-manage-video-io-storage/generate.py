@@ -4,8 +4,9 @@
 """Generate Harbor tasks for the vss-manage-video-io-storage skill.
 
 The vss-manage-video-io-storage skill exercises VIOS (VST) API calls — upload video, extract
-snapshot URL, extract clip URL, etc. The current spec
-([`skills/vss-manage-video-io-storage/eval/vios_ops.json`]) **omits the `profile` field
+snapshot URL, extract clip URL, etc. The current specs live under
+`skills/vss-manage-video-io-storage/evals/` (e.g. `vios_ops.json`, `nvstreamer_ops.json`).
+The primary spec `vios_ops.json` **omits the `profile` field
 by design** — the agent is expected to stand VIOS up standalone via the
 skill's bundled `references/deploy-vios-service.md` runbook before
 exercising the API. Per `.github/skill-eval/AGENTS.md` § 2, an absent
@@ -55,7 +56,7 @@ The adapter supports two modes, controlled by the spec's `profile` field:
         task.toml
         instruction.md
         tests/test.sh
-        tests/vios_ops.json               (copied from skill)
+        tests/<spec_name>.json            (copied from skill's evals/)
         solution/solve.sh
         skills/vss-manage-video-io-storage/                (full skill copy)
         environment/Dockerfile            (FROM scratch; BrevEnvironment takes over)
@@ -282,12 +283,18 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "eval" / spec_name
+        # Try evals/ (plural, current layout) first, then eval/ (legacy layout)
+        # for backwards compatibility. Always write under spec_name so test.sh
+        # resolves --spec "$TEST_DIR/<spec_name>" at runtime.
+        spec_src = skill_dir / "evals" / spec_name
+        if not spec_src.exists():
+            spec_src = skill_dir / "eval" / spec_name
         if spec_src.exists():
             shutil.copy(spec_src, tests_dir / spec_name)
         else:
-            # write a copy of the spec even if the source file path differs
-            (tests_dir / "vios_ops.json").write_text(
+            # write a copy of the spec keyed by spec_name (not hardcoded
+            # vios_ops.json) so test.sh finds it regardless of spec filename
+            (tests_dir / spec_name).write_text(
                 json.dumps(spec, indent=2)
             )
 
@@ -320,8 +327,8 @@ def main() -> None:
     parser.add_argument("--deploy-skill-dir", default=None,
                         help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
     parser.add_argument("--spec", default=None,
-                        help="Path to vios_ops.json "
-                             "(default: <skill-dir>/eval/vios_ops.json)")
+                        help="Path to a spec JSON (e.g. vios_ops.json, nvstreamer_ops.json); "
+                             "default: <skill-dir>/evals/vios_ops.json (evals/ plural)")
     parser.add_argument("--platform", default=None,
                         choices=list(PLATFORMS.keys()),
                         help=f"Generate for this platform only "
@@ -341,7 +348,13 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / "vios_ops.json")
+    # Default: evals/ (plural, current layout); fall back to legacy eval/ (singular)
+    if args.spec:
+        spec_path = Path(args.spec)
+    elif (skill_dir / "evals" / "vios_ops.json").exists():
+        spec_path = skill_dir / "evals" / "vios_ops.json"
+    else:
+        spec_path = skill_dir / "eval" / "vios_ops.json"
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)
