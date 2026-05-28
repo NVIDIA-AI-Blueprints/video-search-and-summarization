@@ -33,6 +33,20 @@ def _load_env_file(path: Path) -> None:
         os.environ.setdefault(key, shlex.split(value)[0] if value else "")
 
 
+def _read_hooks_token() -> str:
+    token = os.environ.get("OPENCLAW_HOOKS_TOKEN", "")
+    if token:
+        return token
+
+    token_file = os.environ.get("NEMOCLAW_HOOKS_TOKEN_FILE", "")
+    if not token_file:
+        return ""
+    try:
+        return Path(token_file).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
@@ -101,6 +115,8 @@ def post_hook(url: str, token: str, payload: dict[str, Any], timeout: int) -> di
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         return {"status": exc.code, "body": body, "error": str(exc)}
+    except urllib.error.URLError as exc:
+        return {"status": 0, "body": "", "error": str(exc)}
 
 
 def _vss_base_ready() -> tuple[bool, str]:
@@ -162,10 +178,10 @@ def main(argv: list[str] | None = None) -> int:
     (log_dir / "nemoclaw_prompt.md").write_text(prompt, encoding="utf-8")
 
     sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo")
-    hooks_token = os.environ.get("OPENCLAW_HOOKS_TOKEN", "")
+    hooks_token = _read_hooks_token()
     hooks_path = "/" + os.environ.get("OPENCLAW_HOOKS_PATH", "/hooks").strip("/")
     if not hooks_token:
-        raise RuntimeError("OPENCLAW_HOOKS_TOKEN is not available; run the notebook setup adapter first")
+        raise RuntimeError("OpenClaw hooks token is not available; run the notebook setup adapter first")
 
     ensure_forward(str(args.dashboard_port), sandbox_name)
     hook_url = f"http://127.0.0.1:{args.dashboard_port}{hooks_path}/agent"
