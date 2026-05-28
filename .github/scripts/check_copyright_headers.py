@@ -43,7 +43,15 @@ EXCLUDE_PATTERNS = (
     # UI — original MIT-licensed code; headers will be added incrementally
     "ui/**",
     "services/ui/**",
-    "**/schema_pb.js"
+    # Protobuf generated files
+    "**/schema_pb.js",
+    "**/ext_pb.js",
+    "**/schema_pb.py",
+    "**/ext_pb.py",
+    "**/schema_pb.rb",
+    "**/ext_pb.rb",
+    "**/schema_pb.java",
+    "**/ext_pb.java"
 )
 
 
