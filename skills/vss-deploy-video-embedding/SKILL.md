@@ -95,9 +95,10 @@ BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
 curl -fsS "$BASE_URL/v1/ready"               # 200 when warm.
 curl -fsS "$BASE_URL/v1/ready?detailed=true" # Component-level status.
 curl -fsS "$BASE_URL/v1/version"
-curl -fsS "$BASE_URL/v1/models"              # Confirms cosmos-embed1-448p is loaded.
 
-MODEL_ID="$(curl -fsS "$BASE_URL/v1/models" | jq -r '.data[0].id')"
+MODELS_JSON=$(curl -fsS "$BASE_URL/v1/models")
+MODEL_ID="$(echo "$MODELS_JSON" | jq -r '.data[0].id // empty')"
+test -n "$MODEL_ID" || { echo "ERROR: /v1/models has no model id — wait until /v1/ready is 200" >&2; exit 1; }
 ```
 
 Sections below that call the API reuse `$BASE_URL` and `$MODEL_ID` from this block.
