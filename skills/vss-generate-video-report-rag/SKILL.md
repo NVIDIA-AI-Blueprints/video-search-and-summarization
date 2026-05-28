@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-report-rag
-description: "Generate video summary reports with Enterprise RAG using the VSS video_search_frag extension with Long Video Summarization (LVS), knowledge retrieval, and human-in-the-loop parameter collection. Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline."
+description: "Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline."
 license: Apache-2.0
 metadata:
   version: "3.2.0"
