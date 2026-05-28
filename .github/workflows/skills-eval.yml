@@ -200,7 +200,7 @@ jobs:
           export GITHUB_RUN_ID="${{ github.run_id }}"
           # Manual sweep passthrough. Agent reads MANUAL_FULL_SWEEP +
           # MANUAL_SKILLS_FILTER and swaps its user prompt: no diff,
-          # enumerate skills/<skill>/eval/*.json under the picked skill
+          # enumerate skills/<skill>/evals/*.json under the picked skill
           # (or every skill when `*`), write results to
           # $GITHUB_STEP_SUMMARY instead of `gh pr comment`. All specs on
           # the chosen skill(s) run — no spec-level filter knob.

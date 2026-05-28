@@ -22,7 +22,7 @@ Env (set by the workflow step):
                           page. The agent writes per-spec results tables here in
                           manual-sweep mode (no PR to comment on).
     MANUAL_FULL_SWEEP     "1" when workflow_dispatch fired. Swaps user prompt:
-                          enumerate every skills/<skill>/eval/*.json for the
+                          enumerate every skills/<skill>/evals/*.json for the
                           skill named in MANUAL_SKILLS_FILTER (or all skills when
                           `*`), write results to $GITHUB_STEP_SUMMARY, never
                           post `gh pr comment`, never raise bot PRs (missing
@@ -170,7 +170,7 @@ Context:
 
 Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
 
-  Step 1 (override): skip the diff entirely. Enumerate `skills/*/eval/*.json`
+  Step 1 (override): skip the diff entirely. Enumerate `skills/*/evals/*.json`
     on the checked-out workspace. Keep only the skill named in `skills filter`
     (the dispatch dropdown is single-select; `*` matches all). All specs on the
     chosen skill(s) run — there is no spec-level filter. Skills with no eval/
@@ -188,7 +188,7 @@ Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
     posted via `gh pr comment` to the path in `$GITHUB_STEP_SUMMARY`. Use:
 
       cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
-      ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+      ## Harbor Eval — `skills/<skill>/evals/<spec>.json`
       ... (table + failing checks + suggestions, identical to § Result comment format) ...
       MD
 

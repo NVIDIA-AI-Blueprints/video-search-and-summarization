@@ -53,8 +53,8 @@ template is in § Harbor invocation below.
 
 2. **For each changed skill, decide whether it has a dispatchable
    eval spec** — any `skills/<skill>/evals/<name>.json`. For legacy
-   skills that have not moved yet, also accept
-   `skills/<skill>/eval/<name>.json`. The filename is free; it
+   skills that have not migrated yet, also accept
+   `skills/<skill>/eval/<name>.json` (singular). The filename is free; it
    doesn't need to match a deploy profile or any convention. A skill
    can ship multiple specs side-by-side.
 
@@ -917,13 +917,13 @@ skill filter:
   - `MANUAL_SKILLS_FILTER` — one skill name from the `type: choice`
     dispatch dropdown, or `*` for every skill. There is intentionally no
     spec-level filter — once a skill is picked, every spec under
-    `skills/<skill>/eval/*.json` runs.
+    `skills/<skill>/evals/*.json` runs.
 
 When you see `MANUAL_FULL_SWEEP=1` in the env (the user prompt also says so
 explicitly), apply these step overrides — everything else in this file
 applies unchanged:
 
-- **Step 1 (override):** skip the diff. Enumerate `skills/*/eval/*.json` on
+- **Step 1 (override):** skip the diff. Enumerate `skills/*/evals/*.json` on
   the checked-out workspace, then drop any skill not matching the filter
   (`*` keeps all). Skills with no `eval/` dir remain runtime libraries and
   are skipped as in the normal path. Every spec on the kept skill(s) runs.
@@ -941,7 +941,7 @@ applies unchanged:
 
   ```bash
   cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
-  ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+  ## Harbor Eval — `skills/<skill>/evals/<spec>.json`
   ... table + failing checks + suggestions, exactly as in PR-comment mode ...
   MD
   ```

@@ -4,7 +4,7 @@ Evaluate VSS skills (vss-deploy-profile, vss-deploy-dense-captioning, vss-manage
 
 Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) fires on every push to a `pull-request/<N>` mirror branch whose diff touches `skills/` or `.github/skill-eval/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
 
-1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` or legacy `skills/<skill>/eval/<name>.json`.
+1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
 3. Acquires a per-instance `flock` on an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
 4. Runs `uvx harbor run` against each dataset, one trial at a time, with the canonical invocation captured in [`AGENTS.md § Harbor invocation`](AGENTS.md).
@@ -97,7 +97,7 @@ Each generated task contains:
 
 ## Eval spec format
 
-Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
+Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` (singular) specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
 
 The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. This keeps PR authors in control of which `(platform, mode)` combos actually run.
 
@@ -128,7 +128,7 @@ PROFILES = {
 
 An empty or absent `profile` means the dict key *is* the deploy profile (the `base` case). When `profile` is set, the agent is told to invoke `/vss-deploy-profile -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`. This is how one skill profile (`alerts`) produces multiple eval variants (`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct container-check sets while still deploying a shared compose stack.
 
-### Worked example — `skills/vss-manage-video-io-storage/eval/vios_ops.json`
+### Worked example — `skills/vss-manage-video-io-storage/evals/vios_ops.json`
 
 13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. The spec **omits the `profile` field** so the agent stands VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook — there is no `/vss-deploy-profile` prerequisite. Produces 13 chained tasks on the targeted platform.
 
@@ -150,7 +150,7 @@ An empty or absent `profile` means the dict key *is* the deploy profile (the `ba
 }
 ```
 
-Source: [`skills/vss-manage-video-io-storage/eval/vios_ops.json`](../../skills/vss-manage-video-io-storage/eval/vios_ops.json)
+Source: [`skills/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/vss-manage-video-io-storage/evals/vios_ops.json)
 
 What the agent derives from this spec:
 - `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
