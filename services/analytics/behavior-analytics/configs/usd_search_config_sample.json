@@ -1,0 +1,32 @@
+{
+	"app": [
+		{
+			"name": "in3dMode",
+			"value": "true"
+		},
+		{
+			"name": "apiAGS",
+			"value": "http://35.82.93.75:30030"
+		},
+		{
+			"name": "usdFilePath",
+			"value": "s3://surf-uds-aws-cns/warehouse_20x20_layout_02_all_objects_labeled.usd"
+		},
+		{
+			"name": "useAssetJson",
+			"value": "true"
+		},
+		{
+			"name": "apiMDX",
+			"value": "http://10.117.9.37:8081"
+		},
+		{
+			"name": "apiRetryMaxCnt",
+			"value": "5"
+		},
+		{
+			"name": "apiRetryMaxTimeSec",
+			"value": "5"
+		}
+	]
+}

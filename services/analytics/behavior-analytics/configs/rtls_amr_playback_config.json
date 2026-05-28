@@ -1,0 +1,38 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"topics": [
+			{
+				"name": "rtls",
+				"value": "mdx-rtls"
+			},
+			{
+				"name": "amr",
+				"value": "mdx-amr"
+			}
+		],
+		"producer": {
+			"lingerMs": 0
+		},
+		"group": "mdx-rtls-amr-playback-app"
+	},
+	"sensors": [],
+	"app": [
+		{
+			"name": "playbackSimulationTimedeltaInMin",
+			"value": "60"
+		},
+		{
+			"name": "playbackSimulatedFps",
+			"value": "0.3333333333333333"
+		},
+		{
+			"name": "playbackLoop",
+			"value": "1"
+		},
+		{
+			"name": "playbackSimulationBaseTime",
+			"value": "2024-12-09T08:20:00.000000Z"
+		}
+	]
+}

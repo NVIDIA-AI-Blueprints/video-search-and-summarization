@@ -1,0 +1,19 @@
+# cluster.name: "docker-cluster"
+network.host: 0.0.0.0
+http.port: 9200
+# ----------------------- BEGIN SECURITY AUTO CONFIGURATION -----------------------
+#
+# The following settings, TLS certificates, and keys have been automatically
+# generated to configure Elasticsearch security features on 04-08-2025 10:18:32
+#
+# --------------------------------------------------------------------------------
+
+# Enable security features
+xpack.security.enabled: false
+#
+# Path to directory where to store the data (separate multiple locations by comma):
+path.data: /tmp/elastic/data/
+#
+# Path to log files:
+#
+path.logs: /tmp/elastic/logs
