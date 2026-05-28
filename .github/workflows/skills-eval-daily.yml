@@ -131,8 +131,7 @@ jobs:
           set +a
           # daily run will skip the diff path,
           # treat as manual full sweep with skill filter = *
-          export PR_BASE="schedule"
-          export PR_HEAD_SHA="develop"
+          export PR_HEAD_SHA="$(git rev-parse develop)"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
           export MANUAL_FULL_SWEEP=1
