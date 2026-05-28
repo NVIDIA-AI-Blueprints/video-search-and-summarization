@@ -11,7 +11,7 @@
 Derive `<compose-default>` from the checked-out
 `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` instead of
 hardcoding it in this reference. The current `develop` compose default is
-`3.2.0-26.05.3`.
+`3.2.0-26.05.4`.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
@@ -49,6 +49,12 @@ live-authoritative schema — see §16.
 
 > ⚠ **Profiles are mandatory.** Service declares **6 blueprint profiles**
 > (§12). Plain `docker compose up` starts **nothing** — pass `--profile <name>`.
+
+For standalone Kafka setup, use
+[`kafka-workflows.md`](kafka-workflows.md#standalone-kafka-listener-setup). This
+reference is self-contained; do not depend on access-gated internal documents
+for required deploy behavior because they may redirect to sign-in during
+validation.
 
 Run these preflights before any pull or `up`; fix failures here before debugging
 RT-VLM itself:
@@ -375,7 +381,7 @@ VSS_CHECKOUT="${VSS_CHECKOUT:-}"
 if [ -n "$VSS_CHECKOUT" ] && [ -f "$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml" ]; then
   cp "$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml" .
 else
-  VSS_REF="${VSS_REF:-9f2e4978df55ccc80d3548f9298101db4fd0f000}" # validated 26.05.3 compose
+  VSS_REF="${VSS_REF:-e9caf1593ffcd4964426c3e481c2f05f880d2d58}" # validated 26.05.4 compose
   wget -q -O rtvi-vlm-docker-compose.yml \
     "https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/${VSS_REF}/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
 fi
@@ -462,7 +468,7 @@ fi
 umask 077  # ensure the file is created mode 0600
 cat > .env <<EOF
 NGC_CLI_API_KEY=<your-ngc-key>
-RTVI_VLM_PORT=8100
+RTVI_VLM_PORT=8018
 HOST_IP=<host-ip>
 VSS_DATA_DIR=${VSS_DATA_DIR}
 RTVI_VLM_IMAGE_TAG=${VLM_TAG}
@@ -479,6 +485,8 @@ grep -qxF .env .gitignore 2>/dev/null || printf '.env\n' >> .gitignore
 # host bind path exists or is writable by the container user.
 mkdir -p "$VSS_DATA_DIR/data_log/vst/clip_storage"
 sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"
+# If sudo is unavailable in an agent session, stop here and have the host owner
+# run the chown. Do not work around this with world-writable permissions.
 
 # Step 3. Validate the standalone compose before creating containers.
 docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
@@ -611,6 +619,7 @@ once the service is up):
 | `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `.env` |
 | Container starts but Kafka errors `:9092 connection refused` | `HOST_IP` unset → `KAFKA_BOOTSTRAP_SERVERS=:9092` | Set `HOST_IP` to an address reachable from the container. Non-fatal for API/inference — Kafka publishing is just disabled. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
+| `sudo chown` prompts for a password or fails in an agent session | Host path ownership requires user privileges | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
 | `service "X" depends on undefined service "Y": invalid compose project` | Recent Docker Compose rejects `depends_on` refs to sibling NIM services not defined in this single-file project — even with `required: false`. | Remove the `depends_on` block from the local compose copy (§12 step 0b). Only needed for standalone deploys without the full met-blueprints project. |
 | `docker compose pull` → `invalid compose project` | Same `depends_on` validation runs before pull | Use `docker pull nvcr.io/nvstaging/vss-core/vss-rt-vlm:<tag>` directly (§4) |
 | `docker compose pull --no-deps` → `unknown flag: --no-deps` | Compose 2.38 does not support `--no-deps` on `pull` | Use direct `docker pull` (§4), or strip `depends_on` and validate before `up` (§12 step 0b). |
@@ -696,6 +705,10 @@ docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
   `host.docker.internal` is wired via `extra_hosts` as an alternative value.
 - **`VSS_DATA_DIR` required**: no default on the bind mount. Without it the
   mount spec expands to garbage.
+- **Kafka startup order matters for validation**: when `RTVI_VLM_KAFKA_ENABLED=true`,
+  start Kafka with an advertised `${HOST_IP}:9092` listener before RT-VLM. If the
+  broker was missing or its listener changed after RT-VLM started, run
+  `docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm`.
 - **Host-var rewrite convention**: most host-side vars use `RTVI_VLM_*` or
   `RTVI_VLLM_*` and rewrite to canonical names inside the container.
 - **`VLM_MODEL_TO_USE=openai-compat` by default**: this stack expects a sibling

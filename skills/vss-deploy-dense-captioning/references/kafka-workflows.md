@@ -16,6 +16,10 @@ Anomaly Detected: Yes/No
 Reason: [Brief explanation]
 ```
 Pair it with `system_prompt` that constrains the model to answer Yes/No.
+For Kafka wiring validation, use a deterministic positive prompt first, such as
+asking the model to output exactly `Anomaly Detected: Yes` with a short reason.
+Once offsets move on both caption and incident topics, switch back to the real
+scene-analysis prompt.
 
 ### 4. HTTP response vs. Kafka message bus
 
@@ -40,11 +44,12 @@ response to the caller and Kafka records for downstream message-bus consumers.
 
 **Kafka publish** (when `KAFKA_ENABLED=true`):
 - Every caption → **`KAFKA_TOPIC`** (current compose fallback is
-  `vision-llm-messages`; set `RTVI_VLM_KAFKA_TOPIC=mdx-vlm` explicitly if your
-  deployment overrides caption records to the mdx-prefixed topic) with header
+  `vision-llm-messages`; set `RTVI_VLM_KAFKA_TOPIC` explicitly only if your
+  deployment overrides caption records) with header
   `message_type: vision_llm` and `info["incidentDetected"] = "true"|"false"`.
-- Alert-positive chunks → **also** published to **`KAFKA_INCIDENT_TOPIC`** (repo `.env` sets
-  `mdx-vlm-incidents`; raw compose fallback is `vision-llm-events-incidents`) with header `message_type: incident`.
+- Alert-positive chunks → **also** published to **`KAFKA_INCIDENT_TOPIC`**
+  (current compose fallback is `vision-llm-events-incidents`) with header
+  `message_type: incident`.
 - Any upstream/VLM error → **`ERROR_MESSAGE_TOPIC`** (default `vision-llm-errors`)
   with header `message_type: error`.
 - **Partition key:** `<request_id>:<chunk_idx>` — all messages for one (request, chunk)
@@ -55,16 +60,53 @@ response to the caller and Kafka records for downstream message-bus consumers.
 
 For deterministic validation, first check topic offsets:
 ```bash
-for T in vision-llm-messages mdx-vlm-incidents vision-llm-errors; do
+for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
   docker exec mdx-kafka kafka-get-offsets \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T"
 done
 ```
 
-For standalone deployments, replace `mdx-kafka` with the actual broker
-container, for example `rtvi-vlm-kafka-1`, and confirm RT-VLM can reach the same
-broker address it was configured with:
+### Standalone Kafka Listener Setup
+
+The RT-VLM compose does not bundle Kafka. For standalone tests, either start the
+repo infra Kafka service by itself or provide an equivalent broker before
+starting RT-VLM. The critical requirement is that the broker advertises
+`${HOST_IP}:9092`, because RT-VLM is configured with
+`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`.
+
+Using the repo infra Kafka only:
+
+```bash
+: "${VSS_CHECKOUT:?Set VSS_CHECKOUT to the video-search-and-summarization checkout}"
+: "${HOST_IP:?Set HOST_IP to an address reachable from the vss-rtvi-vlm container}"
+export VSS_APPS_DIR="${VSS_APPS_DIR:-$VSS_CHECKOUT/deploy/docker}"
+
+docker compose -f "$VSS_CHECKOUT/deploy/docker/services/infra/compose.yml" \
+  --profile bp_developer_alerts_2d_vlm up -d kafka
+
+docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
+  --create --if-not-exists --topic vision-llm-messages
+docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
+  --create --if-not-exists --topic vision-llm-events-incidents
+docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
+  --create --if-not-exists --topic vision-llm-errors
+```
+
+If you use a custom standalone Kafka container, configure the equivalent of:
+
+```bash
+KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093
+KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${HOST_IP}:9092
+```
+
+Do not advertise `localhost:9094` or `kafka:9092` unless RT-VLM is intentionally
+using that same network alias. Those settings can let producer/consumer tests
+inside the Kafka container pass while RT-VLM fails with
+`KafkaTimeoutError: Failed to update metadata after 60.0 secs`.
+
+After Kafka is running, confirm RT-VLM can reach the same broker address it was
+configured with:
 
 ```bash
 docker exec vss-rtvi-vlm printenv KAFKA_BOOTSTRAP_SERVERS
@@ -77,21 +119,21 @@ for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
 done
 ```
 
-The standalone RT-VLM compose sets
-`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; a `.env` value named
-`KAFKA_BOOTSTRAP_SERVERS` is ignored unless you edit the compose. The broker's
-advertised listener must be reachable from the `vss-rtvi-vlm` container network.
-Common failing combinations are a broker advertising `localhost:9094` (points
-back at the RT-VLM container) or `kafka:9092` when RT-VLM is not on that Docker
-network. In that state direct producer/consumer tests inside the Kafka container
-can pass while RT-VLM publish still fails with `KafkaTimeoutError: Failed to
-update metadata after 60.0 secs`.
+The standalone RT-VLM compose sets `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; a
+`.env` value named `KAFKA_BOOTSTRAP_SERVERS` is ignored unless you edit the
+compose. If Kafka was not reachable when RT-VLM started, or if you changed the
+broker advertised listener, restart/recreate RT-VLM before checking offsets:
+
+```bash
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+  --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm
+```
 
 Then consume bounded, metadata-only samples from all three topics. `--timeout-ms`
 prevents a no-message topic from hanging indefinitely; `print.value=false` avoids
 printing protobuf bytes:
 ```bash
-for T in vision-llm-messages mdx-vlm-incidents vision-llm-errors; do
+for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
   docker exec mdx-kafka kafka-console-consumer \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T" \
@@ -108,7 +150,7 @@ done
 Typical proof of an HTTP + Kafka alert pass:
 ```text
 vision-llm-messages:0:8
-mdx-vlm-incidents:0:1
+vision-llm-events-incidents:0:1
 vision-llm-errors:0:0
 
 CreateTime:<ms> message_type:vision_llm <request_id>:5

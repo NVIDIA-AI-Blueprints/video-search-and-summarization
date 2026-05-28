@@ -1,4 +1,4 @@
-# RT-VLM 26.05.3 API Surface Notes
+# RT-VLM 26.05 API Surface Notes
 
 Use the live OpenAPI as the source of truth before running optional endpoints:
 
@@ -45,9 +45,9 @@ curl -X POST "$BASE_URL/v1/files" -H "Authorization: Bearer $API_KEY" \
 
 ## CV-Style Stream Endpoints
 
-26.05.3 deployments also expose CV-style stream control paths:
+26.05 deployments also expose CV-style stream control paths:
 `POST /v1/stream/add`, `GET /v1/stream/get-stream-info`, and
-`POST /v1/stream/remove`. Use these when a workflow or README explicitly uses
+`POST /v1/stream/remove`. Use these when a workflow or release note explicitly uses
 the key/value envelope; otherwise prefer the plural RT-VLM stream endpoints.
 
 ```bash
@@ -154,10 +154,10 @@ curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY"
 
 ## Optional NIM-Compatible Endpoints
 
-- `POST /v1/completions` exists for compatibility, but on 26.05.3 text-only
+- `POST /v1/completions` exists for compatibility, but on current 26.05 builds text-only
   legacy completion requests return HTTP 400 by design. Use
   `/v1/chat/completions` for text-only and multimodal requests.
-- Do not assume `/v1/license` exists. The 26.05.3 live OpenAPI does not expose
+- Do not assume `/v1/license` exists. The current 26.05 live OpenAPI does not expose
   it and the endpoint returns 404; only call it after checking
   `GET /openapi.json`.
 - `GET /v1/assets/stats` reports asset storage counts, TTL, and oldest-asset
