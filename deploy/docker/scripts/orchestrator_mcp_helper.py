@@ -7,7 +7,13 @@ import re
 import shlex
 import subprocess
 import time
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 on some eval workers.
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
 from pathlib import Path
 from typing import Any
 
