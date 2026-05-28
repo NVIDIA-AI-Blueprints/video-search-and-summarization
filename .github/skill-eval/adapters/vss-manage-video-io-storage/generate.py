@@ -266,10 +266,6 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            # pre-deployed VSS stack. With the current profile-less
-            # spec the agent is responsible for the deploy, so this is
-            # false; if a future spec re-introduces `profile`, flip
-            # this back to true (the coordinator gates dispatch on it).
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",

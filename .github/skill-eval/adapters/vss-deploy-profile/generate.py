@@ -529,7 +529,8 @@ def generate_task(
 # ---------------------------------------------------------------------------
 
 def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, int] | None:
-    """Read `eval/<profile>.json` and return `{platform: gpu_count}`.
+    """Read `evals/<profile>.json` (legacy `eval/<profile>.json` accepted)
+    and return `{platform: gpu_count}`.
     Return None if the spec doesn't declare `resources.platforms` (the
     spec is required to ship a `gpu_count` per platform — there is no
     adapter-side fallback matrix any more).
