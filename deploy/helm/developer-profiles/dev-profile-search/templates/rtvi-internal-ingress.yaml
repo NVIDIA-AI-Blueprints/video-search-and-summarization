@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- if .Values.rtviInternalIngress.enabled }}
-{{- $rii := .Values.rtviInternalIngress }}
+{{- $rii := (.Values.global | default dict).rtviInternalIngress | default dict }}
+{{- if $rii.enabled }}
 {{- $cvPath := default "/rtvi-cv" $rii.rtviCvPath }}
 {{- $embedPath := default "/rtvi-embed" $rii.rtviEmbedPath }}
 {{- $hashHeader := default "x-stream-id" $rii.hashHeader }}
