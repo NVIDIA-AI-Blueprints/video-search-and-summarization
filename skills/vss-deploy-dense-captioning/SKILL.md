@@ -1,12 +1,6 @@
 ---
 name: vss-deploy-dense-captioning
-description: >
-  Deploy and call the VSS 3.2 RT-VLM dense captioning microservice. Use this skill
-  to deploy standalone RT-VLM when needed, generate dense captions and alerts for
-  stored video files and live RTSP streams via `/v1/generate_captions`, upload media
-  via `/v1/files`, add and remove live streams with `/v1/streams/add` and
-  `/v1/streams/delete/{stream_id}`, call OpenAI-compatible `/v1/chat/completions`,
-  consume Kafka caption, incident, and error topics, or debug rtvi-vlm responses.
+description: Use to deploy standalone RT-VLM dense captioning and call its REST API (uploads, captions, streams, chat-completions, Kafka). Not for VSS profile deploy or video-search ingestion.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -333,3 +327,4 @@ Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response mo
 - **`/v1/metrics` requires auth**, unlike `/v1/health/*`. Prometheus scrapers need the Bearer token.
 - **File upload is multipart, not JSON.** Use `-F file=@path -F purpose=vision -F media_type=video`; a `-d` body returns 422.
 - **Live-stream lifecycle cleanup must unregister the stream:** `DELETE /v1/streams/delete/{stream_id}` removes the RTSP source. If the live schema also exposes `DELETE /v1/generate_captions/{stream_id}`, call it first to stop inference explicitly.
+

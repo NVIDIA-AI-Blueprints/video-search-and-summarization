@@ -55,6 +55,7 @@ nimModelSize: "nano"
 # GPU-specific env vars. Populated by the umbrella chart via gpuProfiles lookup.
 env:
   NIM_KVCACHE_PERCENT: "0.7"
+  NIM_GPU_MEMORY_UTILIZATION: "0.7"
   NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
   NIM_MAX_MODEL_LEN: ""
   NIM_MAX_NUM_SEQS: ""
@@ -63,6 +64,7 @@ env:
 # Missing keys are skipped due to optional: true.
 envConfigMapKeys:
   - NIM_KVCACHE_PERCENT
+  - NIM_GPU_MEMORY_UTILIZATION
   - NIM_PASSTHROUGH_ARGS
   - NIM_DISABLE_MM_PREPROCESSOR_CACHE
 

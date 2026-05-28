@@ -78,6 +78,7 @@ functions:
     search_max_iterations: 1
     default_max_results: 10
     vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
+    vst_external_url: ${VST_EXTERNAL_URL}  # For browser-facing screenshot URLs in search results
     embed_confidence_threshold: 0.1  # Minimum embed score threshold. fallback to attribute-only search if low
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
 
@@ -88,6 +89,7 @@ functions:
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true
     vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
+    vst_external_url: ${VST_EXTERNAL_URL}  # For browser-facing screenshot URLs in search results
     embed_confidence_threshold: 0.1  # Minimum embed score threshold. fallback to attribute-only search if low
     critic_agent: critic_agent  # Optional: enables VLM verification
     enable_critic: ${ENABLE_CRITIC:-true}

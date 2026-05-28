@@ -15,9 +15,9 @@
     {
       "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading.",
       "checks": [
-        "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 **before** deciding to upload—for example listing sensors/streams via the agent tools (or equivalent REST such as curl /vst/api/v1/sensor/list)—not unconditional PUT-only behavior.",
+        "Trajectory shows the agent verified `warehouse_safety_0001` exists in VST at some point during the trial — e.g. listing sensors/streams via the agent tools or a REST call to `/vst/api/v1/sensor/list`. The probe order relative to any upload step is not enforced; what matters is that the agent confirmed presence before any `/generate` (report) call.",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
-        "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
+        "curl -sf http://localhost:${VSS_PUBLIC_PORT:-7777}/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://). The /vst/* path goes through the HAProxy ingress (port 7777 by default); the direct VST port 30888 may not be host-bound on all deploys, so prefer the public/HAProxy port for the verifier-side curl."
       ]
     },
     {

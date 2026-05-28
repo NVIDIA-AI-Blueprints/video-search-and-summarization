@@ -3,7 +3,7 @@
 
 Interactively call any RTVI-CV REST API. The agent discovers the service, collects user inputs via structured prompts, executes the API, formats results, and suggests next steps.
 
-> **API details** (schemas, curl templates, response shapes) are in [api-reference.md](api-reference.md). This file covers the workflow only.
+> **API details** (schemas, curl templates, response shapes) are in `api-reference.md`. This file covers the workflow only.
 
 ---
 
@@ -276,7 +276,7 @@ If "enable", ask for the collector URL in chat:
 
 **Print:** `Calling <ENDPOINT_NAME>...`
 
-Execute the curl command from [api-reference.md](api-reference.md). Pipe through `python3 -m json.tool` for formatting.
+Execute the curl command from `api-reference.md`. Pipe through `python3 -m json.tool` for formatting.
 
 **Print:** `Response received from <ENDPOINT_NAME>.`
 
@@ -494,7 +494,7 @@ If user provides multiple URLs or says "add 3 streams":
 | 400 — missing field | Print which field is missing, ask user to provide it, retry |
 | 500 — server error | Suggest `docker logs <container> --tail 50`, offer to retry |
 | Stream remove — ID not found | Auto-run stream-info, show active streams, let user pick |
-| Curl not found | Fall back to Python helper from [api-reference.md](api-reference.md) |
+| Curl not found | Fall back to Python helper from `api-reference.md` |
 
 ---
 
