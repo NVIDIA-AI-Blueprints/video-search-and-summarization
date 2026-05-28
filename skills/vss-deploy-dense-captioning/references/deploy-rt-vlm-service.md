@@ -233,7 +233,7 @@ Kafka and Redis are **not bundled** — expected on host or in a sibling compose
 Set `RTVI_VLM_MODEL_TO_USE` in `.env` to select the backend. After any change:
 
 ```bash
-sudo docker compose -f rtvi-vlm-docker-compose.yml \
+sudo docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm
 ```
 
@@ -563,14 +563,14 @@ Healthy log signatures (`docker logs vss-rtvi-vlm`):
 ## 15. Logs & Status
 
 ```bash
-docker compose -f rtvi-vlm-docker-compose.yml ps
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml ps
 
 # By container name (compose sets container_name: vss-rtvi-vlm)
 docker logs -f vss-rtvi-vlm
 
 # Or by service via compose
-docker compose -f rtvi-vlm-docker-compose.yml logs -f rtvi-vlm
-docker compose -f rtvi-vlm-docker-compose.yml logs --tail 200 --since 10m rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml logs -f rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml logs --tail 200 --since 10m rtvi-vlm
 
 docker stats vss-rtvi-vlm
 nvidia-smi dmon -s u
@@ -627,16 +627,16 @@ once the service is up):
 **Forward**:
 ```bash
 # .env: RTVI_VLM_IMAGE_TAG=<new-tag>
-docker compose -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
-docker compose -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
 ```
 
 **Rollback**:
 ```bash
-# Record current tag first: `docker compose -f ... images rtvi-vlm`
+# Record current tag first: `docker compose --env-file .env -f ... images rtvi-vlm`
 # .env: RTVI_VLM_IMAGE_TAG=<prior-tag>
-docker compose -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
-docker compose -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
 ```
 
 Named volumes survive both. Re-download only if `MODEL_PATH` changes.
@@ -644,16 +644,16 @@ Named volumes survive both. Re-download only if `MODEL_PATH` changes.
 ## 19. Tear Down
 
 ```bash
-cd deploy/docker/services/rtvi/rtvi-vlm
+cd "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to your standalone working directory}"
 
 # Keep named volumes (model caches preserved)
-docker compose -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down
 
 # WIPES model caches (20–80 GB re-download)
-docker compose -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down -v
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down -v
 
 # Remove locally-pulled image
-docker compose -f rtvi-vlm-docker-compose.yml down --rmi local
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
 
 # Optional host-side (do NOT rm $VSS_DATA_DIR — shared with other services)
 # rm -rf ./rtvi-assets ./rtvi-logs
