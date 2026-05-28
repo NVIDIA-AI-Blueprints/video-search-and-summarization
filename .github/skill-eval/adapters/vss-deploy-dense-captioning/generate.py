@@ -62,10 +62,17 @@ def _substitute_spec(spec: dict, platform: str, mode: str) -> dict:
     return _sub(spec)
 
 
+def _is_profile_spec(spec: dict) -> bool:
+    """A spec is profile-bound (uses the full VSS deploy path) iff its
+    `skills[]` includes `vss-deploy-profile`. Standalone specs only
+    bring up the RT-VLM compose service via this skill itself."""
+    return "vss-deploy-profile" in (spec.get("skills") or [])
+
+
 def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[tuple[str, str]]:
     declared = ((spec.get("resources") or {}).get("platforms") or {})
     if not declared:
-        default_mode = "remote-all" if spec.get("profile") else "standalone"
+        default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
         declared = {DEFAULT_PLATFORM: {"modes": [default_mode]}}
 
     tasks: list[tuple[str, str]] = []
@@ -74,35 +81,28 @@ def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[t
             continue
         if platform not in PLATFORMS:
             continue
-        default_mode = "remote-all" if spec.get("profile") else "standalone"
+        default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
         for mode in (cfg or {}).get("modes") or [default_mode]:
             tasks.append((platform, mode))
-    fallback_mode = "remote-all" if spec.get("profile") else "standalone"
+    fallback_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
     return tasks or [(platform_filter or DEFAULT_PLATFORM, fallback_mode)]
 
 
-def _is_profile_spec(spec: dict) -> bool:
-    return bool(spec.get("profile"))
-
-
 def _dataset_group(spec: dict) -> str:
-    if _is_profile_spec(spec):
-        profile = str(spec.get("profile"))
-        deploy_mode = str(spec.get("deploy_mode", ""))
-        return f"{profile}-{deploy_mode}" if deploy_mode else profile
-    return "standalone"
+    """Group output dirs by spec stem so multiple specs on the same
+    adapter don't collide. e.g. `alerts_profile_api` vs `standalone_api`."""
+    stem = Path(spec.get("_source_path", DEFAULT_SPEC)).stem
+    return stem or ("alerts-real-time" if _is_profile_spec(spec) else "standalone")
 
 
 def _instruction_intro(spec: dict) -> str:
     if _is_profile_spec(spec):
-        profile = spec.get("profile")
-        deploy_mode = spec.get("deploy_mode")
-        mode_clause = f" in `{deploy_mode}` mode" if deploy_mode else ""
+        # Spec's own expects[0] carries the deploy instruction; the
+        # adapter doesn't need to repeat it. Just describe what the
+        # skill is for so the agent has the right framing.
         return (
-            f"Use `/vss-deploy-dense-captioning` against the VSS **{profile}** "
-            f"profile{mode_clause} (deploy it first via `/vss-deploy-profile "
-            f"-p {profile}` in this trial's first turn, then bring up the "
-            "dense-captioning add-on)."
+            "Use `/vss-deploy-dense-captioning` against the deployed VSS "
+            "stack to exercise the RT-VLM dense-captioning add-on."
         )
 
     return (
