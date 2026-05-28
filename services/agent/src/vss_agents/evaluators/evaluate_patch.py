@@ -360,12 +360,12 @@ def apply_patch() -> None:
             # Restore all items for result collection
             self.eval_input.eval_input_items = expanded_items
 
-    # Patch publish_output to also write latency_summary.json alongside other output files
-    _original_publish_output = EvaluationRun.publish_output
+    # Patch _on_eval_complete to also write latency_summary.json alongside other output files
+    _original_on_eval_complete = EvaluationRun._on_eval_complete
 
-    def patched_publish_output(self: Any, *args: Any, **kwargs: Any) -> None:
+    def patched_on_eval_complete(self: Any, *args: Any, **kwargs: Any) -> None:
         global _last_avg_latency
-        _original_publish_output(self, *args, **kwargs)
+        _original_on_eval_complete(self, *args, **kwargs)
         _last_avg_latency = _write_latency_summary(self, self.eval_input.eval_input_items)
 
     # Patch write_tabular_output to print average latency
@@ -381,7 +381,7 @@ def apply_patch() -> None:
             click.echo(f"Average Latency: {_last_avg_latency:.2f}s")
 
     EvaluationRun.run_workflow_local = patched_run_workflow_local
-    EvaluationRun.publish_output = patched_publish_output
+    EvaluationRun._on_eval_complete = patched_on_eval_complete
     _nat_cli_eval.write_tabular_output = patched_write_tabular_output
     _patched = True
     logger.info("Evaluation patch applied")
