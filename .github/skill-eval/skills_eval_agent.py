@@ -313,15 +313,17 @@ line starting with `BLOCKED:` followed by the reason.
 # Main
 # ---------------------------------------------------------------------------
 #
-# No process-side cleanup here by design — the box's deployment state is
-# reset on the NEXT run's lock acquisition, not on this run's exit. See
-# `envs/brev_env.py::_ensure_prerequisite_deployed`: the active-deploy
-# marker carries `<profile_tag>|<run_id>`, and a run id mismatch always
-# triggers tear-down + redeploy. That makes every exit path equivalent
-# from the next run's perspective — happy path, max-turns, cancel-in-
-# progress SIGTERM, agent crash, SIGKILL, host reboot — so we don't need
-# atexit / signal handlers / a touched-boxes ledger to chase the cases
-# where end-of-run cleanup might be skipped.
+# No process-side cleanup here by design — each trial deploys whatever
+# VSS profile it needs as part of its own first agent turn (the harness
+# no longer pre-deploys or maintains an active-deploy marker). A
+# previous-run leftover container on the box is the next trial's deploy-
+# step problem, not the harness's, and tools like
+# `docker compose down` invoked by the agent reconcile cleanly. That
+# makes every exit path equivalent from the next run's perspective —
+# happy path, max-turns, cancel-in-progress SIGTERM, agent crash,
+# SIGKILL, host reboot — so we don't need atexit / signal handlers / a
+# touched-boxes ledger to chase the cases where end-of-run cleanup
+# might be skipped.
 
 def main() -> int:
     _disable_server_thinking()

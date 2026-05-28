@@ -146,7 +146,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             PREAMBLE,
             "",
             f"Use the `/vss-summarize-video` skill against the VSS **{profile}** "
-            f"profile already running on this `{platform}` host "
+            f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this `{platform}` host, then "
             "(`http://localhost:38111/v1/ready` must respond, and a sample "
             "warehouse video must already be uploaded per the env notes below).",
             "",
@@ -190,20 +190,15 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             "",
             "[metadata]",
             'skill = "vss-summarize-video"',
-            f'profile = "{profile}"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             f'gpu_count = {gpu_count}',
-            "requires_deployed_vss = true",
-            # prerequisite_deploy_mode is alerts-only — the deploy marker
             # is profile-name only for base/lvs/search; the consumer
-            # (envs/brev_env.py::_ensure_prerequisite_deployed) matches
             # on profile alone when this field is absent. Set it only if
             # this spec needs a specific alerts stack (verification vs
             # real-time).
-            *([f'prerequisite_deploy_mode = "{spec["prerequisite_deploy_mode"]}"'] if spec.get("prerequisite_deploy_mode") else []),
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",

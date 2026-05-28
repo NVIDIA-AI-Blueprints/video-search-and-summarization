@@ -237,7 +237,6 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     ]
     (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
 
-    # task.toml — no profile / no prerequisite_deploy_mode: this trial
     # IS the deploy, and the spec has no profile field.
     meta_lines = [
         "[task]",
@@ -260,7 +259,6 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         "",
         "[metadata]",
         'skill = "vss-deploy-video-embedding"',
-        # No profile / no requires_deployed_vss / no prerequisite_deploy_mode.
         # The trial IS the deploy; it brings up rtvi-embed standalone
         # from a bare instance, not against an existing VSS profile.
         f'platform = "{platform}"',

@@ -108,7 +108,7 @@ def _instruction_intro(kind: str, platform: str) -> str:
     if kind == "usage":
         return (
             f"Use the `/vss-deploy-detection-tracking-2d` skill against the RTVI-CV "
-            f"container already running on this `{platform}` host "
+            f"container (deploy it first on this `{platform}` host, then "
             "(`http://localhost:9000/api/v1` must respond). The eval harness "
             "started that container in an earlier trial; do not redeploy it, "
             "invoke `/vss-deploy-profile`, or call `scripts/dev-profile.sh`.\n"

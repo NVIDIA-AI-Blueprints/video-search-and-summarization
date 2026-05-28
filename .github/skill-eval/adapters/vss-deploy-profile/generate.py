@@ -269,31 +269,12 @@ def generate_test_script(spec_name: str, profile: str) -> str:
     against the rendered eval spec shipped alongside it. Harbor reads
     /logs/verifier/reward.txt.
 
-    On a full-pass (reward == 1.0), OVERWRITES the canonical active
-    marker `/tmp/skill-eval/active-deploy.txt` with
-    `<profile_tag>|<run_id>` so dependent trials reading the marker via
-    `BrevEnvironment._ensure_prerequisite_deployed` see what is currently
-    RUNNING on the box AND which CI run owns it. See specs/stale-marker.spec.
-
-    Marker format is `<profile_tag>|<run_id>`:
-      - `<profile_tag>` is the profile (`base`, `lvs`, `search`) or
-        `<profile>-<deploy_mode>` for alerts (`alerts-verification`,
-        `alerts-real-time` — alerts has two distinct stacks).
-      - `<run_id>` is `$GITHUB_RUN_ID` (forwarded by brev_env.py into
-        ~/.eval_env; falls back to `local-<pid>` outside CI).
-
-    Consumer (`_ensure_prerequisite_deployed`) builds its desired marker
-    the same way. A marker from a prior run never matches the current
-    run's desired marker, so the next worker always reconciles
-    (tear-down + redeploy from its own `PR_HEAD_SHA`) regardless of how
-    the prior run ended."""
-    underlying_profile = deploy_profile(profile)
-    deploy_mode_token = PROFILES[profile].get("deploy_mode")
-    profile_tag = (
-        f"{underlying_profile}-{deploy_mode_token}"
-        if deploy_mode_token
-        else underlying_profile
-    )
+    No `profile` argument is needed by the script itself anymore — the
+    harness used to consume the deployed-profile marker written here
+    for instance reuse, but that machinery (active-deploy.txt +
+    `_ensure_prerequisite_deployed`) is gone. Each trial deploys
+    inside its own agent turn now; nothing reads a marker."""
+    del profile  # retained in signature for caller compatibility
     return (
         "#!/bin/bash\n"
         "# vss-deploy-profile verifier: delegates to the generic LLM-as-judge\n"
@@ -308,19 +289,6 @@ def generate_test_script(spec_name: str, profile: str) -> str:
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
         "\n"
-        "# On full pass, overwrite the canonical active-deploy marker so\n"
-        "# downstream trials (vss-manage-video-io-storage/vss-*) in THIS run\n"
-        "# reuse the running deployment instead of re-running /vss-deploy-profile.\n"
-        "# Marker format is `<profile_tag>|<run_id>` — `<run_id>` (from\n"
-        "# $GITHUB_RUN_ID, forwarded by brev_env.py) is what makes the\n"
-        "# next run's reconcile always tear down and redeploy regardless\n"
-        "# of how this run ended.\n"
-        'reward="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
-        f'if [ "$reward" = "1.0" ] || [ "$reward" = "1" ]; then\n'
-        f'  mkdir -p /tmp/skill-eval && '
-        f"printf '%s|%s\\n' '{profile_tag}' \"${{GITHUB_RUN_ID:-local-$$}}\" "
-        f"> /tmp/skill-eval/active-deploy.txt\n"
-        "fi\n"
         "exit 0\n"
     )
 
@@ -472,26 +440,16 @@ def generate_task(
         'skills_dir = "/skills"',
         "",
         "[metadata]",
-        # Intentionally NOT emitting `profile = "{profile}"` here. For
-        # vss-deploy-profile/eval/<X>.json the trial IS the deploy — it
-        # invokes /vss-deploy-profile -p X via its own prompt. Setting
-        # `profile` in [metadata] would trick BrevEnvironment's
-        # _ensure_prerequisite_deployed into running an extra sub-claude
-        # `claude --print /vss-deploy-profile -p X` BEFORE the trial agent,
-        # which is both redundant and (observed on run 26066279318) prone
-        # to picking the wrong profile when the box's stale active-deploy
-        # marker points at a different profile. Per the spec authors:
-        # absent `profile` → BrevEnvironment runs its box-clean path
-        # (`desired=""`) which wipes containers/networks/volumes and
-        # clears the marker, then the trial runs from a guaranteed-clean
-        # state. The `platform` key below is purely informational.
+        # No `profile = "..."` is emitted — nothing in the harness reads
+        # it anymore. The trial's first agent turn invokes
+        # /vss-deploy-profile -p X via its own prompt; the prior
+        # _ensure_prerequisite_deployed pre-deploy hook is gone. The
+        # `platform` key below is purely informational.
         f'platform = "{platform}"',
     ]
     deploy_flag_m = profile_def.get("deploy_mode")
     if deploy_flag_m:
-        # Informational — does NOT match BrevEnvironment's
-        # `prerequisite_deploy_mode` field used by downstream consumers,
-        # so this is safe to emit here without triggering prereq logic.
+        # Informational — no harness consumer.
         meta_lines.append(f'deploy_mode = "{deploy_flag_m}"')
     meta_lines += [
         "# GPU requirements — BrevEnvironment checks these against the",

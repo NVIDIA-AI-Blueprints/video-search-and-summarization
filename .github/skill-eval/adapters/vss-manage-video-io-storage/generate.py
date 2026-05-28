@@ -189,7 +189,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             PREAMBLE,
             "",
             f"Use the `/vss-manage-video-io-storage` skill against the VSS base profile "
-            f"already running on this `{platform}` host "
+            f"on this `{platform}` host (deploy it first via this skill's standalone runbook or `/vss-deploy-profile -p {profile}`, then "
             "(`http://localhost:30888/vst/api/v1/sensor/version` must respond).",
             "",
             f"## Query {idx} of {len(expects)}",
@@ -246,24 +246,18 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             # VIOS up standalone via the skill's deploy contract.
             # Defaulting to "base" here would resurrect the wrong
             # prerequisite-deploy behaviour silently.
-            *([f'profile = "{spec["profile"]}"'] if spec.get("profile") else []),
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            # requires_deployed_vss tracks whether the trial assumes a
             # pre-deployed VSS stack. With the current profile-less
             # spec the agent is responsible for the deploy, so this is
             # false; if a future spec re-introduces `profile`, flip
             # this back to true (the coordinator gates dispatch on it).
-            f"requires_deployed_vss = {'true' if spec.get('profile') else 'false'}",
-            # prerequisite_deploy_mode is alerts-only — the deploy marker
             # is profile-name only for base/lvs/search; the consumer
-            # (envs/brev_env.py::_ensure_prerequisite_deployed) matches
             # on profile alone when this field is absent. Set it only if
             # this spec needs a specific alerts stack (verification vs
             # real-time).
-            *([f'prerequisite_deploy_mode = "{spec["prerequisite_deploy_mode"]}"'] if spec.get("prerequisite_deploy_mode") else []),
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",

@@ -67,12 +67,15 @@ template is in § Harbor invocation below.
 
    Optional: `profile` (string — the `/vss-deploy-profile -p <profile>`
    argument, e.g. `"alerts"`) and `deploy_mode` (string — the
-   `/vss-deploy-profile -m <mode>` argument, e.g. `"verification"`). If the spec
-   sets `profile`, the adapter prepends a deploy task ahead of the
-   spec's `expects`. If `profile` is absent, there is **no deploy
-   prerequisite** — the trial runs directly on a bare Brev instance
-   (the skill author is asserting their checks don't need a
-   pre-deployed VSS stack).
+   `/vss-deploy-profile -m <mode>` argument, e.g. `"verification"`).
+   These are **hints for the adapter** (used to render the trial's
+   environment prose and pick deploy-mode defaults). They are **NOT**
+   harness directives — the harness no longer pre-deploys anything.
+   Every spec's first `expects[]` query is responsible for invoking
+   `/vss-deploy-profile` (or the appropriate standalone deploy
+   runbook) when the rest of its queries need VSS up. The agent is
+   pre-authorized to deploy autonomously (see the PREAMBLE that every
+   adapter renders into the trial prompt).
 
    Skills with no specs at all are runtime libraries — skip them.
 
@@ -195,28 +198,14 @@ template is in § Harbor invocation below.
        - different → push as a new commit on the same branch (PR auto-
          updates). Don't open a duplicate PR.
 
-   When cloning the vss-manage-video-io-storage template for a new skill, the `[metadata]`
-   block's `profile` field **must be read from the spec JSON**, not
-   hardcoded: `spec.get("profile", "base")`. Hardcoding breaks the
-   `/vss-deploy-profile -p <profile>` chain for skills like `vss-search-archive`
-   (profile: `search`) and `vss-summarize-video` (profile: `lvs`)
-   that share the vss-manage-video-io-storage shape but not its profile.
-
-   The `prerequisite_deploy_mode` field is **alerts-only** today —
-   placement (`remote-all` / `dedicated` / etc.) is no longer a
-   marker dimension; `/vss-deploy-profile` picks placement from env at runtime.
-   Emit `prerequisite_deploy_mode` **only when the spec declares
-   it**, so the consumer's `desired = profile` branch fires for
-   base/lvs/search (marker = `<profile>`, not `<profile>-remote-all`):
-
-   ```python
-   *([f'prerequisite_deploy_mode = "{spec["prerequisite_deploy_mode"]}"']
-     if spec.get("prerequisite_deploy_mode") else []),
-   ```
-
-   Defaulting to `"remote-all"` here re-introduces the bug fixed by
-   PR #427 — consumer looks for `<profile>-remote-all`, producer
-   writes `<profile>`, warm reuse breaks silently.
+   When cloning the vss-manage-video-io-storage template for a new
+   skill, the adapter should read the spec's `profile` field (when
+   present) for **prose rendering only** — e.g. naming the profile in
+   the trial's environment description so the agent knows what to
+   deploy in its first turn. Do **not** emit `profile`,
+   `prerequisite_deploy_mode`, or `requires_deployed_vss` into
+   `task.toml [metadata]`; nothing in the harness reads those anymore
+   (the `_ensure_prerequisite_deployed` pre-deploy hook is gone).
 
    Every `instruction.md` the adapter writes **must begin with the
    `PREAMBLE` constant** defined in `adapters/vss-manage-video-io-storage/generate.py` and
@@ -257,14 +246,12 @@ template is in § Harbor invocation below.
       # matches the trial. (envs/brev_env.py validates the pick post-
       # selection; this step just narrows the field.)
       brev ls --json > /tmp/skill-eval/brev-snapshot.txt
-      # For each candidate read /tmp/skill-eval/active-deploy.txt
-      # via `brev exec <name> -- cat ...`. Score:
-      #   1. marker == "<profile>" desired by trial   (warm)
-      #   2. lock free (try flock -n)                        (free)
-      #   3. instance name asc                               (tiebreak)
+      # Score:
+      #   1. lock free (try flock -n)            (free)
+      #   2. instance name asc                   (tiebreak)
       # Pick the first candidate that scores best AND whose flock -n
       # succeeds. If none free, block on flock -w 43200 of the
-      # best-by-marker candidate.
+      # first hardware-matching candidate.
       INSTANCE_NAME=<picked>
       ```
 
@@ -274,11 +261,11 @@ template is in § Harbor invocation below.
       concurrent CI runs land on different boxes naturally; the per-box
       flock arbitrates within-fleet contention.
 
-      Selection priority is **hardware-hard, software-soft**:
-      the candidate's `gpu_type` MUST match the platform (hard); the
-      `active-deploy.txt` marker matching `<profile>` is
-      preferred but not required (soft — a marker miss just costs a
-      redeploy, which the trial absorbs).
+      Selection priority is **hardware-hard, software-free**: the
+      candidate's `gpu_type` MUST match the platform (hard); the box's
+      deployment state is irrelevant — the trial deploys what it needs
+      in its first agent turn, so a previously-warm box and a freshly-
+      booted one are equivalent from the trial's perspective.
 
       If no hardware-matching candidate exists for this platform,
       **wait** for one to appear — the pool is operator-managed and a
@@ -359,18 +346,16 @@ template is in § Harbor invocation below.
    lifecycle is strictly an operator concern.
 
    **You do NOT reset deployment state on exit.** Each box's
-   running containers, named volumes, and the active-deploy marker
-   stay as you left them; cleanup is the *next* run's job. The
-   active-deploy marker is tagged `<profile_tag>|<run_id>`, so the
-   next run's `BrevEnvironment._ensure_prerequisite_deployed` sees
-   a run-id mismatch and always reconciles (tear-down + redeploy
-   from its own `PR_HEAD_SHA`) — regardless of how this run ended
-   (happy path, `BLOCKED`, cancel-in-progress, max-turns, agent
-   crash, SIGKILL, host reboot). No `atexit`, no signal handler,
-   no end-of-run docker cleanup — the pull-side reconcile handles
-   every exit path uniformly. Within this run, multiple trials with
-   the same profile still hot-skip because both profile and run id
-   match.
+   running containers and named volumes stay as you left them;
+   cleanup is the *next* trial's first agent
+   turn — each spec's leading `expects[]` query invokes
+   `/vss-deploy-profile` (or a standalone deploy runbook), which is
+   responsible for `docker compose down` of any leftover containers
+   before bringing its own stack up. No `atexit`, no signal handler,
+   no harness-side reconcile — every exit path (happy, `BLOCKED`,
+   cancel-in-progress, max-turns, agent crash, SIGKILL, host reboot)
+   leaves the same possibly-dirty box, and the next trial's deploy
+   step handles it the same way.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
@@ -403,10 +388,10 @@ template is in § Harbor invocation below.
   `brev start`, `brev stop`, `brev reset`, or `brev delete` against
   any `vss-eval-*` box. The pool is operator-managed; instances stay
   running across runs. The agent's `brev` surface is limited to
-  `brev ls`, `brev exec` (read-only — inspecting markers, peeking
-  at containers; deployment-state reset is the pull-side
-  reconcile in `_ensure_prerequisite_deployed`, not anything you
-  run from this agent), and acquiring/releasing the per-box flock.
+  `brev ls`, `brev exec` (read-only — peeking at container state for
+  diagnostics; deployment is done by each trial's own first agent
+  turn, not by anything you run from this agent), and acquiring /
+  releasing the per-box flock.
   If no hardware-matching pool member exists for the trial's
   platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
   poll, 43200s budget, then `BLOCKED: pool exhausted for
@@ -440,37 +425,26 @@ even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** Scan
 `/tmp/skill-eval/brev-snapshot.txt` for `^vss-eval-*` candidates
-matching the trial's platform; score by (active-deploy marker match,
-free-lock, name) per § 5a; pick the best free candidate; export
-`BREV_INSTANCE` to it before the `uvx harbor run` call (§ Harbor
-invocation). The export is mandatory: BrevEnvironment no longer
-auto-provisions, so without `BREV_INSTANCE` set (or `brev_instance`
-in the task's `task.toml [metadata]`) the harness raises at
-`start()` and the trial fails before harbor runs. If no
-hardware-matching `^vss-eval-*` candidate exists, follow the
-wait-for-pool path in § 5a — do not `brev create` one yourself.
+matching the trial's platform; score by (free-lock, name) per
+§ 5a; pick the best free candidate; export `BREV_INSTANCE` to
+it before the `uvx harbor run` call (§ Harbor invocation). The
+export is mandatory: BrevEnvironment no longer auto-provisions,
+so without `BREV_INSTANCE` set (or `brev_instance` in the task's
+`task.toml [metadata]`) the harness raises at `start()` and the
+trial fails before harbor runs. If no hardware-matching
+`^vss-eval-*` candidate exists, follow the wait-for-pool path in
+§ 5a — do not `brev create` one yourself.
 
-The marker file (`/tmp/skill-eval/active-deploy.txt` on each box)
-records the box's *deployment state* + *owning run* in the form
-`<profile_tag>|<run_id>` — what VSS profile is currently up on
-that box and which CI run deployed it. It is NOT an occupancy
-signal — a marker can read `base|26500001234` whether or not a
-trial is currently driving traffic against the stack. Occupancy
-(is some other worker using this box right now?) is the
-runner-side **flock** on `/tmp/brev/<INSTANCE_NAME>.lock`,
-checked separately via `flock -n` in step 5a. The two together
-let the scoring pick a warm-and-free box first, then fall back
-to warm-but-busy (queue on `flock -w`) or cold-and-free (redeploy).
-Tagging the marker with `<run_id>` (`$GITHUB_RUN_ID`) is what
-makes between-run isolation a pull-side reconcile rather than a
-push-side cleanup: a marker left by a prior run never matches
-the current run's desired `<profile_tag>|<this_run_id>`, so
-`BrevEnvironment._ensure_prerequisite_deployed` always
-tears down + redeploys from the current run's `PR_HEAD_SHA`
-regardless of how the prior run ended. Within one run, multiple
-trials with the same profile still hot-skip (same profile, same
-run id, full match). See `specs/stale-marker.spec` for verifying
-the marker against the actual running containers.
+There is no `active-deploy.txt` marker — the harness used to
+maintain one to enable cross-trial deployment reuse, but that
+machinery is gone. Box state (what containers are running) is
+the trial's first agent turn's problem: it calls
+`/vss-deploy-profile` (or a standalone runbook), which is
+responsible for tearing down whatever was left behind before
+bringing up its own stack. Occupancy (is some other worker
+using this box right now?) is still the runner-side **flock**
+on `/tmp/brev/<INSTANCE_NAME>.lock`, checked via `flock -n` in
+step 5a.
 
 With fleet=1, selection collapses to a single candidate. With
 fleet>1, two concurrent workflow runs land on different boxes
@@ -531,10 +505,10 @@ export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
 # agent. The export is the only path to a successful run.
 #
 # $INSTANCE_NAME comes from the fleet-selection algorithm in step 5a:
-# the chosen ^vss-eval-* candidate scored by (active-deploy marker
-# match, free-lock, name). Do not hardcode "vss-eval-l40s" — with a
-# multi-box fleet, concurrent workflow runs land on different boxes
-# and that's how parallelism happens.
+# the chosen ^vss-eval-* candidate scored by (free-lock, name). Do
+# not hardcode "vss-eval-l40s" — with a multi-box fleet, concurrent
+# workflow runs land on different boxes and that's how parallelism
+# happens.
 export BREV_INSTANCE="$INSTANCE_NAME"
 
 uvx harbor run \
