@@ -552,6 +552,7 @@ class ViaStreamHandler:
                 raise ViaException(
                     "Server is already processing maximum number of live streams"
                     f" ({self._args.max_live_streams})",
+                    "ServerBusy",
                     503,
                 )
             logger.info(  # noqa: BLK100
@@ -1224,7 +1225,9 @@ class ViaStreamHandler:
                 req_info.request_id,
             )
 
-            if gathered_chunks > 0 and not lsinfo.stop:
+            with self._lock:
+                lsinfo_stopped = lsinfo.stop
+            if gathered_chunks > 0 and not lsinfo_stopped:
                 if response.is_live_stream_ended and req_info.last_chunk is not None:
                     last_chunk = req_info.last_chunk.model_copy(deep=True)
                     last_chunk.start_ntp = last_chunk.end_ntp
@@ -1269,7 +1272,9 @@ class ViaStreamHandler:
                     req_info.source_id,
                 )
 
-                if len(lsinfo.pending_futures) > 1:
+                with self._lock:
+                    pending_count = len(lsinfo.pending_futures)
+                if pending_count > 1:
                     logger.warning(
                         "Possible high load on the system detected. This may result in higher"
                         " response times. Try reducing number of streams or increasing the chunk"
@@ -1282,7 +1287,8 @@ class ViaStreamHandler:
                     False,
                     req_info.processed_chunk_list[:gathered_chunks],
                 )
-                lsinfo.pending_futures.append(fut)
+                with self._lock:
+                    lsinfo.pending_futures.append(fut)
 
                 def handle_future_done(fut: concurrent.futures.Future):
                     if fut.cancelled():
@@ -1290,14 +1296,22 @@ class ViaStreamHandler:
                     if fut.exception():
                         logger.error("".join(traceback.format_exception(fut.exception())))
 
+                def remove_fut_from_pending(done_fut: concurrent.futures.Future):
+                    with self._lock:
+                        if done_fut in lsinfo.pending_futures:
+                            lsinfo.pending_futures.remove(done_fut)
+
                 fut.add_done_callback(handle_future_done)
-                fut.add_done_callback(lsinfo.pending_futures.remove)
+                fut.add_done_callback(remove_fut_from_pending)
                 req_info.processed_chunk_list = req_info.processed_chunk_list[gathered_chunks:]
 
             if response.is_live_stream_ended:
-                if lsinfo.stop:
+                with self._lock:
+                    lsinfo_stopped = lsinfo.stop
+                    pending_snapshot = list(lsinfo.pending_futures)
+                if lsinfo_stopped:
                     req_info.status = RequestInfo.Status.STOPPING
-                    for fut in lsinfo.pending_futures:
+                    for fut in pending_snapshot:
                         fut.cancel()
 
                 # Queue that the request be marked completed
@@ -2581,6 +2595,10 @@ class ViaStreamHandler:
             except Exception as ex:
                 logger.error(traceback.format_exc())
                 logger.error("Query failed for %s - %s", req_info.request_id, str(ex))
+                if req_info._ctx_mgr is not None:
+                    with self._lock:
+                        self._ctx_mgr_pool.append(req_info._ctx_mgr)
+                        req_info._ctx_mgr = None
                 return req_info.request_id
             # Reset the context manager for the first time
             if self.first_init and os.environ.get(
@@ -2864,6 +2882,7 @@ This is very important and you must follow this strictly.
                 raise ViaException(
                     "Server is already processing maximum number of live streams"
                     f" ({self._args.max_live_streams})",
+                    "ServerBusy",
                     503,
                 )
 
@@ -2907,18 +2926,26 @@ This is very important and you must follow this strictly.
                 if req_info.source_id != source_id
             }
         for ctx_mgr, req_info in ctx_mgrs_to_be_removed:
-            if req_info.summarize:
-                ctx_mgr.reset(
-                    {
-                        "summarization": {"uuid": req_info.source_id},
-                        "delete_external_collection": req_info.delete_external_collection,
-                    }
+            try:
+                if req_info.summarize:
+                    ctx_mgr.reset(
+                        {
+                            "summarization": {"uuid": req_info.source_id},
+                            "delete_external_collection": req_info.delete_external_collection,
+                        }
+                    )
+            except Exception as ex:
+                logger.error(
+                    "ctx_mgr.reset failed during remove_rtsp_stream for source_id=%s: %s",
+                    req_info.source_id,
+                    ex,
                 )
-            with self._lock:
-                logger.info(
-                    f"Adding Context Manager no.: {ctx_mgr._process_index} back to process pool."
-                )
-                self._ctx_mgr_pool.append(ctx_mgr)
+            finally:
+                with self._lock:
+                    logger.info(
+                        f"Adding Context Manager no.: {ctx_mgr._process_index} back to process pool."
+                    )
+                    self._ctx_mgr_pool.append(ctx_mgr)
         try:
             shutil.rmtree(f"/tmp/via/cached_frames/{source_id}")
         except FileNotFoundError:
@@ -3024,11 +3051,15 @@ This is very important and you must follow this strictly.
                 return
             # If request for file summarization has completed
             lsinfo = self._live_stream_info_map.get(req_info.source_id)
-            if (not req_info.is_live and req_info.progress == 100) or (
-                req_info.is_live
-                and lsinfo is not None
-                and lsinfo.live_stream_ended
-                and len(req_info.response) == 0
+            if (
+                (not req_info.is_live and req_info.progress == 100)
+                or (
+                    req_info.is_live
+                    and lsinfo is not None
+                    and lsinfo.live_stream_ended
+                    and len(req_info.response) == 0
+                )
+                or (req_info.is_live and lsinfo is None)
             ):
                 # Remove only this specific request, not all requests for the same asset
                 # This allows concurrent processing of the same asset by multiple requests

@@ -81,6 +81,64 @@ images**, then apply the change and restart Docker Desktop. Docker keeps separat
 stores for classic and containerd modes, so images and containers from the inactive
 store may be hidden until you switch back or re-pull images.
 
+### Deploy the summarization LLM (prerequisite)
+
+The Video Summarization compose stack **does not deploy the summarization LLM**. The
+`lvs` service depends on a `wait-for-llm` step that polls
+`http://${LVS_LLM_HOST}:${LVS_LLM_PORT}/v1/health/ready`, so an OpenAI-compatible LLM
+endpoint must already be reachable before you run `docker compose up` for this
+project. If the endpoint is not ready (or `LVS_LLM_HOST` / `LVS_LLM_PORT` are unset),
+the `lvs` service will refuse to start.
+
+The recommended path is to deploy `gpt-oss-20b` locally using the repo-level NIM
+compose at `deploy/docker/services/nim/compose.yml` (which defines the
+`llm_local_gpt-oss-20b` profile). From the repo root:
+
+```sh
+cd deploy/docker
+export VSS_APPS_DIR=$(pwd)            # absolute path to deploy/docker
+export HARDWARE_PROFILE=H100          # H100 | A100 | L40S | ...
+export NGC_CLI_API_KEY=<nvapi-...>    # NGC credential used to pull the NIM image
+export LLM_PORT=9233                  # host port to expose the NIM on (any free port)
+export LLM_DEVICE_ID=1                # GPU index the NIM should use
+
+docker compose -f services/nim/compose.yml \
+  --profile llm_local_gpt-oss-20b \
+  up -d gpt-oss-20b
+```
+
+Wait until the NIM reports ready before bringing up Video Summarization:
+
+```sh
+until curl -sf http://localhost:${LLM_PORT}/v1/health/ready; do
+  echo "Waiting for gpt-oss-20b..."; sleep 5
+done
+echo "LLM ready on port ${LLM_PORT}."
+```
+
+Then point Video Summarization at the LLM by setting `LVS_LLM_HOST`, `LVS_LLM_PORT`,
+and `LVS_LLM_MODEL_NAME` (see [Set environment variables](#set-environment-variables)).
+The NIM runs in a separate Docker Compose project, so reference it by the docker host
+IP (or another routable hostname), not by the `gpt-oss-20b` container name — the LVS
+stack's `app-network` cannot resolve container names across projects.
+
+Any OpenAI-compatible LLM endpoint (a remote NIM, NVIDIA-hosted endpoint, a vLLM
+server, etc.) can be substituted by pointing `LVS_LLM_HOST` / `LVS_LLM_PORT` /
+`LVS_LLM_MODEL_NAME` at it instead of running the local NIM compose above.
+
+**Troubleshooting `wait-for-llm`.** If the `wait-for-llm` container logs a sequence
+similar to:
+
+```text
+wait-for-llm-1  | curl: (3) URL rejected: No host part in the URL
+wait-for-llm-1  | ERROR: Metropolis hosted LLM server not ready after 60 attempts
+```
+
+it means `LVS_LLM_HOST` and/or `LVS_LLM_PORT` are unset or empty when compose was
+invoked, so the wait loop is hitting a malformed URL. Export them (or set them in
+`.env`) to point at the LLM endpoint you brought up above, then re-run
+`docker compose up`.
+
 ### Database backends
 
 The compose file deploys **Elasticsearch** as the database backend for caption storage,
@@ -101,6 +159,10 @@ export NVIDIA_API_KEY=<>           # Required for CA-RAG LLM
 export BACKEND_PORT=38111          # LVS REST API port
 
 # LLM Configuration (summarization)
+# These point LVS at the external LLM endpoint you brought up in
+# "Deploy the summarization LLM (prerequisite)" above. Use the docker
+# host IP (or a routable hostname) — the NIM runs in a separate compose
+# project, so its container name will not resolve from within this stack.
 export LVS_LLM_HOST=<>             # Hostname of the summarization LLM (e.g. gpt-oss-20b)
 export LVS_LLM_PORT=<>             # Port of the summarization LLM (e.g. 9233)
 export LVS_LLM_MODEL_NAME=<>      # LLM model name (e.g. openai/gpt-oss-20b)
@@ -190,7 +252,7 @@ NGC_CLI_API_KEY=nvapi-XXXXXXXXXXXXX
 NVIDIA_API_KEY=nvapi-XXXXXXXXXXXXX
 BACKEND_PORT=38111
 
-LVS_LLM_HOST=gpt-oss-20b
+LVS_LLM_HOST=<host-ip>
 LVS_LLM_PORT=9233
 LVS_LLM_MODEL_NAME=openai/gpt-oss-20b
 
@@ -217,6 +279,10 @@ The image name is `via-engine-<username>`.
 
 The compose file is available at
 [docker/deploy/compose.yaml](docker/deploy/compose.yaml).
+
+> **Prerequisite:** the summarization LLM must already be running and reachable at
+> `${LVS_LLM_HOST}:${LVS_LLM_PORT}` before you run the commands below. See
+> [Deploy the summarization LLM (prerequisite)](#deploy-the-summarization-llm-prerequisite).
 
 ```sh
 # If exporting env variables or if .env is in the current directory:
