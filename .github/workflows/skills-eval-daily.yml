@@ -1,0 +1,190 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the skills eval agent (.github/skill-eval/skills_eval_agent.py) on
+# every push to a pull-request/<N> mirror branch that touches anything
+# under skills/ or the eval harness. See .github/skill-eval/AGENTS.md
+# for the agent's system prompt and behaviour.
+
+name: Skills Eval Daily
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+      timezone: "America/Los_Angeles"
+  # The "Run workflow" button in the Actions UI only appears when
+  # `workflow_dispatch:` is configured on the repo's default branch
+  # (`main`). The full manual-sweep harness — skills dropdown input,
+  # agent prompt overrides, $GITHUB_STEP_SUMMARY result table — lives
+  # on `develop` (PR #524). When the operator clicks "Run workflow"
+  # and picks `develop` in the ref dropdown, GitHub runs develop's
+  # version of this file (inputs, env passthrough, agent invocation
+  # all come from develop). No other harness state needs to be ported
+  # back to main; the skills/ tree, adapter names, and agent script
+  # have diverged enough that a full backport would create more churn
+  # than value. If anyone accidentally dispatches against `main`
+  # itself, the job's `if:` guard below (only true for
+  # `pull-request/<N>` refs) makes the job a clean no-op.
+  workflow_dispatch:
+  push:
+
+# Authenticate as github-actions[bot] for all GitHub operations (gh pr
+# comment, gh pr create, git push of eval-bot/* branches). The agent
+# inherits this via env.GH_TOKEN on the run step below. Mirrors how
+# helm-sync.yml does it — no PAT, no rotation, no personal-account
+# binding. The skill-eval bot PRs hit the source PR's headRefName branch
+# in this same repo, so contents:write is enough; pull-requests:write
+# covers gh pr comment + gh pr create.
+permissions:
+  contents: write
+  pull-requests: write
+
+# Only one eval runs per PR (or per manual sweep) at a time. A fresh push
+# cancels the in-flight run; the per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock)
+# release automatically when the agent process dies (POSIX flock(2) semantics —
+# no userspace trap needed). Any stale containers / volumes / marker that the
+# cancelled run left on a box are reconciled by the NEXT run's
+# `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy marker
+# carries `<profile_tag>|<run_id>`, so a marker from this run never matches
+# the next run's desired marker and the next run always tears down + redeploys.
+# Same path handles SIGKILL (the 12h timeout-minutes terminator) and host reboots
+# — there's no exit-side cleanup machinery to bypass.
+concurrency:
+  group: skills-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  eval:
+    name: Eval skills daily
+    runs-on: [self-hosted, vss-skill-eval-runner]
+
+    # 12-hour hard cap on the whole job. A full PR touching every currently
+    # evaluable skill queues ~14 trials (5 vss-deploy-profile +
+    # 3 vss-manage-video-io-storage + 4 vss-search-archive +
+    # 2 vss-deploy-dense-captioning). Observed avg trial wall-clock is
+    # ~30m once /vss-deploy-profile + ingest + judge per-check gather
+    # complete; 14 × 30m = 420m typical. The per-trial agent-exec
+    # ceiling is now 1h (AGENTS.md `--agent-timeout-multiplier 6.0`,
+    # raised from 30m), so a run with several cold-box trials hitting
+    # the ceiling can push past the prior 480m cap. 720m absorbs that
+    # without uncapping retries: e.g. (4 × 60m at ceiling) + (10 × 30m
+    # typical) = 540m, comfortably inside. No teardown cooldown — the
+    # vss-eval-* pool is operator-managed and stays warm across runs.
+    # The lock-hold timeout in AGENTS.md (flock -w) is set in lockstep
+    # below.
+    timeout-minutes: 720
+
+    # Allow mirror-branch pushes OR manual full-sweep dispatch. Never run
+    # on develop/main pushes — those aren't covered by either trigger.
+    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # agent needs full history to diff against base (push mode)
+
+      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        run: |
+          # The runner lives on vss-skill-validator-v2; the coordinator keeps
+          # its secrets in a single .env file there. Don't echo contents.
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          # Safety: Anthropic path for claude-agent-sdk in the trial + judge.
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run skills eval agent
+        id: agent
+        env:
+          # Auto-injected workflow token, authenticates as
+          # github-actions[bot]. Scoped by the permissions: block at
+          # workflow level (contents:write + pull-requests:write). All
+          # gh / git operations the agent runs (pr comment, pr create,
+          # push eval-bot/* branches) use this — no PAT in the
+          # coordinator .env, no personal-account auth.
+          GH_TOKEN: ${{ github.token }}
+          # gh CLI checks `~/.config/gh/hosts.yml` BEFORE GH_TOKEN; if
+          # the self-hosted runner host has a stored OAuth from a prior
+          # `gh auth login` (e.g. migrated from the operator's
+          # vss-skill-validator coordinator setup), that token wins
+          # over the env GH_TOKEN and bot-PR comments end up authored
+          # by the personal account. Same gotcha helm-sync.yml solved
+          # by pointing gh at a per-run scratch dir with no hosts.yml.
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
+          # Route the workflow_dispatch input through env: instead of
+          # ${{ inputs.skills }} inline in the run: script. The input is
+          # now `type: string` (free-form) so this matters more — the
+          # run: body sanity-checks INPUT_SKILLS below before passing it
+          # to the agent, keeping any user-controllable string out of the
+          # templated shell context.
+          INPUT_SKILLS: ${{ inputs.skills }}
+        run: |
+          mkdir -p "$GH_CONFIG_DIR"
+          set -a
+          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev secrets only
+          set +a
+          # daily run will skip the diff path, treat as manual full sweep with skill filter = *
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          export MANUAL_FULL_SWEEP=1
+          export MANUAL_SKILLS_FILTER="*"
+          # `.github` isn't a valid Python package prefix, so we expose the
+          # harness via PYTHONPATH. `envs.brev_env:BrevEnvironment` is what
+          # `uvx harbor run --environment-import-path` expects.
+          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+          mkdir -p /tmp/brev /tmp/skill-eval
+          python3 .github/skill-eval/skills_eval_agent.py
+
+      - name: Collect results for workflow artifact
+        run: |
+          # Agent writes harbor output to /tmp/skill-eval/results/<run_id>/
+          # (runtime-only; not tracked under the repo). Blocker paths
+          # (missing_platforms_declaration, missing_probe, etc.) finish
+          # without producing a results dir — that's a success, not a failure.
+          if [ ! -d /tmp/skill-eval/results ]; then
+            echo "no results dir — agent blocked before running trials (expected for blocker outcomes)"
+            exit 0
+          fi
+          # Exclude per-trial agent/ subdirs from the artifact tarball
+          # (NOT from the runner-local tree). The trajectory files
+          # inside (claude-code.txt, trajectory.json, sessions/) capture
+          # every tool_use → tool_result pair verbatim — so when the
+          # agent reads a `.env` file, runs `docker compose config`, or
+          # cats a resolved compose YAML, the secret env values land in
+          # the trajectory and then ride along into the public artifact.
+          # PR #516's artifact carried NGC_CLI_API_KEY for ~2 days
+          # before deletion + rotation; this exclusion prevents the next
+          # occurrence regardless of whether downstream agents / skills
+          # tighten their own logging.
+          #
+          # `tar --exclude='agent'` removes those subdirs from the
+          # archive only — the on-disk `/tmp/skill-eval/results/` tree
+          # is left intact, so the harbor-view systemd unit serving
+          # `/tmp/skill-eval/results/_viewer/` keeps rendering the full
+          # trajectory (`Trace` tab) for operators who hit
+          # `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/...`.
+          # Reward, judge, and result.json — which the report builder
+          # actually consumes — stay in the artifact.
+          RESULTS=$(find /tmp/skill-eval/results -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
+          if [ -n "$RESULTS" ]; then
+            tar czf /tmp/skills-eval-daily-results.tar.gz \
+              -C /tmp/skill-eval --exclude='agent' results
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded; on-disk tree preserved for harbor view)"
+          else
+            echo "results dir exists but empty — nothing to archive"
+          fi
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # Folded scalar to stay under yamllint's 200-char line cap.
+          name: skills-eval-daily-results-${{ github.event.repository.updated_at }}-${{ github.run_id }}
+          path: /tmp/skills-eval-daily-results.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
