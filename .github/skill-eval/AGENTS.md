@@ -14,27 +14,55 @@ workflow runs your invocation with a 12-hour hard timeout.
 
 ## Startup hygiene (do this first, before step 1)
 
-The CI runner host reuses `/tmp/skill-eval/` across runs. Prior
-runs — including cancelled ones — leave datasets and partial results
-behind that will confuse you if you read them as "current". Clean at
-startup, then never look at `<other_run_id>` artifacts again:
+The CI runner host reuses `/tmp/skill-eval/` across runs, and since
+the workflow allows parallel `workflow_dispatch` sweeps you may share
+the host with one or more peer agents holding their own in-flight
+state under `/tmp/skill-eval/`. **Never delete a peer run's subtree.**
+Confine every piece of scratch state this run owns to `$SCRATCH` and
+only ever clean inside that:
 
 ```bash
-# Drop every dataset — you're regenerating in step 4 anyway.
-rm -rf /tmp/skill-eval/datasets/*
+# Every per-run path in this file is rooted here. Export it for every
+# subshell you spawn — adapter generators, harbor invocations, and any
+# helper script all reference $SCRATCH instead of bare /tmp paths.
+export SCRATCH=/tmp/skill-eval/$GITHUB_RUN_ID
+mkdir -p "$SCRATCH"
 
-# Keep your own run's results; drop everything else.
-find /tmp/skill-eval/results -mindepth 1 -maxdepth 1 -type d \
-  ! -name "${GITHUB_RUN_ID}" ! -name "_viewer" -exec rm -rf {} +
+# Drop only THIS run's prior dataset tree (e.g. from a re-attempt).
+# Never `rm -rf /tmp/skill-eval/datasets/*` — that's a peer's data.
+rm -rf "$SCRATCH/datasets"
 
-# One authoritative brev snapshot — don't re-list repeatedly.
-brev ls > /tmp/skill-eval/brev-snapshot.txt
+# Authoritative brev snapshot for this run.
+brev ls > "$SCRATCH/brev-snapshot.txt"
 ```
 
-If you find yourself reading files under `/tmp/skill-eval/results/<other_id>/`
-to figure out what "used to work", stop — that path belongs to a
-different run and its invocation may be stale. The canonical command
-template is in § Harbor invocation below.
+Hard rules:
+
+- **Never delete `/tmp/skill-eval/results/<other_run_id>/`.** A peer
+  in-flight workflow run owns that subtree and an `rm -rf` from your
+  agent will corrupt its trial output mid-flight. Stale-dir cleanup is
+  operator-managed (cron + retention budget on the validator host),
+  not your job.
+- **Never read from `/tmp/skill-eval/results/<other_run_id>/`** to
+  figure out what "used to work" — that path belongs to a different
+  run and its invocation may be different too. The canonical command
+  template is in § Harbor invocation below.
+- **Never write to `/tmp/skill-eval/` outside `$SCRATCH`** for state
+  this run owns. The intentionally shared paths are listed below;
+  everything else is per-run.
+
+Intentionally shared paths (do NOT scope these under `$SCRATCH`):
+
+- `/tmp/skill-eval/results/$GITHUB_RUN_ID/` — harbor's output dir
+  convention; the `<run_id>` is already in the path. Peer runs
+  occupy sibling subdirs and the `_viewer` symlink farm is
+  operator-managed.
+- `/tmp/skill-eval/active-deploy.txt` on each Brev box — per-box
+  marker carrying `<profile_tag>|<run_id>`. Concurrent overwrites
+  from peer runs are by design: the marker exists so the next trial
+  on that box knows whether to redeploy.
+- `/tmp/brev/<INSTANCE_NAME>.lock` — per-box flock, intentionally
+  cross-run; it's the arbiter.
 
 ## Your job, in order
 
@@ -156,7 +184,7 @@ template is in § Harbor invocation below.
          --base "$SOURCE_BRANCH" \
          --head "$BOT_BRANCH" \
          --title "[skill-eval] ${SKILL} adapter for PR #${PR_NUMBER}" \
-         --body-file /tmp/skill-eval/bot-pr-body.md)
+         --body-file "$SCRATCH/bot-pr-body.md")
 
        gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "
        The skills-eval bot generated/updated the adapter required to
@@ -235,7 +263,7 @@ template is in § Harbor invocation below.
 
 4. **Regenerate the dataset** for each `(skill, spec, platform)` the
    spec's `resources.platforms` enumerates. Datasets land at
-   `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/`,
+   `$SCRATCH/datasets/<skill>/<spec_stem>/<platform>/`,
    where `<spec_stem>` is the spec filename with `.json` dropped.
    **Gate**: only run this step for skills that did NOT trigger 3c/3d
    in this run. A skill with an open bot PR is parked until the
@@ -256,7 +284,7 @@ template is in § Harbor invocation below.
       # Candidates: RUNNING+READY ^vss-eval-* boxes whose gpu/platform
       # matches the trial. (envs/brev_env.py validates the pick post-
       # selection; this step just narrows the field.)
-      brev ls --json > /tmp/skill-eval/brev-snapshot.txt
+      brev ls --json > "$SCRATCH/brev-snapshot.txt"
       # For each candidate read /tmp/skill-eval/active-deploy.txt
       # via `brev exec <name> -- cat ...`. Score:
       #   1. marker == "<profile>" desired by trial   (warm)
@@ -294,7 +322,7 @@ template is in § Harbor invocation below.
       # Pseudocode for the wait-for-pool case:
       DEADLINE=$(( $(date +%s) + 43200 ))
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-          brev ls --json > /tmp/skill-eval/brev-snapshot.txt
+          brev ls --json > "$SCRATCH/brev-snapshot.txt"
           # Re-evaluate candidates against the snapshot (same scoring
           # as above). If any RUNNING+READY ^vss-eval-* matches the
           # platform's hardware (hard req), break and proceed to flock
@@ -439,7 +467,7 @@ template is in § Harbor invocation below.
 even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** Scan
-`/tmp/skill-eval/brev-snapshot.txt` for `^vss-eval-*` candidates
+`$SCRATCH/brev-snapshot.txt` for `^vss-eval-*` candidates
 matching the trial's platform; score by (active-deploy marker match,
 free-lock, name) per § 5a; pick the best free candidate; export
 `BREV_INSTANCE` to it before the `uvx harbor run` call (§ Harbor
@@ -539,7 +567,7 @@ export BREV_INSTANCE="$INSTANCE_NAME"
 
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
-  -p /tmp/skill-eval/datasets/<skill>/<spec_stem> \
+  -p "$SCRATCH/datasets/<skill>/<spec_stem>" \
   --include-task-name "<platform>" \
   -a claude-code \
   --model "$ANTHROPIC_MODEL" \
@@ -580,17 +608,17 @@ Notes that have burned prior runs:
 
   ```bash
   # Pre-condition: the spec lays out step_count subdirs under
-  # /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/ named
+  # $SCRATCH/datasets/<skill>/<spec_stem>/<platform>/ named
   # step-1, step-2, ..., step-<step_count>. Read step_count from
   # any step's task.toml [metadata] (it's the same on every step).
   STEP_COUNT=$(grep -oP '^step_count\s*=\s*\K\d+' \
-    /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/step-1/task.toml)
+    "$SCRATCH/datasets/<skill>/<spec_stem>/<platform>/step-1/task.toml")
   RESULTS=/tmp/skill-eval/results/"$GITHUB_RUN_ID"
 
   for STEP in $(seq 1 "$STEP_COUNT"); do
     uvx harbor run \
       --environment-import-path "envs.brev_env:BrevEnvironment" \
-      -p /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform> \
+      -p "$SCRATCH/datasets/<skill>/<spec_stem>/<platform>" \
       --include-task-name "<platform>-step-${STEP}" \
       -a claude-code \
       --model "$ANTHROPIC_MODEL" \
@@ -615,7 +643,7 @@ Notes that have burned prior runs:
     awk -v r="$REWARD" 'BEGIN { exit !(r+0 < 1.0) }' && {
       for SKIP in $(seq $((STEP + 1)) "$STEP_COUNT"); do
         printf '%s\n' "skipped (prior-step fail, step=$STEP reward=$REWARD)" \
-          > /tmp/skill-eval/skipped-<spec_stem>-<platform>-step-${SKIP}.txt
+          > "$SCRATCH/skipped-<spec_stem>-<platform>-step-${SKIP}.txt"
       done
       break
     }
@@ -905,7 +933,7 @@ the workflow artifact at
 `skills-eval-results-pr-<N>-<run_id>.tar.gz`.</sub>
 ```
 
-Use `gh pr comment $PR_NUMBER --body-file /tmp/pr-<spec>.md`. Never
+Use `gh pr comment $PR_NUMBER --body-file "$SCRATCH/pr-<spec>.md"`. Never
 post a partial batch. If you posted a blocker earlier in the run
 (`missing_probe`, `env_blocker`), the final results comment is still
 separate; don't conflate the two.

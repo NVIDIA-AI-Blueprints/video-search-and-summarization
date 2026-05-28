@@ -33,7 +33,7 @@ Directory layout (one platform × mode per directory):
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-manage-alerts/generate.py \\
-        --output-dir /tmp/skill-eval/datasets/vss-manage-alerts \\
+        --output-dir "$SCRATCH/datasets/vss-manage-alerts" \\
         --skill-dir   skills/vss-manage-alerts \\
         --deploy-skill-dir skills/vss-deploy-profile \\
         --spec        skills/vss-manage-alerts/evals/alerts_vlm_real_time.json
@@ -343,7 +343,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--output-dir", required=True,
-                        help="Dataset output root (e.g. /tmp/skill-eval/datasets/vss-manage-alerts)")
+                        help='Dataset output root (e.g. "$SCRATCH/datasets/vss-manage-alerts")')
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/vss-manage-alerts")
     parser.add_argument("--deploy-skill-dir", default=None,
