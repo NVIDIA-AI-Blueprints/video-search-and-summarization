@@ -72,19 +72,34 @@ permissions:
   contents: write
   pull-requests: write
 
-# Only one eval runs per PR (or per manual sweep) at a time. A fresh push
-# cancels the in-flight run; the per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock)
-# release automatically when the agent process dies (POSIX flock(2) semantics —
-# no userspace trap needed). Any stale containers / volumes / marker that the
-# cancelled run left on a box are reconciled by the NEXT run's
-# `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy marker
-# carries `<profile_tag>|<run_id>`, so a marker from this run never matches
-# the next run's desired marker and the next run always tears down + redeploys.
-# Same path handles SIGKILL (the 12h timeout-minutes terminator) and host reboots
-# — there's no exit-side cleanup machinery to bypass.
+# Push-mode (PR mirror branches): one eval per PR at a time. A fresh
+# push cancels the in-flight run — the previous head's results are
+# stale the moment a new commit lands. The per-box flocks
+# (/tmp/brev/<INSTANCE_NAME>.lock) release automatically when the
+# agent process dies (POSIX flock(2) semantics — no userspace trap
+# needed). Any stale containers / volumes / marker that the cancelled
+# run left on a box are reconciled by the NEXT run's
+# `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy
+# marker carries `<profile_tag>|<run_id>`, so a marker from this run
+# never matches the next run's desired marker and the next run always
+# tears down + redeploys. Same path handles SIGKILL (the 12h
+# timeout-minutes terminator) and host reboots — there's no exit-side
+# cleanup machinery to bypass.
+#
+# Manual dispatch: each `workflow_dispatch` gets a unique group
+# (keyed on run_id) so two operators dispatching sweeps in parallel
+# don't cancel each other. Contention is handled per-box by the
+# flocks above: a second run picks an idle `vss-eval-*` box, or
+# waits at `flock -w` for one to free up. The validator host runs
+# multiple GH Actions worker processes labeled
+# `vss-skill-eval-runner`, so concurrent jobs actually start in
+# parallel rather than queueing at the runner level.
 concurrency:
-  group: skills-eval-${{ github.ref }}
-  cancel-in-progress: true
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch'
+      && format('skills-eval-manual-{0}', github.run_id)
+      || format('skills-eval-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 defaults:
   run:
