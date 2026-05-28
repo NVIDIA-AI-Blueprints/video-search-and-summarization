@@ -67,17 +67,9 @@ vios:
   vss-vios-postgres:
     enabled: true
 
-  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-alerts.
-  vss-vios-envoy-proxy:
-    enabled: false
-
-  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-alerts.
-  vss-vios-sdr:
-    enabled: false
-
   vss-vios-sensor:
     enabled: true
-    # Sensor talks to SDRC (replaces vss-vios-envoy-proxy) — same pattern as dev-profile-alerts.
+    # Sensor talks to SDRC — same pattern as dev-profile-alerts.
     streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -114,8 +106,7 @@ infra:
       limits:
         memory: 512Mi
         cpu: 500m
-  # SDRC workload controller — replaces vss-vios-sdr + vss-vios-envoy-proxy from the vios umbrella.
-  # Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
+  #SDRC Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
   sdrc:
     enabled: true
     configFilePath: configs/sdrc/config-search.yml
@@ -450,7 +441,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.2-b0ba77ae135d
+    vssAgentVersion: 3.2.0-26.05.5-0cff4ad42e29
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -550,7 +541,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-b0ba77ae135d" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.5-0cff4ad42e29" }}'
 
 vss-agent-ui:
   enabled: true
@@ -562,7 +553,7 @@ vss-agent-ui:
     imagePullPolicy: IfNotPresent
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.05.2-fab1d8616882"
+    tag: "3.2.0-26.05.2-794e57d82d0e"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
@@ -613,11 +604,6 @@ vss-agent-ui:
       value: "false"
     - name: NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED
       value: "false"
-    - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON
-      # TODO: This is used by the Video Management Tab. Change to have its own env var.
-      value: '{"fields":[{"field-name":"embedding","field-type":"boolean","field-default-value":true,"changeable":false,"tooltip-info":""}]}'
-    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON
-      value: '{"fields":[{"field-name":"embedding","field-type":"boolean","field-default-value":true,"changeable":false,"tooltip-info":""}]}'
     - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE
       value: "true"
     - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE

@@ -101,8 +101,10 @@ class SearchAgentInput(BaseModel):
     use_attribute_search: bool | None = Field(
         default=None, description="Enable fusion reranking with attribute search (overrides config if provided)"
     )
-    max_results: int = Field(default=5, description="Maximum number of results to return")
-    top_k: int | None = Field(default=None, description="Override top_k for embed search")
+    max_results: int = Field(
+        default=5,
+        description="Final number of results to return when the user explicitly asks for a result count.",
+    )
     start_time: str | None = Field(default=None, description="Start time filter (ISO format)")
     end_time: str | None = Field(default=None, description="End time filter (ISO format)")
     source_type: Literal["video_file", "rtsp"] = Field(
@@ -128,6 +130,32 @@ def _effective_search_runtime_options(
     )
 
 
+def _explicit_max_results(search_agent_input: SearchAgentInput) -> int | None:
+    """Return max_results only when the caller explicitly provided it."""
+    if "max_results" not in search_agent_input.model_fields_set:
+        return None
+    return max(0, search_agent_input.max_results)
+
+
+def _apply_final_result_limit(
+    results: list[SearchResult],
+    search_agent_input: SearchAgentInput,
+) -> list[SearchResult]:
+    """Apply the user-facing result limit without changing retrieval top_k."""
+    max_results = _explicit_max_results(search_agent_input)
+    if max_results is None:
+        return results
+    return results[:max_results]
+
+
+def _candidate_top_k(search_agent_input: SearchAgentInput, default_top_k: int) -> int:
+    """Derive internal search depth from config and the requested final count."""
+    max_results = _explicit_max_results(search_agent_input)
+    if max_results is None:
+        return default_top_k
+    return max(default_top_k, max_results)
+
+
 class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
     """Config for search agent."""
 
@@ -149,7 +177,7 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
 
     default_max_results: int = Field(
         default=10,
-        description="Maximum number of results to return. Used as the default top_k when not specified and as a cap when top_k is too high.",
+        description="Default internal candidate count for search and reranking when the user does not request a larger final result count.",
     )
 
     # Config fields needed for execute_core_search (matching SearchConfig)
@@ -410,9 +438,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             except Exception as e:
                 logger.warning(f"Failed to parse end_time: {e}")
 
-        # top_k = input.top_k if input.top_k else default_max_result
-        # User's top_k overrides default_max_result (no capping)
-        top_k = search_agent_input.top_k if search_agent_input.top_k is not None else config.default_max_results
+        top_k = _candidate_top_k(search_agent_input, config.default_max_results)
         source_type, use_critic = _effective_search_runtime_options(search_agent_input)
 
         search_input = SearchInput(
@@ -439,9 +465,11 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             if isinstance(update, SearchOutput):
                 search_output = update
 
-        return SearchOutput(
-            data=await stream_name_resolver.resolve(search_output.data), search_messages=search_output.search_messages
+        final_results = _apply_final_result_limit(
+            await stream_name_resolver.resolve(search_output.data),
+            search_agent_input,
         )
+        return SearchOutput(data=final_results, search_messages=search_output.search_messages)
 
     async def _execute_search_stream(
         search_agent_input: SearchAgentInput,
@@ -461,8 +489,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             if search_agent_input.use_attribute_search is not None
             else config.use_attribute_search
         )
-        max_results = search_agent_input.max_results
-        top_k = search_agent_input.top_k
+        explicit_max_results = _explicit_max_results(search_agent_input)
         start_time = search_agent_input.start_time
         end_time = search_agent_input.end_time
         source_type, use_critic = _effective_search_runtime_options(search_agent_input)
@@ -485,9 +512,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             except Exception as e:
                 logger.warning(f"Failed to parse end_time: {e}")
 
-        # top_k = input.top_k if input.top_k else default_max_result
-        # User's top_k overrides default_max_result (no capping)
-        top_k = top_k if top_k is not None else config.default_max_results
+        top_k = _candidate_top_k(search_agent_input, config.default_max_results)
 
         search_input = SearchInput(
             query=query,
@@ -518,7 +543,10 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                 elif isinstance(update, SearchOutput):
                     search_output = update
 
-            final_results = await stream_name_resolver.resolve(search_output.data)
+            final_results = _apply_final_result_limit(
+                await stream_name_resolver.resolve(search_output.data),
+                search_agent_input,
+            )
             result_count = len(final_results)
 
             # Build SearchOutput-compatible JSON
@@ -546,7 +574,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                         "query": query,
                         "agent_mode": agent_mode,
                         "fusion_enabled": use_attribute_search_flag,
-                        "max_results": max_results,
+                        "max_results": explicit_max_results,
                         "filters": (
                             {
                                 "start_time": start_time,

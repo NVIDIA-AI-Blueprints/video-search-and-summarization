@@ -3,17 +3,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Licensed under Apache-2.0 (full text: http://www.apache.org/licenses/LICENSE-2.0).
 
 # update_batch_size.sh - Update batch size across ALL config files for a use case.
 #
@@ -48,7 +38,10 @@ echo ">> Updating batch size to $BATCH for use case: $USECASE"
 
 # ── Compute tile grid once; applied to every use case below. ─────
 # Tile-grid rule: ROW=floor(sqrt(N)), COL=ceil(N/ROW).
-# Ignored by DS when tiled-display is not active (fakesink), harmless to set.
+# rows/columns are honored when the tiler composites (eglsink, filedump:
+# [tiled-display] enable=1) and ignored when the tiler is in perf-only
+# mode (fakesink: [tiled-display] enable=3, no compositing). Harmless to
+# set in either case — see update_output_sink.sh for the enable matrix.
 #
 # Capture the helper's stdout into a variable instead of `read -r ... < <(cmd)`.
 # Process substitution masks the helper's exit code from `set -e`, so a

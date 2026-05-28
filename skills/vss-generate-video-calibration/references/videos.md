@@ -2,7 +2,7 @@
 
 Load this reference when the user has **local MP4 files** to calibrate. Skip to the [Shared Calibration Tail](../SKILL.md#shared-calibration-tail) in SKILL.md once videos + alignment + layout are uploaded.
 
-For live RTSP streams, see [`rtsp.md`](rtsp.md). For verifying the install with the bundled sample, see [`sample-dataset.md`](sample-dataset.md).
+For live RTSP streams, see `rtsp.md`. For verifying the install with the bundled sample, see `sample-dataset.md`.
 
 ## What to Ask the User
 
@@ -24,12 +24,14 @@ The skill scans the **videos directory** and its **parent directory** for these 
 See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern) section in SKILL.md for the parsing rule.
 
 ### Required when no calibration-settings file is provided
-4. **Detector type** — `resnet` (default, fast) or `transformer` (slower, better under occlusion). Ask via `AskUserQuestion`. Mandatory if there's no config file because the detector is a separate `/calibrate` argument and UI Step 3 does **not** cover it. When a config file IS provided, the script extracts the detector automatically.
+4. **Detector type** — see [SKILL.md § Step B — Start Calibration](../SKILL.md#step-b--start-calibration) for the `resnet` vs `transformer` choice and the
+   AskUserQuestion fallback. When a config file is provided, the script extracts
+   the detector automatically.
 
 ### Optional
 5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
 6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
-7. **Run VGGT refinement?** — only if VGGT model is staged (see [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) Step 2).
+7. **Run VGGT refinement?** — only if VGGT model is staged (see `deploy-auto-calibration-service.md` Step 2).
 
 Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
 
@@ -37,26 +39,14 @@ Root `README.md` "Custom Dataset" section documents input-video guidelines and g
 
 ### Step 1 — Create Project
 
-```
-POST /v1/create_project
-Content-Type: application/x-www-form-urlencoded
-
-project_name=<your_project_name>
-```
-
-Response: `{"project_id": "<id>", ...}` — save `project_id`.
+See [`common-steps.md` § Create project](common-steps.md#create-project). Save the returned `project_id`.
 
 ### Step 2 — Upload Videos (required)
 
-```
-POST /v1/upload_video_files/<project_id>
-Content-Type: multipart/form-data
+See [`common-steps.md` § Upload videos](common-steps.md#upload-videos).
 
-files: [("files", ("cam_00.mp4", <bytes>, "video/mp4")),
-        ("files", ("cam_01.mp4", <bytes>, "video/mp4")), ...]
-```
-
-> **Important**: upload sorted alphabetically — the server assigns camera indices by upload order.
+> **Important**: upload sorted alphabetically — the server assigns camera
+> indices by upload order. The `multipart/form-data` part name is `files`.
 
 ### Step 3 — Resolve Local Files (Auto-Scan, Ask, or UI)
 
@@ -248,38 +238,8 @@ if ui_tasks:
         )
         print(f"    Alignment files verified at {manual_dir}")
 
-# Step A/B/C/D — Shared calibration tail (see SKILL.md)
-r = s.post(f"{BASE_URL}/verify_project/{project_id}")
-r.raise_for_status()
-state = r.json()["project_state"]
-print(f"[A] Project state: {state}")
-assert state == "READY", f"Expected READY, got {state}"
-
-s.post(f"{BASE_URL}/calibrate/{project_id}",
-       json={"detector_type": DETECTOR_TYPE}).raise_for_status()
-print(f"[B] Calibration started (detector={DETECTOR_TYPE})")
-
-print(f"[C] Polling (10–60 min)...")
-start = time.time(); last = ""
-while time.time() - start < 3600:
-    info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json()
-    st = info["project_info"]["project_state"]
-    elapsed = int(time.time() - start)
-    if st != last:
-        print(f"    [{elapsed:>4}s] {st}", flush=True); last = st
-    if st == "COMPLETED":
-        print(f"[C] Done in {elapsed}s"); break
-    if st == "ERROR":
-        raise RuntimeError(f"ERROR state — see log: GET {BASE_URL}/amc/calibrate/{project_id}/log")
-    time.sleep(10)
-
-print(f"\n[D] Results:")
-r = s.get(f"{BASE_URL}/result/{project_id}/evaluation_statistics")
-if r.status_code == 200:
-    for k, v in (r.json().get("statistics") or r.json()).items():
-        print(f"    {k}: {v}")
-else:
-    print("    No GT provided — skipping evaluation_statistics")
+# Step A/B/C/D — see references/calibration-tail.md for the shared snippet
+# (verify_project → calibrate → poll get_project_info → fetch evaluation_statistics)
 
 # Step E — VGGT (optional)
 if RUN_VGGT:

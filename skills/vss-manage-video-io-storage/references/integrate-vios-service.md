@@ -11,7 +11,7 @@ VIOS is a **multi-container microservice**, deployed in one of two routing modes
 
 Container suffixes on `streamprocessing-ms` (`-2d`, `-3d`, `-mv3dt`) reflect industry-profile variants — only the base `streamprocessing-ms` runs in IN-1. Source: `vios-microservices.rst` § VIOS Microservices table + [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) + [`dev-profile-base/.env`](../../../deploy/docker/developer-profiles/dev-profile-base/.env) lines 222-224 + verified live on `2xRTXPro-ubuntu` 2026-05-23.
 
-> **SDR → SDRC migration.** The legacy `vss-vios-sdr` (Flask WDM agent on port 4003, image `nvcr.io/nvidia/vss-core/sdr:3.1.0`) + `vss-vios-envoy` (L7 proxy on 10000, image `nvcr.io/nvidia/vss-core/envoy-proxy:3.1.0`) pair from [`deploy/docker/services/vios/sdr/streamprocessing/docker-compose.yaml`](../../../deploy/docker/services/vios/sdr/streamprocessing/docker-compose.yaml) is **deprecated** and being removed from `develop`. Both responsibilities (workload discovery + L7 routing) are consolidated in the single `sdr-controller` workload. The `localhost:10000` contract that downstream callers depend on is preserved by the SDRC-rendered Envoy listener (`WDM_MS_LISTENER_PORT`). New skills and build-outputs should reference SDRC only.
+> **SDR → SDRC migration.** The legacy `vss-vios-sdr` (Flask WDM agent on port 4003, image `nvcr.io/nvidia/vss-core/sdr:3.1.0`) + `vss-vios-envoy` (L7 proxy on 10000, image `nvcr.io/nvidia/vss-core/envoy-proxy:3.1.0`) pair is **deprecated** and removed from `develop`. Both responsibilities (workload discovery + L7 routing) are consolidated in the single `sdr-controller` workload defined in [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml). The `localhost:10000` contract that downstream callers depend on is preserved by the SDRC-rendered Envoy listener (`WDM_MS_LISTENER_PORT`). New skills and build-outputs should reference SDRC only.
 
 > **VSS 3.2 architectural change.** The recorder, RTSP server, replay-stream service, and storage service formerly shipped as separate containers (`recorder-ms-{1-5}`, `replaystream-ms-1`, `rtsp-server-ms`, `storage-ms`) are now **consolidated into the single `launch_vst` binary inside `vss-vios-streamprocessing`**. The `vios-microservices.rst` enumerated list (§ "Storage / RTSP Server / Replay Stream / Recorder Service") describes the **scaled-enterprise topology**; the dev profile uses the consolidated single-container form. All recording / playback functionality is still present — just bundled.
 
@@ -126,19 +126,19 @@ component_services:
       cases:
         rtsp-and-uploaded:
           - key: streamprocessing-ms
-            file: services/vios/sdr/streamprocessing/docker-compose.yaml
+            file: services/vios/streamprocessing/docker-compose.yaml
             role: DeepStream pipeline for plain RTSP-and-uploaded video streams.
         warehouse-2d:
           - key: streamprocessing-ms-2d
-            file: services/vios/sdr/streamprocessing/docker-compose.yaml
+            file: services/vios/streamprocessing/docker-compose.yaml
             role: DeepStream pipeline with warehouse-2d label overlay.
         warehouse-3d:
           - key: streamprocessing-ms-3d
-            file: services/vios/sdr/streamprocessing/docker-compose.yaml
+            file: services/vios/streamprocessing/docker-compose.yaml
             role: DeepStream pipeline with warehouse-3d label overlay.
         warehouse-mv3dt:
           - key: streamprocessing-ms-mv3dt
-            file: services/vios/sdr/streamprocessing/docker-compose.yaml
+            file: services/vios/streamprocessing/docker-compose.yaml
             role: DeepStream pipeline with multi-view warehouse label overlay.
   # bp-configurator wait shim — NOT in any default allow-list; warehouse profiles only.
   - key: sensor-bp-wait-bp-configurator
@@ -361,7 +361,7 @@ services:
                                #   → SDRC-rendered Envoy listener)
     profiles: [..., bp_developer_in_1]
 
-  vss-vios-streamprocessing:   # services/vios/sdr/streamprocessing/docker-compose.yaml
+  vss-vios-streamprocessing:   # services/vios/streamprocessing/docker-compose.yaml
                                #   (HTTP_PORT=30001; RTSP server pool 30554–30564; WebRTC on :80;
                                #   recorder/storage/RTSP all bundled in launch_vst)
     profiles: [..., bp_developer_in_1]
