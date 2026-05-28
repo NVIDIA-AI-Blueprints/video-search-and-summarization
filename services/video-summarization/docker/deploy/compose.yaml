@@ -308,7 +308,7 @@ services:
 
   # ── RTVI VLM service (profile-gated: only starts when COMPOSE_PROFILES includes "rtvi") ──
   rtvi-vlm:
-    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.1}
+    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.3}
     container_name: rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
@@ -326,7 +326,7 @@ services:
     - rtvi-ngc-model-cache:/opt/nvidia/rtvi/.rtvi/ngc_model_cache
     - rtvi-hf-cache:/tmp/huggingface
     environment:
-      NGC_API_KEY: ${NGC_API_KEY:-}
+      NGC_API_KEY: ${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}
       HF_TOKEN: ${HF_TOKEN:-}
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-NOAPIKEYSET}
       NVIDIA_VISIBLE_DEVICES: ${RTVI_VLM_GPU:-0}
@@ -334,7 +334,7 @@ services:
       OPENAI_API_VERSION: ${OPENAI_API_VERSION:-}
       VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: ${VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-}
       VIA_VLM_ENDPOINT: ${VIA_VLM_ENDPOINT:-}
-      VIA_VLM_API_KEY: ${VIA_VLM_API_KEY:-}
+      VIA_VLM_API_KEY: ${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}
       VLM_MODEL_TO_USE: ${VLM_MODEL_TO_USE:-openai-compat}
       VLM_BATCH_SIZE: ${VLM_BATCH_SIZE:-}
       MODEL_PATH: ${MODEL_PATH:-}

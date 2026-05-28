@@ -40,8 +40,8 @@ Video Summarization uses Docker Compose for deployment.
 ### Docker runtime prerequisites
 
 Use the repo-level Docker prerequisites before starting this service: Docker 28.3.3+,
-Docker Compose v2.39.1+, NVIDIA Container Toolkit 1.17.8+, and access to `nvcr.io`
-with your `NGC_API_KEY`.
+Docker Compose v2.39.1+, NVIDIA Container Toolkit 1.17.8+, and Docker registry
+access to `nvcr.io` with your NGC credentials.
 
 This compose stack is validated with Docker's classic image store. Newer Docker
 installations may enable the containerd image store by default ([Docker Desktop 4.34+](https://docs.docker.com/desktop/features/containerd/)
@@ -95,7 +95,8 @@ Export the following environment variables or save them to a `.env` file in the 
 
 ```sh
 # Mandatory
-export NGC_API_KEY=<>              # Required for nvcr.io images and NIM model access
+export NGC_API_KEY=<>              # Required by the LVS service for NGC-backed access
+export NGC_CLI_API_KEY=<>          # Required by repo-standard NIM and RT-VLM compose paths
 export NVIDIA_API_KEY=<>           # Required for CA-RAG LLM
 export BACKEND_PORT=38111          # LVS REST API port
 
@@ -111,11 +112,14 @@ export ES_PORT=9200                               # Elasticsearch port (default:
 
 # RT-VLM (Video Language Model backend)
 export RTVI_VLM_URL=http://rtvi-vlm:8000     # URL of the RT-VLM service
+# Optional: set if RT-VLM should use a different NGC credential than NGC_CLI_API_KEY
+# export RTVI_VLM_API_KEY=<>
+# Optional: override the default local RT-VLM image
+# export RTVI_VLM_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.3
 
 # Optional — Secrets
 export HF_TOKEN=<>                 # HuggingFace token for gated models
 export OPENAI_API_KEY=<>           # OpenAI-compatible endpoint swaps
-export VIA_VLM_API_KEY=<>          # External VLM API auth
 
 # Optional — Features
 export LVS_ENABLE_MCP=${LVS_ENABLE_MCP:-true}   # Enable MCP server (default: true)
@@ -135,10 +139,54 @@ export VIA_OTEL_ENDPOINT=http://otel-collector:4318
 export VSS_LOG_LEVEL=DEBUG
 ```
 
+Set both `NGC_API_KEY` and `NGC_CLI_API_KEY` when using local NGC-backed services.
+They may contain the same NGC credential, but they are consumed by different compose
+paths. The LVS service reads `NGC_API_KEY`; repo-standard NIM and RT-VLM compose paths
+read `NGC_CLI_API_KEY`. For local RT-VLM (`--profile rtvi`), this compose file passes
+`RTVI_VLM_API_KEY` first, then `NGC_CLI_API_KEY`, into RT-VLM's in-container
+`NGC_API_KEY` and `VIA_VLM_API_KEY` settings. `NGC_API_KEY` alone is not used as an
+RT-VLM credential fallback.
+
+The runtime environment variables above do not log Docker into `nvcr.io`. If Docker
+needs to pull private NGC images, authenticate the Docker client with an NGC credential
+before running `docker compose up`.
+
+### Data directory prerequisites for repo-level Compose
+
+The standalone compose file in this directory uses Docker-managed volumes for its
+database services. The repo-level compose path under `deploy/docker/compose.yml`,
+including the `lvs` developer profile, uses `VSS_DATA_DIR` host bind mounts for shared
+infrastructure data. If you run that repo-level compose path directly instead of the
+`dev-profile.sh` or `blueprint-deploy.sh` helpers, pre-create the writable data
+directories first:
+
+```sh
+export VSS_DATA_DIR=/path/to/vss-apps-data
+
+mkdir -p \
+  "$VSS_DATA_DIR/data_log/elastic/data" \
+  "$VSS_DATA_DIR/data_log/elastic/logs" \
+  "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/redis/data" \
+  "$VSS_DATA_DIR/data_log/redis/log"
+
+chmod -R 777 "$VSS_DATA_DIR/data_log"
+```
+
+Kafka writes `/tmp/kafka-data/cluster_id` through the
+`$VSS_DATA_DIR/data_log/kafka` bind mount, Elasticsearch writes data and logs through
+`$VSS_DATA_DIR/data_log/elastic/{data,logs}`, and Redis writes under
+`$VSS_DATA_DIR/data_log/redis`. If these host directories are missing or not writable
+by the container users, startup can fail with permission errors such as Kafka failing
+to create `cluster_id` or Elasticsearch failing to open `gc.log`.
+
 ### Example `.env` file
 
 ```sh
 NGC_API_KEY=nvapi-XXXXXXXXXXXXX
+NGC_CLI_API_KEY=nvapi-XXXXXXXXXXXXX
+# Optional: set only if RT-VLM should use a different NGC credential.
+# RTVI_VLM_API_KEY=nvapi-YYYYYYYYYYYYY
 NVIDIA_API_KEY=nvapi-XXXXXXXXXXXXX
 BACKEND_PORT=38111
 
@@ -206,7 +254,8 @@ echo "Ready!"
 
 Base URL: `http://localhost:38111`
 
-All endpoints accept `Authorization: Bearer <API_KEY>` (set via `VIA_VLM_API_KEY`).
+All endpoints accept `Authorization: Bearer <API_KEY>` when API authentication is
+configured for the deployment.
 
 ### Health Check
 
