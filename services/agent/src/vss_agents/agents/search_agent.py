@@ -191,6 +191,13 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         description="The internal VST URL for stream_id to sensor_id conversion in fusion reranking.",
     )
 
+    vst_external_url: str | None = Field(
+        default=None,
+        description=(
+            "The external VST URL for client-facing screenshot URLs. Falls back to vst_internal_url when unset."
+        ),
+    )
+
     fusion_method: Literal["weighted_linear", "rrf", "rrf_with_attribute_rank"] = Field(
         default="rrf",
         description="Fusion method: 'weighted_linear' for weighted linear fusion, 'rrf' for Reciprocal Rank Fusion using embed rank, 'rrf_with_attribute_rank' for RRF using both embed and attribute ranks",
