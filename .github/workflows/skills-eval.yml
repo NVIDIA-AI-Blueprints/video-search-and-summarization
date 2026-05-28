@@ -246,13 +246,21 @@ jobs:
 
       - name: Collect results for workflow artifact
         if: always() && (github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true')
+        env:
+          # Scope the tar + find to THIS run's subtree. Parallel
+          # workflow_dispatch sweeps share /tmp/skill-eval/results/ and
+          # archiving the parent dir would splice peer runs' trial
+          # outputs into this run's artifact (and vice versa). The
+          # harbor convention is /tmp/skill-eval/results/<run_id>/ so
+          # the per-run subdir name == github.run_id.
+          RUN_RESULTS: /tmp/skill-eval/results/${{ github.run_id }}
         run: |
-          # Agent writes harbor output to /tmp/skill-eval/results/<run_id>/
-          # (runtime-only; not tracked under the repo). Blocker paths
+          # Agent writes harbor output to $RUN_RESULTS (runtime-only;
+          # not tracked under the repo). Blocker paths
           # (missing_platforms_declaration, missing_probe, etc.) finish
           # without producing a results dir — that's a success, not a failure.
-          if [ ! -d /tmp/skill-eval/results ]; then
-            echo "no results dir — agent blocked before running trials (expected for blocker outcomes)"
+          if [ ! -d "$RUN_RESULTS" ]; then
+            echo "no results dir for this run — agent blocked before running trials (expected for blocker outcomes)"
             exit 0
           fi
           # Exclude per-trial agent/ subdirs from the artifact tarball
@@ -275,10 +283,10 @@ jobs:
           # `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/...`.
           # Reward, judge, and result.json — which the report builder
           # actually consumes — stay in the artifact.
-          RESULTS=$(find /tmp/skill-eval/results -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
+          RESULTS=$(find "$RUN_RESULTS" -maxdepth 2 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
             tar czf /tmp/skills-eval-results.tar.gz \
-              -C /tmp/skill-eval --exclude='agent' results
+              -C /tmp/skill-eval/results --exclude='agent' "${{ github.run_id }}"
             echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded; on-disk tree preserved for harbor view)"
           else
             echo "results dir exists but empty — nothing to archive"
@@ -312,6 +320,6 @@ jobs:
             ${{ github.event_name == 'workflow_dispatch'
               && format('skills-eval-benchmark-manual-{0}', github.run_id)
               || format('skills-eval-benchmark-pr-{0}-{1}', steps.pr.outputs.number, github.run_id) }}
-          path: /tmp/skill-eval/benchmark.md
+          path: /tmp/skill-eval/${{ github.run_id }}/benchmark.md
           if-no-files-found: ignore
           retention-days: 7
