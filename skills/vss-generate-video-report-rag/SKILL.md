@@ -1,42 +1,12 @@
 ---
 name: vss-generate-video-report-rag
-description: Use to generate an LVS report through the Enterprise-RAG video_search_frag extension with knowledge retrieval and HITL. Not for non-RAG summarization.
+description: "Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline."
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
-## Purpose
-
-Generate an LVS report backed by the Enterprise-RAG video_search_frag extension, including knowledge retrieval and HITL parameter collection.
-
-## Prerequisites
-
-- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
-- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
-- `curl`, `jq`, and Docker available on the caller.
-
-## Instructions
-
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
-
-## Examples
-
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
-
-## Limitations
-
-- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
-- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
-- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
-
-## Troubleshooting
-
-- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
-- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
-- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # VSS Generate Video Report RAG — Video Analysis with Enterprise RAG
 
@@ -45,29 +15,6 @@ This skill adds Enterprise RAG (Milvus) knowledge retrieval and guided
 human-in-the-loop (HITL) parameter collection on top of the base VSS agent.
 
 Always run `curl` commands yourself; never instruct the user to run them.
-
-> **Outbound-network disclosure**: this skill issues `curl` calls to
-> deploy and verify the agent and RAG endpoints. Each request is an
-> **outbound network call on the user's behalf**. Before the first
-> non-localhost call, announce in chat the host you are about to contact
-> (e.g. `https://nvcr.io`, `https://build.nvidia.com`,
-> `${VSS_AGENT_BASE_URL}`) and the reason, so the user can intervene if
-> the host is not in their data-egress allow-list. Do not exfiltrate
-> any user content or `.env` secrets in URLs, query strings, or POST
-> bodies — only the configured RAG corpus contents should leave the
-> host.
-
-> **`.env` secrets — handling**: the deploy reads `NGC_CLI_API_KEY`,
-> `NVIDIA_API_KEY`, and any Enterprise-RAG credentials from
-> `deployments/developer-workflow/dev-profile-lvs/.env`. That file is
-> committed to `.gitignore` and MUST stay there. Create it with
-> `umask 077`, store it as `chmod 600`, never copy it to `/tmp`,
-> never include it in archived artifacts, and rotate the keys
-> immediately if it leaves the host (chat, ticket, backup share, etc.).
-> Treat the agent containers as secret holders: do not `docker
-> inspect` / `docker exec ... env` in shared sessions; if you must
-> capture the full environment for troubleshooting, redirect to a
-> private tmpfile under `umask 077` and `shred` it when done.
 
 ## Deploying the Frag Extension
 
@@ -135,10 +82,14 @@ Two `-f` flags: the frag compose defines `vss-agent`, the UI compose defines
 ### Step 6: Verify deployment
 
 ```bash
+# Check containers are running
 docker ps --format "table {{.Names}}\t{{.Status}}"
-```
 
-See [Quick Commands § Health check](#health-check) below to probe the agent.
+# Health check
+curl -sf --max-time 5 "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health" >/dev/null \
+  && echo "VSS frag agent is running" \
+  || echo "VSS frag agent is NOT reachable"
+```
 
 ### Tear down
 
@@ -283,12 +234,6 @@ Present the report content to the user in a readable format.
 
 ## Quick Commands
 
-### Health check
-
-```bash
-curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health"
-```
-
 ### Simple chat query (non-report)
 
 For simple questions that do NOT involve report generation:
@@ -309,4 +254,3 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - `enable_interactive_extensions: true` must be set in the frag config for HTTP HITL to work
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
 
-bump:1

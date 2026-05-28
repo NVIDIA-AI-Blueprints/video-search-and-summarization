@@ -38,7 +38,10 @@ Warehouse Auto-Calibration (BP_PROFILE=bp_wh_auto_calib) — minimal footprint:
 
 VST (VIOS) stack — independent of perception, feeds RTSP into it:
   vss-vios-postgres → vss-vios-sensor / vss-vios-streamprocessing
-                    → vss-vios-sdr / vss-vios-mcp / vss-vios-ingress / vss-vios-envoy
+                    → vss-vios-ingress
+                    → sdr-controller  (from services/infra/sdrc/ — combined WDM controller + Envoy
+                                       router on :10000; replaces the deprecated vss-vios-sdr +
+                                       vss-vios-envoy pair. vss-vios-mcp was also removed.)
 
 elasticsearch — deployed when: BP_PROFILE=bp_wh (always; vss-agent storage), OR kafka/redis with MINIMAL_PROFILE="" (extended; ELK + bounding-box overlays + analytics API; any mode).
 NOTE: minimal does NOT deploy ES — so the mdx-bev index isn't persisted and Phase 5 BEV-sync check has no data to read (applies to 3D and MV3DT).
@@ -71,7 +74,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 | `vss-rtvi-cv-config-adaptor` | DeepStream config adaptor (3D only) |
 | `vss-configurator` | Stream and hardware config |
 | `vss-behavior-analytics` | ROI / tripwire / proximity analytics |
-| `vss-vios-postgres` / `-sensor` / `-streamprocessing` / `-sdr` / `-mcp` / `-ingress` / `-envoy` | VST stack |
+| `vss-vios-postgres` / `-sensor` / `-streamprocessing` / `-ingress` + `sdr-controller` (from `services/infra/sdrc/`) | VST stack (legacy `-sdr` / `-mcp` / `-envoy` removed; SDR + Envoy roles now consolidated in `sdr-controller`) |
 
 ### MV3DT CV core (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`)
 
@@ -85,7 +88,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 | `mosquitto` | MQTT broker for cross-camera messaging |
 | `vss-configurator-mv3dt` | Stream and hardware config |
 | `vss-behavior-analytics-mv3dt` | 3D spatial analytics |
-| `vss-vios-postgres` / `sensor-ms-mv3dt` / `-streamprocessing` / `-sdr` / `-mcp` / `-ingress` / `-envoy` | VST stack |
+| `vss-vios-postgres` / `sensor-ms-mv3dt` (container `vss-vios-sensor`) / `-streamprocessing` / `-ingress` + `sdr-controller` (from `services/infra/sdrc/`) | VST stack (legacy `-sdr` / `-mcp` / `-envoy` removed; SDR + Envoy roles now consolidated in `sdr-controller`) |
 
 ### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
 
@@ -401,7 +404,7 @@ docker logs --tail 50 vss-behavior-analytics-mv3dt 2>&1 | grep -E "ERROR|error|f
 ### 3.7 VST / VIOS stack
 
 ```bash
-for c in vss-vios-postgres vss-vios-sensor vss-vios-streamprocessing vss-vios-sdr vss-vios-mcp vss-vios-ingress vss-vios-envoy; do
+for c in vss-vios-postgres vss-vios-sensor vss-vios-streamprocessing vss-vios-ingress sdr-controller; do
   echo "=== $c ==="
   docker logs --tail 30 "$c" 2>&1 | grep -E "ERROR|error|fail" | tail -10
 done

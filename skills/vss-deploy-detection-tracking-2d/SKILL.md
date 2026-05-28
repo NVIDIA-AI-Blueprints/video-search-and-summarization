@@ -3,7 +3,6 @@ name: vss-deploy-detection-tracking-2d
 description: Use to deploy, run, debug, or tear down the RTVI-CV 2D detection / tracking microservice and call its REST API. Not for VLM, embedding, or analytics — use the matching vss-* skill.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia rtvi-cv deployment rest-api docker deepstream ngc warehouse smartcity sparse4d gdino rt-detr metropolis stream-management health-check metrics"

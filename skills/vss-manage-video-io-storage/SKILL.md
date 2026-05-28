@@ -120,11 +120,11 @@ host without re-deploying and see 502s, re-run `/vss-deploy-profile` to clean.
 >   streamprocessing on `:30001`. The combined WDM controller + Envoy router lives at
 >   [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
 >
-> The legacy `sdr-streamprocessing` + `envoy-streamprocessing` services still
-> exist in the tree (gated to the dead `bp_developer_sdr_envoy_disabled` profile)
-> but are not invoked by any active deploy. The `sdr-*` / `envoy-*` patterns in
-> the teardown grep above are retained to clean up stale hosts that ran an
-> older `develop`.
+> The legacy `sdr-streamprocessing` + `envoy-streamprocessing` services have
+> been removed from the tree along with the `services/vios/sdr/` directory
+> (PR #711, commit `3c9de80e`). The `sdr-*` / `envoy-*` patterns in the
+> teardown grep above are retained to clean up stale hosts that still carry
+> these containers from an older `develop` checkout.
 
 Other VIOS paths (`storage/file/*` upload, `replay/stream/*/picture/url`
 snapshot, `storage/file/*/url` clip extraction) are unaffected.

@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to produce a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. <br>
+Use to produce a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. Not for real-time alerts or ad-hoc Q&A. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -8,7 +8,7 @@ This skill is ready for commercial/non-commercial use. <br>
 ### License/Terms of Use: <br>
 Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers use this skill to generate structured video analysis reports — either per-clip VLM-based narratives or incident-range summaries — from deployed VSS infrastructure. <br>
+Developers and engineers use this skill to generate structured video analysis reports from VSS deployments — either per-clip VLM-based summaries (Mode A) or incident-range analytics reports (Mode B) — for operational monitoring, warehouse safety review, and smart-space analysis. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,7 +19,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS on NVIDIA Build](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [NVIDIA Build Experience](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
