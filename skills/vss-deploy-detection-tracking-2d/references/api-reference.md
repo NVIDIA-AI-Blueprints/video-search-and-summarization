@@ -318,7 +318,7 @@ curl -s "${BASE_URL}/api/v1/metadata"
 
 | Code | Meaning | Example |
 |------|---------|---------|
-| 200 | Embeddings generated | `{"id": "uuid", "created": 1717405636, "model": "cosmos-embed1-448p", "data": [...]}` |
+| 200 | Embeddings generated | `{"id": "uuid", "created": "<unix-epoch>", "model": "cosmos-embed1-448p", "data": [...]}` |
 | 400 | Missing fields | `{"code": "BadRequest", "message": "Missing required fields: text_input and model"}` |
 | 500 | Model error | `{"code": "ErrorCode", "message": "Failed to generate embeddings"}` |
 

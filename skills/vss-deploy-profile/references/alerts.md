@@ -6,12 +6,12 @@ Real-time alert generation and verification on RTSP / live video. VLM is **alway
 
 ## Two modes
 
-| Mode | CLI | `MODE` env | How it works | VLM load |
-|---|---|---|---|---|
-| **verification** | `--mode verification` | `2d_cv` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. | Lower — VLM runs per alert |
-| **real-time** | `--mode real-time` | `2d_vlm` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. | Higher — VLM runs continuously |
+| Mode | CLI | `MODE` env | `NEXT_PUBLIC_APP_SUBTITLE` | How it works | VLM load |
+|---|---|---|---|---|---|
+| **verification** | `--mode verification` | `2d_cv` | `Vision (Alerts - CV)` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. | Lower — VLM runs per alert |
+| **real-time** | `--mode real-time` | `2d_vlm` | `Vision (Alerts - VLM)` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. | Higher — VLM runs continuously |
 
-Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_cv` or `MODE=2d_vlm`) and re-resolving the compose. `dev-profile.sh` also rewrites the UI subtitle (`NEXT_PUBLIC_APP_SUBTITLE`) for the matching mode label.
+Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_cv` or `MODE=2d_vlm`) and re-resolving the compose. Update `NEXT_PUBLIC_APP_SUBTITLE` in the same file so the UI label matches the deployed mode.
 
 ## What's different from `base` and `lvs`
 
@@ -20,10 +20,6 @@ Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_c
 - **`VLM_NAME_SLUG=none`** for alerts — `COMPOSE_PROFILES` does not include a `vlm_local_*_<slug>` segment. The only LLM/VLM compose profile that matters for alerts is `llm_${LLM_MODE}_${LLM_NAME_SLUG}`.
 - **`VLM_PORT=8018`** by default (RT-VLM). Set to `30082` when `VLM_MODE=remote` (RT-VLM not started; agent points at the remote endpoint).
 - **Alert-bridge** (port 9080) is the bridge between RT-VLM events / behavior analytics and the agent's realtime alerting API. Verification mode reads from RT-CV → behavior analytics → alert-bridge → VLM verification. Real-time mode reads from RT-VLM → alert-bridge directly.
-
-> **`VLM_MODE` is required in `.env` but is a runtime signal, not a deployment-shape selector.** The vss-agent container reads `VLM_MODE` at startup (`services/agent/compose.yml:79` → `dev-profile-alerts/vss-agent/configs/config.yml:76,91`) to configure its VLM tool. It does **not** flip a compose profile (alerts has no `vlm_*_<slug>`). Set it to match physical placement: `local_shared` (RT-VLM on the LLM's GPU), `local` (RT-VLM on its own GPU), or `remote` (no local RT-VLM).
-
-> **An LLM endpoint is required.** The alerts agent uses the LLM for incident-report generation and tool routing. `dev-profile-alerts/vss-agent/configs/config.yml:152,193,259` reference `nim_llm` / `prompt_gen_llm`, and `COMPOSE_PROFILES` always pulls in `llm_${LLM_MODE}_${LLM_NAME_SLUG}`. To skip the local LLM container, point at a remote endpoint (`LLM_MODE=remote`, set `LLM_BASE_URL`). The detection pipeline alone (RT-CV → behavior-analytics → RT-VLM, alerts in Kafka/ES) doesn't need the LLM, but the agent does — and without the agent the user has no UI / report flow.
 
 ## What gets deployed
 
@@ -73,19 +69,23 @@ The default is a **2-GPU layout**: RT-CV alone on GPU 0, LLM + RT-VLM shared on 
 
 Real-time mode (`MODE=2d_vlm`) doesn't deploy RT-CV, so GPU 0 is free in that mode — often given to RT-VLM for more KV-cache headroom.
 
-## VLM serving paths
+## RT-VLM serving paths (alerts-specific)
 
-Pick the path that matches the user's VLM choice. Default is **integrated**.
+The alerts profile reuses the LVS VLM serving model — see
+[`lvs-profile.md` § VLM serving paths](lvs-profile.md#vlm-serving-paths) for the full
+integrated / remote / BYO matrix and `VLM_NAME` slug rules. The
+alerts-specific differences are noted below.
 
-### Path A — Integrated (RT-VLM loads Cosmos Reason)
+### Path A — Integrated (alerts profile)
 
-Default. RT-VLM serves the VLM locally. Supported integrated checkpoints (same set as LVS):
+Default for alerts. RT-VLM serves the VLM locally. Same integrated checkpoint
+set as LVS:
 
 | VLM | `RTVI_VLM_MODEL_PATH` | `RTVI_VLM_MODEL_TO_USE` |
 |---|---|---|
 | Cosmos Reason 2 8B (default) | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | `cosmos-reason2` |
 | Cosmos Reason 1 7B | `ngc:nim/nvidia/cosmos-reason1-7b:hf-<tag>` | `cosmos-reason` |
-| Nemotron Nano V3 Omni 30B | `git:https://huggingface.co/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8` | `vllm-compatible` (see [`lvs.md` § Nemotron Omni](lvs.md#path-a--integrated-rt-vlm-loads-the-checkpoint-itself)) |
+| Nemotron Nano V3 Omni 30B | `git:https://huggingface.co/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8` | `vllm-compatible` (see [`lvs-profile.md` § Nemotron Omni](lvs-profile.md#path-a--integrated-rt-vlm-loads-the-checkpoint-itself)) |
 
 Switching VLMs is a `dev-profile-alerts/generated.env` edit; **`VLM_NAME_SLUG` stays `none`** and `VLM_NAME` must match the model basename returned by RT-VLM's `/v1/models` (otherwise alert-bridge fails with HTTP 400). For Cosmos Reason 1 the `VLM_NAME` becomes `nim_nvidia_cosmos-reason1-7b_hf-<tag>`.
 
@@ -129,7 +129,7 @@ The skill writes these env vars to `dev-profile-alerts/generated.env` itself; th
 |---|---|---|
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | any | **0.35** |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | DGX-SPARK or L40S | **0.8** |
-| RT-VLM on its own GPU (`VLM_MODE=local`) | RTX PRO 4500 BW (32 GB) — pass `HARDWARE_PROFILE=OTHER` | **0.8** — also set `RTVI_VLM_MAX_MODEL_LEN=20480` to fit the smaller VRAM (see [FAQ](https://metromind.gitlab-master-pages.nvidia.com/met-blueprint-src/met-blueprint-docs/vss/latest/faq.html#faq-rtvi-vlm-rtx-4500)) |
+| RT-VLM on its own GPU (`VLM_MODE=local`) | RTX 4500 (32 GB) — `HARDWARE_PROFILE=RTX4500` | **0.8** with `RTVI_VLM_MAX_MODEL_LEN=20480`; also swap `RTVI_VLM_MODEL_PATH` to the `0303-fp8-dynamic-kv8` build to fit the smaller VRAM (see [§ RTX 4500](#rtx-4500-32-gb)) |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | H100 / RTXPRO6000BW | leave blank → RT-VLM's hardcoded 0.7 fallback applies |
 | RT-VLM on its own GPU on edge | OTHER / IGX-THOR / AGX-THOR | leave blank |
 
@@ -178,31 +178,34 @@ With RT-VLM at 0.35 and a 15% framework reservation, the LLM gets:
 | H200 | 141 GB | 49 GB | 21 GB | 71 GB | **0.50** |
 | RTX PRO 6000 (Blackwell) | 96 GB | 34 GB | 14 GB | 48 GB | **0.50** |
 | L40S | 48 GB | 17 GB | 7 GB | 24 GB | **0.50** (tight — Nano 9B at 23.4 GB barely fits) |
-| RTX PRO 4500 (Blackwell) — `HARDWARE_PROFILE=OTHER` | 32 GB | 11 GB | 5 GB | 16 GB | shared mode won't fit Nano 9B (23.4 GB) — use `LLM_MODE=remote` and run RT-VLM only (see [§ RTX PRO 4500](#rtx-pro-4500-blackwell-32-gb)) |
+| RTX 4500 (Blackwell) — `HARDWARE_PROFILE=RTX4500` | 32 GB | 11 GB | 5 GB | 16 GB | shared mode won't fit Nano 9B (23.4 GB) — use `LLM_MODE=remote` and run RT-VLM only (see [§ RTX 4500](#rtx-4500-32-gb)) |
 
-### RTX PRO 4500 Blackwell (32 GB)
+### RTX 4500 (32 GB)
 
-The 4500 is **not a recognized `HARDWARE_PROFILE`** in `dev-profile.sh` — the script's allowlist is `H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER` (see `get_detected_hardware_profile()` and the validation at `dev-profile.sh:665,680`). Pass `HARDWARE_PROFILE=OTHER`; the script's auto-detect also resolves a 4500 to `OTHER`, so the strict detect-vs-requested check passes.
-
-32 GB VRAM is too little to host the default Cosmos-Reason2-8B RT-VLM **and** a local Nano 9B LLM together. The supported layout is RT-VLM local, LLM remote:
+32 GB VRAM is too little to host the default Cosmos-Reason2-8B `hf-1208` RT-VLM checkpoint **and** a local Nano 9B LLM together. The supported layout is RT-VLM local with the smaller FP8 KV-cache checkpoint, LLM remote. Full env block for `dev-profile-alerts/generated.env`:
 
 ```env
-# In dev-profile-alerts/.env (or the equivalent generated.env)
-HARDWARE_PROFILE=OTHER
+HARDWARE_PROFILE=RTX4500
 LLM_MODE=remote
 VLM_MODE=local
+# RT-VLM sizing: cap context + lift utilization to fit on 32 GB.
 RTVI_VLM_MAX_MODEL_LEN=20480
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
+# Swap the RT-VLM checkpoint to the FP8 KV-cache build that fits on 32 GB.
+# VLM_NAME must match the basename rtvi-vlm advertises at /v1/models, or
+# alert-bridge / agent get HTTP 400 "No such model" (see § VLM serving paths).
+VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 ```
 
-`RTVI_VLM_MAX_MODEL_LEN=20480` caps the VLM context to fit alongside model weights at the 0.8 memory budget. Source: [FAQ § NVIDIA RTX 4500](https://metromind.gitlab-master-pages.nvidia.com/met-blueprint-src/met-blueprint-docs/vss/latest/faq.html#faq-rtvi-vlm-rtx-4500).
+The `0303-fp8-dynamic-kv8` Cosmos-Reason2 build trims weights and KV cache enough to leave room for the 20 K context window at 0.8 utilization — the default `hf-1208` build doesn't fit even with the model-len cap.
 
 Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GPUs because the script's RT-VLM util is fixed at 0.35 in shared mode.
 
 ### Hard rules
 
 - **L40S is the floor for shared mode.** 24 GB for the LLM barely fits Nano 9B FP16 (23.4 GB total). Switch to FP8 (`nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, 11.7 GB total) for any breathing room, or move to dedicated mode (LLM on its own GPU, RT-VLM on its own GPU at 0.8 util).
-- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason 2 still serves via RT-VLM** but the agent script uses `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and pins `RT_VLM_DEVICE_ID=0` (unified memory). For the LLM side, follow [`edge.md`](edge.md) (Edge 4B mandatory for shared mode on edge).
+- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason 2 must serve via RT-VLM, not a standalone NIM.** Thor (`AGX-THOR` / `IGX-THOR`) cannot host the standalone `cosmos-reason2-8b` NIM service; the alerts compose graph routes through RT-VLM only, and the source `.env` already pairs `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` with `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` so RT-VLM loads the checkpoint in-process. Don't introduce a remote-VLM override or a different VLM name on Thor — `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and `RT_VLM_DEVICE_ID=0` (unified memory) are also part of the Thor shape. For the LLM side, follow `edge.md` (Edge 4B mandatory for shared mode on edge).
 - **Don't co-deploy a standalone Cosmos NIM with alerts.** `COMPOSE_PROFILES` for alerts has no `vlm_*_<slug>` segment by design. Verify by checking `resolved.yml` doesn't have `cosmos-reason2-8b` / `cosmos-reason2-8b-shared-gpu` services alongside `rtvi-vlm`.
 - **`VLM_NAME` mismatch ⇒ HTTP 400.** dev-profile.sh sets `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` for the default Cosmos2 path. If you change `RTVI_VLM_MODEL_PATH` you must update `VLM_NAME` to match the new model basename — otherwise alert-bridge / agent get "No such model" from `/v1/models`.
 - **`VLM_NAME_SLUG=none` is required.** The alerts compose graph has no `vlm_local_*_<slug>` profiles. Setting a real slug doesn't bring up a VLM service — it just makes the COMPOSE_PROFILES reference dead.

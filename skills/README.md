@@ -26,6 +26,7 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
 | [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Skill for deploying and calling the RT-VLM dense captioning microservice API. |
+| [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Skill for deploying and operating the RT-Embed video embedding microservice API. |
 | [vss-deploy-detection-tracking-2d](vss-deploy-detection-tracking-2d/SKILL.md) | Skill for deploying, operating, and calling the RTVI-CV perception microservice for 2D detection and tracking (warehouse 2d/3d, sparse4d, smartcity rtdetr/gdino). |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
 | [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Skill to generate video summary reports with Enterprise RAG using the VSS frag/RAG pipeline. |

@@ -305,7 +305,10 @@ ls -l "$VSS_DATA_DIR/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
 # expected: ~30–50 MB onnx file, mode 777
 ```
 
-After RT-CV starts, it builds a TensorRT engine from this ONNX (3–5 min on first start) — those engines are cached under the same `models/` directory.
+After RT-CV starts, it builds a TensorRT engine from this ONNX (3–5 min on
+first start). Note that engine caches live alongside the ONNX files under
+`$VSS_DATA_DIR/models/` here, not under `$VSS_APPS_DIR/engines/` like the
+alerts profile — see [`alerts.md` § Stage perception models](alerts.md#stage-perception-models-rtdetr-its--gdino) for the alerts-profile path.
 
 ## First-run note
 

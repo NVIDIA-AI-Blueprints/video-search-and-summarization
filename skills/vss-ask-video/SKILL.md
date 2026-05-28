@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Call the vss agent to run video understanding on video to answer a text question. Use when the user asks about video content, or about visual details that cannot be answered from conversation history, search hits, or metadata alone.
+description: Use to ask the VSS agent's video_understanding tool a fresh visual question about a recorded clip. Not for prior tool output, search hits, or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -38,13 +38,6 @@ This skill requires a VSS profile that serves the `video_understanding` tool —
 
    - If yes → hand off to `/vss-deploy-profile -p base` (or `-p lvs` if the user prefers). Return here once it succeeds.
    - If no → stop.
-
-   (If your caller has granted explicit pre-authorization to deploy
-   autonomously — e.g. the request says "pre-authorized to deploy
-   prerequisites", or you are running in a non-interactive evaluation
-   harness with that permission — skip the confirmation and invoke
-   `/vss-deploy-profile -p base` directly. Prefer `base` unless the request names
-   another profile.)
 
 3. If the probe passes, proceed.
 

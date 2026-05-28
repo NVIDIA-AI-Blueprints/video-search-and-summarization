@@ -1,12 +1,6 @@
 ---
 name: vss-deploy-dense-captioning
-description: >
-  Deploy and call the VSS 3.2 RT-VLM dense captioning microservice. Use this skill
-  to deploy standalone RT-VLM when needed, generate dense captions and alerts for
-  stored video files and live RTSP streams via `/v1/generate_captions`, upload media
-  via `/v1/files`, add and remove live streams with `/v1/streams/add` and
-  `/v1/streams/delete/{stream_id}`, call OpenAI-compatible `/v1/chat/completions`,
-  consume Kafka caption, incident, and error topics, or debug rtvi-vlm responses.
+description: Use to deploy standalone RT-VLM dense captioning and call its REST API (uploads, captions, streams, chat-completions, Kafka). Not for VSS profile deploy or video-search ingestion.
 license: Apache-2.0
 metadata:
   version: "3.2.0"

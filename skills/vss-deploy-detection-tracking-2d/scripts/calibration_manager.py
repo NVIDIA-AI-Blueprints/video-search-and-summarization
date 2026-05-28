@@ -50,6 +50,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# How many leading sensor rows to print before the elision when bs > MAPPING_INLINE_THRESHOLD.
+MAPPING_LEAD_ROWS = 4
+# How many trailing sensor rows to print after the elision.
+MAPPING_TRAIL_ROWS = 2
+# Print every row inline (no "...") when batch_size is at most this large; the
+# leading + trailing windows already cover the entire mapping at this point.
+MAPPING_INLINE_THRESHOLD = MAPPING_LEAD_ROWS + MAPPING_TRAIL_ROWS
+# Minimum acceptable batch size.
+MIN_BATCH_SIZE = 1
+
 
 class CalibrationError(Exception):
     """Raised for malformed / unusable calibration input."""
@@ -159,8 +169,11 @@ def cmd_ensure(args: argparse.Namespace) -> int:
         return 1
 
     bs = args.batch_size
-    if bs < 1:
-        print(f"error: batch_size must be >= 1, got {bs}", file=sys.stderr)
+    if bs < MIN_BATCH_SIZE:
+        print(
+            f"error: batch_size must be >= {MIN_BATCH_SIZE}, got {bs}",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -241,19 +254,19 @@ def _print_mapping(
             file=sys.stderr,
         )
 
-    # When the leading window (4) plus the trailing 2 already cover every
+    # When the leading window plus the trailing window already cover every
     # row, print everything inline — a "..." separator would be misleading
     # since nothing is actually being elided.
-    if bs <= 6:
+    if bs <= MAPPING_INLINE_THRESHOLD:
         for i in range(bs):
             row(i)
         return
 
-    # bs > 6: 4 leading rows, "...", then the last 2.
-    for i in range(4):
+    # bs > MAPPING_INLINE_THRESHOLD: print the head, "...", then the tail.
+    for i in range(MAPPING_LEAD_ROWS):
         row(i)
     print("  ...", file=sys.stderr)
-    for i in range(bs - 2, bs):
+    for i in range(bs - MAPPING_TRAIL_ROWS, bs):
         row(i)
 
 

@@ -65,6 +65,26 @@ network_policies:
       - { path: /usr/local/bin/openclaw }
       - { path: /usr/local/bin/node }
 
+  ngc:
+    # Hosts verified by `ngc --debug registry resource download-version
+    # nvidia/vss-developer/dev-profile-sample-data:3.1.0` — only api.ngc and
+    # authn.nvidia are contacted; file payloads stream over api.ngc.nvidia.com.
+    # curl is needed because deploy_nemoclaw_vss.ipynb bootstraps the NGC CLI
+    # itself via `curl -fL -o ngc_cli.zip
+    # https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/...`
+    # before /usr/local/bin/ngc exists in the sandbox.
+    name: ngc
+    endpoints:
+      - host: api.ngc.nvidia.com
+        port: 443
+        access: full
+      - host: authn.nvidia.com
+        port: 443
+        access: full
+    binaries:
+      - { path: /usr/bin/curl }
+      - { path: /usr/local/bin/ngc }
+
   github:
     name: github
     endpoints:
