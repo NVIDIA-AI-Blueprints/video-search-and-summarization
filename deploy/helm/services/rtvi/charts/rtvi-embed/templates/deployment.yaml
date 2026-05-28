@@ -20,6 +20,13 @@ metadata:
   labels:
     {{- include "vss-rtvi-embed.labels" . | nindent 4 }}
     app.kubernetes.io/component: vss-rtvi-embed
+  {{- if .Values.streamAffinity.enabled }}
+  annotations:
+    haproxy.org/load-balance: {{ printf "hdr(%s)" .Values.streamAffinity.hashHeader | quote }}
+    haproxy.org/hash-type: "consistent"
+    haproxy.org/backend-config-snippet: |
+      http-request set-header {{ .Values.streamAffinity.hashHeader }} %[uuid()] if !{ req.hdr({{ .Values.streamAffinity.hashHeader }}) -m found }
+  {{- end }}
 spec:
   type: {{ .Values.service.type | default "ClusterIP" }}
   ports:
@@ -128,8 +135,16 @@ spec:
               containerPort: {{ .Values.port }}
               protocol: TCP
           env:
+            {{- /*
+              NVIDIA_VISIBLE_DEVICES is only emitted when gpuDeviceId is set,
+              so the empty chart default leaves the container's runtime default
+              intact (whichever GPUs the pod's resource request exposed).
+              Set .Values.gpuDeviceId to e.g. "1" to pin a specific device.
+            */}}
+            {{- with .Values.gpuDeviceId }}
             - name: NVIDIA_VISIBLE_DEVICES
-              value: {{ .Values.gpuDeviceId | default "all" | quote }}
+              value: {{ . | quote }}
+            {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
             - name: MODEL_IMPLEMENTATION_PATH
