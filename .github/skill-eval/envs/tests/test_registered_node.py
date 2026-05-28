@@ -155,6 +155,66 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
             brev_env._get_instance_gpu_count_from_catalog = original
 
 
+class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
+
+    async def test_nemoclaw_setup_sources_profile_without_nounset(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._ensure_nemoclaw_ready({"required_mcp_tools": ["vss_orchestrator__docker_up"]})
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn("set -eo pipefail\nset +u\nsource ~/.profile", command)
+        self.assertIn("source ~/.profile 2>/dev/null || true\nset -u\nexport PATH", command)
+        self.assertNotIn("set -euo pipefail\nsource ~/.profile", command)
+        self.assertIn("--required-tools vss_orchestrator__docker_up", command)
+
+    async def test_repo_sync_injects_pr_head_from_coordinator_env(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="synced repo to abc1234\n", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        old_head = os.environ.get("PR_HEAD_SHA")
+        old_repo = os.environ.get("PR_REPO")
+        brev_env._run_brev_exec = fake_run_brev_exec
+        os.environ["PR_HEAD_SHA"] = "abc1234"
+        os.environ["PR_REPO"] = "NVIDIA-AI-Blueprints/video-search-and-summarization"
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._sync_repo_to_pr_head()
+        finally:
+            brev_env._run_brev_exec = original
+            if old_head is None:
+                os.environ.pop("PR_HEAD_SHA", None)
+            else:
+                os.environ["PR_HEAD_SHA"] = old_head
+            if old_repo is None:
+                os.environ.pop("PR_REPO", None)
+            else:
+                os.environ["PR_REPO"] = old_repo
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn("PR_HEAD_SHA=abc1234", command)
+        self.assertIn("PR_REPO=NVIDIA-AI-Blueprints/video-search-and-summarization", command)
+        self.assertNotIn('PR_HEAD_SHA="${PR_HEAD_SHA:-}"', command)
+
+
 class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_dir_copies_tarball_and_extracts_with_short_command(self):
