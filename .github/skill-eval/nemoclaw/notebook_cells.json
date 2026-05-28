@@ -1,0 +1,18 @@
+{
+  "notebook": "deploy/docker/scripts/deploy_nemoclaw_vss.ipynb",
+  "insert_parameters_before": "2192a959",
+  "cells": [
+    "994c77c2",
+    "389373fb",
+    "2192a959",
+    "preflight-code",
+    "cb782286-f0bd-401e-9056-39a81821e3c4",
+    "run-code",
+    "verify-code",
+    "6a72f8d2",
+    "4c91fd59",
+    "c13aaf5e",
+    "042eabd1",
+    "df8210f5"
+  ]
+}
