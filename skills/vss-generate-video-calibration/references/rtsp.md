@@ -2,11 +2,11 @@
 
 Load this reference when the user wants to calibrate from **live RTSP camera streams**. The MS records each stream through VIOS, ingests the recorded clips, then runs the normal AMC calibration. Skip to the [Shared Calibration Tail](../SKILL.md#shared-calibration-tail) in SKILL.md once the RTSP capture + ingest is done and alignment/layout are uploaded.
 
-For local MP4s instead, see [`videos.md`](videos.md). For verifying the install with the bundled sample, see [`sample-dataset.md`](sample-dataset.md).
+For local MP4s instead, see `videos.md`. For verifying the install with the bundled sample, see `sample-dataset.md`.
 
 ## Mode-specific Prerequisites
 
-- **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the [`vios`](../../vios/SKILL.md) skill, else ask them to deploy VIOS.
+- **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the ``vss-manage-video-io-storage`` (see `../../vss-manage-video-io-storage/SKILL.md`) skill, else ask them to deploy VIOS.
 - **MS knows where VIOS is** — `VIOS_BASE_URL` is set in the MS container's environment (auto-wired from `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints; otherwise set explicitly in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env)). Required at runtime; Step 1 only uses the 30888 probe to detect whether VIOS is up locally.
 - **RTSP URLs reachable from the VIOS host** — verify with the user before starting capture.
 
@@ -76,7 +76,7 @@ Because there's no local videos directory to anchor the scan, ask the user for t
 UI fallback details for any of these live in [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallback-pattern).
 
 ### Required when no calibration-settings file is provided
-6. **Detector type** — `resnet` (default, fast) or `transformer` (slower, better under occlusion). Ask via `AskUserQuestion`. Mandatory if there's no config file because the detector is a separate `/calibrate` argument.
+6. **Detector type** — see [SKILL.md § Step B — Start Calibration](../SKILL.md#step-b--start-calibration) for the choice and the AskUserQuestion fallback.
 
 ### Optional
 7. **`sensor_id`** per stream — if VIOS already has the sensor registered, pass the ID to skip re-registration. Leave null and the MS auto-registers via VIOS.
@@ -86,14 +86,8 @@ For nvstreamer setup details and sensor pre-registration, see your VIOS deployme
 
 ## Step 3 — Create Project
 
-```
-POST /v1/create_project
-Content-Type: application/x-www-form-urlencoded
-
-project_name=<your_project_name>
-```
-
-Save the returned `project_id`.
+See [`common-steps.md` § Create project](common-steps.md#create-project) for the
+endpoint shape. Save the returned `project_id`.
 
 ## Step 4 — Start RTSP Capture
 
@@ -165,7 +159,7 @@ UI fallback details — see [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallba
 
 ## Step 7 — Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), continue with [SKILL.md Step A onward](../SKILL.md#step-a--verify-project) (verify → calibrate → poll → results).
+See [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calibration-tail).
 
 ---
 
@@ -317,38 +311,15 @@ if ui_tasks:
             f"Alignment files missing under {manual_dir}."
         )
 
-# Step A/B/C/D — Shared calibration tail (see SKILL.md)
-s.post(f"{BASE_URL}/verify_project/{project_id}").raise_for_status()
-s.post(f"{BASE_URL}/calibrate/{project_id}",
-       json={"detector_type": DETECTOR_TYPE}).raise_for_status()
-print(f"[B] Calibration started (detector={DETECTOR_TYPE})")
-
-start = time.time(); last = ""
-while time.time() - start < 3600:
-    info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json()
-    st = info["project_info"]["project_state"]
-    elapsed = int(time.time() - start)
-    if st != last:
-        print(f"    [{elapsed:>4}s] {st}", flush=True); last = st
-    if st == "COMPLETED":
-        print(f"[C] Done in {elapsed}s"); break
-    if st == "ERROR":
-        raise RuntimeError(f"Calibration ERROR — see GET {BASE_URL}/amc/calibrate/{project_id}/log")
-    time.sleep(10)
-
-r = s.get(f"{BASE_URL}/result/{project_id}/evaluation_statistics")
-if r.status_code == 200:
-    for k, v in (r.json().get("statistics") or r.json()).items():
-        print(f"    {k}: {v}")
-
-print(f"\nProject: {project_id}")
+# Step A/B/C/D — see references/calibration-tail.md for the shared snippet
+# (verify_project → calibrate → poll get_project_info → fetch evaluation_statistics)
 ```
 
 ## Mode-specific Troubleshooting
 
 | Issue | Fix |
 |---|---|
-| VIOS `/vst/api/v1/sensor/list` returns connection refused | VIOS isn't running. Look for the [`vios`](../../vios/SKILL.md) skill; if none, ask user to deploy VIOS and retry. |
+| VIOS `/vst/api/v1/sensor/list` returns connection refused | VIOS isn't running. Look for the ``vss-manage-video-io-storage`` (see `../../vss-manage-video-io-storage/SKILL.md`) skill; if none, ask user to deploy VIOS and retry. |
 | Capture endpoint returns 503 / "VIOS not configured" | `VIOS_BASE_URL` not set in MS container env. Either deploy alongside a `bp_wh_*` blueprint (which auto-wires it), or set it in `deploy/docker/industry-profiles/warehouse-operations/.env` and re-run `docker compose --env-file ... up -d` from `deploy/docker/`. |
 | Session stuck in `STARTING` | VIOS received the request but sensors aren't online. Check `curl ${VIOS_BASE_URL}/vst/api/v1/sensor/list` — look for `status: "online"`. Wait 20–30 s after any `sensor-ms` restart. |
 | Session stuck in `RECORDING` past `duration_seconds` | VIOS timer still running; call `POST /v1/rtsp/capture/<pid>/<sid>/stop` to end early. |

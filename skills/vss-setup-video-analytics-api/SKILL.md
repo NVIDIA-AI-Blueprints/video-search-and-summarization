@@ -1,19 +1,53 @@
 ---
 name: vss-setup-video-analytics-api
-description: >
-  Deploy the `vss-video-analytics-api` service standalone — no perception, no behavior-analytics, no UI.
-  Use when the user says "deploy video analytics api", "run video-analytics-api standalone",
-  "set up the REST API service", "change the API config", "swap the video-analytics-api config",
-  "run the API against my own Elasticsearch", "point the API at a different broker", or wants to
-  bring up the REST API layer without redeploying the full warehouse blueprint. Walks the user
-  through config selection, data-log volume, infrastructure dependencies (Elasticsearch / Kafka),
-  and deploy + verify.
+description: Use to deploy the vss-video-analytics-api REST service standalone on top of Elasticsearch + optional Kafka. Not for full warehouse deploy or behavior-analytics.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment video-analytics-api rest-api"
 ---
+## Purpose
+
+Deploy the video-analytics-api REST service standalone on top of the user's Elasticsearch / Kafka.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest
+contains a runnable scenario). Run a Tier-3 evaluation to replay them:
+
+```bash
+nv-base validate skills/vss-setup-video-analytics-api --agent-eval
+```
+
+A minimal standalone bring-up looks like:
+
+```bash
+cd $REPO/deploy/docker
+docker compose -f services/api/video-analytics-api/compose.yml \
+  --env-file ./.env up -d vss-video-analytics-api
+curl -sf http://localhost:7860/livez
+```
+
+Follow `references/deploy-video-analytics-api-service.md` for the full
+workflow (config choice, infrastructure dependencies, REST endpoints).
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
+- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # VSS Setup Video Analytics API — Standalone
 
@@ -34,6 +68,18 @@ The full operational walkthrough — config options, infrastructure dependencies
 
 1. **Repo checkout** with `$VSS_APPS_DIR` pointing at `<repo>/deploy/docker/`. Required by the service compose's volume binds.
 2. **NGC credentials** — `$NGC_CLI_API_KEY` set so docker can pull the image. See [`../vss-deploy-profile/references/ngc.md`](../vss-deploy-profile/references/ngc.md).
+
+   > **Secure-handling note for `NGC_CLI_API_KEY`**: this key is a
+   > long-lived credential that pulls all NVIDIA private images
+   > available to your NGC org. Never commit the key, never paste it
+   > into chat, never store it in `/tmp`. Read it interactively
+   > (`read -rs NGC_CLI_API_KEY`) or load it from your secret manager
+   > (Vault, AWS Secrets Manager, sealed-secrets) at deploy time.
+   > Write any derived `.env` files with `umask 077` + `chmod 600`,
+   > add them to `.gitignore`, and rotate the key on a defined
+   > cadence and after every host decommission. If it has ever been
+   > exposed (host snapshot, shared screen, ticket attachment),
+   > rotate immediately.
 3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
 4. **Elasticsearch** — must be reachable at the URL configured in `elasticsearch.node`. The server pings ES on startup; if unreachable, it exits (and `restart: always` brings it back). If you need to bring up ES too, use the infra compose: `docker compose -f services/infra/compose.yml up -d elasticsearch`.
 5. **Optional Kafka broker**. The API starts fine without Kafka — Kafka-dependent features (dynamic config, dynamic calibration, RTLS/AMR) are simply unavailable.
@@ -54,21 +100,9 @@ The compose-file edits, config options, deploy + verify commands, REST API endpo
 
 ## REST API capabilities
 
-Once the container is up and Elasticsearch is reachable, the API serves these endpoint groups:
-
-| Endpoint | What it does |
-|---|---|
-| `/livez` | Health check — returns 200 when routes are registered and ES ping succeeded. |
-| `/sensor` | CRUD for sensor metadata (GET / POST / DELETE), supports file uploads. |
-| `/config` | Dynamic config management — GET retrieves current config; POST publishes config updates to Kafka. |
-| `/behavior` | Query behavior data from Elasticsearch. |
-| `/alerts` | Query alert data with time-range and sensor filters. |
-| `/events` | Query event data from Elasticsearch. |
-| `/incidents` | Query incident data from Elasticsearch. |
-| `/frames` | Query frame-level data from Elasticsearch. |
-| `/metrics` | Aggregation / computation metrics (occupancy, behavior metrics). |
-| `/tracker` | Tracker data queries. |
-| `/clustering` | Clustering analysis queries. |
+Once the container is up and Elasticsearch is reachable, the API serves the
+endpoint groups listed in [`references/deploy-video-analytics-api-service.md`
+§ REST API endpoints](references/deploy-video-analytics-api-service.md#rest-api-endpoints).
 
 All endpoints except `/livez` require Elasticsearch. Endpoints that publish notifications (config, calibration) also require Kafka.
 
@@ -95,3 +129,4 @@ The API consumes real-time location (`mdx-rtls`) and AMR (`mdx-amr`) messages fr
 - If the user wants to understand the dynamic config / dynamic calibration wire contract from the **consumer** (behavior-analytics) side: point them at [`../vss-setup-behavior-analytics/references/dynamic-config.md`](../vss-setup-behavior-analytics/references/dynamic-config.md) and [`../vss-setup-behavior-analytics/references/dynamic-calibration.md`](../vss-setup-behavior-analytics/references/dynamic-calibration.md).
 - If the user wants to query or interact with the REST API endpoints: the endpoint table above and the deploy reference cover what's available. For the full OpenAPI spec, see `src/app/specification/openapi.json` in the `video-analytics-api` repo.
 
+bump:1
