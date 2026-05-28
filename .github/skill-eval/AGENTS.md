@@ -353,20 +353,21 @@ Intentionally shared paths (do NOT scope these under `$SCRATCH`):
       already holds the lock for this box, wait up to 12 h; beyond
       that, fall back to step 5a and rescore — another box may have
       come free. Final fallback: emit `BLOCKED: lock timeout` and exit.
-   c. Drive harbor one trial at a time (they share GPU/ports on the
-      host). Use the canonical invocation in § Harbor invocation
-      below — **do not improvise flags**. Before the `uvx harbor run`
-      call, `export BREV_INSTANCE=<name>` to the instance you
-      resolved in step 5a; the canonical snippet has the line —
-      omitting it makes `BrevEnvironment.start()` raise immediately
-      ("no instance resolved, harness does not auto-provision") and
-      the trial fails before harbor invokes the agent. If a trial fails, read the
+   c. Drive harbor **one trial at a time per box** (within a box,
+      trials share GPU/ports; across boxes, fan-out is fine — see
+      § Harbor invocation "Wait contract" for the fan-out pattern).
+      Use the canonical invocation in § Harbor invocation below —
+      **do not improvise flags**. Before each `uvx harbor run` call,
+      `export BREV_INSTANCE=<name>` to the instance you resolved in
+      step 5a; the canonical snippet has the line — omitting it makes
+      `BrevEnvironment.start()` raise immediately ("no instance
+      resolved, harness does not auto-provision") and the trial fails
+      before harbor invokes the agent. If a trial fails, read the
       trial log, fix the adapter (not the flags), rerun. While a
-      trial is running, do NOT babysit the remote box (no
-      `brev exec` polling, no `Monitor` on remote logs); harbor has
-      its own agent-execution timeout and will fail the trial
-      cleanly. Spend turns on the next trial's setup or on reading
-      already-completed trial logs instead.
+      trial is running, do NOT poll the remote box from your tool loop
+      — harbor has its own agent-execution timeout and will fail the
+      trial cleanly. Spend turns on the next trial's setup or on
+      reading already-completed trial logs instead.
    d. After each trial, parse
       `/tmp/skill-eval/results/<run_id>/<date>/<trial>/verifier/reward.txt`
       and `test-stdout.txt`. Record `(spec, platform, reward,
@@ -455,13 +456,19 @@ Intentionally shared paths (do NOT scope these under `$SCRATCH`):
 
 ## Platform topology
 
-| Platform | Brev instance | Lifecycle | Notes |
-|---|---|---|---|
-| `l40s` | `vss-eval-l40s` (`massedcompute_L40Sx2`) | **non-stoppable — delete after trials complete** (MC doesn't support stop) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48GB GPU. |
-| `h100` | `vss-eval-h100` (launchpad `dmz.h100x2.pcie` preferred) | **non-stoppable — delete after trials complete** | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` | `vss-eval-rtx` (`g7e.12xlarge`) | **stop after trials complete** | RTX PRO 6000 BW, 2× GPU, full matrix. |
-| `spark` | BYOH registered node `SPARK` | **no-op — never stop, never delete** | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
-| `H100-VLM` | BYOH registered node | **no-op** | Secondary H100 node if the cloud one is slow. |
+| Platform | Fleet prefix in `brev ls` | Notes |
+|---|---|---|
+| `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
+| `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
+| `rtx` / `rtxpro6000bw` | `vss-eval-rtx*` (e.g. `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g-3`) | RTX PRO 6000 BW. Suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). |
+| `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
+
+Pool naming is operator-managed; the actual fleet is whatever
+`brev ls` reports matching the prefix. Don't hardcode a specific
+instance name — the fleet-selection algorithm in § 5a picks the
+candidate. **Lifecycle is the operator's job**; you only acquire
+the per-box flock, run trials, and release the flock — see Hard
+rules about `brev create / start / stop / delete / reset`.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
@@ -695,41 +702,70 @@ Notes that have burned prior runs:
 - Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
   Then migrate to the viewer (see § Harbor viewer).
 
-### No polling — block on harbor
+### Wait contract — every harbor invocation is reaped before the Bash tool returns
 
-`uvx harbor run` MUST block this SDK turn until the trial exits.
-Do NOT background the harbor invocation and then sit in a polling
-loop watching `/logs/agent/claude-code.txt` line counts (or any
-other progress indicator) over `brev exec`. Each poll iteration
-counts as a tool turn and burns the SDK's turn budget. We
-observed run 25256515296 on PR #221 spend ~25 turns in
-`until [ "$(brev exec ... 'wc -l ...')" -gt N ]; do sleep 30; done`
-loops, then run out of turns mid-trial and exit without ever
-posting a comment — green ✓ workflow with $23.52 spent and zero
-signal to the contributor. The wrapper now exits 4 in that case
-(see § Output requirements), so silently giving up is a real
-failure now, not a quiet success.
+The SDK driving this agent **does not deliver any post-tool-return
+"trial finished" notification**. Your `Bash` tool surface is one-shot:
+when the foreground shell of that Bash call exits, the tool returns
+control to you. If you launch a `uvx harbor run` in the background
+and the Bash tool returns while harbor is still executing on a box,
+that trial is **orphaned from your tool loop** — you will never get
+woken up when it finishes, and you'll burn the rest of your turn
+budget hallucinating a watch mechanism that doesn't exist. Run
+26599065317 spent 80 minutes and $20.12 sitting in *"the monitor
+will notify me when each trial finishes"* loops before exit-coding 4.
+
+The rule, then, is about **reaping**, not about backgrounding syntax:
+every `uvx harbor run` you launch in a Bash tool call MUST have
+terminated by the time that call's foreground shell exits.
 
 Acceptable patterns:
-- `uvx harbor run …` (foreground, blocks until trial exits) —
-  preferred.
-- `timeout 1h uvx harbor run …` — bounded blocking.
-- `uvx harbor run … &; wait $!` — backgrounded then a single
-  blocking `wait`. No polling.
-
-Forbidden pattern:
 
 ```bash
-# DO NOT do this. Trial-supervision via tool-turn polling.
+# 1. Foreground (preferred for simplicity)
+uvx harbor run …
+
+# 2. Bounded foreground
+timeout 1h uvx harbor run …
+
+# 3. Backgrounded then explicitly waited
+uvx harbor run … &
+wait $!
+
+# 4. Fan-out within a single Bash call — N harbor invocations against
+#    N different boxes, single `wait` reaps all of them. The Bash tool
+#    returns when the slowest finishes; wall clock = max(trial_times).
+#    Pre-acquire one flock per box, point each invocation at a
+#    different `-o` subdir, then:
+uvx harbor run -p "$SCRATCH/datasets/<skill-a>/<spec>" -o "$RESULTS/<skill-a>" … &
+uvx harbor run -p "$SCRATCH/datasets/<skill-b>/<spec>" -o "$RESULTS/<skill-b>" … &
+uvx harbor run -p "$SCRATCH/datasets/<skill-c>/<spec>" -o "$RESULTS/<skill-c>" … &
+wait
+```
+
+Forbidden patterns:
+
+```bash
+# (a) Backgrounded without reaping. Bash tool returns immediately,
+# harbor keeps running on the box with no path back to your tool loop.
+uvx harbor run … &
+echo "now I'll wait for a notification"   # ← that notification never arrives
+
+# (b) Backgrounded with tool-turn polling. Each iteration of the
+# until-loop is its own Bash call that costs turns; runs blew up like
+# this before (PR #221, run 25256515296: ~25 turns spent in the loop,
+# then turn budget exhausted mid-trial with no PR comment, $23.52
+# spent, green ✓ + zero signal to the contributor).
 uvx harbor run … &
 until [ "$(brev exec "$INSTANCE" -- 'wc -l /logs/agent/claude-code.txt' | awk 'NR==1{print $1}')" -gt "$N" ]; do
     sleep 30
 done
 ```
 
-If you need to peek at intermediate state (rare — usually only when
-debugging a stuck trial), do it ONCE between trials, not in a loop.
-The trial owns the trial; don't supervise it tool-call-by-tool-call.
+Intermediate state inspection is fine *once* between trials when
+debugging — a single `brev exec` to look at one log file is one tool
+call, not a loop. The trial owns the trial; don't supervise it tool-
+call-by-tool-call.
 
 If a trial errors out, read
 `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/trial.log` —
