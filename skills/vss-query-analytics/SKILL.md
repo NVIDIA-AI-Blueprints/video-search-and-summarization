@@ -211,3 +211,4 @@ and speaks JSON-RPC 2.0 over Server-Sent Events.
    are idempotent.
 
 bump:1
+

@@ -275,3 +275,4 @@ corresponding step.
 | `generate text embeddings via rtvi-cv` | API USAGE |
 
 bump:1
+

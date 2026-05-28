@@ -130,3 +130,4 @@ The API consumes real-time location (`mdx-rtls`) and AMR (`mdx-amr`) messages fr
 - If the user wants to query or interact with the REST API endpoints: the endpoint table above and the deploy reference cover what's available. For the full OpenAPI spec, see `src/app/specification/openapi.json` in the `video-analytics-api` repo.
 
 bump:1
+

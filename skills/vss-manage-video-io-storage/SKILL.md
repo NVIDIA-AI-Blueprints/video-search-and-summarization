@@ -253,3 +253,4 @@ If you see double-`http://` prefixes in `imageUrl` or `videoUrl` fields on `/url
 - **Endpoint resolution:** The VST endpoint is provided by the VSS deployment context. Do not attempt manual IP/port discovery. If unavailable, ask the user. All curl examples use `<VST_ENDPOINT>` as a placeholder — substitute the resolved endpoint before executing.
 
 bump:1
+
