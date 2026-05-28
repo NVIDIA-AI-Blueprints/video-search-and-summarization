@@ -17,8 +17,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-agent
-  tag: "3.2.0-26.05.5-c777a8d34f70"
+  repository: nvcr.io/nv-metropolis-dev/met-moe-agents/vss-agent
+  tag: "dev-bbeb18a8d01c"
   pullPolicy: IfNotPresent
 # Image must have mcp[cli] (typer) installed for `mcp serve` (same as Docker Compose).
 replicas: 1
