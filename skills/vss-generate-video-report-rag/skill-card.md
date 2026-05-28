@@ -1,14 +1,14 @@
 ## Description: <br>
-Use to generate an LVS report through the Enterprise-RAG video_search_frag extension with knowledge retrieval and HITL. <br>
+Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
 ## Owner: NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+<span style="color:#d73a49">Apache 2.0 OR MIT</span> <!-- VERIFY: Repo LICENSE says 'Apache 2.0 OR MIT' but skill frontmatter says 'Apache-2.0'; confirm which applies to this skill --> <br>
 ## Use Case: <br>
-Developers and engineers use this skill to generate video summary reports backed by Enterprise RAG knowledge retrieval and human-in-the-loop parameter collection via the VSS video_search_frag extension. <br>
+Developers and engineers who need to generate video summary reports enhanced with Enterprise RAG knowledge retrieval, using the VSS frag pipeline for human-in-the-loop video analysis. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,7 +19,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [NVIDIA Build Experience](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
 
 

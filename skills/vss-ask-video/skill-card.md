@@ -8,7 +8,7 @@ This skill is ready for commercial/non-commercial use. <br>
 ### License/Terms of Use: <br>
 Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers use this skill to perform one-shot visual question answering on recorded video clips via the VSS agent's video_understanding tool, enabling ad-hoc video Q&A about objects, actions, safety conditions, and timing in surveillance or operational footage. <br>
+Developers and engineers use this skill to perform ad-hoc visual question-answering against recorded video clips via the VSS agent's video_understanding tool, enabling real-time inspection of objects, actions, safety conditions, and other visual details without relying on prior search results or metadata. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,7 +19,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [NVIDIA Build Experience](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [NVIDIA Build Experience — Video Search and Summarization](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
