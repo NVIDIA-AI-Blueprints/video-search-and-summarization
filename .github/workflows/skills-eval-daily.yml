@@ -80,7 +80,7 @@ jobs:
 
     # Allow mirror-branch pushes OR manual full-sweep dispatch. Never run
     # on develop/main pushes — those aren't covered by either trigger.
-    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout mirror head
@@ -131,6 +131,8 @@ jobs:
           set +a
           # daily run will skip the diff path,
           # treat as manual full sweep with skill filter = *
+          export PR_BASE="schedule"
+          export PR_HEAD_SHA="develop"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
           export MANUAL_FULL_SWEEP=1
