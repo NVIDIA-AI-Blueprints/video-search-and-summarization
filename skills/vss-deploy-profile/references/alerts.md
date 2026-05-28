@@ -6,12 +6,12 @@ Real-time alert generation and verification on RTSP / live video. VLM is **alway
 
 ## Two modes
 
-| Mode | CLI | `MODE` env | How it works | VLM load |
-|---|---|---|---|---|
-| **verification** | `--mode verification` | `2d_cv` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. | Lower — VLM runs per alert |
-| **real-time** | `--mode real-time` | `2d_vlm` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. | Higher — VLM runs continuously |
+| Mode | CLI | `MODE` env | `NEXT_PUBLIC_APP_SUBTITLE` | How it works | VLM load |
+|---|---|---|---|---|---|
+| **verification** | `--mode verification` | `2d_cv` | `Vision (Alerts - CV)` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. | Lower — VLM runs per alert |
+| **real-time** | `--mode real-time` | `2d_vlm` | `Vision (Alerts - VLM)` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. | Higher — VLM runs continuously |
 
-Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_cv` or `MODE=2d_vlm`) and re-resolving the compose. `dev-profile.sh` also rewrites the UI subtitle (`NEXT_PUBLIC_APP_SUBTITLE`) for the matching mode label.
+Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_cv` or `MODE=2d_vlm`) and re-resolving the compose. Update `NEXT_PUBLIC_APP_SUBTITLE` in the same file so the UI label matches the deployed mode.
 
 ## What's different from `base` and `lvs`
 
