@@ -1,0 +1,37 @@
+{
+   "query": {
+      "function_score": {
+         "query": {
+            "bool": {
+               "must": []
+            }
+         },
+         "random_score": {}
+      }
+   },
+   "aggs": {
+      "clusterIndices": {
+         "terms": {
+            "field": "info.cluster.index.keyword",
+            "size": 1000
+         },
+         "aggs": {
+            "randomBehaviorSamples": {
+               "top_hits": {
+                  "size": 1,
+                  "sort":[
+                     {
+                        "end": {
+                           "order": "desc"
+                        }
+                     }
+                  ],
+                  "_source": {
+                     "includes": []
+                 }
+               }
+            }
+         }
+      }
+   }
+}

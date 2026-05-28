@@ -53,7 +53,6 @@ The warehouse blueprint boots the **full VSS stack** (agent + UI + VST + RTVI be
 | `vss-behavior-analytics` | Behavior analytics — ROI, tripwire, proximity events |
 | `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
-| `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 
 ### MV3DT CV core (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`)
 
@@ -70,11 +69,10 @@ MV3DT adds MQTT-based cross-camera messaging and BEV Fusion on top of per-camera
 | `vss-behavior-analytics-mv3dt` | Behavior analytics — 3D spatial analytics |
 | `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
-| `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 
 ### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
 
-Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt`). Skips broker health check.
+Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt`). Skips broker health check. These are the only warehouse profiles that start `vss-auto-calibration` and `vss-auto-calibration-ui`; regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` profiles do not.
 
 | Container | Purpose |
 |---|---|
@@ -164,7 +162,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Service | URL | Profile |
 |---|---|---|
 | NvStreamer UI | `http://<HOST_IP>:31000` | All |
-| Auto-Calibration UI | `http://<HOST_IP>:5000` | All |
+| Auto-Calibration UI | `http://<HOST_IP>:5000` | `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt` |
 | Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
 | VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
 | VST MCP (direct) | `http://<HOST_IP>:8001` | All |
@@ -239,13 +237,24 @@ LOG=${LOG:-/tmp/warehouse-blueprint.log}
 
 ### Lifecycle: Tear down
 
+Hard teardown — removes all containers, the project network, and all volume belonging to this stack.
+
 ```bash
 cd <repo>/deploy/docker
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
+
+# Hard teardown — `-v` ensures named volumes are also removed.
+# Containers + network + project's named volumes all go.
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+
+# Sweep any leftover anonymous/dangling volumes from prior partial runs.
 docker volume prune -f
+
+# Reclaim disk: stopped containers, dangling images, unused networks.
 docker system prune -f
 
-# Pass the SAME env file you used with `docker compose --env-file ...`
+# Wipe bind-mounted state under $VSS_DATA_DIR/data_log/* AND revert
+# blueprint-configurator backups. Resolves VSS_DATA_DIR from the env file,
+# so pass the SAME env you used with `docker compose --env-file ...`.
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
 ```
 
@@ -278,9 +287,9 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 **Stack is ready when these show `Up`** (same container names in 2D and 3D; MV3DT uses `-mv3dt` suffix):
 
-- 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
+- 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
 - 3D extra: `vss-rtvi-cv-config-adaptor`
-- MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
+- MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
 - Extended extra (kafka/redis, any mode): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`)
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode)
@@ -328,18 +337,9 @@ Both set → skip to Phase 2.
 
 #### 1.2 Install (NGC CLI 4.10.0+)
 
-**AMD64:**
-```bash
-curl -sLo /tmp/ngccli.zip \
-  https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/4.10.0/files/ngccli_linux.zip
-sudo mkdir -p /usr/local/lib
-sudo unzip -qo /tmp/ngccli.zip -d /usr/local/lib
-sudo chmod +x /usr/local/lib/ngc-cli/ngc
-sudo ln -sfn /usr/local/lib/ngc-cli/ngc /usr/local/bin/ngc
-ngc --version
-```
-
-**ARM64 (DGX-SPARK, IGX-THOR):** use `ngccli_arm64.zip`, then same install steps.
+See [`ngc.md` § Install NGC CLI](ngc.md#install-ngc-cli-if-missing) for the
+AMD64 / ARM64 install commands. They are kept in `ngc.md` as the single
+canonical reference.
 
 #### 1.3 Configure API Key
 
@@ -383,6 +383,7 @@ Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
+| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + FP8 VLM model overrides |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -476,58 +477,71 @@ If that exact apt version is unavailable, use the NVIDIA archive for 580.105.08:
 
 #### 2.2 Docker
 
-Minimum required: **Docker Engine ≥ 27.2.0** and **Compose plugin ≥ v2.29.1**. If both are already installed and at or above those versions, **leave them alone** — proceed to §2.3.
+Reference versions: **Docker Engine 28.3.3** and **Docker Compose plugin v2.39.1+**. If Docker Engine is already **28.3.3** and the Compose plugin is **v2.39.1 or newer**, proceed to §2.3.
 
 ```bash
-docker --version        # need 27.2.0+
-docker compose version  # need v2.29.1+
+docker --version        # need 28.3.3
+docker compose version  # need v2.39.1+
 docker ps               # must run without sudo
 ```
 
-**Install Docker (if missing):**
+**Install / pin Docker (Ubuntu 24.04):**
+
+The pinned Docker CE packages come from Docker's official apt repository. If `apt` says `docker-ce` or `containerd.io` is unavailable, the Docker apt source is missing; add it first, then install the pinned versions.
+
 ```bash
+# Remove conflicting distro packages if present. It is okay if apt says none are installed.
+sudo apt-get remove -y docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc || true
+
+# Add Docker's official apt repository.
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
+sudo apt-get install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo rm -f /etc/apt/sources.list.d/docker.list
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
 sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Optional sanity check: these should print available Docker repo versions.
+apt-cache madison docker-ce | grep '28.3.3'
+apt-cache madison docker-compose-plugin | grep '2.39.1'
+apt-cache madison docker-ce-rootless-extras | grep '28.3.3'
+
+# Install or downgrade to the known-good reference versions.
+sudo systemctl stop docker docker.socket 2>/dev/null || true
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades \
+  docker-ce=5:28.3.3-1~ubuntu.24.04~noble \
+  docker-ce-cli=5:28.3.3-1~ubuntu.24.04~noble \
+  containerd.io=2.2.2-1~ubuntu.24.04~noble \
+  docker-buildx-plugin \
+  docker-compose-plugin=2.39.1-1~ubuntu.24.04~noble \
+  docker-ce-rootless-extras=5:28.3.3-1~ubuntu.24.04~noble
+sudo systemctl enable --now docker
+
+# Optional: hold so unattended-upgrades doesn't move them back
+sudo apt-mark hold docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-ce-rootless-extras
+
+docker version --format '{{.Server.Version}}'   # -> 28.3.3
+docker compose version --short                  # -> 2.39.1+
 ```
 
-##### When to downgrade to exactly 27.2.0 / 2.29.x
+##### When to pin to Docker 28.3.3 / Compose v2.39.1+
 
-**Only downgrade if you hit this specific failure during `docker compose up --pull always`:**
+Pin Docker if you hit this specific failure during `docker compose up --pull always`:
 
 ```
 error from registry: Incorrect Repository Format
 ```
 
-If you see that, downgrade to the known-good combination matching the reference rig (Docker 27.2.0):
-
-```bash
-sudo systemctl stop docker docker.socket 2>/dev/null || true
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades \
-  docker-ce=5:27.2.0-1~ubuntu.24.04~noble \
-  docker-ce-cli=5:27.2.0-1~ubuntu.24.04~noble \
-  containerd.io=2.2.2-1~ubuntu.24.04~noble \
-  docker-compose-plugin=2.29.2-1~ubuntu.24.04~noble
-sudo systemctl start docker
-
-# Optional: hold so unattended-upgrades doesn't move them back
-sudo apt-mark hold docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-docker version --format '{{.Server.Version}}'   # → 27.2.0
-docker compose version --short                  # → 2.29.2
-```
-
-Then re-run `docker compose up --pull always` — the tag-pull will succeed.
+Then re-run `docker compose up --pull always` after the pinned install succeeds.
 
 **Non-root Docker:**
 ```bash
@@ -586,28 +600,7 @@ sudo bash -c "printf '%s\n' \
 sudo sysctl --system
 ```
 
-**DGX-SPARK / IGX-THOR only** — cache cleaner:
-```bash
-sudo tee /usr/local/bin/sys-cache-cleaner.sh << 'EOF'
-#!/bin/bash
-set -e
-echo 0 | tee /proc/sys/vm/nr_hugepages
-echo "Starting cache cleaner"
-while true; do
-  sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
-  sleep 3
-done
-EOF
-sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
-sudo -b /usr/local/bin/sys-cache-cleaner.sh
-```
-
-**IGX-THOR only** — boost VIC clocks:
-```bash
-sudo nvpmodel -m 0
-sudo jetson_clocks
-sudo su -c 'echo performance > /sys/class/devfreq/8188050000.vic/governor'
-```
+**DGX-SPARK / IGX-THOR / AGX-THOR only** — system cache cleaner and (IGX-Thor) VIC clock boost. These are platform prerequisites that apply to every profile on edge hardware, not just warehouse. Canonical install + verify block lives in [`edge.md` § Cache cleaner (every edge deploy)](edge.md#cache-cleaner-every-edge-deploy).
 
 #### 2.5 IPv6 Localhost Entry
 
@@ -652,15 +645,9 @@ df -h /  # 500 GB+ SSD
 
 #### Q2 — Blueprint Profile
 
-**MODE=2d:**
-> - **2D Vision AI** — CV-only, no LLM and no VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
-> - **2D Vision AI with Agents** — LLM NIM (local/local_shared/remote) + RTVI VLM (always local). Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
-
-**MODE=3d:**
-> - **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
-
-**MODE=mv3dt:**
-> - **MV3DT Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams). No agents profile (`bp_wh`) available.
+Refer to the [Profile Variants table](#profile-variants) above for the
+profile / mode / dataset matrix instead of restating it here. The question is
+just "which profile from that table?".
 
 #### Q3 — Stream Type
 
@@ -668,33 +655,23 @@ Skip for `bp_wh` and `bp_wh_auto_calib`. For `bp_wh_kafka` / `bp_wh_redis`:
 
 > "Which broker — **kafka** or **redis**?"
 
-Variable combinations:
+Variable combinations — pick one row matching the user's Vision-AI variant
+and stream type:
 
-```bash
-# 2D Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"; NUM_STREAMS=3
+| Vision AI | Stream type | `BP_PROFILE` | `STREAM_TYPE` | `SAMPLE_VIDEO_DATASET` | `NUM_STREAMS` |
+|---|---|---|---|---|---|
+| 2D Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-loading-dock-3cams-synthetic` | 3 |
+| 2D Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-loading-dock-3cams-synthetic` | 3 |
+| 2D Vision AI with Agents | n/a | `bp_wh` | — | `nv-warehouse-4cams` | 4 (also set `LLM_MODE=local`; RTVI VLM is always local) |
+| 3D Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| 3D Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| MV3DT Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| MV3DT Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| Warehouse Auto-Calibration | n/a | `bp_wh_auto_calib` | — | mode-specific default | mode-specific default (also set `LLM_MODE=none`) |
 
-# 2D Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"; NUM_STREAMS=3
-
-# 2D Vision AI with Agents (RTVI VLM is always local; only LLM_MODE is selectable):
-BP_PROFILE=bp_wh; SAMPLE_VIDEO_DATASET="nv-warehouse-4cams"; NUM_STREAMS=4; LLM_MODE=local
-
-# 3D Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# 3D Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# MV3DT Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# MV3DT Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# Warehouse Auto-Calibration (mode-specific — dataset/streams match the mode default):
-BP_PROFILE=bp_wh_auto_calib; LLM_MODE=none
-```
+`3D Vision AI` and `MV3DT Vision AI` intentionally share the same dataset and
+stream counts — they differ only at the perception layer (`Sparse4D` vs
+per-camera DeepStream + BEV Fusion).
 
 #### Q4 — Deployment Profile
 

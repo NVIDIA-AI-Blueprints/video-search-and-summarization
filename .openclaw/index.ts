@@ -15,7 +15,6 @@ export default function register(api: {
 }) {
   copyWorkspaceTemplates(api);
   patchGatewayDockerGroup(api);
-  installAgentBrowserSkill(api);
 }
 
 function resolveVariant(pluginDir: string, logger: Logger): string | undefined {
@@ -75,28 +74,6 @@ function copyWorkspaceTemplates(api: {
     }
   } catch (err) {
     api.logger.warn(`[vss-claw] workspace copy failed: ${err}`);
-  }
-}
-
-function installAgentBrowserSkill(api: {
-  config: { agents?: { defaults?: { workspace?: string } } };
-  logger: Logger;
-}) {
-  const workspaceDir = api.config?.agents?.defaults?.workspace;
-  if (!workspaceDir) return;
-
-  const skillDir = join(workspaceDir, "skills", "agent-browser");
-  if (existsSync(skillDir)) return;
-
-  try {
-    mkdirSync(join(workspaceDir, "skills"), { recursive: true });
-    execSync("npx --yes skills add vercel-labs/agent-browser --yes", {
-      cwd: workspaceDir,
-      stdio: "ignore",
-    });
-    api.logger.info("[vss-claw] installed agent-browser skill into workspace");
-  } catch (err) {
-    api.logger.warn(`[vss-claw] agent-browser skill install failed: ${err}`);
   }
 }
 

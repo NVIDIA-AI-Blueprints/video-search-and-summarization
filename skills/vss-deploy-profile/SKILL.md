@@ -1,12 +1,40 @@
 ---
 name: vss-deploy-profile
-description: Load when the user says "configure vss", "deploy vss", "deploy `profile`", "debug deploy", "verify deployment", or "why is my vss deploy broken".
+description: Use to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). Not for standalone microservices — use the vss-deploy-* skill.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
+## Purpose
+
+Configure, deploy, verify, and tear down a complete VSS profile end-to-end (model selection, prerequisites, debugging).
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Available Scripts
+
+| Script | Purpose | Arguments |
+| --- | --- | --- |
+| `normalize_resolved_yml.py` | Normalize a `docker compose config` dry-run dump (`resolved.yml`) for diff-friendly review during the configure → deploy step. | `<resolved.yml>` (positional) |
+
+Invoke via `run_script("scripts/normalize_resolved_yml.py", "<resolved.yml>")`
+once the dry-run dump exists. All other deployment work is performed
+through compose / `dev-profile.sh` invocations documented per profile in
+`references/`.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
 
 # VSS Deploy
 
@@ -22,7 +50,7 @@ Match the user's request to a profile, then load that profile's reference for si
 |---|---|---|
 | "deploy vss" / "deploy base" | `base` | [`references/base.md`](references/base.md) |
 | "deploy alerts" / "alert verification" / "real-time alerts" / "deploy for incident report" | `alerts` | [`references/alerts.md`](references/alerts.md) |
-| "deploy lvs" / "video summarization" | `lvs` | [`references/lvs.md`](references/lvs.md) |
+| "deploy lvs" / "video summarization" | `lvs` | [`references/lvs-profile.md`](references/lvs-profile.md) |
 | "deploy search" / "video search" | `search` | [`references/search.md`](references/search.md) |
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
@@ -52,20 +80,23 @@ The source `.env` is treated as **read-only defaults** committed to the repo. Th
 
 ### Pre-flight check
 
-Run before every deploy. Do not proceed if any check fails.
+Run before every deploy. The full check list, the cache-cleaner
+auto-install snippet for DGX-Spark / IGX-Thor / AGX-Thor, and the
+remediation steps for each failure live in
+[`references/prerequisites.md`](references/prerequisites.md#preflight).
+
+Minimum smoke test (must succeed):
 
 ```bash
-# 1. GPU visible
 nvidia-smi --query-gpu=index,name --format=csv,noheader
-
-# 2. NVIDIA runtime in Docker
-docker info 2>/dev/null | grep -i "runtimes"
-
-# 3. NVIDIA runtime works end-to-end
-docker run --rm --gpus all ubuntu:22.04 nvidia-smi 2>&1 | head -5
+docker info 2>/dev/null | grep -qi runtimes \
+  && docker run --rm --gpus all ubuntu:22.04 nvidia-smi >/dev/null 2>&1 \
+  && echo "nvidia runtime OK"
 ```
 
-If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisites.md).
+If the smoke test fails, do not proceed; open
+[`references/prerequisites.md`](references/prerequisites.md#preflight)
+for the remediation tree.
 
 ## Model Selection
 
@@ -98,8 +129,8 @@ Before building env overrides, confirm:
 | **LLM/VLM placement** | Cross-reference available GPUs against the chosen profile's **Minimum GPU count** table |
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
 | **`HOST_IP`** | `hostname -I \| awk '{print $1}'` — the host's primary internal IP |
-| **`EXTERNAL_IP`** | The address browsers will use to reach the deploy. **Must be a real reachable hostname/IP for the user.** On a bare-metal host this can be `${HOST_IP}` or the host's DNS name. **On Brev, this is the secure-link domain** (e.g. `77770-<BREV_ENV_ID>.brevlab.com`) — see [Step 1c](#step-1c--if-deploying-on-brev-set-up-secure-link-env-vars). |
-| **`HAPROXY_PORT`** | The browser-facing ingress port. Default `7777`. On Brev this stays `7777` internally; the secure link adds the `0` suffix externally. |
+| **`EXTERNAL_IP`** | The address browsers will use to reach the deploy. **Must be a real reachable hostname/IP for the user.** On a bare-metal host this can be `${HOST_IP}` or the host's DNS name. **On Brev, this is the secure-link domain** (e.g. `7777-<BREV_ENV_ID>.brevlab.com`) — see [Step 1c](#step-1c--if-deploying-on-brev-set-up-secure-link-env-vars). |
+| **`HAPROXY_PORT`** | The browser-facing ingress port. Default `7777`. On Brev this stays `7777` internally; the secure link prefixes it directly (e.g. `7777-<id>.brevlab.com`). Older launchables used to add a trailing `0` giving `77770-...`; that form is now legacy. |
 
 > The haproxy ingress container (`services/infra/haproxy/compose.yml:46-47`) **also** reads `VSS_PUBLIC_HOST` and `VSS_PUBLIC_PORT` directly from the env to render its config templates and rewrite URLs.
 >
@@ -140,7 +171,7 @@ Read `BREV_ENV_ID` from `/etc/environment` and write `EXTERNAL_IP` into `generat
 
 ```bash
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=77770-${brev_env_id}.brevlab.com|" "$ENV_GEN"
+sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=7777-${brev_env_id}.brevlab.com|" "$ENV_GEN"
 ```
 
 The profile `.env` derives `VSS_PUBLIC_HOST=${EXTERNAL_IP}` and feeds that to haproxy + the agent's external URLs (see [Step 1 callout](#step-1--gather-context)). Leaving `EXTERNAL_IP=${HOST_IP}` makes report URLs and VST playback links unreachable from the browser even though haproxy is up — the most common Brev-deploy footgun.
@@ -223,17 +254,18 @@ docker compose -f resolved.yml up -d
 
 > **Do NOT use `--force-recreate` on retries.** It destroys already-warm NIM containers, forcing another 3–5 min torch.compile + CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix the root cause (usually perms or an env typo) and just re-run `up -d` — Docker will re-create only the containers whose config changed or that are down.
 
-Deploy takes ~10–20 min on first run (image pulls + model downloads). Monitor:
+`docker compose up -d` returns as soon as the daemon has **created** the containers — it does **not** wait for the processes inside to finish initializing. Polling `docker ps | grep -qx <name>` immediately after returns 0 (container exists) while `curl :8000/docs` returns exit 7 (Python process inside is still importing modules, loading models, binding the port). Eval verifiers and humans both regularly trip on this — declaring "deploy done" right after `up -d` returns probes a half-warm stack, and `vss-agent` / `:8000/docs` / `vss-agent-ui` checks all spuriously fail before the agent has actually bound its ports.
 
-```bash
-# Container status
-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+### Step 5b — Wait until the stack is actually healthy
 
-# Logs for a specific service
-docker compose -f $REPO/deploy/docker/resolved.yml logs --tail 50 <service>
-```
-
-Deploy is complete when all `mdx-*` containers show `Up` status.
+`docker compose up -d` returns once containers are *created*, not when
+the processes inside are *ready*. Cold deploys can legitimately take
+10–20 min. The full readiness procedure (compose-ps NDJSON gate + the
+per-profile `curl` checks + slow-container triage) lives in
+[`references/readiness.md`](references/readiness.md); each
+`references/<profile>.md` lists the endpoints that must be reachable
+for that profile. **Never declare the deploy done after `up -d`
+returns** — only after every documented endpoint succeeds.
 
 ### Step 6 — 
 Fron
@@ -277,8 +309,6 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 
 ## Troubleshooting
 
-- `unknown or invalid runtime name: nvidia` → NVIDIA Container Toolkit not installed or Docker not restarted. See [`references/prerequisites.md`](references/prerequisites.md).
-- NGC auth error → re-export `NGC_CLI_API_KEY` or follow [`references/ngc.md`](references/ngc.md).
-- GPU not detected → run `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then retry.
-- `docker compose up` fails with "no resolved.yml" → run the dry-run (`docker compose config > resolved.yml`, Step 3) first.
-- cosmos-reason2-8b crash → must redeploy the full stack (known issue: NIM cannot restart alone).
+Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
+
+bump:1

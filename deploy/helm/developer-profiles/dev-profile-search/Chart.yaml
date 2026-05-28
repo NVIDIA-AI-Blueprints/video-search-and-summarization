@@ -19,8 +19,8 @@ description: |
   NVIDIA Metropolis Developer Workflow - Search Profile
 
   All-in-one umbrella chart deploying the complete bp_developer_search_2d stack:
-    - vios                  : VST microservices umbrella (vss-vios-postgres, streamprocessing, sdr, envoy-proxy, sensor, ingress, mcp, nvstreamer)
-    - infra                 : Infra stack (Phoenix, Redis, Elasticsearch, Kibana, Kafka, Logstash)
+    - vios                  : VST microservices umbrella (vss-vios-postgres, streamprocessing, sensor, ingress, mcp, nvstreamer).
+    - infra                 : Infra stack (Phoenix, Redis, SDRC workload controller, Elasticsearch, Kibana, Kafka, Logstash)
     - rtvi                  : RTVI umbrella (vss-rtvi-cv, vss-rtvi-embed, …)
     - analytics             : VSS analytics umbrella (vss-behavior-analytics fusion_search for Search + vss-video-analytics-api)
     - agent                 : VSS agent umbrella (vss-agent; vss-va-mcp off by default)
@@ -120,3 +120,16 @@ dependencies:
     version: 26.04.2
     repository: "file://../../services/nims"
     condition: nims.enabled
+
+  # ---------------------------------------------------------------------------
+  # HAProxy Kubernetes Ingress controller (optional, in-cluster RTVI affinity)
+  # Pulled in only when rtviInternalIngress.enabled=true so a fresh single-node
+  # cluster gets the controller automatically. Assumes no other ingress
+  # controller is already running in the cluster — if there is one, leave
+  # rtviInternalIngress.enabled=false and use the existing controller.
+  # ---------------------------------------------------------------------------
+  - name: kubernetes-ingress
+    alias: haproxy-ingress
+    version: "1.44.1"
+    repository: "https://haproxytech.github.io/helm-charts"
+    condition: global.rtviInternalIngress.enabled

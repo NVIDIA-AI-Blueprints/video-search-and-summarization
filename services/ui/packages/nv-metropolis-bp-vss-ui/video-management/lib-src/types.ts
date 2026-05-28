@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+import type { RegisterChatVideoUploadComplete } from '@nemo-agent-toolkit/ui';
+
 export interface StreamMetadata {
   bitrate: string;
   codec: string;
@@ -109,6 +111,8 @@ export interface VideoManagementComponentProps {
   registerSidebarChatEventSubscriber?: (
     handler: (event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => void
   ) => void | (() => void);
+  /** From Home: registerMainTabChatVideoUploadComplete['video-management'] */
+  registerChatVideoUploadComplete?: RegisterChatVideoUploadComplete;
   /** Adds a stream context chip to the floating Chat sidebar input (VSS app). */
   addChatQueryContext?: (ctx: ChatSidebarQueryContext) => void;
 }

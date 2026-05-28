@@ -1,0 +1,75 @@
+{
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "sensors": {
+            "type": "array",
+            "minItems": 1,
+            "errorMessage": {
+                "minItems": "sensors should have at least 1 element."
+            },
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000,
+                        "errorMessage": {
+                            "minLength": "sensor id should have atleast 1 character.",
+                            "maxLength": "sensor id should have atmost 10000 characters."
+                        }
+                    },
+                    "configs": {
+                        "type": "array",
+                        "items": { "$ref": "#/$defs/keyValuePair" }
+                    }
+                },
+                "required": ["id"]
+            }
+        },
+        "app": {
+            "type": "array",
+            "minItems": 1,
+            "errorMessage": {
+                "minItems": "app should have at least 1 element."
+            },
+            "items": { "$ref": "#/$defs/keyValuePair" }
+        }
+    },
+    "anyOf": [
+        { "required": ["app"] },
+        { "required": ["sensors"] },
+        { "required": ["sensors", "app"] }
+    ],
+    "errorMessage": {
+        "anyOf": "At least one of 'app' or 'sensors' is required."
+    },
+    "$defs": {
+        "keyValuePair": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10000,
+                    "errorMessage": {
+                        "minLength": "name should have atleast 1 character.",
+                        "maxLength": "name should have atmost 10000 characters."
+                    }
+                },
+                "value": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 999999999,
+                    "errorMessage": {
+                        "maxLength": "value should have atmost 999999999 characters."
+                    }
+                }
+            },
+            "required": ["name", "value"]
+        }
+    }
+}

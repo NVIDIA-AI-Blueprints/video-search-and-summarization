@@ -71,6 +71,13 @@ function get_nvidia_smi_gpu_name() {
   echo "${_name}"
 }
 
+function get_nvidia_smi_gpu_count() {
+  local _count
+  _count="$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+  [[ "${_count}" =~ ^[0-9]+$ ]] || _count="0"
+  echo "${_count}"
+}
+
 # Maps GPU product name (from nvidia-smi) to a canonical hardware type for detection. Returns OTHER if no match.
 # AGX-THOR and IGX-THOR both map to THOR (single canonical type). Matching is case-insensitive.
 function get_detected_hardware_profile() {
@@ -79,6 +86,7 @@ function get_detected_hardware_profile() {
   case "${_gpu_lower}" in
     *h100*) echo "H100" ;;
     *l40s*) echo "L40S" ;;
+    *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
     *gb10*) echo "DGX-SPARK" ;;
     *thor*) echo "THOR" ;;
@@ -123,6 +131,7 @@ function get_vlm_slug() {
   case "${_name}" in
     nvidia/cosmos-reason1-7b) echo "cosmos-reason1-7b" ;;
     nvidia/cosmos-reason2-8b) echo "cosmos-reason2-8b" ;;
+    nvidia/cosmos3-reasoner) echo "cosmos3-reasoner" ;;
     Qwen/Qwen3-VL-8B-Instruct) echo "qwen3-vl-8b-instruct" ;;
     *) echo "" ;;
   esac
@@ -276,6 +285,37 @@ function mask_secret() {
   fi
 }
 
+function mask_external_ip_args() {
+  local _arg _masked_value
+  local _mask_next="false"
+  local _masked_args=()
+  for _arg in "$@"; do
+    if [[ "${_mask_next}" == "true" ]]; then
+      _masked_args+=("$(mask_secret "${_arg}")")
+      _mask_next="false"
+      continue
+    fi
+    case "${_arg}" in
+      -e|--external-ip)
+        _masked_args+=("${_arg}")
+        _mask_next="true"
+        ;;
+      --external-ip=*)
+        _masked_value="${_arg#--external-ip=}"
+        _masked_args+=("--external-ip=$(mask_secret "${_masked_value}")")
+        ;;
+      -e?*)
+        _masked_value="${_arg#-e}"
+        _masked_args+=("-e$(mask_secret "${_masked_value}")")
+        ;;
+      *)
+        _masked_args+=("${_arg}")
+        ;;
+    esac
+  done
+  echo "${_masked_args[*]}"
+}
+
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   local _vlm_mode="${2}"
@@ -283,15 +323,23 @@ function get_rtvi_vllm_gpu_memory_utilization() {
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
       DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
-      L40S) echo "0.8" ;;
+      L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
     return
   fi
 
   case "${_hardware_profile}" in
-    L40S) echo "0.8" ;;
+    L40S|RTXPRO4500BW) echo "0.8" ;;
     *) echo "0.7" ;;
+  esac
+}
+
+function get_rtvi_vlm_max_model_len() {
+  local _hardware_profile="${1}"
+  case "${_hardware_profile}" in
+    RTXPRO4500BW) echo "20480" ;;
+    *) echo "" ;;
   esac
 }
 
@@ -342,6 +390,7 @@ function usage() {
   echo "                                   • One of:"
   echo "                                     - H100"
   echo "                                     - L40S"
+  echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
   echo "                                     - DGX-SPARK"
   echo "                                     - IGX-THOR"
@@ -378,6 +427,7 @@ function usage() {
   echo "                                   • One of (local):"
   echo "                                     - nvidia/cosmos-reason1-7b"
   echo "                                     - nvidia/cosmos-reason2-8b"
+  echo "                                     - nvidia/cosmos3-reasoner          (set NIM_MODEL_SIZE=nano|super)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -416,7 +466,7 @@ function validate_args() {
 
   _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
-    echo "[ERROR] Invalid usage: ${_args[*]}"
+    echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
   else
     eval set -- "${_valid_args}"
@@ -637,9 +687,9 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
+      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
 
@@ -913,7 +963,7 @@ function process_args() {
         fi
         if contains_element "vlm" "${options_provided[@]}"; then
           if [[ -z "$(get_vlm_slug "${vlm}")" ]]; then
-            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, Qwen/Qwen3-VL-8B-Instruct"
+            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, Qwen/Qwen3-VL-8B-Instruct"
             ((_all_good++))
           fi
         fi
@@ -954,7 +1004,7 @@ function print_args() {
     echo "profile:                   ${profile}"
     echo "host-ip:                   ${host_ip}"
     if [[ -n "${external_ip}" ]]; then
-      echo "external-ip:               ${external_ip}"
+      echo "external-ip:               $(mask_secret "${external_ip}")"
     fi
     echo "ngc-cli-api-key:           $(mask_secret "${ngc_cli_api_key}")"
     local _env_file="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
@@ -1107,21 +1157,26 @@ function state_up() {
     set_env_var "VSS_VA_MCP_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/va_mcp_server_config.yml"
   fi
   if [[ -n "${external_ip}" ]]; then
-    set_env_var "EXTERNAL_IP" "${external_ip}"
+    set_env_var "EXTERNAL_IP" "${external_ip}" "true"
   fi
 
   # ===== Brev secure links =====
-  # Brev launchables use a hostname of the form <port>0-<env>.brevlab.com (e.g. 77770-<id>.brevlab.com).
-  # Point HAProxy and browser-facing compose vars at that host with https/wss; keep URL templates in
-  # profile .env (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
+  # Brev secure links use a hostname of the form <port>-<env>.brevlab.com (e.g. 7777-<id>.brevlab.com)
+  # — the haproxy port is prefixed directly. Older launchables used to add a trailing "0" giving
+  # 77770-<id>.brevlab.com; that form is legacy. Point HAProxy and browser-facing compose vars at the
+  # current-form host with https/wss; keep URL templates in profile .env
+  # (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
+  # VST_INGRESS_ENDPOINT intentionally omits the scheme because the VST stream-processing service
+  # prepends http:// when generating /picture/url and clip URLs.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
-    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port}0)..."
+    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port})..."
     set_env_var "HAPROXY_PORT" '${PROXY_PORT:-7777}'
     set_env_var "VSS_PUBLIC_HTTP_PROTOCOL" "https"
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
-    set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}0-${BREV_ENV_ID}.brevlab.com'
+    set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
     set_env_var "VSS_PUBLIC_PORT" "443"
+    set_env_var "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
   fi
 
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
@@ -1244,11 +1299,22 @@ function state_up() {
   fi
 
   # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
+  # Brev 2-GPU launchables do not have enough local devices for the Search critic VLM assignment, so disable critic there as well.
   # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
   if [[ "${profile}" == "search" ]]; then
     if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]; then
       set_env_var "ENABLE_CRITIC" "false"
       set_env_var "VLM_NAME_SLUG" "none"
+    elif [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+      local _brev_gpu_count
+      _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
+      if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
+        echo "[WARN] Brev environment has ${_brev_gpu_count} GPU(s). Disabling Search critic to avoid starting the local VLM on GPU ${vlm_device_id}."
+        set_env_var "ENABLE_CRITIC" "false"
+        set_env_var "VLM_NAME_SLUG" "none"
+      else
+        set_env_var "ENABLE_CRITIC" "true"
+      fi
     else
       set_env_var "ENABLE_CRITIC" "true"
     fi
@@ -1285,6 +1351,11 @@ function state_up() {
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
       set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      local _rtvi_vlm_max_model_len
+      _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+      if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
+        set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_rtvi_vlm_max_model_len}"
+      fi
     fi
     # RT_VLM_DEVICE_ID: mirrors NIM compose device_ids pattern.
     # local → VLM_DEVICE_ID; local_shared → SHARED_LLM_VLM_DEVICE_ID (fall back to vlm_device_id).
@@ -1304,8 +1375,13 @@ function state_up() {
       set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
+    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
+      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+    fi
   fi
-  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi (alerts does not use rtvi)
+  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
+  # (alerts defaults to VLM_MODEL_TYPE=rtvi via its source .env, so it does not need this override)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
   fi
@@ -1526,6 +1602,42 @@ function state_down() {
   if [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
     _sudo="sudo"
   fi
+
+  # Clean up sdrc runtime artifacts (logs and rendered wdm env files) created
+  # at compose-up time and bind-mounted into containers; often root-owned
+  # because containers write to them as root.
+  local _sdrc_dir="${deployment_directory}/services/infra/sdrc"
+  echo "[INFO] Cleaning up sdrc runtime artifacts in ${_sdrc_dir}..."
+  local _sdrc_artifact
+  for _sdrc_artifact in "${_sdrc_dir}/log" "${_sdrc_dir}/.wdm-env"; do
+    if [[ -d "${_sdrc_artifact}" ]]; then
+      if [[ "${dry_run}" == "true" ]]; then
+        echo "[DRY-RUN] ${_sudo:+sudo }rm -rf ${_sdrc_artifact}"
+      else
+        $_sudo rm -rf "${_sdrc_artifact}"
+        echo "[INFO] Deleted ${_sdrc_artifact}"
+      fi
+    fi
+  done
+
+  # Delete render-service generated sdrc config files. Every rendered file in
+  # */sdrc/configs/ has a sibling *.tmpl template; remove the rendered sibling
+  # so the next run regenerates it cleanly from the template.
+  local _tmpl _rendered
+  while IFS= read -r _tmpl; do
+    [[ -z "${_tmpl}" ]] && continue
+    _rendered="${_tmpl%.tmpl}"
+    if [[ -f "${_rendered}" ]]; then
+      if [[ "${dry_run}" == "true" ]]; then
+        echo "[DRY-RUN] ${_sudo:+sudo }rm -f ${_rendered}"
+      else
+        $_sudo rm -f "${_rendered}"
+        echo "[INFO] Deleted rendered sdrc config: ${_rendered}"
+      fi
+    fi
+  done < <(find "${deployment_directory}" -type f \( -path '*/sdrc/configs/*.tmpl' -o -path '*/sdrc/*/configs/*.tmpl' \) 2>/dev/null)
+
+  echo "[INFO] Deleting data directory: ${data_directory}..."
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] ${_sudo:+sudo }rm -rf ${data_directory}"
   else

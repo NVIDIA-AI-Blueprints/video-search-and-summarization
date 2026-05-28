@@ -20,6 +20,7 @@ from datetime import timedelta
 import logging
 import re
 from typing import Any
+from typing import Literal
 from typing import cast
 
 from elasticsearch import AsyncElasticsearch
@@ -51,6 +52,46 @@ MIN_CLIP_DURATION_SECONDS = 1.0
 
 # Default behavior index name — shared across SearchConfig, SearchAgentConfig, AttributeSearchConfig
 DEFAULT_BEHAVIOR_INDEX = "mdx-behavior-2025-01-01"
+
+
+def resolve_index_by_source_type(
+    base_index: str,
+    source_type: Literal["video_file", "rtsp"],
+    wildcard_pattern: str,
+) -> str | list[str]:
+    """Resolve the ES index(es) to query for the given ``source_type``.
+
+    Uploaded ``video_file`` content lives in a single fixed, date-stamped index
+    (the configured default, e.g. ``mdx-behavior-2025-01-01``). Live ``rtsp``
+    sources write to date-based indexes created at ingestion time
+    (e.g. ``mdx-behavior-2026-05-19``), so the search must span the wildcard
+    pattern for the family while excluding the video_file index.
+
+    - ``video_file`` -> ``base_index`` unchanged.
+    - ``rtsp``       -> ``[wildcard_pattern, "-" + base_index]``.
+
+    Args:
+        base_index: The configured video_file index (e.g. ``mdx-behavior-2025-01-01``).
+        source_type: ``"video_file"`` or ``"rtsp"``.
+        wildcard_pattern: Family-wide wildcard, e.g. ``"mdx-behavior-*"``,
+            ``"mdx-embed-filtered-*"``, ``"mdx-raw-*"``.
+
+    Returns:
+        Either ``base_index`` (str) or a two-element index expression list
+        suitable for ``AsyncElasticsearch.search(index=...)``.
+
+    Raises:
+        ValueError: If ``source_type`` is not one of the supported values.
+            The ``Literal`` annotation guards typed call sites, but a runtime
+            check fails loudly for config-driven or JSON-deserialized inputs
+            that bypass static type checks.
+    """
+    if source_type == "video_file":
+        return base_index
+    elif source_type == "rtsp":
+        return [wildcard_pattern, "-" + base_index]
+    else:
+        raise ValueError(f"Unsupported source_type {source_type!r}; expected 'video_file' or 'rtsp'.")
 
 
 class AttributeSearchInput(BaseModel):
@@ -511,25 +552,29 @@ async def search_by_object_embedding(
 
 async def enrich_attribute_results(
     results: list["AttributeSearchResult"],
-    vst_url: str | None,
+    vst_internal_url: str | None,
+    vst_external_url: str | None = None,
 ) -> None:
     """Enrich attribute search results with screenshot URLs and resolved stream IDs.
 
     Mutates results in-place: resolves sensor_id → stream_id (UUID) and builds
-    screenshot URLs via VST.
+    screenshot URLs via VST. Stream resolution prefers the internal VST URL;
+    returned screenshot URLs prefer the external VST URL.
     """
-    if not vst_url:
+    resolution_base_url = vst_internal_url or vst_external_url
+    screenshot_base_url = vst_external_url or vst_internal_url
+    if not resolution_base_url or not screenshot_base_url:
         return
     from vss_agents.tools.vst.utils import get_stream_id
 
     async def _enrich_result(r: AttributeSearchResult) -> None:
         if r.metadata and r.metadata.sensor_id and not r.screenshot_url:
             try:
-                stream_id = await get_stream_id(r.metadata.sensor_id, vst_url)
+                ts = r.metadata.start_time or r.metadata.frame_timestamp
+                stream_id = await get_stream_id(r.metadata.sensor_id, resolution_base_url)
                 if stream_id:
-                    ts = r.metadata.start_time or r.metadata.frame_timestamp
                     if ts:
-                        r.screenshot_url = build_screenshot_url(vst_url, stream_id, ts)
+                        r.screenshot_url = build_screenshot_url(screenshot_base_url, stream_id, ts)
                     r.metadata.sensor_id = stream_id
             except Exception as e:
                 logger.warning(f"Failed to enrich result for sensor {r.metadata.sensor_id}: {e}")

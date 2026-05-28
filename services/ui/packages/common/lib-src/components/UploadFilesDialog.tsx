@@ -16,7 +16,7 @@ const INPUT_CLASS =
 const POPUP_OVERLAY_CLASS =
   'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
 const POPUP_CONTAINER_CLASS =
-  'mx-4 w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-black dark:border dark:border-neutral-800';
+  'mx-4 w-full max-w-xl rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-2xl';
 
 export interface UploadFilesDialogFileItem {
   id: string;
@@ -129,10 +129,9 @@ function getFieldLabel(fieldName: string): string {
   return fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
 }
 
-/** Sanitize upload filename: no spaces, remove .mp4 suffix if present (for default/display). */
+/** Sanitize upload filename: remove spaces so VST/nvstreamer naming stays consistent with Video Management. */
 function sanitizeUploadFilename(name: string): string {
-  const noSpaces = name.replaceAll(/\s+/g, '');
-  return noSpaces.replace(/\.(mp4|mkv)$/i, '') || noSpaces;
+  return name.replaceAll(/\s+/g, '');
 }
 
 /** Check if upload filename is invalid (empty or contains spaces). */

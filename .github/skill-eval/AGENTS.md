@@ -10,7 +10,7 @@ You run **once per push**, from start to finish, on the
 `vss-skill-validator-v2` self-hosted runner. Your workspace is already
 checked out at the mirror head. You have `Bash`, `Read`, `Edit`,
 `Write`, `Glob`, `Grep`; no human is in the loop while you work. The
-workflow runs your invocation with an 8-hour hard timeout.
+workflow runs your invocation with a 12-hour hard timeout.
 
 ## Startup hygiene (do this first, before step 1)
 
@@ -52,9 +52,11 @@ template is in § Harbor invocation below.
    and exit cleanly. No PR comment.
 
 2. **For each changed skill, decide whether it has a dispatchable
-   eval spec** — any `skills/<skill>/eval/<name>.json`. The filename
-   is free; it doesn't need to match a deploy profile or any
-   convention. A skill can ship multiple specs side-by-side.
+   eval spec** — any `skills/<skill>/evals/<name>.json`. For legacy
+   skills that have not moved yet, also accept
+   `skills/<skill>/eval/<name>.json`. The filename is free; it
+   doesn't need to match a deploy profile or any convention. A skill
+   can ship multiple specs side-by-side.
 
    Hard requirements on a spec: `skills` (list), `resources.platforms`
    (matrix), `env` (prose), `expects` (ordered query/checks list).
@@ -261,7 +263,7 @@ template is in § Harbor invocation below.
       #   2. lock free (try flock -n)                        (free)
       #   3. instance name asc                               (tiebreak)
       # Pick the first candidate that scores best AND whose flock -n
-      # succeeds. If none free, block on flock -w 28800 of the
+      # succeeds. If none free, block on flock -w 43200 of the
       # best-by-marker candidate.
       INSTANCE_NAME=<picked>
       ```
@@ -281,16 +283,16 @@ template is in § Harbor invocation below.
       If no hardware-matching candidate exists for this platform,
       **wait** for one to appear — the pool is operator-managed and a
       box may come online mid-run. Re-run `brev ls --json` every 5
-      min, up to the same 28800s budget. If the operator scales up or
+      min, up to the same 43200s budget. If the operator scales up or
       another run frees a box during that window, restart selection
-      from the top with the fresh snapshot. Only after the full 28800s
+      from the top with the fresh snapshot. Only after the full 43200s
       budget elapses with zero hardware-matching candidates do you
       emit `BLOCKED: pool exhausted for <platform>` and exit — that's
       a genuine capacity shortfall the operator needs to action.
 
       ```bash
       # Pseudocode for the wait-for-pool case:
-      DEADLINE=$(( $(date +%s) + 28800 ))
+      DEADLINE=$(( $(date +%s) + 43200 ))
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
           brev ls --json > /tmp/skill-eval/brev-snapshot.txt
           # Re-evaluate candidates against the snapshot (same scoring
@@ -304,21 +306,23 @@ template is in § Harbor invocation below.
 
       This is distinct from the trial-supervision polling forbidden
       in § Harbor invocation: pool-wait polls a resource that may not
-      yet exist, the busy-but-locked case (`flock -w 28800` on an
+      yet exist, the busy-but-locked case (`flock -w 43200` on an
       existing box) is symmetric, and both are bounded by the same
-      8h budget. Trial-supervision polling watches in-flight work the
+      12h budget. Trial-supervision polling watches in-flight work the
       synchronous Bash call already blocks on — that's the antipattern.
 
    b. **Acquire the per-box lock** before running anything on the
       chosen instance (filename keys off `$INSTANCE_NAME`):
       ```bash
       exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
-      flock -w 28800 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
+      flock -w 43200 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
       # ... trials ...
-      exec {LFD}>&-        # release on exit; trap so SIGINT doesn't strand it
+      exec {LFD}>&-        # release on exit; the kernel also releases
+                           # automatically on process death (no userspace
+                           # trap needed for cancel-in-progress / SIGKILL).
       ```
-      8-hour max hold (matches the job timeout). If another worker
-      already holds the lock for this box, wait up to 8 h; beyond
+      12-hour max hold (matches the job timeout). If another worker
+      already holds the lock for this box, wait up to 12 h; beyond
       that, fall back to step 5a and rescore — another box may have
       come free. Final fallback: emit `BLOCKED: lock timeout` and exit.
    c. Drive harbor one trial at a time (they share GPU/ports on the
@@ -326,8 +330,9 @@ template is in § Harbor invocation below.
       below — **do not improvise flags**. Before the `uvx harbor run`
       call, `export BREV_INSTANCE=<name>` to the instance you
       resolved in step 5a; the canonical snippet has the line —
-      omitting it causes a fresh `harbor-*` to be provisioned per
-      trial and wastes the pre-warmed box. If a trial fails, read the
+      omitting it makes `BrevEnvironment.start()` raise immediately
+      ("no instance resolved, harness does not auto-provision") and
+      the trial fails before harbor invokes the agent. If a trial fails, read the
       trial log, fix the adapter (not the flags), rerun. While a
       trial is running, do NOT babysit the remote box (no
       `brev exec` polling, no `Monitor` on remote logs); harbor has
@@ -346,12 +351,26 @@ template is in § Harbor invocation below.
    front — comments carry results, not intent.
 
 7. **Release all locks. DO NOT tear down any Brev instance.** The
-   `vss-eval-*` boxes are a long-running pool managed by the operator;
-   they stay up across runs (warm caches, pre-deployed VSS profiles,
-   docker layer reuse). You release the per-box flock so the next
-   worker can grab it; you never `brev stop` / `brev delete`. The
-   wrapper script no longer runs cleanup either — pool lifecycle is
-   strictly an operator concern.
+   `vss-eval-*` boxes are a long-running pool managed by the
+   operator; instances stay up across runs, and so do the slow
+   caches (docker image layers, repo clone, sample-data extract).
+   Close each lock FD (`exec {LFD}>&-`) so the next worker can
+   grab the box. You never `brev stop` / `brev delete`. Pool
+   lifecycle is strictly an operator concern.
+
+   **You do NOT reset deployment state on exit.** Each box's
+   running containers, named volumes, and the active-deploy marker
+   stay as you left them; cleanup is the *next* run's job. The
+   active-deploy marker is tagged `<profile_tag>|<run_id>`, so the
+   next run's `BrevEnvironment._ensure_prerequisite_deployed` sees
+   a run-id mismatch and always reconciles (tear-down + redeploy
+   from its own `PR_HEAD_SHA`) — regardless of how this run ended
+   (happy path, `BLOCKED`, cancel-in-progress, max-turns, agent
+   crash, SIGKILL, host reboot). No `atexit`, no signal handler,
+   no end-of-run docker cleanup — the pull-side reconcile handles
+   every exit path uniformly. Within this run, multiple trials with
+   the same profile still hot-skip because both profile and run id
+   match.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
@@ -383,12 +402,15 @@ template is in § Harbor invocation below.
 - **Never touch pool-instance lifecycle.** No `brev create`,
   `brev start`, `brev stop`, `brev reset`, or `brev delete` against
   any `vss-eval-*` box. The pool is operator-managed; instances stay
-  running across runs. The agent only reads (`brev ls`, `brev exec
-  -- cat …`) and acquires the per-box flock. If no hardware-matching
-  pool member exists for the trial's platform, follow the wait-for-
-  pool path in § 5a (5-min `brev ls` poll, 28800s budget, then
-  `BLOCKED: pool exhausted for <platform>`) — provisioning is the
-  operator's job.
+  running across runs. The agent's `brev` surface is limited to
+  `brev ls`, `brev exec` (read-only — inspecting markers, peeking
+  at containers; deployment-state reset is the pull-side
+  reconcile in `_ensure_prerequisite_deployed`, not anything you
+  run from this agent), and acquiring/releasing the per-box flock.
+  If no hardware-matching pool member exists for the trial's
+  platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
+  poll, 43200s budget, then `BLOCKED: pool exhausted for
+  <platform>`) — provisioning is the operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
   notice the PR head on github.com is ahead of the mirror, note it
@@ -421,21 +443,34 @@ even though it shows up in `brev ls`.
 matching the trial's platform; score by (active-deploy marker match,
 free-lock, name) per § 5a; pick the best free candidate; export
 `BREV_INSTANCE` to it before the `uvx harbor run` call (§ Harbor
-invocation). Without the export, BrevEnvironment auto-provisions a
-fresh `harbor-*` per trial regardless of what the snapshot showed.
+invocation). The export is mandatory: BrevEnvironment no longer
+auto-provisions, so without `BREV_INSTANCE` set (or `brev_instance`
+in the task's `task.toml [metadata]`) the harness raises at
+`start()` and the trial fails before harbor runs. If no
+hardware-matching `^vss-eval-*` candidate exists, follow the
+wait-for-pool path in § 5a — do not `brev create` one yourself.
 
 The marker file (`/tmp/skill-eval/active-deploy.txt` on each box)
-records the box's *deployment state* — what VSS profile is
-currently up and live on that box. It is NOT an occupancy
-signal — a marker can read `base` whether or not a
+records the box's *deployment state* + *owning run* in the form
+`<profile_tag>|<run_id>` — what VSS profile is currently up on
+that box and which CI run deployed it. It is NOT an occupancy
+signal — a marker can read `base|26500001234` whether or not a
 trial is currently driving traffic against the stack. Occupancy
 (is some other worker using this box right now?) is the
 runner-side **flock** on `/tmp/brev/<INSTANCE_NAME>.lock`,
 checked separately via `flock -n` in step 5a. The two together
 let the scoring pick a warm-and-free box first, then fall back
 to warm-but-busy (queue on `flock -w`) or cold-and-free (redeploy).
-See `specs/stale-marker.spec` for verifying the marker against
-the actual running containers.
+Tagging the marker with `<run_id>` (`$GITHUB_RUN_ID`) is what
+makes between-run isolation a pull-side reconcile rather than a
+push-side cleanup: a marker left by a prior run never matches
+the current run's desired `<profile_tag>|<this_run_id>`, so
+`BrevEnvironment._ensure_prerequisite_deployed` always
+tears down + redeploys from the current run's `PR_HEAD_SHA`
+regardless of how the prior run ended. Within one run, multiple
+trials with the same profile still hot-skip (same profile, same
+run id, full match). See `specs/stale-marker.spec` for verifying
+the marker against the actual running containers.
 
 With fleet=1, selection collapses to a single candidate. With
 fleet>1, two concurrent workflow runs land on different boxes
@@ -443,7 +478,7 @@ naturally — that's how parallelism happens. The pool is
 operator-managed: never `brev create`, `brev start`, `brev stop`,
 `brev reset`, or `brev delete` a fleet member from the agent. If
 no `^vss-eval-*` candidate matches the trial's platform hardware,
-wait/poll within the 28800s budget per § 5a; only emit
+wait/poll within the 43200s budget per § 5a; only emit
 `BLOCKED: pool exhausted for <platform>` after the full window
 elapses with zero hardware-matching candidates.
 
@@ -489,11 +524,11 @@ a file path).
 export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
 
 # CRITICAL: point the environment at the box you selected in step 5a.
-# BrevEnvironment reads BREV_INSTANCE at module import time; without
-# this export it falls through to the auto-provision branch and spawns
-# a fresh harbor-* per trial (≈20 min provision overhead each, wastes
-# the pre-warmed box, and — on massedcompute L40S — may run multiple
-# harbor-* in parallel on the same lock).
+# BrevEnvironment reads BREV_INSTANCE at module import time; if it's
+# unset and task.toml [metadata].brev_instance is also absent,
+# BrevEnvironment.start() raises immediately — the harness no longer
+# auto-provisions, so the trial fails before harbor invokes the
+# agent. The export is the only path to a successful run.
 #
 # $INSTANCE_NAME comes from the fleet-selection algorithm in step 5a:
 # the chosen ^vss-eval-* candidate scored by (active-deploy marker
@@ -511,7 +546,7 @@ uvx harbor run \
   --ak api_base="$ANTHROPIC_BASE_URL/v1" \
   --ae CLAUDE_CODE_DISABLE_THINKING=1 \
   --environment-build-timeout-multiplier 3.0 \
-  --agent-timeout-multiplier 3.0 \
+  --agent-timeout-multiplier 6.0 \
   --verifier-timeout-multiplier 3.0 \
   --max-retries 0 -n 1 --yes \
   -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
@@ -562,7 +597,7 @@ Notes that have burned prior runs:
       --ak api_base="$ANTHROPIC_BASE_URL/v1" \
       --ae CLAUDE_CODE_DISABLE_THINKING=1 \
       --environment-build-timeout-multiplier 3.0 \
-      --agent-timeout-multiplier 3.0 \
+      --agent-timeout-multiplier 6.0 \
       --verifier-timeout-multiplier 3.0 \
       --max-retries 0 -n 1 --yes \
       -o "$RESULTS"
@@ -608,26 +643,27 @@ Notes that have burned prior runs:
   `harbor/trial/trial.py::_start_environment_with_retry` on a fresh
   box. Our internal `_wait_for_running` polls to 2400s, but the
   outer harbor wrapper is what actually trips first.
-- `--agent-timeout-multiplier 3.0` raises the per-trial agent-exec
+- `--agent-timeout-multiplier 6.0` raises the per-trial agent-exec
   ceiling (the one that bounds the `claude --print` subprocess
-  harbor spawns) by the same factor. `/vss-deploy-profile` on a cold box —
-  especially `lvs` / `alerts_*` which pull multiple local NIMs — can
-  legitimately need 20+ min of `docker pull` + NGC auth + container
-  start; the stock ceiling SIGTERMs it mid-pull and harbor records a
-  `NonZeroAgentExitCodeError` (exit 124). Mirrors the env-build
-  multiplier so trials don't trip on cold-box runtime cost the same
-  way they don't trip on cold-box provision cost.
+  harbor spawns) from the task default (600s) to 3600s — one hour
+  per trial. `/vss-deploy-profile` on a cold box — especially `lvs`
+  / `alerts_*` which pull multiple local NIMs — can legitimately
+  need 20+ min of `docker pull` + NGC auth + container start;
+  combined with adapter work that follows (ingest, multi-step
+  specs), the prior 30-min ceiling SIGTERM'd long trials mid-run
+  and harbor recorded `NonZeroAgentExitCodeError` (exit 124). One
+  hour gives margin for the longest observed cold-box trials
+  without uncapping retries.
 - `--verifier-timeout-multiplier 3.0` raises harbor's verifier
   execution ceiling from the 600s default to 1800s. Our
   `generic_judge.py` spawns a claude-agent-sdk judge **per check**
   with `Bash` + `Read` + `Grep` tools — specs like `vss-manage-video-io-storage` carry 4-6
   checks, each potentially probing the live stack, so the aggregate
   verify pass compounds past 600s and harbor raises
-  `VerifierTimeoutError`. This is the third of three timeout
-  multipliers we lift for cold-box + LLM-judge realities: env-build
-  (provision), agent (runtime), verifier (judge). All three match
-  at 3.0 so any one bumped individually doesn't become the new
-  bottleneck.
+  `VerifierTimeoutError`. Of the three multipliers, only the agent
+  one is at 6.0 (the trial-work budget) — env-build and verifier
+  stay at 3.0 because provisioning and judging haven't shown the
+  same cold-box runtime pressure as the agent step.
 - Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
   Then migrate to the viewer (see § Harbor viewer).
 
@@ -760,31 +796,95 @@ One comment per `(PR, eval_spec)` batch, posted only after every
 (platform) tuple in the spec's matrix has a recorded result.
 
 ```markdown
-## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
 
 Head: `<short-sha>` · N platforms · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
 
-| Platform | Result | Reward | Duration | Trace |
-|---|---|---|---|---|
-| L40S | ✅ 1.0 (7/7) | 1.0 | 9m 40s | [trace](…) |
-| RTXPRO6000BW | ❌ 0.57 (4/7) | 0.571 | 14m 42s | [trace](…) |
-| …    | …     | …    | … | … |
+| Platform | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
+|---|---|---|---|---|---|---|---|
+| L40S | ✅ 1.0 (7/7) | 1.0 | 9m 40s | 23 | 8.4k | 156k | [trace](…) |
+| RTXPRO6000BW | ❌ 0.57 (4/7) | 0.571 | 14m 42s | 41 | 31k | 412k | [trace](…) |
+| …    | …     | …    | … | … | … | … | … |
 
 For multi-step specs, render one row per step and mark
 prior-fail-skips explicitly:
 
-| Platform | Step | Query | Result | Reward | Trace |
-|---|---|---|---|---|---|
-| L40S | step-1 | Deploy alerts (VLM real-time) | ✅ 1.0 (6/6) | 1.0 | [trace](…) |
-| L40S | step-2 | Add warehouse_sample via NVStreamer | ❌ 0.2 (1/5) | 0.2 | [trace](…) |
-| L40S | step-3 | Query incidents | ⏭️ skipped (prior-step fail, step-2 reward=0.2) | — | — |
-| L40S | step-4 | … | ⏭️ skipped | — | — |
+| Platform | Step | Query | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
+|---|---|---|---|---|---|---|---|---|---|
+| L40S | step-1 | Deploy alerts (VLM real-time) | ✅ 1.0 (6/6) | 1.0 | 11m 12s | 18 | 6.1k | 98k | [trace](…) |
+| L40S | step-2 | Add warehouse_sample via NVStreamer | ❌ 0.2 (1/5) | 0.2 | 3m 04s | 12 | 4.2k | 41k | [trace](…) |
+| L40S | step-3 | Query incidents | ⏭️ skipped (prior-step fail, step-2 reward=0.2) | — | — | — | — | — | — |
+| L40S | step-4 | … | ⏭️ skipped | — | — | — | — | — | — |
 
 A `⏭️ skipped` row means the dispatch loop short-circuited after
 the previous step's reward < 1.0. The step was not run — its
 checks would have asserted state that was never set up. Read the
 prior step's trace to see the actual failure.
+
+### Extracting per-trial metrics
+
+For each completed trial under `/tmp/skill-eval/results/<run_id>/<date>/<trial>/`,
+populate the new columns by reading the trajectory's `final_metrics`
+block (or falling back to the streaming usage blocks if `final_metrics`
+is missing because the trial crashed mid-run):
+
+```bash
+TRAJ=/tmp/skill-eval/results/<run>/<date>/<trial>/agent/trajectory.json
+
+# Turns = count of assistant messages (one per agent reasoning step)
+jq '[.steps[].message | fromjson | select(.type=="assistant")] | length' "$TRAJ"
+
+# Step 1 — decide which extraction path to use. `final_metrics`
+# is written when the trial completes cleanly; crashed-mid-run
+# trials have it missing or null. Branch explicitly so a missing
+# block doesn't silently render as "0 tokens" (indistinguishable
+# from a clean trial that happened to have zero uncached input,
+# which is technically possible).
+if jq -e 'has("final_metrics") and (.final_metrics.modelUsage != null)' "$TRAJ" >/dev/null; then
+  # Step 2a — canonical path: sum across every model entry.
+  # Some trials exercise more than one model (e.g. a vision model
+  # alongside the main reasoning model); `to_entries[0]` would
+  # silently drop them.
+  PROMPT_TOK=$(jq -r '[.final_metrics.modelUsage | to_entries[].value.inputTokens // 0] | add // 0' "$TRAJ")
+
+  # Cached tokens (cache read + cache creation are both "cached"
+  # for our purposes — they're the warm context the prompt reused).
+  CACHED_TOK=$(jq -r '
+    [.final_metrics.modelUsage | to_entries[].value
+     | (.cacheReadInputTokens // 0) + (.cacheCreationInputTokens // 0)] | add // 0
+  ' "$TRAJ")
+else
+  # Step 2b — fallback: sum per-message `usage` blocks from the
+  # stream. `| add` on an empty array evaluates to null, not 0;
+  # guard each field with `// 0` so a trial that crashed before
+  # any assistant message renders 0s, not nulls.
+  read PROMPT_TOK CACHED_TOK < <(jq -r '
+    [.steps[].message | fromjson | select(.type=="assistant") | .message.usage] as $u
+    | ($u | map(.input_tokens // 0) | add // 0) as $in
+    | ($u | map((.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0)) | add // 0) as $cached
+    | "\($in) \($cached)"
+  ' "$TRAJ")
+fi
+
+# Duration: trial start/end times — use Harbor's result.json which has
+# `trial_started_at` / `trial_finished_at` (ISO 8601). Compute the diff
+# in seconds; render as `<m>m <s>s` for under an hour, `<h>h <m>m` for
+# over.
+jq -r '[.trial_started_at, .trial_finished_at] | @tsv' \
+  /tmp/skill-eval/results/<run>/<date>/<trial>/result.json
+```
+
+Render tokens with k/M suffixes — `8400` → `8.4k`, `5_178_086` → `5.2M`.
+Round to 1 decimal. Output tokens are intentionally not shown per
+trial (almost always a small fraction of input + cached; if you need
+the breakdown, look at the trace). The "Prompt tok" column is the
+uncached input — what's actually billed at the full input rate. The
+"Cached tok" column is read + creation combined — what the cache hit
+on, billed at the much lower cache rate.
+
+For a `⏭️ skipped` step, write `—` (em-dash) in all four metric
+columns — there's no trial to extract from.
 
 ### Failing checks
 
@@ -817,7 +917,7 @@ separate; don't conflate the two.
   have run; include the reward if present.
 - **Pool exhausted for the trial's platform.** `brev ls` shows zero
   RUNNING+READY `^vss-eval-*` boxes whose `gpu_type` matches. Wait
-  per § 5a (5-min `brev ls` poll, up to 28800s budget). If no
+  per § 5a (5-min `brev ls` poll, up to 43200s budget). If no
   matching candidate appears within the window, emit
   `BLOCKED: pool exhausted for <platform>` and exit. Do NOT
   `brev create`, `brev start`, or `brev reset` — the operator
@@ -829,7 +929,7 @@ separate; don't conflate the two.
   3x. If still failing, emit `BLOCKED: anthropic rate limit` and
   exit.
 - **Lock contention** (another CI run holds the Brev lock). Wait up
-  to 8 h (flock `-w 28800`). If you time out, emit `BLOCKED: lock
+  to 12 h (flock `-w 43200`). If you time out, emit `BLOCKED: lock
   timeout on <instance>`.
 
 ## Manual full-sweep mode

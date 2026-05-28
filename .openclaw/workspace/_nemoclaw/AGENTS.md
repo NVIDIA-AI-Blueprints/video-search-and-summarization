@@ -10,10 +10,11 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 
 Before doing anything else:
 
-1. Read `SOUL.md` — this is who you are
-2. Read `USER.md` — this is who you're helping
-3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+1. Run every `export` in `ENV.md` to set the sandbox environment. The sandbox's `/sandbox/.bashrc` is root-owned read-only, so these can't be persisted to a shell init file — re-run every session. `ENV.md` is the single source of truth for these values; do not hardcode them anywhere else.
+2. Read `SOUL.md` — this is who you are
+3. Read `USER.md` — this is who you're helping
+4. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
+5. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
 
 Don't ask permission. Just do it.
 
@@ -117,36 +118,10 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
-### VSS Browser Conventions
-
-> **You have `agent-browser` available. When the user asks you to interact with the VSS UI, VIOS dashboard, or any web UI — do it yourself using `agent-browser`. Do NOT give the user click-by-click instructions or ask them to open a browser.**
->
-> **You also have `curl` and shell access. For VSS API operations (adding streams, submitting alerts, querying sensors) — run the curl commands yourself. Do NOT tell the user to run them.**
-
-- Use CDP mode to connect to the user's already-running Chrome — no headless browser needed:
-  ```bash
-  npx agent-browser --auto-connect snapshot -i   # auto-discover running Chrome
-  # or if auto-connect fails:
-  npx agent-browser --cdp 9222 snapshot -i       # connect to Chrome on CDP port 9222
-  ```
-  Chrome must be launched with `--remote-debugging-port=9222` for `--cdp` to work. `--auto-connect` tries to find it automatically.
-- Always snapshot first to get element refs, then interact:
-  ```bash
-  npx agent-browser --auto-connect snapshot -i
-  npx agent-browser --auto-connect fill @e3 "some value"
-  npx agent-browser --auto-connect click @e5
-  npx agent-browser --auto-connect snapshot -i   # re-snapshot after interaction
-  ```
-- If a form field or button ref isn't obvious from the snapshot, take a screenshot:
-  ```bash
-  npx agent-browser --auto-connect screenshot --path /tmp/vss-screen.png
-  ```
-- **Always send screenshots to the user via Slack (or whatever channel this session is on) immediately after taking them.** Never save to disk silently — the user needs to see it.
-- **This also applies to VIOS snapshots** — after saving a snapshot with `curl ... --output /tmp/snapshot.jpg`, immediately upload the file to Slack using the `message` tool. Do NOT just tell the user the file path.
 
 ### VSS Deploy Conventions
 
-> **Deployment is handled by the VSS Orchestrator MCP server at `http://host.openshell.internal:9902/mcp`. Do NOT run `dev-profile.sh`, raw `docker compose`, or any host shell command for deploy/teardown — call MCP tools using the recipe in TOOLS.md. The MCP server inherits `NGC_CLI_API_KEY` and `HARDWARE_PROFILE` from the host; do not prompt the user for them.**
+> **Deployment is handled by the VSS Orchestrator MCP server at `http://host.openshell.internal:9988/mcp`. Do NOT run `dev-profile.sh`, raw `docker compose`, or any host shell command for deploy/teardown — call MCP tools using the recipe in TOOLS.md. The MCP server inherits `NGC_CLI_API_KEY` and `HARDWARE_PROFILE` from the host; do not prompt the user for them.**
 
 > The tool names below (`vss_orchestrator__*`) are listed for orientation, but **always confirm them against `tools/list` output** (per TOOLS.md) before invoking — use whatever names discovery returns.
 

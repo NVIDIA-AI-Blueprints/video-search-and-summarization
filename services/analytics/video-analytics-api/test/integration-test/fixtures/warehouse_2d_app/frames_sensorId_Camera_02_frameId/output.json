@@ -1,0 +1,201 @@
+{
+  "frames": [
+    {
+      "sensorId": "Camera_02",
+      "version": "4.0",
+      "timestamp": "2026-02-14T10:13:51.292Z",
+      "objects": [
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {},
+          "bbox": {
+            "bottomY": 419,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1102,
+            "topY": 334,
+            "embeddings": [],
+            "rightX": 1258
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {},
+          "bbox": {
+            "bottomY": 297,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1024,
+            "topY": 245,
+            "embeddings": [],
+            "rightX": 1138
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {},
+          "bbox": {
+            "bottomY": 187,
+            "confidence": 0,
+            "info": {},
+            "leftX": 685,
+            "topY": 160,
+            "embeddings": [],
+            "rightX": 766
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {},
+          "bbox": {
+            "bottomY": 194,
+            "confidence": 0,
+            "info": {},
+            "leftX": 762,
+            "topY": 165,
+            "embeddings": [],
+            "rightX": 844
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {},
+          "bbox": {
+            "bottomY": 223,
+            "confidence": 0,
+            "info": {},
+            "leftX": 801,
+            "topY": 189,
+            "embeddings": [],
+            "rightX": 892
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {},
+          "bbox": {
+            "bottomY": 901,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1847,
+            "topY": 726,
+            "embeddings": [],
+            "rightX": 1919
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {},
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1196,
+            "topY": 746,
+            "embeddings": [],
+            "rightX": 1540
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person"
+        }
+      ],
+      "id": "0"
+    }
+  ]
+}

@@ -61,6 +61,8 @@ functions:
     time_format: offset
     vlm_mode: ${VLM_MODE}
     vst_internal_url: ${VST_INTERNAL_URL}
+    # Nemotron Omni: set ENABLE_AUDIO=true so remote VLM receives full MP4 (not JPEG frames).
+    enable_audio: ${ENABLE_AUDIO:-false}
     system_prompt: |
       You are a monitoring system analyzing video footage.
       Your task is to describe the events in the video in detail or answer the user's question about the video.

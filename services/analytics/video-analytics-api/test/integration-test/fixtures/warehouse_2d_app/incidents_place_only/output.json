@@ -1,0 +1,764 @@
+{
+  "incidents": [
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:18.692Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "8ad36c86e0b19ce695cb5b6b02430c823b356f6c",
+      "end": "2026-02-14T10:17:33.492Z",
+      "info": {
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_01",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:18.726Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "21236016dacbf451b8ea6d15c7c27539b1e1017f",
+      "end": "2026-02-14T10:17:33.492Z",
+      "info": {
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_01",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:30.992Z",
+      "objectIds": [
+        "0"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "91a466210217777f7ef742a97022100972568df2",
+      "end": "2026-02-14T10:17:33.492Z",
+      "info": {
+        "primaryObjectId": "0",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:31.492Z",
+      "objectIds": [
+        "0"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "a727988d17bbd31f0997a511622e7484a09711cf",
+      "end": "2026-02-14T10:17:33.492Z",
+      "info": {
+        "primaryObjectId": "0",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:18.826Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "b23d41e49d85920a59e8b906a3d34752ea89314b",
+      "end": "2026-02-14T10:17:33.459Z",
+      "info": {
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:31.192Z",
+      "objectIds": [
+        "0"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "642b7c1ee439fb50dddadcf45bf6b6ecfc34ebfb",
+      "end": "2026-02-14T10:17:33.459Z",
+      "info": {
+        "primaryObjectId": "0",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:18.826Z",
+      "objectIds": [
+        "36"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "95325fd29b2ca1b9631be056974e2cac6d5c30d8",
+      "end": "2026-02-14T10:17:26.992Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "36",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_01",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:18.659Z",
+      "objectIds": [
+        "36"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "de9ddf5ab9db3e8f032f67ad10390c48947fe02e",
+      "end": "2026-02-14T10:17:26.959Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "36",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:17:18.892Z",
+      "objectIds": [
+        "36"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "28d3a0c544e222b8e7b1a10f4f78903d273abd83",
+      "end": "2026-02-14T10:17:26.926Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "36",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:49.126Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "75efe53d6505340000f0544737bfbea3eed388b2",
+      "end": "2026-02-14T10:17:14.092Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:49.159Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "7b8c929f542bb86976514724c95a1778bc516af7",
+      "end": "2026-02-14T10:17:14.026Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_01",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:49.192Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "84b6261ace98a25f0b394dc6df3ad305b7101e3a",
+      "end": "2026-02-14T10:17:14.026Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_01",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:54.359Z",
+      "objectIds": [
+        "35"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "2f94319474bf6b910ef4c9ab45abbe9be1c740c6",
+      "end": "2026-02-14T10:17:03.492Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "35",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:54.459Z",
+      "objectIds": [
+        "35"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "d84931aaa8bc6d558008ab5e68f7bfb8ccac5c60",
+      "end": "2026-02-14T10:17:03.459Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "35",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:54.526Z",
+      "objectIds": [
+        "35"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "995141359f9996c761fb1cdc9ccad6901bc2cf09",
+      "end": "2026-02-14T10:17:03.459Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "35",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_01",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:41.426Z",
+      "objectIds": [
+        "0"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "55d4ac4ba18c5b7c743126ddee9fa7b2af308e91",
+      "end": "2026-02-14T10:16:55.526Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "0",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:41.826Z",
+      "objectIds": [
+        "0"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "91864183774066564949d2e13ce2a3970ff461a3",
+      "end": "2026-02-14T10:16:54.759Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "0",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:51.859Z",
+      "objectIds": [
+        "0"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "0d373d0f14ad769f5b6b52c17d1860faaae55420",
+      "end": "2026-02-14T10:16:54.459Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "0",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:41.526Z",
+      "objectIds": [
+        "0"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "4a2f3c3e3de1dea388c6124108a375d3460910c2",
+      "end": "2026-02-14T10:16:49.026Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "0",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:24.759Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "1910cb5f4913c7211fa10a380ab252428ee649aa",
+      "end": "2026-02-14T10:16:44.492Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_01",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:24.792Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "920ee8463b1f0ac85532b89006d295681d92e2d8",
+      "end": "2026-02-14T10:16:44.459Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:24.892Z",
+      "objectIds": [
+        "11"
+      ],
+      "category": "Confined Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "404dcaf0cec65106535ea3363ff37eec0fe0fdf5",
+      "end": "2026-02-14T10:16:44.326Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "11"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_02",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:19.626Z",
+      "objectIds": [
+        "35"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "b8f82a53f8bec2876189b3162737862d8068f5b3",
+      "end": "2026-02-14T10:16:28.559Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "35",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:19.726Z",
+      "objectIds": [
+        "35"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "4e4333a0353e2594c74cb78e714c76d6b757f100",
+      "end": "2026-02-14T10:16:28.459Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "35",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    },
+    {
+      "place": {
+        "info": {},
+        "id": "",
+        "type": "",
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "sensorId": "Camera_01",
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "",
+        "description": "",
+        "version": ""
+      },
+      "timestamp": "2026-02-14T10:16:19.726Z",
+      "objectIds": [
+        "35"
+      ],
+      "category": "Restricted Area Violation",
+      "frameIds": [],
+      "type": "mdx-incidents",
+      "Id": "27742f64a924c8a033d9b3cf377fb481a110b634",
+      "end": "2026-02-14T10:16:28.426Z",
+      "info": {
+        "isComplete": "true",
+        "primaryObjectId": "35",
+        "roiId": "roi-id-1"
+      },
+      "isAnomaly": false
+    }
+  ]
+}

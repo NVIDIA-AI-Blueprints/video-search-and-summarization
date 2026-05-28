@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-summarize-video skill.
 
-The vss-summarize-video skill exercises the LVS microservice on
+The vss-summarize-video skill exercises the video summarization service on
 `http://localhost:38111` against a **full-remote-deployed VSS lvs profile**
-(deploy mode = `remote-all`; the agent's LLM and the VLM that LVS calls
-are both served via remote launchpad endpoints, no local NIMs). It does
+(deploy mode = `remote-all`; the agent's LLM and the VLM that the video
+summarization service calls are both served via remote launchpad endpoints,
+no local NIMs). It does
 NOT deploy VSS itself; the coordinator chains a deploy task in front and
 seeds the sample warehouse video via the vss-manage-video-io-storage skill before this trial.
 
@@ -25,14 +26,21 @@ this in `resources.platforms`.
         tests/generic_judge.py
         solution/solve.sh
         skills/vss-summarize-video/
-        skills/vss-deploy-profile/                (for prerequisite diagnostics)
-        skills/vss-manage-video-io-storage/                  (the spec's env mentions seeding the
-                                       sample video via VIOS upload first)
+        skills/vss-manage-video-io-storage/       (when listed in spec["skills"])
         environment/Dockerfile        (FROM scratch; BrevEnvironment takes over)
 
 `<profile>` comes from `spec.profile` (here: `lvs`). `<k>` is the
 1-based index into `expects[]`; single-step specs collapse the step
 subdir.
+
+## Skills bundling
+
+Only skill directories that appear in `spec["skills"]` are copied into
+the trial's `skills/` tree (plus `vss-summarize-video` which is always
+included as the primary skill under test). This prevents the
+brev-exec `MAX_ARG_STRLEN` overflow (Linux caps a single execve argument
+at 131 072 bytes; the full base64 tarball of three skills exceeds that
+limit).
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-summarize-video/generate.py \\
@@ -101,12 +109,12 @@ def generate_solve_script(platform: str) -> str:
         "set -euo pipefail\n"
         "\n"
         "curl -sf --connect-timeout 5 "
-        "${LVS_URL:-http://localhost:38111}/v1/ready "
+        "\"${VIDEO_SUMMARIZATION_URL:-http://localhost:38111}/v1/ready\" "
         ">/dev/null || {\n"
-        "    echo 'LVS is not deployed — cannot solve vss-summarize-video task'\n"
+        "    echo 'video summarization service is not deployed — cannot solve vss-summarize-video task'\n"
         "    exit 1\n"
         "}\n"
-        "echo 'LVS is live — verifier will drive the queries.'\n"
+        "echo 'video summarization service is live — verifier will drive the queries.'\n"
     )
 
 
@@ -156,6 +164,16 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
 
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        # Read gpu_count from spec.resources.platforms[platform] (default 1).
+        # brev_env.py::_check_instance_matches enforces strict equality, so the
+        # task.toml value must match the operator's pool allocation exactly.
+        gpu_count = int(
+            ((spec.get("resources") or {}).get("platforms") or {})
+            .get(platform, {})
+            .get("gpu_count", 1)
+            or 1
+        )
+
         meta_lines = [
             "[task]",
             f'name = "nvidia-vss/vss-summarize-video-{profile}-{platform_short}{step_suffix}"',
@@ -177,6 +195,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            f'gpu_count = {gpu_count}',
             "requires_deployed_vss = true",
             # prerequisite_deploy_mode is alerts-only — the deploy marker
             # is profile-name only for base/lvs/search; the consumer
@@ -201,7 +220,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "eval" / spec_name
+        spec_src = skill_dir / "evals" / spec_name
         if spec_src.exists():
             shutil.copy(spec_src, tests_dir / spec_name)
         else:
@@ -211,11 +230,22 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
 
-        # skills/ — primary + deploy + VIOS (the spec env mentions seeding
-        # the sample video via VIOS upload before these checks run).
-        copies = [(skill_dir, "vss-summarize-video"),
-                  (deploy_skill_dir, "vss-deploy-profile"),
-                  (video_io_skill_dir, "vss-manage-video-io-storage")]
+        # skills/ — only include skill directories that appear in the spec's
+        # `skills` list.  vss-summarize-video is always included (it is the
+        # primary skill under test).  vss-manage-video-io-storage and
+        # vss-deploy-profile are included only when the spec declares them —
+        # this prevents the brev-exec ARG_MAX / MAX_ARG_STRLEN overflow
+        # (Linux caps a single execve argument at 131 072 bytes; the full
+        # base64 tarball of all three skills exceeds that limit as of PR #520
+        # which expanded the skill references).
+        spec_skills: set[str] = set(spec.get("skills") or [])
+        all_copies = [
+            (skill_dir, "vss-summarize-video"),
+            (video_io_skill_dir, "vss-manage-video-io-storage"),
+            (deploy_skill_dir, "vss-deploy-profile"),
+        ]
+        copies = [(src, name) for src, name in all_copies
+                  if name == "vss-summarize-video" or name in spec_skills]
         for src, name in copies:
             if src and src.exists():
                 dst = step_dir / "skills" / name
@@ -243,8 +273,8 @@ def main() -> None:
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
     parser.add_argument("--spec", default=None,
-                        help="Path to lvs_profile_summarize.json "
-                             "(default: <skill-dir>/eval/lvs_profile_summarize.json)")
+                        help="Path to a spec JSON file "
+                             "(default: <skill-dir>/evals/lvs_profile_summarize.json)")
     parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()),
                         help=f"Generate for one platform only (overrides spec.resources.platforms)")
     args = parser.parse_args()
@@ -253,7 +283,7 @@ def main() -> None:
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     video_io_skill_dir = Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / "lvs_profile_summarize.json")
+    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / "lvs_profile_summarize.json")
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

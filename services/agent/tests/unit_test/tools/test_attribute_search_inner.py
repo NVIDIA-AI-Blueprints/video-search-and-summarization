@@ -23,6 +23,7 @@ from vss_agents.tools.attribute_search import AttributeSearchMetadata
 from vss_agents.tools.attribute_search import AttributeSearchResult
 from vss_agents.tools.attribute_search import _search_behavior
 from vss_agents.tools.attribute_search import enrich_attribute_results
+from vss_agents.tools.attribute_search import resolve_index_by_source_type
 
 
 def _make_result(
@@ -109,6 +110,42 @@ class TestEnrichAttributeResults:
         assert results[1].metadata.sensor_id == "stream-2"
         mock_get_stream_id.assert_awaited_once_with("camera-2", "http://vst-internal:30888")
 
+    @pytest.mark.asyncio
+    async def test_resolves_with_internal_url_and_builds_external_screenshot_url(self):
+        results = [_make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z")]
+        mock_get_stream_id = AsyncMock(return_value="stream-1")
+
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+            await enrich_attribute_results(
+                results,
+                vst_internal_url="http://vst-internal:30888",
+                vst_external_url="https://7777-brev.brevlab.com",
+            )
+
+        mock_get_stream_id.assert_awaited_once_with("camera-1", "http://vst-internal:30888")
+        assert results[0].metadata.sensor_id == "stream-1"
+        assert results[0].screenshot_url == (
+            "https://7777-brev.brevlab.com/vst/api/v1/replay/stream/stream-1/picture?startTime=2025-01-01T00:00:00Z"
+        )
+
+    @pytest.mark.asyncio
+    async def test_uses_external_url_for_resolution_when_internal_url_is_missing(self):
+        results = [_make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z")]
+        mock_get_stream_id = AsyncMock(return_value="stream-1")
+
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+            await enrich_attribute_results(
+                results,
+                vst_internal_url=None,
+                vst_external_url="https://7777-brev.brevlab.com",
+            )
+
+        mock_get_stream_id.assert_awaited_once_with("camera-1", "https://7777-brev.brevlab.com")
+        assert results[0].metadata.sensor_id == "stream-1"
+        assert results[0].screenshot_url == (
+            "https://7777-brev.brevlab.com/vst/api/v1/replay/stream/stream-1/picture?startTime=2025-01-01T00:00:00Z"
+        )
+
 
 class TestSearchBehaviorFilters:
     """Tests for behavior search filter construction."""
@@ -137,3 +174,52 @@ class TestSearchBehaviorFilters:
         assert {"terms": {"sensor.id.keyword": [stream_id]}} not in should_clauses
         assert {"term": {"sensor.id.keyword": stream_id}} in should_clauses
         assert {"wildcard": {"sensor.info.url.keyword": f"*{stream_id}*"}} in should_clauses
+
+
+class TestResolveIndexBySourceType:
+    """Tests for the shared video_file/rtsp index resolver."""
+
+    def test_video_file_returns_base_index_unchanged(self) -> None:
+        assert (
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="video_file",
+                wildcard_pattern="mdx-behavior-*",
+            )
+            == "mdx-behavior-2025-01-01"
+        )
+
+    def test_rtsp_returns_wildcard_with_video_file_exclusion(self) -> None:
+        assert resolve_index_by_source_type(
+            base_index="mdx-behavior-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-behavior-*",
+        ) == ["mdx-behavior-*", "-mdx-behavior-2025-01-01"]
+
+    def test_rtsp_works_for_other_index_families(self) -> None:
+        assert resolve_index_by_source_type(
+            base_index="mdx-embed-filtered-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-embed-filtered-*",
+        ) == ["mdx-embed-filtered-*", "-mdx-embed-filtered-2025-01-01"]
+        assert resolve_index_by_source_type(
+            base_index="mdx-raw-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-raw-*",
+        ) == ["mdx-raw-*", "-mdx-raw-2025-01-01"]
+
+    def test_unsupported_source_type_raises(self) -> None:
+        # Cast to bypass the Literal at type-check time; the guard targets
+        # config-driven or JSON-deserialized inputs that escape static typing.
+        with pytest.raises(ValueError, match="Unsupported source_type"):
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="RTSP",  # type: ignore[arg-type]
+                wildcard_pattern="mdx-behavior-*",
+            )
+        with pytest.raises(ValueError, match="Unsupported source_type"):
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="",  # type: ignore[arg-type]
+                wildcard_pattern="mdx-behavior-*",
+            )

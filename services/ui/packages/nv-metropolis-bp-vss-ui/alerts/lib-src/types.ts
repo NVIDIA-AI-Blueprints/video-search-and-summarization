@@ -49,11 +49,12 @@ export interface RealtimeAlertRule {
   alert_type: string;
   prompt: string;
   /**
-   * Friendly label for the sensor behind `live_stream_url`. Added in the
-   * updated vss-alert-bridge spec; optional because the API docs currently
-   * only show it in request examples, not in the Input Parameters table.
+   * Friendly label for the sensor behind `live_stream_url` (`name` in VST
+   * `/v1/sensor/list`). Resolved from the live stream URL before POST.
    */
   sensor_name?: string;
+  /** VST sensor id (`sensorId` in `/v1/sensor/list`). Resolved before POST. */
+  sensor_id?: string;
   status?: string; // typically "active"
   created_at?: string; // ISO-8601 UTC
   // The API also returns the following fields; we keep them as optional for
@@ -73,10 +74,14 @@ export interface RealtimeAlertRule {
  * Local draft used by the Create Alert Rules editor before a real-time rule has
  * been saved to the server. Once persisted via `POST /realtime` it is
  * replaced by a {@link RealtimeAlertRule} carrying a server-assigned `id`.
+ *
+ * The draft carries `sensor_name` (chosen from the VST live-stream catalog).
+ * `live_stream_url` and `sensor_id` are resolved from VST at save time so the
+ * user never has to paste an RTSP URL.
  */
 export interface RealtimeAlertRuleDraft {
   draftId: string; // local-only id; not sent to the server
-  live_stream_url: string;
+  sensor_name: string;
   alert_type: string;
   prompt: string;
   saving?: boolean;

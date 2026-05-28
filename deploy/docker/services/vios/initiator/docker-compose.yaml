@@ -67,12 +67,6 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      sdr-streamprocessing:
-        condition: service_started
-        required: false
-      envoy-streamprocessing:
-        condition: service_started
-        required: false
       sdr-controller:
         condition: service_started
         required: false
@@ -117,12 +111,6 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      # sdr-streamprocessing:
-      #   condition: service_started
-      #   required: false
-      # envoy-streamprocessing:
-      #   condition: service_started
-      #   required: false
       sdr-controller:
         condition: service_started
         required: false
@@ -166,12 +154,6 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      sdr-streamprocessing:
-        condition: service_started
-        required: false
-      envoy-streamprocessing:
-        condition: service_started
-        required: false
 
   sensor-ms-mv3dt:
     image: ${VST_SENSOR_IMAGE}
@@ -211,12 +193,6 @@ services:
         condition: service_healthy
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
-        required: false
-      sdr-streamprocessing:
-        condition: service_started
-        required: false
-      envoy-streamprocessing:
-        condition: service_started
         required: false
       sdr-controller:
         condition: service_started

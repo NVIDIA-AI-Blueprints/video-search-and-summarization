@@ -390,6 +390,36 @@ rm -f "${out_file}" "${err_file}"
 # --- Negative: invalid or missing args ---
 run_negative_test "getopt invalid usage (unknown option)" 1 up -p base --unknown-option
 run_negative_test "getopt invalid usage (unknown short option)" 1 up -p base -z
+out_file="$(mktemp)"
+err_file="$(mktemp)"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base --external-ip 192.168.1.100 --unknown-option > "${out_file}" 2> "${err_file}"
+exit_code=$?
+set -e
+failed=0
+if [[ ${exit_code} -eq 124 ]]; then
+  echo "FAIL: getopt invalid usage masks external-ip (timed out)"
+  ((failed++)) || true
+elif [[ ${exit_code} -ne 1 ]]; then
+  echo "FAIL: getopt invalid usage masks external-ip (expected exit 1, got ${exit_code})"
+  ((failed++)) || true
+else
+  if grep -Fq "192.168.1.100" "${out_file}" "${err_file}"; then
+    echo "FAIL: getopt invalid usage masks external-ip (unmasked value appeared in output)"
+    ((failed++)) || true
+  fi
+  if ! grep -Fq -- "--external-ip 192*******100" "${out_file}" "${err_file}"; then
+    echo "FAIL: getopt invalid usage masks external-ip (masked value missing from output)"
+    ((failed++)) || true
+  fi
+fi
+rm -f "${out_file}" "${err_file}"
+if [[ ${failed} -gt 0 ]]; then
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: getopt invalid usage masks external-ip"
+  ((TESTS_PASSED++)) || true
+fi
 run_negative_test "invalid option -k (use NGC_CLI_API_KEY env)" 1 up -p base -k x
 run_negative_test "no args → desired-state required" 1
 run_negative_test "invalid desired-state" 1 invalid_state
@@ -407,6 +437,14 @@ echo "NVIDIA H100 80GB HBM3"
 EOF
 chmod +x "${_mock_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "OTHER accepted when detected GPU is supported" up -p base -i 127.0.0.1 -H OTHER -d
+_mock_rtx4500_nvidia_smi_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_rtx4500_nvidia_smi_dir}")
+cat > "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+echo "NVIDIA RTX PRO 4500 Blackwell"
+EOF
+chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
+PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
@@ -523,6 +561,12 @@ run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW local 
 run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8" "alerts" \
   -i 127.0.0.1 -m verification -H L40S --llm-device-id 2 --vlm-device-id 1 -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
+run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
+  -i 127.0.0.1 -m verification -H RTXPRO4500BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+run_dry_run_up_and_check_generated_env "generated.env lvs RTXPRO4500BW RTVI tuning" "lvs" \
+  -i 127.0.0.1 -H RTXPRO4500BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
 run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
@@ -616,25 +660,54 @@ run_dry_run_test "up base dry-run" up -p base -i 127.0.0.1 -d
 run_dry_run_test "up search dry-run" up -p search -i 127.0.0.1 --dry-run
 run_dry_run_test "up lvs dry-run" up -p lvs -i 127.0.0.1 -d
 run_dry_run_test "up alerts dry-run with mode verification" up -p alerts -i 127.0.0.1 -m verification -d
+run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
 run_dry_run_test "up base with llm/vlm" up -p base -i 127.0.0.1 --llm nvidia/nemotron-3-nano --vlm nvidia/cosmos-reason1-7b -d
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
 run_negative_test "vlm-env-file must exist" 1 up -p base -i 127.0.0.1 --vlm-env-file ./nonexistent-vlm.env -d
 run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-time -d
-# L40S forbids local_shared for LLM/VLM; search profile default is local_shared (device 1 in FIXED_SHARED). Use remote LLM so L40S is allowed.
+# L40S forbids local_shared for LLM/VLM; search profile default is local_shared for LLM (device 1 in FIXED_SHARED). Use remote LLM so L40S is allowed.
 LLM_ENDPOINT_URL=http://127.0.0.1:1 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x -d
 
 # Search: critic enabled by default → generated.env ENABLE_CRITIC=true when unset or truthy; ENABLE_CRITIC=false + VLM_NAME_SLUG=none when explicitly false
 run_dry_run_up_and_check_generated_env "generated.env search default ENABLE_CRITIC=true" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
 ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=true sets ENABLE_CRITIC" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
 ENABLE_CRITIC=TRUE run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=TRUE normalizes to true" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
+_mock_brev_two_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_brev_two_gpu_dir}")
+cat > "${_mock_brev_two_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n1\n'
+else
+  printf 'NVIDIA RTX PRO 6000 Blackwell\nNVIDIA RTX PRO 6000 Blackwell\n'
+fi
+EOF
+chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU disables ENABLE_CRITIC" "search" \
+  -i 127.0.0.1 -d -- \
+  "ENABLE_CRITIC" "false" "VLM_NAME_SLUG" "none" "VLM_DEVICE_ID" "2"
+_mock_brev_three_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_brev_three_gpu_dir}")
+cat > "${_mock_brev_three_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n1\n2\n'
+else
+  printf 'NVIDIA RTX PRO 6000 Blackwell\nNVIDIA RTX PRO 6000 Blackwell\nNVIDIA RTX PRO 6000 Blackwell\n'
+fi
+EOF
+chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
+PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU preserves ENABLE_CRITIC" "search" \
+  -i 127.0.0.1 -d -- \
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
 ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=false sets ENABLE_CRITIC false" "search" \
   -i 127.0.0.1 -d -- \
   "ENABLE_CRITIC" "false"
@@ -718,6 +791,9 @@ rm -f "${_out_search}"
 run_dry_run_up_and_check_generated_env "generated.env HOST_IP and HARDWARE_PROFILE from options" "base" \
  -i 127.0.0.1 -H RTXPRO6000BW -d -- \
   "HOST_IP" "127.0.0.1" "HARDWARE_PROFILE" "RTXPRO6000BW"
+run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE RTXPRO4500BW" "base" \
+ -i 127.0.0.1 -H RTXPRO4500BW -d -- \
+  "HARDWARE_PROFILE" "RTXPRO4500BW"
 run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "base" \
  -i 127.0.0.1 -H OTHER -d -- \
   "HARDWARE_PROFILE" "OTHER"
@@ -788,6 +864,55 @@ VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "g
 run_dry_run_up_and_check_generated_env "generated.env EXTERNAL_IP from -e" "base" \
  -i 127.0.0.1 -e 192.168.1.100 -d -- \
   "EXTERNAL_IP" "192.168.1.100" "HOST_IP" "127.0.0.1"
+
+# EXTERNAL_IP is written unmasked to generated.env, but must be redacted in script output.
+_gen_env_external_mask="$(generated_env_path "base")"
+_backup_external_mask=""
+if [[ -f "${_gen_env_external_mask}" ]]; then
+  _backup_external_mask="$(mktemp)"
+  cp "${_gen_env_external_mask}" "${_backup_external_mask}"
+fi
+_out_external_mask="$(mktemp)"
+_err_external_mask="$(mktemp)"
+cd "${REPO_ROOT}"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -e 192.168.1.100 -d > "${_out_external_mask}" 2> "${_err_external_mask}"
+_exit_external_mask=$?
+set -e
+_failed_external_mask=0
+if [[ ${_exit_external_mask} -eq 124 ]]; then
+  echo "FAIL: EXTERNAL_IP masked in output (timed out)"
+  ((_failed_external_mask++)) || true
+elif [[ ${_exit_external_mask} -ne 0 ]]; then
+  echo "FAIL: EXTERNAL_IP masked in output (dev-profile exit ${_exit_external_mask})"
+  sed 's/^/    /' "${_out_external_mask}"
+  ((_failed_external_mask++)) || true
+else
+  if grep -Fq "192.168.1.100" "${_out_external_mask}" "${_err_external_mask}"; then
+    echo "FAIL: EXTERNAL_IP masked in output (unmasked value appeared in output)"
+    ((_failed_external_mask++)) || true
+  fi
+  if ! grep -Fq "external-ip:               192*******100" "${_out_external_mask}"; then
+    echo "FAIL: EXTERNAL_IP masked in output (argument summary missing masked value)"
+    ((_failed_external_mask++)) || true
+  fi
+  if ! grep -Fq "[INFO] Set EXTERNAL_IP=192*******100" "${_out_external_mask}"; then
+    echo "FAIL: EXTERNAL_IP masked in output (env log missing masked value)"
+    ((_failed_external_mask++)) || true
+  fi
+fi
+if [[ -n "${_backup_external_mask}" && -f "${_backup_external_mask}" ]]; then
+  mv "${_backup_external_mask}" "${_gen_env_external_mask}"
+else
+  rm -f "${_gen_env_external_mask}"
+fi
+rm -f "${_out_external_mask}" "${_err_external_mask}"
+if [[ ${_failed_external_mask} -gt 0 ]]; then
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: EXTERNAL_IP masked in output"
+  ((TESTS_PASSED++)) || true
+fi
 # LLM_ENV_FILE and VLM_ENV_FILE: paths are resolved to absolute and must exist
 _llm_env_tmp="$(mktemp)"
 _vlm_env_tmp="$(mktemp)"
@@ -1013,8 +1138,9 @@ BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env Brev 
   "HAPROXY_PORT" '${PROXY_PORT:-7777}' \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
-  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}0-${BREV_ENV_ID}.brevlab.com' \
-  "VSS_PUBLIC_PORT" "443"
+  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
+  "VSS_PUBLIC_PORT" "443" \
+  "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
 
 # Brev with custom PROXY_PORT in env: same literals in generated.env (compose expands using env)
 BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT (templates unchanged)" "base" \
@@ -1022,8 +1148,9 @@ BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "gen
   "HAPROXY_PORT" '${PROXY_PORT:-7777}' \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
-  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}0-${BREV_ENV_ID}.brevlab.com' \
-  "VSS_PUBLIC_PORT" "443"
+  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
+  "VSS_PUBLIC_PORT" "443" \
+  "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)
 run_dry_run_up_and_check_generated_env "generated.env no Brev HAProxy overrides when BREV_ENV_ID unset" "base" \

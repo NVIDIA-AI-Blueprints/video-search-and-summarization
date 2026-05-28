@@ -19,9 +19,9 @@ dependencies:
   version: 26.04.2
 - name: vss-video-analytics-api
   repository: file://./charts/video-analytics-api
-  version: 26.04.2
+  version: 26.05.27
 - name: video-analytics-ui
   repository: file://./charts/video-analytics-ui
   version: 26.04.2
-digest: sha256:6a00a5bd1bdc08a993e8e60d000d078ea15e4b1628d866b857e9f232d82f1d25
-generated: "2026-05-12T09:13:33.438931182Z"
+digest: sha256:c664912a025d2f087a7e099282cd632c7a46a7c0cd757bad1eff280abfc57d03
+generated: "2026-05-28T09:11:26.151254587Z"

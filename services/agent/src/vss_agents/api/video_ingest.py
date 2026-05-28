@@ -72,6 +72,18 @@ ENV_RTVI_EMBED_TIMEOUT_SECONDS = "VIDEO_INGEST_RTVI_EMBED_TIMEOUT_SECONDS"
 ENV_VST_STORAGE_TIMEOUT_SECONDS = "VIDEO_INGEST_VST_STORAGE_TIMEOUT_SECONDS"
 ENV_VST_UPLOAD_TIMEOUT_SECONDS = "VIDEO_INGEST_VST_UPLOAD_TIMEOUT_SECONDS"
 
+# Sensor ids arrive on the request path and flow into logs and the VST
+# storage URL, so restrict them to an allowlist at the boundary.
+_SENSOR_ID_RE = re.compile(r"\A[A-Za-z0-9._-]{1,128}\Z")
+
+
+def _validate_sensor_id(sensor_id: str) -> str:
+    if not sensor_id or not _SENSOR_ID_RE.match(sensor_id):
+        raise HTTPException(status_code=400, detail="invalid sensor_id")
+    # Belt-and-braces CR/LF strip for static-analysis taint trackers; the
+    # allowlist above already excludes these chars, so it is a runtime no-op.
+    return re.sub(r"[\r\n]", "", sensor_id)
+
 
 def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None:
     """
@@ -232,6 +244,7 @@ class _VideoUploadConfig(BaseModel):
     rtvi_cv_base_url: str = ""
     rtvi_embed_model: str = "cosmos-embed1-448p"
     rtvi_embed_chunk_duration: int = 5
+    disable_audio: bool = True
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS
     vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS
@@ -253,6 +266,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
         rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+        disable_audio = not bool(getattr(streaming_config, "enable_audio", False))
     else:
         # NAT may strip unknown config sections — fall back to env vars set by
         # the deploy template. Empty RTVI_*_PORT (base profile, where RTVI
@@ -267,6 +281,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
         rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = 5
+        disable_audio = os.getenv("ENABLE_AUDIO", "false").strip().lower() not in ("true", "1", "yes")
 
     if not vst_internal_url:
         return None
@@ -303,6 +318,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url=rtvi_cv_base_url,
         rtvi_embed_model=rtvi_embed_model,
         rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+        disable_audio=disable_audio,
         rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
         rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
         vst_storage_timeout_seconds=vst_storage_timeout_seconds,
@@ -437,6 +453,7 @@ async def _run_post_upload_processing(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    disable_audio: bool = True,
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
     vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
@@ -482,12 +499,12 @@ async def _run_post_upload_processing(
     )
 
     # Get video URL via storage API
-    storage_url = f"{vst_url}/vst/api/v1/storage/file/{sensor_id}/url"
+    storage_url = f"{vst_url}/vst/api/v1/storage/file/{urllib.parse.quote(sensor_id, safe='')}/url"
     storage_params = {
         "startTime": timeline_start_time,
         "endTime": timeline_end_time,
         "container": "mp4",
-        "configuration": json.dumps({"disableAudio": True}),
+        "configuration": json.dumps({"disableAudio": disable_audio}),
     }
     logger.info(f"Calling Storage API: GET {storage_url}")
 
@@ -626,6 +643,7 @@ def create_video_upload_complete_router(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    disable_audio: bool = True,
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
     vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
@@ -654,8 +672,7 @@ def create_video_upload_complete_router(
         tags=["Video Ingest"],
     )
     async def upload_complete(sensor_id: str, body: VideoUploadCompleteInput) -> VideoIngestResponse:
-        if not sensor_id:
-            raise HTTPException(status_code=400, detail="sensor_id is required")
+        sensor_id = _validate_sensor_id(sensor_id)
         # ``filename`` comes from the VST upload response the UI forwards. Fall
         # back to ``sensor_id`` when missing so RTVI-CV's camera_name is at
         # least populated (lookups by sensor id keep working either way).
@@ -672,6 +689,7 @@ def create_video_upload_complete_router(
                 rtvi_cv_base_url=rtvi_cv_base_url,
                 rtvi_embed_model=rtvi_embed_model,
                 rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                disable_audio=disable_audio,
                 rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
                 rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
                 vst_storage_timeout_seconds=vst_storage_timeout_seconds,
@@ -725,6 +743,7 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
                 rtvi_cv_base_url=cfg.rtvi_cv_base_url,
                 rtvi_embed_model=cfg.rtvi_embed_model,
                 rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
+                disable_audio=cfg.disable_audio,
                 rtvi_cv_timeout_seconds=cfg.rtvi_cv_timeout_seconds,
                 rtvi_embed_timeout_seconds=cfg.rtvi_embed_timeout_seconds,
                 vst_storage_timeout_seconds=cfg.vst_storage_timeout_seconds,

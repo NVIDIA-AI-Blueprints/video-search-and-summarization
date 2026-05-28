@@ -47,7 +47,7 @@ def build_vss_ui_url(port: int = 7777) -> str | None:
     brev_env_id = os.environ.get("BREV_ENV_ID", "").strip() or read_etc_environment().get("BREV_ENV_ID", "").strip()
     if not brev_env_id:
         return None
-    link_prefix = os.environ.get("BREV_LINK_PREFIX", "").strip() or f"{port}0"
+    link_prefix = os.environ.get("BREV_LINK_PREFIX", "").strip() or str(port)
     return f"https://{link_prefix}-{brev_env_id}.brevlab.com/"
 
 

@@ -1,0 +1,1 @@
+test/integration-test/elasticsearch_data_dump/*.json filter=lfs diff=lfs merge=lfs -text

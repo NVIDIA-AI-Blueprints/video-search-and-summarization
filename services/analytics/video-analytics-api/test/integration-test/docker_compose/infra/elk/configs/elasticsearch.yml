@@ -1,0 +1,7 @@
+# Elasticsearch config for video-analytics-api integration tests
+network.host: 0.0.0.0
+http.port: 9200
+xpack.security.enabled: false
+path.data: /tmp/elastic/data/
+path.logs: /tmp/elastic/logs
+xpack.license.self_generated.type: trial

@@ -50,3 +50,23 @@ spec:
     requests:
       storage: {{ include "vss-rtvi-cv.effectiveSearchModelsStorage" . }}
 {{- end }}
+{{- if and .Values.enabled (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d")) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-models
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: {{ .Values.profileMode | quote }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      # Same sizing policy as search (persistence.models + optional existing claim lookup).
+      storage: {{ include "vss-rtvi-cv.effectiveSearchModelsStorage" . }}
+{{- end }}

@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Package-name override list for the permissive-license allowlist check
+# (`.github/scripts/check_python_licenses.py`).
+#
+# One canonical pip distribution name per line. `#` starts a comment.
+#
+# Every entry MUST be accompanied by an inline comment that:
+#   - links to the OSRB approval (NVBug ID, ticket URL, or Confluence page),
+#   - states the actual license,
+#   - says why we're keeping the dep instead of replacing it.
+#
+# Adding a line here is an audit event — OSRB must have signed off on the
+# specific package + version pin before the override lands. If OSRB has not
+# approved, the right action is to replace the dep, not add it here.
+#
+# Override matching is by PACKAGE NAME ONLY (not name + license). Trade-off:
+# if an overridden package quietly relicenses upstream to something else
+# non-permissive in a future version, this file silently continues to clear
+# it. Mitigation is reviewer discipline — re-evaluate every entry whenever
+# `services/agent/uv.lock` is updated. If that ever becomes too noisy, the
+# upgrade path to `name, expected-license` pairs is a small additive change
+# to load_overrides() in check_python_licenses.py.
+#
+svglib
+python-bidi

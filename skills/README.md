@@ -26,6 +26,8 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
 | [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Skill for deploying and calling the RT-VLM dense captioning microservice API. |
+| [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Skill for deploying and operating the RT-Embed video embedding microservice API. |
+| [vss-deploy-detection-tracking-2d](vss-deploy-detection-tracking-2d/SKILL.md) | Skill for deploying, operating, and calling the RTVI-CV perception microservice for 2D detection and tracking (warehouse 2d/3d, sparse4d, smartcity rtdetr/gdino). |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
 | [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Skill to generate video summary reports with Enterprise RAG using the VSS frag/RAG pipeline. |
 | [vss-query-analytics](vss-query-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
@@ -34,7 +36,7 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | [vss-ask-video](vss-ask-video/SKILL.md) | Skill for using video understanding tool to answer text questions about video content using a VLM. |
 | [vss-manage-video-io-storage](vss-manage-video-io-storage/SKILL.md) | Skill for video and stream management, recording timelines, clip extraction, snapshots (and more) using the Video IO and Storage microservices. |
 
-Skills with `eval/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**` — see [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
+Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 
 ## Install (recommended: ask your coding agent)
 

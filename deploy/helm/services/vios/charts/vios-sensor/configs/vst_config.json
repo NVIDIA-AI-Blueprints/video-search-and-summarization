@@ -83,7 +83,7 @@
 		"onvif_request_timeout_secs":10,
 		"device_discovery_freq_secs":15,
 		"device_discovery_interfaces": [],
-		"max_devices_supported": 210,
+		"max_devices_supported": 100,
 		"default_bitrate_kbps": 8000,
 		"default_framerate": 30,
 		"default_resolution": "1920x1080",
@@ -145,7 +145,8 @@
 		"use_centralize_local_db": false,
 		"max_network_db_connections": 10,
 		"default_file_expiry_minutes": 10080,
-		"download_files_timeout_secs": 120
+		"download_files_timeout_secs": 120,
+		"picture_api_timeout_secs": 20
 	},
 	"notifications":
 	{

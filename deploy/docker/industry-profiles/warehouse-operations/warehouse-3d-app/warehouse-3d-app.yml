@@ -97,9 +97,10 @@ services:
   #       condition: service_completed_successfully
 
   bp-configurator-3d-init:
-    extends:
-      file: ${VSS_APPS_DIR}/services/infra/compose.yml
-      service: broker-health-check
+    build:
+      context: $VSS_APPS_DIR/services/infra
+      dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
+      network: host
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
     container_name: vss-configurator-3d-init
     network_mode: "host"
@@ -151,7 +152,6 @@ services:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
       ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
       ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
-      ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
       CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
@@ -192,6 +192,9 @@ services:
         import sys
 
         os.environ["SEND_CONFIG_TO_SDR"] = (
+            "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
+        )
+        os.environ["ENABLE_CALIBRATION_PROCESS"] = (
             "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
         )
         os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
@@ -272,8 +275,6 @@ services:
       NETWORK_HEIGHT: 540
       HARDWARE_PROFILE: $HARDWARE_PROFILE
     depends_on:
-      # sdr-streamprocessing:
-      #   condition: service_started
       sdr-controller:
         condition: service_started
       sensor-ms-3d:

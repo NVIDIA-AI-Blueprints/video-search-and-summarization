@@ -1,9 +1,86 @@
 # TOOLS.md
 
+## Sandbox host alias
+
+Inside the openshell/nemoclaw sandbox, `HOST_IP` is the sandbox host
+alias — the only hostname the egress policy whitelists for VSS backend
+ports. Skills should curl `${HOST_IP}` for every runtime call — never
+`localhost` and never a literal IP — so the same skill works in-sandbox
+and on bare metal.
+
+`/sandbox/.bashrc` is root-owned and read-only in this sandbox, so
+`HOST_IP` is **not** persisted to a shell init file. Instead, the
+"Every Session" checklist in `AGENTS.md` runs the exports in `ENV.md`
+at session start. If `echo $HOST_IP` is empty in any new shell or after
+a session/connect restart, re-run the exports in `ENV.md`. `ENV.md` is
+the single source of truth for the value — do not hardcode it
+elsewhere.
+
+The sandbox's egress policy whitelists the alias on a fixed set of VSS
+backend ports. The policy file lives on the host (outside the sandbox),
+so you can't grep it from here. A LAN IP, `localhost`, or a port not on
+the whitelist returns `policy_denied`. If a curl fails that way, tell
+the user the port needs to be added to the host-side policy and
+re-applied. Do not try to bypass.
+
+## Preset proxy and harmless warnings
+
+Two things you will see in this sandbox that are **not** problems:
+
+- **`http_proxy=http://10.200.0.1:3128`** is preset in the sandbox env.
+  `no_proxy` covers `localhost,127.0.0.1,::1,10.200.0.1` but **not**
+  `host.openshell.internal`, so every VSS backend curl is proxied
+  through `10.200.0.1:3128`. This is the expected path and works with
+  the egress policy. Do not unset `http_proxy` or add `host.openshell.internal`
+  to `no_proxy` — the proxy is how traffic legitimately exits the sandbox.
+
+- **`/bin/bash: cannot create /proc/self/oom_score_adj: Permission denied`**
+  appears at bash startup. The sandbox restricts `/proc/self/*` writes;
+  bash tries to set its OOM priority, fails, and continues normally.
+  Cosmetic only — ignore it.
+
+## HTTP-response curl checks
+
+When testing whether a VSS backend port is reachable, do **not** use
+`curl -f`. Several VSS endpoints (orchestrator MCP, agent API) only
+expose specific routes and return `404` from `GET /` even when fully
+healthy — `-f` treats that as failure. Use:
+
+```bash
+curl -s -o /dev/null --max-time 5 "http://${HOST_IP}:<port>/"
+```
+
+curl exits 0 when *any* HTTP response is received (network/DNS/policy
+all work) and non-zero only on real failures (DNS miss, connection
+refused, `policy_denied`, timeout). For health endpoints that promise
+a 2xx, use `-f`; for "is the server up at all", omit it.
+
+### Orchestrator reachability check
+
+Used by `BOOTSTRAP.md` Step 1 and any time you want to confirm the
+sandbox can reach the host:
+
+```bash
+curl -s -o /dev/null --max-time 5 "http://${HOST_IP}:9988/" \
+  && echo "host alias reachable"
+```
+
+Do **not** add a `getent hosts "${HOST_IP}"` precondition. In this
+sandbox all VSS backend traffic goes through `http_proxy`; the proxy
+resolves the hostname remotely, and the sandbox itself often has no
+local `/etc/hosts` or DNS entry for `host.openshell.internal`. `getent`
+would fail even when the path is fully healthy, producing false
+negatives. The curl alone is sufficient — it exercises the same proxied
+path skills use.
+
+If it doesn't print `host alias reachable`, the `vss-backend` egress
+policy isn't applied to this sandbox or the orchestrator isn't running
+on the host. Stop and tell the user.
+
 ## Deployment
 
 Deployment is delegated to the VSS Orchestrator MCP server at
-`http://host.openshell.internal:9902/mcp`. Do **not** invoke
+`http://host.openshell.internal:9988/mcp`. Do **not** invoke
 `deploy/docker/scripts/dev-profile.sh`, scan for repo paths, or prompt the
 user for `HARDWARE_PROFILE` / `NGC_CLI_API_KEY` — the MCP server inherits
 them from the host environment.
@@ -38,7 +115,7 @@ blob costs ~5 KB of context per session.
 
 ```bash
 # 1. initialize, capture the session id
-SID=$(curl -sN -D /tmp/h.txt -X POST http://host.openshell.internal:9902/mcp \
+SID=$(curl -sN -D /tmp/h.txt -X POST http://host.openshell.internal:9988/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   --data @- <<'EOF' >/dev/null
@@ -47,7 +124,7 @@ EOF
   grep -i '^mcp-session-id:' /tmp/h.txt | awk '{print $2}' | tr -d '\r')
 
 # 2. send initialized notification (no id; expect HTTP 202, empty body)
-curl -s -X POST http://host.openshell.internal:9902/mcp \
+curl -s -X POST http://host.openshell.internal:9988/mcp \
   -H "Mcp-Session-Id: $SID" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
@@ -57,7 +134,7 @@ curl -s -X POST http://host.openshell.internal:9902/mcp \
 ### Calling a tool
 
 ```bash
-curl -s -X POST http://host.openshell.internal:9902/mcp \
+curl -s -X POST http://host.openshell.internal:9988/mcp \
   -H "Mcp-Session-Id: $SID" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \

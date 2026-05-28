@@ -24,6 +24,7 @@
   ConfigMap names produced (respects fullnameOverride):
     <nemotron-fullname>-nim-env  ← read by nemotron NIMService
     <cosmos-fullname>-nim-env    ← read by cosmos NIMService
+    <cosmos3-fullname>-nim-env   ← read by cosmos3 (staging RC) NIMService
 */}}
 
 {{- $gpuType  := .Values.gpuType | default "H100" }}
@@ -60,6 +61,21 @@ metadata:
     nims.nvidia.com/gpu-type: {{ $gpuType | quote }}
 data:
   {{- range $k, $v := (index $profile "cosmos") }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.cosmos3.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nims.cosmos3.fullname" . }}-nim-env
+  labels:
+    {{- include "nims.labels" . | nindent 4 }}
+    nims.nvidia.com/gpu-type: {{ $gpuType | quote }}
+data:
+  {{- range $k, $v := (index $profile "cosmos3") }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}
 {{- end }}

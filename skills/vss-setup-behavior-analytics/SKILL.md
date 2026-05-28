@@ -1,20 +1,52 @@
 ---
 name: vss-setup-behavior-analytics
-description: >
-  Deploy the `vss-behavior-analytics` service standalone — no agent, no perception, no UI.
-  Use when the user says "deploy behavior analytics", "run behavior-analytics standalone",
-  "set up behavior analytics service", "change the analytics entrypoint", "swap the
-  behavior-analytics config / calibration", "run analytics 2D / 3D / mv3dt / dev_example /
-  fusion_search by itself", or wants to point behavior-analytics at a custom config /
-  calibration file without redeploying the full warehouse blueprint. Walks the user
-  through entrypoint selection, config-source choice, optional calibration, and the
-  dynamic-config / dynamic-calibration flows once a broker is reachable.
+description: Use to deploy the vss-behavior-analytics service standalone (entrypoint, config-source, optional calibration). Not for the full warehouse deploy.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment behavior-analytics"
 ---
+## Purpose
+
+Deploy the behavior-analytics service standalone with the user's chosen entrypoint, config, and calibration.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest
+contains a runnable scenario). Run a Tier-3 evaluation to replay them:
+
+```bash
+nv-base validate skills/vss-setup-behavior-analytics --agent-eval
+```
+
+A minimal standalone bring-up looks like:
+
+```bash
+cd $REPO/deploy/docker
+docker compose -f services/perception/behavior-analytics/compose.yml \
+  --env-file dev-profile-warehouse/.env up -d vss-behavior-analytics
+```
+
+Follow `references/deploy-behavior-analytics-service.md` for the full
+workflow (entrypoint pick, config source, dynamic updates).
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
+- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # VSS Setup Behavior Analytics — Standalone
 
@@ -35,10 +67,11 @@ The full operational walkthrough — entrypoint table, config-source options, ca
 
 1. **Repo checkout** with `$VSS_APPS_DIR` pointing at `<repo>/deploy/docker/`. Required by the service compose's volume binds.
 2. **NGC credentials** — `$NGC_CLI_API_KEY` set so docker can pull the image. See [`../vss-deploy-profile/references/ngc.md`](../vss-deploy-profile/references/ngc.md).
-3. **Optional broker** (Kafka / Redis Streams / MQTT). The container starts fine **without** one — the Kafka client retries a bounded number of times, then the app exits and `restart: always` cycles the container. Status will show `Restarting (N)` in `docker ps` until a broker is reachable. With a broker, dynamic config / dynamic calibration over `mdx-notification` become available.
-4. **Optional config / calibration files on disk** if the user is bringing their own.
+3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
+4. **Optional broker** (Kafka / Redis Streams / MQTT). The container starts fine **without** one — the Kafka client retries a bounded number of times, then the app exits and `restart: always` cycles the container. Status will show `Restarting (N)` in `docker ps` until a broker is reachable. With a broker, dynamic config / dynamic calibration over `mdx-notification` become available.
+5. **Optional config / calibration files on disk** if the user is bringing their own.
 
-If $1 or $2 fails, surface the gap before going further.
+If any required prerequisite fails, surface the gap before going further.
 
 ## Workflow
 
@@ -88,3 +121,5 @@ Both flows live entirely on the broker — the producer can be `video-analytics-
 - If the user wants "the full stack" (UI / agent / perception): hand off to [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md) with profile `warehouse` (or `alerts`). Don't run this skill in parallel.
 - If the user wants to publish a runtime config / calibration update to an already-running container: walk the [Dynamic updates](#dynamic-updates-runtime-no-restart) section above. Both flows need a reachable broker.
 - If the user describes a behavior-analytics behavior change they want to validate (new incident type, new ROI rule, new sensor): point them at [`references/configuration.md`](references/configuration.md), [`references/dynamic-config.md`](references/dynamic-config.md), or [`references/dynamic-calibration.md`](references/dynamic-calibration.md) before editing the JSON.
+
+bump:1
