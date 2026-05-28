@@ -120,10 +120,50 @@ def _disable_server_thinking() -> None:
 # Agent loop
 # ---------------------------------------------------------------------------
 
+async def _block_bash_background(input_data, tool_use_id, context):
+    """PreToolUse hook: deny any Bash call that backgrounds work.
+
+    AGENTS.md § "No polling — block on harbor" requires `uvx harbor run`
+    to be invoked synchronously so the orchestrating agent blocks on
+    stdout instead of polling an output file. Enforcing that in prose
+    alone is fragile — a drifting agent can still set
+    `run_in_background=True` or append `&`/`nohup`/`disown` to the
+    command. This hook makes the rule structural at the SDK boundary.
+    """
+    tool_name = input_data.get("tool_name", "")
+    tool_input = input_data.get("tool_input", {}) or {}
+    if tool_name != "Bash":
+        return {}
+    if tool_input.get("run_in_background"):
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "Backgrounding forbidden — run harbor synchronously "
+                    "(AGENTS.md § No polling — block on harbor)."
+                ),
+            }
+        }
+    cmd = (tool_input.get("command") or "").strip()
+    if cmd.endswith("&") or " nohup " in cmd or cmd.startswith("nohup ") or " disown" in cmd:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "No shell-level backgrounding (`&` / `nohup` / `disown`). "
+                    "Run the command synchronously and block on it."
+                ),
+            }
+        }
+    return {}
+
+
 async def run_agent() -> int:
     from claude_agent_sdk import (  # type: ignore
         AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient,
-        ResultMessage, TextBlock, ToolUseBlock,
+        HookMatcher, ResultMessage, TextBlock, ToolUseBlock,
     )
 
     manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
@@ -239,6 +279,24 @@ line starting with `BLOCKED:` followed by the reason.
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         allowed_tools=["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
+        # `allowed_tools` is an allowlist for primary tool calls, but the
+        # SDK's background-shell and task-tracking affordances pass through
+        # it because they're treated as runtime/harness features. List them
+        # here explicitly so the agent can't create background tasks or
+        # read backgrounded-shell output, which is how the polling
+        # anti-pattern reaches into the trial wall-clock.
+        disallowed_tools=[
+            "BashOutput", "KillShell",
+            "TaskCreate", "TaskUpdate", "TaskGet",
+            "TaskList", "TaskOutput", "TaskStop",
+        ],
+        # Closes the `Bash(run_in_background=True)` / shell-`&` loophole that
+        # `disallowed_tools` alone can't catch — see _block_bash_background.
+        hooks={
+            "PreToolUse": [
+                HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
+            ],
+        },
         model=model,
         max_turns=MAX_TURNS,
         permission_mode="bypassPermissions",
