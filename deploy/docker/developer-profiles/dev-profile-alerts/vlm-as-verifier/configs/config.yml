@@ -264,7 +264,6 @@ rtvi_vlm:
   timeout: 10                                # HTTP request timeout (seconds)
   default_model: "${VLM_NAME}"  # Default VLM model for caption/alert generation
   captions_ack_timeout: 2.0                  # Seconds to wait for generate_captions initial HTTP ack
-  captions_ack_timeout: 2.0                  # Seconds to wait for generate_captions initial HTTP ack
   # Stream readiness probe: after the captions ack window expires
   # (streaming mode) the create path polls GET /streams/get-stream-info
   # every ``stream_readiness_poll_interval`` seconds until either the
@@ -280,16 +279,6 @@ rtvi_vlm:
   stream_readiness_max_wait: 2.0
   # ``stream_readiness_timeout`` is deprecated. The realtime service
   # logs a warning and ignores it — set the two probe knobs above.
-  rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
-  pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
-  health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery
-  # Rollback switch for the realtime-rules persistence + replay feature.
-  # When false, POST/DELETE on /api/v1/realtime do not write to
-  # Elasticsearch and POST /api/v1/realtime/replay returns 501.
-  # Independent of `persistence.enabled`: the global flag turns the whole
-  # persistence layer (alert configs, prompts, realtime) off, while this
-  # one only disables the realtime-rules path.
-  enable_realtime_persistence: true
   rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
   pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
   health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery
