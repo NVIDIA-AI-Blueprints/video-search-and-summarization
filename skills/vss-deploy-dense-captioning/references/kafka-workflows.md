@@ -24,8 +24,8 @@ response to the caller and Kafka records for downstream message-bus consumers.
 
 **HTTP response** from `POST /v1/generate_captions`:
 - **`stream=true`** — Server-Sent Events. One SSE event per chunk containing the
-  `VlmCaptionResponse` fields (`start_ts`, `end_ts`, `content`, `chunk_id` when
-  supported). Terminated by `[DONE]` per OpenAI-style SSE convention.
+  `VlmCaptionResponse` fields (`start_time`, `end_time`, `content`, `chunk_id`
+  when supported). Terminated by `[DONE]` per OpenAI-style SSE convention.
 - **`stream=false`** (default) — single JSON object wrapping all chunks:
   ```json
   {
@@ -61,6 +61,31 @@ for T in vision-llm-messages mdx-vlm-incidents vision-llm-errors; do
     --topic "$T"
 done
 ```
+
+For standalone deployments, replace `mdx-kafka` with the actual broker
+container, for example `rtvi-vlm-kafka-1`, and confirm RT-VLM can reach the same
+broker address it was configured with:
+
+```bash
+docker exec vss-rtvi-vlm printenv KAFKA_BOOTSTRAP_SERVERS
+docker logs vss-rtvi-vlm 2>&1 | grep -i 'KafkaTimeoutError\\|Failed to update metadata' || true
+
+for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
+  docker exec rtvi-vlm-kafka-1 kafka-get-offsets \
+    --bootstrap-server 127.0.0.1:9092 \
+    --topic "$T"
+done
+```
+
+The standalone RT-VLM compose sets
+`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; a `.env` value named
+`KAFKA_BOOTSTRAP_SERVERS` is ignored unless you edit the compose. The broker's
+advertised listener must be reachable from the `vss-rtvi-vlm` container network.
+Common failing combinations are a broker advertising `localhost:9094` (points
+back at the RT-VLM container) or `kafka:9092` when RT-VLM is not on that Docker
+network. In that state direct producer/consumer tests inside the Kafka container
+can pass while RT-VLM publish still fails with `KafkaTimeoutError: Failed to
+update metadata after 60.0 secs`.
 
 Then consume bounded, metadata-only samples from all three topics. `--timeout-ms`
 prevents a no-message topic from hanging indefinitely; `print.value=false` avoids

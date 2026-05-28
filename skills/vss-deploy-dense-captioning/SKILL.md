@@ -137,6 +137,7 @@ Every request below uses `Authorization: Bearer $API_KEY`. Health endpoints
 ```bash
 curl -fsS "$BASE_URL/v1/health/ready"
 curl -fsS "$BASE_URL/v1/models" -H "Authorization: Bearer $API_KEY" | jq
+curl -fsS "$BASE_URL/openapi.json" | jq -r '.paths | keys[]' | sort
 ```
 
 ## Quick Start — dense captions from a local video
@@ -206,9 +207,9 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
   }'
 ```
 
-**Response (200, SSE when `stream=true`):** each event payload has `start_ts`, `end_ts`,
-`content`, and a terminal `{"status": "completed"}` event.
-**Response (200, non-stream):** `{ "id", "object": "caption", "choices": [{...}], "usage": {...} }`.
+**Response shape:** live 26.05.3 responses use `chunk_responses` with
+`start_time`/`end_time`; SSE streams terminate with `data: [DONE]`. See
+[`references/api-surface-26.05.3.md`](references/api-surface-26.05.3.md).
 
 #### `DELETE /v1/generate_captions/{stream_id}` — Stop caption generation for a live stream, if exposed
 
@@ -230,6 +231,8 @@ curl -X POST "$BASE_URL/v1/files" -H "Authorization: Bearer $API_KEY" \
   -F "file=@./video.mp4" -F "purpose=vision" -F "media_type=video"
 ```
 **Response:** `{ "id", "object": "file", "bytes", "created_at", "filename", "purpose" }`.
+Optional metadata such as `sensor_name` may be accepted by newer builds; check
+the live OpenAPI before sending it.
 
 #### `GET /v1/files?purpose=vision` — List uploaded files
 #### `GET /v1/files/{file_id}` — File metadata
@@ -255,11 +258,24 @@ STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
 #### `DELETE /v1/streams/delete/{stream_id}` — Remove a single stream
 #### `DELETE /v1/streams/delete-batch` — Remove many (`{"stream_ids":[...]}`)
 
+#### CV-style singular stream endpoints
+
+26.05.3 deployments also expose CV-style stream control paths:
+`POST /v1/stream/add`, `GET /v1/stream/get-stream-info`, and
+`POST /v1/stream/remove`. Use these when a workflow or README explicitly uses
+the key/value envelope; otherwise prefer the plural RT-VLM stream endpoints
+above. Examples are in
+[`references/api-surface-26.05.3.md`](references/api-surface-26.05.3.md).
+
 ### NIM Compatible
 > OpenAI-compatible endpoints for interop with OpenAI/NVIDIA-API clients.
 
 #### `POST /v1/chat/completions` — OpenAI-compatible chat (text + multimodal)
-**Required:** `messages`, `model`. Text-only requests omit `id` / `video_url` / `image_url`.
+**Required:** `messages`, `model`. Text-only requests work and omit `id`,
+`video_url`, and `image_url`. For uploaded-video, direct `video_url`,
+direct `image_url`, streaming, and RTSP-backed chat examples, see
+[`references/api-surface-26.05.3.md`](references/api-surface-26.05.3.md).
+
 ```bash
 curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
@@ -267,14 +283,21 @@ curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY"
 ```
 
 #### `POST /v1/completions` — OpenAI-compatible legacy completions
+This endpoint exists for compatibility, but on 26.05.3 text-only legacy
+completion requests return HTTP 400 by design. Use `/v1/chat/completions` for
+text-only and multimodal requests.
+
 #### `GET /v1/version` — `{ "version": "3.2.0-..." }`
-#### `GET /v1/license` — license text
 #### `GET /v1/manifest` — NIM manifest
 #### `GET /v1/health/live` · `GET /v1/health/ready` — NIM-style probes
+
+Do not assume `/v1/license` exists. The 26.05.3 live OpenAPI does not expose it
+and the endpoint returns 404; only call it after checking `GET /openapi.json`.
 
 ### Models · Metadata · Metrics · Health Check
 #### `GET /v1/models` — List loaded VLMs: `{ "data": [{ "id", "object": "model", "owned_by" }] }`
 #### `GET /v1/metadata` — Service metadata (build, release, image tag)
+#### `GET /v1/assets/stats` — Asset storage counts, TTL, and oldest-asset age
 #### `GET /v1/metrics` — Prometheus metrics (plain text)
 #### `GET /v1/ready` · `GET /v1/live` · `GET /v1/startup` — Kubernetes-style probes
 
@@ -392,6 +415,17 @@ kafka-console-consumer \
   --property print.headers=true \
   --property print.value=false
 ```
+
+For standalone validation, remember that the RT-VLM compose maps Kafka through
+`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; setting `KAFKA_BOOTSTRAP_SERVERS`
+directly in `.env` is ignored unless the compose is changed. The broker must
+advertise a listener reachable from the `vss-rtvi-vlm` container. `localhost`
+inside the broker and service containers is not the host, and a broker alias
+such as `kafka:9092` only works when both containers share that Docker network.
+If the standalone broker container is named `rtvi-vlm-kafka-1`, run CLI checks
+inside that container, but still configure the advertised listener so RT-VLM can
+connect from its container network.
+
 Incident protobuf (`ext.proto :: Incident`) key fields: `sensorId`, `timestamp`, `end`,
 `objectIds`, `frameIds`, `place`, `analyticsModule`, `category`, `isAnomaly` (`true` for
 alerts), `llm` (nested VisionLLM), `info` map including `triggerPhrase`, `verdict`,
@@ -424,7 +458,9 @@ Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response mo
 - **Alert trigger = the tokens `"yes"` or `"true"` in the VLM response (case-insensitive)**. There is no per-request alert flag. Design prompts with an explicit `Anomaly Detected: Yes/No` line and set `system_prompt` to constrain the model to Yes/No answers (per the VSS docs). Every chunk is published to `KAFKA_TOPIC`; matched chunks additionally go to `KAFKA_INCIDENT_TOPIC` with `isAnomaly=true`, `info["triggerPhrase"]` set to the matched tokens, and `info["verdict"]="confirmed"`.
 - **`alert_category` support depends on the deployed service version.** If the live OpenAPI schema does not expose it, Kafka incidents default `incident.category = "vlm-alert"`.
 - **Kafka topics are server-side config, not per-request.** The `KAFKA_*` env vars (via compose `RTVI_VLM_KAFKA_*` rewrites) are fixed at container start — clients can't override topics on a per-request basis. Kafka publish is *additive* to the HTTP response, never a replacement.
-- **`stream=true` returns Server-Sent Events, not chunked JSON.** Use `curl -N` (no buffering). Each event is `data: {"content": "...", "start_ts": ..., "end_ts": ...}\n\n`, terminated by `data: {"status":"completed"}\n\n`. Without `stream=true` the server buffers until the full video is processed — fine for short clips (<1 min), avoid for live streams.
+- **`stream=true` returns Server-Sent Events, not chunked JSON.** Use `curl -N` (no buffering). Each event is `data: {...}\n\n` with per-chunk fields such as `content`, `start_time`, and `end_time`, terminated by `data: [DONE]`. Without `stream=true` the server buffers until the full video is processed — fine for short clips (<1 min), avoid for live streams.
+- **Trust live OpenAPI for optional NIM-compatible endpoints.** `/v1/license` is not exposed by 26.05.3 and returns 404, even though older generic NIM docs may mention it.
+- **Prefer `/v1/chat/completions` over `/v1/completions`.** Text-only legacy completions return HTTP 400 by design on 26.05.3; text-only chat completions work.
 - **`chunk_duration=0` disables chunking** — the entire video is sent to the VLM as one shot. Only meaningful for short clips; long videos will OOM or exceed `max_model_len`.
 - **Default frame budget caps at `VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES` (256).** Requesting FPS that implies >256 frames per chunk is silently capped; drop FPS or shorten `chunk_duration` to stay within budget.
 - **`enable_reasoning` requires a Cosmos Reason model.** Passing it with Qwen3-VL or other non-reasoning models is a no-op.
