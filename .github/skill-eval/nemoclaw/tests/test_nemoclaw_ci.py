@@ -29,6 +29,10 @@ deploy_adapter = load_module(
     "vss_deploy_profile_generate",
     REPO_ROOT / ".github" / "skill-eval" / "adapters" / "vss-deploy-profile" / "generate.py",
 )
+orchestrator_mcp_helper = load_module(
+    "orchestrator_mcp_helper",
+    REPO_ROOT / "deploy" / "docker" / "scripts" / "orchestrator_mcp_helper.py",
+)
 headless_runner = load_module(
     "nemoclaw_headless_runner",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "headless_runner.py",
@@ -115,6 +119,15 @@ class NemoClawEnvFileTest(unittest.TestCase):
                     os.environ["NEMOCLAW_SANDBOX_NAME"] = previous
                 else:
                     os.environ.pop("NEMOCLAW_SANDBOX_NAME", None)
+
+
+class OrchestratorMcpHelperCompatTest(unittest.TestCase):
+    def test_orchestrator_tool_is_string_enum_on_eval_workers(self):
+        self.assertIsInstance(orchestrator_mcp_helper.OrchestratorTool.PROFILES, str)
+        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "orchestrator_mcp_helper.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("except ImportError", source)
 
 
 class DeployProfileNemoClawAdapterTest(unittest.TestCase):
