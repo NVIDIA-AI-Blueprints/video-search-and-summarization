@@ -19,6 +19,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [VIOS REST API Reference](references/api-reference.md) <br>
+- [NvStreamer REST API Reference](references/nvstreamer-api-reference.md) <br>
 - [VIOS Deployment Reference](references/deploy-vios-service.md) <br>
 - [VIOS Integration Reference](references/integrate-vios-service.md) <br>
 - [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
