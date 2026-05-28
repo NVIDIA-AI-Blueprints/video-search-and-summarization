@@ -84,7 +84,8 @@ reference for manual setup and for inspecting what the pre-flight does.
 > ```bash
 > sudo nvpmodel -m 0
 > sudo jetson_clocks
-> sudo su -c 'echo performance > /sys/class/devfreq/8188050000.vic/governor'
+> # Replace `<VIC_DEVFREQ_PATH>` with the value of `ls /sys/class/devfreq/` that matches `*.vic`
+> sudo su -c 'echo performance > <VIC_DEVFREQ_PATH>/governor'
 > ```
 
 ### HF_TOKEN verification
@@ -138,7 +139,7 @@ Then apply env overrides to `dev-profile-base/generated.env` (LLM is a standalon
 | `VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 | `VSS_AGENT_CONFIG_FILE` | `./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml` | Edge planning prompt |
 
-Then follow [`SKILL.md`](../SKILL.md) Steps 3–5 (resolve compose → normalize → `up -d`). The `cosmos-reason2-8b` NIM compose automatically loads `hw-${HARDWARE_PROFILE}-shared.env`, so the matching `hw-DGX-SPARK-shared.env` ships the right `NIM_KVCACHE_PERCENT=0.4` cap without a separate flag.
+Then follow ``SKILL.md`` (see `../SKILL.md`) Steps 3–5 (resolve compose → normalize → `up -d`). The `cosmos-reason2-8b` NIM compose automatically loads `hw-${HARDWARE_PROFILE}-shared.env`, so the matching `hw-DGX-SPARK-shared.env` ships the right `NIM_KVCACHE_PERCENT=0.4` cap without a separate flag.
 
 ## DGX Spark — Nano 9B v2 FP8 (both NIMs, no standalone vLLM)
 
@@ -162,7 +163,7 @@ Env overrides for `dev-profile-base/generated.env`:
 | `LLM_DEVICE_ID` | `0` |
 | `VLM_DEVICE_ID` | `0` |
 
-Uses the default `config.yml` (full planning prompt with clarifying questions). Then [`SKILL.md`](../SKILL.md) Steps 3–5.
+Uses the default `config.yml` (full planning prompt with clarifying questions). Then ``SKILL.md`` (see `../SKILL.md`) Steps 3–5.
 
 ## AGX Thor / IGX Thor — Edge 4B + rtvi-vlm
 
@@ -199,7 +200,7 @@ Then apply env overrides to `dev-profile-base/generated.env`:
 | `VLM_DEVICE_ID` | `0` |
 | `VSS_AGENT_CONFIG_FILE` | `./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml` |
 
-Then [`SKILL.md`](../SKILL.md) Steps 3–5. Thor uses the default 35% GPU budget for `rtvi-vlm`.
+Then ``SKILL.md`` (see `../SKILL.md`) Steps 3–5. Thor uses the default 35% GPU budget for `rtvi-vlm`.
 
 For **IGX Thor**: swap `HARDWARE_PROFILE=AGX-THOR` for `HARDWARE_PROFILE=IGX-THOR`.
 
@@ -220,7 +221,7 @@ Env overrides for `dev-profile-base/generated.env`:
 | `LLM_DEVICE_ID` | `0` |
 | `VLM_DEVICE_ID` | `0` |
 
-Then [`SKILL.md`](../SKILL.md) Steps 3–5.
+Then ``SKILL.md`` (see `../SKILL.md`) Steps 3–5.
 
 ## Caveats
 

@@ -90,7 +90,7 @@ Top-level shape (every config has all of these):
 
 Higher-level docs:
 
-- [`configuration.md`](configuration.md) — config field guide.
+- `configuration.md` — config field guide.
 
 ---
 
@@ -153,7 +153,7 @@ The schema for the calibration JSON is vendored from `vss-analytics-api/web-api-
 
 Practical implication: a broker-less analytics container is **not** sitting idle in-process — it's cycling. Fine for "bring up analytics first, broker later" workflows, but expect periodic restarts in the meantime. If you want it to fail-fast instead (e.g. in CI), override `restart:` to `on-failure` or `no`, or wrap with your own healthcheck.
 
-> When a broker **is** reachable, you also get two runtime-update flows — dynamic config and dynamic calibration — that don't require redeploying the container. Those are post-deployment operations and live in the `SKILL.md`'s **Dynamic updates** section, plus [`dynamic-config.md`](dynamic-config.md) and [`dynamic-calibration.md`](dynamic-calibration.md) for full wire contracts.
+> When a broker **is** reachable, you also get two runtime-update flows — dynamic config and dynamic calibration — that don't require redeploying the container. Those are post-deployment operations and live in the `SKILL.md`'s **Dynamic updates** section, plus `dynamic-config.md` and `dynamic-calibration.md` for full wire contracts.
 
 ---
 

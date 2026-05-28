@@ -3,20 +3,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Licensed under Apache-2.0 (full text: http://www.apache.org/licenses/LICENSE-2.0).
 
 # load_defaults.sh — Single bash call that detects the host platform AND
-# resolves the per-usecase defaults from references/deploy-defaults.yml.
+# resolves the per-usecase defaults from assets/deploy-defaults.yml.
 #
 # One invocation = one permission prompt. The skill (SKILL.md Step 1.b/1.c)
 # runs this right after the use case is identified in 1.a, then captures
@@ -56,7 +46,7 @@
 # ----------
 #   0  success
 #   1  missing/invalid <usecase> argument
-#   2  references/deploy-defaults.yml not found
+#   2  assets/deploy-defaults.yml not found
 #   3  usecase not declared in the YAML
 #   4  python3 / PyYAML not available
 #
@@ -75,7 +65,7 @@ if [[ -z "$USECASE" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULTS_YAML="${SCRIPT_DIR}/../references/deploy-defaults.yml"
+DEFAULTS_YAML="${SCRIPT_DIR}/../assets/deploy-defaults.yml"
 
 if [[ ! -f "$DEFAULTS_YAML" ]]; then
     echo "ERROR: $DEFAULTS_YAML not found" >&2
