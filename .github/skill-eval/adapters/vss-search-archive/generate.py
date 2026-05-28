@@ -198,10 +198,6 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             f'gpu_count = {gpu_count}',
-            # is profile-name only for base/lvs/search; the consumer
-            # on profile alone when this field is absent. Set it only if
-            # this spec needs a specific alerts stack (verification vs
-            # real-time).
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",

@@ -220,7 +220,6 @@ def generate_platform_mode(
     short = pspec["short_name"]
     expects = rendered_spec.get("expects") or []
     profile: str = str(spec.get("profile", "alerts"))
-    # injects before this task. Read from spec, fall back to `real-time`.
     prerequisite_deploy_mode: str = str(
         spec.get("deploy_mode") or spec.get("prerequisite_deploy_mode") or "real-time"
     )

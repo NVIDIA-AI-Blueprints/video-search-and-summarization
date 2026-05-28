@@ -146,9 +146,9 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             PREAMBLE,
             "",
             f"Use the `/vss-summarize-video` skill against the VSS **{profile}** "
-            f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this `{platform}` host, then "
-            "(`http://localhost:38111/v1/ready` must respond, and a sample "
-            "warehouse video must already be uploaded per the env notes below).",
+            f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this "
+            f"`{platform}` host, then ensure `http://localhost:38111/v1/ready` responds "
+            "and a sample warehouse video has been uploaded per the env notes below).",
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -195,10 +195,6 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             f'gpu_count = {gpu_count}',
-            # is profile-name only for base/lvs/search; the consumer
-            # on profile alone when this field is absent. Set it only if
-            # this spec needs a specific alerts stack (verification vs
-            # real-time).
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",

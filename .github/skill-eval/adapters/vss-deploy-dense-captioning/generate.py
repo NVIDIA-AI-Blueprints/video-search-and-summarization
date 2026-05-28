@@ -97,12 +97,12 @@ def _instruction_intro(spec: dict) -> str:
     if _is_profile_spec(spec):
         profile = spec.get("profile")
         deploy_mode = spec.get("deploy_mode")
+        mode_clause = f" in `{deploy_mode}` mode" if deploy_mode else ""
         return (
-            "Use `/vss-deploy-dense-captioning` against the already-deployed full VSS "
-            f"`{profile}` profile"
-            + (f" in `{deploy_mode}` mode" if deploy_mode else "")
-            + ". The eval harness predeploys that prerequisite before this task starts; do not "
-            + "invoke `/vss-deploy-profile`, `scripts/dev-profile.sh`, or redeploy the stack."
+            f"Use `/vss-deploy-dense-captioning` against the VSS **{profile}** "
+            f"profile{mode_clause} (deploy it first via `/vss-deploy-profile "
+            f"-p {profile}` in this trial's first turn, then bring up the "
+            "dense-captioning add-on)."
         )
 
     return (

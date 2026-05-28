@@ -20,34 +20,29 @@ host with a working `nvidia-container-toolkit`). Use `--platform <X>`
 to override or `--all-platforms` if you really want the fan-out (not
 what the spec asks for).
 
-## Harbor chaining / dependencies
+## Deploy modes
 
-Harbor has no native mechanism to express inter-task dependencies
-(`TaskConfig` lacks a `depends_on` / `prerequisites` field). Each
-task is independent — Harbor runs exactly one task per trial on a
-clean environment.
+Harbor runs exactly one task per trial on a clean environment, and the
+skill-eval harness no longer pre-deploys any VSS profile on the agent's
+behalf. So whichever path the spec picks, the **agent's first turn**
+is responsible for bringing up whatever it needs:
 
-The adapter supports two modes, controlled by the spec's `profile` field:
+1. **Profile-less spec (current `vios_ops.json` — `profile` absent):**
+   the instruction.md tells the agent to stand VIOS up standalone via
+   the skill's bundled `references/deploy-vios-service.md` runbook
+   (pre-authorized per the skill's "Pre-authorized autonomous mode"
+   branch). No `/vss-deploy-profile`.
 
-1. **Profile-less spec (current vios_ops.json — `profile` absent):**
-   `task.toml [metadata]` emits `requires_deployed_vss = false` and
-   no `profile = ...` line. The trial runs on a bare Brev instance
-   and the agent stands VIOS up itself via the skill's bundled
-   `references/deploy-vios-service.md` runbook (pre-authorized
-   per the skill's "Pre-authorized autonomous mode" branch). No
-   chaining; no coordinator-level deploy injection.
+2. **Profile-bound spec (e.g. `profile: "base"`):** the instruction.md
+   tells the agent to deploy the profile via
+   `/vss-deploy-profile -p <profile>` in its first turn, then run the
+   VIOS API queries against that profile's stack.
 
-2. **Profile-bound spec (e.g. `profile: "base"`):** `task.toml
-   [metadata]` emits `profile = "<value>"` and
-   `requires_deployed_vss = true`. The coordinator
-   (see `.github/skill-eval/AGENTS.md` § 2) arranges that the
-   target Brev instance already has VSS running on the requested
-   profile before dispatching the vss-manage-video-io-storage
-   trial — via `execution_groups[<id>].queue_order` (sequential
-   tasks on the same instance share state). To chain: put a
-   `/vss-deploy-profile -p <profile>` task first in the group's
-   queue, then the vss-manage-video-io-storage tasks for the
-   same platform.
+In both cases `task.toml [metadata]` is purely informational — the
+harness no longer reads `profile`, `requires_deployed_vss`, or
+`prerequisite_deploy_mode` (those fields and the
+`_ensure_prerequisite_deployed` consumer were removed in the same
+refactor that motivated this docstring rewrite).
 
 ## Directory layout
 
@@ -173,6 +168,12 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
+    # Optional: spec's `profile` field. When set (profile-bound spec — e.g.
+    # `lvs`, `alerts`, `search`), the agent deploys it via /vss-deploy-profile
+    # in its first turn. When absent (profile-less spec — e.g. vios_ops.json),
+    # the agent stands VIOS up via this skill's bundled
+    # `references/deploy-vios-service.md` runbook instead.
+    profile = spec.get("profile")
 
     for idx, expect in enumerate(expects, 1):
         step_dir = output_root / "base" / platform_short
@@ -185,12 +186,26 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # sees — they live in the spec, are copied into tests/, and the
         # verifier evaluates them independently. If the agent sees the checks
         # it can write to the test rather than do the work.
+        if profile:
+            deploy_clause = (
+                f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this "
+                f"`{platform}` host, then ensure "
+                "`http://localhost:30888/vst/api/v1/sensor/version` responds before "
+                "running the query)."
+            )
+        else:
+            deploy_clause = (
+                f"on this `{platform}` host (the harness does not pre-deploy VIOS "
+                "— stand it up via the bundled `references/deploy-vios-service.md` "
+                "runbook in this first turn, then ensure "
+                "`http://localhost:30888/vst/api/v1/sensor/version` responds before "
+                "running the query)."
+            )
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-manage-video-io-storage` skill against the VSS base profile "
-            f"on this `{platform}` host (deploy it first via this skill's standalone runbook or `/vss-deploy-profile -p {profile}`, then "
-            "(`http://localhost:30888/vst/api/v1/sensor/version` must respond).",
+            f"Use the `/vss-manage-video-io-storage` skill against the VSS base "
+            + deploy_clause,
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -254,10 +269,6 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             # spec the agent is responsible for the deploy, so this is
             # false; if a future spec re-introduces `profile`, flip
             # this back to true (the coordinator gates dispatch on it).
-            # is profile-name only for base/lvs/search; the consumer
-            # on profile alone when this field is absent. Set it only if
-            # this spec needs a specific alerts stack (verification vs
-            # real-time).
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",

@@ -237,7 +237,6 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     ]
     (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
 
-    # IS the deploy, and the spec has no profile field.
     meta_lines = [
         "[task]",
         f'name = "nvidia-vss/vss-deploy-video-embedding-standalone-{platform_short}"',

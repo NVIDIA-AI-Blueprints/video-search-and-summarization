@@ -161,10 +161,10 @@ def generate_task(
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-generate-video-report` skill against the VSS **{profile}** profile "
-            f"on this `{platform}` host (deploy it first via `/vss-deploy-profile -p {profile}`, then "
-            "(`http://localhost:8000/docs` must respond, and a sample "
-            "warehouse video must already be uploaded per the env notes below).",
+            f"Use the `/vss-generate-video-report` skill against the VSS **{profile}** "
+            f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this "
+            f"`{platform}` host, then ensure `http://localhost:8000/docs` responds and "
+            "a sample warehouse video has been uploaded per the env notes below).",
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -206,10 +206,6 @@ def generate_task(
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — vss-generate-video-report",
             "# exercises POST /generate only, so there is no benefit to local NIMs.",
-            # is profile-name only for base/lvs/search; the consumer
-            # on profile alone when this field is absent. Set it only if
-            # this spec needs a specific alerts stack (verification vs
-            # real-time).
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
