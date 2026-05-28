@@ -490,10 +490,6 @@ def generate_task(
             legacy = skill_dir / "eval" / f"{profile}.json"
             if legacy.exists():
                 spec_path = legacy
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
     else:
         spec_path = None
     if spec_path and spec_path.exists():

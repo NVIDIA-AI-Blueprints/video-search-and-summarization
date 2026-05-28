@@ -187,25 +187,26 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # verifier evaluates them independently. If the agent sees the checks
         # it can write to the test rather than do the work.
         if profile:
-            deploy_clause = (
-                f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this "
-                f"`{platform}` host, then ensure "
-                "`http://localhost:30888/vst/api/v1/sensor/version` responds before "
-                "running the query)."
+            opening_phrase = (
+                f"Use the `/vss-manage-video-io-storage` skill against the VSS "
+                f"**{profile}** profile (deploy it first via "
+                f"`/vss-deploy-profile -p {profile}` on this `{platform}` host, "
+                "then ensure `http://localhost:30888/vst/api/v1/sensor/version` "
+                "responds before running the query)."
             )
         else:
-            deploy_clause = (
-                f"on this `{platform}` host (the harness does not pre-deploy VIOS "
-                "— stand it up via the bundled `references/deploy-vios-service.md` "
+            opening_phrase = (
+                f"Use the `/vss-manage-video-io-storage` skill on this "
+                f"`{platform}` host (the harness does not pre-deploy VIOS — "
+                "stand it up via the bundled `references/deploy-vios-service.md` "
                 "runbook in this first turn, then ensure "
-                "`http://localhost:30888/vst/api/v1/sensor/version` responds before "
-                "running the query)."
+                "`http://localhost:30888/vst/api/v1/sensor/version` responds "
+                "before running the query)."
             )
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-manage-video-io-storage` skill against the VSS base "
-            + deploy_clause,
+            opening_phrase,
             "",
             f"## Query {idx} of {len(expects)}",
             "",

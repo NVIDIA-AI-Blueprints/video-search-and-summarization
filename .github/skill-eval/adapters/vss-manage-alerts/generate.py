@@ -169,7 +169,6 @@ def _task_toml(
     pspec: dict,
     spec_stem: str,
     step_suffix: str,
-    prerequisite_deploy_mode: str,
 ) -> str:
     short = pspec["short_name"]
     lines = [
@@ -220,9 +219,6 @@ def generate_platform_mode(
     short = pspec["short_name"]
     expects = rendered_spec.get("expects") or []
     profile: str = str(spec.get("profile", "alerts"))
-    prerequisite_deploy_mode: str = str(
-        spec.get("deploy_mode") or spec.get("prerequisite_deploy_mode") or "real-time"
-    )
 
     platform_dir = output_root / spec_stem / f"{short}-{mode}"
     platform_dir.mkdir(parents=True, exist_ok=True)
@@ -286,7 +282,6 @@ def generate_platform_mode(
             pspec=pspec,
             spec_stem=spec_stem,
             step_suffix=step_suffix,
-            prerequisite_deploy_mode=prerequisite_deploy_mode,
         )
         (step_dir / "task.toml").write_text(toml_content)
 
