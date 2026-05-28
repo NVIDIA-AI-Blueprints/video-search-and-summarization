@@ -1,12 +1,42 @@
 ---
 name: vss-search-archive
-description: Use when asked to search for something in video, find actions and events, locate objects and people, query video archives, ingest a video for search, or add an RTSP stream for search. For search questions, default to this top-level fusion search unless user specifies otherwise. Requires the search profile to be deployed.
+description: Use to run top-level VSS fusion search on archived video, or to ingest video files / RTSP streams for search. Not for ad-hoc Q&A or live captioning.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+## Purpose
+
+Run the top-level VSS fusion search across archived video and ingest new clips / RTSP streams for search.
+
+## Prerequisites
+
+- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
+- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
+- `curl`, `jq`, and Docker available on the caller.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
+- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # Video Search Workflows
 
@@ -232,3 +262,4 @@ find someone wearing a red jacket
 
 Results include timestamped clips with similarity scores.
 
+bump:1
