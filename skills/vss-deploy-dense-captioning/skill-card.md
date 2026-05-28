@@ -8,7 +8,7 @@ This skill is ready for commercial/non-commercial use. <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to deploy the RT-VLM dense-captioning microservice standalone and exercise its REST API for video caption generation, live-stream management, and Kafka-based alert workflows. <br>
+Developers and engineers deploying and operating the standalone RT-VLM dense captioning microservice to generate VLM-powered captions and alerts for video files and RTSP live streams. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -21,7 +21,7 @@ Mitigation: Review and scan skill before deployment. <br>
 - [RT-VLM API Reference](https://docs.nvidia.com/vss/latest/real-time-vlm-api.html) <br>
 - [Deploy RT-VLM Service](references/deploy-rt-vlm-service.md) <br>
 - [Kafka Workflows](references/kafka-workflows.md) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
