@@ -25,7 +25,7 @@ bp-configurator:
     - name: SENSOR_INFO_SOURCE
       value: nvstreamer
     - name: ENABLE_PROFILE_CONFIGURATOR
-      value: "true"
+      value: "false"
     - name: ENABLE_SENSOR_CONFIGURATOR
       value: "true"
     - name: ENABLE_CALIBRATION_PROCESS
@@ -36,8 +36,6 @@ bp-configurator:
       value: "false"
     - name: CALL_SENSOR_ADD_API
       value: "true"
-    - name: PROFILE_CONFIG_FILE
-      value: /opt/warehouse/blueprint-configurator/blueprint_config.yml
     - name: NUM_STREAMS
       value: "4"
     - name: MODE
