@@ -3,40 +3,10 @@ name: vss-deploy-dense-captioning
 description: Use to deploy standalone RT-VLM dense captioning and call its REST API (uploads, captions, streams, chat-completions, Kafka). Not for VSS profile deploy or video-search ingestion.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
-## Purpose
-
-Stand up the RT-VLM dense-captioning microservice on its own and exercise every endpoint it exposes (file upload, generate_captions, stream add/delete, chat-completions, Kafka topics).
-
-## Prerequisites
-
-- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
-- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
-- `curl`, `jq`, and Docker available on the caller.
-
-## Instructions
-
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
-
-## Examples
-
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
-
-## Limitations
-
-- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
-- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
-- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
-
-## Troubleshooting
-
-- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
-- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
-- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # Deploy and Use RT-VLM Dense Captioning (VSS 3.2)
 
@@ -208,17 +178,125 @@ curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY"
 
 ## Common Workflows
 
-| # | Scenario | Where the runbook lives |
-| --- | --- | --- |
-| 1 | Dense captions from a stored video file | `references/file-captions.md` (or follow Quick Start above with `chunk_duration: 10`, `stream: true`, then `DELETE /v1/files/{id}` to free storage). |
-| 2 | Dense captions from an RTSP live stream | `references/rtsp-captions.md` — `POST /v1/streams/add` → `POST /v1/generate_captions` with `chunk_duration` + `num_frames_per_second_or_fixed_frames_chunk` → `DELETE /v1/streams/delete/{id}` on teardown. |
-| 3 | Dense captions + alerts on an RTSP stream | `references/alerts-captions.md` — same as (2) but with an `Anomaly Detected: Yes/No` prompt + `RTVI_VLM_KAFKA_*` env vars; alerts land on `KAFKA_INCIDENT_TOPIC`. |
-| 4 | Kafka message-bus integration | `references/kafka-workflows.md` (alerts + HTTP-vs-Kafka response model + protobuf field list). |
+The four standard dense-captioning scenarios.
 
-Every scenario uses the endpoint contracts in the Endpoints table above; only
-the orchestration around them differs. Consume Kafka alerts with the standard
-NvSchema protobuf flow — `print.value=false` is recommended to avoid
-binary-payload spam in console output.
+### 1. Dense captions from a stored video file
+
+```bash
+# Upload → capture file id → generate captions (SSE stream)
+FILE_ID=$(curl -fsS -X POST "$BASE_URL/v1/files" \
+  -H "Authorization: Bearer $API_KEY" \
+  -F "file=@warehouse.mp4" -F "purpose=vision" -F "media_type=video" | jq -r '.id')
+
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d "{
+    \"id\": \"$FILE_ID\",
+    \"prompt\": \"Describe warehouse events in 1 sentence per 10s chunk.\",
+    \"model\": \"cosmos-reason1\",
+    \"chunk_duration\": 10,
+    \"stream\": true
+  }"
+
+# When done, free storage:
+curl -X DELETE "$BASE_URL/v1/files/$FILE_ID" -H "Authorization: Bearer $API_KEY"
+```
+
+### 2. Dense captions from an RTSP live stream
+
+```bash
+# Register the stream
+STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
+  | jq -r '.results[0].id')
+
+# Start continuous caption generation
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d "{
+    \"id\": \"$STREAM_ID\",
+    \"prompt\": \"Describe each event; start each sentence with a timestamp.\",
+    \"model\": \"cosmos-reason1\",
+    \"chunk_duration\": 10,
+    \"num_frames_per_second_or_fixed_frames_chunk\": 2,
+    \"use_fps_for_chunking\": true,
+    \"stream\": true
+  }" &
+
+# Tear down when finished. If the live OpenAPI exposes
+# DELETE /v1/generate_captions/{stream_id}, call it before unregistering.
+curl -X DELETE "$BASE_URL/v1/streams/delete/$STREAM_ID"  -H "Authorization: Bearer $API_KEY"
+```
+
+### 3. Dense captions with alerts from an RTSP stream
+
+```bash
+# Pre-req: the container was started with:
+#   RTVI_VLM_KAFKA_ENABLED=true
+#   RTVI_VLM_KAFKA_TOPIC=vision-llm-messages  # or mdx-vlm if your deployment overrides it
+#   RTVI_VLM_KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
+#   RTVI_VLM_ERROR_MESSAGE_TOPIC=vision-llm-errors
+#   HOST_IP=<kafka-host>
+
+STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
+  | jq -r '.results[0].id')
+
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d "{
+    \"id\": \"$STREAM_ID\",
+    \"prompt\": \"You are a warehouse monitoring system. Describe the scene in one sentence, then on a new line output exactly:\\nAnomaly Detected: Yes/No\\nReason: <one sentence>\\nFlag an anomaly if any worker is missing a hard hat or high-vis vest.\",
+    \"system_prompt\": \"Answer the user's question correctly in yes or no.\",
+    \"model\": \"cosmos-reason2\",
+    \"chunk_duration\": 60,
+    \"chunk_overlap_duration\": 10,
+    \"stream\": true
+  }"
+```
+
+**Consume alerts from Kafka** (when using the VSS foundational Kafka container).
+Kafka values are NvSchema protobuf payloads, so use `print.value=false` for a
+clean validation pass that shows timestamp, key, and headers without dumping
+binary payload bytes:
+```bash
+docker exec mdx-kafka kafka-console-consumer \
+  --bootstrap-server 127.0.0.1:9092 \
+  --topic mdx-vlm-incidents \
+  --from-beginning \
+  --timeout-ms 5000 \
+  --max-messages 10 \
+  --property print.timestamp=true \
+  --property print.key=true \
+  --property print.headers=true \
+  --property print.value=false
+```
+
+If Kafka is not running in the VSS `mdx-kafka` container, use the Kafka CLI from
+the host running the broker:
+```bash
+kafka-console-consumer \
+  --bootstrap-server "$HOST_IP:9092" \
+  --topic mdx-vlm-incidents \
+  --from-beginning \
+  --timeout-ms 5000 \
+  --max-messages 10 \
+  --property print.timestamp=true \
+  --property print.key=true \
+  --property print.headers=true \
+  --property print.value=false
+```
+Incident protobuf (`ext.proto :: Incident`) key fields: `sensorId`, `timestamp`, `end`,
+`objectIds`, `frameIds`, `place`, `analyticsModule`, `category`, `isAnomaly` (`true` for
+alerts), `llm` (nested VisionLLM), `info` map including `triggerPhrase`, `verdict`,
+`requestId`, `chunkIdx`, `streamId`, `alertCategory` (if the deployment supports the
+`alert_category` query field — post-3.1).
+
+### 4. Kafka workflows (alerts + message bus)
+
+Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response model are documented in [`references/kafka-workflows.md`](references/kafka-workflows.md).
 
 ## Error Reference
 
@@ -250,4 +328,3 @@ binary-payload spam in console output.
 - **File upload is multipart, not JSON.** Use `-F file=@path -F purpose=vision -F media_type=video`; a `-d` body returns 422.
 - **Live-stream lifecycle cleanup must unregister the stream:** `DELETE /v1/streams/delete/{stream_id}` removes the RTSP source. If the live schema also exposes `DELETE /v1/generate_captions/{stream_id}`, call it first to stop inference explicitly.
 
-bump:1

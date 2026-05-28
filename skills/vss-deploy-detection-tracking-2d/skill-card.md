@@ -6,9 +6,9 @@ This skill is ready for commercial/non-commercial use. <br>
 ## Owner: NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to deploy, operate, debug, and tear down the RTVI-CV 2D detection and tracking microservice, and to drive its REST API for stream management, health checks, and metrics collection in video analytics pipelines. <br>
+Developers and engineers use this skill to deploy, operate, debug, and tear down the NVIDIA RTVI-CV 2D detection and tracking microservice and drive its REST API for real-time video intelligence workloads such as warehouse automation and smart city surveillance. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,11 +19,12 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [Deploy RTVI-CV Detection Tracking 2D](references/deploy-vss-detection-tracking-2d.md) <br>
-- [Usage RTVI-CV Detection Tracking 2D](references/usage-vss-detection-tracking-2d.md) <br>
+- [API Usage](references/usage-vss-detection-tracking-2d.md) <br>
 - [API Reference](references/api-reference.md) <br>
 - [Pipeline Configuration](references/pipeline-config.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>

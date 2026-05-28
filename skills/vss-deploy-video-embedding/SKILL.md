@@ -1,30 +1,17 @@
 ---
 name: vss-deploy-video-embedding
-description: Use to deploy and operate the RT-Embed video-embedding microservice (Compose bring-up, /v1 REST, Redis/Kafka/OTel). Not for dense captioning or search.
+description: >
+  Deploy, operate, and integrate the VSS 3.2 GA RT-Embed Video Embedding
+  microservice. Covers Docker Compose bring-up, 
+  GPU and storage prerequisites, the `/v1` REST API (file uploads,
+  text and video embeddings, live RTSP streams, health and metrics),
+  Redis/Kafka/OTel integration, common failure modes, and teardown.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
-## Purpose
-
-Stand up the RT-Embed video-embedding microservice, exercise its REST surface, and integrate it with Redis/Kafka/OTel.
-
-## Instructions
-
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
-
-## Examples
-
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
-
-## Limitations
-
-- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
-- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
-- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
 
 # VSS Video Embedding (RT-Embed)
 
@@ -148,7 +135,7 @@ curl -fsS "$BASE_URL/v1/streams/get-stream-info"
 curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 ```
 
-See `references/rest-api.md` for the full endpoint catalog, SSE streaming, and single-stream control-plane patterns.
+See `references/api.md` for the full endpoint catalog, SSE streaming, and single-stream control-plane patterns.
 
 ## Logs, Metrics, And Status
 
@@ -181,20 +168,31 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 
 ## Upgrade And Rollback
 
-See [Upgrade & Rollback](references/deploy-vss-deploy-video-embedding.md#upgrade--rollback)
-in the deployment reference for the full image-swap and rollback steps; named
-volumes persist across the swap.
+1. Update `RTVI_EMBED_IMAGE` and `RTVI_EMBED_TAG` to the target build.
+2. `docker compose -f rtvi-embed-docker-compose.yml pull rtvi-embed`.
+3. `docker compose -f rtvi-embed-docker-compose.yml --profile bp_developer_search_2d up -d rtvi-embed`.
+4. Watch `/v1/ready` until it returns 200.
+5. To roll back, re-pin `RTVI_EMBED_TAG` to the previous build and repeat. Named volumes persist across the swap.
 
 ## Tear Down
 
 ```bash
-docker compose -f rtvi-embed-docker-compose.yml down       # keeps caches
-docker compose -f rtvi-embed-docker-compose.yml down -v    # also removes the named caches; first re-start re-downloads the model and rebuilds the Triton repo (20+ min)
+# Preserve caches (named volumes survive).
+docker compose -f rtvi-embed-docker-compose.yml down
+
+# WARNING: removes rtvi-hf-cache, rtvi-ngc-model-cache, rtvi-triton-model-repo.
+# Next start will re-download the model and rebuild the Triton repo (20+ min).
+docker compose -f rtvi-embed-docker-compose.yml down -v
 ```
 
 ## References
 
-See [`references/README.md`](references/README.md) for the full reference index
-(deploy, integrate, API catalog, environment matrix, troubleshooting).
+| File | When to read |
+|---|---|
+| [references/README.md](references/README.md) | Table of contents for all reference files. |
+| [references/deploy-vss-deploy-video-embedding.md](references/deploy-vss-deploy-video-embedding.md) | Build Vision Agent deployment reference: image, GPU, storage, startup, prerequisites, known issues. |
+| [references/integrate-vss-deploy-video-embedding.md](references/integrate-vss-deploy-video-embedding.md) | Build Vision Agent integration reference: peers, inputs/outputs, env vars, network, example Compose snippet. |
+| [references/api.md](references/api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
+| [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
+| [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |
 
-bump:1
