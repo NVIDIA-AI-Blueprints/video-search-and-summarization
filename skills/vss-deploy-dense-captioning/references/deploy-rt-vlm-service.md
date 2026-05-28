@@ -3,8 +3,8 @@
 ## 1. Overview
 
 **Service**: `rtvi-vlm` (container name `vss-rtvi-vlm`)
-**Image (x86 / Jetson-Tegra)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.04.1` (multiarch)
-**Image (SBSA / DGX Spark / Grace)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.04.1-sbsa`
+**Image (x86 / Jetson-Tegra)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4` (multiarch)
+**Image (SBSA / DGX Spark / Grace)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4-sbsa`
 **Primary port**: `${RTVI_VLM_PORT}` → container `8000` (FastAPI REST, `/v1`)
 **Validated GPUs**: H100 · RTX PRO 6000 Blackwell · L40S · DGX SPARK · IGX Thor · AGX Thor
 
@@ -53,7 +53,7 @@ export NGC_CLI_API_KEY="<YOUR_NGC_KEY>"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 
 # Verify pull for the exact production image
-docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.04.1}"
+docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.4}"
 ```
 
 > ⚠ **`docker compose pull` fails on standalone deployments** (recent Docker
