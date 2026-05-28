@@ -234,12 +234,6 @@ Present the report content to the user in a readable format.
 
 ## Quick Commands
 
-### Health check
-
-```bash
-curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health"
-```
-
 ### Simple chat query (non-report)
 
 For simple questions that do NOT involve report generation:
