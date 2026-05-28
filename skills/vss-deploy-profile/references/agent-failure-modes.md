@@ -5,7 +5,7 @@ Use this file first when a VSS deploy, runtime probe, `/generate` request, or sk
 After identifying the failure class here, continue in the matching profile reference:
 
 - `base.md` for base profile agent/VLM/VIOS failures.
-- `lvs.md` for long-video summarization and `vss-lvs` / `vss-rtvi-vlm` failures.
+- `lvs-profile.md` for long-video summarization and `vss-lvs` / `vss-rtvi-vlm` failures.
 - `search.md` for Cosmos Embed1, Elasticsearch, and search-profile failures.
 - `alerts.md` for alerts profile failures.
 - `warehouse-debug.md` for warehouse profile stream, perception, and analytics failures.

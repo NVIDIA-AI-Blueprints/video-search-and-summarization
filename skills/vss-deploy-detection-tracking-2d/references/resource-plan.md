@@ -40,7 +40,7 @@ mount inside the container.
 | `smartcity-gdino`  | model + videos | **two separate** NGC refs — model from `gdino_model`, videos from `smartcity_dataset` |
 
 > **Source of truth:** every concrete tag / ref / in-resource path lives
-> in [`deploy-defaults.yml`](deploy-defaults.yml). Do NOT cite specific
+> in [`deploy-defaults.yml`](../assets/deploy-defaults.yml). Do NOT cite specific
 > tags in code or docs — read them via `scripts/load_defaults.sh
 > <usecase>` and use the emitted `DEFAULT_*` env vars.
 
@@ -78,7 +78,7 @@ or switch to a local path.
 The skill drives **one** `AskQuestion` block with exactly three questions:
 **docker image**, **model**, **videos**. Each option carries the resolved
 NGC ref + in-resource path inline (read from
-[`deploy-defaults.yml`](deploy-defaults.yml)) so the user never has to
+[`deploy-defaults.yml`](../assets/deploy-defaults.yml)) so the user never has to
 answer a separate "NGC resource?" question.
 
 `load_defaults.sh <usecase>` resolves these values upfront (see
@@ -248,7 +248,7 @@ done
 
 Only runs if `NEEDS_NGC=1`. Otherwise this step is a no-op (see 4.c above).
 
-When it does run, the existing flow in [`ngc-setup.md`](ngc-setup.md) applies
+When it does run, the existing flow in `ngc-setup.md` applies
 verbatim — check `~/.ngc/config`, reuse if present, otherwise ask once,
 write with `chmod 600`, verify with `ngc config current`.
 

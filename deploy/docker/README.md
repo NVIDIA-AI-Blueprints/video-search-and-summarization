@@ -59,6 +59,62 @@ export NGC_CLI_API_KEY="<your-key>"
 
 Each profile may also ship a **`.env`** under **`developer-profiles/<profile>/`** for defaults; the script generates or merges runtime env (e.g. **`generated.env`**) as documented in the script help.
 
+### LVS Compose notes
+
+Docker Compose does not use Kubernetes secrets or the NIM Operator. For the LVS profile, local model bring-up uses the **`NGC_CLI_API_KEY`** environment variable directly for image pulls and NIM/RT-VLM model access.
+
+Default LVS model wiring:
+
+| Component | Local Compose behavior | Default model name |
+|-----------|------------------------|--------------------|
+| LLM | Starts the **`nvidia-nemotron-nano-9b-v2`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nvidia-nemotron-nano-9b-v2` |
+| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
+
+For external endpoints, use the helper flags instead of editing Compose files directly:
+
+```bash
+export LLM_ENDPOINT_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
+export VLM_ENDPOINT_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
+
+./deploy/docker/scripts/dev-profile.sh up \
+  --profile lvs \
+  --hardware-profile H100 \
+  --use-remote-llm \
+  --use-remote-vlm \
+  --llm nvidia/nvidia-nemotron-nano-9b-v2 \
+  --vlm nim_nvidia_cosmos-reason2-8b_hf-1208
+```
+
+The helper probes **`${LLM_ENDPOINT_URL}/v1/models`** and **`${VLM_ENDPOINT_URL}/v1/models`**, and the agent config appends **`/v1`** to **`LLM_BASE_URL`** / **`VLM_BASE_URL`**. Do not include **`/v1`** in the endpoint environment variables.
+
+Post-deploy checks for the default local LVS ports:
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+curl -f http://127.0.0.1:38111/v1/ready
+curl -f http://127.0.0.1:8018/v1/health/ready
+curl -f http://127.0.0.1:30081/v1/health/ready
+curl -f http://127.0.0.1:38111/models
+curl -f http://127.0.0.1:30081/v1/models
+```
+
+If a local NIM container keeps restarting and logs include **`No available memory for the cache blocks`**, reduce the NIM max model length and/or sequence count for the active hardware profile. One non-destructive way is to pass an override env file through **`--llm-env-file`**:
+
+```env
+# /tmp/lvs-nim-low-memory.env
+NIM_MAX_MODEL_LEN=65536
+NIM_MAX_NUM_SEQS=2
+```
+
+```bash
+./deploy/docker/scripts/dev-profile.sh up \
+  --profile lvs \
+  --hardware-profile RTXPRO6000BW \
+  --llm-env-file /tmp/lvs-nim-low-memory.env
+```
+
+Those numeric values are only an example shape for reducing cache pressure; validate the final values on your GPU and workload.
+
 ---
 
 ## Warehouse industry profile
