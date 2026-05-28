@@ -47,7 +47,10 @@ Exit codes:
 from __future__ import annotations
 
 import asyncio
+import datetime
+import glob
 import os
+import re
 import subprocess
 import sys
 import time
@@ -114,6 +117,97 @@ def _disable_server_thinking() -> None:
     NVIDIA proxy too."""
     if "CLAUDE_CODE_DISABLE_THINKING" not in os.environ:
         os.environ["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+
+
+# ---------------------------------------------------------------------------
+# Benchmark report
+# ---------------------------------------------------------------------------
+
+# Glob the agent uses for per-spec result comments. AGENTS.md § "Result
+# comment format" mandates `gh pr comment --body-file /tmp/pr-<spec>.md`,
+# so every per-spec markdown body lands here before it's posted. Reading
+# the files back is cheaper and more reliable than re-fetching from the
+# PR (and works in manual-sweep mode too, where there's no PR to read).
+BENCHMARK_INPUT_GLOB = "/tmp/pr-*.md"
+BENCHMARK_OUT_PATH = Path("/tmp/skill-eval/benchmark.md")
+
+_MD_LINK_RE = re.compile(r"\[([^\]\n]+)\]\([^)\n]*\)")
+_BARE_URL_RE = re.compile(r"https?://\S+")
+
+
+def _sanitize_public(text: str) -> str:
+    """Scrub a per-spec result body for public consumption.
+
+    The benchmark.md is published as a workflow artifact downloadable
+    by anyone with read access to the Actions run, so we strip:
+      - internal tool names ("Harbor" → "Skill") — Harbor is an
+        internal-only product name and shouldn't appear in published
+        artifacts.
+      - markdown links `[text](url)` → keep `text`, drop `url`. Trace
+        URLs point at internal viewer endpoints; PR/run links leak
+        org-internal routing that's already evident from the artifact's
+        provenance.
+      - bare http(s) URLs anywhere in prose.
+    """
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _BARE_URL_RE.sub("", text)
+    text = re.sub(r"\bHarbor\b", "Skill", text)
+    return text
+
+
+def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
+    """Concatenate per-spec result comments into one benchmark report.
+
+    Reads every `/tmp/pr-*.md` the agent produced (one per (PR, spec)
+    batch per AGENTS.md § "Result comment format") and writes a single
+    `benchmark.md` with a run-level header followed by each spec body
+    in deterministic order. Output is sanitized for public consumption
+    via `_sanitize_public` — see that docstring for what's stripped.
+
+    Returns the output path on success, or `None` if no per-spec
+    comments were found — that's a valid outcome (blocker before any
+    trial ran) and shouldn't fail the workflow.
+    """
+    sources = sorted(glob.glob(BENCHMARK_INPUT_GLOB))
+    if not sources:
+        print(f"[benchmark] no per-spec comments at {BENCHMARK_INPUT_GLOB} — "
+              "skipping benchmark.md (agent likely blocked before running trials)",
+              flush=True)
+        return None
+
+    manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
+    generated = datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%d %H:%M:%S UTC")
+
+    title = ("Skills Eval Benchmark — Manual full-sweep" if manual_sweep
+             else "Skills Eval Benchmark")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w") as fp:
+        fp.write(f"# {title}\n\n")
+        fp.write(f"Generated: {generated}  \n")
+        fp.write(f"Specs: {len(sources)}\n\n")
+        fp.write("---\n\n")
+        for src in sources:
+            try:
+                body = Path(src).read_text()
+            except OSError as exc:
+                print(f"[benchmark] skip {src}: {exc!r}", flush=True)
+                continue
+            # Demote any top-level `# heading` inside the per-spec body
+            # to `##` so the benchmark TOC stays single-rooted at the
+            # `# ` title above. AGENTS.md § Result comment format starts
+            # spec bodies with `## ...` so this is usually a no-op, but
+            # be defensive against future format drift.
+            body = "\n".join(
+                ("#" + line) if line.startswith("# ") else line
+                for line in body.splitlines()
+            )
+            fp.write(_sanitize_public(body).rstrip() + "\n\n---\n\n")
+
+    print(f"[benchmark] wrote {out_path} ({len(sources)} spec comments)",
+          flush=True)
+    return out_path
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +429,15 @@ def main() -> int:
         print(f"[agent] crashed: {exc!r}", file=sys.stderr)
         import traceback; traceback.print_exc()
         rc = 2
+    # Always try to assemble benchmark.md — even on crash/max-turns, any
+    # specs the agent did finish have their per-spec markdown on disk and
+    # are worth publishing. Errors here are non-fatal: the agent's verdict
+    # (rc) is what gates the workflow, not the report builder.
+    try:
+        build_benchmark_md()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[benchmark] failed to build benchmark.md: {exc!r}",
+              file=sys.stderr)
     return rc
 
 
