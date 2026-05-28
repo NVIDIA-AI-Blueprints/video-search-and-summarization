@@ -78,6 +78,7 @@ functions:
     search_max_iterations: 1
     default_max_results: 10
     vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
     embed_confidence_threshold: 0.1
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
 
@@ -88,6 +89,7 @@ functions:
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true
     vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
     embed_confidence_threshold: 0.1
     critic_agent: critic_agent
     enable_critic: {{- if hasKey .Values.global "enableCritic" }} {{ .Values.global.enableCritic }}{{- else }} true{{- end }}
