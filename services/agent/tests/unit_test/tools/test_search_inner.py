@@ -22,6 +22,7 @@ import pytest
 
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.embed_search import EmbedSearchResultItem
+from vss_agents.tools.search import DecomposedQuery
 from vss_agents.tools.search import SearchConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
@@ -350,6 +351,65 @@ class TestSearchInner:
         assert isinstance(result, SearchOutput)
         mock_attribute_search.ainvoke.assert_awaited_once()
         assert mock_attribute_search.ainvoke.await_args.args[0]["video_sources"] == ["video1"]
+
+    @pytest.mark.asyncio
+    async def test_object_id_search_passes_external_vst_url_to_enrichment(self, mock_builder, monkeypatch):
+        """Search-by-image/object-id results should use explicit external VST URL for thumbnails."""
+        from vss_agents.tools import attribute_search as attribute_search_module
+        from vss_agents.tools import search as search_module
+        from vss_agents.tools.attribute_search import AttributeSearchMetadata
+        from vss_agents.tools.attribute_search import AttributeSearchResult
+
+        config = SearchConfig(
+            embed_search_tool="embed_search",
+            agent_mode_llm="gpt-4o",
+            vst_internal_url="http://vst-internal:30888",
+            vst_external_url="https://7777-brev.brevlab.com",
+            behavior_es_endpoint="http://es:9200",
+        )
+        mock_embed = AsyncMock()
+        mock_builder.get_function.return_value = mock_embed
+        mock_builder.get_llm.return_value = AsyncMock()
+
+        monkeypatch.setattr(search_module, "get_streams_info", AsyncMock(return_value={}))
+        monkeypatch.setattr(search_module.VSSESClient, "get_es_client", AsyncMock(return_value=object()))
+        monkeypatch.setattr(
+            search_module,
+            "decompose_query",
+            AsyncMock(return_value=DecomposedQuery(query="objects like object 42", object_ids=[42])),
+        )
+        monkeypatch.setattr(
+            attribute_search_module,
+            "search_by_object_embedding",
+            AsyncMock(
+                return_value=[
+                    AttributeSearchResult(
+                        screenshot_url=None,
+                        metadata=AttributeSearchMetadata(
+                            sensor_id="camera-1",
+                            object_id="42",
+                            object_type="person",
+                            frame_timestamp="2025-01-01T00:00:00Z",
+                            behavior_score=0.9,
+                        ),
+                    )
+                ]
+            ),
+        )
+        mock_enrich = AsyncMock()
+        monkeypatch.setattr(attribute_search_module, "enrich_attribute_results", mock_enrich)
+
+        gen = search.__wrapped__(config, mock_builder)
+        function_info = await gen.__anext__()
+        inner_fn = function_info.single_fn
+        await inner_fn(SearchInput(query="find similar to object 42", source_type="rtsp", agent_mode=True))
+
+        mock_embed.ainvoke.assert_not_awaited()
+        mock_enrich.assert_awaited_once()
+        assert mock_enrich.await_args.args[1:] == (
+            "http://vst-internal:30888",
+            "https://7777-brev.brevlab.com",
+        )
 
     @pytest.mark.asyncio
     async def test_search_agent_mode_json_code_block(self, config, mock_builder):
