@@ -157,10 +157,6 @@ def generate_task(
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-ask-video` skill against the VSS **{profile}** "
-            f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this "
-            f"`{platform}` host, then ensure `http://localhost:8000/docs` responds and "
-            "a sample warehouse video has been uploaded per the env notes below).",
             "",
             f"## Query {idx} of {len(expects)}",
             "",

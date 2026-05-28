@@ -145,10 +145,6 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-summarize-video` skill against the VSS **{profile}** "
-            f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this "
-            f"`{platform}` host, then ensure `http://localhost:38111/v1/ready` responds "
-            "and a sample warehouse video has been uploaded per the env notes below).",
             "",
             f"## Query {idx} of {len(expects)}",
             "",

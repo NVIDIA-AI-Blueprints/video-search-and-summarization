@@ -168,12 +168,6 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
-    # Optional: spec's `profile` field. When set (profile-bound spec — e.g.
-    # `lvs`, `alerts`, `search`), the agent deploys it via /vss-deploy-profile
-    # in its first turn. When absent (profile-less spec — e.g. vios_ops.json),
-    # the agent stands VIOS up via this skill's bundled
-    # `references/deploy-vios-service.md` runbook instead.
-    profile = spec.get("profile")
 
     for idx, expect in enumerate(expects, 1):
         step_dir = output_root / "base" / platform_short
@@ -186,27 +180,8 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # sees — they live in the spec, are copied into tests/, and the
         # verifier evaluates them independently. If the agent sees the checks
         # it can write to the test rather than do the work.
-        if profile:
-            opening_phrase = (
-                f"Use the `/vss-manage-video-io-storage` skill against the VSS "
-                f"**{profile}** profile (deploy it first via "
-                f"`/vss-deploy-profile -p {profile}` on this `{platform}` host, "
-                "then ensure `http://localhost:30888/vst/api/v1/sensor/version` "
-                "responds before running the query)."
-            )
-        else:
-            opening_phrase = (
-                f"Use the `/vss-manage-video-io-storage` skill on this "
-                f"`{platform}` host (the harness does not pre-deploy VIOS — "
-                "stand it up via the bundled `references/deploy-vios-service.md` "
-                "runbook in this first turn, then ensure "
-                "`http://localhost:30888/vst/api/v1/sensor/version` responds "
-                "before running the query)."
-            )
         lines = [
             PREAMBLE,
-            "",
-            opening_phrase,
             "",
             f"## Query {idx} of {len(expects)}",
             "",

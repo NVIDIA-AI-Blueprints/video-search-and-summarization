@@ -146,11 +146,6 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-search-archive` skill against the VSS **{profile}** "
-            f"profile (deploy it first via `/vss-deploy-profile -p {profile}` on this "
-            f"`{platform}` host, then ensure `http://localhost:8000/docs` responds "
-            "and that the sample videos described in the env notes below are "
-            "ingested before running the search query).",
             "",
             f"## Query {idx} of {len(expects)}",
             "",

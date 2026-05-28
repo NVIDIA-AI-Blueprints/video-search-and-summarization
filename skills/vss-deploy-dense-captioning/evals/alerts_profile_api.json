@@ -1,16 +1,28 @@
 {
-  "skills": ["vss-deploy-dense-captioning", "vss-deploy-profile"],
-  "profile": "alerts",
-  "deploy_mode": "real-time",
+  "skills": [
+    "vss-deploy-dense-captioning",
+    "vss-deploy-profile"
+  ],
   "resources": {
     "platforms": {
       "L40S": {
-        "modes": ["remote-all"]
+        "modes": [
+          "remote-all"
+        ]
       }
     }
   },
   "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA Container Toolkit, `NGC_CLI_API_KEY`, and remote LLM/VLM endpoint env vars (`LLM_REMOTE_URL`, `LLM_REMOTE_MODEL`, `VLM_REMOTE_URL`, `VLM_REMOTE_MODEL`). The eval harness predeploys the full VSS `alerts` profile in `real-time` mode with remote LLM + remote VLM placement before this task starts; this task tests the RT-VLM microservice directly at http://localhost:8018. Required after predeploy: `rtvi-vlm` healthy on port 8018, `mdx-kafka` running, and the public NVIDIA RTSP sample stream reachable from the host. Precheck the stream with `ffprobe`, `gst-discoverer-1.0`, or an equivalent RTSP probe before registering it.",
   "expects": [
+    {
+      "query": "Deploy the VSS **alerts** profile in `real-time` mode on `{{platform}}` via `/vss-deploy-profile -p alerts -m real-time`. Run autonomously.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (real-time VLM processor)"
+      ]
+    },
     {
       "query": "The VSS alerts profile is already deployed in real-time mode on {{platform}} with remote LLM and remote VLM endpoints by the eval harness. Use the `/vss-deploy-dense-captioning` skill to test RT-VLM directly at http://localhost:8018: verify readiness, list models, precheck the RTSP sample stream with `ffprobe`, `gst-discoverer-1.0`, or an equivalent RTSP probe and fail fast with a clear message if it is unreachable, register a temporary RTSP stream with description `rt-vlm-eval-{{mode}}` and URL `rtsp://nv-wowza-pdc.nvidia.com:1935/vod/warehouse_1.mp4`, delete that temporary stream, and show the Kafka incident-consumer command using the VSS Kafka container. Run autonomously and clean up before your final reply.",
       "checks": [
