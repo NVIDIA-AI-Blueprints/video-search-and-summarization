@@ -37,7 +37,51 @@ Video Summarization is composed of the following services:
 
 Video Summarization uses Docker Compose for deployment.
 
-### Database backend
+### Docker runtime prerequisites
+
+Use the repo-level Docker prerequisites before starting this service: Docker 28.3.3+,
+Docker Compose v2.39.1+, NVIDIA Container Toolkit 1.17.8+, and access to `nvcr.io`
+with your `NGC_API_KEY`.
+
+This compose stack is validated with Docker's classic image store. Newer Docker
+installations may enable the containerd image store by default ([Docker Desktop 4.34+](https://docs.docker.com/desktop/features/containerd/)
+and [fresh Docker Engine 29.0+ installs](https://docs.docker.com/engine/storage/containerd/)).
+On affected hosts, pulling `nvcr.io` images during `docker compose up` can fail with
+an error similar to:
+
+```text
+error from registry: Incorrect Repository Format
+```
+
+If you see this error, switch Docker back to the classic image store by disabling the
+containerd snapshotter and restarting Docker. On Linux Docker Engine, merge the
+following setting into `/etc/docker/daemon.json`:
+
+```json
+{
+  "features": {
+    "containerd-snapshotter": false
+  }
+}
+```
+
+Then restart Docker:
+
+```sh
+sudo systemctl restart docker
+docker info -f 'Driver={{ .Driver }} DriverStatus={{ .DriverStatus }}'
+```
+
+If the output contains `io.containerd.snapshotter.v1`, Docker is still using the
+containerd image store. With the classic image store, `Driver` should report a
+classic storage driver such as `overlay2`.
+
+On Docker Desktop, clear **Settings > General > Use containerd for pulling and storing
+images**, then apply the change and restart Docker Desktop. Docker keeps separate image
+stores for classic and containerd modes, so images and containers from the inactive
+store may be hidden until you switch back or re-pull images.
+
+### Database backends
 
 The compose file deploys **Elasticsearch** as the database backend for caption storage,
 summarization, and CA-RAG retrieval.
