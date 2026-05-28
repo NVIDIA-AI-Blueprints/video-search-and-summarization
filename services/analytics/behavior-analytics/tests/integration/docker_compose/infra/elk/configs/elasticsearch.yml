@@ -1,9 +1,9 @@
-#cluster.name: "docker-cluster"
+# cluster.name: "docker-cluster"
 network.host: 0.0.0.0
 http.port: 9200
-#----------------------- BEGIN SECURITY AUTO CONFIGURATION -----------------------
+# ----------------------- BEGIN SECURITY AUTO CONFIGURATION -----------------------
 #
-# The following settings, TLS certificates, and keys have been automatically      
+# The following settings, TLS certificates, and keys have been automatically
 # generated to configure Elasticsearch security features on 04-08-2025 10:18:32
 #
 # --------------------------------------------------------------------------------

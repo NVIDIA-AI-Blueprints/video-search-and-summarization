@@ -74,7 +74,7 @@ services:
       KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760
       KAFKA_LOG_DIRS: '/tmp/kafka-data'
     container_name: mdx-kafka
-    entrypoint: ["/bin/sh","/usr/local/bin/kafka-entrypoint.sh"]
+    entrypoint: ["/bin/sh", "/usr/local/bin/kafka-entrypoint.sh"]
     healthcheck:
       test: ["CMD", "sh", "-c", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 15s
@@ -114,7 +114,7 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    command: "bash /usr/bin/create-kafka-topics.sh"  
+    command: "bash /usr/bin/create-kafka-topics.sh"
 
   redis:
     image: redis:8.6.2-alpine
@@ -215,7 +215,7 @@ services:
         echo 'Installed gems for logstash plugins' &&
         /usr/local/bin/docker-entrypoint"
 
-volumes: 
+volumes:
   mdx-logstash-libs:
   mdx-elastic-data:
     driver: local
