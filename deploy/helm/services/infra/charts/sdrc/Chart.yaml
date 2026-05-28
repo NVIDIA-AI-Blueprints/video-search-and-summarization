@@ -1,0 +1,6 @@
+apiVersion: v2
+name: sdrc
+description: WDM SDRC controller and Envoy router
+type: application
+version: 26.04.2
+appVersion: "1.0"

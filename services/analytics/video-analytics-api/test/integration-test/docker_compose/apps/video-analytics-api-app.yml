@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Video Analytics API app service for integration tests.
+# Depends on infra stack (Elasticsearch).
+
+services:
+  video-analytics-api:
+    image: video-analytics-api:integration-test
+    network_mode: "host"
+    volumes:
+      - $INTEGRATION_TEST_DIR/docker_compose/apps/video-analytics-api-integration-config.json:/resources/config.json:ro
+      - video-analytics-api-app:/web-api-app/files
+    container_name: video-analytics-api-integration
+    command: ["node", "index.js", "--config", "/resources/config.json"]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  video-analytics-api-app:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: $DATA_DIR/data_log/video-analytics-api-app/files

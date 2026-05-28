@@ -1,0 +1,9 @@
+dependencies:
+- name: vss-agent
+  repository: file://./charts/agent
+  version: 26.04.2
+- name: vss-va-mcp
+  repository: file://./charts/va-mcp
+  version: 26.04.2
+digest: sha256:b0eef034eec32df5768144427bf3e0edd024f987ca110734993269c4db1fab00
+generated: "2026-04-20T18:59:23.805498+05:30"

@@ -22,33 +22,76 @@ If you are interested in contributing to Video Search and Summarization (VSS), y
 
 This project uses a dual-license model:
 
-- **Apache-2.0** — applies to all code in the repository except the `ui/` directory.
-- **MIT** — applies to the original code under the `ui/` directory, which is derived from [NVIDIA NeMo Agent Toolkit UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI/).
+- **Apache-2.0** — applies to all code in the repository except the `services/ui/` directory.
+- **MIT** — applies to the original code under the `services/ui/` directory, which is derived from [NVIDIA NeMo Agent Toolkit UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI/).
 
-**All contributions to this repository, regardless of which directory they target, are accepted under the Apache-2.0 license.** Even if you are contributing changes to the `ui/` directory, your contribution will be licensed under Apache-2.0. The original `ui/` code retains its MIT license, but any additions or modifications contributed through this repository are Apache-2.0.
+**All contributions to this repository, regardless of which directory they target, are accepted under the Apache-2.0 license.** Even if you are contributing changes to the `services/ui/` directory, your contribution will be licensed under Apache-2.0. The original `services/ui/` code retains its MIT license, but any additions or modifications contributed through this repository are Apache-2.0.
 
 See the [LICENSE](LICENSE) file for the full license texts.
 
-### Developer Certificate of Origin (DCO)
+### Signing Your Work — Developer Certificate of Origin (DCO)
 
-All contributions must include a DCO sign-off. By adding a `Signed-off-by` line to your commit messages, you certify that you wrote (or otherwise have the right to submit) the contribution, and that you are licensing it under the Apache-2.0 license.
+We require that all contributors "sign off" on their commits. This certifies that the contribution is your original work, or that you have rights to submit it under the same license, or a compatible license. Any contribution which contains commits that are not Signed-Off will not be accepted.
 
-To sign off, add the `-s` flag when committing:
+To sign off on a commit you simply use the `--signoff` (or `-s`) option when committing your changes:
 
 ```bash
-git commit -s -m "Your commit message"
+git commit -s -m "Add cool feature."
 ```
 
-This appends a line like:
+This will append the following to your commit message:
 
 ```
-Signed-off-by: Your Name <your.email@example.com>
+Signed-off-by: Your Name <your@email.com>
 ```
 
 If you have already made commits without a sign-off, you can amend the most recent one:
 
 ```bash
 git commit --amend -s --no-edit
+```
+
+By adding a `Signed-off-by` line you are certifying that the contribution complies with the Developer Certificate of Origin (DCO) reproduced below.
+
+#### Full text of the DCO
+
+Source: <https://developercertificate.org/>
+
+```
+Developer Certificate of Origin
+Version 1.1
+
+Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same open source license (unless I am
+    permitted to submit under a different license), as indicated
+    in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified
+    it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project or the open source license(s) involved.
 ```
 
 **Pull requests with unsigned commits will not be merged.**
@@ -102,9 +145,71 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues 
 - Ensure new or existing tests cover your changes.
 - Keep the documentation up to date with your changes.
 
+<<<<<<< HEAD
 ### UI directory — no external contributions
 
 The `ui/` directory is maintained internally by the NVIDIA Metropolis UI team and is **not open to external contributions**. Pull requests that modify files under `ui/` from external contributors will be closed. If you find a bug or want to request a feature related to the UI, please [file an issue](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/new/choose) instead.
+=======
+### Local development and testing
+
+Before opening a PR, please enable the pre-commit hooks and, ideally, run the GitHub Actions CI locally. Both workflows mirror the checks that run on CI, so passing them locally means the PR will pass remote checks.
+
+#### 1. Enable pre-commit hooks
+
+The repository ships with a `.pre-commit-config.yaml` at the root that runs the same lint and type-check steps as CI:
+
+- `ruff check` — mirrors the CI `Lint (Python)` job
+- `ruff format --check` — mirrors the CI `Lint (Python)` job
+- `mypy src/vss_agents/` — mirrors the CI `Type Check (mypy)` job
+- TruffleHog secret scan
+
+Install the hooks once after cloning the repo:
+
+```bash
+cd services/agent
+uv venv --python 3.13
+uv sync --group dev
+uv run pre-commit install
+```
+
+After that, the hooks run automatically on every `git commit`. To run them manually against all files:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+If you need to bypass a hook for a specific commit (rare, and not recommended), use `SKIP=<hook-id> git commit …` or `git commit --no-verify`.
+
+#### 2. Run the CI workflow locally with `act`
+
+The full GitHub Actions CI pipeline (`.github/workflows/ci.yml`) can be executed locally using [`act`](https://github.com/nektos/act), which runs the workflow in Docker containers that match GitHub's runners.
+
+Install `act` (see its [README](https://github.com/nektos/act#installation) for other platforms):
+
+```bash
+# Linux / macOS (Homebrew)
+brew install act
+
+# Linux (curl)
+curl https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+```
+
+You'll also need Docker running locally.
+
+From the repository root, run the push workflow:
+
+```bash
+act push --workflows .github/workflows/ci.yml
+```
+
+This executes every job in parallel (lint, typecheck, test, security scan, UI lint/typecheck, UI build). The first run downloads the `catthehacker/ubuntu:act-latest` image (~1 GB); subsequent runs reuse the cached image.
+
+Notes:
+
+- `act` does not have GitHub's `ACTIONS_RUNTIME_TOKEN`, so the `actions/upload-artifact` step in the `Test (pytest)` job will fail at the end. This is expected and does not affect the test result — the tests themselves will have already passed.
+- To run a single job, pass `-j <job-id>`, e.g. `act push -j lint`.
+- If you hit GitHub API rate limits on `actions/setup-node`, pass a token: `act push --secret GITHUB_TOKEN=$(gh auth token)`.
+>>>>>>> develop
 
 ### Branch naming
 

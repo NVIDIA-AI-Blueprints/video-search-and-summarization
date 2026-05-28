@@ -1,0 +1,147 @@
+{
+  "frames": [
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "timestamp": "2026-02-14T10:13:51.292Z",
+      "objects": [
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {},
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {},
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {},
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {},
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {},
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        }
+      ],
+      "id": "0"
+    }
+  ]
+}

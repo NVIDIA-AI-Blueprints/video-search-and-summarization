@@ -1,0 +1,5 @@
+pipeline.workers: 1
+pipeline.ordered: true
+pipeline.ecs_compatibility: disabled
+xpack.monitoring.elasticsearch.hosts: ["http://localhost:9200"]
+api.http.host: "0.0.0.0"

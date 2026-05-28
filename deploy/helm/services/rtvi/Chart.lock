@@ -1,0 +1,12 @@
+dependencies:
+- name: vss-rtvi-cv
+  repository: file://./charts/rtvi-cv
+  version: 26.04.2
+- name: vss-rtvi-vlm
+  repository: file://./charts/rtvi-vlm
+  version: 26.04.2
+- name: vss-rtvi-embed
+  repository: file://./charts/rtvi-embed
+  version: 26.04.2
+digest: sha256:d12cab553fbc110449cdcf33441ae9cc9e149037dc9eea9c7d6572ca7672394a
+generated: "2026-05-26T07:57:24.654718003Z"

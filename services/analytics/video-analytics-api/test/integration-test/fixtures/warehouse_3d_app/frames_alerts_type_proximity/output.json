@@ -1,0 +1,2004 @@
+{
+  "alerts": [
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.453Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.214226958,
+                "y": -11.292468278
+              },
+              {
+                "x": -8.010404822,
+                "y": -10.604099183
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.214226958,
+              -11.292468278,
+              0.81313622,
+              0.66804415,
+              0.671827495,
+              1.643098116,
+              0,
+              0,
+              -3.038407564
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.010404822,
+              -10.604099183,
+              0.93097657,
+              0.656238019,
+              0.637870967,
+              1.891774178,
+              0,
+              0,
+              0.690062344
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.419Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.210061308,
+                "y": -11.305600731
+              },
+              {
+                "x": -8.001847502,
+                "y": -10.608957796
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.210061308,
+              -11.305600731,
+              0.813724041,
+              0.670803666,
+              0.67533201,
+              1.642561197,
+              0,
+              0,
+              -3.037438631
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.001847502,
+              -10.608957796,
+              0.930706263,
+              0.655650556,
+              0.634918332,
+              1.890139818,
+              0,
+              0,
+              0.708770514
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.386Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.211018797,
+                "y": -11.28040108
+              },
+              {
+                "x": -7.99312329,
+                "y": -10.612921505
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.211018797,
+              -11.28040108,
+              0.814440429,
+              0.675968349,
+              0.675987959,
+              1.641530514,
+              0,
+              0,
+              -3.037983418
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.99312329,
+              -10.612921505,
+              0.930442572,
+              0.655076921,
+              0.630521715,
+              1.887756348,
+              0,
+              0,
+              0.728368104
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.353Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.194927928,
+                "y": -11.230551569
+              },
+              {
+                "x": -7.985897299,
+                "y": -10.622853069
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.194927928,
+              -11.230551569,
+              0.816144586,
+              0.678491652,
+              0.671615005,
+              1.639788747,
+              0,
+              0,
+              -3.041280985
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.985897299,
+              -10.622853069,
+              0.931865215,
+              0.6552338,
+              0.627970815,
+              1.887295246,
+              0,
+              0,
+              0.747769058
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.319Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.163458106,
+                "y": -11.203503041
+              },
+              {
+                "x": -7.981579062,
+                "y": -10.634421973
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.163458106,
+              -11.203503041,
+              0.817167163,
+              0.677221239,
+              0.668502569,
+              1.638981223,
+              0,
+              0,
+              -3.059743404
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.981579062,
+              -10.634421973,
+              0.932700574,
+              0.655488968,
+              0.627139688,
+              1.887144446,
+              0,
+              0,
+              0.762828529
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.286Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.126946208,
+                "y": -11.158062606
+              },
+              {
+                "x": -7.978900191,
+                "y": -10.645429401
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.126946208,
+              -11.158062606,
+              0.817329109,
+              0.676506221,
+              0.66631043,
+              1.637239933,
+              0,
+              0,
+              -3.073760986
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.978900191,
+              -10.645429401,
+              0.933014393,
+              0.654917777,
+              0.625738978,
+              1.885621309,
+              0,
+              0,
+              0.774136841
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.253Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.085437056,
+                "y": -11.119214563
+              },
+              {
+                "x": -7.985350844,
+                "y": -10.668643384
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.085437056,
+              -11.119214563,
+              0.816753805,
+              0.675721228,
+              0.666885972,
+              1.636795163,
+              0,
+              0,
+              -3.088270426
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.985350844,
+              -10.668643384,
+              0.933497488,
+              0.655390024,
+              0.628343344,
+              1.886693239,
+              0,
+              0,
+              0.763727605
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.219Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.061107394,
+                "y": -11.066638737
+              },
+              {
+                "x": -7.978639838,
+                "y": -10.680949955
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.061107394,
+              -11.066638737,
+              0.816507339,
+              0.675693989,
+              0.667363524,
+              1.636725903,
+              0,
+              0,
+              -3.089178085
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.978639838,
+              -10.680949955,
+              0.933167815,
+              0.655889273,
+              0.627831638,
+              1.887066364,
+              0,
+              0,
+              0.764489353
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.186Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.040476557,
+                "y": -11.030660419
+              },
+              {
+                "x": -7.97145867,
+                "y": -10.69363728
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.040476557,
+              -11.030660419,
+              0.817129552,
+              0.673829198,
+              0.667876482,
+              1.637208223,
+              0,
+              0,
+              -3.094146252
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.97145867,
+              -10.69363728,
+              0.933024704,
+              0.655774593,
+              0.626711726,
+              1.887256265,
+              0,
+              0,
+              0.772885561
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.153Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.047333952,
+                "y": -11.028690247
+              },
+              {
+                "x": -7.966949698,
+                "y": -10.711776643
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.047333952,
+              -11.028690247,
+              0.816642761,
+              0.674417377,
+              0.668128431,
+              1.636507869,
+              0,
+              0,
+              -3.094909191
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.966949698,
+              -10.711776643,
+              0.932400167,
+              0.657332957,
+              0.62609905,
+              1.887312412,
+              0,
+              0,
+              0.781418085
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.119Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.049409148,
+                "y": -11.033161788
+              },
+              {
+                "x": -7.965593573,
+                "y": -10.733459859
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.049409148,
+              -11.033161788,
+              0.817494392,
+              0.673467815,
+              0.668475509,
+              1.636273623,
+              0,
+              0,
+              -3.093946695
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.965593573,
+              -10.733459859,
+              0.932844698,
+              0.659017861,
+              0.627600312,
+              1.888234019,
+              0,
+              0,
+              0.777564406
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.086Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.068943259,
+                "y": -11.025869875
+              },
+              {
+                "x": -7.965383765,
+                "y": -10.744488625
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.068943259,
+              -11.025869875,
+              0.817642152,
+              0.674931765,
+              0.668619752,
+              1.635809541,
+              0,
+              0,
+              -3.089215755
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.965383765,
+              -10.744488625,
+              0.932169437,
+              0.660263181,
+              0.626613796,
+              1.888810754,
+              0,
+              0,
+              0.793755889
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.053Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.098686453,
+                "y": -11.045455723
+              },
+              {
+                "x": -7.969861266,
+                "y": -10.761148362
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.098686453,
+              -11.045455723,
+              0.818080544,
+              0.675751567,
+              0.668286383,
+              1.63511157,
+              0,
+              0,
+              -3.087814808
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.969861266,
+              -10.761148362,
+              0.931884646,
+              0.661374688,
+              0.626576304,
+              1.888263941,
+              0,
+              0,
+              0.802492142
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:29.019Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.117264506,
+                "y": -11.037268906
+              },
+              {
+                "x": -7.969054934,
+                "y": -10.777204781
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.117264506,
+              -11.037268906,
+              0.817719162,
+              0.678101957,
+              0.669560492,
+              1.634380698,
+              0,
+              0,
+              -3.088264942
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.969054934,
+              -10.777204781,
+              0.931431413,
+              0.663329542,
+              0.626911998,
+              1.887265921,
+              0,
+              0,
+              0.804261625
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.986Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.111914393,
+                "y": -11.042897134
+              },
+              {
+                "x": -7.983043429,
+                "y": -10.803240089
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.111914393,
+              -11.042897134,
+              0.817602694,
+              0.682847381,
+              0.671141505,
+              1.632314086,
+              0,
+              0,
+              -3.091864109
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.983043429,
+              -10.803240089,
+              0.931912661,
+              0.666261792,
+              0.630180776,
+              1.886367559,
+              0,
+              0,
+              0.785592556
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.953Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.118984934,
+                "y": -10.990693598
+              },
+              {
+                "x": -7.984017607,
+                "y": -10.822366862
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.118984934,
+              -10.990693598,
+              0.818261445,
+              0.684355557,
+              0.671154737,
+              1.631986499,
+              0,
+              0,
+              -3.08628726
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.984017607,
+              -10.822366862,
+              0.93181473,
+              0.667462587,
+              0.631557703,
+              1.885631561,
+              0,
+              0,
+              0.791788518
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.919Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.124310252,
+                "y": -10.998043804
+              },
+              {
+                "x": -7.986082312,
+                "y": -10.841026454
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.124310252,
+              -10.998043804,
+              0.818223298,
+              0.687851608,
+              0.673090756,
+              1.630853891,
+              0,
+              0,
+              -3.088775873
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -7.986082312,
+              -10.841026454,
+              0.931262553,
+              0.670735776,
+              0.633749425,
+              1.884612679,
+              0,
+              0,
+              0.80036217
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.886Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.133923289,
+                "y": -10.9948453
+              },
+              {
+                "x": -8.009302374,
+                "y": -10.873391299
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.133923289,
+              -10.9948453,
+              0.817239761,
+              0.694154203,
+              0.674374342,
+              1.629650474,
+              0,
+              0,
+              -3.087902069
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.009302374,
+              -10.873391299,
+              0.9316203,
+              0.672208548,
+              0.638703048,
+              1.885791898,
+              0,
+              0,
+              0.783398151
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.853Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.15215325,
+                "y": -10.952985196
+              },
+              {
+                "x": -8.011961695,
+                "y": -10.882390528
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.15215325,
+              -10.952985196,
+              0.817127347,
+              0.696065426,
+              0.673884809,
+              1.629535317,
+              0,
+              0,
+              -3.092611074
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.011961695,
+              -10.882390528,
+              0.93166405,
+              0.674064696,
+              0.639760613,
+              1.885857701,
+              0,
+              0,
+              0.793837607
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.819Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.148462054,
+                "y": -10.950964837
+              },
+              {
+                "x": -8.03250241,
+                "y": -10.910118847
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.148462054,
+              -10.950964837,
+              0.816464663,
+              0.698383808,
+              0.673947155,
+              1.629156709,
+              0,
+              0,
+              -3.093875885
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.03250241,
+              -10.910118847,
+              0.932671547,
+              0.676020861,
+              0.645052195,
+              1.888584614,
+              0,
+              0,
+              0.777308822
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.786Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.112935778,
+                "y": -10.925344257
+              },
+              {
+                "x": -8.05333924,
+                "y": -10.942908196
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.112935778,
+              -10.925344257,
+              0.815759599,
+              0.697247863,
+              0.67251575,
+              1.630076528,
+              0,
+              0,
+              -3.096432447
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.05333924,
+              -10.942908196,
+              0.933889031,
+              0.67794776,
+              0.649485707,
+              1.892294645,
+              0,
+              0,
+              0.77661407
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.753Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.081513163,
+                "y": -10.905995159
+              },
+              {
+                "x": -8.058132884,
+                "y": -10.945407896
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.081513163,
+              -10.905995159,
+              0.815247357,
+              0.695585251,
+              0.671626985,
+              1.631871104,
+              0,
+              0,
+              -3.104805231
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.058132884,
+              -10.945407896,
+              0.933303416,
+              0.677439153,
+              0.649343014,
+              1.892950773,
+              0,
+              0,
+              0.77713275
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.719Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.079569575,
+                "y": -10.923787742
+              },
+              {
+                "x": -8.069252249,
+                "y": -10.967344074
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.079569575,
+              -10.923787742,
+              0.81500566,
+              0.697690606,
+              0.670708239,
+              1.632365704,
+              0,
+              0,
+              -3.090068102
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.069252249,
+              -10.967344074,
+              0.933834434,
+              0.677225471,
+              0.653147936,
+              1.896469831,
+              0,
+              0,
+              0.750405788
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.686Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.053011653,
+                "y": -10.903294234
+              },
+              {
+                "x": -8.077320811,
+                "y": -10.97374764
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.053011653,
+              -10.903294234,
+              0.814784646,
+              0.696631014,
+              0.669834971,
+              1.632900238,
+              0,
+              0,
+              -3.101146698
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.077320811,
+              -10.97374764,
+              0.93346411,
+              0.676382661,
+              0.653036833,
+              1.896308184,
+              0,
+              0,
+              0.754378557
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "bev-sensor-1",
+      "timestamp": "2026-02-23T10:13:28.653Z",
+      "proximity": {
+        "proximityDetections": 1,
+        "info": {
+          "proximityViolationObjects": "3817,3962",
+          "proximityViolation": "true"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": -8.02271485,
+                "y": -10.910783439
+              },
+              {
+                "x": -8.082351443,
+                "y": -10.986820488
+              }
+            ]
+          }
+        ],
+        "threshold": 2
+      },
+      "objects": [
+        {
+          "id": "3817",
+          "type": "Fourier_GR1_T2_Humanoid",
+          "bbox3d": {
+            "coordinates": [
+              -8.02271485,
+              -10.910783439,
+              0.814785719,
+              0.695689082,
+              0.669283271,
+              1.634242654,
+              0,
+              0,
+              -3.106123209
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        },
+        {
+          "id": "3962",
+          "type": "Person",
+          "bbox3d": {
+            "coordinates": [
+              -8.082351443,
+              -10.986820488,
+              0.933588445,
+              0.675571978,
+              0.654607952,
+              1.897093534,
+              0,
+              0,
+              0.747089922
+            ]
+          },
+          "bbox": {
+            "confidence": 0,
+            "embeddings": [],
+            "bottomY": 0,
+            "leftX": 0,
+            "info": {},
+            "topY": 0,
+            "rightX": 0
+          }
+        }
+      ]
+    }
+  ]
+}

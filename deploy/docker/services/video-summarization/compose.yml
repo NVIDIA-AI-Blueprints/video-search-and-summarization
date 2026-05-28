@@ -1,0 +1,178 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  lvs-server:
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc11-d65196a}
+    container_name: vss-lvs
+
+    profiles: ["bp_developer_lvs_2d"]
+
+    network_mode: host
+
+    # Volume mounts
+    volumes:
+      # Mount config.yaml and set CA_RAG_CONFIG_PATH to this location
+      - $VSS_APPS_DIR/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
+      # Optional: Mount model cache directory if MODEL_ROOT_DIR is set
+      - ${MODEL_ROOT_DIR:-/tmp/model_cache}:${MODEL_ROOT_DIR:-/tmp/model_cache}
+
+    # Environment variables from .env file plus config path
+    environment:
+      # Config file path - points to mounted config.yaml
+      - CA_RAG_CONFIG=/app/config.yaml
+
+      # Database configuration
+      - MILVUS_DB_HOST=${MILVUS_DB_HOST}
+      - MILVUS_DB_GRPC_PORT=${MILVUS_DB_GRPC_PORT}
+      - ES_HOST=${ES_HOST}
+      - ES_PORT=${ES_PORT}
+      - GRAPH_DB_HOST=graph-db
+      - GRAPH_DB_USERNAME=neo4j
+      - GRAPH_DB_PASSWORD=passneo4j
+      - GRAPH_DB_HTTP_PORT=${GRAPH_DB_HTTP_PORT:-7474}
+      - GRAPH_DB_BOLT_PORT=${GRAPH_DB_BOLT_PORT:-7687}
+      - ARANGO_DB_HOST=arango-db
+      - ARANGO_DB_USERNAME=root
+      - ARANGO_DB_PASSWORD=passroot
+      - ARANGO_DB_PORT=${ARANGO_DB_PORT:-8529}
+      - LVS_DATABASE_BACKEND=${LVS_DATABASE_BACKEND:-elasticsearch_db}
+
+      # Object storage
+      - MINIO_USERNAME=minio
+      - MINIO_PASSWORD=minio123
+
+      # LLM configuration
+      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME}
+      - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
+      - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
+      - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+
+      # Embedding configuration
+      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE}
+      - LVS_EMB_MODEL_NAME=${LVS_EMB_MODEL_NAME}
+      - LVS_EMB_BASE_URL=${LVS_EMB_BASE_URL}
+
+      # Port configuration
+      - BACKEND_PORT=${BACKEND_PORT:-38111}
+      - LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
+
+      # Model cache directory
+      - MODEL_ROOT_DIR=${MODEL_ROOT_DIR:-/tmp/model_cache}
+
+      # NGC model cache directory
+      - NGC_MODEL_CACHE=${MODEL_ROOT_DIR:-/tmp/model_cache}
+
+      # Default Save Events to Elasticsearch
+      - LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=${LVS_DISABLE_DB_RESET_ON_REQUEST_DONE:-true}
+
+      # Kafka integration (consume captions / publish structured summaries)
+      - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - KAFKA_STRUCTURED_SUMMARY_TOPIC=${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
+
+      # LLM-based merging of overlapping/duplicate events in the structured summary
+      - LVS_ENABLE_LLM_MERGING=${LVS_ENABLE_LLM_MERGING:-false}
+
+      # Feature flags
+      - DISABLE_CA_RAG=false
+      - ENABLE_AUDIO=${ENABLE_AUDIO:-false}
+      - ENABLE_DENSE_CAPTION=false
+      # The LVS HTTP API is sufficient for the developer profile. Keep MCP opt-in
+      # to avoid host-port collisions when using host networking.
+      - LVS_ENABLE_MCP=${LVS_ENABLE_MCP:-false}
+      - VSS_LOG_LEVEL=INFO
+      - VLM_SYSTEM_PROMPT=""
+
+      # RTVI-VLM integration (routes VLM calls to the RTVI container /generate_captions)
+      - RTVI_VLM_URL=${RTVI_VLM_URL:-}
+      - RTVI_VLM_URL_PASSTHROUGH=true
+
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+
+    # Alternative: Load all variables from .env file
+    env_file:
+      - $VSS_APPS_DIR/services/video-summarization/.env
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-38111}/v1/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: always
+    depends_on:
+      nvidia-nemotron-nano-9b-v2:
+        condition: service_healthy
+        required: false
+      nvidia-nemotron-nano-9b-v2-fp8:
+        condition: service_healthy
+        required: false
+      nemotron-3-nano:
+        condition: service_healthy
+        required: false
+      llama-3.3-nemotron-super-49b-v1.5:
+        condition: service_healthy
+        required: false
+      gpt-oss-20b:
+        condition: service_healthy
+        required: false
+      nvidia-nemotron-nano-9b-v2-shared-gpu:
+        condition: service_healthy
+        required: false
+      nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
+        condition: service_healthy
+        required: false
+      nemotron-3-nano-shared-gpu:
+        condition: service_healthy
+        required: false
+      llama-3.3-nemotron-super-49b-v1.5-shared-gpu:
+        condition: service_healthy
+        required: false
+      gpt-oss-20b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason2-8b:
+        condition: service_healthy
+        required: false
+      cosmos-reason2-8b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner-shared-gpu:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct-shared-gpu:
+        condition: service_healthy
+        required: false
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
+
+    # Network mode: bridge (default) to enable port mapping
+    # To use host network instead (ignores port mapping), uncomment:
+    # network_mode: host

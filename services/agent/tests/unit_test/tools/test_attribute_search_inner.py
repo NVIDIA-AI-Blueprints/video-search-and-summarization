@@ -1,0 +1,189 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Tests for attribute search helper functions."""
+
+from unittest.mock import AsyncMock
+from unittest.mock import patch
+
+import pytest
+
+from vss_agents.tools.attribute_search import AttributeSearchMetadata
+from vss_agents.tools.attribute_search import AttributeSearchResult
+from vss_agents.tools.attribute_search import _search_behavior
+from vss_agents.tools.attribute_search import enrich_attribute_results
+from vss_agents.tools.attribute_search import resolve_index_by_source_type
+
+
+def _make_result(
+    sensor_id: str = "camera-1",
+    screenshot_url: str | None = None,
+    start_time: str | None = None,
+) -> AttributeSearchResult:
+    return AttributeSearchResult(
+        screenshot_url=screenshot_url,
+        metadata=AttributeSearchMetadata(
+            sensor_id=sensor_id,
+            object_id="42",
+            object_type="person",
+            frame_timestamp="2025-01-01T00:00:01Z",
+            start_time=start_time,
+            end_time=None,
+            bbox=None,
+            behavior_score=0.95,
+            frame_score=None,
+            video_name=None,
+        ),
+    )
+
+
+class TestEnrichAttributeResults:
+    """Tests for enrich_attribute_results."""
+
+    @pytest.mark.asyncio
+    async def test_enriches_results_concurrently(self):
+        results = [
+            _make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z"),
+            _make_result(sensor_id="camera-2"),
+        ]
+
+        mock_get_stream_id = AsyncMock(side_effect=["stream-1", "stream-2"])
+
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+            await enrich_attribute_results(results, "http://vst-internal:30888")
+
+        assert [r.metadata.sensor_id for r in results] == ["stream-1", "stream-2"]
+        assert results[0].screenshot_url == (
+            "http://vst-internal:30888/vst/api/v1/replay/stream/stream-1/picture?startTime=2025-01-01T00:00:00Z"
+        )
+        assert results[1].screenshot_url == (
+            "http://vst-internal:30888/vst/api/v1/replay/stream/stream-2/picture?startTime=2025-01-01T00:00:01Z"
+        )
+
+    @pytest.mark.asyncio
+    async def test_enrichment_failure_does_not_block_other_results(self):
+        results = [
+            _make_result(sensor_id="camera-1"),
+            _make_result(sensor_id="camera-2"),
+        ]
+
+        async def _get_stream_id(sensor_id: str, vst_url: str | None = None) -> str:
+            if sensor_id == "camera-1":
+                raise RuntimeError("boom")
+            return "stream-2"
+
+        with patch("vss_agents.tools.vst.utils.get_stream_id", side_effect=_get_stream_id):
+            await enrich_attribute_results(results, "http://vst-internal:30888")
+
+        assert results[0].metadata.sensor_id == "camera-1"
+        assert results[0].screenshot_url is None
+        assert results[1].metadata.sensor_id == "stream-2"
+        assert results[1].screenshot_url == (
+            "http://vst-internal:30888/vst/api/v1/replay/stream/stream-2/picture?startTime=2025-01-01T00:00:01Z"
+        )
+
+    @pytest.mark.asyncio
+    async def test_skips_existing_screenshot_urls(self):
+        results = [
+            _make_result(sensor_id="camera-1", screenshot_url="http://existing"),
+            _make_result(sensor_id="camera-2"),
+        ]
+
+        mock_get_stream_id = AsyncMock(return_value="stream-2")
+
+        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+            await enrich_attribute_results(results, "http://vst-internal:30888")
+
+        assert results[0].screenshot_url == "http://existing"
+        assert results[0].metadata.sensor_id == "camera-1"
+        assert results[1].metadata.sensor_id == "stream-2"
+        mock_get_stream_id.assert_awaited_once_with("camera-2", "http://vst-internal:30888")
+
+
+class TestSearchBehaviorFilters:
+    """Tests for behavior search filter construction."""
+
+    @pytest.mark.asyncio
+    async def test_rtsp_uuid_video_source_uses_wildcard_filter(self):
+        stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
+        es = AsyncMock()
+        es.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
+
+        result = await _search_behavior(
+            index=["mdx-behavior-*", "-mdx-behavior-2025-01-01"],
+            query_embedding=[0.1, 0.2, 0.3],
+            top_k=5,
+            min_similarity=0.0,
+            es=es,
+            video_sources=[stream_id],
+            source_type="rtsp",
+        )
+
+        assert result == []
+        body = es.search.await_args.kwargs["body"]
+        source_filter = body["knn"]["filter"]
+        should_clauses = source_filter["bool"]["should"]
+
+        assert {"terms": {"sensor.id.keyword": [stream_id]}} not in should_clauses
+        assert {"term": {"sensor.id.keyword": stream_id}} in should_clauses
+        assert {"wildcard": {"sensor.info.url.keyword": f"*{stream_id}*"}} in should_clauses
+
+
+class TestResolveIndexBySourceType:
+    """Tests for the shared video_file/rtsp index resolver."""
+
+    def test_video_file_returns_base_index_unchanged(self) -> None:
+        assert (
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="video_file",
+                wildcard_pattern="mdx-behavior-*",
+            )
+            == "mdx-behavior-2025-01-01"
+        )
+
+    def test_rtsp_returns_wildcard_with_video_file_exclusion(self) -> None:
+        assert resolve_index_by_source_type(
+            base_index="mdx-behavior-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-behavior-*",
+        ) == ["mdx-behavior-*", "-mdx-behavior-2025-01-01"]
+
+    def test_rtsp_works_for_other_index_families(self) -> None:
+        assert resolve_index_by_source_type(
+            base_index="mdx-embed-filtered-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-embed-filtered-*",
+        ) == ["mdx-embed-filtered-*", "-mdx-embed-filtered-2025-01-01"]
+        assert resolve_index_by_source_type(
+            base_index="mdx-raw-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-raw-*",
+        ) == ["mdx-raw-*", "-mdx-raw-2025-01-01"]
+
+    def test_unsupported_source_type_raises(self) -> None:
+        # Cast to bypass the Literal at type-check time; the guard targets
+        # config-driven or JSON-deserialized inputs that escape static typing.
+        with pytest.raises(ValueError, match="Unsupported source_type"):
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="RTSP",  # type: ignore[arg-type]
+                wildcard_pattern="mdx-behavior-*",
+            )
+        with pytest.raises(ValueError, match="Unsupported source_type"):
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="",  # type: ignore[arg-type]
+                wildcard_pattern="mdx-behavior-*",
+            )

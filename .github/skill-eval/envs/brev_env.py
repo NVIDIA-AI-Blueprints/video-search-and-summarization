@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Harbor environment provider for Brev GPU instances.
 
+<<<<<<< HEAD
 Two modes:
 
 1. **Reuse an existing instance** (BREV_INSTANCE env var):
@@ -13,12 +14,26 @@ Two modes:
    Query `brev search --json` for a matching instance type, create
    one, wait for ready.  The instance is stopped (not deleted) on
    trial completion so subsequent trials can reuse it.
+=======
+Connects to a pre-existing operator-managed `vss-eval-*` pool member
+resolved via the `BREV_INSTANCE` env var (or `brev_instance` in
+task.toml [metadata]). Validates that the resolved instance is
+reachable and that its GPU meets the task's requirements; raises if
+no instance is resolved. The harness does NOT auto-provision — see
+AGENTS.md § 5a for the fleet-selection algorithm the skill-eval
+agent uses to pick a pool member.
+>>>>>>> develop
 
 Task.toml [metadata] fields consumed:
     gpu_type              — e.g. "L40S", "H100", "RTX PRO 6000"
     gpu_count             — 1 or 2
     min_vram_gb_per_gpu   — e.g. 48, 80
+<<<<<<< HEAD
     brev_search           — (optional) substring override for brev search
+=======
+    min_root_disk_gb      — root-disk floor enforced post-resolve
+    min_gpu_driver_version — driver floor enforced post-resolve
+>>>>>>> develop
     brev_instance         — (optional) explicit instance name override
 """
 
@@ -29,6 +44,11 @@ import json
 import logging
 import os
 import shlex
+<<<<<<< HEAD
+=======
+import subprocess
+import tempfile
+>>>>>>> develop
 import uuid
 from enum import Enum
 from pathlib import Path
@@ -48,6 +68,7 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 
 
+<<<<<<< HEAD
 def _record_started_instance(name: str) -> None:
     """Append an auto-provisioned instance name to the wrapper's
     cleanup marker (`/tmp/brev/started-by-<run_id>.txt`) so
@@ -65,6 +86,8 @@ def _record_started_instance(name: str) -> None:
         logger.warning("failed to record %s in started-by marker: %s", name, exc)
 
 
+=======
+>>>>>>> develop
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
 
@@ -120,7 +143,11 @@ class BrevEnvironment(BaseEnvironment):
         return tomllib.loads(task_toml.read_text()).get("metadata", {}) or {}
 
     def _resolve_instance_name(self) -> str | None:
+<<<<<<< HEAD
         """Resolve instance name: env var > task.toml > None (auto-provision)."""
+=======
+        """Resolve instance name: env var > task.toml > None (error)."""
+>>>>>>> develop
         if DEFAULT_INSTANCE:
             return DEFAULT_INSTANCE
         meta = self._read_task_metadata()
@@ -129,7 +156,13 @@ class BrevEnvironment(BaseEnvironment):
         return None
 
     async def start(self, force_build: bool) -> None:
+<<<<<<< HEAD
         """Validate or provision a Brev instance matching task GPU requirements."""
+=======
+        """Validate that the resolved Brev instance is reachable and matches
+        the task's GPU requirements. Errors if no instance is resolved —
+        the harness does not auto-provision."""
+>>>>>>> develop
         if self._started:
             return
 
@@ -138,7 +171,10 @@ class BrevEnvironment(BaseEnvironment):
             "gpu_type": meta.get("gpu_type"),
             "gpu_count": int(meta.get("gpu_count", 1)),
             "min_vram_gb_per_gpu": int(meta.get("min_vram_gb_per_gpu", 0)),
+<<<<<<< HEAD
             "brev_search": meta.get("brev_search") or meta.get("gpu_type"),
+=======
+>>>>>>> develop
             "min_root_disk_gb": int(meta.get("min_root_disk_gb", 0)),
             "min_gpu_driver_version": meta.get("min_gpu_driver_version"),
         }
@@ -155,6 +191,7 @@ class BrevEnvironment(BaseEnvironment):
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
                 )
+<<<<<<< HEAD
             _check_instance_matches(instance, requirements)
         else:
             # Mode 2: auto-provision via brev search + create.
@@ -212,6 +249,19 @@ class BrevEnvironment(BaseEnvironment):
             # _wait_for_running so a timeout there doesn't leak an orphan.
             _record_started_instance(self._instance_name)
             await _wait_for_running(self._instance_name)
+=======
+            await _check_instance_matches(instance, requirements)
+        else:
+            raise RuntimeError(
+                "No BREV_INSTANCE set and no `brev_instance` in task.toml "
+                "[metadata]. The harness no longer auto-provisions — every "
+                "trial must run on an operator-managed `vss-eval-*` pool "
+                "member. The skill-eval agent picks one per AGENTS.md § 5a "
+                "and exports BREV_INSTANCE before invoking `uvx harbor run`. "
+                "If you're running harbor manually, export "
+                "BREV_INSTANCE=<vss-eval-*-name> first."
+            )
+>>>>>>> develop
 
         # Quick smoke test — ensure exec works
         result = await _run_brev_exec(
@@ -229,11 +279,19 @@ class BrevEnvironment(BaseEnvironment):
                 f"{(result.stdout or '')[:200]!r}"
             )
 
+<<<<<<< HEAD
         # Post-provision resource checks: root disk + GPU driver.
         # These catch provider quirks that brev search doesn't surface
         # (e.g. hyperstack_H100x2 lists disk_min_gb=1600 but mounts the
         # big volume on /ephemeral — / is only ~100 GB, which OOMs on
         # local NIM pulls).
+=======
+        # Live resource checks: root disk + GPU driver. The pool box was
+        # provisioned by the operator and is expected to meet these, but
+        # the checks catch silent regressions (e.g. a driver downgrade or
+        # a box where the big volume mounts on /ephemeral and / is only
+        # ~100 GB — which OOMs on local NIM pulls).
+>>>>>>> develop
         await _check_live_resources(self._instance_name, requirements)
 
         # Pre-create harbor's expected directories with correct ownership
@@ -300,6 +358,24 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+<<<<<<< HEAD
+=======
+            # Pin the eval's deploy step to the PR's actual head SHA on
+            # the actual source repo — the pre-deploy script reads these
+            # and resets $REPO to that SHA. Without them, the adapter's
+            # baked-in branch wins and warm-pool boxes drift from PR
+            # reality (NVBug 6154461 / PR #377 finding: spec asserted
+            # the renamed release/3.2.0 container names while the eval
+            # deployed feat/skills's old names).
+            "PR_HEAD_SHA", "PR_REPO",
+            # Tag the active-deploy marker with the run id so the next
+            # run's `_ensure_prerequisite_deployed` always reconciles
+            # against a prior run's leftover state, regardless of how
+            # the prior run ended. Consumed by the vss-deploy-profile
+            # adapter's test.sh when it writes the marker on
+            # reward=1.0.
+            "GITHUB_RUN_ID",
+>>>>>>> develop
         ):
             val = os.environ.get(key)
             if val:
@@ -328,6 +404,23 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
+<<<<<<< HEAD
+=======
+        # Sync ~/video-search-and-summarization on the box to the PR's
+        # actual head SHA before any deploy/agent step reads it.
+        #
+        # Without this, every trial runs against whatever happened to be
+        # checked out on the box from a prior session — often a stale
+        # tarball-style checkout (no `.git`) with an obsolete directory
+        # layout (`deployments/` instead of `deploy/docker/`) and the
+        # pre-rename container names. The pre-deploy script generated
+        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
+        # only syncs on the *gold-solution* path; the trial's agent invokes
+        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
+        # PR_HEAD_SHA forwarded above never actually lands on disk.
+        await self._sync_repo_to_pr_head()
+
+>>>>>>> develop
         # Pre-deploy any prerequisite profile declared in task.toml [metadata].
         # Idempotent via marker file on the box, so dependent trials reuse the
         # deployment without re-running it.
@@ -337,6 +430,7 @@ class BrevEnvironment(BaseEnvironment):
         logger.info("Brev instance %s is reachable", self._instance_name)
 
     async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
+<<<<<<< HEAD
         """If task.toml [metadata] declares both `profile` and
         `prerequisite_deploy_mode`, ensure /deploy has run on the Brev
         box for that profile-mode pair. Reads a single canonical
@@ -357,15 +451,85 @@ class BrevEnvironment(BaseEnvironment):
         early-return; their test.sh writes the marker on reward=1.0.
 
         claude-code is expected on the box from a prior deploy/* trial's
+=======
+        """Reconcile the Brev box's deployment state with what this
+        trial's task.toml [metadata] declares. Reads a single canonical
+        marker that records what is currently RUNNING on the box AND
+        which CI run owns it — not a deploy log. See
+        specs/stale-marker.spec.
+
+        Marker format is `<profile_tag>|<run_id>`:
+          - `<profile_tag>` is `<profile>` or `<profile>-<deploy_mode>`
+            (only alerts splits this way: `alerts-verification`,
+            `alerts-real-time`).
+          - `<run_id>` is `$GITHUB_RUN_ID` (or `local-<pid>` outside CI).
+
+        Tagging the marker with the run id makes "fresh between runs"
+        a pull-side reconcile rather than a push-side cleanup: a
+        marker from a prior run NEVER matches the current run's
+        desired marker, so the next worker always reconciles
+        (tear-down + redeploy from its own `PR_HEAD_SHA`) regardless
+        of how the prior run ended — happy path, cancel-in-progress,
+        max-turns, SIGKILL, host reboot. Within a single run, multiple
+        trials with the same profile still hot-skip because both
+        profile and run id match.
+
+        Three regimes, derived from `profile` + `prerequisite_deploy_mode`:
+
+        1. `profile` set (downstream needs a deployed VSS stack):
+            desired = `<profile_tag>|<run_id>`.
+            If marker == desired → hot, no-op (same profile, same run).
+            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]`
+                  via `claude --print`. On success OVERWRITE marker
+                  with the new `<profile_tag>|<run_id>`.
+
+        2. `profile` absent (trial needs a clean box, no VSS running):
+            desired = `""` (empty marker).
+            Always tear down all containers (`docker rm -f $(docker
+                  ps -aq)`) + prune networks + prune volumes;
+                  OVERWRITE marker to empty. An empty marker does not
+                  prove a prior standalone profile-less trial cleaned
+                  up every container it started. Preserves anything
+                  `docker rm -f` doesn't touch: docker image cache,
+                  repo clone, and sample-data extract — the slow
+                  caches that make warm reuse valuable for the next
+                  deploy trial. Cleanup failures fail loud: if any
+                  docker command exits non-zero the marker is NOT
+                  overwritten, so the next trial re-attempts the
+                  reconcile instead of running against a partially-
+                  dirty box that pretends to be clean.
+
+        vss-deploy-profile/* trials don't set `profile` in their task.toml
+        [metadata], so they fall into the `desired=""` box-clean branch
+        above — wipes containers/networks/volumes and clears the marker
+        before the trial deploys from scratch. Their test.sh writes the
+        marker (tagged with the trial's `$GITHUB_RUN_ID`) on reward=1.0
+        for downstream warm-reuse within the same run.
+
+        claude-code is expected on the box from a prior vss-deploy-profile/* trial's
+>>>>>>> develop
         harbor agent setup; persists across trials on the reused
         vss-eval-* instance. Override the wall clock via
         PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
         profile = meta.get("profile")
         deploy_mode = meta.get("prerequisite_deploy_mode")
+<<<<<<< HEAD
         if not profile or not deploy_mode:
             return
 
         desired = f"{profile}-{deploy_mode}"
+=======
+        if profile and deploy_mode:
+            profile_tag = f"{profile}-{deploy_mode}"
+        elif profile:
+            profile_tag = profile
+        else:
+            profile_tag = ""
+
+        run_id = os.environ.get("GITHUB_RUN_ID") or f"local-{os.getpid()}"
+        desired = f"{profile_tag}|{run_id}" if profile_tag else ""
+
+>>>>>>> develop
         marker_path = "/tmp/skill-eval/active-deploy.txt"
         probe = await _run_brev_exec(
             self._instance_name,
@@ -373,6 +537,7 @@ class BrevEnvironment(BaseEnvironment):
             timeout=30,
         )
         current = (probe.stdout or "").strip()
+<<<<<<< HEAD
         if current == desired:
             logger.info(
                 "prerequisite %s already running on %s; skipping pre-deploy",
@@ -384,6 +549,64 @@ class BrevEnvironment(BaseEnvironment):
             self._instance_name, current or "<empty>", desired,
         )
 
+=======
+        if current == desired and desired:
+            logger.info(
+                "prerequisite %s already current on %s (run %s); skipping reconcile",
+                profile_tag, self._instance_name, run_id,
+            )
+            return
+        logger.info(
+            "prerequisite mismatch on %s (active=%r, desired=%r); reconciling",
+            self._instance_name, current or "<empty>", desired or "<clean>",
+        )
+
+        if not desired:
+            # Profile-less trial wants a clean box. Tear down all
+            # containers, networks, AND volumes so the deploy starts
+            # against a guaranteed-empty state — postgres / ES / kafka /
+            # agent-eval volumes from a prior profile's run would
+            # otherwise be reused and could leak schema or stale rows
+            # into the next deploy. Keeps the docker image cache, repo
+            # clone, and sample-data extract (~/data) warm; those are
+            # profile-agnostic and slow to re-pull from NGC.
+            #
+            # `docker volume prune -af` removes all unused volumes
+            # (including named ones like `agent-eval`); becomes safe to
+            # run only after `docker rm -f` releases the references.
+            # For volumes whose `driver_opts` bind a host path (e.g.
+            # `agent-eval` → `$VSS_DATA_DIR/agent_eval`), prune
+            # unregisters the docker volume but does NOT wipe the bind
+            # directory contents — that's an operator-managed dir and
+            # the next deploy re-binds to it.
+            #
+            # No `|| true` on the docker commands by design — if any
+            # step exits non-zero (stuck container, daemon transient
+            # error) the `&&` chain short-circuits and the marker is
+            # left as it was, so the next trial re-runs the reconcile
+            # rather than silently treating a partially-dirty box as
+            # clean. `xargs -r` already handles the "no containers to
+            # remove" case (skips invoking docker rm at all, exit 0).
+            cmd = (
+                "mkdir -p /tmp/skill-eval && "
+                "docker ps -aq | xargs -r docker rm -f >/dev/null && "
+                "docker network prune -f >/dev/null && "
+                "docker volume prune -af >/dev/null && "
+                f"printf '' > {shlex.quote(marker_path)}"
+            )
+            logger.info(
+                "Cleaning box %s (no profile required)", self._instance_name,
+            )
+            result = await _run_brev_exec(self._instance_name, cmd, timeout=120)
+            if result.return_code != 0:
+                tail = (result.stderr or result.stdout or "")[-500:]
+                raise RuntimeError(
+                    f"box-clean failed on {self._instance_name}: "
+                    f"exit {result.return_code}; tail:\n{tail}"
+                )
+            return
+
+>>>>>>> develop
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
         model = (
@@ -405,8 +628,15 @@ class BrevEnvironment(BaseEnvironment):
             env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
         env_prefix = " ".join(env_prefix_parts)
 
+<<<<<<< HEAD
         prompt = f"/deploy -p {profile} -m {deploy_mode}"
         # Overwrite (>) the canonical marker on /deploy success — the
+=======
+        prompt = f"/vss-deploy-profile -p {profile}"
+        if deploy_mode:
+            prompt += f" -m {deploy_mode}"
+        # Overwrite (>) the canonical marker on /vss-deploy-profile success — the
+>>>>>>> develop
         # marker reflects what is currently running, not a deploy log.
         # PATH prepend: brev exec runs a non-interactive shell that does
         # not source ~/.bashrc, where harbor writes
@@ -432,7 +662,11 @@ class BrevEnvironment(BaseEnvironment):
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
+<<<<<<< HEAD
                 f"pre-deploy /deploy -p {profile} -m {deploy_mode} failed "
+=======
+                f"pre-deploy /vss-deploy-profile -p {profile} -m {deploy_mode} failed "
+>>>>>>> develop
                 f"on {self._instance_name}: exit {result.return_code}; "
                 f"output tail: {tail!r}"
             )
@@ -441,6 +675,82 @@ class BrevEnvironment(BaseEnvironment):
             desired, self._instance_name,
         )
 
+<<<<<<< HEAD
+=======
+    async def _sync_repo_to_pr_head(self) -> None:
+        """Reset `~/video-search-and-summarization` on the Brev box to the
+        PR's actual head SHA. Runs once per trial, before any deploy or
+        agent step reads `$REPO`.
+
+        Why this is in the env provider (not the deploy adapter): the
+        vss-deploy-profile adapter's solve.sh syncs the repo on the *gold-solution*
+        path, but the trial's claude-code agent invokes `/vss-deploy-profile`
+        directly against whatever's on disk. Without this sync, the
+        forwarded `PR_HEAD_SHA` env var has no effect on the actual
+        compose/skill files the agent reads.
+
+        Handles three pre-states:
+
+        - **Empty / missing dir** — fresh clone.
+        - **Stale non-git checkout** (tarball-style, no `.git` dir) —
+          this is the load-bearing fix: prior versions of the dir
+          shipped from before the repo was renamed and the layout
+          changed (`deployments/` not `deploy/docker/`). Nuke and
+          re-clone; never silently fall through to `git fetch` on
+          a non-git dir.
+        - **Existing git checkout** — `git remote set-url` (handles
+          cross-fork PRs) + `git fetch <PR_HEAD_SHA>` + hard reset.
+
+        Preserves `data/` (NGC sample bundle) and `.env` (active trial
+        overrides) on `git clean`. Fails loud — `set -euo pipefail` so
+        any sync error short-circuits start() before the agent runs.
+        """
+        # PR_HEAD_SHA + PR_REPO come from the workflow step's env and are
+        # forwarded into ~/.eval_env on the instance by the loop above.
+        # When unset (local dev / smoke test), fall back to develop.
+        cmd = r"""set -euo pipefail
+PR_REPO="${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
+PR_HEAD_SHA="${PR_HEAD_SHA:-}"
+REPO="$HOME/video-search-and-summarization"
+VSS_REPO_URL="https://github.com/${PR_REPO}.git"
+
+# Case 1: dir exists but isn't a git repo (stale tarball checkout) — nuke
+#         and re-clone. Case 2: dir doesn't exist — clone fresh.
+if [ ! -d "$REPO/.git" ]; then
+  rm -rf "$REPO"
+  git clone --no-checkout --depth=1 --branch develop "$VSS_REPO_URL" "$REPO"
+fi
+cd "$REPO"
+git remote set-url origin "$VSS_REPO_URL"
+if [ -n "$PR_HEAD_SHA" ]; then
+  git fetch --depth=1 origin "$PR_HEAD_SHA"
+  git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"
+  git reset --hard "$PR_HEAD_SHA"
+else
+  git fetch --depth=1 origin develop
+  git -c advice.detachedHead=false checkout --force FETCH_HEAD
+  git reset --hard FETCH_HEAD
+fi
+# Drop leftover working-tree state from a prior trial, but keep data/
+# (sample-data extract — slow to re-pull from NGC) and any .env tweaks
+# the active trial may have placed.
+git clean -fdx -e data/ -e .env
+echo "synced $REPO to $(git rev-parse --short HEAD)"
+"""
+        logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"repo sync failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Repo sync on %s: %s",
+            self._instance_name, (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
+        )
+
+>>>>>>> develop
     async def stop(self, delete: bool) -> None:
         """No-op — the instance stays running for reuse."""
         logger.info(
@@ -468,6 +778,7 @@ class BrevEnvironment(BaseEnvironment):
 
     async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
         assert self._instance_name
+<<<<<<< HEAD
         # brev copy has broken directory nesting behaviour.  Use tar
         # piped over brev exec: tar locally, base64-encode, send via
         # exec, decode+untar on the remote side.
@@ -487,6 +798,62 @@ class BrevEnvironment(BaseEnvironment):
         )
         if result.return_code != 0:
             raise RuntimeError(f"Upload dir failed: {result.stderr}")
+=======
+        # brev copy has broken directory nesting behaviour. Package the
+        # directory locally, copy one archive, then extract remotely. Do
+        # not embed the archive bytes in a brev exec argv: larger skill
+        # bundles can exceed the OS per-argument limit.
+        src = str(source_dir).rstrip("/")
+        fd, tar_path_str = tempfile.mkstemp(
+            prefix="brev-upload-", suffix=".tar.gz",
+        )
+        os.close(fd)
+        tar_path = Path(tar_path_str)
+        remote_upload_dir = f"/tmp/skill-eval/uploads/{uuid.uuid4().hex}"
+        remote_tar = f"{remote_upload_dir}/archive.tar.gz"
+
+        try:
+            subprocess.check_call(
+                ["tar", "-czf", str(tar_path), "-C", src, "."],
+                timeout=60,
+            )
+
+            result = await _run_brev_exec(
+                self._instance_name,
+                f"mkdir -p {shlex.quote(remote_upload_dir)}",
+                timeout=30,
+            )
+            if result.return_code != 0:
+                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+
+            result = await _run_brev_copy(
+                str(tar_path), f"{self._instance_name}:{remote_tar}",
+            )
+            if result.return_code != 0:
+                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+
+            target = shlex.quote(target_dir)
+            remote_archive = shlex.quote(remote_tar)
+            remote_dir = shlex.quote(remote_upload_dir)
+            result = await _run_brev_exec(
+                self._instance_name,
+                f"sudo mkdir -p {target} && "
+                f"sudo chown $(whoami):$(id -gn) {target}; "
+                "status=$?; "
+                "if [ $status -eq 0 ]; then "
+                f"tar -xzf {remote_archive} -C {target}; "
+                "status=$?; "
+                "fi; "
+                f"rm -f {remote_archive}; "
+                f"rmdir {remote_dir} 2>/dev/null || true; "
+                "exit $status",
+                timeout=120,
+            )
+            if result.return_code != 0:
+                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+        finally:
+            tar_path.unlink(missing_ok=True)
+>>>>>>> develop
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
         assert self._instance_name
@@ -915,12 +1282,82 @@ async def _find_brev_instance(name: str) -> dict | None:
     return None
 
 
+<<<<<<< HEAD
 def _check_instance_matches(instance: dict, req: dict) -> None:
+=======
+async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None:
+    """Look up an instance type's gpu_count via `brev search gpu --json`.
+
+    Returns None when the SKU isn't in the current catalog (temporarily
+    out of stock, retired, or never listed). Callers should warn and fall
+    back to a live nvidia-smi check.
+    """
+    if not instance_type:
+        return None
+    try:
+        result = await _run_brev("search", "gpu", "--json", timeout=30)
+    except Exception as exc:
+        logger.warning("brev search gpu --json failed: %s", exc)
+        return None
+    if result.return_code != 0:
+        return None
+    for row in _parse_brev_json(result.stdout):
+        if row.get("type") == instance_type:
+            try:
+                return int(row.get("gpu_count", 0) or 0)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
+    """SSH in and count GPUs via nvidia-smi. Raises on mismatch."""
+    result = await _run_brev_exec(
+        instance_name,
+        "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
+        timeout=30,
+    )
+    if result.return_code != 0 or not result.stdout.strip():
+        logger.warning(
+            "nvidia-smi count failed on '%s'; cannot enforce gpu_count. "
+            "stderr: %s",
+            instance_name, (result.stderr or "")[:200],
+        )
+        return
+    try:
+        actual = int(result.stdout.strip().split("\n")[0])
+    except ValueError:
+        logger.warning(
+            "Could not parse nvidia-smi count output for '%s': %r",
+            instance_name, result.stdout,
+        )
+        return
+    if actual != required_count:
+        raise RuntimeError(
+            f"Brev instance '{instance_name}' has {actual} GPU(s) (live "
+            f"nvidia-smi); task requires exactly {required_count}. Pool "
+            f"partition mismatch — pick a fleet member with the matching "
+            f"GPU count (e.g. vss-eval-l40s-1g for 1-GPU, vss-eval-l40s* "
+            f"for 2-GPU)."
+        )
+    logger.info(
+        "Instance '%s' live gpu_count: %d (matches required %d)",
+        instance_name, actual, required_count,
+    )
+
+
+async def _check_instance_matches(instance: dict, req: dict) -> None:
+>>>>>>> develop
     """Raise RuntimeError if the instance's GPU doesn't meet task requirements.
 
     `brev ls --json` only returns {name, gpu (string), instance_type, status}
     — no gpu_count / total_vram_gb.  So we do a loose name match here and
+<<<<<<< HEAD
     defer stricter checks to the search catalog when available.
+=======
+    defer stricter checks to the search catalog when available, falling
+    back to a live nvidia-smi count if the SKU isn't in the catalog.
+>>>>>>> develop
 
     For registered external nodes, `gpu` may be empty (not reported by
     `brev ls nodes`).  Skip the string match in that case and defer to the
@@ -982,20 +1419,87 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
                 f"gpu_type: want tokens of {required_type!r} in {gpu!r}"
             )
 
+<<<<<<< HEAD
     if errors:
+=======
+    # gpu_count check — strict equality so pool partitioning works.
+    # A 1-GPU task on a 2-GPU box wastes capacity (the other GPU could
+    # serve a sibling 1-GPU trial in parallel); a 2-GPU task on a 1-GPU
+    # box can't even launch the second LLM/VLM. Strict match makes both
+    # cases loud at validate time instead of mid-trial.
+    required_count = int(req.get("gpu_count", 1) or 0)
+    if required_count > 0:
+        catalog_count = await _get_instance_gpu_count_from_catalog(
+            instance.get("instance_type") or ""
+        )
+        if catalog_count is None:
+            logger.warning(
+                "Instance '%s' instance_type=%r not in `brev search gpu --json` "
+                "catalog (SKU may be temporarily out of stock); falling back to "
+                "live nvidia-smi for gpu_count check",
+                instance.get("name"), instance.get("instance_type"),
+            )
+            try:
+                await _check_live_gpu_count(instance.get("name"), required_count)
+            except RuntimeError as exc:
+                errors.append(str(exc))
+        elif catalog_count != required_count:
+            errors.append(
+                f"gpu_count: want exactly {required_count}, instance has "
+                f"{catalog_count} (instance_type={instance.get('instance_type')})"
+            )
+
+    if errors:
+        # Actionable hint so the agent doesn't burn its turn budget
+        # re-discovering how to find a matching pool member. Stay
+        # generic — don't name specific pool boxes here, the pool
+        # is operator-managed and naming couples this code to the
+        # current fleet topology. `required_count` and `required_type`
+        # are already bound above; reuse them. Build the "require …"
+        # phrase conditionally so an empty `gpu_type` (count-only
+        # specs) doesn't render as `gpu_type='' + gpu_count=N` and
+        # mislead the agent into filtering for a literal empty string.
+        require_clauses = []
+        if required_type:
+            require_clauses.append(f"gpu_type={required_type!r}")
+        require_clauses.append(f"gpu_count={required_count}")
+        require_phrase = " + ".join(require_clauses)
+        hint = (
+            f"\n\nTo find a matching pool member, scan vss-eval-* "
+            f"candidates and require {require_phrase}:\n"
+            f"  brev ls --json | jq -r '.[] | select(.name | "
+            f"startswith(\"vss-eval-\")) | \"\\(.name)\\t\\(.instance_type)"
+            f"\\t\\(.gpu)\"'\n"
+            f"Cross-reference each candidate's instance_type against "
+            f"`brev search gpu --json` to confirm gpu_count, then "
+            f"re-export BREV_INSTANCE=<candidate> and retry. Do NOT "
+            f"`brev create` a new instance — the pool is operator-"
+            f"managed (see AGENTS.md § Platform topology)."
+        )
+>>>>>>> develop
         raise RuntimeError(
             f"Brev instance '{instance.get('name')}' does not meet task "
             f"requirements:\n  - " + "\n  - ".join(errors) +
             f"\n  (instance: type={instance.get('instance_type')}, gpu={gpu})"
+<<<<<<< HEAD
         )
 
     logger.info(
         "Instance '%s' GPU name matches (%s ~= %s); vram/count not "
         "verified (not returned by `brev ls --json`)",
+=======
+            + hint
+        )
+
+    logger.info(
+        "Instance '%s' GPU name matches (%s ~= %s); gpu_count verified "
+        "against catalog or live nvidia-smi",
+>>>>>>> develop
         instance.get("name"), gpu, required_type,
     )
 
 
+<<<<<<< HEAD
 async def _find_cheapest_matching_type(req: dict) -> str | None:
     """Find the cheapest `brev search` instance type matching GPU requirements."""
     result = await _run_brev("search", "--json", timeout=30)
@@ -1030,6 +1534,8 @@ async def _find_cheapest_matching_type(req: dict) -> str | None:
     return candidates[0].get("type")
 
 
+=======
+>>>>>>> develop
 def _version_lt(a: str, b: str) -> bool:
     """Return True if NVIDIA driver version `a` is older than `b`.
 
@@ -1097,6 +1603,7 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
         )
 
 
+<<<<<<< HEAD
 async def _suggest_registered_devices(req: dict) -> list[str]:
     """Query `brev ls nodes --json` for registered physical devices that
     match the task's requirements (best-effort, by name substring).
@@ -1150,3 +1657,5 @@ async def _wait_for_running(
     raise TimeoutError(
         f"Brev instance {name} did not become ready within {timeout_sec}s"
     )
+=======
+>>>>>>> develop

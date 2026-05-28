@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.exporter.enabled }}
+# Prometheus Logstash exporter – scraped by Prometheus via pod annotations.
+# Source: other-manifests/logstash-exporter.yml
+# TLS: set exporter.tlsSecretName to enable TLS cert mount (e.g., mdx-logstash-ls-http-certs-public).
+{{- $logstashUrl := default (include "logstash.httpApiUrl" .) .Values.exporter.logstashUrl }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logstash.exporterIdent" . }}-config
+  labels:
+    app: {{ include "logstash.exporterIdent" . }}
+data:
+  config.yml: |
+    logstash:
+      instances:
+        - url: {{ $logstashUrl }}
+          name: {{ include "logstash.fullname" . }}-logstash
+      httpTimeout: 5s
+    server:
+      host: 0.0.0.0
+      port: {{ .Values.exporter.port }}
+      read_timeout_seconds: 30
+      write_timeout_seconds: 30
+      max_connections: 512
+    logging:
+      level: debug
+      format: json
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logstash.exporterIdent" . }}
+  labels:
+    app: {{ include "logstash.exporterIdent" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "logstash.exporterIdent" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "logstash.exporterIdent" . }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.exporter.port | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      {{- with .Values.exporter.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: logstash-exporter
+          image: {{ .Values.exporter.image }}
+          {{- if .Values.exporter.tlsSecretName }}
+          env:
+            - name: SSL_CERT_FILE
+              value: /etc/ssl/certs/logstash-ca.crt
+          {{- end }}
+          ports:
+            - containerPort: {{ .Values.exporter.port }}
+          volumeMounts:
+            - name: exporter-config
+              mountPath: /app/config.yml
+              subPath: config.yml
+            {{- if .Values.exporter.tlsSecretName }}
+            - name: logstash-ca-cert
+              mountPath: /etc/ssl/certs/logstash-ca.crt
+              readOnly: true
+              subPath: ca.crt
+            {{- end }}
+          {{- with .Values.exporter.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: exporter-config
+          configMap:
+            name: {{ include "logstash.exporterIdent" . }}-config
+        {{- if .Values.exporter.tlsSecretName }}
+        - name: logstash-ca-cert
+          secret:
+            secretName: {{ .Values.exporter.tlsSecretName }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "logstash.exporterIdent" . }}-svc
+  labels:
+    app: {{ include "logstash.exporterIdent" . }}
+spec:
+  selector:
+    app: {{ include "logstash.exporterIdent" . }}
+  ports:
+    - port: {{ .Values.exporter.port }}
+      targetPort: {{ .Values.exporter.port }}
+  type: ClusterIP
+{{- end }}

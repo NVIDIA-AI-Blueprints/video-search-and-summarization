@@ -1,0 +1,24 @@
+dependencies:
+- name: infra
+  repository: file://../../services/infra
+  version: 26.04.2
+- name: vios
+  repository: file://../../services/vios
+  version: 26.04.2
+- name: agent
+  repository: file://../../services/agent
+  version: 26.04.2
+- name: vss-agent-ui
+  repository: file://../../services/ui
+  version: 26.04.2
+- name: nims
+  repository: file://../../services/nims
+  version: 26.04.2
+- name: vss-summarization
+  repository: file://../../services/video-summarization
+  version: 26.04.2
+- name: rtvi
+  repository: file://../../services/rtvi
+  version: 26.04.2
+digest: sha256:4556b03c6ad03d12e7d200ec6cd4f167bf0c410c1dc0587e5119a87e894f7b82
+generated: "2026-04-23T09:47:40.048460221+02:00"

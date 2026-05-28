@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+NVIDIA NIM Deployments
+======================
+
+This chart deploys NIM models via the NVIDIA NIM Operator CRDs (NIMCache + NIMService).
+Ensure the NIM Operator is installed in the cluster before deploying.
+
+{{- if .Values.nemotron.enabled }}
+
+Nemotron Nano 9B v2 (LLM):
+  NIMCache:   {{ include "nims.nemotron.fullname" . }}
+  NIMService: {{ include "nims.nemotron.fullname" . }}
+  Endpoint:   http://{{ include "nims.nemotron.fullname" . }}:8000/v1
+  GPU count:  {{ .Values.nemotron.resources.limits | dig "nvidia.com/gpu" "1" }}
+{{- end }}
+
+{{- if .Values.cosmos.enabled }}
+
+Cosmos Reason2 8B (VLM):
+  NIMCache:   {{ include "nims.cosmos.fullname" . }}
+  NIMService: {{ include "nims.cosmos.fullname" . }}
+  Endpoint:   http://{{ include "nims.cosmos.fullname" . }}:8000/v1
+  GPU count:  {{ .Values.cosmos.resources.limits | dig "nvidia.com/gpu" "2" }}
+{{- end }}
+
+GPU-specific tuning:
+  H100:         helm upgrade nims ./nims -f override-values-H100.yaml
+  L40S:         helm upgrade nims ./nims -f override-values-L40S.yaml
+  RTXPRO6000BW: helm upgrade nims ./nims -f override-values-RTXPRO6000BW.yaml
+
+Secrets:
+{{- if .Values.global.ngcApiKey }}
+  Secrets auto-created by this chart (global.ngcApiKey was provided):
+    - {{ .Values.global.pullSecretName }} (docker-registry)
+    - {{ .Values.global.authSecretName }} (generic – NGC_API_KEY, NGC_CLI_API_KEY)
+{{- else }}
+  WARNING: global.ngcApiKey is empty – secrets were NOT created.
+  Either pass --set global.ngcApiKey=<key> or pre-create these secrets manually:
+    - {{ .Values.global.pullSecretName }} (docker-registry for nvcr.io)
+    - {{ .Values.global.authSecretName }} (generic with NGC_API_KEY, NGC_CLI_API_KEY)
+{{- end }}
+
+Prerequisites:
+  - NVIDIA NIM Operator installed (apps.nvidia.com/v1alpha1 CRDs)
+  - A default StorageClass available in the cluster{{ if .Values.global.storageClass }} (configured: '{{ .Values.global.storageClass }}'){{ end }}

@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "alerts": [
+    {
+      "alert_type": "FOV Count Violation",
+      "output_category": "Ladder PPE Violation",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "Is anyone on the ladder without a hardhat and safety vest?\n\nWhich category best describes the situation:\n(Yes) Safety hazard present\n(No) No safety hazard observed\n\nAnswer yes or no.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
+      }
+    }
+  ]
+}

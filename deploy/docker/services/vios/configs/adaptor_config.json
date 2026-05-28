@@ -1,0 +1,44 @@
+{
+	"vst":
+	[
+		{
+			"enabled":false,
+			"id":"044bc643-33c5-479a-b988-10d0bbc4e05c",
+			"name":"onvif",
+			"type":"vst",
+			"need_stream_monitoring": true,
+			"need_rtsp_server": true,
+			"need_recording": true,
+			"need_storage_management": true,
+			"control_adaptor_lib_path":"prebuilts/arch/onvif_client.so",
+			"discovery_adaptor_lib_path":"prebuilts/arch/onvif_discovery.so"
+		},
+		{
+			"enabled":false,
+			"id":"8ada39c7-5e93-43c5-ae5e-21451c8a8d1b",
+			"name":"milestone_onvif",
+			"type":"mms",
+			"ip":"",
+			"user":"",
+			"password":"",
+			"port":"580",
+			"need_rtsp_server": true,
+			"need_stream_monitoring": true,
+			"need_recording": true,
+			"need_storage_management": true,
+			"control_adaptor_lib_path": "prebuilts/arch/onvif_client.so",
+			"media_adaptor_lib_path": "prebuilts/arch/vms_media.so"
+		},
+		{
+			"enabled":true,
+			"id":"6cdec7d7-0f30-450c-a78a-756c3e132fd3",
+			"name":"vst_rtsp",
+			"type":"vst",
+			"need_stream_monitoring": true,
+			"need_rtsp_server": true,
+			"need_recording": true,
+			"need_storage_management": true,
+			"control_adaptor_lib_path":"prebuilts/arch/rtsp_streams.so"
+		}
+	]
+}
