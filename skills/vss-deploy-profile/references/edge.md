@@ -167,8 +167,9 @@ Uses the default `config.yml` (full planning prompt with clarifying questions). 
 
 ## AGX Thor / IGX Thor — Edge 4B + rtvi-vlm
 
-On Thor, the VLM used by the blueprint is `rtvi-vlm` (not cosmos-reason2-8b),
-and the LLM runs from a jetson-specific vLLM image:
+On Thor, the VLM falls back to **`rtvi-vlm` serving Cosmos Reason 2 in-process** — the standalone `cosmos-reason2-8b` NIM service does not run on Thor. rtvi-vlm loads `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` itself and advertises it at `http://${HOST_IP}:8018/v1` under `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` (with `VLM_NAME_SLUG=none`). Remote VLM and `--vlm` swaps are not supported on Thor for `base` or `alerts`; this is the only deployed VLM shape.
+
+The LLM runs from a jetson-specific vLLM image:
 
 ```bash
 export HF_TOKEN=$HF_TOKEN

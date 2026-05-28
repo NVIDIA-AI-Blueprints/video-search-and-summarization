@@ -133,7 +133,7 @@ The skill writes these env vars to `dev-profile-alerts/generated.env` itself; th
 |---|---|---|
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | any | **0.35** |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | DGX-SPARK or L40S | **0.8** |
-| RT-VLM on its own GPU (`VLM_MODE=local`) | RTX PRO 4500 BW (32 GB) — pass `HARDWARE_PROFILE=OTHER` | **0.8** — also set `RTVI_VLM_MAX_MODEL_LEN=20480` to fit the smaller VRAM (see [FAQ](https://metromind.gitlab-master-pages.nvidia.com/met-blueprint-src/met-blueprint-docs/vss/latest/faq.html#faq-rtvi-vlm-rtx-4500)) |
+| RT-VLM on its own GPU (`VLM_MODE=local`) | RTX 4500 (32 GB) — `HARDWARE_PROFILE=RTX4500` | **0.8** with `RTVI_VLM_MAX_MODEL_LEN=20480`; also swap `RTVI_VLM_MODEL_PATH` to the `0303-fp8-dynamic-kv8` build to fit the smaller VRAM (see [§ RTX 4500](#rtx-4500-32-gb)) |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | H100 / RTXPRO6000BW | leave blank → RT-VLM's hardcoded 0.7 fallback applies |
 | RT-VLM on its own GPU on edge | OTHER / IGX-THOR / AGX-THOR | leave blank |
 
@@ -182,31 +182,34 @@ With RT-VLM at 0.35 and a 15% framework reservation, the LLM gets:
 | H200 | 141 GB | 49 GB | 21 GB | 71 GB | **0.50** |
 | RTX PRO 6000 (Blackwell) | 96 GB | 34 GB | 14 GB | 48 GB | **0.50** |
 | L40S | 48 GB | 17 GB | 7 GB | 24 GB | **0.50** (tight — Nano 9B at 23.4 GB barely fits) |
-| RTX PRO 4500 (Blackwell) — `HARDWARE_PROFILE=OTHER` | 32 GB | 11 GB | 5 GB | 16 GB | shared mode won't fit Nano 9B (23.4 GB) — use `LLM_MODE=remote` and run RT-VLM only (see [§ RTX PRO 4500](#rtx-pro-4500-blackwell-32-gb)) |
+| RTX 4500 (Blackwell) — `HARDWARE_PROFILE=RTX4500` | 32 GB | 11 GB | 5 GB | 16 GB | shared mode won't fit Nano 9B (23.4 GB) — use `LLM_MODE=remote` and run RT-VLM only (see [§ RTX 4500](#rtx-4500-32-gb)) |
 
-### RTX PRO 4500 Blackwell (32 GB)
+### RTX 4500 (32 GB)
 
-The 4500 is **not a recognized `HARDWARE_PROFILE`** in `dev-profile.sh` — the script's allowlist is `H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER` (see `get_detected_hardware_profile()` and the validation at `dev-profile.sh:665,680`). Pass `HARDWARE_PROFILE=OTHER`; the script's auto-detect also resolves a 4500 to `OTHER`, so the strict detect-vs-requested check passes.
-
-32 GB VRAM is too little to host the default Cosmos-Reason2-8B RT-VLM **and** a local Nano 9B LLM together. The supported layout is RT-VLM local, LLM remote:
+32 GB VRAM is too little to host the default Cosmos-Reason2-8B `hf-1208` RT-VLM checkpoint **and** a local Nano 9B LLM together. The supported layout is RT-VLM local with the smaller FP8 KV-cache checkpoint, LLM remote. Full env block for `dev-profile-alerts/generated.env`:
 
 ```env
-# In dev-profile-alerts/.env (or the equivalent generated.env)
-HARDWARE_PROFILE=OTHER
+HARDWARE_PROFILE=RTX4500
 LLM_MODE=remote
 VLM_MODE=local
+# RT-VLM sizing: cap context + lift utilization to fit on 32 GB.
 RTVI_VLM_MAX_MODEL_LEN=20480
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
+# Swap the RT-VLM checkpoint to the FP8 KV-cache build that fits on 32 GB.
+# VLM_NAME must match the basename rtvi-vlm advertises at /v1/models, or
+# alert-bridge / agent get HTTP 400 "No such model" (see § VLM serving paths).
+VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 ```
 
-`RTVI_VLM_MAX_MODEL_LEN=20480` caps the VLM context to fit alongside model weights at the 0.8 memory budget. Source: [FAQ § NVIDIA RTX 4500](https://metromind.gitlab-master-pages.nvidia.com/met-blueprint-src/met-blueprint-docs/vss/latest/faq.html#faq-rtvi-vlm-rtx-4500).
+The `0303-fp8-dynamic-kv8` Cosmos-Reason2 build trims weights and KV cache enough to leave room for the 20 K context window at 0.8 utilization — the default `hf-1208` build doesn't fit even with the model-len cap.
 
 Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GPUs because the script's RT-VLM util is fixed at 0.35 in shared mode.
 
 ### Hard rules
 
 - **L40S is the floor for shared mode.** 24 GB for the LLM barely fits Nano 9B FP16 (23.4 GB total). Switch to FP8 (`nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, 11.7 GB total) for any breathing room, or move to dedicated mode (LLM on its own GPU, RT-VLM on its own GPU at 0.8 util).
-- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason 2 still serves via RT-VLM** but the agent script uses `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and pins `RT_VLM_DEVICE_ID=0` (unified memory). For the LLM side, follow `edge.md` (Edge 4B mandatory for shared mode on edge).
+- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason 2 must serve via RT-VLM, not a standalone NIM.** Thor (`AGX-THOR` / `IGX-THOR`) cannot host the standalone `cosmos-reason2-8b` NIM service; the alerts compose graph routes through RT-VLM only, and the source `.env` already pairs `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` with `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` so RT-VLM loads the checkpoint in-process. Don't introduce a remote-VLM override or a different VLM name on Thor — `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and `RT_VLM_DEVICE_ID=0` (unified memory) are also part of the Thor shape. For the LLM side, follow `edge.md` (Edge 4B mandatory for shared mode on edge).
 - **Don't co-deploy a standalone Cosmos NIM with alerts.** `COMPOSE_PROFILES` for alerts has no `vlm_*_<slug>` segment by design. Verify by checking `resolved.yml` doesn't have `cosmos-reason2-8b` / `cosmos-reason2-8b-shared-gpu` services alongside `rtvi-vlm`.
 - **`VLM_NAME` mismatch ⇒ HTTP 400.** dev-profile.sh sets `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` for the default Cosmos2 path. If you change `RTVI_VLM_MODEL_PATH` you must update `VLM_NAME` to match the new model basename — otherwise alert-bridge / agent get "No such model" from `/v1/models`.
 - **`VLM_NAME_SLUG=none` is required.** The alerts compose graph has no `vlm_local_*_<slug>` profiles. Setting a real slug doesn't bring up a VLM service — it just makes the COMPOSE_PROFILES reference dead.
