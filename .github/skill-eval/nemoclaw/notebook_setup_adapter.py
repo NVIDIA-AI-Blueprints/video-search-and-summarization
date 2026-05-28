@@ -107,6 +107,14 @@ def _code_cell(nbformat: int, source: str, cell_id: str) -> dict[str, Any]:
     return cell
 
 
+def _normalize_cell_source(cell: dict[str, Any]) -> dict[str, Any]:
+    output = deepcopy(cell)
+    source = output.get("source")
+    if isinstance(source, list):
+        output["source"] = "".join(str(line) for line in source)
+    return output
+
+
 def build_notebook(source_nb: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
     """Return a setup-only notebook assembled from stable cell ids."""
     cells_by_id = {cell.get("id"): cell for cell in source_nb.get("cells", [])}
@@ -124,7 +132,7 @@ def build_notebook(source_nb: dict[str, Any], manifest: dict[str, Any]) -> dict[
         if cell_id == insert_before and not inserted:
             output["cells"].append(_code_cell(nbformat, PARAMETER_SOURCE, "ci-parameters"))
             inserted = True
-        output["cells"].append(deepcopy(cells_by_id[cell_id]))
+        output["cells"].append(_normalize_cell_source(cells_by_id[cell_id]))
 
     if not inserted:
         output["cells"].append(_code_cell(nbformat, PARAMETER_SOURCE, "ci-parameters"))
