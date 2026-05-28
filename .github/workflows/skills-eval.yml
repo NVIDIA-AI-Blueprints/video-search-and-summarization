@@ -282,3 +282,21 @@ jobs:
           path: /tmp/skills-eval-results.tar.gz
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Upload benchmark report artifact
+        # Built by skills_eval_agent.py::build_benchmark_md — concatenates
+        # the per-spec result comments the agent posted to the PR (or to
+        # $GITHUB_STEP_SUMMARY in manual mode) into a single sanitized
+        # markdown report. Published as its own artifact so reviewers can
+        # download just the report without unpacking the full results
+        # tarball.
+        if: always() && (github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: >-
+            ${{ github.event_name == 'workflow_dispatch'
+              && format('skills-eval-benchmark-manual-{0}', github.run_id)
+              || format('skills-eval-benchmark-pr-{0}-{1}', steps.pr.outputs.number, github.run_id) }}
+          path: /tmp/skill-eval/benchmark.md
+          if-no-files-found: ignore
+          retention-days: 7

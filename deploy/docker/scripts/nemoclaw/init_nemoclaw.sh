@@ -463,11 +463,11 @@ restart_vss_openclaw_gateway() {
 
   log "Restarting OpenClaw gateway in sandbox ${NEMOCLAW_SANDBOX_NAME}"
   openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "pkill -TERM -f '[o]penclaw-gateway' || true" || true
+    "pkill -TERM -f '[o]penclaw-gateway' || true" </dev/null || true
 
   for attempt in $(seq 1 30); do
     if openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-        "curl -fsS http://127.0.0.1:${port}/health >/dev/null"; then
+        "curl -fsS http://127.0.0.1:${port}/health >/dev/null" </dev/null; then
       log "OpenClaw gateway is healthy after restart"
       return 0
     fi
@@ -542,7 +542,7 @@ install_vss_openclaw_plugin() {
     fi
 
     printf -v shell_cmd '%s && rm -f %q' "${install_cmd}" "${remote_tgz}"
-    if ! openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc "${shell_cmd}"; then
+    if ! openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc "${shell_cmd}" </dev/null; then
       log "ERROR: openclaw plugins install failed for ${tgz_name}"
       return 1
     fi
@@ -634,7 +634,7 @@ sandbox_ready() {
     | strip_ansi \
     | awk -v name="$NEMOCLAW_SANDBOX_NAME" '$1 == name && $NF == "Ready" { found = 1 } END { exit found ? 0 : 1 }' \
     || return 1
-  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc 'command -v openclaw >/dev/null' >/dev/null 2>&1
+  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc 'command -v openclaw >/dev/null' </dev/null >/dev/null 2>&1
 }
 
 wait_for_sandbox_ready() {
