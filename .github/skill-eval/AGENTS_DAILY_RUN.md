@@ -38,7 +38,7 @@ template is in § Harbor invocation below.
 
 ## Your job, in order
 
-1. **List against main branch** (`main`, passed in the
+1. **List against develop branch** (`develop`, passed in the
    user prompt — don't hardcode `develop`). List all files under
    `skills/<skill>/`. Group by skill directory; each skill is
    a candidate for eval.

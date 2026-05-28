@@ -164,7 +164,7 @@ line starting with `BLOCKED:` followed by the reason.
         user_prompt = f"""
 Context:
 repo          = {pr_repo}
-branch        = main
+branch        = develop
 workflow run  = {run_id}
 working dir   = {REPO_ROOT}
 
