@@ -167,18 +167,3 @@ class StreamSettingsCache:
         }
 
         return filtered_dict
-
-
-def validate_required_prompts(summary_prompt, pipeline_args):
-    """
-    Validate that required prompts are provided based on CA-RAG configuration.
-
-    Args:
-        summary_prompt: The main prompt for video analysis
-        pipeline_args: Pipeline arguments containing CA-RAG configuration
-
-    Returns:
-        list: List of validation error messages (empty if validation passes)
-    """
-    validation_errors = []
-    return validation_errors

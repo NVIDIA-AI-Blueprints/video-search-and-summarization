@@ -34,7 +34,6 @@ Video Summarization is composed of the following services:
 | **Kafka + Logstash** | (Optional) Streaming pipeline — RT-VLM publishes raw events to Kafka, Logstash writes to Elasticsearch |
 | **Milvus** | (Optional) Vector DB backend alternative to Elasticsearch |
 | **Neo4j / ArangoDB** | (Optional) Graph DB backends |
-| **media-server** | (Optional) Nginx sidecar serving sample videos for testing |
 
 ## Running Video Summarization
 
@@ -349,86 +348,6 @@ are served from an Nginx container reachable at `http://media-server/` from with
 Use these in requests as: `"url": "http://media-server/<filename>"`
 
 The hostname `media-server` resolves via internal Docker DNS — it is not reachable from the host.
-
----
-
-## CLI Client
-
-```sh
-python3 src/via_client_cli.py <command> <arguments> --backend "http://<HOST-IP>:38111"
-```
-
-### Examples
-
-```sh
-# Add a file (dev API)
-python3 src/via_client_cli.py add-file <file_path> --backend http://localhost:38111
-
-# Summarize a video by URL
-python3 src/via_client_cli.py summarize --url <url> --model cosmos-reason1
-
-# Summarize with custom prompt
-python3 src/via_client_cli.py summarize --url <url> --model cosmos-reason1 --prompt <prompt>
-
-# Use existing file-id
-python3 src/via_client_cli.py summarize --id <file-id> --model cosmos-reason1
-
-# Get help
-python3 src/via_client_cli.py -h
-```
-
----
-
-## Audio Transcription (Riva ASR)
-
-### Using local Riva ASR NIM
-
-```sh
-docker pull nvcr.io/nim/nvidia/parakeet-0-6b-ctc-en-us:2.0.0
-export CONTAINER_NAME=parakeet-ctc-asr
-export NGC_API_KEY=<NGC API KEY>
-docker run -it --rm --name=$CONTAINER_NAME \
-  --runtime=nvidia \
-  --gpus '"device=0"' \
-  --shm-size=8GB \
-  -e NGC_API_KEY=$NGC_API_KEY \
-  -e NIM_HTTP_API_PORT=9000 \
-  -e NIM_GRPC_API_PORT=50051 \
-  -e NIM_TAGS_SELECTOR=name=parakeet-0-6b-ctc-riva-en-us,mode=all \
-  --network=app-network \
-  nvcr.io/nim/nvidia/parakeet-0-6b-ctc-en-us:2.0.0
-```
-
-Add to `.env`:
-
-```sh
-ENABLE_AUDIO=true
-ENABLE_RIVA_SERVER_READINESS_CHECK=true
-RIVA_ASR_SERVER_URI=parakeet-ctc-asr
-RIVA_ASR_GRPC_PORT=50051
-RIVA_ASR_HTTP_PORT=9000
-RIVA_ASR_SERVER_IS_NIM=true
-```
-
-### Using Riva NIM from build.nvidia.com
-
-```sh
-ENABLE_AUDIO=true
-RIVA_ASR_SERVER_URI="grpc.nvcf.nvidia.com"
-RIVA_ASR_GRPC_PORT=443
-RIVA_ASR_SERVER_IS_NIM=true
-RIVA_ASR_SERVER_USE_SSL=true
-RIVA_ASR_SERVER_API_KEY=<>
-RIVA_ASR_SERVER_FUNC_ID="d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965"
-```
-
-To enable decoding of additional audio formats:
-
-```sh
-INSTALL_PROPRIETARY_CODECS=true
-```
-
-Add `--enable-audio` option to the summarize request to enable audio transcripts.
 
 ---
 

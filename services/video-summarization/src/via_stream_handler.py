@@ -801,8 +801,14 @@ class ViaStreamHandler:
             # BN TBD : Need better way to handle this
             # calculate frame rate from number of frames and duration
             frame_count = len([f for f in os.listdir(cached_frames_dir) if f.endswith(".jpg")])
+            if not req_info.file_duration:
+                logger.warning(
+                    "file_duration is zero for request %s, cannot compute frame_rate",
+                    req_info.request_id,
+                )
+                return None
             frame_rate = frame_count / (req_info.file_duration / 1e9)
-            print(f"Creating cached frames video with frame rate {frame_rate}")
+            logger.info("Creating cached frames video with frame rate %s", frame_rate)
             command = [
                 "ffmpeg_for_overlay_video",
                 "-hide_banner",
@@ -823,12 +829,12 @@ class ViaStreamHandler:
             try:
                 # Execute the command
                 subprocess.run(command, check=True)
-                print(f"Cached Frames Video created at {video_path}")
+                logger.info("Cached Frames Video created at %s", video_path)
                 # Now delete all jpg files
                 [shutil.os.remove(f) for f in glob.glob(images_path)]
                 return video_path
             except subprocess.CalledProcessError as e:
-                print(f"FFmpeg command failed: {e}")
+                logger.error("FFmpeg command failed: %s", e)
                 return None
         else:
             return None
@@ -1010,11 +1016,13 @@ class ViaStreamHandler:
                         "CV metadata length exceeds max milvus string length, " "truncating to %d",
                         MAX_MILVUS_STRING_LEN,
                     )
-                print(
-                    f"chunkIdx = {chunk.chunkIdx}"
-                    f"  chunk.start_pts = {chunk.start_pts}"
-                    f"  chunk.end_pts = {chunk.end_pts}"
-                    f"  CV metadata length = {len(cv_meta)}"
+                logger.debug(
+                    "chunkIdx = %s  chunk.start_pts = %s  chunk.end_pts = %s"
+                    "  CV metadata length = %d",
+                    chunk.chunkIdx,
+                    chunk.start_pts,
+                    chunk.end_pts,
+                    len(cv_meta),
                 )
                 # Since cv metadata is getting  attached seperately to the context manager,
                 # set cached_frames_cv_meta to empty string in chunk
@@ -1162,7 +1170,16 @@ class ViaStreamHandler:
 
         if req_info.is_live:
             live_stream_id = req_info.source_id
-            lsinfo = self._live_stream_info_map[live_stream_id]
+            with self._lock:
+                lsinfo = self._live_stream_info_map.get(live_stream_id)
+            if lsinfo is None:
+                logger.debug(
+                    "Live stream %s already removed, skipping post-chunk processing"
+                    " for request %s",
+                    live_stream_id,
+                    req_info.request_id,
+                )
+                return
 
             if not response.is_live_stream_ended:
                 logger.info(
@@ -3006,9 +3023,11 @@ This is very important and you must follow this strictly.
             if not req_info:
                 return
             # If request for file summarization has completed
+            lsinfo = self._live_stream_info_map.get(req_info.source_id)
             if (not req_info.is_live and req_info.progress == 100) or (
                 req_info.is_live
-                and self._live_stream_info_map[req_info.source_id].live_stream_ended
+                and lsinfo is not None
+                and lsinfo.live_stream_ended
                 and len(req_info.response) == 0
             ):
                 # Remove only this specific request, not all requests for the same asset

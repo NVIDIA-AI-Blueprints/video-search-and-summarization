@@ -49,11 +49,7 @@ from rtvi_vlm_client import RtviError
 from via_exception import ViaException
 from via_logger import LOG_PERF_LEVEL, TimeMeasure, logger, patch_logger_handlers
 from via_stream_handler import RequestInfo
-from via_utils import (
-    StreamSettingsCache,
-    get_avg_time_per_chunk,
-    validate_required_prompts,
-)
+from via_utils import StreamSettingsCache, get_avg_time_per_chunk
 from vss_api_models import (
     UUID_LENGTH,
     AddFileInfoResponse,
@@ -267,7 +263,7 @@ class ViaServer:
                 self._app,
                 host=self._args.host,
                 port=int(self._args.port),
-                reload=True,
+                reload=False,
                 log_config=None,
             )
             self._server = uvicorn.Server(config)
@@ -1420,15 +1416,6 @@ class ViaServer:
                     "BadParameters",
                     400,
                 )
-
-            # Validate required prompts based on CA-RAG configuration
-            validation_errors = validate_required_prompts(
-                query.prompt,
-                self._args,
-            )
-            if validation_errors:
-                error_message = "; ".join(validation_errors)
-                raise ViaException(error_message, "BadParameters", 400)
 
             # For non-CA RAG usecase, only streaming output is supported
             if self._stream_handler._ctx_mgr is None and not query.stream:
