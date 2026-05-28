@@ -26,6 +26,7 @@ on:
   # itself, the job's `if:` guard below (only true for
   # `pull-request/<N>` refs) makes the job a clean no-op.
   workflow_dispatch:
+  push:
 
 # Only one eval runs (or per manual sweep) at a time. A fresh push
 # cancels the in-flight run (lock on /tmp/brev/<id>.lock will be released
