@@ -141,6 +141,27 @@ If you're on minimal and the user wants overlays: tear down ([`teardown.md`](tea
 
 In the VST UI, enable overlays via the player's options menu — by default the 3D bounding box overlay is off; toggle it on per stream.
 
+### Tune BEV `group` / `region` for better overlays
+
+If the BEV top-view floor map looks **stretched or squished**, or overlays sit off to one side, the `group`/`region` values in `calibration.json` (and/or the `Top.png` aspect) need refining. For API-only AMC runs these were set to schema-valid **placeholders** by [`calibration-workflow.md` § 4a](calibration-workflow.md) — enough to boot the stack, but not geometrically accurate. This is expected; tune them now that everything is deployed.
+
+Surface the current values to the user first:
+
+```bash
+CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}"
+jq '.sensors[0] | {group, region, place}' "${CAL_DIR}/calibration.json"
+```
+
+Then point the user at the canonical customization docs to set them properly:
+
+- **Accurate `group.origin` / `group.dimensions`** are derived from camera **FOV coverage** (union of per-camera ground-projected frustums), not from the image size. The VSS Configurator normally computes these automatically; to (re)generate manually, run `spatial-ai-data-utils`'s `tools/camera_grouping/calculate_origin.py` against `calibration.json` (`--overwrite`, optionally `--map_file <Top.png> --visualize`).
+- **`group_id` / `region` labels** per camera are defined in the Sensor Info File (`camera_info.json`, with `SENSOR_INFO_SOURCE=file`).
+- Field meanings and the camera-grouping tools are documented in the NVIDIA **VSS Warehouse 3D-Vision-AI Profile → Customization** guide: `https://docs.nvidia.com/vss/latest/warehouse-docs/3D-profile.html#customization`.
+
+After editing `calibration.json`, re-import it (re-run the one-shot `import-calibration-output-container-mv3dt` compose service) and restart `vss-vios-streamprocessing` so VST reloads it, then hard-refresh the VST tab (`Ctrl+Shift+R`).
+
+> **Floor-map aspect.** VST renders `Top.png` into a fixed-aspect (≈16:9) panel. A plan-view image whose aspect is far from 16:9 (e.g. a tall/portrait layout) will appear stretched **regardless of `region` values** — pad/letterbox `Top.png` to ~16:9 (origin-preserving, so world↔pixel mapping is unchanged) if needed.
+
 ### Browser reachability
 
 The VST UI loads over TCP/30888, but video playback uses **WebRTC**. The browser must reach:

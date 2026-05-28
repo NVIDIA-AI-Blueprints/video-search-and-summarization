@@ -355,6 +355,26 @@ ngc registry image list "nvstaging/vss-core/*"   2>&1 | head -5
 
 **Fix:** Re-login. If neither org lists the image, your key doesn't have access — confirm with `ngc org list`. Then either set `PERCEPTION_IMAGE` and `BEV_FUSION_MV3DT_IMAGE` in `.env` to the org that works for you, or get a new key.
 
+### Pipeline stalls at end-of-video (videos mode) — `Active sources : 0`, offsets flat
+
+**Symptom:** A `videos`-mode deploy runs fine, then after the clips reach end-of-file the VST wall goes black, perception logs `Active sources : 0` with `PERF` FPS `0.00000`, and DeepStream spins in `gst_rtspsrc_reconnect ... Resetting source N, attempts: NN` (climbing). Kafka `mdx-raw`/`mdx-bev` offsets (or Redis stream lengths) stop growing. `vss-vios-nvstreamer-mv3dt` logs a rapid `GST_MESSAGE_EOS → pause → startStream → EOS` cycle.
+
+**Cause:** input MP4s are finite. `nv_streamer_loop_playback: true` (in `warehouse-mv3dt-app/nvstreamer/configs/vst-config.json`) is the default, but the loop is **not reliably seamless** — at EOS the RTSP session can drop to DeepStream instead of continuing, and DeepStream's reconnect doesn't always re-establish. Short clips loop for a while, then desync.
+
+**Do NOT** `docker restart vss-vios-nvstreamer-mv3dt` to recover — it leaves nvstreamer rejecting DESCRIBEs with `RTSP lookup: Exceeded sync file count, ignoring the request` → `404 Stream Not Found`, even though `vst/api/v1/sensor/list` still shows sensors `online`. The file streams don't re-sync on a bare restart.
+
+**Fix (reliable recovery):** clean redeploy from a reset state — same as the "`Active sources : 0` after a redeploy" fix above:
+```bash
+cd "${VSS_APPS_DIR}"
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env --skip-revert-from-oldest-backup
+# re-apply data_log perms (SKILL.md Prerequisites §4), then:
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env up --detach --pull always
+```
+Videos and the landed calibration survive (separate paths). This recovers the stream but only buys another clip-length before the next EOS.
+
+**Durable fix (for unattended / long demos):** make the source effectively continuous so EOS rarely fires — concatenate each `Camera*.mp4` into one long file (stream-copy, no re-encode), e.g. via the ffmpeg `concat` demuxer, and stage the long files under `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/`. Then redeploy.
+
 ## When to drop down to `warehouse-debug.md`
 
 For general warehouse-blueprint issues (NGC permissions, low FPS tuning beyond MV3DT, GPU saturation across multiple stacks, broker tuning, NGC app-data extraction), the deeper reference is [`../../vss-deploy-profile/references/warehouse-debug.md`](../../vss-deploy-profile/references/warehouse-debug.md). That's an MV3DT-aware reference too, just broader.

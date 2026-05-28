@@ -21,7 +21,7 @@ The user's Q3 slug becomes the `${SAMPLE_VIDEO_DATASET}` directory name.
 
 ## Step 1 — Hand off to the AMC skill for setup
 
-**Do not reinvent AMC setup here.** Walk the full deploy flow in [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) end-to-end. For MV3DT chaining, follow Path B (standalone `COMPOSE_PROFILES=auto-calib`). The AMC skill owns the canonical procedure and will stay in sync with the AMC microservice as it evolves.
+**Do not reinvent AMC setup here.** Walk the full deploy flow in [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) end-to-end. For MV3DT chaining, follow Path B (standalone `COMPOSE_PROFILES=auto_calib`). The AMC skill owns the canonical procedure and will stay in sync with the AMC microservice as it evolves.
 
 The MV3DT chain has two skill-specific requirements on top of the AMC skill's defaults:
 
@@ -41,7 +41,7 @@ Per `deploy-auto-calibration-service.md` **Step 3 (Path B)**:
 
 ```bash
 cd "${VSS_APPS_DIR}"
-COMPOSE_PROFILES=auto-calib docker compose \
+COMPOSE_PROFILES=auto_calib docker compose \
   --env-file industry-profiles/warehouse-operations/.env \
   up -d
 ```
@@ -55,7 +55,9 @@ curl -sf "http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready"
 # Expected: {"code":0,"message":"VSS Auto Calibration Microservice is ready"}
 ```
 
-This brings up `vss-auto-calibration` + `vss-auto-calibration-ui` without perception, BEV Fusion, mosquitto, nvstreamer-mv3dt, or VST. The `auto-calib` compose profile shares only `redis` with MV3DT — teardown later won't collide with anything MV3DT will deploy.
+This brings up `vss-auto-calibration` + `vss-auto-calibration-ui` without perception, BEV Fusion, mosquitto, nvstreamer-mv3dt, or VST. The `auto_calib` compose profile shares only `redis` with MV3DT — teardown later won't collide with anything MV3DT will deploy.
+
+Even though this flow drives AMC via the API, **tell the user they can watch live calibration progress in the AMC UI** at `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}` (open the project created in Step 2).
 
 ### 1e. Open perms on the project-state bind-mount (pre-empt UID-1000 gotcha)
 
@@ -85,22 +87,24 @@ Inputs the AMC flow needs from the parent SKILL.md's Q3:
 
 Capture the `project_id` from the AMC flow's project-creation step — you'll need it in Step 3 to fetch the MV3DT export. Wait until `project_state == COMPLETED` before proceeding.
 
-### 2a. UI-fallback gate — do not skip
+### 2a. Alignment + layout gate — do not skip
 
-After uploading videos (and layout, if local), **pause and direct the user to the AMC UI** ([`../../vss-generate-video-calibration/SKILL.md#ui-fallback-pattern`](../../vss-generate-video-calibration/SKILL.md)) before calling `/verify_project`:
+The gate here is that **`alignment_data.json` + `layout.png` are actually present** before `/verify_project` — *not* that the user opened the UI. Two paths:
 
-- **Step 3 — Parameters**: tune or review settings (the user may need to adjust parameters for their scene), then **Save**. Also confirm the detector you'll pass to `/calibrate` — Step 3 does not cover it.
-- **Step 4 — Alignment**: upload `alignment_data.json` or mark correspondence points on `layout.png`, then **Save**.
+- **Files on disk (common):** if `alignment_data.json` and `layout.png` exist (the AMC `videos` flow auto-detects them in the videos dir / its parent), they're uploaded via `/upload_alignment` + `/upload_layout` — **no UI step needed.** Skip straight to the on-disk verification below.
+- **Files missing:** **pause and direct the user to the AMC UI** ([`../../vss-generate-video-calibration/SKILL.md#ui-fallback-pattern`](../../vss-generate-video-calibration/SKILL.md)) to provide them:
+  - **Step 3 — Parameters**: tune or review settings, then **Save**. Also confirm the detector you'll pass to `/calibrate` — Step 3 does not cover it.
+  - **Step 4 — Alignment**: upload `alignment_data.json` or mark correspondence points on `layout.png`, then **Save**.
 
-Wait for the user to confirm, then verify on disk before continuing:
+Either way, verify on disk before continuing:
 
 ```bash
 MANUAL_DIR="${VSS_APPS_DIR}/services/auto-calibration/projects/project_${project_id}/manual_adjustment"
 test -f "${MANUAL_DIR}/alignment_data.json" && test -f "${MANUAL_DIR}/layout.png" \
-  || { echo "ERROR: alignment missing — user did not Save in UI Step 4"; exit 1; }
+  || { echo "ERROR: alignment/layout missing — upload via API, or have the user Save them in AMC UI Step 4"; exit 1; }
 ```
 
-**Do not treat `verify_project` returning `READY` as sufficient** — some microservice versions return READY without alignment, but calibration will produce unusable poses. The on-disk check above is the gate. If you write a custom driver script, replicate the UI-fallback block from the AMC reference's bundled Python script verbatim.
+**Do not treat `verify_project` returning `READY` as sufficient** — some microservice versions return READY without alignment, but calibration will produce unusable poses. The on-disk check above is the gate.
 
 ## Step 3 — Run VGGT refinement, then fetch the MV3DT export
 
@@ -196,7 +200,9 @@ sudo chmod -R a+rX "${CAL_DIR}"
 
 ### 4a — Patch empty `group` / `region` / `place` (only needed for API-only AMC runs)
 
-`vss-behavior-analytics-mv3dt` validates `sensors[].group`, `sensors[].region`, and `sensors[].place` at startup and crashes when they're empty (typical for API-only AMC exports — see Step 3d note above). Inject placeholder values that pass the validator so deploy can proceed; users who need metric BEV bounds for real analytics rules should populate these in the AMC UI Parameters step before export and re-run.
+`vss-behavior-analytics-mv3dt` validates `sensors[].group`, `sensors[].region`, and `sensors[].place` at startup and crashes when they're empty (typical for API-only AMC exports — see Step 3d note above). Inject placeholder values that pass the validator so deploy can proceed.
+
+> These placeholders only satisfy the schema so the stack starts — they are **not** geometrically meaningful. The square `dimensions` will make the BEV top-view floor map look squished/stretched and any region-scoped analytics use the wrong bounds. Getting accurate values is a **post-deploy tuning step**, not a blocker: leave the placeholders here and point the user to [`verify-and-view.md` § "Tune BEV `group`/`region` for better overlays"](verify-and-view.md) after the stack is up. (The BEV `origin`/`dimensions` are normally derived from camera FOV coverage by the VSS Configurator / `spatial-ai-data-utils`'s `calculate_origin.py`, or set per the NVIDIA 3D-profile customization docs.)
 
 Idempotent — re-running this block is safe and does nothing once values are populated.
 
@@ -290,7 +296,7 @@ Leave the host clean before MV3DT comes up — they share `redis` and the host:p
 
 ```bash
 cd "${VSS_APPS_DIR}"
-COMPOSE_PROFILES=auto-calib docker compose \
+COMPOSE_PROFILES=auto_calib docker compose \
   --env-file industry-profiles/warehouse-operations/.env \
   down
 ```

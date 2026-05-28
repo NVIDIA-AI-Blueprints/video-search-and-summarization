@@ -78,7 +78,7 @@ If [`calibration-workflow.md`](calibration-workflow.md) deployed `auto_calib` se
 
 ```bash
 cd "${VSS_APPS_DIR}"
-COMPOSE_PROFILES=auto-calib docker compose \
+COMPOSE_PROFILES=auto_calib docker compose \
   --env-file industry-profiles/warehouse-operations/.env \
   down
 ```
