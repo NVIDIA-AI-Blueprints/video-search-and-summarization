@@ -58,6 +58,72 @@ docker compose -f compose.yml \
 
 `down -v` resets the named volumes (including the VST Postgres DB), so configurator re-registers sensors fresh from the current calibration. See [`teardown.md`](teardown.md) for the full discussion and [`configure-cameras.md`](configure-cameras.md) Step 5 for the targeted-trim alternative when you want to keep most state.
 
+### `vss-rtvi-cv-mv3dt` crashes at startup with `MqttCommunicator` "invalid node" / tracker submit failures
+
+**Symptom:** `vss-rtvi-cv-mv3dt` reaches stream init, then exits. Logs show:
+
+```
+new stream added [0:<uuid>:cam_01]
+!![Exception] [MqttCommunicator] Error initializing pub/sub info: invalid node; first invalid key: "cam_01"
+ERROR from tracking_tracker: Failed to submit input to tracker
+gstnvtracker: Low-level tracker lib returned error 1
+App run failed
+```
+
+**Cause:** The perception container ships a hardcoded `pub_sub_info_config.yml` (`warehouse-mv3dt-app/deepstream/configs/pub_sub_info_config.yml`) and tracker config (`ds-mv3dt-tracker-config.yml`) that expect camera names `Camera` (first), `Camera_01`, `Camera_02`, … VST registered sensors under the actual video filenames (here `cam_00..cam_03`), so the MQTT pub/sub map lookup fails and the tracker can't initialize. Common for custom datasets where the user's videos / AMC defaults don't match the sample convention.
+
+**Diagnose:**
+```bash
+docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -E 'pubBrokerTopicStr|stream_name|invalid node|MqttCommunicator' | head -30
+curl -sf "http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/list" | jq -r '.[].name' | sort
+jq -r '.sensors[].id' "${CAL_DIR}/calibration.json" | sort
+```
+
+If the VST sensor names and calibration sensor IDs don't match `Camera / Camera_01 / Camera_02 / ...`, that's the issue.
+
+**Fix:** Tear down (`down -v` to clear VST sensor state), then walk [`configure-cameras.md`](configure-cameras.md) **Step 0** — rename videos, `camInfo/*.yml`, and `sensors[].id` in `calibration.json` to the `Camera, Camera_NN` convention together. Redeploy.
+
+### `vss-behavior-analytics-mv3dt` restart loop with `calibration 'upsert-all' payload failed schema validation`
+
+**Symptom:** `vss-behavior-analytics-mv3dt` is in `Restarting` state. Logs show:
+
+```
+[ERROR] calibration 'upsert-all' payload failed schema validation: sensors/0/group/alias: '' should be non-empty; sensors/0/group/dimensions: [] is too short; sensors/0/group/name: '' should be non-empty; sensors/0/group/origin: [] is too short; sensors/0/group/type: '' should be non-empty (+ N more ...)
+```
+
+**Cause:** AMC's API-only `export_calibration?calibration_type=cartesian` leaves `sensors[].group`, `sensors[].region`, and `sensors[].place` as empty objects/arrays when the user didn't define ROIs / regions in the AMC UI Parameters step. The schema validator rejects these and the container exits 1.
+
+**Diagnose:**
+```bash
+jq '.sensors[0] | {group, region, place}' "${CAL_DIR}/calibration.json"
+# Empty group.name / region.placeLevel / place=[] confirm the cause.
+```
+
+**Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4a** — the inline `jq` block patches placeholder values into the empty fields so the validator passes. For metric BEV bounds, populate these in the AMC UI Parameters step before export instead.
+
+### `vss-import-calibration-output-mv3dt` exits 1 with `imageMetadata.json not found`
+
+**Symptom:** Under extended profile (`MINIMAL_PROFILE=""`), `vss-import-calibration-output-mv3dt` runs once and exits 1. Logs show:
+
+```
+importing calibration ...
+{"success":true}importing images ...
+imageMetadata.json not found at /opt/vss/images/imageMetadata.json
+Exiting Script.
+```
+
+Stack otherwise runs; VST video wall renders raw video without overlays because the import didn't populate the metadata index in Elasticsearch.
+
+**Cause:** AMC's MV3DT export doesn't produce `images/Top.png` + `images/imageMetadata.json`; the importer expects both at the bind-mounted path. Only relevant under extended profile — minimal mode doesn't deploy this container at all.
+
+**Diagnose:**
+```bash
+ls "${CAL_DIR}/images/" 2>/dev/null
+docker logs vss-import-calibration-output-mv3dt 2>&1 | tail -10
+```
+
+**Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4b** — synthesize `Top.png` from the user's `layout.png` (or any project-output PNG) and write a matching `imageMetadata.json` with a `place` string mirroring `sensors[0].place`. Then `docker start vss-import-calibration-output-mv3dt` to retry the one-shot — no full redeploy needed.
+
 ### `vss-rtvi-cv-bev-fusion` not healthy / `/tmp/fusion_ready` missing
 
 **Cause(s):**

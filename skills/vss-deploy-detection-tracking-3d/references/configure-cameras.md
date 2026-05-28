@@ -17,6 +17,89 @@ The shipped warehouse `.env` defaults to `NUM_STREAMS=4` and a 4-camera sample. 
 
 The authoritative source for **how many cameras you have** is `calibration.json` — it has an explicit `sensors[]` array. Use that as ground truth; the `camInfo/` directory listing is a fallback.
 
+## Step 0 — Normalize camera names to the perception convention
+
+The perception container ships a hardcoded `pub_sub_info_config.yml` (`warehouse-mv3dt-app/deepstream/configs/pub_sub_info_config.yml`) and tracker config (`warehouse-mv3dt-app/deepstream/configs/ds-mv3dt-tracker-config.yml`) expecting cameras named `Camera` (first), `Camera_01`, `Camera_02`, … When VST registers sensors under any other name — e.g. `cam_00..cam_03` from AMC defaults that follow the user's video filenames, or `Camera_00` with the leading-zero variant — perception fails at MQTT init and the tracker can't submit frames:
+
+```
+!![Exception] [MqttCommunicator] Error initializing pub/sub info: invalid node; first invalid key: "cam_01"
+ERROR from tracking_tracker: Failed to submit input to tracker
+gstnvtracker: Low-level tracker lib returned error 1
+```
+
+VST infers sensor names from the video filename, so the rename must touch videos, `camInfo/*.yml`, and the `sensors[].id` field in `calibration.json` together. Run **once** before deploy — once VST has registered sensors with the old names, you'd need `down -v` to redo it (see [`troubleshooting.md`](troubleshooting.md) "Perception reports `Active sources : 0`").
+
+Skip when:
+- Q1 = `sample` (calibration ships with the correct names already).
+- The user supplied a calibration that already uses `Camera, Camera_01..N`.
+
+Idempotent — the block below is a no-op when the first sensor is already named `Camera`.
+
+```bash
+DATASET="${SAMPLE_VIDEO_DATASET:?}"
+CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
+VIDEO_DIR="${VSS_DATA_DIR}/videos/${DATASET}"
+
+VSS_APPS_DIR="${VSS_APPS_DIR}" VSS_DATA_DIR="${VSS_DATA_DIR}" \
+  SAMPLE_VIDEO_DATASET="${DATASET}" python3 - <<'PY'
+import json, os
+from pathlib import Path
+
+DATASET = os.environ["SAMPLE_VIDEO_DATASET"]
+CAL_DIR = Path(os.environ["VSS_APPS_DIR"]) / "industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data" / DATASET
+VID_DIR = Path(os.environ["VSS_DATA_DIR"]) / "videos" / DATASET
+
+cal_path = CAL_DIR / "calibration.json"
+d = json.loads(cal_path.read_text())
+
+if not d.get("sensors"):
+    raise SystemExit("calibration.json has no sensors[] — re-walk calibration-workflow.md Step 3d")
+
+# Idempotent: skip when first sensor is already "Camera"
+if d["sensors"][0].get("id") == "Camera":
+    print("already normalized — skipping rename")
+    raise SystemExit(0)
+
+# Build remap: index 0 -> "Camera"; indices >=1 -> "Camera_NN" (zero-padded width 2).
+# Matches the shipped pub_sub_info_config.yml / tracker config naming.
+remap = {}
+for i, s in enumerate(d["sensors"]):
+    new = "Camera" if i == 0 else f"Camera_{i:02d}"
+    remap[s["id"]] = new
+
+# 1. Rename video files (extension-agnostic)
+for old_name, new_name in remap.items():
+    for ext in ("mp4", "m4v", "mkv", "MP4"):
+        p = VID_DIR / f"{old_name}.{ext}"
+        if p.exists():
+            p.rename(VID_DIR / f"{new_name}.{ext}")
+            print(f"video: {p.name} -> {new_name}.{ext}")
+
+# 2. Rename camInfo files — AMC default (camInfo_NN.yml), sensor-id-named (<id>.yml),
+#    or extension variants. Pick the first that exists per sensor index.
+caminfo = CAL_DIR / "camInfo"
+for i, (old_name, new_name) in enumerate(remap.items()):
+    for cand in (
+        f"camInfo_{i:02d}.yml", f"camInfo_{i:02d}.yaml",
+        f"{old_name}.yml",     f"{old_name}.yaml",
+    ):
+        p = caminfo / cand
+        if p.exists():
+            p.rename(caminfo / f"{new_name}.yml")
+            print(f"camInfo: {cand} -> {new_name}.yml")
+            break
+
+# 3. Rewrite sensor IDs and any cross-references (e.g. globalCoordinates sibling refs)
+txt = json.dumps(d, indent=2)
+for old, new in remap.items():
+    txt = txt.replace(f'"{old}"', f'"{new}"')
+cal_path.write_text(txt)
+print("renamed sensor IDs to:", [s["id"] for s in json.loads(txt)["sensors"]])
+PY
+```
+
+If sensor IDs in `calibration.json` use a different pattern (e.g. user-supplied names like `north-cam`, `loading-dock`), the same block still works — it remaps by `sensors[]` order to `Camera, Camera_01, Camera_02, …`. The mapping doesn't preserve semantics; rename your videos/camInfo manually first if you need a specific order.
+
 ## Step 1 — Count cameras from `calibration.json`
 
 ```bash

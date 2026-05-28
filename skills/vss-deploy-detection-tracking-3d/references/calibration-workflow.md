@@ -57,6 +57,17 @@ curl -sf "http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready"
 
 This brings up `vss-auto-calibration` + `vss-auto-calibration-ui` without perception, BEV Fusion, mosquitto, nvstreamer-mv3dt, or VST. The `auto-calib` compose profile shares only `redis` with MV3DT — teardown later won't collide with anything MV3DT will deploy.
 
+### 1e. Open perms on the project-state bind-mount (pre-empt UID-1000 gotcha)
+
+The AMC microservice writes project state to `${VSS_APPS_DIR}/services/auto-calibration/projects/` as UID 1000. On a fresh checkout this directory either doesn't exist yet, or compose's bind-mount created it as `root:root 0755` at `up` time — either way, the first `POST /v1/create_project` (Step 2) fails with `HTTP 500 {"detail":"Failed to Create Project ...: [Errno 13] Permission denied: 'projects/project_<timestamp>'"}`. Open it before driving the API:
+
+```bash
+sudo mkdir -p "${VSS_APPS_DIR}/services/auto-calibration/projects"
+sudo chmod 777 "${VSS_APPS_DIR}/services/auto-calibration/projects"
+```
+
+chmod, never chown — matches the convention in [`../../vss-deploy-profile/references/data-directory.md`](../../vss-deploy-profile/references/data-directory.md). Idempotent and safe to re-run.
+
 ## Step 2 — Drive AMC end-to-end
 
 **Do not reinvent the API flow here.** Walk the AMC skill's mode-specific reference for the input portion, then the shared tail in its `SKILL.md` for verify → calibrate → poll → results. The AMC skill owns the canonical API contract.
@@ -156,7 +167,7 @@ curl -sfL \
 
 `calibration_type=cartesian` produces the full schema (BA results — same shape as the shipped sample). Use `calibration_type=image` only as a fallback for projects that didn't complete the full BA pass — it produces a pixel-ROI-only file behavior-analytics can still load.
 
-If the user defined ROIs / tripwires via the AMC UI Parameters dialog, they're included in the exported `calibration.json`. If the user ran the API-only path, those arrays are empty — behavior-analytics still starts, just with no analytics rules.
+ROI / tripwire arrays defined via the AMC UI Parameters dialog are included in the export; empty arrays don't block deploy (behavior-analytics just runs without those rules). **But** `group`, `region`, and `place` per sensor are a different story — when the API-only path leaves them blank, `vss-behavior-analytics-mv3dt`'s schema validator rejects the file at startup with `calibration 'upsert-all' payload failed schema validation: sensors/0/group/alias: '' should be non-empty; sensors/0/group/dimensions: [] is too short; ...` and the container enters a restart loop. Step 4 below patches these fields with placeholder values when they're empty so deploy can proceed; for metrically meaningful values, populate them in the AMC UI Parameters step before export.
 
 ## Step 4 — Land everything at the MV3DT mount path
 
@@ -183,14 +194,95 @@ sudo chmod -R a+rX "${CAL_DIR}"
 
 > **Permission rule:** always `chmod`, never `chown`. Containers run as varied UIDs; world-readable is the safe baseline. This matches the convention in `vss-deploy-profile/references/data-directory.md`.
 
+### 4a — Patch empty `group` / `region` / `place` (only needed for API-only AMC runs)
+
+`vss-behavior-analytics-mv3dt` validates `sensors[].group`, `sensors[].region`, and `sensors[].place` at startup and crashes when they're empty (typical for API-only AMC exports — see Step 3d note above). Inject placeholder values that pass the validator so deploy can proceed; users who need metric BEV bounds for real analytics rules should populate these in the AMC UI Parameters step before export and re-run.
+
+Idempotent — re-running this block is safe and does nothing once values are populated.
+
+```bash
+if jq -e '.sensors[0].group.name == ""' "${CAL_DIR}/calibration.json" >/dev/null 2>&1; then
+  jq '
+    .sensors |= map(
+        .group = {
+          name: "bev-sensor-1",
+          alias: "area-1",
+          type: "bev",
+          origin: [0.0, 0.0],
+          dimensions: [-25.0, -25.0, 25.0, 25.0]
+        }
+      | .region = {
+          placeLevel: "region",
+          origin: [-25.0, -25.0],
+          dimensions: { length: 50.0, width: 50.0 }
+        }
+      | .place = [
+          { name: "building", value: "Warehouse" },
+          { name: "room",     value: "Room-1"    },
+          { name: "region",   value: "Region-1"  }
+        ]
+    )
+  ' "${CAL_DIR}/calibration.json" > "${CAL_DIR}/calibration.json.patched" \
+    && mv "${CAL_DIR}/calibration.json.patched" "${CAL_DIR}/calibration.json"
+  echo "patched group/region/place placeholders into ${CAL_DIR}/calibration.json"
+fi
+```
+
+### 4b — Synthesize `images/Top.png` + `imageMetadata.json` (extended profile only)
+
+`vss-import-calibration-output-mv3dt` (deployed under `MINIMAL_PROFILE=""`) requires both files; it exits 1 with `imageMetadata.json not found at /opt/vss/images/imageMetadata.json` otherwise, leaving the overlay index unpopulated in Elasticsearch. The AMC export doesn't produce them — synthesize from the user-supplied layout (or any AMC project output PNG as a fallback). Place hierarchy is derived from the patched `calibration.json` so the two stay in sync.
+
+```bash
+mkdir -p "${CAL_DIR}/images"
+
+if [ ! -f "${CAL_DIR}/images/Top.png" ]; then
+  # Priority order: user-supplied layout > AMC manual_adjustment layout > any AMC project output PNG
+  for cand in \
+      "${LAYOUT_PNG:-/dev/null}" \
+      "${VSS_APPS_DIR}/services/auto-calibration/projects/project_${project_id}/manual_adjustment/layout.png" \
+      "${VSS_APPS_DIR}/services/auto-calibration/projects/project_${project_id}/output"/*.png; do
+    if [ -f "${cand}" ]; then
+      cp "${cand}" "${CAL_DIR}/images/Top.png"
+      echo "Top.png sourced from ${cand}"
+      break
+    fi
+  done
+fi
+
+if [ -f "${CAL_DIR}/images/Top.png" ] && [ ! -f "${CAL_DIR}/images/imageMetadata.json" ]; then
+  # Build place= string from sensors[0].place (Step 4a guarantees this is populated)
+  PLACE_PATH=$(jq -r '
+    (.sensors[0].place // [])
+    | map("\(.name)=\(.value)")
+    | join("/")
+    | if . == "" then "building=Warehouse/room=Room-1/region=Region-1" else . end
+  ' "${CAL_DIR}/calibration.json")
+  cat > "${CAL_DIR}/images/imageMetadata.json" <<JSON
+{
+  "images": [
+    { "place": "${PLACE_PATH}", "view": "plan-view", "fileName": "Top.png" }
+  ]
+}
+JSON
+  echo "synthesized imageMetadata.json with place=${PLACE_PATH}"
+fi
+
+sudo chmod -R a+rX "${CAL_DIR}/images"
+```
+
+If no candidate PNG is available (rare — most users have a layout for the AMC alignment step), the import container will still exit 1, but the rest of the stack runs without overlays. Either re-deploy with `MINIMAL_PROFILE="true"` or source a plan-view PNG manually.
+
 **Sanity check** before moving on:
 
 ```bash
 ls "${CAL_DIR}/camInfo/"*.{yml,yaml} 2>/dev/null | wc -l   # must equal user's camera count
-test -f "${CAL_DIR}/calibration.json" && jq -e '.sensors | length' "${CAL_DIR}/calibration.json" >/dev/null && echo OK
+test -f "${CAL_DIR}/calibration.json" && jq -e '.sensors | length' "${CAL_DIR}/calibration.json" >/dev/null && echo "calibration.json OK"
+jq -e '.sensors[0].group.name != ""' "${CAL_DIR}/calibration.json" >/dev/null && echo "group/region/place populated"
+# Extended profile only:
+test -f "${CAL_DIR}/images/Top.png" && test -f "${CAL_DIR}/images/imageMetadata.json" && echo "overlay assets OK"
 ```
 
-Both must pass. If `camInfo/` is empty, the ZIP layout was unexpected — open `/tmp/mv3dt_output.zip` and confirm where the YAML files live. If `calibration.json` is missing or has no `sensors[]` entries, re-check the Step 3d export status via `/v1/result/${project_id}/export_exists` and pull the calibration log: `curl http://localhost:8010/v1/amc/calibrate/${project_id}/log`.
+All checks should pass (or be N/A under `MINIMAL_PROFILE="true"`). If `camInfo/` is empty, the ZIP layout was unexpected — open `/tmp/mv3dt_output.zip` and confirm where the YAML files live. If `calibration.json` is missing or has no `sensors[]` entries, re-check the Step 3d export status via `/v1/result/${project_id}/export_exists` and pull the calibration log: `curl http://localhost:8010/v1/amc/calibrate/${project_id}/log`.
 
 ## Step 5 — Tear down AMC
 
@@ -221,6 +313,7 @@ Issues specific to the MV3DT chain:
 
 | Symptom | Fix |
 |---|---|
+| `POST /v1/create_project` returns HTTP 500 with body `{"detail":"Failed to Create Project ...: [Errno 13] Permission denied: 'projects/project_<timestamp>'"}` | First-time deploy on a fresh checkout — the MS writes project state as UID 1000 but `${VSS_APPS_DIR}/services/auto-calibration/projects/` is either missing or owned `root:root 0755` from the compose bind-mount. Run Step 1e above (`sudo chmod 777 ...`), then retry. chmod, never chown. |
 | MV3DT export ZIP missing `camInfo/*.yaml` after `result_type=amc` | AMC project didn't produce the MV3DT export — verify `project_state == COMPLETED` via `/v1/get_project_info/<id>` before fetching. |
 | `result_type=vggt` returns 404 / empty ZIP | VGGT didn't run to completion. Check `vggt_state` — if `INIT` the model wasn't staged (Step 1a); if `ERROR` see VGGT log. Fall back to `result_type=amc`. |
 | `POST /export_calibration` returns non-200 | Project hasn't completed the BA pass — re-check `project_state == COMPLETED`. As a fallback, retry with `calibration_type=image` for a pixel-ROI-only export. |
