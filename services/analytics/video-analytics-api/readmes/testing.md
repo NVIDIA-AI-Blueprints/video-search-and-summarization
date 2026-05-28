@@ -62,3 +62,19 @@ Modes:
 - `docker_compose/infra/` - Elasticsearch infrastructure
 - `docker_compose/apps/` - video-analytics-api service definition
 - `docker_compose/apps_data/` - Persistent data directories
+
+## CI Pipelines
+
+### GitLab CI (`.gitlab-ci.yml`)
+
+- **unit-test** - Runs unit tests with coverage
+- **integration-test** - Docker-in-Docker integration tests
+- **pages** - JSDoc generation for `web-api-core`
+- **api-governance-linter** - OpenAPI specification linting
+
+### Jenkins (`Jenkinsfile.develop.multiarch`)
+
+- npm packaging and test coverage
+- Integration tests
+- npm publish to URM
+- Multi-arch Docker image builds
