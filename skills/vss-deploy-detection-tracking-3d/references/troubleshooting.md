@@ -276,6 +276,21 @@ nc -zu stun.l.google.com 19302                                            # bloc
 3. **Bypass UI entirely; consume `mdx-bev`.** Data is on the broker — write a downstream consumer.
 4. **Self-host a TURN server** on TCP/443 and reconfigure VST's `stunurl_list` / `webrtc_port_range`. Heavyweight; out of scope for this skill.
 
+### VST overlays show the sample warehouse layout, or 3D bboxes wildly misaligned despite a correct calibration on disk
+
+**Symptom:** VST's top-view widget displays the bundled sample warehouse layout (orange shelving, recognizably not your scene) AND/OR 3D bounding boxes are drawn at the wrong pixel positions on every camera stream — even though `calibration.json` at `<CAL_DIR>` looks correct, AMC's own overlay images in the project output look correct, perception is at 30 FPS, and `mdx-bev` is growing. Re-running AMC, switching detectors, or running VGGT refinement makes no visible difference to the VST overlay.
+
+**Cause:** `services/vios/streamprocessing/docker-compose.yaml` hardcodes two bind-mount sources to the literal `sample-data/warehouse-4cams-20mx20m-synthetic/` slug instead of `${SAMPLE_VIDEO_DATASET}`. VST reads from `/home/vst/vst_release/configs/calibration.json` when rendering 3D bbox overlays — so for any non-sample dataset, **VST projects with the sample warehouse's `cameraMatrix` regardless of what's in your dataset's calibration.json**. Every other consumer in the stack (perception, behavior-analytics, video-analytics-api) reads from your dataset's path correctly; only the streamprocessing → VST overlay path is wrong.
+
+**Diagnose:**
+```bash
+docker inspect vss-vios-streamprocessing \
+  --format '{{range .Mounts}}{{if eq .Destination "/home/vst/vst_release/configs/calibration.json"}}{{.Source}}{{end}}{{end}}'
+# If the printed path contains "warehouse-4cams-20mx20m-synthetic" instead of your ${SAMPLE_VIDEO_DATASET}, that's the bug.
+```
+
+**Fix:** Apply the patch from [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 0b — replaces the literal sample slug with `${SAMPLE_VIDEO_DATASET}`. Then recreate `streamprocessing-ms-mv3dt` in place and hard-refresh the VST tab. Full stack restart is not required.
+
 ### No bounding-box overlays in VST video wall
 
 **Expected behavior under `MINIMAL_PROFILE="true"`.** Overlays require Elasticsearch + `vss-video-analytics-api-mv3dt` + `vss-import-calibration-output-mv3dt`, all gated under `_extended`. None of them deploy in minimal mode. See [`verify-and-view.md`](verify-and-view.md) Step 5.

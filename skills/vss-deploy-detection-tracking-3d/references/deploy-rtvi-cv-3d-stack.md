@@ -72,6 +72,46 @@ echo "the configurator will trim videos to that cap at deploy time."
 
 If videos < camera count and `HARDWARE_PROFILE.mv3dt.max_streams_supported` < camera count, the deploy will appear to succeed but you'll only get a subset of streams. Fix one of: source missing videos, raise `HARDWARE_PROFILE`-supported cap, or lower expectations.
 
+### Step 0b — Patch hardcoded `streamprocessing` mounts (custom datasets only)
+
+`services/vios/streamprocessing/docker-compose.yaml` hardcodes two bind-mount sources to `sample-data/warehouse-4cams-20mx20m-synthetic/` regardless of `SAMPLE_VIDEO_DATASET`:
+
+```yaml
+# lines 189-190 (MODE=mv3dt). lines 138-139 mirror this for MODE=3d.
+- ${VSS_APPS_DIR}/.../calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
+- ${VSS_APPS_DIR}/.../calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
+```
+
+VST reads from `/home/vst/vst_release/configs/calibration.json` when rendering 3D bbox overlays on each camera stream — so for any `SAMPLE_VIDEO_DATASET` other than `warehouse-4cams-20mx20m-synthetic`, **VST overlays project with the sample warehouse's `cameraMatrix` instead of yours**, even though every other consumer (perception, behavior-analytics, video-analytics-api) correctly uses your dataset's calibration. Symptom: bbox positions wildly off on the VST video wall, top-view widget shows the sample warehouse layout instead of yours, AMC/Kibana overlays look fine.
+
+Idempotent patch — no-op when slug is already the literal sample, no-op after a prior patch:
+
+```bash
+COMPOSE_SP="${VSS_APPS_DIR}/services/vios/streamprocessing/docker-compose.yaml"
+
+if grep -q 'sample-data/warehouse-4cams-20mx20m-synthetic/calibration\.json' "${COMPOSE_SP}"; then
+  sed -i 's|sample-data/warehouse-4cams-20mx20m-synthetic/calibration\.json|sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json|g' "${COMPOSE_SP}"
+  sed -i 's|sample-data/warehouse-4cams-20mx20m-synthetic/images/Top\.png|sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png|g' "${COMPOSE_SP}"
+  echo "Patched streamprocessing compose: sample-data path now resolves via \${SAMPLE_VIDEO_DATASET}"
+else
+  echo "streamprocessing compose already patched (or sample dataset in use) — no change"
+fi
+```
+
+If the stack is **already running** when you discover this (Step 5 in [`verify-and-view.md`](verify-and-view.md) is showing the sample warehouse layout), apply the patch and recreate the affected container in place — no need to bring the full stack down:
+
+```bash
+cd "${VSS_APPS_DIR}"
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  up -d --no-deps --force-recreate streamprocessing-ms-mv3dt
+
+# VST's per-tab session caches the sensorIds, which change on streamprocessing recreate
+# → hard-refresh the VST tab (Ctrl+Shift+R) so the cached streamId is dropped.
+```
+
+This is an upstream-bug workaround. When the compose source is fixed (`${SAMPLE_VIDEO_DATASET}` instead of the literal), this step becomes a true no-op and can be dropped from the skill.
+
 ## Step 1 — Env recipe
 
 Edit `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env`. The shipped `.env` defaults to **2D** (`MODE=2d`, `BP_PROFILE=bp_wh`, `HARDWARE_PROFILE=H100`, paths as placeholders, `NGC_CLI_API_KEY=''`) — you must change at least `MODE`, `BP_PROFILE`, paths, `HOST_IP`, and `NGC_CLI_API_KEY` for MV3DT. Confirm every key below:
