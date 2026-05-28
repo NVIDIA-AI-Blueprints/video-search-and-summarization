@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,7 +46,7 @@ class Validator {
      * Used to check if input is a finite number.
      * @public
      * @static
-     * @param {string} input
+     * @param {string} input - Input string to validate.
      * @returns {boolean} Returns a boolean signifying whether the input was a finite number
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -67,7 +67,7 @@ class Validator {
      * Used to check if input is a finite integer.
      * @public
      * @static
-     * @param {string} input
+     * @param {string} input - Input string to validate.
      * @returns {boolean} Returns a boolean signifying whether the input was a finite integer
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -86,7 +86,7 @@ class Validator {
      * Checks if input date string is in ISO 8601 format.
      * @public
      * @static
-     * @param {string} timestamp
+     * @param {string} timestamp - Timestamp to validate.
      * @returns {boolean} Returns a boolean signifying whether the input was a valid timestamp
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -100,8 +100,8 @@ class Validator {
      * Checks if input time range is valid.
      * @public
      * @static
-     * @param {string} fromTimestamp
-     * @param {string} toTimestamp
+     * @param {string} fromTimestamp - fromTimestamp to validate.
+     * @param {string} toTimestamp - toTimestamp to validate.
      * @returns {boolean} Returns a boolean signifying whether the input time range was valid
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -123,9 +123,9 @@ class Validator {
      * Checks if a json input follows a schema.
      * @public
      * @static
-     * @param {Object} jsonInput
-     * @param {Object} schema
-     * @param {boolean} [coerceTypes=true]
+     * @param {Object} jsonInput - JSON input object to validate.
+     * @param {Object} schema - JSON schema used for validation.
+     * @param {boolean} [coerceTypes=true] - Whether to coerce input types during validation.
      * @returns {{valid:boolean,reason:?string}} Returns the validity of the json input.
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");

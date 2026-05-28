@@ -20,7 +20,7 @@ budget without exercising new code paths.
 
 ## Spec shape
 
-`skills/vss-deploy-video-embedding/eval/standalone_deploy.json` has a
+`skills/vss-deploy-video-embedding/evals/standalone_deploy.json` has a
 single `expects` entry (one bring-up query + 9 checks). The adapter
 therefore emits a flat `base/<platform_short>/` task directory rather
 than a step-chain.
@@ -283,7 +283,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     (tests_dir / "test.sh").write_text(generate_test_script(1, spec_name))
     if GENERIC_JUDGE.exists():
         shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-    spec_src = skill_dir / "eval" / spec_name
+    spec_src = skill_dir / "evals" / spec_name
     if spec_src.exists():
         shutil.copy(spec_src, tests_dir / spec_name)
     else:
@@ -317,7 +317,7 @@ def main() -> None:
                         help="Path to skills/vss-deploy-video-embedding")
     parser.add_argument("--spec", default=None,
                         help="Path to standalone_deploy.json "
-                             "(default: <skill-dir>/eval/standalone_deploy.json)")
+                             "(default: <skill-dir>/evals/standalone_deploy.json)")
     parser.add_argument("--platform", default=None,
                         choices=list(PLATFORMS.keys()),
                         help=f"Generate for this platform only "
@@ -326,7 +326,7 @@ def main() -> None:
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / "standalone_deploy.json")
+    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / "standalone_deploy.json")
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

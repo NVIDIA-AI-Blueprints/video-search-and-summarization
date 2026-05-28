@@ -1,0 +1,225 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"consumer": {
+			"autoOffsetReset": "latest",
+			"enableAutoCommit": false,
+			"maxPollIntervalMs": 900000,
+			"maxPartitionFetchBytes": 10485760,
+			"maxPollRecords": 10000,
+			"pollTimeoutMs": 100
+		},
+		"producer": {
+			"lingerMs": 0
+		},
+		"group": "mdx-smart-city-app",
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "behaviorPlus",
+				"value": "mdx-behavior-plus"
+			},
+			{
+				"name": "anomaly",
+				"value": "mdx-alerts"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		]
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "anomalyIgnoreSensors",
+					"value": "[\"sensorABC\",\"sensorXYZ\"]"
+				},
+				{
+					"name": "anomalyClasses",
+					"value": "[\"Vehicle\"]"
+				},
+				{
+					"name": "anomalySpeedViolation",
+					"value": "{ \"enable\": true, \"mphThreshold\" : 90, \"timeIntervalSecThreshold\": 10 }"
+				},
+				{
+					"name": "anomalyUnexpectedStop",
+					"value": "{ \"enable\": true, \"mphThreshold\" : 5, \"timeIntervalSecThreshold\": 120 }"
+				},
+				{
+					"name": "anomalyAbnormalMovement",
+					"value": "{ \"enable\": true, \"useLinearDistance\": false, \"distanceMetersThreshold\": 10, \"timeIntervalSecThreshold\": 5, \"strideDeviationComputation\": 5, \"distanceMetersThresholdDeviationComputation\": 10, \"abnormalRelativeThreshold\": 2.0, \"abnormalRelativeMaxThreshold\": 10.0, \"abnormalRelativeDirectionChangeEnable\": true, \"changeInDirectionDegree\": 30 }"
+				}
+			]
+		},
+		{
+			"id": "HWY_20_AND_HILL__PTZ",
+			"configs": [
+				{
+					"name": "anomalySpeedViolation",
+					"value": "{ \"enable\": true, \"mphThreshold\" : 60, \"timeIntervalSecThreshold\": 5 }"
+				},
+				{
+					"name": "anomalyUnexpectedStop",
+					"value": "{ \"enable\": true, \"mphThreshold\" : 10, \"timeIntervalSecThreshold\": 60 }"
+				}
+			]
+		}
+	],
+	"coordinateReferenceSystem": {
+		"inputDataInCRSCartesian": false,
+		"crsCartesian": "EPSG:26915",
+		"crsCartesianEnablePerSensorOrigin": false,
+		"crsCartesianCustomOrigin": {
+			"enable": false,
+			"lat": 42.492109,
+			"lon": -90.717522
+		},
+		"roadNetwork": {
+			"enable": true,
+			"segmentShiftDistanceMeters": 5,
+			"mapMatching": {
+					"mapMatchingMaxDistMeters": 30, 
+				    "mapMatchingMaxDistInitMeters": 20,
+				    "mapMatchingMinProbNorm": 0.001,
+				    "mapMatchingNonEmittingLengthFactor": 0.75,
+				    "mapMatchingObsNoiseMeters": 10, 
+				    "mapMatchingObsNoiseNonEmittingStatesMeters": 15, 
+				    "mapMatchingDistNoiseMeters": 10, 
+				    "mapMatchingNonEmittingStates": true,
+				    "mapMatchingMaxLatticeWidth": 5
+				},
+			"graph": {
+				"graphFromOSM": true,
+				"osmLoadMethod": "from_place",
+			    "osmType": "drive",
+			    "osmSimplify": false,
+			    "osmQueryPoint": {
+			    	"lat": 42.492109,
+			    	"lon": -90.717522
+			    },
+			    "osmQueryPointDistMeters": 500,
+			    "osmQueryPolygon": [
+			    	{
+				    	"lat": 42.490335, 
+				    	"lon": -90.728456
+			    	},
+			    	{
+				    	"lat": 42.493731, 
+				    	"lon": -90.728456
+			    	},
+			    	{
+				    	"lat": 42.493731, 
+				    	"lon": -90.708703
+			    	},
+			    	{
+				    	"lat": 42.490335, 
+				    	"lon": -90.708703
+			    	}
+			    ],
+			    "osmQueryPlace": "Dubuque, Iowa, USA",
+			    "osmQueryFile": "../ITS_new/sample_data/iowa-latest.osm.pbf"
+			},
+			"visualization": {
+				"visualizationGraphNodeColor": "r",
+				"visualizationGraphShowGraph": true,
+			    "visualizationMapUseBackground": true,
+			    "visualizationMapZoomPath": false,
+			    "visualizationMapShowLabels": false,
+			    "visualizationMapShowMatching": true
+			}
+		}
+	},
+	"app": [
+		{
+			"name": "trajGeoCoordEnable",
+			"value": "true"
+		},
+		{
+			"name": "trajDirectionMode",
+			"value": "0"
+		},
+		{
+			"name": "trajDirectionClusterMode",
+			"value": "1"
+		},
+		{
+			"name": "trajSmoothMinPoints",
+			"value": "20"
+		},
+		{
+			"name": "trajSmoothWindowSize",
+			"value": "5"
+		},
+		{
+			"name": "trajDistanceStride",
+			"value": "5"
+		},
+		{
+			"name": "trajSpeedSegmentSize",
+			"value": "10"
+		},
+		{
+			"name": "mapMatchingMaxPoints",
+			"value": "5"
+		},
+		{
+			"name": "mapMatchingClasses",
+			"value": "[\"Vehicle\"]"
+		},
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "200"
+		},
+		{
+			"name": "objectConfidenceThreshold",
+			"value": "0.5"
+		},
+		{
+			"name": "clusterThreshold",
+			"value": "0.9"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "geo"
+		},
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "4"
+		},
+		{
+			"name": "numWorkersForBehaviorClustering",
+			"value": "2"
+		}
+	],
+	"inference":{
+		"enable": false,
+		"url" : "10.128.34.61:8001"
+	}
+}

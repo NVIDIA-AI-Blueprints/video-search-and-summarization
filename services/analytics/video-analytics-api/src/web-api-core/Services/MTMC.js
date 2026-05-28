@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -207,12 +207,12 @@ class MTMC {
      * returns unique object count.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.timestamp
-     * @param {string} input.timeWindowInMs
+     * @param {string} input.timestamp - Timestamp for the query in ISO 8601 format.
+     * @param {number} input.timeWindowInMs - Time window in milliseconds used to query unique object count.
      * @param {Array<string>} [input.sensorIds] - Either sensorIds or place can be present. They are mutually exclusive. Exactly one sensorId should be in the array when objectId is present.
-     * @param {?string} [input.objectId=null]
+     * @param {?string} [input.objectId=null] - Object ID used to filter unique objects.
      * @param {string} [input.place] - Either sensorIds or place can be present. They are mutually exclusive.
      * @returns {Promise<Object>} An object containing unique object count is returned
      * @example
@@ -344,15 +344,15 @@ class MTMC {
      * returns unique objects.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {Array<string>} [input.sensorIds] - Either sensorIds, globalId or place can be present. They are mutually exclusive. Exactly one sensorId should be in the array when objectId is present.
-     * @param {?string} [input.objectId=null]
+     * @param {?string} [input.objectId=null] - Object ID used to filter unique objects.
      * @param {string} [input.place] - Either sensorIds, globalId or place can be present. They are mutually exclusive.
-     * @param {string} [input.globalId] - Either sensorIds, globalId or place can be present. They are mutually exclusive.
-     * @param {number} [input.maxResultSize=25] - maxResultSize must be an integer. globalId and maxResultSize can't occur together.
+     * @param {string} [input.globalId] - Global ID used to filter unique objects. Either sensorIds, globalId or place can be present. They are mutually exclusive.
+     * @param {number} [input.maxResultSize=25] - Maximum number of unique objects returned. globalId and maxResultSize can't occur together.
      * @returns {Promise<Object>} Unique objects are returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -514,10 +514,10 @@ class MTMC {
      * returns locations of matched objects.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {Array<string>} [input.behaviorIds] - Either behaviorIds or globalId should be present.
      * @param {string} [input.globalId] - Either behaviorIds or globalId should be present.
      * @returns {Promise<Object>} Locations of matched objects are returned
@@ -628,7 +628,7 @@ class MTMC {
     /** 
      * returns normalized embedding.
      * @public
-     * @param {Array<number>} embedding
+     * @param {Array<number>} embedding - Embedding vector to normalize.
      * @returns {Array<number>} Normalized embedding is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -653,11 +653,14 @@ class MTMC {
      * @public
      * @async
      * @param {MessageBroker} messageBroker - MessageBroker Object
+     * @param {Object} rtlsConfig - RTLS config object.
+     * @returns {Promise<void>}
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
      * const kafka = new mdx.Utils.Kafka({brokers: ["kafka-broker-url"]}, kafkaConfigMap);
+     * let rtlsConfig = {inSimulationMode: false};
      * let mtmcObject = new mdx.Services.MTMC();
-     * await mtmcObject.consumeRTLSMessages(kafka);
+     * await mtmcObject.consumeRTLSMessages(kafka,rtlsConfig);
      */
     async consumeRTLSMessages(messageBroker, rtlsConfig) {
         if (messageBroker == null) {
@@ -704,11 +707,13 @@ class MTMC {
      * @public
      * @async
      * @param {MessageBroker} messageBroker - MessageBroker Object
+     * @param {Object} amrConfig - AMR config object.
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
      * const kafka = new mdx.Utils.Kafka({brokers: ["kafka-broker-url"]}, kafkaConfigMap);
+     * let amrConfig = {inSimulationMode: false, amrRetentionInSec: 3600};
      * let mtmcObject = new mdx.Services.MTMC();
-     * await mtmcObject.consumeAMRMessages(kafka);
+     * await mtmcObject.consumeAMRMessages(kafka,amrConfig);
      */
     async consumeAMRMessages(messageBroker, amrConfig) {
         if (messageBroker == null) {
@@ -1070,14 +1075,15 @@ class MTMC {
      * returns an object containing unique object count of a place with object locations.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {MessageBroker} messageBroker - MessageBroker Object
      * @param {Object} input - Input object.
-     * @param {string} input.place
-     * @param {?string} [input.timestamp=null]
-     * @param {number} [input.timeWindowInMs=3000] - timeWindowInMs must be an integer.
-     * @param {number} [input.amrTimestampWindowInMs=200] - amrTimestampWindowInMs must be an integer.
-     * @param {number} [input.amrRouteChangeWindowInMs=1000] - amrRouteChangeWindowInMs must be an integer.
+     * @param {string} input.place - Place used to filter unique object count with locations.
+     * @param {?string} [input.timestamp=null] - Timestamp for the query in ISO 8601 format.
+     * @param {number} [input.timeWindowInMs=3000] - Time window in milliseconds used to query object locations.
+     * @param {number} [input.amrTimestampWindowInMs=200] - AMR timestamp window in milliseconds used to match records.
+     * @param {number} [input.amrRouteChangeWindowInMs=1000] - AMR route change window in milliseconds used to match route events.
+     * @param {boolean} [inSimulationMode=false] - Whether to use simulation mode.
      * @returns {Promise<Object>} Unique object count of a place along with object locations is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1313,6 +1319,25 @@ class MTMC {
         }
     }
 
+    /** 
+     * returns AMR events for the requested place, object type, and time range.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {string} input.place - Place used to filter AMR events.
+     * @param {string} [input.objectType="AMR"] - Object type used to filter AMR events.
+     * @param {number} [input.maxResultSize=25] - Maximum number of AMR events returned.
+     * @returns {Promise<Object>} An object containing an array of AMR events is returned
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"}, databaseConfigMap);
+     * let input = {place: "building=abc/room=xyz", objectType: "AMR", fromTimestamp: "2023-01-12T11:20:10.000Z", toTimestamp: "2023-01-12T14:20:10.000Z"};
+     * let mtmc = new mdx.Services.MTMC();
+     * let amrEvents = await mtmc.getAMREvents(elastic, input);
+     */
     async getAMREvents(documentDb, input) {
         const schema = {
             type: "object",
@@ -1380,6 +1405,23 @@ class MTMC {
         }
     }
 
+    /**
+     * Retrieves tracker occupancy counts for a place at a given timestamp.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {string} input.timestamp - Timestamp in ISO 8601 format.
+     * @param {string} input.place - Place used to filter tracker occupancy.
+     * @param {number} [input.timeWindowInMs=100] - Time window in milliseconds used to query tracker occupancy.
+     * @returns {Promise<Object>} An object containing an array of tracker occupancy counts is returned
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"}, databaseConfigMap);
+     * let input = {place: "building=abc/room=xyz", timestamp: "2023-01-12T11:20:10.000Z", timeWindowInMs: 100};
+     * let mtmc = new mdx.Services.MTMC();
+     * let trackerOccupancy = await mtmc.getOccupancyTracker(elastic, input);
+     */
     async getOccupancyTracker(documentDb, input) {
         const schema = {
             type: "object",
@@ -1507,6 +1549,23 @@ class MTMC {
         return searchResults;
     }
 
+    /**
+     * Retrieves the most recent RTLS or AMR record for a place.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {string} input.place - Place used to filter the latest record.
+     * @param {string} [input.source="RTLS"] - Source used to select the latest record. source should be one of 'RTLS' or 'AMR'.
+     * @param {?string} [input.objectType=null] - Object type used to filter the latest record with non-zero counts.
+     * @returns {Promise<Object>} An object containing last record is returned
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"}, databaseConfigMap);
+     * let input = {place: "building=abc/room=xyz", source: "RTLS"};
+     * let mtmc = new mdx.Services.MTMC();
+     * let lastRecord = await mtmc.getLastRecord(elastic, input);
+     */
     async getLastRecord(documentDb, input) {
         const schema = {
             type: "object",

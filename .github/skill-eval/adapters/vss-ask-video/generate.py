@@ -33,7 +33,7 @@ Usage from the repository root:
         --skill-dir skills/vss-ask-video \\
         --deploy-skill-dir skills/vss-deploy-profile \\
         --video-io-skill-dir skills/vss-manage-video-io-storage \\
-        --spec skills/vss-ask-video/eval/base_profile_video_understanding.json
+        --spec skills/vss-ask-video/evals/base_profile_video_understanding.json
 """
 from __future__ import annotations
 
@@ -229,7 +229,7 @@ def generate_task(
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "eval" / spec_name
+        spec_src = skill_dir / "evals" / spec_name
         if spec_src.exists():
             shutil.copy(spec_src, tests_dir / spec_name)
         else:
@@ -287,7 +287,7 @@ def main() -> None:
     parser.add_argument(
         "--spec", default=None,
         help="Path to spec JSON "
-             "(default: <skill-dir>/eval/base_profile_video_understanding.json)",
+             "(default: <skill-dir>/evals/base_profile_video_understanding.json)",
     )
     parser.add_argument(
         "--platform", default=None, choices=list(PLATFORMS.keys()),
@@ -303,7 +303,7 @@ def main() -> None:
     spec_path = (
         Path(args.spec)
         if args.spec
-        else (skill_dir / "eval" / "base_profile_video_understanding.json")
+        else (skill_dir / "evals" / "base_profile_video_understanding.json")
     )
 
     if not spec_path.exists():
