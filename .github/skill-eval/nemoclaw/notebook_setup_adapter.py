@@ -100,7 +100,7 @@ def _code_cell(nbformat: int, source: str, cell_id: str) -> dict[str, Any]:
         "execution_count": None,
         "metadata": {},
         "outputs": [],
-        "source": source.splitlines(keepends=True),
+        "source": source,
     }
     if nbformat >= 4:
         cell["id"] = cell_id
