@@ -273,7 +273,7 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / DEFAULT_SPEC)
+    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / DEFAULT_SPEC)
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)
