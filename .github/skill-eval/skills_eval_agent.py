@@ -123,13 +123,18 @@ def _disable_server_thinking() -> None:
 # Benchmark report
 # ---------------------------------------------------------------------------
 
-# Glob the agent uses for per-spec result comments. AGENTS.md § "Result
-# comment format" mandates `gh pr comment --body-file /tmp/pr-<spec>.md`,
-# so every per-spec markdown body lands here before it's posted. Reading
-# the files back is cheaper and more reliable than re-fetching from the
-# PR (and works in manual-sweep mode too, where there's no PR to read).
-BENCHMARK_INPUT_GLOB = "/tmp/pr-*.md"
-BENCHMARK_OUT_PATH = Path("/tmp/skill-eval/benchmark.md")
+# Per-run scratch root. AGENTS.md § "Startup hygiene" mandates that
+# every piece of state this run owns lives under $SCRATCH so that
+# parallel workflow_dispatch sweeps don't trample each other's
+# in-flight files. The agent writes per-spec result comments to
+# `$SCRATCH/pr-<spec>.md` before posting via `gh pr comment` (per
+# § "Result comment format"); we read them back from the same place
+# rather than re-fetching from the PR — that path also works in
+# manual-sweep mode, where there's no PR to read.
+_RUN_ID = os.environ.get("GITHUB_RUN_ID", "local")
+_SCRATCH = Path(f"/tmp/skill-eval/{_RUN_ID}")
+BENCHMARK_INPUT_GLOB = str(_SCRATCH / "pr-*.md")
+BENCHMARK_OUT_PATH = _SCRATCH / "benchmark.md"
 
 _MD_LINK_RE = re.compile(r"\[([^\]\n]+)\]\([^)\n]*\)")
 _BARE_URL_RE = re.compile(r"https?://\S+")
@@ -158,11 +163,13 @@ def _sanitize_public(text: str) -> str:
 def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
     """Concatenate per-spec result comments into one benchmark report.
 
-    Reads every `/tmp/pr-*.md` the agent produced (one per (PR, spec)
-    batch per AGENTS.md § "Result comment format") and writes a single
-    `benchmark.md` with a run-level header followed by each spec body
-    in deterministic order. Output is sanitized for public consumption
-    via `_sanitize_public` — see that docstring for what's stripped.
+    Reads every `$SCRATCH/pr-*.md` the agent produced (one per (PR,
+    spec) batch per AGENTS.md § "Result comment format") and writes a
+    single `benchmark.md` with a run-level header followed by each spec
+    body in deterministic order. Output is sanitized for public
+    consumption via `_sanitize_public` — see that docstring for what's
+    stripped. The glob is run-scoped so a parallel workflow_dispatch
+    peer's per-spec comments never leak into this run's benchmark.
 
     Returns the output path on success, or `None` if no per-spec
     comments were found — that's a valid outcome (blocker before any
