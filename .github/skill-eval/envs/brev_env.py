@@ -599,8 +599,10 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             required_tools = [required_tools]
         required_tools_csv = ",".join(str(tool) for tool in required_tools)
 
-        cmd = rf"""set -euo pipefail
+        cmd = rf"""set -eo pipefail
+set +u
 source ~/.profile 2>/dev/null || true
+set -u
 export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
 REPO="$HOME/video-search-and-summarization"
 cd "$REPO"
@@ -660,14 +662,17 @@ python3 .github/skill-eval/nemoclaw/readiness.py \
         overrides) on `git clean`. Fails loud — `set -euo pipefail` so
         any sync error short-circuits start() before the agent runs.
         """
-        # PR_HEAD_SHA + PR_REPO come from the workflow step's env and are
-        # forwarded into ~/.eval_env on the instance by the loop above.
-        # When unset (local dev / smoke test), fall back to develop.
-        cmd = r"""set -euo pipefail
-PR_REPO="${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
-PR_HEAD_SHA="${PR_HEAD_SHA:-}"
+        # PR_HEAD_SHA + PR_REPO come from the workflow step's env. Inject
+        # them into this remote command directly instead of relying on
+        # ~/.profile: _run_brev_exec() intentionally runs a non-login shell,
+        # and fresh workers may not have sourced ~/.eval_env yet.
+        pr_repo = os.environ.get("PR_REPO", "NVIDIA-AI-Blueprints/video-search-and-summarization")
+        pr_head_sha = os.environ.get("PR_HEAD_SHA", "")
+        cmd = f"""set -euo pipefail
+PR_REPO={shlex.quote(pr_repo)}
+PR_HEAD_SHA={shlex.quote(pr_head_sha)}
 REPO="$HOME/video-search-and-summarization"
-VSS_REPO_URL="https://github.com/${PR_REPO}.git"
+VSS_REPO_URL="https://github.com/${{PR_REPO}}.git"
 
 # Case 1: dir exists but isn't a git repo (stale tarball checkout) — nuke
 #         and re-clone. Case 2: dir doesn't exist — clone fresh.
