@@ -1,0 +1,39 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+lap = "==0.5.12"
+tqdm = "==4.67.1"
+scipy = "==1.15.3"
+tabulate = "==0.9.0"
+nuscenes-devkit = "==1.2.0"
+fvcore = "==0.1.5.post20221221"
+iopath = "==0.1.9"
+shapely = "==2.0.7"
+h5py = "==3.16.0"
+jsonschema = "==4.23.0"
+boto3 = "==1.36.2"
+google-cloud-storage = "==3.10.1"
+python-dotenv = "==1.0.1"
+pytz = "==2024.2"
+requests = "==2.32.3"
+pandas = "==2.3.3"  # required by spatialai_data_utils.eval.tracking.algo
+motmetrics = "==1.4.0"  # required by nuscenes.eval.tracking.mot used in algo
+
+# torch and pytorch3d are required at runtime but cannot be managed by pipenv:
+# - torch needs a specific CUDA variant chosen at install time
+# - pytorch3d requires torch at build time (--no-build-isolation)
+# Install manually (pick ONE torch variant, then pytorch3d):
+#   CPU:    pip install torch>=2.10.0 --index-url https://download.pytorch.org/whl/cpu
+#   CUDA:   pip install torch>=2.10.0
+#   pip install 'pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git@33824be' --no-build-isolation
+# torch = ">=2.10.0"
+# pytorch3d = {git = "https://github.com/facebookresearch/pytorch3d.git", ref = "33824be"}
+
+[dev-packages]
+pytest = "==9.0.3"
+
+[requires]
+python_version = "3.13"
