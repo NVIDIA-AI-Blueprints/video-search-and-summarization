@@ -4,8 +4,17 @@ description: Check VSS system prerequisites — GPU driver, Docker, NVIDIA Conta
 ---
 
 # VSS Prerequisites Check
+<a id="preflight"></a>
 
 Verifies system readiness for any VSS developer profile. For NGC CLI setup specifically, use the `ngc` skill.
+
+## Preflight — quick reference
+
+Use the [SKILL.md `Pre-flight check` block](../SKILL.md#pre-flight-check)
+for the minimum gates, then follow the detailed checks below for
+remediation when any gate fails. The edge cache-cleaner installer
+(DGX-Spark / IGX-Thor / AGX-Thor) lives further down in the
+`Cache cleaner — every edge deploy` section of this document.
 
 ## When to Use
 
@@ -128,7 +137,7 @@ cat /etc/docker/daemon.json | grep cgroupfs
 
 If the host is locked to Docker `29.5.0` or later (e.g. distro-managed), add or merge the following daemon-side override and restart Docker to fall back to the legacy graphdriver image store.
 
-> ⚠️ **The snippet below overwrites `/etc/docker/daemon.json` in full.** If the host already has other keys there (`registry-mirrors`, `log-driver`, `dns`, `insecure-registries`, etc.), back up first and merge them manually — otherwise they'll be silently dropped.
+> ⚠ **The snippet below overwrites `/etc/docker/daemon.json` in full.** If the host already has other keys there (`registry-mirrors`, `log-driver`, `dns`, `insecure-registries`, etc.), back up first and merge them manually — otherwise they'll be silently dropped.
 
 **Inspect first, then back up:**
 

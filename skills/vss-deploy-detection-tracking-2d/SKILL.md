@@ -1,25 +1,42 @@
 ---
 name: vss-deploy-detection-tracking-2d
-description: >
-  Use when the user wants to deploy, operate, debug, or tear down the RTVI-CV
-  (Real Time Video Intelligence CV) microservice locally, OR call its REST API
-  on a running instance. Deploy triggers: deploy/run/launch/start/bring up/set
-  up/restart rtvi-cv, rtvicv, rtvi cv, warehouse 2d/3d, sparse4d, smartcity
-  rtdetr, smartcity gdino, perception app, metropolis perception app — with or
-  without modifiers like "with N streams", "with display", "save to file",
-  "from rtsp". Teardown triggers: stop/tear down/shutdown/kill/cleanup of
-  rtvi-cv, rtvicv-perception-docker, the perception container. Debug triggers:
-  check rtvi-cv logs, diagnose rtvi-cv failures, troubleshoot rtvi-cv crashing
-  or healthcheck failing. API triggers: add/remove/list streams, check
-  ready/live/startup, get metrics, FPS, GPU usage, generate text embeddings,
-  call rtvi-cv api on localhost:9000/api/v1. Do NOT use for remote-host
-  provisioning — runs against localhost only.
+description: Use to deploy, run, debug, or tear down the RTVI-CV 2D detection / tracking microservice and call its REST API. Not for VLM, embedding, or analytics — use the matching vss-* skill.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia rtvi-cv deployment rest-api docker deepstream ngc warehouse smartcity sparse4d gdino rt-detr metropolis stream-management health-check metrics"
 ---
+## Purpose
+
+Deploy, debug, and operate the RTVI-CV detection / tracking 2D microservice and drive its REST API.
+
+## Prerequisites
+
+- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
+- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
+- `curl`, `jq`, and Docker available on the caller.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
+- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # RTVI-CV — Detection & Tracking (Unified Skill)
 
@@ -54,43 +71,43 @@ If intent is genuinely ambiguous (e.g., the user says just "I want to use rtvi-c
 
 ```
 vss-deploy-detection-tracking-2d/
-├── SKILL.md                                    # this file (TOC + routing)
-├── eval/
-│   ├── deploy-evals.json                       # deploy-flow eval cases
-│   └── usage-evals.json                        # API-flow eval cases
-├── scripts/                                    # 24 bash + python helpers (deploy flow)
-│   ├── load_defaults.sh                        # platform + YAML defaults
-│   ├── fetch_resources.sh                      # NGC download + extract + scan
-│   ├── apply_in_container.sh                   # host-side wrapper for Step 4
-│   ├── start_app_in_container.sh               # host-side wrapper for Step 5
-│   ├── apply_config.sh / discover_streams.sh / add_streams.sh / …
-│   └── (see scripts/ directory for full inventory)
-└── references/
-    ├── deploy-vss-detection-tracking-2d.md     # DEPLOY / TEARDOWN / DEBUG runbook (full workflow, every step preserved)
-    ├── usage-vss-detection-tracking-2d.md      # API USAGE workflow
-    ├── api-reference.md                        # endpoint schemas + curl templates
-    ├── task-list.md                            # Step 0 — TodoWrite templates
-    ├── usecases.md                             # per-use-case NGC refs, configs, run commands
-    ├── platforms.md                            # docker run per platform + display/file variants
-    ├── ngc-setup.md                            # NGC credentials + downloads
-    ├── resource-plan.md                        # resource decision logic, source precedence
-    ├── pipeline-config.md                      # batch / source / sink decision tree
-    ├── container-reuse.md                      # reuse/restart/parallel decision JSON
-    ├── apply-config.md                         # Step 4 — path sub, batch, sink, sources, engine cache
-    ├── start-app.md                            # Step 5 — start + readiness + metrics + log
-    ├── next-steps.md                           # Step 6 — stream lifecycle, REST examples
-    ├── teardown-flow.md                        # 5-step teardown (discover → execute)
-    ├── environment.md                          # secrets, mounts, env vars, GPU, ports, dry run
-    ├── ux-conventions.md                       # visibility / AskQuestion contract
-    ├── workflow-reference.md                   # alternative walkthrough
-    ├── troubleshooting.md                      # common failure modes
-    ├── upgrade-rollback.md                     # image upgrade / rollback procedure
-    └── deploy-defaults.yml                     # SINGLE source of truth for default tags/refs/paths/GPU index
+├── SKILL.md          # this file (routing + contracts)
+├── assets/           # data files (deploy-defaults.yml — single source of truth for tags / refs / paths / GPU)
+├── evals/            # Tier-3 eval manifests (deploy-evals.json, usage-evals.json)
+├── scripts/          # 23 bash + python helpers (see `scripts/` for the full inventory)
+└── references/       # workflow runbooks (deploy / api-usage / teardown / troubleshooting / …)
 ```
+
+For the full per-file inventory and what each reference covers, see
+[`references/workflow-reference.md`](references/workflow-reference.md).
 
 All scripts are invoked from the skill root via `$SKILL_DIR/scripts/<name>` — paths inside the deploy reference doc are preserved verbatim and resolve correctly when the agent runs from skill root.
 
 ---
+
+## Available Scripts
+
+Helpers live in `scripts/` and are invoked from the skill root by name —
+call each via `run_script("scripts/<name>")` so the agent records a
+proper tool invocation.
+
+| Script | Purpose | Arguments |
+| --- | --- | --- |
+| `load_defaults.sh` | Detect platform (x86 dGPU / SBSA / Jetson) and resolve YAML defaults from `assets/deploy-defaults.yml`. | `--usecase <name>` |
+| `fetch_resources.sh` | Download + extract NGC resources, scan for layout. | `--ngc-ref <ref>` (optional) |
+| `apply_in_container.sh` | Host-side wrapper for Step 4 (`apply_config.sh` inside the running container). | `<container_name>` |
+| `apply_config.sh` | In-container path-substitution, batch, sink, sources, engine cache. | `<usecase> <stream_count> <sink_type>` |
+| `start_app_in_container.sh` | Host-side wrapper for Step 5 (`run_app_and_wait.sh`). | `<container_name>` |
+| `run_app_and_wait.sh` | In-container app launch + readiness + metrics + log. | `<config_path>` |
+| `add_streams.sh` / `update_stream_sources.sh` | REST stream lifecycle for Step 6. | `<rtsp_or_file_uri>...` |
+| `collect_metrics.sh` | Pull `/api/v1/metrics` snapshot. | none |
+| `discover_streams.sh` | Enumerate active streams via `/stream/get-stream-info`. | none |
+| `synthesize_docker_run.sh` | Print the platform-correct `docker run` line for the resolved env. | none |
+| `render_box.sh` | Render the fixed-width step receipt. | `<step_label>` |
+| `calibration_manager.py` | Manage calibration artefacts + per-use-case engine cache invalidation. | `--usecase <name> --reset` |
+
+For the full inventory of helpers (cache, GPU checks, setup) browse
+`scripts/`; each script's `--help` describes its arguments.
 
 ## How to use this skill
 
@@ -258,3 +275,4 @@ corresponding step.
 | `get rtvi-cv metrics` | API USAGE |
 | `generate text embeddings via rtvi-cv` | API USAGE |
 
+bump:1

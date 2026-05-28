@@ -256,6 +256,71 @@ configure_openshell_provider() {
   openshell inference get || true
 }
 
+# Inject NGC_CLI_API_KEY into the sandbox env so `ngc registry resource
+# download-version nvidia/vss-developer/dev-profile-sample-data:3.1.0` (and
+# the equivalent TAO model downloads) can authenticate from inside the
+# sandbox. Uses `--type generic` (the catch-all in the
+# `claude/opencode/codex/copilot/generic/openai/anthropic/nvidia/gitlab/github/outlook`
+# list) so the credential is exposed as a plain env var without binding to
+# an inference-provider semantic.
+configure_ngc_credential_provider() {
+  if ! have openshell; then
+    log "OpenShell not available yet; skipping NGC credential provider setup"
+    return
+  fi
+
+  local ngc_api_key="${NGC_CLI_API_KEY:-}"
+  if [ -z "$ngc_api_key" ]; then
+    log "NGC_CLI_API_KEY not set in operator env; skipping NGC credential provider setup. Sandbox-side `ngc registry …` calls will fail until this is exported and init re-run."
+    return
+  fi
+
+  local action provider_args
+  if openshell provider get ngc >/dev/null 2>&1; then
+    action="update"
+    provider_args=(provider update --credential NGC_CLI_API_KEY ngc)
+  else
+    action="create"
+    provider_args=(provider create --name ngc --type generic --credential NGC_CLI_API_KEY)
+  fi
+  log "Configuring NGC credential provider (action=${action})"
+  if ! NGC_CLI_API_KEY="$ngc_api_key" openshell "${provider_args[@]}"; then
+    log "NGC provider ${action} failed; sandbox-side ngc calls will be missing NGC_CLI_API_KEY"
+  fi
+}
+
+# Install the NGC CLI inside the running sandbox so `ngc registry resource
+# download-version …` works from openclaw. Uses `pip3 install --user ngcsdk`,
+# which fits the existing `pypi` policy block (binaries=/usr/bin/pip3,
+# hosts=pypi.org + files.pythonhosted.org). After install, copies the binary
+# to /usr/local/bin/ngc to match the path the `ngc` policy block allows.
+# Best-effort: logs and continues on failure rather than aborting the deploy.
+configure_ngc_cli_in_sandbox() {
+  if ! have nemoclaw; then
+    log "nemoclaw not available; skipping in-sandbox NGC CLI install"
+    return
+  fi
+  log "Installing NGC CLI inside sandbox ${NEMOCLAW_SANDBOX_NAME} (pip3 install --user ngcsdk)"
+  if ! nemoclaw sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" --no-tty -- bash -c '
+    set -e
+    if command -v ngc >/dev/null 2>&1 && ngc --version >/dev/null 2>&1; then
+      echo "ngc already installed: $(ngc --version 2>&1 | head -1)"
+      exit 0
+    fi
+    python3 -m pip install --user --quiet --break-system-packages ngcsdk 2>/dev/null \
+      || python3 -m pip install --user --quiet ngcsdk
+    if [ ! -e /usr/local/bin/ngc ] && [ -e "$HOME/.local/bin/ngc" ]; then
+      sudo install -m 0755 "$HOME/.local/bin/ngc" /usr/local/bin/ngc 2>/dev/null \
+        || cp "$HOME/.local/bin/ngc" /usr/local/bin/ngc 2>/dev/null \
+        || true
+    fi
+    /usr/local/bin/ngc --version 2>/dev/null \
+      || "$HOME/.local/bin/ngc" --version
+  '; then
+    log "In-sandbox NGC CLI install failed; ngc registry calls inside the sandbox will not work"
+  fi
+}
+
 # `nemoclaw onboard` creates the dashboard port-forward (default 18789) that exposes the in-pod
 # openclaw-gateway (and its /hooks endpoint) to the host. When the sandbox already exists we skip
 # onboard, and the forward can also die independently between runs — so refresh it unconditionally.
@@ -617,10 +682,12 @@ main() {
   wait_for_sandbox_ready
   refresh_path
   ensure_dashboard_forward
+  configure_ngc_credential_provider
   apply_vss_policy
   update_openclaw_allowed_origin
   # Policy/config updates can briefly flap gateway readiness before plugin install.
   wait_for_sandbox_ready "${NEMOCLAW_POST_CONFIG_READY_TIMEOUT:-60}"
+  configure_ngc_cli_in_sandbox
   install_vss_openclaw_plugin
 
   log "To use nemoclaw in your current shell, run:"
