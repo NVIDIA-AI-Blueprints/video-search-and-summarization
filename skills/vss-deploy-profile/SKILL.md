@@ -267,10 +267,6 @@ per-profile `curl` checks + slow-container triage) lives in
 for that profile. **Never declare the deploy done after `up -d`
 returns** — only after every documented endpoint succeeds.
 
-### Step 6 — 
-Fron
-
-
 ## Tear Down
 
 ```bash
