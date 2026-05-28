@@ -33,10 +33,10 @@ Directory layout (one platform × mode per directory):
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-manage-alerts/generate.py \\
-        --output-dir /tmp/skill-eval/datasets/vss-manage-alerts \\
+        --output-dir "$SCRATCH/datasets/vss-manage-alerts" \\
         --skill-dir   skills/vss-manage-alerts \\
         --deploy-skill-dir skills/vss-deploy-profile \\
-        --spec        skills/vss-manage-alerts/eval/alerts_vlm_real_time.json
+        --spec        skills/vss-manage-alerts/evals/alerts_vlm_real_time.json
 """
 from __future__ import annotations
 
@@ -343,13 +343,13 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--output-dir", required=True,
-                        help="Dataset output root (e.g. /tmp/skill-eval/datasets/vss-manage-alerts)")
+                        help='Dataset output root (e.g. "$SCRATCH/datasets/vss-manage-alerts")')
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/vss-manage-alerts")
     parser.add_argument("--deploy-skill-dir", default=None,
                         help="Path to skills/vss-deploy-profile (included so agent can diagnose issues)")
     parser.add_argument("--spec", default=None,
-                        help=f"Path to spec JSON (default: <skill-dir>/eval/{DEFAULT_SPEC})")
+                        help=f"Path to spec JSON (default: <skill-dir>/evals/{DEFAULT_SPEC})")
     parser.add_argument("--platform", default=None,
                         choices=list(PLATFORMS.keys()),
                         help="Generate for this platform only")
@@ -360,7 +360,7 @@ def main() -> None:
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     spec_path = (
         Path(args.spec) if args.spec
-        else (skill_dir / "eval" / DEFAULT_SPEC)
+        else (skill_dir / "evals" / DEFAULT_SPEC)
     )
 
     if not spec_path.exists():

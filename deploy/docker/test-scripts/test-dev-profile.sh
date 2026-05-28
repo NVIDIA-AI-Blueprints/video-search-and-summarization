@@ -563,10 +563,10 @@ run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLL
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
 run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
   -i 127.0.0.1 -m verification -H RTXPRO4500BW -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480"
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
 run_dry_run_up_and_check_generated_env "generated.env lvs RTXPRO4500BW RTVI tuning" "lvs" \
   -i 127.0.0.1 -H RTXPRO4500BW -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480"
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
 run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
@@ -1137,8 +1137,7 @@ BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env Brev 
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
   "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
-  "VSS_PUBLIC_PORT" "443" \
-  "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
+  "VSS_PUBLIC_PORT" "443"
 
 # Brev with custom PROXY_PORT in env: same literals in generated.env (compose expands using env)
 BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT (templates unchanged)" "base" \
@@ -1147,8 +1146,7 @@ BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "gen
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
   "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
-  "VSS_PUBLIC_PORT" "443" \
-  "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
+  "VSS_PUBLIC_PORT" "443"
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)
 run_dry_run_up_and_check_generated_env "generated.env no Brev HAProxy overrides when BREV_ENV_ID unset" "base" \

@@ -31,7 +31,7 @@ or restart the `sdrc` Deployment so the container remounts the updated
 
 Docker Compose mounts `/var/run/docker.sock` for `WDM_CLUSTER_TYPE: docker`.
 This Helm chart does not expose that host socket. Kubernetes deployments should
-use `WDM_CLUSTER_TYPE: k8s-headless` or `WDM_CLUSTER_TYPE: k8s`; Docker-backed
+use `WDM_CLUSTER_TYPE: k8s`; Docker-backed
 workloads should stay on the Docker Compose path.
 
 ## Umbrella Chart Example

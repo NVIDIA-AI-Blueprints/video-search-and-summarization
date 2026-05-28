@@ -1,0 +1,40 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+numpy = ">=2.0.0"
+scipy = ">=1.15.2"
+omegaconf = ">=2.3.0"
+pydantic = ">=2.6.3"
+shapely = ">=2.0.4"
+matplotlib = ">=3.9.0"
+opencv-python-headless = ">=4.10.0"
+pykml = ">=0.2.0"
+lxml = ">=5.4.0"
+watchdog = ">=5.0.3"
+protobuf = ">=5.29.6"
+pyproj = ">=3.7.0"
+leuvenmapmatching = ">=1.1.4"
+# Undeclared transitive dep of leuvenmapmatching.visualization (imported by mdx.analytics.core.utils.crs)
+smopy = ">=0.0.8"
+osmnx = ">=2.0.0"
+rtree = ">=1.3.0"
+confluent-kafka = ">=2.6.1"
+redis = ">=6.0.0"
+tritonclient = {extras = ["grpc"], version = ">=2.52.0"}
+paho-mqtt = ">=2.1.0"
+requests = ">=2.32.5"
+jsonschema = ">=4.21.0"
+
+[dev-packages]
+pytest = "*"
+coverage = "*"
+ruff = "*"
+vss-behavior-analytics = {path = ".", editable = true}
+flask = "*"
+flask-cors = "*"
+
+[requires]
+python_version = "3.13"

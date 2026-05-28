@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,7 +26,6 @@ const InvalidInputError = require('../Errors/InvalidInputError');
 
 class Config {
 
-    /** @private */
     #bootstrapObjectMap = null;
 
     /** 
@@ -43,12 +42,6 @@ class Config {
         this.#bootstrapObjectMap = this.#initOrOverrideBootstrap(bootstrap);
     }
 
-    /**
-     * Initializes or Overrides Bootstrap Object Map
-     * @private
-     * @param {Object} bootstrap
-     * @returns {Object} Returns an object containing bootstrap config in maps.
-     */
     #initOrOverrideBootstrap(bootstrap) {
         let bootstrapObjectMap = null;
         if (this.#bootstrapObjectMap == null) {
@@ -139,7 +132,7 @@ class Config {
     /**
      * Overrides current Bootstrap Object Map
      * @public
-     * @param {Object} bootstrapConfig
+     * @param {Object} bootstrapConfig - Bootstrap configuration object.
      * @example
      * let ConfigObject = new mdx.Utils.Config({bootstrap:defaultBootstrapConfig});
      * const bootstrapConfig = require(bootstrapConfigPath); // bootstrapConfigPath is the path to file which has the values provided by user.

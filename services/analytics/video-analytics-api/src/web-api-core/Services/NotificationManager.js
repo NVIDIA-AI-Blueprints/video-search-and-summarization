@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -72,8 +72,8 @@ class NotificationManager {
      * @async
      * @param {MessageBroker} messageBroker - MessageBroker Object
      * @param {Object} input - Input object.
-     * @param {string} input.timestamp
-     * @param {("upsert-all"|"upsert"|"delete")} input.eventType
+     * @param {string} input.timestamp - Notification timestamp in ISO 8601 format.
+     * @param {("upsert-all"|"upsert"|"delete")} input.eventType - Calibration notification event type.
      * @param {Object} input.calibration - Calibration object
      * @returns {Promise<Object>} A success message is returned
      * @example
@@ -335,7 +335,7 @@ class NotificationManager {
      * @public
      * @async
      * @param {MessageBroker} messageBroker - MessageBroker Object
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} configManagerObject - configManager Object
      * @param {Object} calibrationObject - calibration Object
      * @example
@@ -367,10 +367,10 @@ class NotificationManager {
      * @async
      * @param {MessageBroker} messageBroker - MessageBroker Object
      * @param {Object} input - Input object.
-     * @param {("behavior-analytics")} input.docType
-     * @param {string} input.timestamp
-     * @param {string} input.referenceId
-     * @param {("upsert-all"|"upsert")} input.eventType
+     * @param {("behavior-analytics")} input.docType - Config document type.
+     * @param {string} input.timestamp - Notification timestamp in ISO 8601 format.
+     * @param {string} input.referenceId - Config update reference ID.
+     * @param {("upsert-all"|"upsert")} input.eventType - Config notification event type.
      * @param {?string} input.config - JSON stringified config object
      * @returns {Promise<Object>} A success message is returned
      * @example

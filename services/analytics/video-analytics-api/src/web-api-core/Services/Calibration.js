@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -204,9 +204,10 @@ class Calibration {
      * returns an object containing calibration and the timestamp associated with it.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} [input={}] - Input object.
-     * @param {?string} [input.sensorId=null]
+     * @param {?string} [input.sensorId=null] - Sensor ID used to retrieve calibration for a specific sensor.
+     * @param {?boolean} [input.emptyIfNotFound=true] - Whether to return an empty calibration object when no calibration is found.
      * @returns {Promise<Object>} Calibration Object along with timestamp is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -309,6 +310,18 @@ class Calibration {
         return searchResults;
     }
 
+    /**
+     * Retrieves the configured calibration type from documentDb.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @returns {Promise<string|null>} Calibration type is returned, or null when no calibration is stored.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let calibrationObject = new mdx.Services.Calibration();
+     * let calibrationType = await calibrationObject.getCalibrationType(elastic);
+     */
     async getCalibrationType(documentDb){
         let calibrationType = null;
         switch (documentDb.getName()) {
@@ -328,13 +341,18 @@ class Calibration {
     }
 
     /**
-     * Gets the timestamp of when calibration was last modified
+     * Returns the timestamp of when calibration was last modified.
      * @public
      * @async
-     * @param {Object} documentDb - Database connection object
-     * @param {Object} input - Input parameters (currently unused but kept for API consistency)
-     * @returns {Promise<string|null>} Returns the timestamp string or null if no calibration data exists
-     * @throws {InternalServerError} When database connection is invalid or database type is unsupported
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} [input={}] - Input object.
+     * @returns {Promise<string|null>} Last modified timestamp or null if no calibration data exists is returned.
+     * @throws {InternalServerError} When database connection is invalid or database type is unsupported.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let calibrationObject = new mdx.Services.Calibration();
+     * let lastModifiedTimestamp = await calibrationObject.getLastModifiedTimestamp(elastic);
      */
     async getLastModifiedTimestamp(documentDb, input={}){
         switch (documentDb.getName()) {
@@ -346,13 +364,6 @@ class Calibration {
         }
     }
 
-    /**
-     * Gets the last update timestamp from Elasticsearch
-     * @private
-     * @async
-     * @param {Object} elasticDb - Elasticsearch database connection object
-     * @returns {Promise<string|null>} Returns the timestamp string or null if no calibration data exists
-     */
     async #getLastModifiedTimestampEs(elasticDb){
         const indexPrefix = elasticDb.getConfigs().get("indexPrefix");
         const index = `${indexPrefix}${Elasticsearch.getIndex("calibration")}`;
@@ -390,11 +401,11 @@ class Calibration {
      * returns a success message once the calibration file is uploaded and kafka message is sent.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {MessageBroker} messageBroker - MessageBroker Object
      * @param {Object} [input={}] - Input object.
-     * @param {?Object} [input.fileDetails=null]
-     * @param {?string} [input.fieldName=null]
+     * @param {?Object} [input.fileDetails=null] - File details object.
+     * @param {?string} [input.fieldName=null] - Field name used to access the uploaded files.
      * @returns {Promise<Object>} A success message is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -454,9 +465,9 @@ class Calibration {
      * returns a success message once the input calibration is updated/inserted and kafka message is sent.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {MessageBroker} messageBroker - MessageBroker Object
-     * @param {Object} inputCalibration
+     * @param {Object} inputCalibration - Calibration object to update or insert.
      * @returns {Promise<Object>} A success message is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -536,10 +547,10 @@ class Calibration {
      * returns a success message along with invalid input and deleted sensors once the sensors in calibration have been deleted and kafka message is sent.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {MessageBroker} messageBroker - MessageBroker Object
      * @param {Object} input - Input object.
-     * @param {Array<string>} input.sensorIds
+     * @param {Array<string>} input.sensorIds - Sensor IDs to delete from calibration.
      * @returns {Promise<Object>} A success message is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -675,7 +686,7 @@ class Calibration {
     /** 
      * returns an object containing calibration maps.
      * @public
-     * @param {Object} calibration
+     * @param {Object} calibration - Calibration object used to build lookup maps.
      * @returns {Promise<Object>} An object containing calibration maps is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -806,11 +817,11 @@ class Calibration {
      * returns a success message once the calibration images are uploaded.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} [input={}] - Input object.
-     * @param {?Object} [input.fileDetails=null]
-     * @param {?string} [input.imageFieldName=null]
-     * @param {?string} [input.metadataFieldName=null]
+     * @param {?Object} [input.fileDetails=null] - Uploaded files grouped by field name.
+     * @param {?string} [input.imageFieldName=null] - Form field name containing the calibration images.
+     * @param {?string} [input.metadataFieldName=null] - Form field name containing the calibration image metadata.
      * @returns {Promise<Object>} A success message is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -960,11 +971,11 @@ class Calibration {
      * returns the path of calibration image.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
      * @param {string} [input.sensorId] - Either sensorId or place should be present.
      * @param {string} [input.place] - Either sensorId or place should be present.
-     * @param {("camera-view"|"warped-camera-view"|"plan-view")} input.view
+     * @param {("camera-view"|"warped-camera-view"|"plan-view")} input.view - View used to select the calibration image.
      * @returns {Promise<string>} Path of calibration image is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1058,11 +1069,11 @@ class Calibration {
      * returns the calibration image metadata.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} [input={}] - Input object.
-     * @param {?string} [input.sensorId=null] - sensorId is an optional param. Either sensorId or place can be present.
-     * @param {?string} [input.place=null] - place is an optional param. Either sensorId or place can be present.
-     * @param {(null|"camera-view"|"warped-camera-view"|"plan-view")} [input.view=null]
+     * @param {?string} [input.sensorId=null] - Either sensorId or place can be present.
+     * @param {?string} [input.place=null] - Either sensorId or place can be present.
+     * @param {(null|"camera-view"|"warped-camera-view"|"plan-view")} [input.view=null] - View used to filter calibration image metadata.
      * @returns {Promise<Object>} Object containing image metadata is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1230,7 +1241,7 @@ class Calibration {
      * returns a success message along with invalid input and deleted calibration images.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
      * @param {Array<{sensorId:?string,place:?string,view:("camera-view"|"warped-camera-view"|"plan-view")}>} input.calibrationImages - Each item in the array can contain either sensorId or place
      * @returns {Promise<Object>} A success message is returned

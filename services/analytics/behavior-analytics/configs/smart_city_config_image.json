@@ -1,0 +1,137 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"consumer": {
+			"autoOffsetReset": "latest",
+			"enableAutoCommit": false,
+			"maxPollIntervalMs": 900000,
+			"maxPartitionFetchBytes": 10485760,
+			"maxPollRecords": 10000,
+			"pollTimeoutMs": 100
+		},
+		"producer": {
+			"lingerMs": 0
+		},
+		"group": "mdx-smart-city-app",
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "behaviorPlus",
+				"value": "mdx-behavior-plus"
+			},
+			{
+				"name": "anomaly",
+				"value": "mdx-alerts"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		]
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "anomalyIgnoreSensors",
+					"value": "[\"sensorABC\",\"sensorXYZ\"]"
+				},
+				{
+					"name": "anomalyClasses",
+					"value": "[\"Vehicle\"]"
+				},
+				{
+					"name": "anomalySpeedViolation",
+					"value": "{ \"enable\": false, \"mphThreshold\" : 90, \"timeIntervalSecThreshold\": 10 }"
+				},
+				{
+					"name": "anomalyUnexpectedStop",
+					"value": "{ \"enable\": true, \"mphThreshold\" : 5, \"timeIntervalSecThreshold\": 120 }"
+				}
+			]
+		}
+		
+	],
+	"app": [
+		{
+			"name": "trajGeoCoordEnable",
+			"value": "false"
+		},
+		{
+			"name": "trajDirectionMode",
+			"value": "0"
+		},
+		{
+			"name": "trajDirectionClusterMode",
+			"value": "1"
+		},
+		{
+			"name": "trajSmoothMinPoints",
+			"value": "20"
+		},
+		{
+			"name": "trajSmoothWindowSize",
+			"value": "5"
+		},
+		{
+			"name": "trajDistanceStride",
+			"value": "5"
+		},
+		{
+			"name": "trajSpeedSegmentSize",
+			"value": "10"
+		},
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "200"
+		},
+		{
+			"name": "objectConfidenceThreshold",
+			"value": "0.5"
+		},
+		{
+			"name": "clusterThreshold",
+			"value": "0.9"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "image"
+		},
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "4"
+		},
+		{
+			"name": "numWorkersForBehaviorClustering",
+			"value": "2"
+		}
+	],
+	"inference":{
+		"enable": false,
+		"url" : "10.128.34.61:8001"
+	}
+}

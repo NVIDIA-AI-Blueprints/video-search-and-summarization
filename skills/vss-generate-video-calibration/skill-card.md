@@ -6,9 +6,9 @@ This skill is ready for commercial/non-commercial use. <br>
 ## Owner: NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 <br>
+<span style="color:#d73a49">Apache 2.0</span> <!-- VERIFY: Frontmatter says Apache-2.0 but repo LICENSE says 'Apache 2.0 OR MIT'; confirm which applies to this skill --> <br>
 ## Use Case: <br>
-Developers and engineers use this skill to run automated camera calibration (AutoMagicCalib) on video inputs—local files, live RTSP streams, or a bundled sample dataset—and to deploy the AMC microservice within the NVIDIA Video Search and Summarization blueprint. <br>
+Developers and engineers use this skill to run automated camera calibration (AutoMagicCalib) on video feeds or files, producing intrinsic and extrinsic camera parameters for multi-view 3D tracking and warehouse analytics pipelines. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -18,12 +18,12 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy Auto-Calibration Service](references/deploy-auto-calibration-service.md) <br>
 - [Videos Mode Reference](references/videos.md) <br>
 - [RTSP Mode Reference](references/rtsp.md) <br>
 - [Sample Dataset Mode Reference](references/sample-dataset.md) <br>
-- [Shared Calibration Tail](references/calibration-tail.md) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
