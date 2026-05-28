@@ -64,8 +64,8 @@ class Histogram {
       * @static
       * @param {Object} input - Input object.
      * @param {number} [input.bucketCount=20] - Number of histogram buckets returned.
-     * @param {string} input.fromTimestamp - From timestamp for the histogram in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the histogram in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the histogram in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the histogram in ISO 8601 format.
       * @returns {number} - Bucket size in seconds (an integer) is returned
       * @example
       * const mdx = require("@nvidia-mdx/web-api-core");
@@ -128,8 +128,8 @@ class Histogram {
       * @static
       * @param {Object} input - Input object.
      * @param {number} input.bucketSizeInSec - Histogram bucket size in seconds.
-     * @param {string} input.fromTimestamp - From timestamp for the histogram in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the histogram in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the histogram in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the histogram in ISO 8601 format.
       * @returns {Array<start:string,end:string>} - An empty histogram with start and end timestamps are returned
       * @example
       * const mdx = require("@nvidia-mdx/web-api-core");

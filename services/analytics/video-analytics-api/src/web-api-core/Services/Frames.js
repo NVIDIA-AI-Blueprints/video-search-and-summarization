@@ -260,8 +260,8 @@ class Frames {
      * @param {Object} input - Input object.
      * @param {string} input.sensorId - Sensor ID used to filter detected objects.
      * @param {?string} [input.objectId=null] - objectId and maxResultSize can't occur together.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {number} [input.maxResultSize=100] - Maximum number of detected objects returned. objectId and maxResultSize can't occur together.
      * @param {number} [input.minConfidence=0.80] - Minimum confidence used to filter detected objects.
      * @returns {Promise<Object>} An object containing an array of detected objects is returned
@@ -544,8 +544,8 @@ class Frames {
      * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
      * @param {string} input.sensorId - Sensor ID used to filter proximity clusters.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @returns {Promise<Object>} An object containing details of proximity clusters is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1238,8 +1238,8 @@ class Frames {
      * @async
      * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {?string} [input.sensorId=null] - Sensor ID used to filter frame alerts.
      * @param {?string} [input.type=null] - Alert type used to filter frame alerts. type should be one of 'proximity', 'restricted-area' or 'confined-area'.
      * @param {number} [input.maxResultSize=25] - Maximum number of alerts returned.

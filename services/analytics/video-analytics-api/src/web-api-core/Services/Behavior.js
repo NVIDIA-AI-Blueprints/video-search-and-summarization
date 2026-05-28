@@ -478,8 +478,8 @@ class Behavior {
      * @async
      * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {Array<string>} input.behaviorIds - Behavior IDs used to query locations.
      * @returns {Promise<Object>} An object containing locations of the input behaviors is returned
      * @example

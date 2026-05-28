@@ -451,8 +451,8 @@ class Alerts {
      * @param {Object} input - Input object.
      * @param {?string} [input.sensorId=null] - Sensor ID used to check severe alerts. Exactly one of sensorId or place should be present.
      * @param {?string} [input.place=null] - Place used to check severe alerts. Exactly one of sensorId or place should be present.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {Array<string>} [input.severeAlertTypes=["Abnormal Movement"]] - Severe alert types used to filter alerts.
      * @param {boolean} [input.vlmVerified=false] - Whether to query VLM-verified alerts.
      * @param {string} [input.vlmVerdict] - VLM verdict filter. vlmVerdict can only be provided when vlmVerified is true and should be one of 'all', 'confirmed', 'rejected', 'verification-failed' or 'not-confirmed'.

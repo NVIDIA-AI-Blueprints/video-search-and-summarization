@@ -255,8 +255,8 @@ class TripwireEvent {
      * @param {Object} input - Input object.
      * @param {string} input.sensorId - Sensor ID used to query tripwire counts.
      * @param {?string} [input.tripwireId=null] - Tripwire ID used to filter tripwire counts.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {?string} [input.objectType=null] - Object type used to filter tripwire counts.
      * @returns {Promise<Object>} Effective and actual tripwire counts are returned
      * @example

@@ -237,8 +237,8 @@ class Clustering {
      * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
      * @param {string} input.sensorId - Sensor ID used to filter sampled behavior clusters.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {?string} [input.clusterIndex=null] - Cluster index used to filter sampled behavior clusters.
      * @param {number} [input.maxClusterSampleSize=100] - Maximum number of sampled behaviors returned for each cluster.
      * @param {number} [input.minBehaviorDistance=30] - Minimum behavior distance used to filter sampled behavior clusters.

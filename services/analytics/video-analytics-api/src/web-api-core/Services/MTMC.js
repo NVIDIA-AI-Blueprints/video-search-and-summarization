@@ -346,8 +346,8 @@ class MTMC {
      * @async
      * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {Array<string>} [input.sensorIds] - Either sensorIds, globalId or place can be present. They are mutually exclusive. Exactly one sensorId should be in the array when objectId is present.
      * @param {?string} [input.objectId=null] - Object ID used to filter unique objects.
      * @param {string} [input.place] - Either sensorIds, globalId or place can be present. They are mutually exclusive.
@@ -516,8 +516,8 @@ class MTMC {
      * @async
      * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {Array<string>} [input.behaviorIds] - Either behaviorIds or globalId should be present.
      * @param {string} [input.globalId] - Either behaviorIds or globalId should be present.
      * @returns {Promise<Object>} Locations of matched objects are returned
@@ -1325,8 +1325,8 @@ class MTMC {
      * @async
      * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {string} input.place - Place used to filter AMR events.
      * @param {string} [input.objectType="AMR"] - Object type used to filter AMR events.
      * @param {number} [input.maxResultSize=25] - Maximum number of AMR events returned.

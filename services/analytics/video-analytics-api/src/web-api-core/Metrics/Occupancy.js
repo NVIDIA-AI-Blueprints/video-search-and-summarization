@@ -582,8 +582,8 @@ class Occupancy {
      * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
      * @param {string} input.sensorId - Sensor ID used to query average fov occupancy.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {?string} [input.objectType=null] - Object type used to filter average fov occupancy.
      * @returns {Promise<Object>} Average Fov Occupancy is returned
      * @example
@@ -993,8 +993,8 @@ class Occupancy {
      * @param {Object} input - Input object.
      * @param {string} input.sensorId - Sensor ID used to query roi occupancy.
      * @param {?string} [input.roiId=null] - ROI ID used to filter roi occupancy.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {?string} [input.objectType=null] - Object type used to filter the roi occupancy.
      * @returns {Promise<Object>} Roi Occupancy is returned
      * @example

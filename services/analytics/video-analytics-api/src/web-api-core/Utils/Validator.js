@@ -100,8 +100,8 @@ class Validator {
      * Checks if input time range is valid.
      * @public
      * @static
-     * @param {string} fromTimestamp - From timestamp to validate.
-     * @param {string} toTimestamp - To timestamp to validate.
+     * @param {string} fromTimestamp - fromTimestamp to validate.
+     * @param {string} toTimestamp - toTimestamp to validate.
      * @returns {boolean} Returns a boolean signifying whether the input time range was valid
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");

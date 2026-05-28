@@ -463,8 +463,8 @@ class Incident {
      * @param {Object} input - Input object.
      * @param {?string} [input.sensorId=null] - Sensor ID used to check severe incidents. Exactly one of sensorId or place should be present.
      * @param {?string} [input.place=null] - Place used to check severe incidents. Exactly one of sensorId or place should be present.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {Array<string>} [input.severeIncidentTypes=["Collision Detection"]] - Severe incident types used to filter incidents.
      * @param {boolean} [input.vlmVerified=false] - Whether to query VLM-verified incidents.
      * @param {string} [input.vlmVerdict] - VLM verdict filter. vlmVerdict can only be provided when vlmVerified is true and should be one of 'all', 'confirmed', 'rejected', 'verification-failed' or 'not-confirmed'.

@@ -292,7 +292,7 @@ class Events {
      * @param {string} [input.place] - Either sensorId or place should be present.
      * @param {?string} [input.tripwireId=null] - tripwireId can be present only if sensorId is present in the input.
      * @param {string} [input.fromTimestamp] - Optional start timestamp used with toTimestamp to filter tripwire events.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @returns {Promise<Set<string>>} Unique object types observed in matching tripwire events are returned.
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
