@@ -29,6 +29,14 @@ deploy_adapter = load_module(
     "vss_deploy_profile_generate",
     REPO_ROOT / ".github" / "skill-eval" / "adapters" / "vss-deploy-profile" / "generate.py",
 )
+headless_runner = load_module(
+    "nemoclaw_headless_runner",
+    REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "headless_runner.py",
+)
+readiness = load_module(
+    "nemoclaw_readiness",
+    REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "readiness.py",
+)
 
 
 class NotebookSetupAdapterTest(unittest.TestCase):
@@ -60,6 +68,51 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             os.environ.pop("NVIDIA_API_KEY", None)
 
         self.assertEqual(redacted["outputs"][0]["text"], "token=<redacted:NVIDIA_API_KEY>")
+
+    def test_persist_cell_keeps_hooks_token_out_of_debug_env_file(self):
+        source = notebook_adapter.PERSIST_SOURCE
+        keys_block = source.split("_keys = [", 1)[1].split("]", 1)[0]
+
+        self.assertNotIn("OPENCLAW_HOOKS_TOKEN", keys_block)
+        self.assertIn("NEMOCLAW_HOOKS_TOKEN_FILE", source)
+        self.assertIn("chmod(0o600)", source)
+
+
+class NemoClawEnvFileTest(unittest.TestCase):
+    def test_headless_runner_reads_hooks_token_from_token_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            token_path = Path(td) / "hooks_token"
+            token_path.write_text("secret-token\n", encoding="utf-8")
+            previous = {
+                "OPENCLAW_HOOKS_TOKEN": os.environ.pop("OPENCLAW_HOOKS_TOKEN", None),
+                "NEMOCLAW_HOOKS_TOKEN_FILE": os.environ.get("NEMOCLAW_HOOKS_TOKEN_FILE"),
+            }
+            os.environ["NEMOCLAW_HOOKS_TOKEN_FILE"] = str(token_path)
+            try:
+                self.assertEqual(headless_runner._read_hooks_token(), "secret-token")
+            finally:
+                if previous["OPENCLAW_HOOKS_TOKEN"] is not None:
+                    os.environ["OPENCLAW_HOOKS_TOKEN"] = previous["OPENCLAW_HOOKS_TOKEN"]
+                else:
+                    os.environ.pop("OPENCLAW_HOOKS_TOKEN", None)
+                if previous["NEMOCLAW_HOOKS_TOKEN_FILE"] is not None:
+                    os.environ["NEMOCLAW_HOOKS_TOKEN_FILE"] = previous["NEMOCLAW_HOOKS_TOKEN_FILE"]
+                else:
+                    os.environ.pop("NEMOCLAW_HOOKS_TOKEN_FILE", None)
+
+    def test_readiness_env_parser_matches_shell_quoting(self):
+        with tempfile.TemporaryDirectory() as td:
+            env_path = Path(td) / "nemoclaw.env"
+            env_path.write_text("export NEMOCLAW_SANDBOX_NAME='demo sandbox'\n", encoding="utf-8")
+            previous = os.environ.pop("NEMOCLAW_SANDBOX_NAME", None)
+            try:
+                readiness._load_env_file(env_path)
+                self.assertEqual(os.environ["NEMOCLAW_SANDBOX_NAME"], "demo sandbox")
+            finally:
+                if previous is not None:
+                    os.environ["NEMOCLAW_SANDBOX_NAME"] = previous
+                else:
+                    os.environ.pop("NEMOCLAW_SANDBOX_NAME", None)
 
 
 class DeployProfileNemoClawAdapterTest(unittest.TestCase):

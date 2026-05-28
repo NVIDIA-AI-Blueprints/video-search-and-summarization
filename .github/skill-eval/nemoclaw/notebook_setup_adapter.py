@@ -61,20 +61,27 @@ from pathlib import Path
 
 _env_out = Path(os.environ.get("NEMOCLAW_CI_ENV_OUT", "/tmp/skill-eval/nemoclaw/nemoclaw.env"))
 _env_out.parent.mkdir(parents=True, exist_ok=True)
+_token_file = Path(os.environ.get("NEMOCLAW_HOOKS_TOKEN_FILE", str(Path.home() / ".cache/vss-skill-eval/nemoclaw/hooks_token")))
+_token_file.parent.mkdir(parents=True, exist_ok=True)
 _keys = [
     "NEMOCLAW_SANDBOX_NAME",
-    "OPENCLAW_HOOKS_TOKEN",
     "OPENCLAW_HOOKS_PATH",
     "MCP_URL",
     "MCP_PORT",
     "HOST_INTERNAL_ALIAS",
     "HARDWARE_PROFILE",
+    "NEMOCLAW_HOOKS_TOKEN_FILE",
 ]
+NEMOCLAW_HOOKS_TOKEN_FILE = str(_token_file)
+if "OPENCLAW_HOOKS_TOKEN" in globals() and OPENCLAW_HOOKS_TOKEN:
+    _token_file.write_text(str(OPENCLAW_HOOKS_TOKEN), encoding="utf-8")
+    _token_file.chmod(0o600)
 with _env_out.open("w", encoding="utf-8") as fp:
     for _key in _keys:
         if _key in globals():
             fp.write(f"export {_key}={shlex.quote(str(globals()[_key]))}\n")
 print(f"Wrote NemoClaw CI env: {_env_out}")
+print(f"Wrote NemoClaw hook token file: {_token_file}")
 '''.strip() + "\n"
 
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -26,7 +27,8 @@ def _load_env_file(path: Path) -> None:
         if not line or line.startswith("#") or not line.startswith("export ") or "=" not in line:
             continue
         key, value = line[len("export ") :].split("=", 1)
-        os.environ.setdefault(key, value.strip().strip("'\""))
+        parsed = shlex.split(value) if value else [""]
+        os.environ.setdefault(key, parsed[0] if parsed else "")
 
 
 def _run(cmd: list[str], *, timeout: int = 30, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
