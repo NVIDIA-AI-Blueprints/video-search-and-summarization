@@ -56,8 +56,8 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         ids = [cell.get("id") for cell in built["cells"]]
 
         self.assertEqual(ids, ["settings", "ci-parameters", "derived", "ci-persist-env"])
-        self.assertIsInstance(built["cells"][1]["source"], str)
-        self.assertIsInstance(built["cells"][3]["source"], str)
+        self.assertTrue(all(isinstance(cell["source"], str) for cell in built["cells"]))
+        self.assertEqual(built["cells"][0]["source"], "A=1\n")
 
     def test_redacts_configured_secret_values(self):
         os.environ["NVIDIA_API_KEY"] = "nvapi-secret"
