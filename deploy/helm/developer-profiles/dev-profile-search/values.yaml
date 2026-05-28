@@ -28,6 +28,26 @@ global:
     enabled: true
     mainHost: ''
     streamerHost: ''
+  # rtviInternalIngress lives under `global` so the agent sub-chart's env-var
+  # templates (rendered via `tpl` in the agent context) can read it — only
+  # `global.*` propagates across sub-charts. The toggle drives three things:
+  # (a) Chart.yaml dependency condition pulls in the haproxy-ingress sub-chart;
+  # (b) templates/rtvi-internal-ingress.yaml renders the Ingress object;
+  # (c) RTVI_*_BASE_URL / COSMOS_EMBED_ENDPOINT env vars below get rewritten
+  # to go through the controller Service instead of the rtvi ClusterIPs.
+  rtviInternalIngress:
+    enabled: false
+    className: haproxy
+    host: ''
+    hashHeader: x-stream-id
+    rtviCvPath: /rtvi-cv
+    rtviEmbedPath: /rtvi-embed
+    # Empty => defaults to `<release>-haproxy-ingress` (the haproxytech
+    # sub-chart Service, named after the dependency alias in Chart.yaml).
+    controllerService: ""
+    controllerPort: 80
+    annotations: {}
+    tls: []
 ingress:
   enabled: true
   className: haproxy
@@ -42,6 +62,20 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+
+# HAProxy Kubernetes Ingress sub-chart values. Only rendered when
+# global.rtviInternalIngress.enabled=true (see Chart.yaml condition).
+# Minimal config for a single-node dev cluster — ClusterIP Service is
+# enough because the agent talks to it in-cluster (no external traffic).
+haproxy-ingress:
+  controller:
+    kind: Deployment
+    replicaCount: 1
+    ingressClassResource:
+      name: haproxy
+      default: false
+    service:
+      type: ClusterIP
 sharedStorage:
   streamerVideos:
     # Disabled: same role as vios.vstStorage + streamprocessing persistence.streamerVideos (matches dev-profile-alerts; avoids a second PVC).
@@ -256,6 +290,9 @@ rtvi:
     port: 8000
     service:
       type: ClusterIP
+    # Pin a specific GPU device id (e.g. "1") to set NVIDIA_VISIBLE_DEVICES on
+    # the container. Leave empty to let the container see whatever GPUs the
+    # pod's resource request exposed (runtime default).
     gpuDeviceId: ''
     dshm:
       enabled: true
@@ -493,7 +530,7 @@ agent:
       - name: LVS_BACKEND_URL
         value: ''
       - name: RTVI_CV_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $cvPort := (.Values.rtviCvPort | default "9000") | toString }}{{- $cvHost := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx }}{{- printf "http://%s:%s" $cvHost $cvPort -}}'
+        value: '{{- $g := .Values.global | default dict -}}{{- $rii := (index $g "rtviInternalIngress") | default dict -}}{{- if $rii.enabled -}}{{- $svc := default (printf "%s-haproxy-ingress" .Release.Name) $rii.controllerService -}}{{- $port := $rii.controllerPort | default 80 -}}{{- $path := default "/rtvi-cv" $rii.rtviCvPath -}}{{- printf "http://%s:%v%s" $svc $port $path -}}{{- else -}}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) -}}{{- $cvPort := (.Values.rtviCvPort | default "9000") | toString -}}{{- $cvHost := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx -}}{{- printf "http://%s:%s" $cvHost $cvPort -}}{{- end -}}'
       - name: VSS_ES_PORT
         value: ''
       - name: VST_BASE_URL
@@ -505,9 +542,9 @@ agent:
       - name: OPENAI_API_KEY
         value: ''
       - name: RTVI_EMBED_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString }}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}{{- $def := printf "http://%s:%s" $embedHost $embedPort }}{{ coalesce .Values.rtviEmbedBaseUrl $def }}'
+        value: '{{- $g := .Values.global | default dict -}}{{- $rii := (index $g "rtviInternalIngress") | default dict -}}{{- if $rii.enabled -}}{{- $svc := default (printf "%s-haproxy-ingress" .Release.Name) $rii.controllerService -}}{{- $port := $rii.controllerPort | default 80 -}}{{- $path := default "/rtvi-embed" $rii.rtviEmbedPath -}}{{- printf "http://%s:%v%s" $svc $port $path -}}{{- else -}}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) -}}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString -}}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx -}}{{- $def := printf "http://%s:%s" $embedHost $embedPort -}}{{ coalesce .Values.rtviEmbedBaseUrl $def }}{{- end -}}'
       - name: COSMOS_EMBED_ENDPOINT
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString }}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}{{- $def := printf "http://%s:%s" $embedHost $embedPort }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
+        value: '{{- $g := .Values.global | default dict -}}{{- $rii := (index $g "rtviInternalIngress") | default dict -}}{{- if $rii.enabled -}}{{- $svc := default (printf "%s-haproxy-ingress" .Release.Name) $rii.controllerService -}}{{- $port := $rii.controllerPort | default 80 -}}{{- $path := default "/rtvi-embed" $rii.rtviEmbedPath -}}{{- printf "http://%s:%v%s" $svc $port $path -}}{{- else -}}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) -}}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString -}}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx -}}{{- $def := printf "http://%s:%s" $embedHost $embedPort -}}{{ coalesce .Values.cosmosEmbedEndpoint $def }}{{- end -}}'
       - name: ELASTIC_SEARCH_ENDPOINT
         value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
       - name: ELASTIC_SEARCH_INDEX
