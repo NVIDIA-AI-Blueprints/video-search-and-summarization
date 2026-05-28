@@ -129,7 +129,8 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev secrets only
           set +a
-          # daily run will skip the diff path, treat as manual full sweep with skill filter = *
+          # daily run will skip the diff path,
+          # treat as manual full sweep with skill filter = *
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
           export MANUAL_FULL_SWEEP=1
