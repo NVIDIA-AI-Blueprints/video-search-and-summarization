@@ -21,10 +21,6 @@ Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_c
 - **`VLM_PORT=8018`** by default (RT-VLM). Set to `30082` when `VLM_MODE=remote` (RT-VLM not started; agent points at the remote endpoint).
 - **Alert-bridge** (port 9080) is the bridge between RT-VLM events / behavior analytics and the agent's realtime alerting API. Verification mode reads from RT-CV → behavior analytics → alert-bridge → VLM verification. Real-time mode reads from RT-VLM → alert-bridge directly.
 
-> **`VLM_MODE` is required in `.env` but is a runtime signal, not a deployment-shape selector.** The vss-agent container reads `VLM_MODE` at startup (`services/agent/compose.yml:79` → `dev-profile-alerts/vss-agent/configs/config.yml:76,91`) to configure its VLM tool. It does **not** flip a compose profile (alerts has no `vlm_*_<slug>`). Set it to match physical placement: `local_shared` (RT-VLM on the LLM's GPU), `local` (RT-VLM on its own GPU), or `remote` (no local RT-VLM).
-
-> **An LLM endpoint is required.** The alerts agent uses the LLM for incident-report generation and tool routing. `dev-profile-alerts/vss-agent/configs/config.yml:152,193,259` reference `nim_llm` / `prompt_gen_llm`, and `COMPOSE_PROFILES` always pulls in `llm_${LLM_MODE}_${LLM_NAME_SLUG}`. To skip the local LLM container, point at a remote endpoint (`LLM_MODE=remote`, set `LLM_BASE_URL`). The detection pipeline alone (RT-CV → behavior-analytics → RT-VLM, alerts in Kafka/ES) doesn't need the LLM, but the agent does — and without the agent the user has no UI / report flow.
-
 ## What gets deployed
 
 | Service | Container | Port | Purpose | Mode |
