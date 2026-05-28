@@ -20,8 +20,7 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 - [NVIDIA AI Blueprint: Video Search and Summarization](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
