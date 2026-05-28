@@ -77,7 +77,7 @@ If videos < camera count and `HARDWARE_PROFILE.mv3dt.max_streams_supported` < ca
 `services/vios/streamprocessing/docker-compose.yaml` hardcodes two bind-mount sources to `sample-data/warehouse-4cams-20mx20m-synthetic/` regardless of `SAMPLE_VIDEO_DATASET`:
 
 ```yaml
-# lines 189-190 (MODE=mv3dt). lines 138-139 mirror this for MODE=3d.
+# Under the `streamprocessing-ms-mv3dt:` service block — `streamprocessing-ms-3d:` mirrors the same pattern for MODE=3d.
 - ${VSS_APPS_DIR}/.../calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
 - ${VSS_APPS_DIR}/.../calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
 ```
@@ -117,38 +117,39 @@ This is an upstream-bug workaround. When the compose source is fixed (`${SAMPLE_
 Edit `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env`. The shipped `.env` defaults to **2D** (`MODE=2d`, `BP_PROFILE=bp_wh`, `HARDWARE_PROFILE=H100`, paths as placeholders, `NGC_CLI_API_KEY=''`) — you must change at least `MODE`, `BP_PROFILE`, paths, `HOST_IP`, and `NGC_CLI_API_KEY` for MV3DT. Confirm every key below:
 
 ```bash
-# Deployment selectors (line refs are against industry-profiles/warehouse-operations/.env)
-MODE=mv3dt                                  # line 45
-BP_PROFILE=bp_wh_kafka                      # line 48 — or bp_wh_redis
-STREAM_TYPE=kafka                           # line 180 — match BP_PROFILE
-MINIMAL_PROFILE=""                          # line 54-55 — EXTENDED (default for overlays)
+# All keys below live in industry-profiles/warehouse-operations/.env — locate by name (line numbers drift across releases).
+# Deployment selectors
+MODE=mv3dt
+BP_PROFILE=bp_wh_kafka                      # or bp_wh_redis
+STREAM_TYPE=kafka                           # match BP_PROFILE
+MINIMAL_PROFILE=""                          # EXTENDED (default for overlays)
 # MINIMAL_PROFILE="true"                    # uncomment for minimal (no overlays)
 
 # Dataset + stream count
-SAMPLE_VIDEO_DATASET="<your-dataset-slug>"  # line 62 — see "Slug" note below
-NUM_STREAMS=4                               # line 206 — must equal camInfo count
+SAMPLE_VIDEO_DATASET="<your-dataset-slug>"  # see "Slug" note below
+NUM_STREAMS=4                               # must equal camInfo count
 
 # Hardware — use the slug from SKILL.md Prerequisites §3 (canonical keys live in blueprint_config.yml)
-HARDWARE_PROFILE=H100                       # line 67 — see SKILL.md Prerequisites §3 table
-RT_CV_DEVICE_ID='0'                         # line 69 — GPU for perception
-LLM_MODE=none                               # line 81 — no LLM/VLM for MV3DT
-VLM_MODE=none                               # line 82
+HARDWARE_PROFILE=H100                       # see SKILL.md Prerequisites §3 table
+RT_CV_DEVICE_ID='0'                         # GPU for perception
+LLM_MODE=none                               # no LLM/VLM for MV3DT
+VLM_MODE=none
 
 # Paths (REQUIRED)
-VSS_APPS_DIR="<repo>/deploy/docker"         # line 131 — your checkout's deploy/docker
-VSS_DATA_DIR="<extracted-vss-warehouse-app-data>"  # line 134 — NOT the repo path
-HOST_IP='<browser-reachable-IP>'            # line 138 — not localhost
+VSS_APPS_DIR="<repo>/deploy/docker"         # your checkout's deploy/docker
+VSS_DATA_DIR="<extracted-vss-warehouse-app-data>"  # NOT the repo path
+HOST_IP='<browser-reachable-IP>'            # not localhost
 EXTERNAL_IP="${HOST_IP}"
 
 # MQTT (mv3dt only)
-MQTT_HOST=localhost                         # line 202
-MQTT_PORT=1883                              # line 203
+MQTT_HOST=localhost
+MQTT_PORT=1883
 
 # NGC credential for image pulls
-NGC_CLI_API_KEY='<your-ngc-key>'            # line 164
+NGC_CLI_API_KEY='<your-ngc-key>'
 ```
 
-`COMPOSE_PROFILES` is computed automatically (line 117): `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}` → for MV3DT this resolves to `bp_wh_kafka_mv3dt,llm_none_none`.
+`COMPOSE_PROFILES` is computed automatically by the .env (search for `^COMPOSE_PROFILES=`): `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}` → for MV3DT this resolves to `bp_wh_kafka_mv3dt,llm_none_none`.
 
 ### `VSS_DATA_DIR` — what to point it at
 
@@ -213,8 +214,9 @@ ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calib
 Swap to `-sbsa` image tags. From the shipped `.env`:
 
 ```bash
-# PERCEPTION_TAG="3.2.0-sbsa-26.05.1"          # line 192 (uncomment, comment 190)
-# BEV_FUSION_MV3DT_TAG="3.2.0-26.05.3-sbsa"     # line 199 (uncomment, comment 197)
+# In .env, comment the multi-arch tag and uncomment the -sbsa variant next to it:
+# PERCEPTION_TAG="3.2.0-sbsa-26.05.1"
+# BEV_FUSION_MV3DT_TAG="3.2.0-26.05.3-sbsa"
 ```
 
 Apply the same pattern to `RTVI_VLM_IMAGE_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG` if those keys are set in your `.env`. Per-key list lives in `vss-deploy-profile/references/warehouse.md` (search for "SBSA").
