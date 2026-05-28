@@ -49,19 +49,39 @@ The service exposes a v1 REST API. Set `BASE_URL=http://<host>:${RTVI_EMBED_PORT
 - **Metadata / NIM-compatible** — `GET /v1/metadata`, `GET /v1/version`, `GET /v1/license`, `GET /v1/manifest`.
 - **Metrics** — `GET /v1/metrics` (Prometheus text format).
 
-**Examples** (all worked `curl` recipes are in `rest-api.md`):
-
-- Embed an uploaded video — see [`rest-api` § Upload + embed](rest-api.md#1-upload).
-- Embed a text query — see `rest-api.md` § Text embeddings.
-- Register and embed a live RTSP stream — see [`rest-api` § Add stream + SSE embed](rest-api.md#add-the-stream).
-  Live-stream requests **require** `stream: true` and `chunk_duration > 0`; a
-  synchronous call returns `400 BadParameters: "Only streaming output is
-  supported for live-streams"` and an unset/zero `chunk_duration` returns
-  `400 BadParameter: "chunk_duration must be greater than 0"`. Use
-  `Accept: text/event-stream` with `curl -N` so SSE events stream immediately.
+Example: embed an uploaded video.
 
 ```bash
-# Start embedding the stream (SSE) — see rest-api.md for the full flow including streams/add.
+# 1. Upload the media file.
+FILE_ID=$(curl -fsS -X POST "$BASE_URL/v1/files" \
+  -F purpose=vision \
+  -F media_type=video \
+  -F file=@/path/to/clip.mp4 | jq -r .id)
+
+# 2. Generate embeddings.
+curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
+  -H "Content-Type: application/json" \
+  -d "{\"id\": \"$FILE_ID\", \"model\": \"cosmos-embed1-448p\", \"chunk_duration\": 60}"
+```
+
+Example: embed a text query.
+
+```bash
+curl -fsS -X POST "$BASE_URL/v1/generate_text_embeddings" \
+  -H "Content-Type: application/json" \
+  -d '{"text_input": "a forklift moving pallets", "model": "cosmos-embed1-448p"}'
+```
+
+Example: register and embed a live RTSP stream. Live-stream requests **require** `stream: true` and `chunk_duration > 0`; a synchronous call returns `400 BadParameters: "Only streaming output is supported for live-streams"` and an unset/zero `chunk_duration` returns `400 BadParameter: "chunk_duration must be greater than 0"`. Send `Accept: text/event-stream` and use `curl -N` so SSE events stream immediately.
+
+```bash
+# 1. Add the live stream.
+STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
+  -H "Content-Type: application/json" \
+  -d '{"streams":[{"liveStreamUrl":"rtsp://host:port/live/video","description":"camera-001"}]}' \
+  | jq -r '.results[0].id')
+
+# 2. Start embedding for that stream (SSE).
 curl -N -X POST "$BASE_URL/v1/generate_video_embeddings" \
   -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
