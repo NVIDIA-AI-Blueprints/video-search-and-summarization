@@ -1,0 +1,10 @@
+# NemoClaw Skill Eval Runner
+
+This directory contains the GitHub CI integration for opt-in NemoClaw/OpenClaw skill evaluation.
+
+- `notebook_cells.json` selects setup-only cells from `deploy/docker/scripts/deploy_nemoclaw_vss.ipynb` by stable cell id.
+- `notebook_setup_adapter.py` builds and executes the temporary setup notebook, then writes `/tmp/skill-eval/nemoclaw/nemoclaw.env` on the Brev worker.
+- `readiness.py` checks host tools, sandbox state, and VSS Orchestrator MCP health before Harbor runs the scenario.
+- `headless_runner.py` is called from the Harbor trial. It posts the real task prompt to the OpenClaw hooks endpoint so the scenario runs through NemoClaw/OpenClaw.
+
+Harbor remains the CI entrypoint and result owner. The default runner is unchanged unless a spec declares `runner: "nemoclaw"` / `requires_nemoclaw: true`, or a manual workflow dispatch selects `runner=nemoclaw`.

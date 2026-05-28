@@ -11,6 +11,13 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
 
+NemoClaw/OpenClaw is available as an opt-in runner. Specs can set
+`runner: "nemoclaw"` / `requires_nemoclaw: true`, or an operator can select
+`runner=nemoclaw` from the manual workflow dispatch. Harbor remains the
+entrypoint and result owner; the generated Harbor task prepares NemoClaw on
+the selected `vss-eval-*` worker, then launches the real scenario through the
+OpenClaw hooks endpoint.
+
 The whole thing runs inside the 14-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
 
 ## Prerequisites
@@ -70,6 +77,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 │       └── generate.py
 ├── envs/
 │   └── brev_env.py        ← Harbor environment for pre-existing Brev instances
+├── nemoclaw/              ← notebook setup adapter + headless OpenClaw hook launcher
 └── verifiers/
     └── generic_judge.py   ← routes checks to shell / trajectory /
                              response / rubric evaluators
@@ -113,6 +121,25 @@ Schema:
 | `expects` | `array` | Ordered list — **each entry becomes one Harbor task**, chained to the previous via `requires_previous_passed`. There is no separate `env` field: every prerequisite (deployed profile, required env vars, ports, sample-data ingest, platform notes) goes **inside the relevant `expects[].query`** — usually the first/setup query, often a `/vss-deploy-profile …` deploy step. |
 | `expects[].query` | `string` | What the agent is asked to do at this step, in plain English — including any prerequisites/environment the step needs. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
 | `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl` / `docker` / `grep` commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
+| `runner` | `string` | Optional. `nemoclaw` runs the scenario through the NemoClaw/OpenClaw setup and hook launcher. Omitted keeps the current Harbor + Claude Code path. |
+| `requires_mcp` / `required_mcp_tools` | `bool` / `string[]` | Optional NemoClaw metadata. The setup checks the orchestrator MCP health before dispatch; tool-use assertions are evaluated from the scenario artifacts/checks after the run. |
+
+## NemoClaw runner
+
+The NemoClaw runner keeps `deploy/docker/scripts/deploy_nemoclaw_vss.ipynb`
+as the human runbook. CI does not edit the notebook. Instead,
+`.github/skill-eval/nemoclaw/notebook_setup_adapter.py` builds a temporary
+notebook from stable cell ids listed in `notebook_cells.json`, injects CI
+parameters from environment variables, executes setup-only cells, and writes
+the executed notebook plus `/tmp/skill-eval/nemoclaw/nemoclaw.env` on the
+Brev worker.
+
+Once readiness passes, Harbor still invokes `-a claude-code`. In NemoClaw
+mode that Claude process is only a launcher: `instruction.md` tells it to run
+`.github/skill-eval/nemoclaw/headless_runner.py`, which posts the actual skill
+prompt to OpenClaw hooks. The NemoClaw/OpenClaw agent then uses the same
+repository `skills/` content installed by the OpenClaw plugin and the VSS
+Orchestrator MCP server exposed by the notebook setup.
 
 ### Eval-profile vs deploy-profile (vss-deploy-profile adapter only)
 
