@@ -2,7 +2,7 @@
 
 Profile: `lvs` | Blueprint: `bp_developer_lvs` | Mode: `2d`
 
-Long-video summarization. The LLM stack is identical to `base` ([`base.md`](base.md)) — same supported models, same sizing math. **The VLM serving is different**: LVS no longer brings up a standalone Cosmos NIM; all VLM traffic goes through `rtvi-vlm` on port 8018, which loads the VLM checkpoint itself.
+Long-video summarization. The LLM stack is identical to `base` (`base.md`) — same supported models, same sizing math. **The VLM serving is different**: LVS no longer brings up a standalone Cosmos NIM; all VLM traffic goes through `rtvi-vlm` on port 8018, which loads the VLM checkpoint itself.
 
 ## What's different from `base`
 
@@ -146,9 +146,9 @@ The RT-VLM container reads sizing knobs from `dev-profile-lvs/.env` with the `RT
 
 The sizing flow is identical to base: pick the fraction with the formula in [`base.md`](base.md#sizing-math), write it into `dev-profile-lvs/generated.env` (one place — there is no per-hardware `hw-*.env` for RT-VLM), re-resolve the compose, deploy, watch the rtvi-vlm logs for `Maximum concurrency for X tokens per GPU: Y x` to confirm the KV-cache budget.
 
-## Worked example — shared mode, Nano 9B + CR2 8B on 1 × H100 80 GB
+## LVS-specific write location for the worked example
 
-Math is identical to [`base.md` § Worked example](base.md#worked-example--nemotron-nano-9b--cosmos-reason2-8b-on-h100-80-gb-shared) — LLM fraction `≈ 0.449`, VLM fraction `≈ 0.40`. The difference for LVS is **where** the VLM fraction is written:
+Run the math from [`base.md` § Worked example](base.md#worked-example--nemotron-nano-9b--cosmos-reason2-8b-on-h100-80-gb-shared) — the fractions are identical. The only LVS-specific bit is **where** the VLM fraction is written:
 
 ```bash
 # LLM — same file as base
@@ -170,7 +170,7 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 
 - **`VLM_NAME` must equal RT-VLM's `/v1/models` basename.** This is the single most important field for LVS to function. For the default integrated Cosmos2: `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208`. Using the friendly NIM name `nvidia/cosmos-reason2-8b` causes vss-lvs to return `400 BadParameters: No such model …` and summarization fails — confirmed in production (2026-05-10). Transformation rule for NGC NIM paths: `ngc:nim/<org>/<model>:<tag>` → `nim_<org>_<model>_<tag>`. For HF git paths or any custom MODEL_PATH, verify by `curl http://${HOST_IP}:8018/v1/models | jq` after RT-VLM boots and copy the `id` field.
 - **L40S (48 GB) cannot host the LLM + RT-VLM shared.** 23.4 + 20.8 = 44.2 GB > 40.8 GB usable. Use a 2-GPU L40S host (LLM on device 0, RT-VLM on device 1) or escalate to the user about a remote VLM (Path B).
-- **Edge platforms (DGX-Spark / Thor) need the SBSA RT-VLM image.** Set `RTVI_VLM_IMAGE_TAG=3.2.0-26.05.1-sbsa` in `dev-profile-lvs/generated.env` (matches the commented variant in the source `.env`). LLM-side, follow [`edge.md`](edge.md) (Edge 4B mandatory for shared mode on edge).
+- **Edge platforms (DGX-Spark / Thor) need the SBSA RT-VLM image.** Set `RTVI_VLM_IMAGE_TAG=3.2.0-26.05.1-sbsa` in `dev-profile-lvs/generated.env` (matches the commented variant in the source `.env`). LLM-side, follow `edge.md` (Edge 4B mandatory for shared mode on edge).
 - **Don't co-deploy a standalone Cosmos NIM with RT-VLM.** The standalone `vlm_local_*_cosmos-reason2-8b` profile must NOT be active for LVS. Verify by checking that `resolved.yml` doesn't have a `cosmos-reason2-8b` or `cosmos-reason2-8b-shared-gpu` service alongside `rtvi-vlm`.
 - **`VLM_MODE=remote` ⇒ `RTVI_VLM_MODEL_PATH=none`.** Forgetting this leaves RT-VLM trying to load weights AND proxy at the same time → startup hang or OOM.
 - **`/v1` suffix mismatch.** `VLM_BASE_URL` no `/v1`; `RTVI_VLM_ENDPOINT` yes `/v1`. The skill should always write both consistently when going remote.

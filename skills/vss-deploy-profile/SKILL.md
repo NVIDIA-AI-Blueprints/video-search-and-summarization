@@ -1,12 +1,41 @@
 ---
 name: vss-deploy-profile
-description: Load when the user says "configure vss", "deploy vss", "deploy `profile`", "debug deploy", "verify deployment", or "why is my vss deploy broken".
+description: Use to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). Not for standalone microservices — use the vss-deploy-* skill.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
+## Purpose
+
+Configure, deploy, verify, and tear down a complete VSS profile end-to-end (model selection, prerequisites, debugging).
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Available Scripts
+
+| Script | Purpose | Arguments |
+| --- | --- | --- |
+| `normalize_resolved_yml.py` | Normalize a `docker compose config` dry-run dump (`resolved.yml`) for diff-friendly review during the configure → deploy step. | `<resolved.yml>` (positional) |
+
+Invoke via `run_script("scripts/normalize_resolved_yml.py", "<resolved.yml>")`
+once the dry-run dump exists. All other deployment work is performed
+through compose / `dev-profile.sh` invocations documented per profile in
+`references/`.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
 
 # VSS Deploy
 
@@ -22,7 +51,7 @@ Match the user's request to a profile, then load that profile's reference for si
 |---|---|---|
 | "deploy vss" / "deploy base" | `base` | [`references/base.md`](references/base.md) |
 | "deploy alerts" / "alert verification" / "real-time alerts" / "deploy for incident report" | `alerts` | [`references/alerts.md`](references/alerts.md) |
-| "deploy lvs" / "video summarization" | `lvs` | [`references/lvs.md`](references/lvs.md) |
+| "deploy lvs" / "video summarization" | `lvs` | [`references/lvs-profile.md`](references/lvs-profile.md) |
 | "deploy search" / "video search" | `search` | [`references/search.md`](references/search.md) |
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
@@ -52,51 +81,23 @@ The source `.env` is treated as **read-only defaults** committed to the repo. Th
 
 ### Pre-flight check
 
-Run before every deploy. Do not proceed if any check fails.
+Run before every deploy. The full check list, the cache-cleaner
+auto-install snippet for DGX-Spark / IGX-Thor / AGX-Thor, and the
+remediation steps for each failure live in
+[`references/prerequisites.md`](references/prerequisites.md#preflight).
+
+Minimum smoke test (must succeed):
 
 ```bash
-# 1. GPU visible
 nvidia-smi --query-gpu=index,name --format=csv,noheader
-
-# 2. NVIDIA runtime in Docker
-docker info 2>/dev/null | grep -i "runtimes"
-
-# 3. NVIDIA runtime works end-to-end
-docker run --rm --gpus all ubuntu:22.04 nvidia-smi 2>&1 | head -5
-
-# 4. Edge platforms only — cache cleaner running (auto-start if missing).
-#    DGX-Spark / IGX-Thor / AGX-Thor share unified memory; without
-#    periodic drop_caches the first inference frame OOMs.
-gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
-if echo "$gpu_name" | grep -qiE 'GB10|Thor'; then
-    if pgrep -f sys-cache-cleaner.sh >/dev/null; then
-        echo "cache cleaner OK"
-    else
-        echo "cache cleaner not running — starting it now"
-        # Install the script if it's missing (idempotent — no-op if already installed).
-        if [ ! -x /usr/local/bin/sys-cache-cleaner.sh ]; then
-            sudo tee /usr/local/bin/sys-cache-cleaner.sh >/dev/null << 'EOF'
-#!/bin/bash
-set -e
-echo 0 | tee /proc/sys/vm/nr_hugepages
-echo "Starting cache cleaner"
-while true; do
-  sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
-  sleep 3
-done
-EOF
-            sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
-        fi
-        sudo -b /usr/local/bin/sys-cache-cleaner.sh
-        sleep 1
-        pgrep -f sys-cache-cleaner.sh >/dev/null \
-            && echo "cache cleaner OK" \
-            || { echo "FAIL: cache cleaner failed to start — see references/edge.md § Cache cleaner" >&2; exit 1; }
-    fi
-fi
+docker info 2>/dev/null | grep -qi runtimes \
+  && docker run --rm --gpus all ubuntu:22.04 nvidia-smi >/dev/null 2>&1 \
+  && echo "nvidia runtime OK"
 ```
 
-If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisites.md). Check 4 self-heals on edge hardware — it installs `sys-cache-cleaner.sh` if missing and starts it in the background. If `sudo` isn't available or the start still fails, the script exits non-zero; install + start manually per [`references/edge.md` § Cache cleaner](references/edge.md#cache-cleaner-every-edge-deploy) before retrying.
+If the smoke test fails, do not proceed; open
+[`references/prerequisites.md`](references/prerequisites.md#preflight)
+for the remediation tree.
 
 ## Model Selection
 
@@ -258,29 +259,14 @@ docker compose -f resolved.yml up -d
 
 ### Step 5b — Wait until the stack is actually healthy
 
-Do **not** declare the deploy done after `up -d` returns. Cold deploys (first-time NIM image pulls + model warmup) can legitimately take 10–20 min, so the timeouts in the probes below are generous on purpose.
-
-First, wait for the compose project to settle. Every container must be either `running` or cleanly `exited 0` — one-shot init jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy failure even though `up -d` returned 0.
-
-```bash
-# docker compose 2.21+ emits NDJSON (one bare object per line) from
-# `ps --format json`, not a JSON array — so no `.[]` here; jq's default
-# input loop already iterates each line. The filter accepts only
-# `running` and `exited 0`; everything else (restarting, unhealthy,
-# exited with non-zero code) is a failure.
-docker compose -f resolved.yml ps --format json \
-  | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
-           | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"' \
-  | { mapfile -t bad; if [ "${#bad[@]}" -gt 0 ]; then
-        printf 'FAIL: %s\n' "${bad[@]}" >&2; exit 1;
-      fi; }
-```
-
-Container state alone isn't enough — the processes inside may still be importing modules, loading models, and binding ports. Probe the profile's documented readiness endpoints next.
-
-**Each `references/<profile>.md` lists the endpoints that must be reachable** for that profile (agent REST API, UI, inference NIMs, etc., on the ports the profile actually opens). Run those `curl` checks with a generous deadline (15 min is reasonable for cold NIM warmup) and only declare the deploy done once every documented endpoint returns the expected success exit code.
-
-If any probe times out, dump `docker compose ps` + `docker compose logs --tail 100 <slow-service>` and report the slow container — don't claim success on a half-warm stack.
+`docker compose up -d` returns once containers are *created*, not when
+the processes inside are *ready*. Cold deploys can legitimately take
+10–20 min. The full readiness procedure (compose-ps NDJSON gate + the
+per-profile `curl` checks + slow-container triage) lives in
+[`references/readiness.md`](references/readiness.md); each
+`references/<profile>.md` lists the endpoints that must be reachable
+for that profile. **Never declare the deploy done after `up -d`
+returns** — only after every documented endpoint succeeds.
 
 ### Step 6 — 
 Fron
@@ -326,3 +312,4 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 
 Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
 
+bump:1

@@ -337,18 +337,9 @@ Both set → skip to Phase 2.
 
 #### 1.2 Install (NGC CLI 4.10.0+)
 
-**AMD64:**
-```bash
-curl -sLo /tmp/ngccli.zip \
-  https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/4.10.0/files/ngccli_linux.zip
-sudo mkdir -p /usr/local/lib
-sudo unzip -qo /tmp/ngccli.zip -d /usr/local/lib
-sudo chmod +x /usr/local/lib/ngc-cli/ngc
-sudo ln -sfn /usr/local/lib/ngc-cli/ngc /usr/local/bin/ngc
-ngc --version
-```
-
-**ARM64 (DGX-SPARK, IGX-THOR):** use `ngccli_arm64.zip`, then same install steps.
+See [`ngc.md` § Install NGC CLI](ngc.md#install-ngc-cli-if-missing) for the
+AMD64 / ARM64 install commands. They are kept in `ngc.md` as the single
+canonical reference.
 
 #### 1.3 Configure API Key
 
@@ -654,15 +645,9 @@ df -h /  # 500 GB+ SSD
 
 #### Q2 — Blueprint Profile
 
-**MODE=2d:**
-> - **2D Vision AI** — CV-only, no LLM and no VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
-> - **2D Vision AI with Agents** — LLM NIM (local/local_shared/remote) + RTVI VLM (always local). Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
-
-**MODE=3d:**
-> - **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
-
-**MODE=mv3dt:**
-> - **MV3DT Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams). No agents profile (`bp_wh`) available.
+Refer to the [Profile Variants table](#profile-variants) above for the
+profile / mode / dataset matrix instead of restating it here. The question is
+just "which profile from that table?".
 
 #### Q3 — Stream Type
 
@@ -670,33 +655,23 @@ Skip for `bp_wh` and `bp_wh_auto_calib`. For `bp_wh_kafka` / `bp_wh_redis`:
 
 > "Which broker — **kafka** or **redis**?"
 
-Variable combinations:
+Variable combinations — pick one row matching the user's Vision-AI variant
+and stream type:
 
-```bash
-# 2D Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"; NUM_STREAMS=3
+| Vision AI | Stream type | `BP_PROFILE` | `STREAM_TYPE` | `SAMPLE_VIDEO_DATASET` | `NUM_STREAMS` |
+|---|---|---|---|---|---|
+| 2D Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-loading-dock-3cams-synthetic` | 3 |
+| 2D Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-loading-dock-3cams-synthetic` | 3 |
+| 2D Vision AI with Agents | n/a | `bp_wh` | — | `nv-warehouse-4cams` | 4 (also set `LLM_MODE=local`; RTVI VLM is always local) |
+| 3D Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| 3D Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| MV3DT Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| MV3DT Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| Warehouse Auto-Calibration | n/a | `bp_wh_auto_calib` | — | mode-specific default | mode-specific default (also set `LLM_MODE=none`) |
 
-# 2D Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"; NUM_STREAMS=3
-
-# 2D Vision AI with Agents (RTVI VLM is always local; only LLM_MODE is selectable):
-BP_PROFILE=bp_wh; SAMPLE_VIDEO_DATASET="nv-warehouse-4cams"; NUM_STREAMS=4; LLM_MODE=local
-
-# 3D Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# 3D Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# MV3DT Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# MV3DT Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# Warehouse Auto-Calibration (mode-specific — dataset/streams match the mode default):
-BP_PROFILE=bp_wh_auto_calib; LLM_MODE=none
-```
+`3D Vision AI` and `MV3DT Vision AI` intentionally share the same dataset and
+stream counts — they differ only at the perception layer (`Sparse4D` vs
+per-camera DeepStream + BEV Fusion).
 
 #### Q4 — Deployment Profile
 
