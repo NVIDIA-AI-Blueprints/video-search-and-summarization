@@ -46,12 +46,10 @@ EXCLUDE_PATTERNS = (
     # Protobuf generated files
     "**/schema_pb.js",
     "**/ext_pb.js",
-    "**/schema_pb.py",
-    "**/ext_pb.py",
+    "**/schema_pb2.py",
+    "**/ext_pb2.py",
     "**/schema_pb.rb",
-    "**/ext_pb.rb",
-    "**/schema_pb.java",
-    "**/ext_pb.java"
+    "**/ext_pb.rb"
 )
 
 
