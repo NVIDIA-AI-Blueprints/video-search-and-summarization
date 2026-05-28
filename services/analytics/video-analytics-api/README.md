@@ -4,7 +4,7 @@ This module contains a sample app which exposes REST-APIs for VSS Video Analytic
 
 ## Introduction
 
-![Block Diagram - Architecture](./docs/images/Architecture.png)
+![Block Diagram - Architecture](./readmes/images/Architecture.png)
 
 The sample app was built using Node.js and Express, exposing various REST-API endpoints.
 
@@ -86,7 +86,7 @@ The default configuration can be found at [config.json](./configs/default-config
 
 ## Documentation
 
-- [Configuration Guide](./docs/configuration.md)
-- [Docker and Deployment](./docs/docker.md)
-- [Modules Overview](./docs/modules-overview.md)
-- [Testing Guide](./docs/testing.md)
+- [Configuration Guide](./readmes/configuration.md)
+- [Docker and Deployment](./readmes/docker.md)
+- [Modules Overview](./readmes/modules-overview.md)
+- [Testing Guide](./readmes/testing.md)
