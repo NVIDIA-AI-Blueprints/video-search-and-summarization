@@ -86,6 +86,8 @@ jobs:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
+          # ref: develop <-- after get merged into develop, I would need to uncomment this setting to specify
+          # develop branch as target branch for scheduled skill eval run
           fetch-depth: 0   # agent needs full history to diff against base (push mode)
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
