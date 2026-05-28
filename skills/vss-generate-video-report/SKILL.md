@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-report
-description: Produce a video analysis report. Two modes — (a) report on a recorded video / sensor clip via direct VLM call, (b) report on incidents in a time range via video-analytics. Use when the user says "generate a report", "give me a report", or "create a report".
+description: Use to produce a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. Not for real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -45,7 +45,7 @@ curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/
 curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
 ```
 
-If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or `-p alerts` (Mode B). With pre-authorization to deploy prerequisites, invoke `/vss-deploy-profile` directly; otherwise confirm with the user first.
+If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or `-p alerts` (Mode B). **Always** confirm the deploy with the user first.
 
 ---
 
