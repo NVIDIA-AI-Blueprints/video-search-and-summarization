@@ -166,11 +166,11 @@ Present a structured proposal to the user before generating any output. Required
 - **Shared infrastructure strategy** — single vs. isolated Kafka / Elasticsearch / Redis (default: shared).
 - **Conflicts and proposed resolutions** from Step 3.
 - **Gaps** — required peer services or interfaces that cannot be satisfied (Step 1 result).
-- **Architecture diagram** — a Mermaid `flowchart` rendering the proposal visually. See the sub-section below.
+- **Architecture diagram** — an ASCII flowchart rendering the proposal visually. See the sub-section below.
 
-#### Architecture diagram (Mermaid)
+#### Architecture diagram (ASCII)
 
-Render the proposal as a Mermaid `flowchart LR` (left-to-right) so the user can SEE the wiring, not just read it. Mermaid is text-based, displays inline in any Markdown renderer, and persists losslessly in `<BUILD_DIR>/MANIFEST.md`.
+Render the proposal as an ASCII flowchart (Unicode box-drawing, top-to-bottom layers) so the user can SEE the wiring, not just read it. The diagram is text-based, displays inline in the terminal at Step 4, renders identically in any Markdown viewer over SSH, and persists losslessly in `<BUILD_DIR>/MANIFEST.md`.
 
 Required content (one node per allow-listed service grouped by logical layer; one labeled edge per connection from the integrate refs' `§ Integration Interfaces`; external actors as top-level nodes; deployment shape in a comment), the canonical IN-1 example to use as a template, and the multi-diagram split rule (>~30 nodes) are spelled out in `references/architecture-diagram-template.md`.
 
@@ -324,7 +324,7 @@ Present a summary of the generated artifact:
 - Bundled skills (microservice + use-case, from Step 6)
 - Generated per-deployment deploy skill (`deploy-<profile-name>`, from Step 6) with its bring-up command
 
-Show the diff if the operation modified an existing deployment. Wait for user confirmation, then write all files to the output directory. Always emit a `MANIFEST.md` listing every generated file and its purpose. The manifest must include an `## Architecture` section embedding the Mermaid `flowchart LR` produced in Step 4 verbatim — operators reading the manifest should see the wiring at a glance, without re-running the skill.
+Show the diff if the operation modified an existing deployment. Wait for user confirmation, then write all files to the output directory. Always emit a `MANIFEST.md` listing every generated file and its purpose. The manifest must include an `## Architecture` section embedding the ASCII flowchart produced in Step 4 verbatim — operators reading the manifest should see the wiring at a glance, without re-running the skill.
 
 #### Prompt to deploy
 
@@ -360,7 +360,7 @@ skills/vss-build-vision-agent/
 │   ├── component-services-schema.md                   # schema for component_services: blocks (always/variants)
 │   ├── microservice-catalog.md                        # index: capability tags → service → reference paths
 │   ├── env-file-enumeration.md                        # Step 0 detail — 10 core .env files + NIM hw-tier set
-│   ├── architecture-diagram-template.md               # Step 4 detail — Mermaid flowchart requirements + IN-1 example
+│   ├── architecture-diagram-template.md               # Step 4 detail — ASCII flowchart requirements + IN-1 example
 │   ├── allow-list-sidecar.md                          # Step 4 detail — sidecar schema, IN-1 example, union rules
 │   ├── standalone-compose-patches.md                  # Step 6.5 detail — Patch 0/1/2/3 pseudocode + per-service notes
 │   ├── example-walkthroughs.md                        # concrete streaming-dense-captioning walkthrough (IN-1)
@@ -408,7 +408,7 @@ rm -rf ./build-output/
 - `references/deploy-microservice-schema.md` — canonical deployment-contract schema
 - `references/component-services-schema.md` — schema for `component_services:` blocks (always/variants)
 - `references/env-file-enumeration.md` — Step 0 `.env` enumeration table + NIM hw-tier layout
-- `references/architecture-diagram-template.md` — Step 4 Mermaid diagram requirements + canonical IN-1 example
+- `references/architecture-diagram-template.md` — Step 4 ASCII diagram requirements + canonical IN-1 example
 - `references/allow-list-sidecar.md` — Step 4 sidecar schema, IN-1 example, union rules
 - `references/standalone-compose-patches.md` — Step 6.5 Patch 0/1/2/3 pseudocode and per-service IN-1 notes
 - `references/example-walkthroughs.md` — worked end-to-end walkthroughs (currently: IN-1 streaming-dense-captioning)
