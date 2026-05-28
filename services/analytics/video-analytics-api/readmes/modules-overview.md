@@ -33,7 +33,9 @@
 │   ├── integration-test/             # Integration tests (Docker Compose + HTTP assertions)
 │   ├── coverage-setup.js             # Pre-loads modules for coverage
 │   └── package.json                  # Test dependencies and nyc config
-├── docs/                             # Additional documentation
+├── readmes/                          # Additional documentation
+├── .gitlab-ci.yml                    # GitLab CI pipeline
+├── Jenkinsfile.develop.multiarch     # Jenkins multi-arch build pipeline
 └── README.md
 ```
 
@@ -64,4 +66,4 @@ The `docker/Dockerfile` uses a multi-stage build:
 1. **Builder stage** - Installs dependencies for `web-api-core` and `app`
 2. **Runtime stage** - Copies built artifacts and `configs/` into a distroless Node.js image
 
-The `docker/Dockerfile.dockerignore` file excludes git metadata, runtime upload files, and the governance OpenAPI spec from the build context used by `docker/Dockerfile`.
+The `docker/Dockerfile.dockerignore` file excludes git metadata, Jenkins files, runtime upload files, and the governance OpenAPI spec from the build context used by `docker/Dockerfile`.

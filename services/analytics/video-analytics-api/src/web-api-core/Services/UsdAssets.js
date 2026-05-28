@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -82,6 +82,21 @@ class UsdAssets {
         return result;
     }
 
+    /**
+     * Validates and uploads a USD assets configuration document.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} [input={}] - Input object.
+     * @param {?Object} [input.fileDetails=null] - Uploaded files grouped by field name.
+     * @param {?string} [input.fieldName=null] - Form field name containing the USD assets file.
+     * @returns {Promise<Object>} Success status after persisting the USD assets document.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let usdAssetsObject = new mdx.Services.UsdAssets();
+     * let result = await usdAssetsObject.upload(elastic,{fileDetails:req.files, fieldName:"configFiles"});
+     */
     async upload(documentDb, {fileDetails=null, fieldName=null}={}){
         if(fieldName == null){
             throw (new BadRequestError("fieldName is required to access the uploaded files."));
@@ -124,6 +139,19 @@ class UsdAssets {
         return result;
     }
 
+    /**
+     * Retrieves the stored USD assets configuration.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {boolean} [configMissingErr=true] - Whether to throw when the config is absent.
+     * @returns {Promise<Object>} USD assets document is returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let usdAssetsObject = new mdx.Services.UsdAssets();
+     * let result = await usdAssetsObject.getAssets(elastic);
+     */
     async getAssets(documentDb, configMissingErr = true){
         let assetsResult = {};
         switch (documentDb.getName()) {
