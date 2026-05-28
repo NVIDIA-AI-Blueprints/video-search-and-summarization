@@ -404,7 +404,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 ```
 
-(Full upstream definitions live in `deploy/docker/services/vios/{foundational,initiator}/docker-compose.yaml` + `deploy/docker/services/infra/sdrc/docker-compose.yaml`. Container names use the canonical `vss-vios-*` form, NOT the legacy `*-dev` form. The deprecated `services/vios/sdr/streamprocessing/` tree is no longer referenced.)
+(Full upstream definitions live in `deploy/docker/services/vios/{foundational,initiator,streamprocessing}/docker-compose.yaml` + `deploy/docker/services/infra/sdrc/docker-compose.yaml`. Container names use the canonical `vss-vios-*` form, NOT the legacy `*-dev` form. The deprecated `services/vios/sdr/streamprocessing/` tree has been removed — streamprocessing now lives directly under `services/vios/streamprocessing/`, with the legacy `envoy.yaml` + `sdr-config/` bind sources gone.)
 
 For Topology B (NvStreamer file-driven), use this service shape instead of `vss-vios-sensor`:
 

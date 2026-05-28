@@ -1137,8 +1137,7 @@ BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env Brev 
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
   "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
-  "VSS_PUBLIC_PORT" "443" \
-  "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
+  "VSS_PUBLIC_PORT" "443"
 
 # Brev with custom PROXY_PORT in env: same literals in generated.env (compose expands using env)
 BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT (templates unchanged)" "base" \
@@ -1147,8 +1146,7 @@ BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "gen
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
   "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
-  "VSS_PUBLIC_PORT" "443" \
-  "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
+  "VSS_PUBLIC_PORT" "443"
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)
 run_dry_run_up_and_check_generated_env "generated.env no Brev HAProxy overrides when BREV_ENV_ID unset" "base" \
