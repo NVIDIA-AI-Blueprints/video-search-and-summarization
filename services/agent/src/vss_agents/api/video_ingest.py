@@ -388,7 +388,6 @@ async def _run_rtvi_embedding(
     *,
     rtvi_embed_base_url: str,
     sensor_id: str,
-    vst_url: str,
     vst_file_path: str,
     rtvi_embed_model: str,
     rtvi_embed_chunk_duration: int,
@@ -400,17 +399,15 @@ async def _run_rtvi_embedding(
     The call is synchronous on the RTVI-Embed side — it blocks until the
     generation completes (up to the 600s client timeout). Any non-200 raises
     ``HTTPException(502)`` so the caller can surface the failure.
+
+    ``vst_file_path`` must already be translated to the internal VST endpoint
+    by the caller (see ``_run_post_upload_processing``).
     """
     rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
     embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
-    parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
-    if not parsed_vst.hostname:
-        raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
-    translated_video_url = rewrite_url_host(vst_file_path, parsed_vst.hostname)
-    logger.info(f"Using internal VST URL for RTVI: {translated_video_url}")
 
     embed_request = {
-        "url": translated_video_url,
+        "url": vst_file_path,
         "id": sensor_id,
         "model": rtvi_embed_model,
         "creation_time": start_timestamp,
@@ -526,6 +523,15 @@ async def _run_post_upload_processing(
 
         logger.info(f"VST video URL obtained: {vst_file_path}")
 
+    # Translate the VST storage URL to the internal endpoint once, so both
+    # RTVI-CV and RTVI-Embed can fetch the video directly without hitting a
+    # reverse proxy / Cloudflare Access gate.
+    parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
+    if not parsed_vst.hostname:
+        raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
+    internal_video_url = rewrite_url_host(vst_file_path, parsed_vst.hostname)
+    logger.info(f"Using internal VST URL for RTVI services: {internal_video_url}")
+
     # Register with RTVI-CV and trigger embedding generation concurrently.
     # The two services are independent — they both consume the VST storage URL
     # but write to disjoint backends — so running them in parallel cuts the
@@ -545,7 +551,7 @@ async def _run_post_upload_processing(
                     rtvi_cv_base_url=rtvi_cv_base_url,
                     sensor_id=sensor_id,
                     camera_name=camera_name,
-                    vst_file_path=vst_file_path,
+                    vst_file_path=internal_video_url,
                     start_timestamp=start_timestamp,
                     timeout_seconds=rtvi_cv_timeout_seconds,
                 ),
@@ -562,8 +568,7 @@ async def _run_post_upload_processing(
                 _run_rtvi_embedding(
                     rtvi_embed_base_url=rtvi_embed_base_url,
                     sensor_id=sensor_id,
-                    vst_url=vst_url,
-                    vst_file_path=vst_file_path,
+                    vst_file_path=internal_video_url,
                     rtvi_embed_model=rtvi_embed_model,
                     rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
                     start_timestamp=start_timestamp,
