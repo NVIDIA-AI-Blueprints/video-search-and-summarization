@@ -18,7 +18,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-video-analytics-api
-  tag: "3.2-26.05.27"
+  tag: "3.2-26.05.29"
   pullPolicy: IfNotPresent
 replicas: 1
 

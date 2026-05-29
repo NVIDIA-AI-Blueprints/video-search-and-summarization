@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,6 +49,24 @@ class Sensor {
         return searchResults;
     }
 
+    /**
+     * Finds sensor IDs associated with a rounded world-coordinate lookup within a place.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {string} input.place - Place used to filter the sensor lookup.
+     * @param {number} input.x - X coordinate used for lookup.
+     * @param {number} input.y - Y coordinate used for lookup.
+     * @param {number} [input.z=0] - Z coordinate used for lookup.
+     * @returns {Promise<Object>} Matching sensor IDs wrapped in a sensorIds array are returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {place: "building=abc/room=xyz", x: 10.4, y: 20.6, z: 0};
+     * let sensorObject = new mdx.Services.Sensor();
+     * let sensorLookup = await sensorObject.lookup(elastic,input);
+     */
     async lookup(documentDb, input){
         const schema = {
             type: "object",
