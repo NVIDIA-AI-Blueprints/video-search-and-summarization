@@ -53,6 +53,29 @@ See `references/deploy-vss-deploy-video-embedding.md` for the full prerequisite 
 
 ## Deploy
 
+For **standalone RT-Embed**, work from the service directory:
+
+```bash
+cd "{{repo_root}}/deploy/docker/services/rtvi/rtvi-embed"
+```
+
+Do **not** use `/vss-deploy-profile` or `scripts/dev-profile.sh` for this standalone deployment.
+
+Set a minimal standalone environment before `docker compose up`:
+
+```bash
+export RTVI_EMBED_PORT=8017
+export VSS_DATA_DIR="${VSS_DATA_DIR:-$(pwd)/.standalone-data}"
+export NGC_API_KEY="<your-ngc-api-key>"
+export HOST_IP="$(hostname -I | awk '{print $1}')"
+export HF_TOKEN="${HF_TOKEN:-}"  # optional, but recommended to avoid HF 429s
+mkdir -p "${VSS_DATA_DIR}/data_log/vst/clip_storage"
+export RTVI_EMBED_KAFKA_ENABLED=false
+export ENABLE_REDIS_ERROR_MESSAGES=false
+```
+
+This avoids mounting `/data_log/vst/clip_storage` from filesystem root when `VSS_DATA_DIR` is unset, and prevents startup stalls from missing Kafka/Redis peers in standalone mode.
+
 ```bash
 # Bring up the service under the required Compose profile.
 docker compose -f rtvi-embed-docker-compose.yml \
@@ -72,16 +95,20 @@ BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
 curl -fsS "$BASE_URL/v1/ready"               # 200 when warm.
 curl -fsS "$BASE_URL/v1/ready?detailed=true" # Component-level status.
 curl -fsS "$BASE_URL/v1/version"
-curl -fsS "$BASE_URL/v1/models"              # Confirms cosmos-embed1-448p is loaded.
+MODELS_JSON=$(curl -fsS "$BASE_URL/v1/models")
+echo "$MODELS_JSON"                          # Confirms cosmos-embed1-448p is loaded.
+
+MODEL_ID="$(echo "$MODELS_JSON" | jq -r '.data[0].id // empty')"
+test -n "$MODEL_ID" || { echo "ERROR: /v1/models has no model id — wait until /v1/ready is 200" >&2; exit 1; }
 ```
+
+Sections below that call the API reuse `$BASE_URL` and `$MODEL_ID` from this block.
 
 ## Common Operations
 
 ### Generate video embeddings from an uploaded file
 
 ```bash
-BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
-
 FILE_ID=$(curl -fsS -X POST "$BASE_URL/v1/files" \
   -F purpose=vision \
   -F media_type=video \
@@ -91,7 +118,7 @@ curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
   -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$FILE_ID\",
-    \"model\": \"cosmos-embed1-448p\",
+    \"model\": \"$MODEL_ID\",
     \"chunk_duration\": 60,
     \"chunk_overlap_duration\": 10
   }"
@@ -102,7 +129,7 @@ curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
 ```bash
 curl -fsS -X POST "$BASE_URL/v1/generate_text_embeddings" \
   -H "Content-Type: application/json" \
-  -d '{"text_input": "a forklift moving pallets", "model": "cosmos-embed1-448p"}'
+  -d "{\"text_input\":\"a forklift moving pallets\",\"model\":\"${MODEL_ID}\"}"
 ```
 
 ### Embed a live RTSP stream
@@ -122,7 +149,7 @@ curl -N -X POST "$BASE_URL/v1/generate_video_embeddings" \
   -H "Accept: text/event-stream" \
   -d "{
     \"id\": \"$STREAM_ID\",
-    \"model\": \"cosmos-embed1-448p\",
+    \"model\": \"$MODEL_ID\",
     \"stream\": true,
     \"chunk_duration\": 10,
     \"chunk_overlap_duration\": 2
@@ -135,7 +162,7 @@ curl -fsS "$BASE_URL/v1/streams/get-stream-info"
 curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 ```
 
-See `references/api.md` for the full endpoint catalog, SSE streaming, and single-stream control-plane patterns.
+See `references/rest-api.md` for the full endpoint catalog, SSE streaming, and single-stream control-plane patterns.
 
 ## Logs, Metrics, And Status
 
@@ -192,7 +219,7 @@ docker compose -f rtvi-embed-docker-compose.yml down -v
 | [references/README.md](references/README.md) | Table of contents for all reference files. |
 | [references/deploy-vss-deploy-video-embedding.md](references/deploy-vss-deploy-video-embedding.md) | Build Vision Agent deployment reference: image, GPU, storage, startup, prerequisites, known issues. |
 | [references/integrate-vss-deploy-video-embedding.md](references/integrate-vss-deploy-video-embedding.md) | Build Vision Agent integration reference: peers, inputs/outputs, env vars, network, example Compose snippet. |
-| [references/api.md](references/api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
+| [references/rest-api.md](references/rest-api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
 | [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
 | [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |
 
