@@ -44,6 +44,10 @@ openclaw_stream_patch = load_module(
     "openclaw_stream_patch",
     REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "patch_openclaw_streaming.py",
 )
+update_openclaw_config = load_module(
+    "update_openclaw_config",
+    REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "update_openclaw_config.py",
+)
 readiness = load_module(
     "nemoclaw_readiness",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "readiness.py",
@@ -110,8 +114,16 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             "VLM_DEVICE_ID": "",
             "EXTERNAL_IP": "",
         }
-        previous = {key: os.environ.get(key) for key in ("LLM_REMOTE_URL", "LLM_REMOTE_MODEL", "NVIDIA_API_KEY")}
-        os.environ["LLM_REMOTE_URL"] = "https://inference-api.example/v1"
+        env_keys = (
+            "LLM_REMOTE_URL",
+            "LLM_REMOTE_MODEL",
+            "NVIDIA_API_KEY",
+            "VSS_ORCHESTRATOR_MCP_URL",
+            "VSS_ORCHESTRATOR_MCP_TYPE",
+            "VSS_ORCHESTRATOR_MCP_SSE_PORT",
+        )
+        previous = {key: os.environ.get(key) for key in env_keys}
+        os.environ["LLM_REMOTE_URL"] = "https://inference-api.example"
         os.environ["LLM_REMOTE_MODEL"] = "nvidia/example-model"
         os.environ["NVIDIA_API_KEY"] = "nvapi-ci"
         try:
@@ -127,6 +139,8 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["NEMOCLAW_MODEL"], "nvidia/example-model")
         self.assertEqual(defaults["COMPATIBLE_API_KEY"], "nvapi-ci")
         self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
+        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
+        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9989/sse")
 
 
 class NemoClawEnvFileTest(unittest.TestCase):
@@ -263,6 +277,45 @@ class OpenClawStreamPatchTest(unittest.TestCase):
         self.assertIn("stream: false", updated)
         self.assertNotIn("stream_options", updated.split("buildOpenAIResponsesParams", 1)[0])
         self.assertIn("return { stream: true };", updated)
+
+    def test_patch_ignores_references_before_real_function_definition(self):
+        source = textwrap.dedent(
+            """
+            const selected = buildOpenAICompletionsParams;
+            const unrelated = { stream: true };
+            function buildOpenAICompletionsParams(context) {
+              return {
+                stream: true,
+                stream_options: { include_usage: true },
+              };
+            }
+            """
+        )
+
+        updated, found, changed = openclaw_stream_patch.patch_source(source)
+
+        self.assertTrue(found)
+        self.assertTrue(changed)
+        self.assertIn("const unrelated = { stream: true };", updated)
+        self.assertIn("stream: false", updated)
+
+
+class UpdateOpenClawConfigTest(unittest.TestCase):
+    def test_registers_sse_mcp_server(self):
+        data: dict = {}
+
+        changed = update_openclaw_config.update_mcp_server(
+            data,
+            name="vss_orchestrator",
+            url="http://host.openshell.internal:9989/sse",
+            server_type="sse",
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            data["mcp"]["servers"]["vss_orchestrator"],
+            {"type": "sse", "url": "http://host.openshell.internal:9989/sse"},
+        )
 
 
 class OrchestratorMcpHelperCompatTest(unittest.TestCase):
