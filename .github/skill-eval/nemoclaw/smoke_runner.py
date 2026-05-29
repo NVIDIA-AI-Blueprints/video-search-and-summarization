@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SKILL_EVAL_ROOT = REPO_ROOT / ".github" / "skill-eval"
 DEFAULT_DATASET_ROOT = Path("/tmp/skill-eval/datasets/vss-deploy-profile")
 DEFAULT_RESULTS_ROOT = Path("/tmp/skill-eval/results")
-DEFAULT_PROFILE = "search"
+DEFAULT_PROFILE = "base"
 DEFAULT_PLATFORM = "RTXPRO6000BW"
 
 PLATFORM_TASK = {
@@ -124,8 +124,9 @@ def _instance_candidates(
         gpu_match = _loose_tokens_match(gpu_hints, gpu_text) if gpu_hints else True
         if not (name_match or gpu_match):
             continue
-        if gpu_count == 1 and "-2g" in lowered:
-            continue
+        # A 1-GPU profile can safely run on a larger 2-GPU warm worker when
+        # the 1-GPU pool is stopped; prefer exact partitions below, but do not
+        # reject the larger worker as a fallback.
         if gpu_count >= 2 and "-1g" in lowered:
             continue
 
