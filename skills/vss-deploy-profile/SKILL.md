@@ -7,40 +7,11 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
-## Purpose
-
-Configure, deploy, verify, and tear down a complete VSS profile end-to-end (model selection, prerequisites, debugging).
-
-## Instructions
-
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
-
-## Available Scripts
-
-| Script | Purpose | Arguments |
-| --- | --- | --- |
-| `normalize_resolved_yml.py` | Normalize a `docker compose config` dry-run dump (`resolved.yml`) for diff-friendly review during the configure → deploy step. | `<resolved.yml>` (positional) |
-
-Invoke via `run_script("scripts/normalize_resolved_yml.py", "<resolved.yml>")`
-once the dry-run dump exists. All other deployment work is performed
-through compose / `dev-profile.sh` invocations documented per profile in
-`references/`.
-
-## Examples
-
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
-
-## Limitations
-
-- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
-- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
-- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
-
 # VSS Deploy
 
-Deploy any VSS profile using a compose-centric workflow: build env overrides, generate resolved compose (dry-run), review, then deploy.
+Deploy any VSS profile (`base`, `search`, `lvs`, `warehouse`, `alerts`, `edge`) using a compose-centric workflow: build env overrides, generate resolved compose (dry-run), review, then deploy. This SKILL.md covers the cross-profile concerns (**profile routing**, **prerequisites**, **NGC**, **GPU setup**, and the deploy/teardown flow). Profile-specific service lists, sizing, env recipes, endpoints, and debugging live in per-profile reference docs — load the one that matches the user's intent.
 
-This SKILL.md covers the cross-profile concerns (**profile routing**, **prerequisites**, **NGC**, **GPU setup**, and the deploy/teardown flow). Profile-specific service lists, sizing, env recipes, endpoints, and debugging live in per-profile reference docs — load the one that matches the user's intent.
+Helper script: `run_script("scripts/normalize_resolved_yml.py", "<resolved.yml>")` normalizes a `docker compose config` dry-run dump for diff-friendly review during Step 3c. All other deployment work goes through `compose` / `dev-profile.sh`.
 
 ## Profile Routing
 
@@ -141,57 +112,36 @@ Validate every credential the chosen profile needs **before** Step 1c
 copies `.env` to `generated.env`. A 401 here is a 30-second failure;
 the same 401 inside a NIM cold-start is a 10–20 min failure.
 
-**Required by profile:**
+Required by mode: `NGC_CLI_API_KEY` for any local NIM (`LLM_MODE`/`VLM_MODE` ∈ `local`,`local_shared`); `NVIDIA_API_KEY` for any remote NIM; add `HF_TOKEN` on edge (DGX Spark / IGX-Thor / AGX-Thor with Edge 4B — gated model).
 
-| Profile / mode | Required credentials |
-|---|---|
-| Any local NIM (`LLM_MODE=local`/`local_shared`, `VLM_MODE=local`/`local_shared`) | `NGC_CLI_API_KEY` |
-| Any remote NIM (`LLM_MODE=remote` or `VLM_MODE=remote`) | `NVIDIA_API_KEY` |
-| Edge — DGX Spark / IGX-Thor / AGX-Thor with Edge 4B | add `HF_TOKEN` (gated model) |
-
-**Discovery — never auto-source; confirm with the user first.**
-
-1. **Env vars** — if `$NGC_CLI_API_KEY` / `$NVIDIA_API_KEY` / `$HF_TOKEN` are already exported, skip to the probes below.
-2. **NGC fallback — `~/.ngc/config`.** If `$NGC_CLI_API_KEY` is unset but `~/.ngc/config` exists, surface the discovered identity to the user instead of silently sourcing it:
-   ```bash
-   ngc_key=$(awk -F'= ' '/^apikey/{print $2}' ~/.ngc/config)
-   ngc_org=$(awk -F'= ' '/^org/{print $2}' ~/.ngc/config)
-   ngc_team=$(awk -F'= ' '/^team/{print $2}' ~/.ngc/config)
-   echo "Found NGC key in ~/.ngc/config (org=${ngc_org}, team=${ngc_team})."
-   ```
-   Ask the user (`AskUserQuestion` or equivalent): *"Use this NGC account for the deploy?"*  Only export `NGC_CLI_API_KEY` after explicit confirmation.
-3. **HF fallback — `~/.cache/huggingface/token`.** Same pattern. Surface the file location and prompt before use.
+**Discovery — surface, do not auto-source.** If `$NGC_CLI_API_KEY` is
+unset but `~/.ngc/config` exists, extract `apikey`/`org`/`team` and
+ask the user *"Use NGC account `${org}/${team}` for the deploy?"*
+before exporting. Same pattern for `$HF_TOKEN` via
+`~/.cache/huggingface/token`.
 
 **Probes (fail fast on 401/403):**
 
 ```bash
 # NGC — local NIM image pulls
-[ -n "$NGC_CLI_API_KEY" ] && \
-  curl -sf -u "\$oauthtoken:$NGC_CLI_API_KEY" \
-    "https://authn.nvidia.com/token?service=ngc" >/dev/null \
-  && echo "NGC_CLI_API_KEY ok" \
-  || echo "NGC_CLI_API_KEY missing or invalid"
+[ -n "$NGC_CLI_API_KEY" ] && curl -sf -u "\$oauthtoken:$NGC_CLI_API_KEY" \
+  "https://authn.nvidia.com/token?service=ngc" >/dev/null \
+  && echo "NGC_CLI_API_KEY ok" || echo "NGC_CLI_API_KEY missing/invalid"
 
 # build.nvidia.com — remote NIM endpoints
-[ -n "$NVIDIA_API_KEY" ] && \
-  curl -sf -H "Authorization: Bearer $NVIDIA_API_KEY" \
-    "https://integrate.api.nvidia.com/v1/models" >/dev/null \
-  && echo "NVIDIA_API_KEY ok" \
-  || echo "NVIDIA_API_KEY missing or invalid"
+[ -n "$NVIDIA_API_KEY" ] && curl -sf -H "Authorization: Bearer $NVIDIA_API_KEY" \
+  "https://integrate.api.nvidia.com/v1/models" >/dev/null \
+  && echo "NVIDIA_API_KEY ok" || echo "NVIDIA_API_KEY missing/invalid"
 
-# HF — only required on edge platforms with Edge 4B
-[ -n "$HF_TOKEN" ] && \
-  status=$(curl -sf -o /dev/null -w '%{http_code}' \
+# HF — edge only (gated Edge 4B)
+[ -n "$HF_TOKEN" ] && [ "$(curl -sf -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer $HF_TOKEN" \
-    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8") \
-  && [ "$status" = "200" ] && echo "HF_TOKEN ok" \
-  || echo "HF_TOKEN missing/invalid or no access to gated Edge 4B"
+    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")" = "200" ] \
+  && echo "HF_TOKEN ok" || echo "HF_TOKEN missing/invalid or no access"
 ```
 
-**On any failure** — prompt the user for the missing key and re-probe.
-Do **not** proceed to Step 1 with a missing or 401-ing credential; the
-deploy will fail mid-way (NIM image pull or remote chat call) after
-generating env mutations and starting containers.
+On any failure — prompt the user for the missing key and re-probe.
+Do **not** proceed to Step 1 with a missing or 401-ing credential.
 
 ### Step 1 — Gather context
 
@@ -364,10 +314,6 @@ per-profile `curl` checks + slow-container triage) lives in
 for that profile. **Never declare the deploy done after `up -d`
 returns** — only after every documented endpoint succeeds.
 
-### Step 6 — 
-Fron
-
-
 ## Tear Down
 
 ```bash
@@ -407,5 +353,3 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 ## Troubleshooting
 
 Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
-
-bump:1
