@@ -355,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", default=os.environ.get("NEMOCLAW_EVAL_PROFILE", "base"))
     parser.add_argument("--platform", default=os.environ.get("NEMOCLAW_EVAL_PLATFORM", "RTXPRO6000BW"))
     parser.add_argument("--gpu-count", type=int, default=int(os.environ.get("NEMOCLAW_EVAL_GPU_COUNT", "1")))
-    parser.add_argument("--instance", default=os.environ.get("NEMOCLAW_BREV_INSTANCE") or os.environ.get("BREV_INSTANCE"))
+    parser.add_argument("--instance", default=os.environ.get("NEMOCLAW_BREV_INSTANCE"))
     parser.add_argument("--lock-timeout", type=int, default=int(os.environ.get("NEMOCLAW_LOCK_TIMEOUT_SEC", "600")))
     parser.add_argument("--harbor-timeout", type=int, default=int(os.environ.get("NEMOCLAW_HARBOR_TIMEOUT_SEC", "3300")))
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
