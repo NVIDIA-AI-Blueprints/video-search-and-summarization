@@ -83,6 +83,43 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertIn("NEMOCLAW_HOOKS_TOKEN_FILE", source)
         self.assertIn("chmod(0o600)", source)
 
+    def test_parameter_cell_derives_nemoclaw_provider_from_remote_llm_env(self):
+        defaults = {
+            "HARDWARE_PROFILE": "RTXPRO6000BW",
+            "NEMOCLAW_ENDPOINT_URL": "",
+            "NEMOCLAW_MODEL": "",
+            "COMPATIBLE_API_KEY": "",
+            "NEMOCLAW_INSTALL_REF": "",
+            "OPENCLAW_HOOKS_PATH": "/hooks",
+            "VSS_LLM_NAME": "",
+            "VSS_LLM_ENDPOINT_URL": "",
+            "VSS_LLM_MODEL_TYPE": "",
+            "VSS_LLM_ENABLE_THINKING": "",
+            "VSS_OPENAI_API_KEY": "",
+            "VSS_VLM_NAME": "",
+            "VSS_VLM_ENDPOINT_URL": "",
+            "VSS_VLM_MODEL_TYPE": "",
+            "LLM_DEVICE_ID": "",
+            "VLM_DEVICE_ID": "",
+            "EXTERNAL_IP": "",
+        }
+        previous = {key: os.environ.get(key) for key in ("LLM_REMOTE_URL", "LLM_REMOTE_MODEL", "NVIDIA_API_KEY")}
+        os.environ["LLM_REMOTE_URL"] = "https://inference-api.example/v1"
+        os.environ["LLM_REMOTE_MODEL"] = "nvidia/example-model"
+        os.environ["NVIDIA_API_KEY"] = "nvapi-ci"
+        try:
+            exec(notebook_adapter.PARAMETER_SOURCE, defaults)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        self.assertEqual(defaults["NEMOCLAW_ENDPOINT_URL"], "https://inference-api.example/v1")
+        self.assertEqual(defaults["NEMOCLAW_MODEL"], "nvidia/example-model")
+        self.assertEqual(defaults["COMPATIBLE_API_KEY"], "nvapi-ci")
+
 
 class NemoClawEnvFileTest(unittest.TestCase):
     def test_headless_runner_reads_hooks_token_from_token_file(self):

@@ -34,6 +34,25 @@ HARDWARE_PROFILE = os.environ.get("HARDWARE_PROFILE", HARDWARE_PROFILE).strip()
 NEMOCLAW_ENDPOINT_URL = os.environ.get("NEMOCLAW_ENDPOINT_URL", NEMOCLAW_ENDPOINT_URL).strip()
 NEMOCLAW_MODEL = os.environ.get("NEMOCLAW_MODEL", NEMOCLAW_MODEL).strip()
 COMPATIBLE_API_KEY = os.environ.get("COMPATIBLE_API_KEY", COMPATIBLE_API_KEY).strip()
+if not NEMOCLAW_ENDPOINT_URL:
+    NEMOCLAW_ENDPOINT_URL = (
+        os.environ.get("NEMOCLAW_FALLBACK_ENDPOINT_URL")
+        or os.environ.get("LLM_REMOTE_URL")
+        or ""
+    ).strip()
+if not NEMOCLAW_MODEL:
+    NEMOCLAW_MODEL = (
+        os.environ.get("NEMOCLAW_FALLBACK_MODEL")
+        or os.environ.get("LLM_REMOTE_MODEL")
+        or NEMOCLAW_MODEL
+        or ""
+    ).strip()
+if NEMOCLAW_ENDPOINT_URL and not COMPATIBLE_API_KEY:
+    COMPATIBLE_API_KEY = (
+        os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("NVIDIA_API_KEY")
+        or ""
+    ).strip()
 NEMOCLAW_INSTALL_REF = os.environ.get("NEMOCLAW_INSTALL_REF", NEMOCLAW_INSTALL_REF).strip()
 NEMOCLAW_SANDBOX_NAME = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo").strip()
 OPENCLAW_HOOKS_ENABLED = os.environ.get("OPENCLAW_HOOKS_ENABLED", "1").lower() not in ("0", "false", "no")
