@@ -371,12 +371,16 @@ curl -X DELETE "$BASE_URL/v1/streams/delete/$STREAM_ID"  -H "Authorization: Bear
 ### 3. Dense captions with alerts from an RTSP stream
 
 ```bash
-# Pre-req: the container was started with:
+# Pre-req: Kafka is enabled and topics match the deployment source.
+# The checked-in rtvi-vlm/.env and VSS alerts profiles use:
 #   RTVI_VLM_KAFKA_ENABLED=true
-#   RTVI_VLM_KAFKA_TOPIC=vision-llm-messages
-#   RTVI_VLM_KAFKA_INCIDENT_TOPIC=vision-llm-events-incidents
+#   RTVI_VLM_KAFKA_TOPIC=mdx-vlm
+#   RTVI_VLM_KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
 #   RTVI_VLM_ERROR_MESSAGE_TOPIC=vision-llm-errors
 #   HOST_IP=<kafka-host>
+# A copied compose without those env overrides falls back to vision-llm-* topics.
+# Confirm the live container before consuming:
+#   docker exec vss-rtvi-vlm printenv KAFKA_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE_TOPIC
 
 STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
@@ -398,13 +402,17 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
 
 **Consume alerts from Kafka**. Kafka values are NvSchema protobuf payloads, so
 use `print.value=false` for a clean validation pass that shows timestamp, key,
-and headers without dumping binary payload bytes. The default RT-VLM incident
-topic is `vision-llm-events-incidents`; substitute your deployment override only
-after confirming it in `.env` or the live container environment.
+and headers without dumping binary payload bytes. The VSS alerts/profile source
+uses `mdx-vlm-incidents`; a bare copied compose may fall back to
+`vision-llm-events-incidents` if no `RTVI_VLM_KAFKA_INCIDENT_TOPIC` override is
+loaded. Prefer the live container environment over hard-coded topic names.
 ```bash
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
+
 docker exec mdx-kafka kafka-console-consumer \
   --bootstrap-server 127.0.0.1:9092 \
-  --topic vision-llm-events-incidents \
+  --topic "$INCIDENT_TOPIC" \
   --from-beginning \
   --timeout-ms 5000 \
   --max-messages 10 \
@@ -417,9 +425,11 @@ docker exec mdx-kafka kafka-console-consumer \
 If Kafka is not running in the VSS `mdx-kafka` container, use the Kafka CLI from
 the host or container running the broker:
 ```bash
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
+
 kafka-console-consumer \
   --bootstrap-server "$HOST_IP:9092" \
-  --topic vision-llm-events-incidents \
+  --topic "$INCIDENT_TOPIC" \
   --from-beginning \
   --timeout-ms 5000 \
   --max-messages 10 \
@@ -471,6 +481,7 @@ Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response mo
 - **Alert trigger = the tokens `"yes"` or `"true"` in the VLM response (case-insensitive)**. There is no per-request alert flag. Design prompts with an explicit `Anomaly Detected: Yes/No` line and set `system_prompt` to constrain the model to Yes/No answers (per the VSS docs). Every chunk is published to `KAFKA_TOPIC`; matched chunks additionally go to `KAFKA_INCIDENT_TOPIC` with `isAnomaly=true`, `info["triggerPhrase"]` set to the matched tokens, and `info["verdict"]="confirmed"`.
 - **`alert_category` support depends on the deployed service version.** If the live OpenAPI schema does not expose it, Kafka incidents default `incident.category = "vlm-alert"`.
 - **Kafka topics are server-side config, not per-request.** The `KAFKA_*` env vars (via compose `RTVI_VLM_KAFKA_*` rewrites) are fixed at container start — clients can't override topics on a per-request basis. Kafka publish is *additive* to the HTTP response, never a replacement.
+- **Topic names differ by deployment source.** The checked-in RT-VLM `.env` and VSS alerts/profile sources use `mdx-vlm` and `mdx-vlm-incidents`; a bare copied compose with no `RTVI_VLM_KAFKA_*` overrides falls back to `vision-llm-messages` and `vision-llm-events-incidents`. Always trust the live `vss-rtvi-vlm` environment before consuming.
 - **Standalone Kafka must advertise `${HOST_IP}:9092`.** The RT-VLM compose uses `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; a broker that advertises `localhost:9094` or `kafka:9092` may pass producer/consumer tests inside the broker container while RT-VLM publish fails.
 - **Start Kafka before RT-VLM when Kafka is enabled.** For deterministic standalone validation, make the broker reachable at `${HOST_IP}:9092` first. If you start Kafka later or change its advertised listener, restart/recreate `rtvi-vlm` before expecting Kafka offsets to move.
 - **`stream=true` returns Server-Sent Events, not chunked JSON.** Use `curl -N` (no buffering). Each event is `data: {...}\n\n` with per-chunk fields such as `content`, `start_time`, and `end_time`, terminated by `data: [DONE]`. Without `stream=true` the server buffers until the full video is processed — fine for short clips (<1 min), avoid for live streams.

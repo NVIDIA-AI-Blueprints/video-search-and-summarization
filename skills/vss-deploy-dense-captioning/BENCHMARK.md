@@ -44,12 +44,13 @@ rerun after the documentation-only follow-up fixes.
 
 Observed coverage:
 - Kafka validation worked after starting a broker with an advertised listener reachable at `${HOST_IP}:9092` and restarting RT-VLM.
-- `vision-llm-messages` received caption messages.
-- `vision-llm-events-incidents` received incident messages.
+- The standalone validation used the live RT-VLM env topic values; caption and incident topics received messages.
+- Source-backed alerts/profile topic defaults are `mdx-vlm` and `mdx-vlm-incidents`; a bare copied compose without env overrides falls back to `vision-llm-messages` and `vision-llm-events-incidents`.
 - Caption and incident message keys matched for the same request/chunk.
 
 Expected verifier checks after this PR:
-- Use `vision-llm-events-incidents` as the current default incident topic, not the legacy mdx-prefixed incident topic.
+- Read `KAFKA_TOPIC`, `KAFKA_INCIDENT_TOPIC`, and `ERROR_MESSAGE_TOPIC` from the live `vss-rtvi-vlm` container or deployment source before consuming Kafka records.
+- For the VSS alerts/profile source, use `mdx-vlm-incidents` as the incident topic; use the `vision-llm-events-incidents` fallback only for a bare copied compose with no topic override.
 - Start Kafka before RT-VLM when Kafka is enabled, or restart/recreate `rtvi-vlm` after Kafka comes up or the advertised listener changes.
 - Use `KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"` for repo infra Kafka examples; override only for custom broker container names.
 - Use deterministic positive alert prompts first when validating Kafka wiring, then switch back to scene-analysis prompts.

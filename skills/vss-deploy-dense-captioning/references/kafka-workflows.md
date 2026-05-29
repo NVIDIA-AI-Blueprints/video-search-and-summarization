@@ -43,13 +43,10 @@ response to the caller and Kafka records for downstream message-bus consumers.
   ```
 
 **Kafka publish** (when `KAFKA_ENABLED=true`):
-- Every caption → **`KAFKA_TOPIC`** (current compose fallback is
-  `vision-llm-messages`; set `RTVI_VLM_KAFKA_TOPIC` explicitly only if your
-  deployment overrides caption records) with header
-  `message_type: vision_llm` and `info["incidentDetected"] = "true"|"false"`.
+- Every caption → **`KAFKA_TOPIC`** with header `message_type: vision_llm`
+  and `info["incidentDetected"] = "true"|"false"`.
 - Alert-positive chunks → **also** published to **`KAFKA_INCIDENT_TOPIC`**
-  (current compose fallback is `vision-llm-events-incidents`) with header
-  `message_type: incident`.
+  with header `message_type: incident`.
 - Any upstream/VLM error → **`ERROR_MESSAGE_TOPIC`** (default `vision-llm-errors`)
   with header `message_type: error`.
 - **Partition key:** `<request_id>:<chunk_idx>` — all messages for one (request, chunk)
@@ -58,11 +55,32 @@ response to the caller and Kafka records for downstream message-bus consumers.
   quick verification; use the protobuf descriptors under
   `deploy/docker/services/infra/elk/pb_definitions/descriptors/` for structured decoding.
 
+Source-backed topic sets:
+
+| Deployment source | Caption topic | Incident topic | Error topic |
+| --- | --- | --- | --- |
+| Checked-in `deploy/docker/services/rtvi/rtvi-vlm/.env` | `mdx-vlm` | `mdx-vlm-incidents` | `vision-llm-errors` |
+| VSS alerts / real-time Helm profiles | `mdx-vlm` | `mdx-vlm-incidents` | `vision-llm-errors` |
+| LVS Helm override | `mdx-vlm-captions` | `mdx-vlm-incidents` | `vision-llm-errors` |
+| Bare copied `rtvi-vlm-docker-compose.yml` without env overrides | `vision-llm-messages` | `vision-llm-events-incidents` | `vision-llm-errors` |
+
+Always confirm the live container before validating Kafka, because these env vars
+are fixed at RT-VLM container start:
+```bash
+docker exec vss-rtvi-vlm printenv KAFKA_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE_TOPIC
+```
+
 For deterministic validation, first check topic offsets:
 ```bash
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # set to mdx-kafka if your deployment uses that name
+CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_TOPIC 2>/dev/null || true)}"
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
+ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
+CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
+ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
 
-for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
+for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
   docker exec "$KAFKA_CONTAINER" kafka-get-offsets \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T"
@@ -87,12 +105,18 @@ export VSS_APPS_DIR="${VSS_APPS_DIR:-$VSS_CHECKOUT/deploy/docker}"
 docker compose -f "$VSS_CHECKOUT/deploy/docker/services/infra/compose.yml" \
   --profile bp_developer_alerts_2d_vlm up -d kafka
 
+CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
+ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
+# For a bare copied compose with no topic overrides, set:
+#   CAPTION_TOPIC=vision-llm-messages INCIDENT_TOPIC=vision-llm-events-incidents
+
 docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
-  --create --if-not-exists --topic vision-llm-messages
+  --create --if-not-exists --topic "$CAPTION_TOPIC"
 docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
-  --create --if-not-exists --topic vision-llm-events-incidents
+  --create --if-not-exists --topic "$INCIDENT_TOPIC"
 docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
-  --create --if-not-exists --topic vision-llm-errors
+  --create --if-not-exists --topic "$ERROR_TOPIC"
 ```
 
 If you use a custom standalone Kafka container, configure the equivalent of:
@@ -112,11 +136,17 @@ configured with:
 
 ```bash
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # repo infra compose uses container_name: kafka
+CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_TOPIC 2>/dev/null || true)}"
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
+ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
+CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
+ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
 
 docker exec vss-rtvi-vlm printenv KAFKA_BOOTSTRAP_SERVERS
 docker logs vss-rtvi-vlm 2>&1 | grep -i 'KafkaTimeoutError\\|Failed to update metadata' || true
 
-for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
+for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
   docker exec "$KAFKA_CONTAINER" kafka-get-offsets \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T"
@@ -138,8 +168,14 @@ prevents a no-message topic from hanging indefinitely; `print.value=false` avoid
 printing protobuf bytes:
 ```bash
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # use rtvi-vlm-kafka-1 only for that custom broker
+CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_TOPIC 2>/dev/null || true)}"
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
+ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
+CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
+ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
 
-for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
+for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
   docker exec "$KAFKA_CONTAINER" kafka-console-consumer \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T" \
@@ -155,8 +191,8 @@ done
 
 Typical proof of an HTTP + Kafka alert pass:
 ```text
-vision-llm-messages:0:8
-vision-llm-events-incidents:0:1
+mdx-vlm:0:8
+mdx-vlm-incidents:0:1
 vision-llm-errors:0:0
 
 CreateTime:<ms> message_type:vision_llm <request_id>:5
