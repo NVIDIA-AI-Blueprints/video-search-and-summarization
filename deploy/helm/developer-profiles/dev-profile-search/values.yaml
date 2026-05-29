@@ -605,11 +605,11 @@ vss-agent-ui:
     - name: ngc-docker-reg-secret
   resources:
     requests:
-      memory: 512Mi
-      cpu: 250m
+      memory: 4Gi
+      cpu: 2
     limits:
-      memory: 1Gi
-      cpu: 500m
+      memory: 4Gi
+      cpu: 2
   envOverrides:
     - name: NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE
       value: 'Generate a report for incident {incidentId} with sensor id {sensorId}.'
