@@ -211,14 +211,17 @@ def update_hooks_config(
     return json.dumps(hooks, sort_keys=True) != before
 
 
-def update_mcp_server(data: dict, *, name: str, url: str) -> bool:
-    """Register an HTTP MCP server under data['mcp']['servers'][name].
+def update_mcp_server(data: dict, *, name: str, url: str, server_type: str) -> bool:
+    """Register an MCP server under data['mcp']['servers'][name].
 
     Returns True if the config changed. No-ops when name or url is empty.
     """
     if not name or not url:
         return False
-    server_config = {"type": "http", "url": url}
+    server_type = (server_type or "sse").strip()
+    if server_type not in {"http", "sse"}:
+        raise ValueError(f"Unsupported MCP server type: {server_type!r}")
+    server_config = {"type": server_type, "url": url}
     mcp = data.setdefault("mcp", {})
     servers = mcp.setdefault("servers", {})
     if servers.get(name) == server_config:
@@ -276,11 +279,21 @@ def main() -> int:
     parser.add_argument(
         "--mcp-url",
         default=os.environ.get(
-            "VSS_ORCHESTRATOR_MCP_URL", "http://host.openshell.internal:9988/mcp"
+            "VSS_ORCHESTRATOR_MCP_URL", "http://host.openshell.internal:9989/sse"
         ).strip(),
         help=(
-            "HTTP MCP server URL to register; pass empty string to skip "
-            "(default: http://host.openshell.internal:9988/mcp)"
+            "MCP server URL to register; pass empty string to skip "
+            "(default: http://host.openshell.internal:9989/sse)"
+        ),
+    )
+    parser.add_argument(
+        "--mcp-type",
+        default=os.environ.get("VSS_ORCHESTRATOR_MCP_TYPE", "sse").strip() or "sse",
+        choices=("http", "sse"),
+        help=(
+            "OpenClaw MCP transport type to register. The notebook still "
+            "keeps the streamable HTTP /mcp endpoint for readiness, while "
+            "OpenClaw uses SSE by default. (default: sse)"
         ),
     )
     args = parser.parse_args()
@@ -318,7 +331,12 @@ def main() -> int:
     ):
         changed = True
 
-    if update_mcp_server(data, name=args.mcp_name, url=args.mcp_url):
+    if update_mcp_server(
+        data,
+        name=args.mcp_name,
+        url=args.mcp_url,
+        server_type=args.mcp_type,
+    ):
         changed = True
 
     updated_json = json.dumps(data, indent=2) + "\n"
@@ -354,7 +372,7 @@ def main() -> int:
     if args.enable_hooks:
         print(f"OpenClaw hooks enabled at: {args.hooks_path}")
     if args.mcp_url:
-        print(f"MCP server registered: {args.mcp_name} -> {args.mcp_url}")
+        print(f"MCP server registered: {args.mcp_name} ({args.mcp_type}) -> {args.mcp_url}")
     if not dashboard_token:
         print("No dashboard token found")
         return 0

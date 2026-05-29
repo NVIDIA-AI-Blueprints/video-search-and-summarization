@@ -20,7 +20,16 @@ DEFAULT_ROOTS = (
     Path("/usr/local/lib/node_modules/openclaw/dist"),
     Path.home() / ".local/lib/node_modules/openclaw/dist",
 )
-FUNCTION_RE = re.compile(r"\bbuildOpenAICompletionsParams\b")
+FUNCTION_RE = re.compile(
+    r"""
+    (?:function\s+buildOpenAICompletionsParams\s*\()
+    |
+    (?:(?:const|let|var)\s+buildOpenAICompletionsParams\s*=\s*(?:async\s*)?(?:function\s*)?\(?)
+    |
+    (?:buildOpenAICompletionsParams\s*:\s*(?:async\s*)?(?:function\s*)?\(?)
+    """,
+    re.VERBOSE,
+)
 STREAM_TRUE_RE = re.compile(r"\bstream:\s*true\b")
 STREAM_FALSE_RE = re.compile(r"\bstream:\s*false\b")
 
