@@ -172,7 +172,12 @@ def _generate_dataset(profile: str, platform: str, dataset_root: Path) -> None:
 
 
 def _list_instances() -> list[dict[str, Any]]:
-    result = _run(["brev", "ls", "--json"], timeout=45)
+    try:
+        result = _run(["brev", "ls", "--json"], timeout=45)
+    except subprocess.TimeoutExpired as exc:
+        raise InfrastructureBlocked(
+            f"brev ls --json timed out after {exc.timeout}s"
+        ) from exc
     if result.returncode != 0:
         raise InfrastructureBlocked(f"brev ls --json failed: {result.stderr[-500:]}")
     instances = _parse_brev_json(result.stdout)
@@ -195,7 +200,14 @@ def _cleanup_results(results_root: Path, run_id: str) -> None:
 
 
 def _reachable(instance: str) -> bool:
-    result = _run(["brev", "exec", instance, "echo harbor-ready"], timeout=45)
+    try:
+        result = _run(["brev", "exec", instance, "echo harbor-ready"], timeout=45)
+    except subprocess.TimeoutExpired:
+        print(
+            f"[nemoclaw-ci] candidate {instance} reachability check timed out",
+            flush=True,
+        )
+        return False
     return result.returncode == 0 and "harbor-ready" in result.stdout
 
 
