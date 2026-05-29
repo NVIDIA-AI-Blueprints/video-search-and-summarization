@@ -289,27 +289,11 @@ if FOCAL_LENGTHS:
     s.post(f"{BASE_URL}/upload_focal_length/{project_id}",
            data={"focal_length": FOCAL_LENGTHS}).raise_for_status()
 
-# UI fallback for anything not resolved
-ui_tasks = []
-if not CONFIG_FILE:
-    ui_tasks.append("Step 3 (Parameters): tune settings or accept defaults, then Save.")
-    if DETECTOR_TYPE == "resnet":  # script default — agent should override via AskUserQuestion
-        _choice = input("    Detector [resnet/transformer] (default resnet): ").strip().lower()
-        if _choice in ("resnet", "transformer"):
-            DETECTOR_TYPE = _choice
-        print(f"    Using detector: {DETECTOR_TYPE}")
-if not ALIGNMENT_JSON or not LAYOUT_PNG:
-    ui_tasks.append("Step 2 (Video Configuration): upload layout.png ONLY — videos are already ingested from RTSP capture, do not re-upload. Then Save. Step 4 (Alignment): upload alignment_data.json or mark correspondence points, then Save.")
-if ui_tasks:
-    print(f"\n[6] UI action required for project {project_id}:")
-    for t in ui_tasks:
-        print(f"    - {t}")
-    input("    Press Enter when done...")
-    if not ALIGNMENT_JSON or not LAYOUT_PNG:
-        manual_dir = PROJECTS_DIR / f"project_{project_id}" / "manual_adjustment"
-        assert (manual_dir / "alignment_data.json").exists() and (manual_dir / "layout.png").exists(), (
-            f"Alignment files missing under {manual_dir}."
-        )
+# UI fallback for anything not resolved — run the canonical block from
+# videos.md § "Step 5 — UI fallback for anything not resolved" (builds ui_tasks,
+# prompts for the detector, and verifies the manual_adjustment alignment files).
+# RTSP difference: videos are already ingested from the RTSP capture, so in UI
+# Step 2 (Video Configuration) upload layout.png ONLY — do not re-upload videos.
 
 # Step A/B/C/D — see references/calibration-tail.md for the shared snippet
 # (verify_project → calibrate → poll get_project_info → fetch evaluation_statistics)

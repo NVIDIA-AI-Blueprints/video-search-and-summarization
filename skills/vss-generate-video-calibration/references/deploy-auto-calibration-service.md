@@ -14,10 +14,12 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 
 ## What gets deployed
 
-| Service | Container | Port | Image |
-|---|---|---|---|
-| AMC MS | `vss-auto-calibration` | `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`, host network) | `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-2` |
-| AMC UI | `vss-auto-calibration-ui` | `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`) | `nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.2.0-2` |
+| Service | Container | Port | Image (sample — see compose for the authoritative path) | Compose source |
+|---|---|---|---|---|
+| AMC MS | `vss-auto-calibration` | `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`, host network) | `nvcr.io/nvidia/vss-core/vss-auto-calibration:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
+| AMC UI | `vss-auto-calibration-ui` | `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
+
+> **Image references are illustrative.** The compose files above are the source of truth for the exact image repo and tag — they may differ by release. Don't pull a hand-typed path; read the resolved path from `docker compose config` / `resolved.yml` (Step 3) and let `docker compose up` pull it.
 
 ## Env recipe
 
@@ -40,11 +42,16 @@ Standard compose-centric workflow: env overrides → `docker compose --env-file 
 
 ### Step 1 — NGC login
 
-AMC pulls from `nvcr.io/nvstaging/vss-core/`. The user must have access to the `vss-core` namespace.
+AMC pulls its images from the `vss-core` namespace on `nvcr.io` (the exact org — e.g. `nvidia` for published releases — is whatever the compose files in the table above reference). The user's NGC key must have access to that namespace.
+
+The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell/env file. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
 
 ```bash
+echo "NGC_CLI_API_KEY: $([ -n "${NGC_CLI_API_KEY}" ] && echo SET || echo 'NOT SET')"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
+
+> **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key (`--password-stdin` keeps it out of argv and shell history; keep it out of any file you write).
 
 ### Step 2 — (Optional) Stage the VGGT model
 
@@ -165,7 +172,7 @@ echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 
 | Issue | Symptoms | Solution |
 |---|---|---|
-| NGC pull fails (401 Unauthorized) | `docker compose up` returns 401 on `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-2` | Re-run NGC login: `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`. Confirm the user has access to the `vss-core` namespace. |
+| NGC pull fails (401 Unauthorized) | `docker compose up` returns 401 pulling the `vss-core` AMC image | The current `NGC_CLI_API_KEY` is invalid or lacks `vss-core` access. Stop and ask the user for a valid NGC key (do not silently reuse a key from earlier in the conversation — see Step 1 § Credential handling), then re-run `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`. Confirm the user has access to the `vss-core` namespace. |
 | `vss-auto-calibration` stays `(starting)` for >10 min | Healthcheck not green; MS not responding on `/v1/ready` | Check logs: `docker logs vss-auto-calibration`. Common cause: missing GPU access. Verify `runtime: nvidia` works: `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` |
 | UI loads but shows **"Failed to connect to the server"** | Browser dev-tools → Network tab shows the UI fetching `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1/...` and failing (ERR_CONNECTION_REFUSED / timeout / CORS) | (a) `HOST_IP` unset or `localhost`: `grep ^HOST_IP industry-profiles/warehouse-operations/.env` and set to the host's reachable IP. (b) `HOST_IP` is correct but `${VSS_AUTO_CALIBRATION_PORT}` isn't reachable from the browser (corp firewall blocks the port, the browser is on a different network, etc.): the UI on `:5000` still loads because that port is allowed, but the AJAX call to the MS port fails. Fix by either: (i) moving the MS to a port the browser can reach — set `VSS_AUTO_CALIBRATION_PORT=8080` (or another allowed port) in the env, regenerate `resolved.yml`, and `up -d`; (ii) SSH-tunnelling and overriding `VSS_AUTO_CALIBRATION_MS_API_URL=http://localhost:${VSS_AUTO_CALIBRATION_PORT}/v1`; or (iii) fronting the MS with a reverse proxy on an allowed port and pointing `VSS_AUTO_CALIBRATION_MS_API_URL` at it. |
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different port: edit `VSS_AUTO_CALIBRATION_PORT` or `VSS_AUTO_CALIBRATION_UI_PORT` in `industry-profiles/warehouse-operations/.env`, re-run dry-run + up. |
