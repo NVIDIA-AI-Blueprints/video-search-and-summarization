@@ -634,7 +634,10 @@ python3 .github/skill-eval/nemoclaw/readiness.py \
         )
         result = await _run_brev_exec(self._instance_name, cmd, timeout=timeout_sec)
         if result.return_code != 0:
-            tail = (result.stderr or result.stdout or "")[-1500:]
+            combined_output = "\n".join(
+                part for part in (result.stdout, result.stderr) if part
+            )
+            tail = combined_output[-8000:]
             raise RuntimeError(
                 f"NemoClaw setup failed on {self._instance_name}: "
                 f"exit {result.return_code}; output tail:\n{tail}"
