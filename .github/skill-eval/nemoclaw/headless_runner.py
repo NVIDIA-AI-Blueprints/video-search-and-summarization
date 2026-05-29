@@ -10,6 +10,7 @@ skills run inside NemoClaw/OpenClaw with the VSS Orchestrator MCP available.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import shlex
@@ -52,8 +53,10 @@ def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[st
 
 
 def _sandbox_exec(sandbox_name: str, script: str, *, timeout: int) -> subprocess.CompletedProcess[str]:
+    encoded_script = base64.b64encode(script.encode("utf-8")).decode("ascii")
+    wrapper = f"printf %s {shlex.quote(encoded_script)} | base64 -d | sh"
     return _run(
-        ["nemoclaw", sandbox_name, "exec", "--no-tty", "--", "sh", "-lc", script],
+        ["nemoclaw", sandbox_name, "exec", "--no-tty", "--", "sh", "-lc", wrapper],
         timeout=timeout,
     )
 
