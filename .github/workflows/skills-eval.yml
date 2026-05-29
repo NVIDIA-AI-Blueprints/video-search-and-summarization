@@ -367,6 +367,7 @@ jobs:
 
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
+        timeout-minutes: 190
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
@@ -376,6 +377,8 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # Wait up to 2h for a matching vss-eval-* worker lock, then
+          # leave enough step budget for Harbor to run if a worker frees up.
           export NEMOCLAW_LOCK_TIMEOUT_SEC=7200
           export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-base}"
           export PR_NUMBER=""
