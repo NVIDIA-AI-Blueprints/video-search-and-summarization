@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Patch OpenClaw's OpenAI chat-completions provider to avoid streaming tools.
+"""Patch OpenClaw's OpenAI providers to avoid streaming tool calls.
 
 Some OpenAI-compatible NVIDIA endpoints support tool calls only in
 non-streaming mode. Current OpenClaw builds hardcode `stream: true` in
-`buildOpenAICompletionsParams`, which prevents NemoClaw from invoking MCP
-tools during headless CI. This helper applies a narrow compatibility patch to
-the installed OpenClaw bundle until the upstream runtime exposes a config knob.
+OpenAI request builders, which prevents NemoClaw from invoking MCP tools
+during headless CI. This helper applies a narrow compatibility patch to the
+installed OpenClaw bundle until the upstream runtime exposes a config knob.
 """
 from __future__ import annotations
 
@@ -22,11 +22,11 @@ DEFAULT_ROOTS = (
 )
 FUNCTION_RE = re.compile(
     r"""
-    (?:function\s+buildOpenAICompletionsParams\s*\()
+    (?:function\s+buildOpenAI(?:Completions|Responses)Params\s*\()
     |
-    (?:(?:const|let|var)\s+buildOpenAICompletionsParams\s*=\s*(?:async\s*)?(?:function\s*)?\(?)
+    (?:(?:const|let|var)\s+buildOpenAI(?:Completions|Responses)Params\s*=\s*(?:async\s*)?(?:function\s*)?\(?)
     |
-    (?:buildOpenAICompletionsParams\s*:\s*(?:async\s*)?(?:function\s*)?\(?)
+    (?:buildOpenAI(?:Completions|Responses)Params\s*:\s*(?:async\s*)?(?:function\s*)?\(?)
     """,
     re.VERBOSE,
 )
@@ -57,21 +57,26 @@ def _drop_stream_options(lines: list[str], start: int, limit: int) -> tuple[list
 def patch_source(source: str) -> tuple[str, bool, bool]:
     """Return `(source, found_target, changed)` for one JS bundle."""
     lines = source.splitlines(keepends=True)
-    for idx, line in enumerate(lines):
+    found_target = False
+    changed = False
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
         if not FUNCTION_RE.search(line):
+            idx += 1
             continue
+        found_target = True
         limit = min(len(lines) - 1, idx + 250)
-        window = "".join(lines[idx : limit + 1])
-        if STREAM_FALSE_RE.search(window):
-            patched_lines, dropped = _drop_stream_options(lines, idx, limit)
-            return "".join(patched_lines), True, dropped
+        patched_stream = False
         for stream_idx in range(idx, limit + 1):
             if STREAM_TRUE_RE.search(lines[stream_idx]):
                 lines[stream_idx] = STREAM_TRUE_RE.sub("stream: false", lines[stream_idx], count=1)
-                lines, _ = _drop_stream_options(lines, idx, limit)
-                return "".join(lines), True, True
-        return source, True, False
-    return source, False, False
+                patched_stream = True
+                break
+        lines, dropped = _drop_stream_options(lines, idx, min(len(lines) - 1, idx + 250))
+        changed = changed or patched_stream or dropped
+        idx += 1
+    return "".join(lines), found_target, changed
 
 
 def patch_path(path: Path) -> tuple[bool, bool]:
@@ -116,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"patched {file_path}")
 
     if found == 0:
-        print("WARN: no buildOpenAICompletionsParams target found; OpenClaw layout may have changed", file=sys.stderr)
+        print("WARN: no OpenAI provider request builder target found; OpenClaw layout may have changed", file=sys.stderr)
         return 0
     print(f"OpenClaw streaming compatibility targets={found} changed={changed}")
     return 0

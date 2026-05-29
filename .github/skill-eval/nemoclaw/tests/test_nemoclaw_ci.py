@@ -52,6 +52,10 @@ readiness = load_module(
     "nemoclaw_readiness",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "readiness.py",
 )
+skills_eval_agent = load_module(
+    "skills_eval_agent",
+    REPO_ROOT / ".github" / "skill-eval" / "skills_eval_agent.py",
+)
 
 
 class NotebookSetupAdapterTest(unittest.TestCase):
@@ -141,6 +145,20 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9989/sse")
+
+
+class SkillsEvalAgentProtocolTest(unittest.TestCase):
+    def test_final_marker_must_be_last_nonempty_line(self):
+        self.assertIsNone(
+            skills_eval_agent._final_protocol_marker([
+                "I will emit `DONE:` later.\n",
+                "The monitor is still running.",
+            ])
+        )
+        self.assertEqual(
+            skills_eval_agent._final_protocol_marker(["analysis\n", "BLOCKED: mcp policy denied\n"]),
+            "BLOCKED: mcp policy denied",
+        )
 
 
 class NemoClawEnvFileTest(unittest.TestCase):
@@ -276,7 +294,30 @@ class OpenClawStreamPatchTest(unittest.TestCase):
         self.assertTrue(changed)
         self.assertIn("stream: false", updated)
         self.assertNotIn("stream_options", updated.split("buildOpenAIResponsesParams", 1)[0])
-        self.assertIn("return { stream: true };", updated)
+        self.assertNotIn("stream: true", updated)
+
+    def test_patch_openai_responses_disables_streaming_tools(self):
+        source = textwrap.dedent(
+            """
+            function buildOpenAIResponsesParams(context) {
+              return {
+                model: context.model,
+                input: context.input,
+                stream: true,
+                stream_options: {
+                  include_usage: true,
+                },
+              };
+            }
+            """
+        )
+
+        updated, found, changed = openclaw_stream_patch.patch_source(source)
+
+        self.assertTrue(found)
+        self.assertTrue(changed)
+        self.assertIn("stream: false", updated)
+        self.assertNotIn("stream_options", updated)
 
     def test_patch_ignores_references_before_real_function_definition(self):
         source = textwrap.dedent(
