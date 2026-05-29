@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import textwrap
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,6 +37,10 @@ orchestrator_mcp_helper = load_module(
 headless_runner = load_module(
     "nemoclaw_headless_runner",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "headless_runner.py",
+)
+openclaw_stream_patch = load_module(
+    "openclaw_stream_patch",
+    REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "patch_openclaw_streaming.py",
 )
 readiness = load_module(
     "nemoclaw_readiness",
@@ -119,6 +124,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["NEMOCLAW_ENDPOINT_URL"], "https://inference-api.example/v1")
         self.assertEqual(defaults["NEMOCLAW_MODEL"], "nvidia/example-model")
         self.assertEqual(defaults["COMPATIBLE_API_KEY"], "nvapi-ci")
+        self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
 
 
 class NemoClawEnvFileTest(unittest.TestCase):
@@ -156,6 +162,62 @@ class NemoClawEnvFileTest(unittest.TestCase):
                     os.environ["NEMOCLAW_SANDBOX_NAME"] = previous
                 else:
                     os.environ.pop("NEMOCLAW_SANDBOX_NAME", None)
+
+
+class NemoClawHeadlessRunnerTest(unittest.TestCase):
+    def test_healthy_dashboard_forward_is_kept_even_if_registry_is_empty(self):
+        calls: list[tuple[str, ...]] = []
+        previous = {
+            "_dashboard_healthy": headless_runner._dashboard_healthy,
+            "_forward_running": headless_runner._forward_running,
+            "_run": headless_runner._run,
+        }
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            raise AssertionError("ensure_forward should not restart a healthy dashboard")
+
+        headless_runner._dashboard_healthy = lambda port: True
+        headless_runner._forward_running = lambda port, sandbox: False
+        headless_runner._run = fake_run
+        try:
+            headless_runner.ensure_forward("18789", "demo")
+        finally:
+            headless_runner._dashboard_healthy = previous["_dashboard_healthy"]
+            headless_runner._forward_running = previous["_forward_running"]
+            headless_runner._run = previous["_run"]
+
+        self.assertEqual(calls, [])
+
+
+class OpenClawStreamPatchTest(unittest.TestCase):
+    def test_patch_openai_chat_completions_disables_streaming_tools(self):
+        source = textwrap.dedent(
+            """
+            function buildOpenAICompletionsParams(context) {
+              return {
+                model: context.model,
+                messages: context.messages,
+                stream: true,
+                stream_options: {
+                  include_usage: true,
+                },
+                temperature: 0,
+              };
+            }
+            function buildOpenAIResponsesParams(context) {
+              return { stream: true };
+            }
+            """
+        )
+
+        updated, found, changed = openclaw_stream_patch.patch_source(source)
+
+        self.assertTrue(found)
+        self.assertTrue(changed)
+        self.assertIn("stream: false", updated)
+        self.assertNotIn("stream_options", updated.split("buildOpenAIResponsesParams", 1)[0])
+        self.assertIn("return { stream: true };", updated)
 
 
 class OrchestratorMcpHelperCompatTest(unittest.TestCase):

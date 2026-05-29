@@ -58,7 +58,14 @@ def _forward_running(port: str, sandbox_name: str) -> bool:
         parts = raw.split()
         if len(parts) >= 5 and parts[0] == sandbox_name and parts[2] == port and parts[-1].lower() == "running":
             return True
-    return False
+    result = _run(["ps", "-eo", "args="], timeout=10)
+    if result.returncode != 0:
+        return False
+    needles = (
+        f"openshell forward start {port} {sandbox_name}",
+        f"openshell forward start --background {port} {sandbox_name}",
+    )
+    return any(any(needle in line for needle in needles) for line in result.stdout.splitlines())
 
 
 def _dashboard_healthy(port: str) -> bool:
@@ -67,7 +74,7 @@ def _dashboard_healthy(port: str) -> bool:
 
 
 def ensure_forward(port: str, sandbox_name: str) -> None:
-    if _dashboard_healthy(port) and _forward_running(port, sandbox_name):
+    if _dashboard_healthy(port):
         return
     _run(["openshell", "forward", "stop", port, sandbox_name], timeout=30)
     if shutil_which("setsid"):
@@ -81,7 +88,7 @@ def ensure_forward(port: str, sandbox_name: str) -> None:
     else:
         _run(["openshell", "forward", "start", "--background", port, sandbox_name], timeout=60)
     for _ in range(30):
-        if _dashboard_healthy(port) and _forward_running(port, sandbox_name):
+        if _dashboard_healthy(port):
             return
         time.sleep(2)
     raise RuntimeError(f"OpenClaw forward {port} for sandbox {sandbox_name} is not healthy")

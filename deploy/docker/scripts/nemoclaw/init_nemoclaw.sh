@@ -25,6 +25,8 @@ NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
 NVIDIA_BASE_URL="${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}"
 NEMOCLAW_SHIM_DIR="${HOME}/.local/bin"
 OPENCLAW_CONFIG_UPDATE_SCRIPT="${OPENCLAW_CONFIG_UPDATE_SCRIPT:-${SCRIPT_DIR}/update_openclaw_config.py}"
+OPENCLAW_STREAM_PATCH_SCRIPT="${OPENCLAW_STREAM_PATCH_SCRIPT:-${SCRIPT_DIR}/patch_openclaw_streaming.py}"
+OPENCLAW_DISABLE_STREAMING_TOOL_CALLS="${OPENCLAW_DISABLE_STREAMING_TOOL_CALLS:-0}"
 NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${VSS_REPO_DIR}/assets/vss_nemoclaw_policy.yaml}"
 OPENCLAW_PLUGIN_DIR="${OPENCLAW_PLUGIN_DIR:-${VSS_REPO_DIR}/.openclaw}"
 VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
@@ -74,6 +76,9 @@ Environment (non-interactive Nemoclaw / OpenShell):
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
   OPENCLAW_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
                               (default: <VSS_REPO_DIR>/.openclaw)
+  OPENCLAW_DISABLE_STREAMING_TOOL_CALLS
+                              Set to 1 for OpenAI-compatible endpoints that support
+                              tool calls only in non-streaming mode.
 EOF
 }
 
@@ -254,6 +259,63 @@ configure_openshell_provider() {
 
   openshell inference set --provider "$OPENSHELL_PROVIDER_NAME" --model "$NEMOCLAW_MODEL" --timeout 300
   openshell inference get || true
+}
+
+patch_openclaw_streaming_in_sandbox() {
+  if [ "${OPENCLAW_DISABLE_STREAMING_TOOL_CALLS}" != "1" ]; then
+    return
+  fi
+  if [ ! -f "${OPENCLAW_STREAM_PATCH_SCRIPT}" ]; then
+    log "WARN: OpenClaw stream patch script ${OPENCLAW_STREAM_PATCH_SCRIPT} is missing"
+    return
+  fi
+  if ! have openshell; then
+    log "OpenShell is not available; skipping OpenClaw stream compatibility patch"
+    return
+  fi
+
+  log "Applying OpenClaw non-streaming tool-call compatibility patch in sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  if ! openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- python3 - < "${OPENCLAW_STREAM_PATCH_SCRIPT}"; then
+    log "WARN: failed to patch OpenClaw runtime inside sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  fi
+}
+
+patch_openclaw_streaming_images() {
+  if [ "${OPENCLAW_DISABLE_STREAMING_TOOL_CALLS}" != "1" ]; then
+    return
+  fi
+  if [ ! -f "${OPENCLAW_STREAM_PATCH_SCRIPT}" ] || ! have docker; then
+    return
+  fi
+
+  local image images cid
+  images="$(
+    {
+      docker image ls --format '{{.Repository}}:{{.Tag}}' 'nemoclaw-sandbox-base-local' 2>/dev/null || true
+      docker ps --filter "name=${NEMOCLAW_SANDBOX_NAME}" --format '{{.Image}}' 2>/dev/null || true
+    } | awk 'NF && !seen[$0]++'
+  )"
+  if [ -z "${images}" ]; then
+    return
+  fi
+
+  while IFS= read -r image; do
+    [ -n "${image}" ] || continue
+    log "Patching OpenClaw stream behavior in image ${image}"
+    cid="$(docker run -d --entrypoint sh "${image}" -c 'sleep 300' 2>/dev/null || true)"
+    if [ -z "${cid}" ]; then
+      log "WARN: could not start temporary container from ${image}; skipping image patch"
+      continue
+    fi
+    if docker exec -i "${cid}" python3 - < "${OPENCLAW_STREAM_PATCH_SCRIPT}" >/tmp/openclaw-stream-patch.log 2>&1; then
+      docker commit "${cid}" "${image}" >/dev/null 2>&1 || true
+      log "Patched image ${image}"
+    else
+      log "WARN: OpenClaw image patch failed for ${image}"
+      sed 's/^/[init_nemoclaw] stream patch: /' /tmp/openclaw-stream-patch.log >&2 || true
+    fi
+    docker rm -f "${cid}" >/dev/null 2>&1 || true
+  done <<< "${images}"
 }
 
 # `nemoclaw onboard` creates the dashboard port-forward (default 18789) that exposes the in-pod
@@ -616,6 +678,8 @@ main() {
   # Onboard can return before OpenClaw is executable inside the sandbox.
   wait_for_sandbox_ready
   refresh_path
+  patch_openclaw_streaming_in_sandbox
+  patch_openclaw_streaming_images
   ensure_dashboard_forward
   apply_vss_policy
   update_openclaw_allowed_origin
@@ -631,6 +695,7 @@ parse_args "$@"
 validate_custom_provider
 export NEMOCLAW_SANDBOX_NAME NEMOCLAW_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
 export NEMOCLAW_ENDPOINT_URL COMPATIBLE_API_KEY
-export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
+export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT OPENCLAW_STREAM_PATCH_SCRIPT NEMOCLAW_POLICY_FILE
+export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS
 
 main
