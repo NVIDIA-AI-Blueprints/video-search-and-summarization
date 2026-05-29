@@ -23,21 +23,23 @@ Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_c
 
 ## What gets deployed
 
+Container names below are the actual `container_name:` keys from `deploy/docker/services/**/compose.yml`. LLM/VLM NIM containers are named after the selected model (default shown; varies with `LLM_NAME_SLUG`).
+
 | Service | Container | Port | Purpose | Mode |
 |---|---|---|---|---|
-| RT-CV (DeepStream perception) | vss-rtvi-cv | — (host net) | Object detection (Grounding DINO via `MODEL_NAME_2D=GDINO`) | **2d_cv only** |
-| Behavior analytics | vss-behavior-analytics | — | Rule-based alerts from RT-CV metadata | **2d_cv only** |
-| RT-VLM | vss-rtvi-vlm | 8018 | VLM runner (Cosmos Reason 2 by default) | both |
-| Alert-bridge | (alert-bridge) | 9080 | Realtime alerting API; drives `POST/DELETE /api/v1/realtime` on the agent | both |
-| LLM NIM | mdx-nim-llm-1 | 30081 | Same options as `base` (Nano 9B v2 default) | both |
-| nvstreamer-alerts | vss-vios-nvstreamer | 31000 | Plays back dataset video to simulate live cameras | both |
-| VST | mdx-vst-1 | 30888 | Video storage + ingest | both |
-| VSS Agent | mdx-vss-agent-1 | 8000 | Orchestrates alert verification and incident reports | both |
-| VSS UI | mdx-vss-ui-1 | 3000 | Alerts tab | both |
-| Video-Analytics MCP | vss-va-mcp | 9901 | Analytics API for the agent | both |
-| Elasticsearch + Kibana | mdx-elasticsearch-1, kibana | 9200, 5601 | Alert/event storage | both |
-| Kafka | mdx-kafka-1 | 9092 | Message bus | both |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability | both |
+| RT-CV (DeepStream perception) | `vss-rtvi-cv` | — (host net) | Object detection (Grounding DINO via `MODEL_NAME_2D=GDINO`) | **2d_cv only** |
+| Behavior analytics | `vss-behavior-analytics` | — | Rule-based alerts from RT-CV metadata | **2d_cv only** |
+| RT-VLM | `vss-rtvi-vlm` | 8018 | VLM runner (Cosmos Reason 2 by default) | both |
+| Alert-bridge | `vss-alert-bridge` | 9080 | Realtime alerting API; drives `POST/DELETE /api/v1/realtime` on the agent | both |
+| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. | both |
+| nvstreamer-alerts | `vss-vios-nvstreamer` | 31000 | Plays back dataset video to simulate live cameras | both |
+| VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest | both |
+| VSS Agent | `vss-agent` | 8000 | Orchestrates alert verification and incident reports | both |
+| VSS Agent UI | `vss-agent-ui` | 3000 | Alerts tab | both |
+| Video-Analytics MCP | `vss-va-mcp` | 9901 | Analytics API for the agent | both |
+| Elasticsearch + Kibana | `elasticsearch`, `kibana` | 9200, 5601 | Alert/event storage | both |
+| Kafka | `kafka` | 9092 | Message bus | both |
+| Phoenix | `phoenix` | 6006 | Observability | both |
 
 ## Default models
 
@@ -230,6 +232,43 @@ Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GP
 | Kibana | `http://<HOST_IP>:5601/` |
 | nvstreamer | `http://<HOST_IP>:31000/` |
 | Phoenix | `http://<HOST_IP>:6006/` |
+
+## Readiness checks (per mode)
+
+The two modes deploy **different service sets**, so the readiness checks differ. Run the generic compose-ps gate from [`readiness.md`](readiness.md) first, then the per-mode checks below. Follow [`SKILL.md`](../SKILL.md) Step 5b — `up -d` returning is not readiness.
+
+> **Expected container count differs by mode.** `2d_vlm` does **not** start `vss-rtvi-cv` or `vss-behavior-analytics` (both are `bp_developer_alerts_2d_cv`-only — see [What gets deployed](#what-gets-deployed)), so `docker compose -f resolved.yml config --services` yields a smaller set than `2d_cv`. A smaller container count in real-time mode is correct, not a partial deploy — the Gate 0 check in [`SKILL.md`](../SKILL.md) Step 5b derives `expected` from the resolved compose, so it self-adjusts.
+
+**Both modes — these must be reachable:**
+
+```bash
+curl -sf http://${HOST_IP}:8000/health            && echo "agent ok"      # VSS Agent
+curl -sf http://${HOST_IP}:8018/v1/models         && echo "rt-vlm ok"     # RT-VLM (skip if VLM_MODE=remote; probe the remote /v1/models instead)
+curl -sf http://${HOST_IP}:9901/                  && echo "va-mcp ok"     # Video-Analytics MCP
+curl -sf http://${HOST_IP}:3000/                  && echo "ui ok"         # Agent UI
+```
+
+**`MODE=2d_cv` (verification) — also check the perception path:**
+
+```bash
+docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv            && echo "rt-cv up"
+docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "behavior-analytics up"
+curl -sf http://${HOST_IP}:9000/v1/health                        && echo "rt-cv health ok"
+```
+
+RT-CV builds TensorRT engines on first start (3–5 min) — `:9000/v1/health` won't answer until that finishes. See [Stage perception models](#stage-perception-models-rtdetr-its--gdino); if the ONNX files weren't staged, RT-CV never becomes healthy.
+
+**`MODE=2d_vlm` (real-time) — RT-CV / behavior-analytics are intentionally absent:**
+
+```bash
+# Confirm the 2d_cv-only services are NOT running (their absence is expected):
+docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv && echo "UNEXPECTED: rt-cv running in 2d_vlm" || echo "rt-cv absent (correct)"
+# Confirm RT-VLM is processing the live stream and emitting to the alert-bridge:
+docker logs vss-rtvi-vlm  2>&1 | tail -20   # expect continuous VLM inference over the nvstreamer feed
+docker logs vss-alert-bridge 2>&1 | tail -20 # expect realtime session active, no HTTP 400 "No such model"
+```
+
+In real-time mode the readiness signal is **RT-VLM continuously inspecting the live feed**, not a per-alert verification trigger — there is no RT-CV health endpoint to gate on. Confirm `MODE=2d_vlm` in `resolved.yml` and that `vss-vios-nvstreamer` (`:31000`) is publishing streams.
 
 ## Env file location
 
