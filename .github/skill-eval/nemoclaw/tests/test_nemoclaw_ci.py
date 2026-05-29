@@ -593,6 +593,8 @@ class InitNemoClawScriptTest(unittest.TestCase):
         self.assertIn("kill_stale_dashboard_listeners", source)
         self.assertIn("lsof -tiTCP", source)
         self.assertIn("kill_stale_dashboard_listeners \"$port\"", source)
+        self.assertIn("start_dashboard_forward \"$port\" \"$forward_log\"", source)
+        self.assertIn("retrying start", source)
 
 
 class UpdateOpenClawConfigTest(unittest.TestCase):
