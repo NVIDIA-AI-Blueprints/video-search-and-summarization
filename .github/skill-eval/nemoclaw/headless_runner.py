@@ -22,6 +22,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+OPENCLAW_RUN_DIR = "/tmp/vss-skill-eval-openclaw"
+
 
 def _load_env_file(path: Path) -> None:
     if not path.exists():
@@ -161,12 +163,11 @@ def ensure_openclaw_gateway(sandbox_name: str, log_dir: Path) -> None:
     raise RuntimeError(f"OpenClaw gateway in sandbox {sandbox_name} is not reachable")
 
 
-def run_openclaw_cli(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Path) -> dict[str, Any]:
-    ensure_openclaw_gateway(sandbox_name, log_dir)
+def _openclaw_cli_command(prompt: str, timeout_s: int) -> str:
     session_id = os.environ.get("GITHUB_RUN_ID", f"ci-{int(time.time())}")
     no_proxy = "localhost,127.0.0.1,::1,10.200.0.1,host.openshell.internal"
     ca_path = "/etc/openshell-tls/ca-bundle.pem"
-    inner = (
+    return (
         f"export NO_PROXY={shlex.quote(no_proxy)}; "
         f"export no_proxy={shlex.quote(no_proxy)}; "
         f"export NODE_EXTRA_CA_CERTS={shlex.quote(ca_path)}; "
@@ -177,14 +178,48 @@ def run_openclaw_cli(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Pa
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
     )
-    result = _sandbox_exec(sandbox_name, inner, timeout=timeout_s)
-    (log_dir / "openclaw-agent.log").write_text(
+
+
+def collect_openclaw_cli_log(sandbox_name: str, log_dir: Path) -> None:
+    result = _sandbox_exec(
+        sandbox_name,
+        f"cat {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>/dev/null || true",
+        timeout=30,
+    )
+    (log_dir / "openclaw-agent.log").write_text(result.stdout or "", encoding="utf-8")
+
+
+def stop_openclaw_cli(sandbox_name: str) -> None:
+    _sandbox_exec(
+        sandbox_name,
+        f"if [ -f {OPENCLAW_RUN_DIR}/openclaw-agent.pid ]; then "
+        f"kill $(cat {OPENCLAW_RUN_DIR}/openclaw-agent.pid) 2>/dev/null || true; fi",
+        timeout=20,
+    )
+
+
+def run_openclaw_cli(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Path) -> dict[str, Any]:
+    ensure_openclaw_gateway(sandbox_name, log_dir)
+    inner = _openclaw_cli_command(prompt, timeout_s)
+    launcher = (
+        f"set -eu; mkdir -p {OPENCLAW_RUN_DIR}; "
+        f"rm -f {OPENCLAW_RUN_DIR}/openclaw-agent.log {OPENCLAW_RUN_DIR}/openclaw-agent.pid; "
+        f"nohup sh -lc {shlex.quote(inner)} > {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>&1 & "
+        f"pid=$!; echo $pid > {OPENCLAW_RUN_DIR}/openclaw-agent.pid; echo $pid"
+    )
+    result = _sandbox_exec(sandbox_name, launcher, timeout=30)
+    (log_dir / "openclaw-launch.log").write_text(
         f"returncode={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}\n",
         encoding="utf-8",
     )
     return {
-        "status": 200 if result.returncode == 0 else 500,
-        "body": {"ok": result.returncode == 0, "mode": "cli", "returncode": result.returncode},
+        "status": 202 if result.returncode == 0 else 500,
+        "body": {
+            "ok": result.returncode == 0,
+            "mode": "cli",
+            "returncode": result.returncode,
+            "pid": (result.stdout or "").strip(),
+        },
         "stdout_tail": result.stdout[-4000:],
         "stderr_tail": result.stderr[-4000:],
     }
@@ -265,6 +300,11 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.launch_mode == "cli":
             response = run_openclaw_cli(sandbox_name, prompt, args.timeout, log_dir)
+            if _response_ok(response):
+                wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
+                collect_openclaw_cli_log(sandbox_name, log_dir)
+                if wait_report.get("ok"):
+                    stop_openclaw_cli(sandbox_name)
         else:
             hooks_token = _read_hooks_token()
             if not hooks_token:
@@ -303,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     ok = _response_ok(response)
-    if args.launch_mode == "hook" and wait_report.get("waited"):
+    if wait_report.get("waited"):
         ok = ok and bool(wait_report.get("ok"))
     print(json.dumps(report, indent=2))
     return 0 if ok else 1
