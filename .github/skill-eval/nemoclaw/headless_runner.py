@@ -183,35 +183,37 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--wait-profile", default="", help="Wait for the live VSS profile to become ready after hook launch")
     args = parser.parse_args(argv)
 
-    _load_env_file(Path(args.env_file))
-    prompt = Path(args.prompt_file).read_text(encoding="utf-8")
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    (log_dir / "nemoclaw_prompt.md").write_text(prompt, encoding="utf-8")
+    _load_env_file(Path(args.env_file))
 
     sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo")
-    hooks_token = _read_hooks_token()
     hooks_path = "/" + os.environ.get("OPENCLAW_HOOKS_PATH", "/hooks").strip("/")
     hook_url = f"http://127.0.0.1:{args.dashboard_port}{hooks_path}/agent"
-    payload = {"name": args.name, "message": prompt}
     started = time.time()
+    prompt = ""
     response: dict[str, Any] = {"status": 0, "body": "", "error": ""}
     wait_report = {"waited": False}
-    if not hooks_token:
-        response["error"] = "OpenClaw hooks token is not available; run the notebook setup adapter first"
-    else:
-        try:
+    try:
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+        (log_dir / "nemoclaw_prompt.md").write_text(prompt, encoding="utf-8")
+
+        hooks_token = _read_hooks_token()
+        if not hooks_token:
+            response["error"] = "OpenClaw hooks token is not available; run the notebook setup adapter first"
+        else:
+            payload = {"name": args.name, "message": prompt}
             ensure_forward(str(args.dashboard_port), sandbox_name)
             response = post_hook(hook_url, hooks_token, payload, timeout=60)
             if _response_ok(response):
                 wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
-        except Exception as exc:  # Keep Harbor artifacts structured on setup failures.
-            response = {
-                "status": 0,
-                "body": "",
-                "error": str(exc),
-                "error_type": type(exc).__name__,
-            }
+    except Exception as exc:  # Keep Harbor artifacts structured on setup failures.
+        response = {
+            "status": 0,
+            "body": "",
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+        }
     elapsed = time.time() - started
 
     report = {
