@@ -315,6 +315,19 @@ def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
     return out_path
 
 
+def _final_protocol_marker(final_text: list[str]) -> str | None:
+    """Return the final DONE/BLOCKED marker only when it is the last line."""
+    summary = "\n".join(final_text[-10:])
+    for line in reversed(summary.splitlines()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if re.match(r"^(DONE|BLOCKED):", stripped):
+            return stripped
+        return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Agent loop
 # ---------------------------------------------------------------------------

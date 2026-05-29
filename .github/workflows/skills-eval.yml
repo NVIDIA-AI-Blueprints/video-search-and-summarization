@@ -299,7 +299,7 @@ jobs:
             # NemoClaw is an opt-in CI smoke path. Keep the whole eval bounded
             # so setup/runtime issues return signal instead of burning a
             # 12-hour generic skill-eval slot.
-            export AGENT_MAX_TURNS="${AGENT_MAX_TURNS:-350}"
+            export AGENT_MAX_TURNS="${AGENT_MAX_TURNS:-220}"
             timeout --kill-after=2m "${NEMOCLAW_SKILLS_EVAL_TIMEOUT:-60m}" \
               python3 .github/skill-eval/skills_eval_agent.py
           else
