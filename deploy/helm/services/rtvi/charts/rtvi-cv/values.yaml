@@ -87,6 +87,8 @@ forceModelsStorageFromValues: false
 modelsVolume: {}
 downloadModelsFromNgc: true
 downloadModelsFromNgcWaitSeconds: 900
+downloadModelsJob:
+  ttlSecondsAfterFinished: null
 # Opaque secret for NGC CLI (download Jobs). Not the docker-registry pull secret.
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
@@ -106,6 +108,8 @@ ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
 # Required with NGC_CLI_API_KEY: registry org for the resource (e.g. nvidia for vss-warehouse).
 ngcAppDataOrg: "nvidia"
 downloadNgcAppDataWaitSeconds: 3600
+downloadNgcAppDataJob:
+  ttlSecondsAfterFinished: null
 
 # Used by warehouse standalone profile modes (metropolis warehouse ds-start.sh paths).
 standaloneWarehouse:

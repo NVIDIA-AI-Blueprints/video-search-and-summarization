@@ -65,7 +65,7 @@ spec:
               ELAPSED=0
               TIMEOUT={{ .Values.downloadNgcAppDataWaitSeconds | default 3600 }}
               until test -f /opt/storage/vss-warehouse-app-data/.ngc-extracted; do
-                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
+                if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
                   echo "[ERROR] Timeout waiting for NGC extract marker (${TIMEOUT}s)"
                   exit 1
                 fi
@@ -88,7 +88,7 @@ spec:
               ELAPSED=0
               TIMEOUT={{ .Values.downloadNgcAppDataWaitSeconds | default 3600 }}
               until test -d /opt/storage/vss-warehouse-app-data/videos; do
-                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
+                if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
                   echo "[ERROR] Timeout: mount NGC data or enable downloadNgcAppData"
                   exit 1
                 fi
@@ -284,14 +284,6 @@ spec:
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-redis-config.txt
               subPath: ds-redis-config.txt
               readOnly: true
-            - name: model-sparse4d-onnx
-              mountPath: {{ printf "/opt/nvidia/deepstream/deepstream/sources/sparse4d/%s" $sw.sparse4dOnnxFile | quote }}
-              subPath: {{ $sw.pvcOnnxSubPath | quote }}
-              readOnly: true
-            - name: model-sparse4d-npy
-              mountPath: {{ printf "/opt/nvidia/deepstream/deepstream/sources/sparse4d/%s" $sw.sparse4dNpyFile | quote }}
-              subPath: {{ $sw.pvcNpySubPath | quote }}
-              readOnly: true
       volumes:
         - name: models
           persistentVolumeClaim:
@@ -321,10 +313,4 @@ spec:
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d
             defaultMode: 420
-        - name: model-sparse4d-onnx
-          persistentVolumeClaim:
-            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
-        - name: model-sparse4d-npy
-          persistentVolumeClaim:
-            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
 {{- end }}

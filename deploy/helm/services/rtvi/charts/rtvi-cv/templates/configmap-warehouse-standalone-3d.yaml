@@ -28,6 +28,10 @@ data:
 {{- $base := base $path }}
 {{- $content := $.Files.Get $path }}
   {{ $base }}: |
+{{- if eq $base "config.yaml" }}
+{{ tpl $content $ | nindent 4 }}
+{{- else }}
 {{ $content | nindent 4 }}
+{{- end }}
 {{- end }}
 {{- end }}

@@ -10,7 +10,9 @@ metadata:
   labels:
     {{- include "calibration-import.labels" . | nindent 4 }}
 spec:
-  ttlSecondsAfterFinished: {{ .Values.ttlSecondsAfterFinished | default 600 }}
+  {{- with .Values.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   backoffLimit: {{ .Values.backoffLimit | default 5 }}
   template:
     metadata:

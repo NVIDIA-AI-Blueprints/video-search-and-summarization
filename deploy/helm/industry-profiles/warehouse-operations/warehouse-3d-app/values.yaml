@@ -21,6 +21,10 @@ bp-configurator:
     kafkaPort: "9092"
     redisHost: redis
     redisPort: "6379"
+  data:
+    enabled: true
+    mountPath: /opt/data
+    seedConfigMapName: vss-rtvi-cv-warehouse-standalone-3d-calibration
   env:
     - name: SENSOR_INFO_SOURCE
       value: nvstreamer

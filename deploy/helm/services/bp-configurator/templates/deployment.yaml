@@ -6,6 +6,9 @@
 {{- $data := .Values.data | default dict }}
 {{- $init := .Values.init | default dict }}
 {{- $initImage := $init.image | default dict }}
+{{- $dataEnabled := or ($data.enabled | default false) ($data.existingClaim | default "") ($data.seedConfigMapName | default "") }}
+{{- $seedConfigMapName := $data.seedConfigMapName | default "" }}
+{{- $seedEnabled := and $dataEnabled $seedConfigMapName }}
 {{- $initEnabled := true }}
 {{- if hasKey $init "enabled" }}
 {{- $initEnabled = $init.enabled }}
@@ -41,8 +44,35 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if $initEnabled }}
+      {{- if or $dataEnabled $initEnabled }}
       initContainers:
+        {{- if $dataEnabled }}
+        - name: prepare-data
+          image: "{{ $initImage.repository | default "busybox" }}:{{ $initImage.tag | default "1.37.0" }}"
+          imagePullPolicy: {{ $initImage.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              data_dir={{ $data.mountPath | default "/opt/data" | quote }}
+              mkdir -p "${data_dir}"
+              {{- if $seedEnabled }}
+              cp -a /seed-data/. "${data_dir}/"
+              chmod -R a+rwX "${data_dir}" || true
+              {{- else }}
+              chmod a+rwx "${data_dir}" || true
+              {{- end }}
+          volumeMounts:
+            - name: warehouse-data
+              mountPath: {{ $data.mountPath | default "/opt/data" }}
+            {{- if $seedEnabled }}
+            - name: seed-data
+              mountPath: /seed-data
+              readOnly: true
+            {{- end }}
+        {{- end }}
+        {{- if $initEnabled }}
         - name: wait-for-broker
           image: "{{ $initImage.repository | default "busybox" }}:{{ $initImage.tag | default "1.37.0" }}"
           imagePullPolicy: {{ $initImage.pullPolicy | default "IfNotPresent" }}
@@ -70,6 +100,7 @@ spec:
                 fi
                 sleep "${retry_interval}"
               done
+        {{- end }}
       {{- end }}
       containers:
         - name: bp-configurator
@@ -115,7 +146,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if or (.Values.configMounts | default list) ($data.existingClaim | default "") }}
+          {{- if or (.Values.configMounts | default list) $dataEnabled }}
           volumeMounts:
             {{- range (.Values.configMounts | default list) }}
             - name: {{ .name }}
@@ -125,12 +156,12 @@ spec:
               {{- end }}
               readOnly: true
             {{- end }}
-            {{- if ($data.existingClaim | default "") }}
+            {{- if $dataEnabled }}
             - name: warehouse-data
               mountPath: {{ $data.mountPath | default "/opt/data" }}
             {{- end }}
           {{- end }}
-      {{- if or (.Values.configMounts | default list) ($data.existingClaim | default "") }}
+      {{- if or (.Values.configMounts | default list) $dataEnabled }}
       volumes:
         {{- range (.Values.configMounts | default list) }}
         - name: {{ .name }}
@@ -138,10 +169,20 @@ spec:
             name: {{ .configMapName }}
             optional: {{ .optional | default false }}
         {{- end }}
-        {{- if ($data.existingClaim | default "") }}
+        {{- if $dataEnabled }}
         - name: warehouse-data
+          {{- if ($data.existingClaim | default "") }}
           persistentVolumeClaim:
             claimName: {{ $data.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if $seedEnabled }}
+        - name: seed-data
+          configMap:
+            name: {{ $seedConfigMapName }}
+            optional: {{ $data.seedOptional | default false }}
         {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}

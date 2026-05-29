@@ -26,7 +26,7 @@ sleepSeconds: 2
 existingClaim: ""
 mountPath: /opt/vss
 
-ttlSecondsAfterFinished: 600
+ttlSecondsAfterFinished: null
 backoffLimit: 5
 restartPolicy: OnFailure
 

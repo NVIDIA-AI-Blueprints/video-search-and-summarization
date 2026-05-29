@@ -49,8 +49,11 @@ readinessInitialDelaySeconds: 20
 configMounts: []
 
 data:
+  enabled: false
   existingClaim: ""
   mountPath: /opt/data
+  seedConfigMapName: ""
+  seedOptional: false
 
 resources: {}
 podAnnotations: {}
