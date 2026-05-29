@@ -1291,6 +1291,8 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             return command
 
         timeout_s = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800"))
+        wait_profile = str(meta.get("deployment_profile") or "").strip()
+        wait_arg = f" --wait-profile {shlex.quote(wait_profile)}" if wait_profile else ""
         return rf"""set -euo pipefail
 REPO="$HOME/video-search-and-summarization"
 cd "$REPO"
@@ -1307,7 +1309,7 @@ python3 .github/skill-eval/nemoclaw/headless_runner.py \
   --prompt-file /tests/nemoclaw_prompt.md \
   --log-dir /logs/artifacts/nemoclaw \
   --launch-mode cli \
-  --timeout {timeout_s} \
+  --timeout {timeout_s}{wait_arg} \
   > /logs/agent/nemoclaw-headless-runner.stdout 2>&1
 rc=$?
 set -e
