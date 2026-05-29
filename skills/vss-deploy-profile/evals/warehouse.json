@@ -20,6 +20,7 @@
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (RT-DETR DeepStream perception — the '2D' in this mode)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (always-local VLM — distinguishes `bp_wh_2d` from the minimal `bp_wh_kafka_2d` variant)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-alert-bridge` returns exit 0 (always deployed for `bp_wh` — routes CV-generated alerts to the VLM verifier; per `references/warehouse.md` § *Services Deployed*)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (ROI / tripwire / proximity events on CV output)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-configurator` returns exit 0 (warehouse blueprint configurator)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0 (video ingestion source)",
