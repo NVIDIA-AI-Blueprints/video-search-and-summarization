@@ -2,7 +2,7 @@
 name: vss-deploy-video-embedding
 description: >
   Deploy, operate, and integrate the VSS 3.2 GA RT-Embed Video Embedding
-  microservice. Covers Docker Compose bring-up, 
+  microservice. Covers Docker Compose bring-up,
   GPU and storage prerequisites, the `/v1` REST API (file uploads,
   text and video embeddings, live RTSP streams, health and metrics),
   Redis/Kafka/OTel integration, common failure modes, and teardown.
@@ -102,7 +102,7 @@ MODEL_ID="$(echo "$MODELS_JSON" | jq -r '.data[0].id // empty')"
 test -n "$MODEL_ID" || { echo "ERROR: /v1/models has no model id — wait until /v1/ready is 200" >&2; exit 1; }
 ```
 
-Sections below that call the API reuse `$BASE_URL` and `$MODEL_ID` from this block.
+The sections below that call the API reuse `$BASE_URL` and `$MODEL_ID` from this block.
 
 ## Common Operations
 
