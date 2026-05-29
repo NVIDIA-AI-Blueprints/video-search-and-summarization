@@ -8,8 +8,9 @@ The vss-summarize-video skill exercises the video summarization service on
 (deploy mode = `remote-all`; the agent's LLM and the VLM that the video
 summarization service calls are both served via remote launchpad endpoints,
 no local NIMs). It does
-NOT deploy VSS itself; the coordinator chains a deploy task in front and
-seeds the sample warehouse video via the vss-manage-video-io-storage skill before this trial.
+NOT deploy VSS itself; the coordinator chains a deploy task in front. The
+agent uses the bundled vss-manage-video-io-storage skill when the trial
+needs to resolve or register sample media in VIOS before summarizing.
 
 Mirrors the vss-manage-video-io-storage adapter — single-task-per-platform, step-chained under
 the spec's prerequisite profile name. Default platform is L40S because
@@ -101,8 +102,8 @@ def generate_test_script(step: int, spec_name: str) -> str:
 
 
 def generate_solve_script(platform: str) -> str:
-    """Gold solution — assumes the lvs profile is already deployed and
-    a sample warehouse video is uploaded. Verifier drives the assertions."""
+    """Gold solution — assumes the lvs profile is already deployed.
+    The agent resolves or registers VIOS sample media as required by the spec."""
     return (
         "#!/bin/bash\n"
         f"# Gold solution: vss-summarize-video on {platform}\n"
@@ -144,6 +145,10 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
 
         lines = [
             PREAMBLE,
+            "",
+            "## Environment notes",
+            "",
+            spec.get("env", ""),
             "",
             "",
             f"## Query {idx} of {len(expects)}",

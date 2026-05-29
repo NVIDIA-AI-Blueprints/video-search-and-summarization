@@ -21,6 +21,14 @@ microservice **directly**. Always run `curl` commands yourself; never instruct t
 
 Primary video workflow query type: **"Summarize this video."** Direct video summarization API
 and service-ops requests are handled by the reference-routed sections below.
+If the user asks to summarize an uploaded or pre-seeded video and `/v1/ready`
+returns 200, continue through Step 1 and Step 2 until `/v1/summarize` returns a
+result. Do not stop after readiness, model, recommended-config, or metrics
+checks unless the user asked for API/service verification instead of a summary.
+If the requested VIOS video cannot be found, use Step 1's sample-registration
+branch when the request names a known sample video; otherwise report the
+missing-video prerequisite clearly. Do not pivot to API/service verification as
+a substitute summary.
 
 ## Purpose
 
@@ -97,6 +105,9 @@ If the user asks to configure, deploy, restart, tear down, or troubleshoot the
 video summarization service, prefer the `vss-deploy-profile` skill for full VSS profile
 deployment and use [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md)
 for video summarization-specific service details.
+For a deployment status report, include the REST port `38111`, readiness
+endpoint `/v1/ready`, and at least one named service signal: compose profile
+`bp_developer_lvs_2d`, container `vss-lvs`, or service `lvs-server`.
 
 ## Routing
 
@@ -213,6 +224,19 @@ Everything else (auth, upload, `disableAudio`, expiry, etc.) lives in the
 `vss-manage-video-io-storage` skill — refer users there if VIOS fails.
 Never derive `HOST_IP`, `LVS_BACKEND_URL`, `VIDEO_SUMMARIZATION_URL`, or
 `VLM_BASE_URL` from the clip URL host.
+
+**Sample-video registration branch.** If the request references a known sample
+video such as "the sample warehouse video" and no matching VIOS sensor/stream
+with a usable timeline and MP4 clip URL exists, delegate the VIOS sub-task to
+`/vss-manage-video-io-storage`: use its sample-data bootstrap mapping
+(`warehouse_sample.mp4` for "sample warehouse video"), upload/register the file
+with VIOS using the default timestamp `2025-01-01T00:00:00.000Z` when the user
+did not provide one, then fetch the timeline and temporary MP4 clip URL. If the
+sample-data bootstrap cannot run because `ngc` or `NGC_CLI_API_KEY` is missing,
+stop and report that prerequisite failure. Return to this workflow only after
+you have the clip URL. If registration or clip URL generation fails, stop and
+report that prerequisite failure; do not run API ops or service-status checks
+as a substitute summary.
 
 ---
 
