@@ -51,6 +51,13 @@ def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[st
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
+def _sandbox_exec(sandbox_name: str, script: str, *, timeout: int) -> subprocess.CompletedProcess[str]:
+    return _run(
+        ["nemoclaw", sandbox_name, "exec", "--no-tty", "--", "sh", "-lc", script],
+        timeout=timeout,
+    )
+
+
 def _forward_running(port: str, sandbox_name: str) -> bool:
     result = _run(["openshell", "forward", "list"], timeout=30)
     combined = f"{result.stdout}\n{result.stderr}"
@@ -126,6 +133,57 @@ def post_hook(url: str, token: str, payload: dict[str, Any], timeout: int) -> di
         return {"status": 0, "body": "", "error": str(exc)}
 
 
+def _gateway_reachable(sandbox_name: str) -> bool:
+    result = _sandbox_exec(
+        sandbox_name,
+        "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18789/ --max-time 5",
+        timeout=20,
+    )
+    status = (result.stdout or "").strip()
+    return result.returncode == 0 and status.isdigit()
+
+
+def ensure_openclaw_gateway(sandbox_name: str, log_dir: Path) -> None:
+    if _gateway_reachable(sandbox_name):
+        return
+    recover = _run(["nemoclaw", sandbox_name, "recover"], timeout=180)
+    (log_dir / "nemoclaw_recover.log").write_text(
+        f"returncode={recover.returncode}\nstdout:\n{recover.stdout}\nstderr:\n{recover.stderr}\n",
+        encoding="utf-8",
+    )
+    for _ in range(10):
+        if _gateway_reachable(sandbox_name):
+            return
+        time.sleep(3)
+    raise RuntimeError(f"OpenClaw gateway in sandbox {sandbox_name} is not reachable")
+
+
+def run_openclaw_cli(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Path) -> dict[str, Any]:
+    ensure_openclaw_gateway(sandbox_name, log_dir)
+    session_id = os.environ.get("GITHUB_RUN_ID", f"ci-{int(time.time())}")
+    no_proxy = "localhost,127.0.0.1,::1,10.200.0.1,host.openshell.internal"
+    ca_path = "/etc/openshell-tls/ca-bundle.pem"
+    inner = (
+        f"export NO_PROXY={shlex.quote(no_proxy)}; "
+        f"export no_proxy={shlex.quote(no_proxy)}; "
+        f"export NODE_EXTRA_CA_CERTS={shlex.quote(ca_path)}; "
+        "openclaw agent --agent main --thinking medium "
+        f"--session-id {shlex.quote(session_id)} "
+        f"-m {shlex.quote(prompt)}"
+    )
+    result = _sandbox_exec(sandbox_name, inner, timeout=timeout_s)
+    (log_dir / "openclaw-agent.log").write_text(
+        f"returncode={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}\n",
+        encoding="utf-8",
+    )
+    return {
+        "status": 200 if result.returncode == 0 else 500,
+        "body": {"ok": result.returncode == 0, "mode": "cli", "returncode": result.returncode},
+        "stdout_tail": result.stdout[-4000:],
+        "stderr_tail": result.stderr[-4000:],
+    }
+
+
 def _response_ok(response: dict[str, Any]) -> bool:
     body = response.get("body")
     return 200 <= int(response.get("status", 0)) < 300 and isinstance(body, dict) and bool(body.get("ok"))
@@ -179,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--log-dir", default="/logs/agent")
     parser.add_argument("--name", default="NemoClaw Harbor skill evaluation")
     parser.add_argument("--dashboard-port", default=os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789"))
+    parser.add_argument("--launch-mode", choices=("hook", "cli"), default="hook")
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--wait-profile", default="", help="Wait for the live VSS profile to become ready after hook launch")
     args = parser.parse_args(argv)
@@ -198,15 +257,18 @@ def main(argv: list[str] | None = None) -> int:
         prompt = Path(args.prompt_file).read_text(encoding="utf-8")
         (log_dir / "nemoclaw_prompt.md").write_text(prompt, encoding="utf-8")
 
-        hooks_token = _read_hooks_token()
-        if not hooks_token:
-            response["error"] = "OpenClaw hooks token is not available; run the notebook setup adapter first"
+        if args.launch_mode == "cli":
+            response = run_openclaw_cli(sandbox_name, prompt, args.timeout, log_dir)
         else:
-            payload = {"name": args.name, "message": prompt}
-            ensure_forward(str(args.dashboard_port), sandbox_name)
-            response = post_hook(hook_url, hooks_token, payload, timeout=60)
-            if _response_ok(response):
-                wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
+            hooks_token = _read_hooks_token()
+            if not hooks_token:
+                response["error"] = "OpenClaw hooks token is not available; run the notebook setup adapter first"
+            else:
+                payload = {"name": args.name, "message": prompt}
+                ensure_forward(str(args.dashboard_port), sandbox_name)
+                response = post_hook(hook_url, hooks_token, payload, timeout=60)
+                if _response_ok(response):
+                    wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
     except Exception as exc:  # Keep Harbor artifacts structured on setup failures.
         response = {
             "status": 0,
@@ -219,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "hook_url": hook_url,
         "sandbox": sandbox_name,
+        "launch_mode": args.launch_mode,
         "elapsed_s": round(elapsed, 3),
         "response": response,
         "wait": wait_report,
@@ -234,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     ok = _response_ok(response)
-    if wait_report.get("waited"):
+    if args.launch_mode == "hook" and wait_report.get("waited"):
         ok = ok and bool(wait_report.get("ok"))
     print(json.dumps(report, indent=2))
     return 0 if ok else 1

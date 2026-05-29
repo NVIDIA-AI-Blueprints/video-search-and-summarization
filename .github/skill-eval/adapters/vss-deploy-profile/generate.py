@@ -299,12 +299,12 @@ def generate_nemoclaw_launcher_instruction(profile: str, platform: str) -> str:
         "python3 .github/skill-eval/nemoclaw/headless_runner.py \\",
         "  --prompt-file /tests/nemoclaw_prompt.md \\",
         "  --log-dir /logs/artifacts/nemoclaw \\",
-        "  --timeout 2400 \\",
-        f"  --wait-profile {deploy_profile(profile)}",
+        "  --launch-mode cli \\",
+        "  --timeout 1800",
         "```",
         "",
         f"The NemoClaw prompt deploys the `{profile}` profile on `{platform}` through the VSS Orchestrator MCP server.",
-        "After the command exits, report whether the hook launch was accepted.",
+        "After the command exits, report whether the OpenClaw CLI launch completed.",
     ]) + "\n"
 
 
