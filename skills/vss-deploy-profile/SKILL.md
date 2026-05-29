@@ -38,7 +38,7 @@ Match the user's request to a profile, then load that profile's reference for si
 # 2. Apply env overrides to generated.env  (source .env stays untouched)
 # 3. docker compose --env-file generated.env config > resolved.yml      (dry-run)
 # 4. Review resolved.yml
-# 5. docker compose -f resolved.yml up -d
+# 5. docker compose --env-file generated.env -f resolved.yml up -d
 ```
 
 The source `.env` is treated as **read-only defaults** committed to the repo. The skill's per-deploy working copy is `generated.env` — same pattern `dev-profile.sh` uses internally. This keeps the checked-in `.env` clean across iterations.
@@ -120,28 +120,47 @@ ask the user *"Use NGC account `${org}/${team}` for the deploy?"*
 before exporting. Same pattern for `$HF_TOKEN` via
 `~/.cache/huggingface/token`.
 
-**Probes (fail fast on 401/403):**
+**Probes (fail fast on 401/403).** Each probe runs only when its key is
+set; an unset key prints `skip` (it may simply not be required for the
+chosen mode — see the gate below).
 
 ```bash
 # NGC — local NIM image pulls
-[ -n "$NGC_CLI_API_KEY" ] && curl -sf -u "\$oauthtoken:$NGC_CLI_API_KEY" \
-  "https://authn.nvidia.com/token?service=ngc" >/dev/null \
-  && echo "NGC_CLI_API_KEY ok" || echo "NGC_CLI_API_KEY missing/invalid"
+if [ -n "$NGC_CLI_API_KEY" ]; then
+  curl -sf -u "\$oauthtoken:$NGC_CLI_API_KEY" \
+    "https://authn.nvidia.com/token?service=ngc" >/dev/null \
+    && echo "NGC_CLI_API_KEY ok" || echo "NGC_CLI_API_KEY invalid (401/403)"
+else
+  echo "NGC_CLI_API_KEY not set — skip (required for any local NIM)"
+fi
 
 # build.nvidia.com — remote NIM endpoints
-[ -n "$NVIDIA_API_KEY" ] && curl -sf -H "Authorization: Bearer $NVIDIA_API_KEY" \
-  "https://integrate.api.nvidia.com/v1/models" >/dev/null \
-  && echo "NVIDIA_API_KEY ok" || echo "NVIDIA_API_KEY missing/invalid"
+if [ -n "$NVIDIA_API_KEY" ]; then
+  curl -sf -H "Authorization: Bearer $NVIDIA_API_KEY" \
+    "https://integrate.api.nvidia.com/v1/models" >/dev/null \
+    && echo "NVIDIA_API_KEY ok" || echo "NVIDIA_API_KEY invalid (401/403)"
+else
+  echo "NVIDIA_API_KEY not set — skip (required only for remote NIM)"
+fi
 
 # HF — edge only (gated Edge 4B)
-[ -n "$HF_TOKEN" ] && [ "$(curl -sf -o /dev/null -w '%{http_code}' \
+if [ -n "$HF_TOKEN" ]; then
+  status=$(curl -sf -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer $HF_TOKEN" \
-    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")" = "200" ] \
-  && echo "HF_TOKEN ok" || echo "HF_TOKEN missing/invalid or no access"
+    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")
+  [ "$status" = "200" ] \
+    && echo "HF_TOKEN ok" \
+    || echo "HF_TOKEN invalid or no access to gated Edge 4B (HTTP $status)"
+else
+  echo "HF_TOKEN not set — skip (required only on edge with Edge 4B)"
+fi
 ```
 
-On any failure — prompt the user for the missing key and re-probe.
-Do **not** proceed to Step 1 with a missing or 401-ing credential.
+Map the results against what the chosen mode needs (Required-by-mode
+list above): a key reported `invalid` that the mode needs, or a `skip`
+for a key the mode **requires**, is a blocker — prompt the user, re-probe,
+and do **not** proceed to Step 1 until it resolves. A `skip` for a key the
+mode does not use is fine.
 
 ### Step 1 — Gather context
 
@@ -300,7 +319,7 @@ proceed past `up -d` until at least one container exists:
 
 ```bash
 expected=$(docker compose --env-file $ENV_GEN -f resolved.yml config --services | wc -l)
-actual=$(docker compose -f resolved.yml ps --services --format '{{.Name}}' | wc -l)
+actual=$(docker compose -f resolved.yml ps -q | wc -l)
 [ "$actual" -gt 0 ] && [ "$actual" -ge "$expected" ] \
   || { echo "FAIL: expected $expected services, got $actual — re-check Step 5 --env-file"; exit 1; }
 ```
