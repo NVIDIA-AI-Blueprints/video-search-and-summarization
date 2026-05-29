@@ -5,7 +5,7 @@ Specs: 1
 
 ---
 
-## Skill Eval — `skills/vss-deploy-detection-tracking-2d/eval/usage-evals.json`
+## Skill Eval — `skills/vss-deploy-detection-tracking-2d/evals/usage-evals.json`
 
 Head: `e295b02` · 1 platform · spec `4af9517e1022`
 First started: `2026-05-25T18:54:00Z` · Last finished: `2026-05-25T19:45:41Z` · Total: `51m 41s`
