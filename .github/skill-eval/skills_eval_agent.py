@@ -8,8 +8,8 @@ as its system prompt and lets it drive an eval end-to-end:
 adapter/dataset → Brev lock → harbor run → results comment. Two modes:
 
   - Single-spec (push): the `plan` job in skills-eval.yml resolves the PR
-    diff into a matrix of one leg per spec; each leg invokes this script
-    with EVAL_* set and evaluates exactly that one (skill, spec).
+    diff into a matrix of one leg per (spec, platform); each leg invokes
+    this script with EVAL_* set and evaluates exactly that one trial.
   - Manual full-sweep (workflow_dispatch): no diff; enumerate every spec
     on the picked skill(s) and write tables to $GITHUB_STEP_SUMMARY.
 
@@ -30,7 +30,7 @@ Env (set by the workflow step):
     EVAL_SKILL            Single-spec mode: the skill dir name.
     EVAL_SPEC_PATH        Single-spec mode: skills/<skill>/evals/<spec>.json.
     EVAL_SPEC_STEM        Single-spec mode: the spec filename without .json.
-    EVAL_PLATFORMS        Single-spec mode: comma-joined platform keys (display).
+    EVAL_PLATFORM         Single-spec mode: the one platform this leg runs.
     MANUAL_FULL_SWEEP     "1" on workflow_dispatch: full-sweep mode (see above).
     MANUAL_SKILLS_FILTER  Skill name from the dispatch input, or "*" for all.
     ANTHROPIC_*           Agent SDK credentials (sourced from coordinator .env)
@@ -198,7 +198,7 @@ async def run_agent() -> int:
         eval_kind = os.environ.get("EVAL_KIND", "eval")
         eval_skill = _require("EVAL_SKILL")
         eval_spec_path = os.environ.get("EVAL_SPEC_PATH", "")
-        eval_platforms = os.environ.get("EVAL_PLATFORMS", "")
+        eval_platform = os.environ.get("EVAL_PLATFORM", "")
 
     if not AGENTS_MD.exists():
         print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
@@ -282,8 +282,8 @@ bot-PR is open, or `BLOCKED: <reason>` if you could not raise it
 """
     else:
         user_prompt = f"""
-PR #{pr_number}: evaluate exactly ONE spec — `{eval_spec_path}`
-(skill `{eval_skill}`, platforms `{eval_platforms or "see spec"}`).
+PR #{pr_number}: evaluate exactly ONE spec on ONE platform —
+`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
 
 Context:
   repo         = {pr_repo}
@@ -293,14 +293,17 @@ Context:
   workflow run = {run_id}
   working dir  = {REPO_ROOT}
   spec         = {eval_spec_path}
+  platform     = {eval_platform or "(read from spec)"}
+  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
 
 Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
-already selected this spec. Run steps 2–7 for this one spec only:
+already selected this (spec, platform). Run steps 2–7 for it only:
 ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
 (raise a bot-PR per §§ 3a/3c if stale, then exit BLOCKED — never run a
 locally-patched adapter) → generate the dataset → acquire a per-box flock
-on a `vss-eval-*` member matching the spec's platform(s) → run harbor
-synchronously (§ Harbor invocation; never background it) → gather results →
+on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run harbor synchronously for this platform (§ Harbor invocation; never
+background it) → gather results →
 post ONE PR comment for this spec (§ Result comment format). Do NOT touch
 any other spec or skill.
 

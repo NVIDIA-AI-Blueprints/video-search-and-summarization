@@ -24,25 +24,28 @@ step 3 with the spec you were given.
 ## Per-leg scratch isolation (read before any path below)
 
 Many legs share one runner host and one `GITHUB_RUN_ID`, so **every**
-runner-local path is scoped by `<run_id>/<leg-slug>` to keep concurrent
+runner-local path is scoped by `<leg-slug>/<run_id>` to keep concurrent
 legs (and concurrent PR runs) from clobbering each other's datasets,
-results, or viewer entries. The `leg-slug` is `<skill>__<spec_stem>`:
+results, or viewer entries. The `leg-slug` is the unique trial identity
+`<skill>__<spec_stem>__<platform>` (e.g.
+`vss-deploy-profile__base__RTXPRO6000BW`):
 
-- **Single-spec mode:** it's `$EVAL_SLUG` (exported by the workflow).
-  Set the two roots once, up front.
+- **Single-spec mode:** it's `$EVAL_SLUG` (exported by the workflow); the
+  leg is already pinned to one `(spec, platform)`. Set the roots once.
 - **Manual-sweep mode:** there is no `$EVAL_SLUG`; one process owns the
-  host so cross-leg collisions can't happen, but still set
-  `LEG="${skill}__${spec_stem}"` (and the roots below) **per spec** as
-  you iterate, so each spec's scratch is separated.
+  host, but still set `LEG="${skill}__${spec_stem}__${platform}"` (and
+  the roots below) **per (spec, platform)** as you iterate, so each
+  trial's scratch is separated.
 
 ```bash
-LEG="${EVAL_SLUG:-${skill}__${spec_stem}}"
-DS="/tmp/skill-eval/datasets/${GITHUB_RUN_ID}/${LEG}"     # this leg's datasets
-RES="/tmp/skill-eval/results/${GITHUB_RUN_ID}/${LEG}"     # this leg's harbor -o
+LEG="${EVAL_SLUG:-${skill}__${spec_stem}__${platform}}"
+DS="/tmp/skill-eval/datasets/${LEG}/${GITHUB_RUN_ID}"    # this leg's datasets
+RES="/tmp/skill-eval/results/${LEG}/${GITHUB_RUN_ID}"    # this leg's harbor -o
 ```
 
-The brev snapshot is per-leg too (`brev-snapshot-${LEG}.json`) so a
-sibling's `brev ls` can't half-overwrite yours.
+Slug-first ordering groups every run of one trial under one `<slug>/`
+dir (handy for history); `<run_id>` underneath isolates this run. The
+brev snapshot is per-leg too (`brev-snapshot-${LEG}.json`).
 
 ## Startup hygiene (do this first, before step 1)
 
@@ -52,17 +55,18 @@ a global wipe, which would delete a concurrent sibling's live dataset:
 ```bash
 rm -rf "$DS" "$RES" && mkdir -p "$DS" "$RES"
 
-# GC scratch from OTHER runs (different run_id), but never the current
-# run's sibling legs or the shared viewer. Age-gate so an in-flight
-# run isn't touched.
+# GC scratch from OTHER runs (different run_id under any slug), but never
+# this run's dirs or the shared viewer. Depth 2 = the <slug>/<run_id>
+# level; age-gate so an in-flight run isn't touched.
 find /tmp/skill-eval/datasets /tmp/skill-eval/results \
-  -mindepth 1 -maxdepth 1 -type d \
-  ! -name "${GITHUB_RUN_ID}" ! -name "_viewer" -mmin +720 -exec rm -rf {} + 2>/dev/null || true
+  -mindepth 2 -maxdepth 2 -type d \
+  ! -path '*/_viewer/*' ! -name "${GITHUB_RUN_ID}" -mmin +720 \
+  -exec rm -rf {} + 2>/dev/null || true
 ```
 
-Never read another run's `results/<other_id>/` to infer "what used to
-work" — that path belongs to a different run and may be stale. The
-canonical harbor command is in § Harbor invocation.
+Never read another run's `results/<slug>/<other_id>/` to infer "what
+used to work" — that path belongs to a different run and may be stale.
+The canonical harbor command is in § Harbor invocation.
 
 ## Your job, in order
 
@@ -613,20 +617,20 @@ dataset for that spec, rerun. Do not start modifying flags.
 serving the **shared, fixed** `/tmp/skill-eval/results/_viewer`,
 tunneled to `https://harbor-<BREV_ENV_ID>.brevlab.com`. For the viewer
 to pick up a trial, its directory must live under
-`/tmp/skill-eval/results/_viewer/<run_id>__<leg-slug>__<date>/` as a
+`/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>/` as a
 **real dir (not a symlink)**, flattened — no nested `<date>/` level.
 The `<leg-slug>` keeps concurrent legs from colliding on one viewer
 entry. Migrate from this leg's scoped results root:
 
 ```bash
-mv "$RES/<date>" "/tmp/skill-eval/results/_viewer/${GITHUB_RUN_ID}__${LEG}__<date>"
+mv "$RES/<date>" "/tmp/skill-eval/results/_viewer/${LEG}__${GITHUB_RUN_ID}__<date>"
 ```
 
 Do this between trials so each new trial's traces are reachable
 via the SPA URL:
 
 ```
-https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<leg-slug>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<leg-slug>__<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
 **CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
@@ -641,7 +645,7 @@ When generating the URL, read the value from the runner env
 from `brev ls` output.
 
 Values for `<source>` / `<agent>` / `<model>` / `<task>` come from
-`GET http://localhost:8080/api/jobs/<run_id>__<leg-slug>__<date>/tasks`;
+`GET http://localhost:8080/api/jobs/<leg-slug>__<run_id>__<date>/tasks`;
 slashes in `<model>` and `<task>` must be URL-encoded (`%2F`).
 
 ### Per-trial trajectory isolation
@@ -801,18 +805,19 @@ separate; don't conflate the two.
 ## Single-spec mode
 
 This is the push path. The `plan` job (`plan_matrix.py`) already diffed
-the PR and resolved it into one matrix leg per spec, so your leg is
-handed exactly one target via env — you do **not** diff or loop. Two
-leg kinds:
+the PR and resolved it into one matrix leg per `(spec, platform)`, so
+your leg is handed exactly one target via env — you do **not** diff or
+loop. Two leg kinds:
 
-- **`EVAL_KIND=eval`** — `EVAL_SKILL` + `EVAL_SPEC_PATH` name the one
-  spec to evaluate. **Skip step 1** (the plan already selected it). Run
-  steps 3–7 for this spec only: ensure/refresh its adapter (stale →
-  bot-PR per §§ 3a/3c, then `BLOCKED:` — never run a locally-patched
-  adapter), generate the dataset, lock a matching box (§ 5a), run harbor
-  (§ Harbor invocation), and post the **one** comment for this spec
-  (§ Result comment format). Never touch another spec or skill. End with
-  `DONE:` (after the comment) or `BLOCKED:`.
+- **`EVAL_KIND=eval`** — `EVAL_SKILL` + `EVAL_SPEC_PATH` + `EVAL_PLATFORM`
+  name the one `(spec, platform)` to evaluate. **Skip step 1** (the plan
+  already selected it). Run steps 3–7 for this `(spec, platform)` only:
+  ensure/refresh its adapter (stale → bot-PR per §§ 3a/3c, then
+  `BLOCKED:` — never run a locally-patched adapter), generate the
+  dataset, lock a box matching `$EVAL_PLATFORM` (§ 5a), run harbor for
+  that platform (§ Harbor invocation), and post the **one** comment for
+  this spec (§ Result comment format). Never touch another spec, skill,
+  or platform. End with `DONE:` (after the comment) or `BLOCKED:`.
 
 - **`EVAL_KIND=missing_adapter`** — `EVAL_SKILL` has eval specs but no
   `adapters/<skill>/generate.py`. The plan collapsed the skill's specs

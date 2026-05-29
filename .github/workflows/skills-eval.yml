@@ -5,8 +5,8 @@
 #
 # push to pull-request/<N>:
 #   plan  -> computes the (skill, spec) matrix from the PR diff
-#   eval  -> one leg per spec, each leg runs skills_eval_agent.py in
-#            single-spec mode (foreground agent, one synchronous harbor
+#   eval  -> one leg per (spec, platform), each leg runs skills_eval_agent.py
+#            in single-spec mode (foreground agent, one synchronous harbor
 #            run), posts its own PR comment per AGENTS.md.
 # workflow_dispatch:
 #   manual-sweep -> the legacy single-agent full sweep (no matrix),
@@ -107,7 +107,7 @@ jobs:
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
-  # eval — one leg per spec. Each leg runs the agent for a single spec.
+  # eval — one leg per (spec, platform). Each leg runs the agent once.
   # ---------------------------------------------------------------------
   eval:
     name: ${{ matrix.name }}
@@ -169,12 +169,11 @@ jobs:
           export EVAL_SKILL="${{ matrix.skill }}"
           export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
-          export EVAL_PLATFORMS="${{ matrix.platforms }}"
-          # Per-leg scratch scope. All legs of one run share GITHUB_RUN_ID
-          # and (on a single host) the same /tmp/skill-eval tree, so the
-          # agent keys datasets/results/viewer under <run_id>/<slug> to
-          # keep concurrent legs from clobbering each other (AGENTS.md
-          # § "Per-leg scratch isolation").
+          export EVAL_PLATFORM="${{ matrix.platform }}"
+          # Per-leg scratch scope. Every leg keys its datasets/results/
+          # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
+          # so concurrent legs — and concurrent PR runs on the same host —
+          # never collide (AGENTS.md § "Per-leg scratch isolation").
           export EVAL_SLUG="${{ matrix.slug }}"
           # `.github` isn't a valid Python package prefix; expose the
           # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
@@ -188,10 +187,10 @@ jobs:
           EVAL_SLUG: ${{ matrix.slug }}
         run: |
           # This leg's harbor output lives under its own scratch scope,
-          # /tmp/skill-eval/results/<run_id>/<slug>/, so the artifact
-          # carries only this spec's trials (not siblings'). missing_adapter
-          # / blocker legs finish without a results dir — a valid outcome.
-          LEG_RESULTS="/tmp/skill-eval/results/${GITHUB_RUN_ID}/${EVAL_SLUG}"
+          # /tmp/skill-eval/results/<slug>/<run_id>/, so the artifact
+          # carries only this (spec,platform)'s trials. missing_adapter /
+          # blocker legs finish without a results dir — a valid outcome.
+          LEG_RESULTS="/tmp/skill-eval/results/${EVAL_SLUG}/${GITHUB_RUN_ID}"
           if [ ! -d "$LEG_RESULTS" ]; then
             echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
             exit 0
@@ -206,7 +205,7 @@ jobs:
           RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
             tar czf /tmp/skills-eval-results.tar.gz \
-              -C "/tmp/skill-eval/results/${GITHUB_RUN_ID}" --exclude='agent' "$EVAL_SLUG"
+              -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
             echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
           else
             echo "results dir exists but empty — nothing to archive"

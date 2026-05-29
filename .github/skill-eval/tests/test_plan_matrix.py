@@ -50,7 +50,8 @@ class BuildMatrix(unittest.TestCase):
 
         plan_matrix.specs_for_skill = lambda s: FAKE_SPECS.get(s, [])
         plan_matrix.adapter_exists = lambda s: s in SKILLS_WITH_ADAPTERS
-        plan_matrix.spec_platforms = lambda p: "L40S"
+        # One platform per spec by default; overridden in the multi test.
+        plan_matrix.spec_platforms = lambda p: ["L40S"]
         # All explicitly-changed spec paths in these tests "exist".
         plan_matrix.Path.is_file = lambda self: True  # type: ignore
 
@@ -101,6 +102,21 @@ class BuildMatrix(unittest.TestCase):
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["kind"], "missing_adapter")
         self.assertEqual(inc[0]["slug"], "vss-no-adapter__missing-adapter")
+
+    def test_slug_carries_platform(self):
+        inc = plan_matrix.build_matrix(["skills/vss-search-archive/evals/search.json"])
+        self.assertEqual(len(inc), 1)
+        self.assertEqual(inc[0]["platform"], "L40S")
+        self.assertEqual(inc[0]["slug"], "vss-search-archive__search__L40S")
+
+    def test_multi_platform_spec_fans_into_one_leg_per_platform(self):
+        plan_matrix.spec_platforms = lambda p: ["L40S", "RTXPRO6000BW"]
+        inc = plan_matrix.build_matrix(["skills/vss-search-archive/evals/search.json"])
+        self.assertEqual(
+            sorted(leg["slug"] for leg in inc),
+            ["vss-search-archive__search__L40S",
+             "vss-search-archive__search__RTXPRO6000BW"],
+        )
 
     def test_mixed_skills_sorted_and_scoped(self):
         inc = plan_matrix.build_matrix([

@@ -88,18 +88,21 @@ def adapter_exists(skill: str) -> bool:
     return (ADAPTERS_DIR / skill / "generate.py").is_file()
 
 
-def spec_platforms(spec_path: str) -> str:
-    """Comma-joined platform keys from a spec's resources.platforms.
+def spec_platforms(spec_path: str) -> list[str]:
+    """Sorted platform keys from a spec's resources.platforms.
 
-    Best-effort and display-only — the leg's agent re-reads the spec. A
-    malformed or platform-less spec yields "" rather than crashing the plan.
+    One matrix leg is emitted per platform (the slug carries it), so a
+    two-platform spec fans into two legs. A malformed or platform-less
+    spec yields [] — the plan emits a single platform-less leg so the
+    agent surfaces the `missing_platforms_declaration` blocker rather
+    than the plan crashing.
     """
     try:
         data = json.loads((REPO_ROOT / spec_path).read_text())
         platforms = data.get("resources", {}).get("platforms", {})
-        return ",".join(sorted(platforms)) if isinstance(platforms, dict) else ""
+        return sorted(platforms) if isinstance(platforms, dict) else []
     except (OSError, ValueError):
-        return ""
+        return []
 
 
 def build_matrix(changed: list[str]) -> list[dict]:
@@ -160,24 +163,28 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "skill": skill,
                 "spec_path": "",
                 "spec_stem": "missing-adapter",
+                "platform": "",
                 "kind": "missing_adapter",
-                "platforms": "",
-                # `slug` is the GH-safe key for the per-leg artifact name.
+                # `slug` is the unique per-leg key: path scope + artifact
+                # name. For a real trial it's skill__spec_stem__platform.
                 "slug": f"{skill}__missing-adapter",
                 "name": f"{skill} · missing-adapter",
             })
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
-            include.append({
-                "skill": skill,
-                "spec_path": meta["spec_path"],
-                "spec_stem": meta["spec_stem"],
-                "eval_dir": meta["eval_dir"],
-                "platforms": spec_platforms(meta["spec_path"]),
-                "kind": "eval",
-                "slug": f"{skill}__{meta['spec_stem']}",
-                "name": f"{skill} · {meta['spec_stem']}",
-            })
+            platforms = spec_platforms(meta["spec_path"]) or [""]
+            for platform in platforms:
+                plat_tag = platform or "no-platform"
+                include.append({
+                    "skill": skill,
+                    "spec_path": meta["spec_path"],
+                    "spec_stem": meta["spec_stem"],
+                    "eval_dir": meta["eval_dir"],
+                    "platform": platform,
+                    "kind": "eval",
+                    "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
+                    "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
+                })
     return include
 
 

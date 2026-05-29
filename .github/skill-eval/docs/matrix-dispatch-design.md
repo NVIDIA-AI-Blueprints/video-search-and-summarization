@@ -53,7 +53,7 @@ push to pull-request/<N>
                 │ needs.plan.outputs.matrix
                 ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ eval  (strategy.matrix, one leg per spec)                      │
+│ eval  (strategy.matrix, one leg per (spec, platform))          │
 │  runs-on: [self-hosted, vss-skill-eval-runner]                 │
 │  fail-fast: false   max-parallel: <≈ box count>                │
 │                                                                │
@@ -106,17 +106,17 @@ skipped and the workflow is a green no-op (same as today's
 
 ## Matrix granularity
 
-One leg = one **spec** (`one spec → one runner`, as requested). A spec
-that declares multiple `resources.platforms` is handled **within** its
-leg by that leg's agent (it runs each platform on a matching box), the
-same way the single agent handles a multi-platform spec today. We do
-**not** explode `(spec × platform)` into separate legs in v1 — that's a
-possible future refinement if a single multi-platform spec becomes the
-long pole.
+One leg = one **`(spec, platform)`**. `plan_matrix.py` explodes each
+spec into one leg per entry in its `resources.platforms`, so the leg
+slug `<skill>__<spec_stem>__<platform>` is a unique trial identity and
+maps 1:1 to a single harbor target. All in-tree specs are single-platform
+today, so this is the same leg count as per-spec — but it generalizes
+cleanly to multi-platform specs (each platform parallelizes onto its own
+runner) and makes the per-`(spec,platform)` output root automatic.
 
 `max-parallel` is capped near the `vss-eval-*` box count so legs don't
 all grab runner slots only to block on `flock`. `fail-fast: false` so one
-failing spec doesn't cancel the others.
+failing leg doesn't cancel the others.
 
 ## What changes in code
 
@@ -140,17 +140,20 @@ harbor synchronously.
 - The drop of harness-side profile pre-deploy / `active-deploy.txt`
   marker (this branch's parent change): each trial still deploys its own
   profile in its first agent turn.
-- The artifact tarball step (now per-leg, one artifact per spec:
-  `skills-eval-results-pr-<N>-<spec>-<run_id>.tar.gz`).
+- The artifact tarball step (now per-leg, one artifact per
+  `(spec,platform)`: `skills-eval-results-pr-<N>-<slug>-<run_id>.tar.gz`,
+  `slug = skill__spec_stem__platform`).
 
 ## Concurrency / shared-state isolation
 
 All legs of one run share `GITHUB_RUN_ID` and — on a single runner host —
 the same `/tmp/skill-eval/` tree. So every runner-local path is scoped by
-`<run_id>/<leg-slug>` (`leg-slug = <skill>__<spec_stem>`, == `$EVAL_SLUG`):
-`datasets/<run_id>/<slug>/`, `results/<run_id>/<slug>/`, the viewer entry
-`_viewer/<run_id>__<slug>__<date>/`, and `brev-snapshot-<slug>.json`. The
-old global `rm -rf datasets/*` startup wipe is gone (it would delete a
+`<leg-slug>/<run_id>` (`leg-slug = <skill>__<spec_stem>__<platform>`,
+== `$EVAL_SLUG`): `datasets/<slug>/<run_id>/`, `results/<slug>/<run_id>/`,
+the viewer entry `_viewer/<slug>__<run_id>__<date>/`, and
+`brev-snapshot-<slug>.json`. Slug-first groups every run of one trial
+under one `<slug>/` dir (history); `<run_id>` underneath isolates the run.
+The old global `rm -rf datasets/*` startup wipe is gone (it would delete a
 concurrent sibling's live dataset) — each leg cleans only its own scratch
 and age-GCs *other* run_ids. `run_id` is in the key too, so two different
 PRs' runs on the same host don't collide either.
