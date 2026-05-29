@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying multi-camera 3D object detection and tracking using the RTVI-CV-3D (MV3DT) stack from the NVIDIA AI Blueprint for Video Search and Summarization. <br>
+Developers and engineers deploying multi-camera 3D object detection and tracking pipelines using the NVIDIA Video Search and Summarization warehouse blueprint. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,13 +20,12 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [Deploy RTVI-CV-3D Stack](references/deploy-rtvi-cv-3d-stack.md) <br>
-- [Calibration Workflow](references/calibration-workflow.md) <br>
-- [Configure Cameras](references/configure-cameras.md) <br>
-- [Verify and View](references/verify-and-view.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
-- [Teardown](references/teardown.md) <br>
+- [Video Search and Summarization GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [deploy-rtvi-cv-3d-stack.md](references/deploy-rtvi-cv-3d-stack.md) <br>
+- [calibration-workflow.md](references/calibration-workflow.md) <br>
+- [configure-cameras.md](references/configure-cameras.md) <br>
+- [verify-and-view.md](references/verify-and-view.md) <br>
+- [troubleshooting.md](references/troubleshooting.md) <br>
 
 
 ## Skill Output: <br>
@@ -36,7 +35,7 @@ Mitigation: Review and scan skill before deployment. <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Tasks: <br>
-Evaluated via NVSkills-Eval (profile: `external`). Tier 1 static validation: 9 checks, 13 findings. Tier 2 deduplication: 2 checks, 1 finding. Tier 3 live agent evaluation: not available. <br>
+3-Tier NVSkills-Eval benchmark (external profile); Tier 1 static validation (9 checks, 13 findings) and Tier 2 deduplication (2 checks, 0 findings) completed. Tier 3 live agent evaluation not available. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>

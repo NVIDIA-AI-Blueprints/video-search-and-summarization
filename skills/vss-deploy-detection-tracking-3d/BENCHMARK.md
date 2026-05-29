@@ -9,7 +9,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 - Skill: `vss-deploy-detection-tracking-3d`
 - Evaluation date: 2026-05-29
 - NVSkills-Eval profile: `external`
-- Overall verdict: FAIL
+- Overall verdict: PASS
 - Tier 3 live agent evaluation: not available in this report
 
 ## Agents Used
@@ -44,22 +44,21 @@ Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found
 
 Top findings:
 
-- MEDIUM PII/gps_coordinates: GPS coordinates (location information) (`references/calibration-workflow.md:217`)
-- MEDIUM PII/gps_coordinates: GPS coordinates (location information) (`references/calibration-workflow.md:222`)
+- MEDIUM PII/gps_coordinates: GPS coordinates (location information) (`references/calibration-workflow.md:219`)
+- MEDIUM PII/gps_coordinates: GPS coordinates (location information) (`references/calibration-workflow.md:224`)
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM QUALITY/quality_discoverability: Description uses first/second person (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in teardown.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in troubleshooting.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 1 total findings.
+Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
 
-Top findings:
+Notable observations:
 
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/troubleshooting.md and references/verify-and-view.md:
-  "# MV3DT troubleshooting" in references/troubleshooting.md (lines 1-4)
-  vs "## When something is wrong" in references/verify-and-view.md (lines 198-200) (`references/troubleshooting.md:1`)
+- Context Deduplication: Collected 7 file(s)
+- Inter-Skill Deduplication: Parsed skill 'vss-deploy-detection-tracking-3d': 787 char description
 
 ## Publication Recommendation
 
-The skill should be reviewed before NVSkills-Eval publication. Skill owners should address the findings above and rerun NVSkills-Eval to refresh this benchmark.
+The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.
