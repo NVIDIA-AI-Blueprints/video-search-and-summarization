@@ -63,7 +63,7 @@ Configurations are JSON files consumed by `AppConfig` (`src/mdx/analytics/core/s
 - All incident types (proximity, restricted area, confined area, FOV count) default to disabled (`...IncidentEnable = "false"`). Set the corresponding `...IncidentEnable = "true"` to turn them on.
 - Each type has its own `...Threshold` (duration in sec) and `...ExpirationWindow` (gap tolerance in sec); both default to `"1"`.
 - FOV count additionally requires `fovCountViolationIncidentObjectThreshold` — the object type being counted.
-- Details and timing: `readmes/incident-detection.md`.
+- Details and timing: `docs/incident-detection.md`.
 
 ## Examples directory
 - `configs/smart_city_config*.json`
@@ -71,7 +71,6 @@ Configurations are JSON files consumed by `AppConfig` (`src/mdx/analytics/core/s
 - `configs/warehouse_3d_config.json`
 - `configs/public_safety_config.json`
 - `configs/frame_playback_config.json`
-- `configs/rtls_amr_playback_config.json`
 
 ## Messaging blocks
 - Kafka: brokers, group, topics under `kafka`.
