@@ -60,6 +60,10 @@ class CommandResult(NamedTuple):
     stderr: str
 
 
+class InfrastructureBlocked(RuntimeError):
+    """Raised when CI infra capacity prevents the smoke from running."""
+
+
 def _run(cmd: list[str], *, timeout: int = 60, env: dict[str, str] | None = None) -> CommandResult:
     proc = subprocess.run(
         cmd,
@@ -129,6 +133,20 @@ def _instance_candidates(
     return [name for _, name in sorted(candidates)]
 
 
+def _summarize_instances(instances: list[dict[str, Any]]) -> str:
+    rows: list[str] = []
+    for inst in instances:
+        name = str(inst.get("name") or "")
+        if not name.startswith("vss-eval-"):
+            continue
+        status = " ".join(str(inst.get(key) or "") for key in ("status", "state")).strip()
+        gpu = str(inst.get("gpu") or "").strip()
+        instance_type = str(inst.get("instance_type") or inst.get("type") or "").strip()
+        details = ", ".join(part for part in (status, gpu, instance_type) if part)
+        rows.append(f"{name} ({details or 'no metadata'})")
+    return "; ".join(rows) if rows else "<no vss-eval-* workers visible>"
+
+
 def _generate_dataset(profile: str, platform: str, dataset_root: Path) -> None:
     shutil.rmtree(dataset_root, ignore_errors=True)
     env = os.environ.copy()
@@ -156,10 +174,10 @@ def _generate_dataset(profile: str, platform: str, dataset_root: Path) -> None:
 def _list_instances() -> list[dict[str, Any]]:
     result = _run(["brev", "ls", "--json"], timeout=45)
     if result.returncode != 0:
-        raise RuntimeError(f"brev ls --json failed: {result.stderr[-500:]}")
+        raise InfrastructureBlocked(f"brev ls --json failed: {result.stderr[-500:]}")
     instances = _parse_brev_json(result.stdout)
     if not instances:
-        raise RuntimeError("brev ls --json returned no parseable instances")
+        raise InfrastructureBlocked("brev ls --json returned no parseable instances")
     return instances
 
 
@@ -206,13 +224,16 @@ def _select_and_lock_instance(
         else:
             instances = _list_instances()
             candidates = _instance_candidates(instances, platform=platform, gpu_count=gpu_count)
+            inventory = _summarize_instances(instances)
         print(
             "[nemoclaw-ci] candidate workers:",
             ", ".join(candidates) if candidates else "<none>",
             flush=True,
         )
         if not candidates:
-            raise RuntimeError(f"no running vss-eval-* candidate for {platform}")
+            raise InfrastructureBlocked(
+                f"no running vss-eval-* candidate for {platform}; visible workers: {inventory}"
+            )
 
         for candidate in candidates:
             if not _reachable(candidate):
@@ -225,7 +246,7 @@ def _select_and_lock_instance(
             print(f"[nemoclaw-ci] skipping locked candidate {candidate}", flush=True)
 
         if time.time() >= deadline:
-            raise RuntimeError(
+            raise InfrastructureBlocked(
                 "lock timeout: no reachable unlocked worker for "
                 f"{platform} after {timeout_s}s"
             )
@@ -337,6 +358,24 @@ def _append_summary(
         f"- Reward: `{reward if reward is not None else 'missing'}`",
         f"- Reward path: `{reward_path if reward_path else 'missing'}`",
         f"- Harbor log: `{log_path}`",
+        "",
+    ]
+    with Path(summary_path).open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(body))
+
+
+def _append_blocked_summary(*, reason: str, profile: str, platform: str) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    body = [
+        "## NemoClaw VSS Skill Eval",
+        "",
+        "- Status: `BLOCKED`",
+        f"- Scenario: `vss-deploy-profile / {profile} / {platform}`",
+        f"- Reason: `{reason}`",
+        "",
+        "This is an infrastructure/capacity blocker, not a skill regression.",
         "",
     ]
     with Path(summary_path).open("a", encoding="utf-8") as handle:
@@ -476,6 +515,11 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
         return 1
+    except InfrastructureBlocked as exc:
+        reason = str(exc)
+        print(f"BLOCKED: NemoClaw smoke infra blocked: {reason}", file=sys.stderr, flush=True)
+        _append_blocked_summary(reason=reason, profile=args.profile, platform=args.platform)
+        return 0
     except Exception as exc:  # noqa: BLE001
         print(f"BLOCKED: NemoClaw smoke setup failed: {exc}", file=sys.stderr, flush=True)
         if os.environ.get("GITHUB_STEP_SUMMARY"):
