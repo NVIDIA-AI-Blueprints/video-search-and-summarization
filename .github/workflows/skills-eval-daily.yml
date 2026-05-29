@@ -191,7 +191,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # Folded scalar to stay under yamllint's 200-char line cap.
-          name: skills-eval-daily-results-${{ github.event.repository.updated_at }}-${{ github.run_id }}
+          name: skills-eval-daily-results-${{ github.run_id }}
           path: /tmp/skills-eval-daily-results.tar.gz
           if-no-files-found: ignore
           retention-days: 7
