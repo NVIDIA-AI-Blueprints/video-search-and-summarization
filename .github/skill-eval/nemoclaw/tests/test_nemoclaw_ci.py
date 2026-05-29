@@ -52,6 +52,10 @@ readiness = load_module(
     "nemoclaw_readiness",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "readiness.py",
 )
+smoke_runner = load_module(
+    "nemoclaw_smoke_runner",
+    REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "smoke_runner.py",
+)
 skills_eval_agent = load_module(
     "skills_eval_agent",
     REPO_ROOT / ".github" / "skill-eval" / "skills_eval_agent.py",
@@ -265,6 +269,45 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(report["response"]["error_type"], "RuntimeError")
         self.assertIn("forward down", report["response"]["error"])
+
+
+class NemoClawSmokeRunnerTest(unittest.TestCase):
+    def test_brev_json_parser_ignores_trailing_cli_text(self):
+        raw = '[{"name":"vss-eval-rtx-1g-2","status":"RUNNING READY"}]\nNext steps...'
+
+        parsed = smoke_runner._parse_brev_json(raw)
+
+        self.assertEqual(parsed[0]["name"], "vss-eval-rtx-1g-2")
+
+    def test_instance_candidates_prefer_matching_gpu_partition(self):
+        instances = [
+            {
+                "name": "vss-eval-rtx-2g",
+                "status": "RUNNING READY",
+                "gpu": "RTX PRO 6000",
+                "instance_type": "g7e.12xlarge",
+            },
+            {
+                "name": "vss-eval-rtx-1g-2",
+                "status": "RUNNING READY",
+                "gpu": "RTX PRO 6000",
+                "instance_type": "g7e.4xlarge",
+            },
+            {
+                "name": "personal-rtx",
+                "status": "RUNNING READY",
+                "gpu": "RTX PRO 6000",
+            },
+        ]
+
+        candidates = smoke_runner._instance_candidates(
+            instances,
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+        )
+
+        self.assertEqual(candidates[0], "vss-eval-rtx-1g-2")
+        self.assertNotIn("personal-rtx", candidates)
 
 
 class OpenClawStreamPatchTest(unittest.TestCase):
