@@ -64,6 +64,17 @@ skills_eval_agent = load_module(
 
 
 class NotebookSetupAdapterTest(unittest.TestCase):
+    def test_sidecar_manifest_matches_current_notebook_cells(self):
+        manifest_path = REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "notebook_cells.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        source = json.loads((REPO_ROOT / manifest["notebook"]).read_text(encoding="utf-8"))
+
+        built = notebook_adapter.build_notebook(source, manifest)
+
+        ids = [cell.get("id") for cell in built["cells"]]
+        self.assertIn("ci-parameters", ids)
+        self.assertIn("ci-persist-env", ids)
+
     def test_build_notebook_injects_parameters_before_derived_cell(self):
         source = {
             "nbformat": 4,
