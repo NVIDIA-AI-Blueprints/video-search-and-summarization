@@ -298,6 +298,10 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("PR_HEAD_SHA=abc1234", command)
         self.assertIn("PR_REPO=NVIDIA-AI-Blueprints/video-search-and-summarization", command)
         self.assertNotIn('PR_HEAD_SHA="${PR_HEAD_SHA:-}"', command)
+        self.assertIn('"$REPO/deployments" "$REPO/deploy/docker/data-dir"', command)
+        self.assertIn("sudo rm -rf \"$stale_path\"", command)
+        self.assertIn("git clean failed; repairing checkout ownership", command)
+        self.assertIn("-path \"$REPO/data\" -prune", command)
 
 
 class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
