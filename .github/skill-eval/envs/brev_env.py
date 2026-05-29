@@ -124,6 +124,7 @@ class BrevEnvironment(BaseEnvironment):
     def __init__(self, **kwargs):  # noqa: ANN003
         super().__init__(**kwargs)
         self._instance_name: str | None = DEFAULT_INSTANCE
+        self._task_metadata: dict = {}
         self._started = False
 
     @staticmethod
@@ -177,6 +178,7 @@ class BrevEnvironment(BaseEnvironment):
             return
 
         meta = self._read_task_metadata()
+        self._task_metadata = meta
         requirements = {
             "gpu_type": meta.get("gpu_type"),
             "gpu_count": int(meta.get("gpu_count", 1)),
@@ -1154,6 +1156,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         user: str | int | None = None,
     ) -> ExecResult:
         assert self._instance_name
+        command = self._replace_nemoclaw_launcher_command(command)
 
         is_trial_agent = (
             "claude --verbose --output-format=stream-json" in command
@@ -1261,6 +1264,48 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             if not best_effort:
                 raise
             logger.warning("Remote agent reap failed after interruption: %r", exc)
+
+    def _replace_nemoclaw_launcher_command(self, command: str) -> str:
+        """Replace the outer Claude launcher with a deterministic handoff.
+
+        The NemoClaw task's actual skill exercise happens inside OpenClaw.
+        The outer Harbor Claude process is only supposed to launch that run;
+        in practice it can return early or keep polling an async shell task.
+        Intercepting only the generated NemoClaw launcher command keeps the
+        Harbor lifecycle/result reporting while making the handoff reliable.
+        """
+        meta = self._task_metadata or {}
+        if not _uses_nemoclaw(meta):
+            return command
+        if "headless_runner.py" not in command or "claude" not in command:
+            return command
+
+        timeout_s = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800"))
+        return rf"""set -euo pipefail
+REPO="$HOME/video-search-and-summarization"
+cd "$REPO"
+mkdir -p /logs/agent /logs/artifacts/nemoclaw
+cat > /logs/agent/claude-code.txt <<'__NEMOCLAW_LAUNCHER__'
+NemoClaw direct Harbor launcher.
+
+The outer Claude Code process was intentionally bypassed for this opt-in
+NemoClaw task. The skill evaluation is executed by OpenClaw/NemoClaw using
+the repository skills and the VSS Orchestrator MCP server.
+__NEMOCLAW_LAUNCHER__
+set +e
+python3 .github/skill-eval/nemoclaw/headless_runner.py \
+  --prompt-file /tests/nemoclaw_prompt.md \
+  --log-dir /logs/artifacts/nemoclaw \
+  --launch-mode cli \
+  --timeout {timeout_s} \
+  > /logs/agent/nemoclaw-headless-runner.stdout 2>&1
+rc=$?
+set -e
+cat /logs/agent/nemoclaw-headless-runner.stdout
+printf '\nNemoClaw direct launcher exit code: %s\n' "$rc" >> /logs/agent/claude-code.txt
+cat /logs/agent/nemoclaw-headless-runner.stdout >> /logs/agent/claude-code.txt
+exit "$rc"
+"""
 
 
 # ---------------------------------------------------------------------------

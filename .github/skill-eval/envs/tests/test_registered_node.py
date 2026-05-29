@@ -217,6 +217,54 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("set -euo pipefail\nsource ~/.profile", command)
         self.assertIn("--required-tools vss_orchestrator__docker_up", command)
 
+    async def test_nemoclaw_launcher_bypasses_outer_claude(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env._task_metadata = {"runner": "nemoclaw"}
+            await env.exec(
+                "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
+                timeout_sec=123,
+            )
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn("NemoClaw direct Harbor launcher", command)
+        self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
+        self.assertIn("--launch-mode cli", command)
+        self.assertIn("--prompt-file /tests/nemoclaw_prompt.md", command)
+        self.assertNotIn("claude --print", command)
+
+    async def test_nemoclaw_intercept_only_matches_launcher(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env._task_metadata = {"runner": "nemoclaw"}
+            await env.exec("echo no launcher here", timeout_sec=123)
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn("echo no launcher here", calls[0][1])
+
     async def test_repo_sync_injects_pr_head_from_coordinator_env(self):
         calls = []
 
