@@ -1,0 +1,152 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+# Skills-eval matrix dispatch — design
+
+Status: **proposed** (pre-implementation). Supersedes the single-job
+`skills-eval.yml` that runs one long agent session looping over every
+changed spec.
+
+## Why
+
+Today one agent session, on one runner, sweeps **all** changed specs
+serially inside a single `uvx harbor run` loop. Two problems:
+
+1. **No real parallelism.** A full-PR sweep (~25 specs) runs back-to-back
+   on one box even though the `vss-eval-*` pool has several boxes. The
+   agent's only route to parallelism was to background `harbor` and poll
+   — the exact anti-pattern that produced the exit-code-4 "protocol
+   failure" (one agent burned its turn budget on `sleep && tail` before a
+   cold-box trial finished, then exited with no `DONE:`/`BLOCKED:`).
+2. **One slow/failed spec blocks the rest.** Serial dispatch means a spec
+   that hits the 1 h agent ceiling delays every spec behind it; a crash
+   mid-loop can drop later specs entirely.
+
+## Core idea
+
+Move fan-out from *inside the agent* to *GitHub Actions `strategy.matrix`*.
+Each matrix leg is **one runner driving one foreground agent that
+evaluates exactly one spec**, synchronously. The agent is unchanged in
+substance — same adapter autogeneration, harbor invocation, result
+gathering, comment posting, and analysis — it is simply **scoped to a
+single `(skill, spec)`** instead of looping over all of them.
+
+Parallelism now comes from the matrix + the brev pool: N legs run
+concurrently and contend for hardware-matching boxes via the existing
+per-box `flock`. No leg ever backgrounds work; the SDK-side hardening
+(`disallowed_tools` for `Task*`/`BashOutput`/`KillShell` + a PreToolUse
+hook rejecting `run_in_background`/`&`/`nohup`) guarantees it.
+
+```
+push to pull-request/<N>
+        │
+        ▼
+┌──────────────────────────────────────────────────────────────┐
+│ plan  (lightweight runner, no GPU, no brev)                    │
+│  • diff vs PR base                                             │
+│  • map each changed path → target (skill, spec) set (rules ↓)  │
+│  • cheap missing-adapter check → collapse those skills         │
+│  • emit matrix JSON + has_targets flag                         │
+└───────────────┬──────────────────────────────────────────────┘
+                │ needs.plan.outputs.matrix
+                ▼
+┌──────────────────────────────────────────────────────────────┐
+│ eval  (strategy.matrix, one leg per spec)                      │
+│  runs-on: [self-hosted, vss-skill-eval-runner]                 │
+│  fail-fast: false   max-parallel: <≈ box count>                │
+│                                                                │
+│  each leg:  EVAL_SKILL / EVAL_SPEC set                         │
+│    → foreground agent, single-spec mode (AGENTS.md override)   │
+│    → ensure adapter+dataset → flock a matching box             │
+│    → uvx harbor run (synchronous, this spec only)              │
+│    → gather results → POST ITS OWN per-spec comment            │
+│    → DONE:/BLOCKED:                                            │
+│    → upload this leg's results artifact                        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+There is **no separate report/aggregation job** — each leg posts its own
+comment per `§ Result comment format`, exactly as the single agent does
+today. (Trade-off accepted: N comments per push, in exchange for the
+per-leg agent path staying identical and fully independent.)
+
+## Dispatch rules (the `plan` job)
+
+Given the cumulative diff `base...pull-request/<N>`:
+
+| Changed path | Matrix effect |
+|---|---|
+| `skills/<skill>/evals/<spec>.json` (or legacy `eval/`) | dispatch **just** `(skill, spec)` |
+| any other file under `skills/<skill>/` (SKILL.md, references, skill-card…) | dispatch **all** specs under `<skill>` |
+| `.github/skill-eval/adapters/<skill>/**` | dispatch **all** specs under `<skill>` |
+| `.github/skill-eval/{envs,verifiers}/**`, `skills_eval_agent.py`, `AGENTS.md`, `skills-eval.yml`, `plan_matrix.py` | **skip eval entirely** (harness-only — validate via manual dispatch) |
+
+After collecting the target `(skill, spec)` set:
+
+- **De-dupe.** A spec reached by both "spec changed" and "skill changed"
+  appears once.
+- **Missing-adapter collapse.** For each unique skill in the target set,
+  check `.github/skill-eval/adapters/<skill>/generate.py` exists (cheap
+  file stat, no execution). If it's **missing**, drop that skill's spec
+  legs and emit a single `kind: missing_adapter` leg for the skill. That
+  one leg's agent runs the existing bot-PR flow (§ 3c/3d) — so N specs of
+  an adapterless skill don't race to open N duplicate bot-PRs.
+- **Stale-but-present adapters** are still detected **per-leg** by the
+  agent (staleness can only be known by running the adapter), which then
+  raises the bot-PR for its own skill. Two legs of the same skill both
+  finding the adapter stale is possible but rare; the deterministic
+  bot-branch name `eval-bot/pr-<N>/adapter-<skill>` + `gh pr create`
+  failing-if-exists makes the second attempt a no-op.
+
+If the target set is empty (`has_targets=false`), the `eval` job is
+skipped and the workflow is a green no-op (same as today's
+"nothing under skills/ changed" path).
+
+## Matrix granularity
+
+One leg = one **spec** (`one spec → one runner`, as requested). A spec
+that declares multiple `resources.platforms` is handled **within** its
+leg by that leg's agent (it runs each platform on a matching box), the
+same way the single agent handles a multi-platform spec today. We do
+**not** explode `(spec × platform)` into separate legs in v1 — that's a
+possible future refinement if a single multi-platform spec becomes the
+long pole.
+
+`max-parallel` is capped near the `vss-eval-*` box count so legs don't
+all grab runner slots only to block on `flock`. `fail-fast: false` so one
+failing spec doesn't cancel the others.
+
+## What changes in code
+
+| Component | Change |
+|---|---|
+| `.github/skill-eval/plan_matrix.py` | **new.** Pure-Python, no LLM. Reads the diff (via `gh api …/compare`), applies the rules above, prints `matrix` JSON + `has_targets` to `$GITHUB_OUTPUT`. Unit-testable offline. |
+| `.github/workflows/skills-eval.yml` | **rewrite.** `plan` job → `eval` matrix job. `workflow_dispatch` manual-sweep path retained (still single-agent full sweep to `$GITHUB_STEP_SUMMARY`). |
+| `.github/skill-eval/skills_eval_agent.py` | **small add.** New single-spec mode keyed on `EVAL_SKILL`/`EVAL_SPEC`: skip the diff/detection (plan already decided), build a user prompt scoped to one spec, otherwise reuse the existing SDK session, options, hardening, and DONE/BLOCKED enforcement verbatim. |
+| `.github/skill-eval/AGENTS.md` | **add a "Single-spec mode" section** (parallel to "Manual full-sweep mode"): when `EVAL_SPEC` is set, skip step 1's diff — you are handed exactly one `(skill, spec)`; run steps 2–7 for it only, post the one comment, emit the marker. Everything else (hard rules, fleet selection § 5a, flock § 5b, harbor invocation, result format, failure modes) applies unchanged. |
+
+The background-task removal is already in place (`disallowed_tools` +
+PreToolUse hook); each leg's foreground agent therefore *must* drive
+harbor synchronously.
+
+## Unchanged on purpose
+
+- Per-leg agent logic: adapter autogeneration, bot-PR flow, harbor flags
+  (incl. `--agent-timeout-multiplier 6.0` = 1 h), result-comment format,
+  per-trial metric extraction, failure-mode handling, no `skills/` writes,
+  no instance lifecycle calls.
+- The drop of harness-side profile pre-deploy / `active-deploy.txt`
+  marker (this branch's parent change): each trial still deploys its own
+  profile in its first agent turn.
+- The artifact tarball step (now per-leg, one artifact per spec:
+  `skills-eval-results-pr-<N>-<spec>-<run_id>.tar.gz`).
+
+## Open questions / future
+
+- **(spec × platform) legs** for very long multi-platform specs.
+- **Consolidated comment** — if N per-spec comments prove noisy, add a
+  thin `report` job later; the per-leg artifacts already carry everything
+  a reporter would need.
+- **`max-parallel` tuning** once we see real box contention.

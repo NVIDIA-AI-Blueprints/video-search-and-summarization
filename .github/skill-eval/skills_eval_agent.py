@@ -3,34 +3,36 @@
 # SPDX-License-Identifier: Apache-2.0
 """Skills eval agent — single-shot CI-driven runner.
 
-Called by .github/workflows/skills-eval.yml on push to `pull-request/<N>`
-when files under `skills/` (or the harness itself) change. Spawns one
-`claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md` as its
-system prompt and lets it drive the eval end-to-end: diff →
-adapter/dataset → Brev lock → harbor run → results comment → cleanup.
+Spawns one `claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md`
+as its system prompt and lets it drive an eval end-to-end:
+adapter/dataset → Brev lock → harbor run → results comment. Two modes:
 
-The agent gets Bash/Read/Edit/Write/Glob/Grep. It is explicitly told
-(in AGENTS.md) that it must NOT modify anything under `skills/`.
+  - Single-spec (push): the `plan` job in skills-eval.yml resolves the PR
+    diff into a matrix of one leg per spec; each leg invokes this script
+    with EVAL_* set and evaluates exactly that one (skill, spec).
+  - Manual full-sweep (workflow_dispatch): no diff; enumerate every spec
+    on the picked skill(s) and write tables to $GITHUB_STEP_SUMMARY.
+
+The agent gets Bash/Read/Edit/Write/Glob/Grep, and is explicitly told (in
+AGENTS.md) it must NOT modify anything under `skills/`. Background/task
+tools are disabled (see ClaudeAgentOptions below) so it drives harbor
+synchronously.
 
 Env (set by the workflow step):
-    PR_NUMBER             PR being evaluated, e.g. "100" (push mode; blank on workflow_dispatch)
-    PR_BASE               Base branch, e.g. "develop" (push mode; blank on workflow_dispatch)
+    PR_NUMBER             PR being evaluated, e.g. "100" (blank on workflow_dispatch)
+    PR_BASE               Base branch, e.g. "develop" (blank on workflow_dispatch)
     PR_HEAD_SHA           Mirror or main-branch head SHA (full)
     PR_REPO               "owner/repo"
-    GITHUB_RUN_ID         CI run id (for lock + instance-started tracking)
-    GITHUB_STEP_SUMMARY   Path to a markdown file appended to the Actions run summary
-                          page. The agent writes per-spec results tables here in
-                          manual-sweep mode (no PR to comment on).
-    MANUAL_FULL_SWEEP     "1" when workflow_dispatch fired. Swaps user prompt:
-                          enumerate every skills/<skill>/evals/*.json for the
-                          skill named in MANUAL_SKILLS_FILTER (or all skills when
-                          `*`), write results to $GITHUB_STEP_SUMMARY, never
-                          post `gh pr comment`, never raise bot PRs (missing
-                          adapter is a BLOCKED outcome). Every spec on the
-                          chosen skill(s) runs — no spec-level filter knob.
-    MANUAL_SKILLS_FILTER  Single skill name from the dispatch dropdown, or "*"
-                          for all (default "*"). Validated server-side by GH
-                          Actions against the type:choice enum.
+    GITHUB_RUN_ID         CI run id (lock + results dir scoping)
+    GITHUB_STEP_SUMMARY   Markdown file appended to the Actions run summary;
+                          manual-sweep writes per-spec tables here.
+    EVAL_KIND             Single-spec mode: "eval" or "missing_adapter".
+    EVAL_SKILL            Single-spec mode: the skill dir name.
+    EVAL_SPEC_PATH        Single-spec mode: skills/<skill>/evals/<spec>.json.
+    EVAL_SPEC_STEM        Single-spec mode: the spec filename without .json.
+    EVAL_PLATFORMS        Single-spec mode: comma-joined platform keys (display).
+    MANUAL_FULL_SWEEP     "1" on workflow_dispatch: full-sweep mode (see above).
+    MANUAL_SKILLS_FILTER  Skill name from the dispatch input, or "*" for all.
     ANTHROPIC_*           Agent SDK credentials (sourced from coordinator .env)
     GH_TOKEN              PR comment posting (push mode only)
     NGC_CLI_API_KEY       Local NIM pulls in trials
@@ -185,10 +187,18 @@ async def run_agent() -> int:
         skills_filter = os.environ.get("MANUAL_SKILLS_FILTER", "*").strip().splitlines()[0] if os.environ.get("MANUAL_SKILLS_FILTER", "").strip() else "*"
         step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
     else:
+        # Single-spec mode (push path): the `plan` job already resolved the
+        # diff into one matrix leg, so this run evaluates exactly one
+        # (skill, spec) — no diff, no looping. EVAL_KIND distinguishes a
+        # normal eval leg from a missing-adapter leg (which only raises the
+        # bot-PR). The legacy whole-PR-diff loop is gone; the matrix owns
+        # fan-out now.
         pr_number = _require("PR_NUMBER")
         pr_base = _require("PR_BASE")
-        skills_filter = "*"
-        step_summary = ""
+        eval_kind = os.environ.get("EVAL_KIND", "eval")
+        eval_skill = _require("EVAL_SKILL")
+        eval_spec_path = os.environ.get("EVAL_SPEC_PATH", "")
+        eval_platforms = os.environ.get("EVAL_PLATFORMS", "")
 
     if not AGENTS_MD.exists():
         print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
@@ -245,31 +255,57 @@ When done, emit `DONE: <n>/<total> specs passed; <m> blockers` on the final
 line. If the sweep couldn't proceed at all (e.g. pool exhausted before the
 first trial), emit `BLOCKED: <reason>` instead.
 """
-    else:
+    elif eval_kind == "missing_adapter":
         user_prompt = f"""
-PR #{pr_number} just pushed new commits touching `skills/` (or eval harness code).
+PR #{pr_number}: skill `{eval_skill}` ships eval specs but has NO adapter at
+`.github/skill-eval/adapters/{eval_skill}/generate.py`. The `plan` job
+collapsed every spec on this skill into this one leg so the bot-PR is
+raised exactly once.
 
 Context:
-  repo          = {pr_repo}
-  PR number     = {pr_number}
-  base branch   = {pr_base}
-  mirror head   = {pr_head}
-  workflow run  = {run_id}
-  working dir   = {REPO_ROOT}
+  repo         = {pr_repo}
+  PR number    = {pr_number}
+  base branch  = {pr_base}
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
 
-Your workspace is the repo at `{REPO_ROOT}` (already checked out to the mirror head).
-The coordinator host is vss-skill-validator; Brev CLI is authenticated, Docker is running.
+Per AGENTS.md § "Single-spec mode" (missing-adapter case): generate the
+adapter and raise ONE bot-PR per §§ 3c/3d targeting the source PR's
+`headRefName` (NOT the mirror). Do NOT run any trial — there is no adapter
+on the mirror head to run, and the hard rule forbids running a
+locally-fabricated adapter. Do NOT post a results comment.
 
-Process this PR per AGENTS.md: diff → detect changed skills → update or create the
-adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset → acquire
-a per-box flock on a `vss-eval-*` pool member matching the target platform(s) →
-run harbor trials → gather results → post ONE comment per (PR, spec) batch →
-reset deployment state on each locked box per § 7 → release the flock. Never
-`brev stop` / `brev delete` any pool member — pool lifecycle is operator-managed.
+End with `BLOCKED: missing adapter for {eval_skill} (bot-PR <url>)` once the
+bot-PR is open, or `BLOCKED: <reason>` if you could not raise it
+(e.g. external-fork PR).
+"""
+    else:
+        user_prompt = f"""
+PR #{pr_number}: evaluate exactly ONE spec — `{eval_spec_path}`
+(skill `{eval_skill}`, platforms `{eval_platforms or "see spec"}`).
 
-When done, emit a one-line final summary starting with `DONE:` so the workflow
-can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
-line starting with `BLOCKED:` followed by the reason.
+Context:
+  repo         = {pr_repo}
+  PR number    = {pr_number}
+  base branch  = {pr_base}
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
+  spec         = {eval_spec_path}
+
+Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
+already selected this spec. Run steps 2–7 for this one spec only:
+ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
+(raise a bot-PR per §§ 3a/3c if stale, then exit BLOCKED — never run a
+locally-patched adapter) → generate the dataset → acquire a per-box flock
+on a `vss-eval-*` member matching the spec's platform(s) → run harbor
+synchronously (§ Harbor invocation; never background it) → gather results →
+post ONE PR comment for this spec (§ Result comment format). Do NOT touch
+any other spec or skill.
+
+End with `DONE: <reward summary>` after posting the comment, or
+`BLOCKED: <reason>` (e.g. stale adapter bot-PR raised, pool exhausted).
 """
 
     model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
