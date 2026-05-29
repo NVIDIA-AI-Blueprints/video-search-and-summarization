@@ -378,6 +378,12 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            # NemoClaw/OpenClaw provider configuration. CI can either set
+            # these explicitly, or the notebook adapter can derive them from
+            # the forwarded LLM_REMOTE_* + NVIDIA_API_KEY values below.
+            "NEMOCLAW_ENDPOINT_URL", "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
+            "NEMOCLAW_FALLBACK_ENDPOINT_URL", "NEMOCLAW_FALLBACK_MODEL",
+            "OPENAI_API_KEY", "NVIDIA_BASE_URL", "OPENSHELL_PROVIDER_NAME",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
