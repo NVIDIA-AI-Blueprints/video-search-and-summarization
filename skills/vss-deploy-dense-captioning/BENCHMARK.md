@@ -26,6 +26,7 @@ Observed coverage:
 - RTX PRO validation used image `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4`, cached Cosmos Reason 2 FP4 model `nim_nvidia_cosmos-reason2-8b_0303-fp4-dynamic-kv8`, and RTSP precheck discovered `video,852,480`.
 - RTX PRO Kafka validation confirmed live env topics `mdx-vlm`, `mdx-vlm-incidents`, and `vision-llm-errors`; offsets moved to `mdx-vlm:0:46`, `mdx-vlm-incidents:0:21`, and `vision-llm-errors:0:0`.
 - RTX PRO validation cleaned up the temporary `rt-vlm-eval-rtxpro-local` stream and restored the pre-existing `bench-kafka` container after using a temporary broker with `host.docker.internal:9092` advertised.
+- Full repo infra Kafka compose is not required for standalone validation and may fail with a minimal RT-VLM env because it includes full-profile SDRC compose fragments.
 
 Expected verifier checks after this PR:
 - Use host port `8018` consistently in the skill/evals/deploy reference.
@@ -57,7 +58,7 @@ Expected verifier checks after this PR:
 - Read `KAFKA_TOPIC`, `KAFKA_INCIDENT_TOPIC`, and `ERROR_MESSAGE_TOPIC` from the live `vss-rtvi-vlm` container or deployment source before consuming Kafka records.
 - For the VSS alerts/profile source, use `mdx-vlm-incidents` as the incident topic; use the `vision-llm-events-incidents` fallback only for a bare copied compose with no topic override.
 - Start Kafka before RT-VLM when Kafka is enabled, or restart/recreate `rtvi-vlm` after Kafka comes up or the advertised listener changes.
-- Use `KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"` for repo infra Kafka examples; override only for custom broker container names.
+- Use a self-contained standalone Kafka broker for RT-VLM-only validation; use full repo infra Kafka only when the full profile env/config is present and `docker compose config --quiet` passes.
 - Use deterministic positive alert prompts first when validating Kafka wiring, then switch back to scene-analysis prompts.
 - Preserve model cache volumes; avoid `docker compose down -v` unless intentionally forcing a large model re-download.
 

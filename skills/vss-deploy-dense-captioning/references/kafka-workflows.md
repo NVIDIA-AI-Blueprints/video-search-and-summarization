@@ -72,7 +72,7 @@ docker exec vss-rtvi-vlm printenv KAFKA_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE
 
 For deterministic validation, first check topic offsets:
 ```bash
-KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # set to mdx-kafka if your deployment uses that name
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-rtvi-vlm-kafka}" # set to mdx-kafka/kafka if your deployment uses that name
 CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_TOPIC 2>/dev/null || true)}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
 ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
@@ -80,8 +80,18 @@ CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
 ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
 
+kafka_cli() {
+  docker exec "$KAFKA_CONTAINER" sh -lc '
+    tool="$1"; shift
+    if command -v "$tool" >/dev/null 2>&1; then
+      exec "$tool" "$@"
+    fi
+    exec "/opt/kafka/bin/${tool}.sh" "$@"
+  ' sh "$@"
+}
+
 for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
-  docker exec "$KAFKA_CONTAINER" kafka-get-offsets \
+  kafka_cli kafka-get-offsets \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T"
 done
@@ -89,21 +99,48 @@ done
 
 ### Standalone Kafka Listener Setup
 
-The RT-VLM compose does not bundle Kafka. For standalone tests, either start the
-repo infra Kafka service by itself or provide an equivalent broker before
-starting RT-VLM. The critical requirement is that the broker advertises
-`${HOST_IP}:9092`, because RT-VLM is configured with
+The RT-VLM compose does not bundle Kafka. For standalone tests, start an
+equivalent broker before starting RT-VLM. The critical requirement is that the
+broker advertises the same `${HOST_IP}:9092` value that RT-VLM uses for
 `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`.
 
-Using the repo infra Kafka only:
+Use a self-contained broker for standalone validation:
 
 ```bash
-: "${VSS_CHECKOUT:?Set VSS_CHECKOUT to the video-search-and-summarization checkout}"
-: "${HOST_IP:?Set HOST_IP to an address reachable from the vss-rtvi-vlm container}"
-export VSS_APPS_DIR="${VSS_APPS_DIR:-$VSS_CHECKOUT/deploy/docker}"
+: "${HOST_IP:=host.docker.internal}"
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-rtvi-vlm-kafka}"
 
-docker compose -f "$VSS_CHECKOUT/deploy/docker/services/infra/compose.yml" \
-  --profile bp_developer_alerts_2d_vlm up -d kafka
+docker rm -f "$KAFKA_CONTAINER" >/dev/null 2>&1 || true
+docker run -d --name "$KAFKA_CONTAINER" \
+  --add-host=host.docker.internal:host-gateway \
+  -p 9092:9092 -p 9093:9093 \
+  -e KAFKA_NODE_ID=1 \
+  -e KAFKA_PROCESS_ROLES=broker,controller \
+  -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093 \
+  -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${HOST_IP}:9092 \
+  -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
+  -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+  -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+  apache/kafka:4.1.1
+
+kafka_cli() {
+  docker exec "$KAFKA_CONTAINER" sh -lc '
+    tool="$1"; shift
+    if command -v "$tool" >/dev/null 2>&1; then
+      exec "$tool" "$@"
+    fi
+    exec "/opt/kafka/bin/${tool}.sh" "$@"
+  ' sh "$@"
+}
+
+for i in $(seq 1 60); do
+  kafka_cli kafka-topics --bootstrap-server 127.0.0.1:9092 --list >/dev/null 2>&1 && break
+  sleep 2
+  [ "$i" = 60 ] && { docker logs --tail 80 "$KAFKA_CONTAINER"; exit 1; }
+done
 
 CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
@@ -111,19 +148,11 @@ ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
 # For a bare copied compose with no topic overrides, set:
 #   CAPTION_TOPIC=vision-llm-messages INCIDENT_TOPIC=vision-llm-events-incidents
 
-docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
-  --create --if-not-exists --topic "$CAPTION_TOPIC"
-docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
-  --create --if-not-exists --topic "$INCIDENT_TOPIC"
-docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
-  --create --if-not-exists --topic "$ERROR_TOPIC"
-```
-
-If you use a custom standalone Kafka container, configure the equivalent of:
-
-```bash
-KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093
-KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${HOST_IP}:9092
+for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
+  kafka_cli kafka-topics \
+    --bootstrap-server 127.0.0.1:9092 \
+    --create --if-not-exists --topic "$T"
+done
 ```
 
 Do not advertise `localhost:9094` or `kafka:9092` unless RT-VLM is intentionally
@@ -131,11 +160,19 @@ using that same network alias. Those settings can let producer/consumer tests
 inside the Kafka container pass while RT-VLM fails with
 `KafkaTimeoutError: Failed to update metadata after 60.0 secs`.
 
+The full repo infra compose (`deploy/docker/services/infra/compose.yml`) is a
+full-profile building block, not the safest minimal standalone Kafka path. It
+includes SDRC compose fragments; without the full profile env/config it can fail
+Compose validation with errors such as `service "render-config" refers to
+undefined volume "./configs"/configs`. Use it only when a full VSS profile has
+already supplied the required env/config and `docker compose config --quiet`
+passes.
+
 After Kafka is running, confirm RT-VLM can reach the same broker address it was
 configured with:
 
 ```bash
-KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # repo infra compose uses container_name: kafka
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-rtvi-vlm-kafka}"
 CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_TOPIC 2>/dev/null || true)}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
 ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
@@ -143,11 +180,21 @@ CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
 ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
 
+kafka_cli() {
+  docker exec "$KAFKA_CONTAINER" sh -lc '
+    tool="$1"; shift
+    if command -v "$tool" >/dev/null 2>&1; then
+      exec "$tool" "$@"
+    fi
+    exec "/opt/kafka/bin/${tool}.sh" "$@"
+  ' sh "$@"
+}
+
 docker exec vss-rtvi-vlm printenv KAFKA_BOOTSTRAP_SERVERS
 docker logs vss-rtvi-vlm 2>&1 | grep -i 'KafkaTimeoutError\\|Failed to update metadata' || true
 
 for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
-  docker exec "$KAFKA_CONTAINER" kafka-get-offsets \
+  kafka_cli kafka-get-offsets \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T"
 done
@@ -167,7 +214,7 @@ Then consume bounded, metadata-only samples from all three topics. `--timeout-ms
 prevents a no-message topic from hanging indefinitely; `print.value=false` avoids
 printing protobuf bytes:
 ```bash
-KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # use rtvi-vlm-kafka-1 only for that custom broker
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-rtvi-vlm-kafka}"
 CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_TOPIC 2>/dev/null || true)}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
 ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
@@ -175,8 +222,18 @@ CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
 ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
 
+kafka_cli() {
+  docker exec "$KAFKA_CONTAINER" sh -lc '
+    tool="$1"; shift
+    if command -v "$tool" >/dev/null 2>&1; then
+      exec "$tool" "$@"
+    fi
+    exec "/opt/kafka/bin/${tool}.sh" "$@"
+  ' sh "$@"
+}
+
 for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
-  docker exec "$KAFKA_CONTAINER" kafka-console-consumer \
+  kafka_cli kafka-console-consumer \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T" \
     --from-beginning \

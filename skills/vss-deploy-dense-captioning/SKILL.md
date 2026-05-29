@@ -445,9 +445,11 @@ directly in `.env` is ignored unless the compose is changed. The broker must
 advertise a listener reachable from the `vss-rtvi-vlm` container. `localhost`
 inside the broker and service containers is not the host, and a broker alias
 such as `kafka:9092` only works when both containers share that Docker network.
-If the standalone broker container is named `rtvi-vlm-kafka-1`, run CLI checks
-inside that container, but still configure the advertised listener so RT-VLM can
-connect from its container network.
+For RT-VLM-only validation, prefer the self-contained broker in
+`references/kafka-workflows.md` over the full repo infra compose; the latter
+expects full-profile SDRC env/config. Run CLI checks inside the actual broker
+container, but still configure the advertised listener so RT-VLM can connect
+from its container network.
 
 Incident protobuf (`ext.proto :: Incident`) key fields: `sensorId`, `timestamp`, `end`,
 `objectIds`, `frameIds`, `place`, `analyticsModule`, `category`, `isAnomaly` (`true` for
