@@ -49,19 +49,10 @@ Top findings:
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 4 total findings.
+Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 2 total findings.
 
 Top findings:
 
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/sample-dataset.md and references/videos.md:
-  "# (sorted alphabetically; upload order defines camera indices)." in references/sample-dataset.md (lines 222-231)
-  vs "# Step 2 — Upload videos (sorted)" in references/videos.md (lines 167-176) (`references/sample-dataset.md:222`)
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/rtsp.md and references/videos.md:
-  "# UI fallback for anything not resolved" in references/rtsp.md (lines 292-313)
-  vs "# Step 5 — UI fallback for anything not resolved" in references/videos.md (lines 217-240) (`references/rtsp.md:292`)
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/rtsp.md and references/videos.md:
-  "## Complete Python Script" in references/rtsp.md (lines 166-174)
-  vs "## Complete Python Script" in references/videos.md (lines 104-112) (`references/rtsp.md:166`)
 - HIGH DUPLICATE/duplicate: Duplicate content found across references/calibration-tail.md and references/common-steps.md and references/rtsp.md and references/sample-dataset.md and references/videos.md:
   "# Step A — Verify project" in references/calibration-tail.md (lines 13-15)
   vs "## Create project" in references/common-steps.md (lines 7-25)
@@ -70,6 +61,9 @@ Top findings:
   vs "# Step 1 — Create project" in references/sample-dataset.md (lines 213-219)
   vs "### Step 1 — Create Project" in references/videos.md (lines 40-43)
   vs "# Step 1 — Create project" in references/videos.md (lines 161-166) (`references/calibration-tail.md:13`)
+- HIGH DUPLICATE/duplicate: Duplicate content found across references/rtsp.md and references/videos.md:
+  "## Complete Python Script" in references/rtsp.md (lines 166-174)
+  vs "## Complete Python Script" in references/videos.md (lines 104-112) (`references/rtsp.md:166`)
 
 ## Publication Recommendation
 
