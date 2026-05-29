@@ -50,7 +50,7 @@ permissions:
 # Same path handles SIGKILL (the 12h timeout-minutes terminator) and host reboots
 # — there's no exit-side cleanup machinery to bypass.
 concurrency:
-  group: skills-eval-${{ github.ref }}
+  group: skills-eval-daily-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:
