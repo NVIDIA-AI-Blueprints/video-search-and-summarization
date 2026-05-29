@@ -26,7 +26,7 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | nim |
 | VLM | `nvidia/cosmos-reason2-8b` | `cosmos-reason2-8b` | nim |
 
-**Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nemotron-3-nano`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
+**Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, `nvidia/nemotron-3-nano`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
 
 **Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `Qwen/Qwen3-VL-8B-Instruct`
 
@@ -41,6 +41,7 @@ The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use
 | Model | Type | Compose file | Params | Precision | Est. VRAM (weights × 1.3) |
 |---|---|---|---|---|---|
 | `nvidia/nvidia-nemotron-nano-9b-v2` (default) | NIM (`nvcr.io/nim/...:1`) | `nim/nvidia-nemotron-nano-9b-v2/compose.yml` | 9 B | FP16 | **23.4 GB** |
+| `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` | NIM (`nvcr.io/nim/...:1.0.0-variant`, DGX Spark only) | not in tree - see `edge.md` | 9 B | NVFP4 | ~5.9 GB |
 | `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` | DLFW vLLM (`nvcr.io/nvidia/vllm:25.12.post1-py3`) | `nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml` | 9 B | FP8 | **11.7 GB** |
 | `nvidia/nemotron-3-nano` | NIM | `nim/nemotron-3-nano/compose.yml` | ~3 B | FP16 | ~7.8 GB |
 | `nvidia/llama-3.3-nemotron-super-49b-v1.5` | NIM | `nim/llama-3.3-nemotron-super-49b-v1.5/compose.yml` | 49 B | FP16 | **127 GB** (needs tp≥2 to fit on H100/L40S) |
@@ -163,7 +164,8 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 ### Hard rules
 
 - **L40S (48 GB) cannot host the default LLM + VLM shared.** 23.4 + 20.8 = 44.2 GB > 0.85 × 48 = 40.8 GB. Use a 2-GPU L40S host (one model per GPU), or escalate to the user per Trigger 2.
-- **DGX-Spark / IGX-Thor / AGX-Thor — shared mode must use the Edge 4B LLM.** Both models share unified memory, AND the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image has a broken arm64 manifest. Run `NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` as a standalone vLLM on port 30081; full recipe and the mandatory `HF_TOKEN` verification step are in `edge.md`. The in-tree `nvidia-nemotron-nano-9b-v2-fp8` compose ships pre-tuned `hw-DGX-SPARK*.env` / `hw-AGX-THOR*.env` / `hw-IGX-THOR*.env` and is the production path on edge once `HF_TOKEN` is configured.
+- **DGX Spark shared mode must use the DGX Spark Nano 9B NIM path in `edge.md`.** Run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and set `LLM_MODE=remote`, `LLM_BASE_URL=http://localhost:30081`, and `LLM_NAME_SLUG=none`. The image is not wired into compose yet. Do not use the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image on DGX Spark.
+- **AGX/IGX Thor shared mode still uses the Edge 4B fallback in `edge.md`.** This skill does not have a verified Thor-supported Nano 9B NIM path. Keep the standalone Edge 4B vLLM recipe and `HF_TOKEN` verification for Thor unless the user provides a verified remote endpoint.
 - **Llama 3.3 49B FP16 doesn't fit on a single 80 GB GPU.** 49 × 16 / 8 × 1.3 = 127 GB > 68 GB usable. Either run dedicated with tensor parallelism (`tp=2` on two H100s → 63.7 GB/GPU) or use H200 (141 GB) / B200 (192 GB) — or escalate per Trigger 2.
 - **`HARDWARE_PROFILE` is just an env-file label, not a sizing oracle.** It selects the path `nim/<slug>/hw-<HARDWARE_PROFILE>(-shared).env` — that's all. Pre-tuned env files exist for known platforms as a convenience, but missing != unsupported. Compute the right `NIM_KVCACHE_PERCENT` (or `--gpu-memory-utilization`) from the [Sizing math](#sizing-math) and write it into a fresh `hw-<HARDWARE_PROFILE>(-shared).env` (or set `HARDWARE_PROFILE=OTHER` and edit `hw-OTHER(-shared).env`). The agent's correctness check is the **resolved compose**: does it include the right LLM/VLM service for the chosen `LLM_NAME_SLUG` / `VLM_NAME_SLUG`, and does that service's env carry the computed sizing values? If yes, the deploy will work regardless of which `HARDWARE_PROFILE` label is used.
 - **Remote side — no local GPU needed.** When `LLM_MODE=remote` or `VLM_MODE=remote`, the matching local NIM/vLLM service is skipped entirely. Sizing math doesn't apply for the remote side.
@@ -283,7 +285,7 @@ services:
 
 Then add the file to `nim/compose.yml`'s `include:` list and edit `dev-profile-base/generated.env` to set `LLM_NAME` / `LLM_NAME_SLUG`. Use the [Tuning workflow](#tuning-workflow) to dial in `--gpu-memory-utilization`.
 
-> **Edge note.** On DGX-Spark / Thor, follow `edge.md` instead — the Edge 4B currently runs as a standalone container outside the compose stack (with `--use-remote-llm` pointing the agent at port 30081). Folding it into a compose file is on the roadmap but not done yet.
+> **Edge note.** On DGX Spark / Thor, follow `edge.md` instead. DGX Spark currently runs the DGX Spark Nano 9B NIM as a standalone local service on port `30081`; Thor still uses the Edge 4B standalone vLLM fallback. In both cases the agent treats the local standalone LLM as `LLM_MODE=remote` because the LLM service is outside the compose stack.
 
 ### Picking `--gpu-memory-utilization` quickly
 
@@ -292,14 +294,15 @@ For shared mode, compute it via the formula. As sanity-check defaults / in-tree 
 | Co-residency | LLM `--gpu-memory-utilization` | VLM `NIM_KVCACHE_PERCENT` | Source |
 |---|---|---|---|
 | Nano 9B v2 FP8 + Cosmos Reason2 8B (shared) | 0.40 | 0.40 | FP8 + Cosmos2 `*-shared.env` |
-| Edge 4B + Cosmos Reason2 8B on DGX-Spark | 0.25 | 0.40 | `edge.md` recipe |
+| DGX Spark Nano 9B NIM + Cosmos Reason2 8B on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
+| Edge 4B + RT-VLM on Thor | 0.25 | RT-VLM default 0.35 | `edge.md` Thor fallback |
 | Qwen3-VL 8B + Nano 9B (shared) | 0.40 | 0.40 | Qwen3 `*-shared.env` |
 
 Rules of thumb when adding a new model:
 
 - **FP8 / INT8 weights:** start at 0.40 shared, 0.85 dedicated.
 - **BF16 / FP16 weights:** start at 0.40–0.50 shared (only if the pair fits per the formula), 0.85 dedicated.
-- **Edge unified memory (DGX-Spark / Thor):** cap aggressively — 0.25 leaves room for the VLM and the OS.
+- **Edge unified memory (DGX Spark / Thor):** cap aggressively. Start with `0.40` for the DGX Spark Nano 9B NIM recipe and `0.25` for the Thor Edge 4B vLLM fallback; lower by `0.05` if startup or first inference reports memory pressure.
 - **OOM at startup** → lower by 0.05. **OOM mid-inference** → also lower `NIM_MAX_MODEL_LEN` / `--max-model-len` and `NIM_MAX_NUM_SEQS`.
 
 If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endpoints) — no local sizing required.
@@ -409,7 +412,7 @@ COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE}
 
 Example resolved value:
 ```
-bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,bp_developer_base_2d_no_proxy,llm_local_shared_nvidia-nemotron-nano-9b-v2,vlm_local_shared_cosmos-reason2-8b
+bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,bp_developer_base_2d_no_proxy,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
 ```
 
 The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automatically.
