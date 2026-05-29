@@ -362,6 +362,75 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("no running vss-eval-* candidate for RTXPRO6000BW", message)
         self.assertIn("vss-eval-l40s-1g", message)
 
+    def test_worker_selection_retries_transient_inventory_timeout(self):
+        previous = {
+            "_list_instances": smoke_runner._list_instances,
+            "_reachable": smoke_runner._reachable,
+            "_try_acquire_lock": smoke_runner._try_acquire_lock,
+            "sleep": smoke_runner.time.sleep,
+        }
+        calls = {"list": 0}
+
+        def fake_list_instances():
+            calls["list"] += 1
+            if calls["list"] == 1:
+                raise smoke_runner.InfrastructureBlocked(
+                    "brev ls --json timed out after 45s"
+                )
+            return [
+                {"name": "vss-eval-rtx-1g-2", "status": "RUNNING", "gpu": "RTX PRO 6000"},
+            ]
+
+        smoke_runner._list_instances = fake_list_instances
+        smoke_runner._reachable = lambda instance: True
+        smoke_runner._try_acquire_lock = lambda instance: (123, object())
+        smoke_runner.time.sleep = lambda seconds: None
+        try:
+            selected, _, _ = smoke_runner._select_and_lock_instance(
+                "RTXPRO6000BW",
+                1,
+                None,
+                10,
+            )
+        finally:
+            smoke_runner._list_instances = previous["_list_instances"]
+            smoke_runner._reachable = previous["_reachable"]
+            smoke_runner._try_acquire_lock = previous["_try_acquire_lock"]
+            smoke_runner.time.sleep = previous["sleep"]
+
+        self.assertEqual(selected, "vss-eval-rtx-1g-2")
+        self.assertEqual(calls["list"], 2)
+
+    def test_worker_selection_reports_inventory_timeout_after_deadline(self):
+        previous = {
+            "_list_instances": smoke_runner._list_instances,
+            "sleep": smoke_runner.time.sleep,
+            "time": smoke_runner.time.time,
+        }
+        times = iter([0, 0, 20])
+
+        smoke_runner._list_instances = lambda: (_ for _ in ()).throw(
+            smoke_runner.InfrastructureBlocked("brev ls --json timed out after 45s")
+        )
+        smoke_runner.time.sleep = lambda seconds: None
+        smoke_runner.time.time = lambda: next(times)
+        try:
+            with self.assertRaises(smoke_runner.InfrastructureBlocked) as ctx:
+                smoke_runner._select_and_lock_instance(
+                    "RTXPRO6000BW",
+                    1,
+                    None,
+                    10,
+                )
+        finally:
+            smoke_runner._list_instances = previous["_list_instances"]
+            smoke_runner.time.sleep = previous["sleep"]
+            smoke_runner.time.time = previous["time"]
+
+        message = str(ctx.exception)
+        self.assertIn("worker inventory unavailable for RTXPRO6000BW after 10s", message)
+        self.assertIn("brev ls --json timed out after 45s", message)
+
     def test_brev_inventory_timeout_is_infrastructure_blocked(self):
         previous = {"_run": smoke_runner._run}
         smoke_runner._run = lambda *args, **kwargs: (_ for _ in ()).throw(

@@ -234,7 +234,22 @@ def _select_and_lock_instance(
         if explicit:
             candidates = [explicit]
         else:
-            instances = _list_instances()
+            try:
+                instances = _list_instances()
+            except InfrastructureBlocked as exc:
+                reason = str(exc)
+                if time.time() >= deadline:
+                    raise InfrastructureBlocked(
+                        "worker inventory unavailable for "
+                        f"{platform} after {timeout_s}s: {reason}"
+                    ) from exc
+                print(
+                    f"[nemoclaw-ci] worker inventory unavailable: {reason}; "
+                    "retrying worker selection",
+                    flush=True,
+                )
+                time.sleep(10)
+                continue
             candidates = _instance_candidates(instances, platform=platform, gpu_count=gpu_count)
             inventory = _summarize_instances(instances)
         print(
@@ -243,9 +258,15 @@ def _select_and_lock_instance(
             flush=True,
         )
         if not candidates:
-            raise InfrastructureBlocked(
-                f"no running vss-eval-* candidate for {platform}; visible workers: {inventory}"
+            reason = (
+                f"no running vss-eval-* candidate for {platform}; "
+                f"visible workers: {inventory}"
             )
+            if time.time() >= deadline:
+                raise InfrastructureBlocked(reason)
+            print(f"[nemoclaw-ci] {reason}; retrying worker selection", flush=True)
+            time.sleep(10)
+            continue
 
         for candidate in candidates:
             if not _reachable(candidate):
