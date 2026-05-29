@@ -15,8 +15,12 @@
 
 FROM python:3.12-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
-COPY mock_vss_backend.py /app/mock_vss_backend.py
+COPY --chown=10001:10001 mock_vss_backend.py /app/mock_vss_backend.py
+
+USER 10001:10001
 
 ENV HOST=0.0.0.0
 ENV PORT=38111

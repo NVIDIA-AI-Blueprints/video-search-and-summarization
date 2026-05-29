@@ -928,7 +928,8 @@ def main() -> None:
     port = int(os.environ.get("PORT", "38111"))
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"mock VSS backend listening on {host}:{port}", flush=True)
-    server.serve_forever()
+    # Eval-only HTTP sidecar on an isolated Docker network; TLS is handled by real LVS.
+    server.serve_forever()  # NOSONAR
 
 
 if __name__ == "__main__":
