@@ -2,7 +2,7 @@
 
 Agent guide for the `vss-behavior-analytics` repo (aka `behavior-analytics`) — a Python streaming pipeline for spatial AI analytics (warehouse, smartcity, video search, etc.) that consumes frames from Kafka/Redis/MQTT, processes them, and emits behaviors/events/incidents back to the stream.
 
-Read this before editing. For human docs, start at `README.md` → `readmes/`.
+Read this before editing. For human docs, start at `README.md` → `docs/`.
 
 ## Orientation (1-minute read)
 
@@ -20,7 +20,7 @@ Read this before editing. For human docs, start at `README.md` → `readmes/`.
 - **Docstrings**: Sphinx-style (`:param`, `:return`, `:raises`, `:ivar`) — match the surrounding module.
 - **Imports**: explicit only. No wildcard imports.
 - **Pydantic**: config schema is Pydantic v2 — prefer `model_dump_json(...)`, field validators, `BaseModel` inheritance.
-- **Dynamic-config compatibility**: if you store a value derived from `AppConfig.app[*]` or `AppConfig.sensors[*]` into an attribute at `__init__` time (e.g. `self.threshold = config.behavior_water_mark`), runtime config updates won't reach it — operators would need to restart the process to pick up the new value. **Read at use-time** (`self.config.behavior_water_mark` inside method bodies) so `AppConfig.invalidate_caches()` can refresh the cached property automatically. See `readmes/dynamic-config.md` for the consumer-tier classification and what's auto-refreshed vs. restart-required.
+- **Dynamic-config compatibility**: if you store a value derived from `AppConfig.app[*]` or `AppConfig.sensors[*]` into an attribute at `__init__` time (e.g. `self.threshold = config.behavior_water_mark`), runtime config updates won't reach it — operators would need to restart the process to pick up the new value. **Read at use-time** (`self.config.behavior_water_mark` inside method bodies) so `AppConfig.invalidate_caches()` can refresh the cached property automatically. See `docs/dynamic-config.md` for the consumer-tier classification and what's auto-refreshed vs. restart-required.
 
 ### Never
 - **Don't edit `src/mdx/analytics/core/schema/proto/*_pb2.py` or `*_pb2.pyi`** — generated from `.proto`. If you need schema changes, flag it — regenerating is a separate task.
@@ -94,7 +94,7 @@ working with packaging:
 
 For a full subpackage-by-subpackage map of `src/mdx/analytics/core/` (purpose,
 key files, key classes, and "where to add X" guidance), see
-**`readmes/modules-overview.md`** — the authoritative module map. Use this
+**`docs/modules-overview.md`** — the authoritative module map. Use this
 quick table for common tasks:
 
 | Need to… | Read |
@@ -104,7 +104,7 @@ quick table for common tasks:
 | Add a new incident type | `src/mdx/analytics/core/stream/state/frame/frame_state_management.py` + invoke the `new-incident` skill |
 | Add a new app | Copy from `apps/analytics/main_analytics_2d_app.py` or use the `new-app` skill |
 | Change a config field | `src/mdx/analytics/core/schema/config.py` (Pydantic models + defaults) |
-| Wire dynamic-config support for a new component | `readmes/dynamic-config.md` + `src/mdx/analytics/core/transform/config/` |
+| Wire dynamic-config support for a new component | `docs/dynamic-config.md` + `src/mdx/analytics/core/transform/config/` |
 | Add a Kafka/Redis/MQTT source or sink | `src/mdx/analytics/core/stream/source/` or `.../sink/` (factory pattern) |
 | Add a calibration transform | `src/mdx/analytics/core/transform/calibration/` |
 | Debug latency | `src/mdx/analytics/core/tools/latency/latency_monitor.py` |
@@ -114,14 +114,14 @@ quick table for common tasks:
 
 ## Deeper docs
 
-- Building an app: `readmes/building-mdx-analytics-app.md`
-- Incident detection reference: `readmes/incident-detection.md`
-- Configuration guide: `readmes/configuration.md`
-- Dynamic configuration (runtime updates): `readmes/dynamic-config.md`
-- Modules overview: `readmes/modules-overview.md`
-- Dev example walkthrough (Cursor session): `readmes/cursor-dev-example-walkthrough.md`
-- Testing: `readmes/testing.md`
-- Troubleshooting: `readmes/troubleshooting.md`
+- Building an app: `docs/building-mdx-analytics-app.md`
+- Incident detection reference: `docs/incident-detection.md`
+- Configuration guide: `docs/configuration.md`
+- Dynamic configuration (runtime updates): `docs/dynamic-config.md`
+- Modules overview: `docs/modules-overview.md`
+- Dev example walkthrough (Cursor session): `docs/cursor-dev-example-walkthrough.md`
+- Testing: `docs/testing.md`
+- Troubleshooting: `docs/troubleshooting.md`
 
 ## Pre-flight checklist for any change
 
