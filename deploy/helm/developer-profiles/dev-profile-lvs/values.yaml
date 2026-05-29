@@ -517,6 +517,8 @@ rtvi:
         value: ""
       - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
         value: ""
+      - name: ENABLE_LVS_CR2_TIMESTAMP_PROMPT
+        value: "true"
       - name: RTVI_EXTRA_ARGS
         value: ""
       - name: RTVI_RTSP_LATENCY
