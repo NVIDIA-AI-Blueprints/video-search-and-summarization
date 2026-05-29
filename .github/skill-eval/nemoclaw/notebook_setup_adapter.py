@@ -218,6 +218,7 @@ def _redaction_values() -> dict[str, str]:
         "NVIDIA_API_KEY",
         "COMPATIBLE_API_KEY",
         "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "VSS_OPENAI_API_KEY",
         "OPENCLAW_HOOKS_TOKEN",
     )

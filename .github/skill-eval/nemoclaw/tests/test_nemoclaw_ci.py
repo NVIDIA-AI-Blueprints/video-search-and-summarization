@@ -107,6 +107,18 @@ class NotebookSetupAdapterTest(unittest.TestCase):
 
         self.assertEqual(redacted["outputs"][0]["text"], "token=<redacted:NVIDIA_API_KEY>")
 
+    def test_redacts_anthropic_api_key_from_notebook_outputs(self):
+        os.environ["ANTHROPIC_API_KEY"] = "anthropic-secret"
+        try:
+            redacted = notebook_adapter._redact(
+                {"outputs": [{"text": "token=anthropic-secret"}]},
+                notebook_adapter._redaction_values(),
+            )
+        finally:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+
+        self.assertEqual(redacted["outputs"][0]["text"], "token=<redacted:ANTHROPIC_API_KEY>")
+
     def test_persist_cell_keeps_hooks_token_out_of_debug_env_file(self):
         source = notebook_adapter.PERSIST_SOURCE
         keys_block = source.split("_keys = [", 1)[1].split("]", 1)[0]
@@ -457,6 +469,52 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
         script = base64.b64decode(encoded).decode("utf-8")
         self.assertIn("openclaw-agent.log", script)
+
+    def test_cli_launch_stops_openclaw_even_when_readiness_fails(self):
+        calls: list[str] = []
+        previous = {
+            "run_openclaw_cli": headless_runner.run_openclaw_cli,
+            "wait_for_profile": headless_runner.wait_for_profile,
+            "collect_openclaw_cli_log": headless_runner.collect_openclaw_cli_log,
+            "stop_openclaw_cli": headless_runner.stop_openclaw_cli,
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            prompt.write_text("Deploy base", encoding="utf-8")
+            log_dir = root / "logs"
+
+            headless_runner.run_openclaw_cli = lambda sandbox, message, timeout, logs: {
+                "status": 202,
+                "body": {"ok": True},
+            }
+            headless_runner.wait_for_profile = lambda profile, timeout, logs: {
+                "waited": True,
+                "ok": False,
+                "profile": profile,
+            }
+            headless_runner.collect_openclaw_cli_log = lambda sandbox, logs: calls.append("collect")
+            headless_runner.stop_openclaw_cli = lambda sandbox: calls.append("stop")
+            try:
+                rc = headless_runner.main([
+                    "--prompt-file",
+                    str(prompt),
+                    "--log-dir",
+                    str(log_dir),
+                    "--launch-mode",
+                    "cli",
+                    "--wait-profile",
+                    "base",
+                ])
+            finally:
+                headless_runner.run_openclaw_cli = previous["run_openclaw_cli"]
+                headless_runner.wait_for_profile = previous["wait_for_profile"]
+                headless_runner.collect_openclaw_cli_log = previous["collect_openclaw_cli_log"]
+                headless_runner.stop_openclaw_cli = previous["stop_openclaw_cli"]
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(calls, ["collect", "stop"])
 
     def test_sandbox_exec_wraps_multiline_scripts_for_nemoclaw(self):
         calls: list[tuple[str, ...]] = []
