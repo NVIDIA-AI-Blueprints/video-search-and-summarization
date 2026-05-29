@@ -309,6 +309,41 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(report["response"]["error_type"], "RuntimeError")
         self.assertIn("forward down", report["response"]["error"])
 
+    def test_missing_prompt_file_writes_structured_report(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            missing_prompt = root / "missing.md"
+            previous = {
+                "OPENCLAW_HOOKS_TOKEN": os.environ.get("OPENCLAW_HOOKS_TOKEN"),
+                "NEMOCLAW_HOOKS_TOKEN_FILE": os.environ.get("NEMOCLAW_HOOKS_TOKEN_FILE"),
+            }
+            os.environ["OPENCLAW_HOOKS_TOKEN"] = "token"
+            os.environ.pop("NEMOCLAW_HOOKS_TOKEN_FILE", None)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = headless_runner.main([
+                        "--prompt-file",
+                        str(missing_prompt),
+                        "--log-dir",
+                        str(log_dir),
+                    ])
+            finally:
+                if previous["OPENCLAW_HOOKS_TOKEN"] is None:
+                    os.environ.pop("OPENCLAW_HOOKS_TOKEN", None)
+                else:
+                    os.environ["OPENCLAW_HOOKS_TOKEN"] = previous["OPENCLAW_HOOKS_TOKEN"]
+                if previous["NEMOCLAW_HOOKS_TOKEN_FILE"] is None:
+                    os.environ.pop("NEMOCLAW_HOOKS_TOKEN_FILE", None)
+                else:
+                    os.environ["NEMOCLAW_HOOKS_TOKEN_FILE"] = previous["NEMOCLAW_HOOKS_TOKEN_FILE"]
+
+            report = json.loads((log_dir / "nemoclaw_hooks_response.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(report["response"]["error_type"], "FileNotFoundError")
+        self.assertIn("missing.md", report["response"]["error"])
+
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
     def test_default_smoke_profile_is_lightweight_base(self):
@@ -683,6 +718,41 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertIn("--log-dir /logs/artifacts/nemoclaw", instruction)
             self.assertIn("--timeout 2400", instruction)
             self.assertTrue((task_dir / "tests" / "nemoclaw_prompt.md").exists())
+
+    def test_missing_eval_spec_does_not_generate_nemoclaw_launcher(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            skill_dir = root / "skills" / "vss-deploy-profile"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+            out = root / "datasets"
+            previous = os.environ.get("SKILLS_EVAL_RUNNER")
+            os.environ["SKILLS_EVAL_RUNNER"] = "nemoclaw"
+            try:
+                deploy_adapter.generate_task(
+                    "base",
+                    "L40S",
+                    deploy_adapter.PROFILES["base"],
+                    out,
+                    skill_dir,
+                    gpu_count=1,
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("SKILLS_EVAL_RUNNER", None)
+                else:
+                    os.environ["SKILLS_EVAL_RUNNER"] = previous
+
+            task_dir = out / "base" / "l40s"
+            instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
+            test_script = (task_dir / "tests" / "test.sh").read_text(encoding="utf-8")
+            task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
+            prompt_exists = (task_dir / "tests" / "nemoclaw_prompt.md").exists()
+
+        self.assertNotIn("headless_runner.py", instruction)
+        self.assertFalse(prompt_exists)
+        self.assertIn("FAIL: no eval spec", test_script)
+        self.assertNotIn('runner = "nemoclaw"', task_toml)
 
 
 if __name__ == "__main__":
