@@ -3,12 +3,13 @@ Use to call the VIOS REST API (sensor list, timelines, clip extraction, snapshot
 
 This skill is ready for commercial/non-commercial use. <br>
 
-## Owner: NVIDIA <br>
+## Owner
+NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and operators use this skill to manage the Video IO & Storage (VIOS) layer of a VSS deployment — listing sensors, querying recording timelines, extracting video clips, capturing snapshots, and adding or removing cameras and RTSP streams via the VIOS REST API. <br>
+Developers and engineers managing video cameras, sensors, RTSP streams, recordings, snapshots, and storage through the VIOS REST API in NVIDIA VSS deployments. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,16 +20,27 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [VIOS REST API Reference](references/api-reference.md) <br>
-- [VIOS Deployment Reference](references/deploy-vios-service.md) <br>
-- [VIOS Integration Reference](references/integrate-vios-service.md) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NvStreamer REST API Reference](references/nvstreamer-api-reference.md) <br>
+- [Deploy VIOS Service](references/deploy-vios-service.md) <br>
+- [Integrate VIOS Service](references/integrate-vios-service.md) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [API Calls, Shell commands] <br>
+**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Metrics Used: <br>
+Reported benchmark dimensions: <br>
+- Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
+- Correctness: Checks whether the agent follows the expected workflow and produces the correct final output. <br>
+- Discoverability: Checks whether the agent loads the skill when relevant and avoids using it when irrelevant. <br>
+- Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
+- Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
+
+
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
