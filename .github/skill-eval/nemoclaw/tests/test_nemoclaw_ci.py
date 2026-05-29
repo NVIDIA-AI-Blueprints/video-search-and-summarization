@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import textwrap
 import tempfile
 import unittest
@@ -360,6 +361,31 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("no running vss-eval-* candidate for RTXPRO6000BW", message)
         self.assertIn("vss-eval-l40s-1g", message)
+
+    def test_brev_inventory_timeout_is_infrastructure_blocked(self):
+        previous = {"_run": smoke_runner._run}
+        smoke_runner._run = lambda *args, **kwargs: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired(["brev", "ls", "--json"], 45)
+        )
+        try:
+            with self.assertRaises(smoke_runner.InfrastructureBlocked) as ctx:
+                smoke_runner._list_instances()
+        finally:
+            smoke_runner._run = previous["_run"]
+
+        self.assertIn("brev ls --json timed out after 45s", str(ctx.exception))
+
+    def test_reachability_timeout_skips_candidate(self):
+        previous = {"_run": smoke_runner._run}
+        smoke_runner._run = lambda *args, **kwargs: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired(["brev", "exec", "vss-eval-rtx-2g-4"], 45)
+        )
+        try:
+            reachable = smoke_runner._reachable("vss-eval-rtx-2g-4")
+        finally:
+            smoke_runner._run = previous["_run"]
+
+        self.assertFalse(reachable)
 
 
 class OpenClawStreamPatchTest(unittest.TestCase):
