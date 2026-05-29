@@ -34,12 +34,21 @@ def _openai_base_url(url):
         url = f"{url}/v1"
     return url
 
+def _notebook_default(name, fallback=""):
+    return globals().get(name, fallback)
+
 NGC_CLI_API_KEY = os.environ.get("NGC_CLI_API_KEY", "")
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
-HARDWARE_PROFILE = os.environ.get("HARDWARE_PROFILE", HARDWARE_PROFILE).strip()
-NEMOCLAW_ENDPOINT_URL = os.environ.get("NEMOCLAW_ENDPOINT_URL", NEMOCLAW_ENDPOINT_URL).strip()
-NEMOCLAW_MODEL = os.environ.get("NEMOCLAW_MODEL", NEMOCLAW_MODEL).strip()
-COMPATIBLE_API_KEY = os.environ.get("COMPATIBLE_API_KEY", COMPATIBLE_API_KEY).strip()
+HARDWARE_PROFILE = os.environ.get(
+    "HARDWARE_PROFILE",
+    _notebook_default("HARDWARE_PROFILE", "RTXPRO6000BW"),
+).strip()
+NEMOCLAW_ENDPOINT_URL = os.environ.get(
+    "NEMOCLAW_ENDPOINT_URL",
+    _notebook_default("NEMOCLAW_ENDPOINT_URL", ""),
+).strip()
+NEMOCLAW_MODEL = os.environ.get("NEMOCLAW_MODEL", _notebook_default("NEMOCLAW_MODEL", "")).strip()
+COMPATIBLE_API_KEY = os.environ.get("COMPATIBLE_API_KEY", _notebook_default("COMPATIBLE_API_KEY", "")).strip()
 if not NEMOCLAW_ENDPOINT_URL:
     NEMOCLAW_ENDPOINT_URL = (
         os.environ.get("NEMOCLAW_FALLBACK_ENDPOINT_URL")
@@ -60,10 +69,16 @@ if NEMOCLAW_ENDPOINT_URL and not COMPATIBLE_API_KEY:
         or os.environ.get("NVIDIA_API_KEY")
         or ""
     ).strip()
-NEMOCLAW_INSTALL_REF = os.environ.get("NEMOCLAW_INSTALL_REF", NEMOCLAW_INSTALL_REF).strip()
+NEMOCLAW_INSTALL_REF = os.environ.get(
+    "NEMOCLAW_INSTALL_REF",
+    _notebook_default("NEMOCLAW_INSTALL_REF", ""),
+).strip()
 NEMOCLAW_SANDBOX_NAME = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo").strip()
 OPENCLAW_HOOKS_ENABLED = os.environ.get("OPENCLAW_HOOKS_ENABLED", "1").lower() not in ("0", "false", "no")
-OPENCLAW_HOOKS_PATH = os.environ.get("OPENCLAW_HOOKS_PATH", OPENCLAW_HOOKS_PATH).strip() or "/hooks"
+OPENCLAW_HOOKS_PATH = os.environ.get(
+    "OPENCLAW_HOOKS_PATH",
+    _notebook_default("OPENCLAW_HOOKS_PATH", "/hooks"),
+).strip() or "/hooks"
 OPENCLAW_DISABLE_STREAMING_TOOL_CALLS = os.environ.get("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS", "1").strip() or "1"
 os.environ["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"] = OPENCLAW_DISABLE_STREAMING_TOOL_CALLS
 VSS_ORCHESTRATOR_MCP_SSE_PORT = int(os.environ.get("VSS_ORCHESTRATOR_MCP_SSE_PORT", "9989"))
@@ -83,17 +98,20 @@ if COMPATIBLE_API_KEY:
     os.environ["COMPATIBLE_API_KEY"] = COMPATIBLE_API_KEY
 
 # Optional VSS endpoint/model overrides used by the orchestrator MCP server.
-VSS_LLM_NAME = os.environ.get("VSS_LLM_NAME", VSS_LLM_NAME).strip()
-VSS_LLM_ENDPOINT_URL = os.environ.get("VSS_LLM_ENDPOINT_URL", VSS_LLM_ENDPOINT_URL).strip()
-VSS_LLM_MODEL_TYPE = os.environ.get("VSS_LLM_MODEL_TYPE", VSS_LLM_MODEL_TYPE).strip()
-VSS_LLM_ENABLE_THINKING = os.environ.get("VSS_LLM_ENABLE_THINKING", VSS_LLM_ENABLE_THINKING).strip()
-VSS_OPENAI_API_KEY = os.environ.get("VSS_OPENAI_API_KEY", VSS_OPENAI_API_KEY).strip()
-VSS_VLM_NAME = os.environ.get("VSS_VLM_NAME", VSS_VLM_NAME).strip()
-VSS_VLM_ENDPOINT_URL = os.environ.get("VSS_VLM_ENDPOINT_URL", VSS_VLM_ENDPOINT_URL).strip()
-VSS_VLM_MODEL_TYPE = os.environ.get("VSS_VLM_MODEL_TYPE", VSS_VLM_MODEL_TYPE).strip()
-LLM_DEVICE_ID = os.environ.get("LLM_DEVICE_ID", LLM_DEVICE_ID).strip()
-VLM_DEVICE_ID = os.environ.get("VLM_DEVICE_ID", VLM_DEVICE_ID).strip()
-EXTERNAL_IP = os.environ.get("EXTERNAL_IP", EXTERNAL_IP).strip()
+VSS_LLM_NAME = os.environ.get("VSS_LLM_NAME", _notebook_default("VSS_LLM_NAME", "")).strip()
+VSS_LLM_ENDPOINT_URL = os.environ.get("VSS_LLM_ENDPOINT_URL", _notebook_default("VSS_LLM_ENDPOINT_URL", "")).strip()
+VSS_LLM_MODEL_TYPE = os.environ.get("VSS_LLM_MODEL_TYPE", _notebook_default("VSS_LLM_MODEL_TYPE", "")).strip()
+VSS_LLM_ENABLE_THINKING = os.environ.get(
+    "VSS_LLM_ENABLE_THINKING",
+    _notebook_default("VSS_LLM_ENABLE_THINKING", ""),
+).strip()
+VSS_OPENAI_API_KEY = os.environ.get("VSS_OPENAI_API_KEY", _notebook_default("VSS_OPENAI_API_KEY", "")).strip()
+VSS_VLM_NAME = os.environ.get("VSS_VLM_NAME", _notebook_default("VSS_VLM_NAME", "")).strip()
+VSS_VLM_ENDPOINT_URL = os.environ.get("VSS_VLM_ENDPOINT_URL", _notebook_default("VSS_VLM_ENDPOINT_URL", "")).strip()
+VSS_VLM_MODEL_TYPE = os.environ.get("VSS_VLM_MODEL_TYPE", _notebook_default("VSS_VLM_MODEL_TYPE", "")).strip()
+LLM_DEVICE_ID = os.environ.get("LLM_DEVICE_ID", _notebook_default("LLM_DEVICE_ID", "")).strip()
+VLM_DEVICE_ID = os.environ.get("VLM_DEVICE_ID", _notebook_default("VLM_DEVICE_ID", "")).strip()
+EXTERNAL_IP = os.environ.get("EXTERNAL_IP", _notebook_default("EXTERNAL_IP", "")).strip()
 '''.strip() + "\n"
 
 PERSIST_SOURCE = r'''
