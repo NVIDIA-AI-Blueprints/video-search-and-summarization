@@ -29,6 +29,10 @@ If the requested VIOS video cannot be found, use Step 1's sample-registration
 branch when the request names a known sample video; otherwise report the
 missing-video prerequisite clearly. Do not pivot to API/service verification as
 a substitute summary.
+If the user already provided a direct recorded-video URL, treat that URL as the
+clip URL. Do not `curl`, `HEAD`, download, or otherwise probe the media URL
+from the agent host; pass it only as the `url` field to the configured LVS or
+VLM backend.
 
 ## Purpose
 
@@ -36,7 +40,7 @@ Produce a single, polished narrative summary of one recorded video clip, with
 timestamped events when the LVS microservice path is reachable.
 
 **Do NOT use this skill for:**
-- Live RTSP captioning — use `vss-deploy-dense-captioning`.
+- Live RTSP captioning — explicitly direct the user to `vss-deploy-dense-captioning`.
 - Incident-range or alert-window reports — use `vss-generate-video-report` Mode B.
 - Semantic search across the archive — use `vss-search-archive`.
 
@@ -166,7 +170,11 @@ is already configured by the deployment environment.
 `/v1/models` advertises; do not substitute the friendly
 `nvidia/cosmos-reason2-8b`.
 
-For endpoint schemas, optional fields, response envelopes, and error handling, see [`references/video-summarization-api.md`](references/video-summarization-api.md).
+For endpoint schemas, optional fields, response envelopes, and error handling,
+see [`references/video-summarization-api.md`](references/video-summarization-api.md).
+If you are uncertain about the `/v1/summarize` payload, first check the running
+service schema at `${VIDEO_SUMMARIZATION_URL}/openapi.json`; if that is
+unavailable, load the API reference. Do not guess request fields.
 
 **Availability checks** (run both before routing).
 **Readiness is determined by the HTTP status code only** — the LVS
@@ -209,6 +217,10 @@ done
 
 ## Step 1 - Get the clip URL via `vss-manage-video-io-storage` (sub-task, NOT the final answer)
 
+Skip this step when the user already supplied a direct HTTP(S) or S3 recorded
+video URL. In that case, use the supplied URL as the Step 2 `url` value and do
+not probe the media URL directly from the agent host.
+
 **Use the `vss-manage-video-io-storage` skill for all VIOS interactions** — it
 owns the canonical curl recipes, parameter defaults, and delete/upload flows.
 Do not fabricate URLs or hand-roll VIOS calls; they will drift.
@@ -240,25 +252,51 @@ as a substitute summary.
 
 ---
 
-## Step 2 — Primary: video summarization microservice with HITL
+## Step 2 — Primary: video summarization microservice
 
 Use this path **whenever** `/v1/ready` returned 200 in Setup. Duration is irrelevant.
 
 For advanced fields (`media_info`, `schema`, structured output, stream captioning, metrics, recommended config) see [`references/video-summarization-api.md`](references/video-summarization-api.md).
 
-### HITL: collect scenario and events first (REQUIRED — do not skip)
+### Resolve required fields before calling `/v1/summarize`
 
-Full walk-through is in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run HITL before calling the LVS service.
+`POST /v1/summarize` is **not** the VLM chat-completions API. Send top-level
+summarization fields: `url` (or `id`), `model`, `scenario`, and `events`. Do not
+send `messages` or `video_url` content blocks to `/v1/summarize`; use that shape
+only for the VLM `/v1/chat/completions` fallback.
+
+If you are unsure about the request schema, check the running service before
+guessing:
+
+```bash
+curl -sf "$VIDEO_SUMMARIZATION_URL/openapi.json" | jq '.paths["/v1/summarize"]'
+```
+
+If `/openapi.json` is unavailable or too large to inspect, load
+[`references/video-summarization-api.md`](references/video-summarization-api.md)
+and use its `SummarizationQuery` fields.
+
+Full HITL walk-through is in [`references/hitl-prompts.md`](references/hitl-prompts.md).
+HITL is required only when the user's request does not provide enough context to
+choose `scenario` and `events`.
 
 HITL is parameter collection, not a second approval gate. After the user has
-asked for a summary and provided `scenario` / `events` values (or opted into
-defaults), immediately submit the video URL to `/v1/summarize` and return the
+asked for a summary and you have resolved `scenario` / `events` values,
+immediately submit the video URL to `/v1/summarize` and return the
 backend summary. Do not ask "should I call summarize now?" or require another
 confirmation before the curl. Only pause for an extra review-before-send
 confirmation if the user explicitly requested it, or if the resolved backend
 would send private media outside the user's expected VSS deployment boundary;
 ordinary configured `LVS_BACKEND_URL`, `VIDEO_SUMMARIZATION_URL`, `HOST_IP`, or
 localhost targets do not require that extra confirmation.
+
+Use explicit user-provided `events` when present. If `scenario` is not explicit
+but the user's purpose is clear, infer a concise scenario from the request
+context, such as "safety report review", "security monitoring", or "warehouse
+monitoring". If required `events` are absent and the user did not opt into
+defaults, ask the HITL prompt instead of guessing. If `objects_of_interest` is
+absent, omit it. Mention inferred values briefly in the final response and
+offer to re-run with different parameters.
 
 **Autonomous-mode defaults.** When the caller has bypassed HITL ("run
 autonomously without prompting") AND the original query asks for
@@ -409,10 +447,12 @@ mixed into it.
 - **Endpoint env vars are authoritative.** Use `LVS_BACKEND_URL` /
   `VIDEO_SUMMARIZATION_URL` exactly when set. Never derive `HOST_IP` or backend
   URLs from the clip URL, VIOS URL, RTSP URL, or media storage host.
-- **HITL is mandatory on the LVS path.** The `defaults` opt-in is the only
-  sanctioned bypass. HITL collects `scenario` / `events`; it is not an extra
-  confirmation before the summarize call. The VLM fallback path is silent (no
-  HITL).
+- **Resolve required LVS fields before calling summarize.** Use explicit user
+  values, infer from a clear purpose, use authorized defaults, or run HITL only
+  when needed. HITL collects `scenario` / `events`; it is not an extra
+  confirmation before the summarize call.
+- **Never probe the media URL directly.** The agent calls configured backend
+  endpoints; the LVS or VLM service fetches the media URL.
 - **Readiness = HTTP 200 on `/v1/ready`. Nothing else.** Body may be empty.
   Always use `curl -s -o /dev/null -w '%{http_code}'` — never pipe through
   `jq`/`grep`/`head`.
