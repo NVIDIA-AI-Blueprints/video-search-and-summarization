@@ -33,15 +33,36 @@ Check `TOOLS.md` for the VSS section. If missing, the environment isn't configur
 
 ## Sudo Access
 
-Most prerequisite steps require `sudo` (Docker install, NVIDIA toolkit, kernel settings, systemctl). On cloud instances (Brev, Colossus, DGX Cloud) the default user typically has passwordless sudo. On bare-metal machines, the user may need to enter a password or be in the `sudo` group.
+Most prerequisite steps require `sudo` (Docker install, NVIDIA toolkit, kernel settings, systemctl, edge cache-cleaner). On cloud instances (Brev, Colossus, DGX Cloud) the default user typically has passwordless sudo. On bare-metal machines, the user may need to enter a password or be in the `sudo` group.
 
-Check before proceeding:
+Check first — every subsequent step branches on this result:
 
 ```bash
-sudo -n true 2>/dev/null && echo "passwordless sudo" || echo "sudo requires password"
+sudo -n true 2>/dev/null && SUDO_NOPASSWD=1 || SUDO_NOPASSWD=0
+echo "SUDO_NOPASSWD=${SUDO_NOPASSWD}"
 ```
 
-If sudo requires a password, ask the user to run privileged commands manually or configure passwordless sudo for the session.
+**Branch — passwordless sudo (`SUDO_NOPASSWD=1`):** the skill can run
+the install snippets in this document directly (`sudo modprobe`,
+`sudo apt-get install`, `sudo tee`, `sudo -b`, etc.).
+
+**Branch — password-required sudo (`SUDO_NOPASSWD=0`):** **do not**
+attempt `sudo -n` installs. They will fail silently (exit 1, no
+`askpass`) and leave the host half-configured — most visibly with the
+edge cache-cleaner (`sudo -b /usr/local/bin/sys-cache-cleaner.sh`):
+the install no-ops, deploy proceeds, and first-frame inference OOMs
+on edge platforms with no obvious cause.
+
+Instead, surface the failing command block verbatim to the user with
+a handoff like:
+
+> *"Sudo requires a password on this host. Please run the block
+> below in your shell, then confirm so I can continue."*
+> *(then paste the relevant install snippet from this doc)*
+
+Resume only after the user confirms the command succeeded. Do not
+re-run `sudo -n` checks in a loop — they won't change without user
+action.
 
 ## Kernel Settings
 

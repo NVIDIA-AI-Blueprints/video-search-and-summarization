@@ -7,40 +7,11 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
-## Purpose
-
-Configure, deploy, verify, and tear down a complete VSS profile end-to-end (model selection, prerequisites, debugging).
-
-## Instructions
-
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
-
-## Available Scripts
-
-| Script | Purpose | Arguments |
-| --- | --- | --- |
-| `normalize_resolved_yml.py` | Normalize a `docker compose config` dry-run dump (`resolved.yml`) for diff-friendly review during the configure → deploy step. | `<resolved.yml>` (positional) |
-
-Invoke via `run_script("scripts/normalize_resolved_yml.py", "<resolved.yml>")`
-once the dry-run dump exists. All other deployment work is performed
-through compose / `dev-profile.sh` invocations documented per profile in
-`references/`.
-
-## Examples
-
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
-
-## Limitations
-
-- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
-- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
-- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
-
 # VSS Deploy
 
-Deploy any VSS profile using a compose-centric workflow: build env overrides, generate resolved compose (dry-run), review, then deploy.
+Deploy any VSS profile (`base`, `search`, `lvs`, `warehouse`, `alerts`, `edge`) using a compose-centric workflow: build env overrides, generate resolved compose (dry-run), review, then deploy. This SKILL.md covers the cross-profile concerns (**profile routing**, **prerequisites**, **NGC**, **GPU setup**, and the deploy/teardown flow). Profile-specific service lists, sizing, env recipes, endpoints, and debugging live in per-profile reference docs — load the one that matches the user's intent.
 
-This SKILL.md covers the cross-profile concerns (**profile routing**, **prerequisites**, **NGC**, **GPU setup**, and the deploy/teardown flow). Profile-specific service lists, sizing, env recipes, endpoints, and debugging live in per-profile reference docs — load the one that matches the user's intent.
+Helper script: `run_script("scripts/normalize_resolved_yml.py", "<resolved.yml>")` normalizes a `docker compose config` dry-run dump for diff-friendly review during Step 3c. All other deployment work goes through `compose` / `dev-profile.sh`.
 
 ## Profile Routing
 
@@ -67,7 +38,7 @@ Match the user's request to a profile, then load that profile's reference for si
 # 2. Apply env overrides to generated.env  (source .env stays untouched)
 # 3. docker compose --env-file generated.env config > resolved.yml      (dry-run)
 # 4. Review resolved.yml
-# 5. docker compose -f resolved.yml up -d
+# 5. docker compose --env-file generated.env -f resolved.yml up -d
 ```
 
 The source `.env` is treated as **read-only defaults** committed to the repo. The skill's per-deploy working copy is `generated.env` — same pattern `dev-profile.sh` uses internally. This keeps the checked-in `.env` clean across iterations.
@@ -84,6 +55,24 @@ Run before every deploy. The full system checklist and remediation steps live
 in [`references/prerequisites.md`](references/prerequisites.md#preflight).
 For DGX Spark / IGX Thor / AGX Thor, also run the cache-cleaner check in
 [`references/edge.md`](references/edge.md#cache-cleaner-every-edge-deploy).
+
+**Detect sudo mode first.** Several pre-flight remediations and the
+edge cache-cleaner installer call `sudo`. If the host requires a
+sudo password, those steps will silently no-op under `sudo -n` and
+leave the deploy in a half-prepared state.
+
+```bash
+if sudo -n true 2>/dev/null; then
+  echo "passwordless sudo — pre-flight will auto-install missing pieces"
+else
+  echo "sudo requires password — pre-flight will NOT auto-install; hand commands to the user"
+fi
+```
+
+When sudo needs a password, the skill **must not** run privileged
+installers itself. Surface the copy-pasteable command block from
+`references/prerequisites.md` to the user with a *"run this once and
+confirm"* handoff, then resume after the user replies.
 
 Minimum smoke test (must succeed):
 
@@ -116,6 +105,62 @@ Always follow this sequence. Never skip the dry-run.
 If a deployment already exists, tear it down AND clear stale data volumes before redeploying. 
 
 Full procedure lives in [`references/teardown.md`](references/teardown.md).
+
+### Step 0a — Credentials gate (run before any env mutation)
+
+Validate every credential the chosen profile needs **before** Step 1c
+copies `.env` to `generated.env`. A 401 here is a 30-second failure;
+the same 401 inside a NIM cold-start is a 10–20 min failure.
+
+Required by mode: `NGC_CLI_API_KEY` for any local NIM (`LLM_MODE`/`VLM_MODE` ∈ `local`,`local_shared`); `NVIDIA_API_KEY` for any remote NIM; add `HF_TOKEN` on edge (DGX Spark / IGX-Thor / AGX-Thor with Edge 4B — gated model).
+
+**Discovery — surface, do not auto-source.** If `$NGC_CLI_API_KEY` is
+unset but `~/.ngc/config` exists, extract `apikey`/`org`/`team` and
+ask the user *"Use NGC account `${org}/${team}` for the deploy?"*
+before exporting. Same pattern for `$HF_TOKEN` via
+`~/.cache/huggingface/token`.
+
+**Probes (fail fast on 401/403).** Each probe runs only when its key is
+set; an unset key prints `skip` (it may simply not be required for the
+chosen mode — see the gate below).
+
+```bash
+# NGC — local NIM image pulls
+if [ -n "$NGC_CLI_API_KEY" ]; then
+  curl -sf -u "\$oauthtoken:$NGC_CLI_API_KEY" \
+    "https://authn.nvidia.com/token?service=ngc" >/dev/null \
+    && echo "NGC_CLI_API_KEY ok" || echo "NGC_CLI_API_KEY invalid (401/403)"
+else
+  echo "NGC_CLI_API_KEY not set — skip (required for any local NIM)"
+fi
+
+# build.nvidia.com — remote NIM endpoints
+if [ -n "$NVIDIA_API_KEY" ]; then
+  curl -sf -H "Authorization: Bearer $NVIDIA_API_KEY" \
+    "https://integrate.api.nvidia.com/v1/models" >/dev/null \
+    && echo "NVIDIA_API_KEY ok" || echo "NVIDIA_API_KEY invalid (401/403)"
+else
+  echo "NVIDIA_API_KEY not set — skip (required only for remote NIM)"
+fi
+
+# HF — edge only (gated Edge 4B)
+if [ -n "$HF_TOKEN" ]; then
+  status=$(curl -sf -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $HF_TOKEN" \
+    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")
+  [ "$status" = "200" ] \
+    && echo "HF_TOKEN ok" \
+    || echo "HF_TOKEN invalid or no access to gated Edge 4B (HTTP $status)"
+else
+  echo "HF_TOKEN not set — skip (required only on edge with Edge 4B)"
+fi
+```
+
+Map the results against what the chosen mode needs (Required-by-mode
+list above): a key reported `invalid` that the mode needs, or a `skip`
+for a key the mode **requires**, is a blocker — prompt the user, re-probe,
+and do **not** proceed to Step 1 until it resolves. A `skip` for a key the
+mode does not use is fine.
 
 ### Step 1 — Gather context
 
@@ -249,14 +294,35 @@ Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 
 ```bash
 cd $REPO/deploy/docker
-docker compose -f resolved.yml up -d
+docker compose --env-file $ENV_GEN -f resolved.yml up -d
 ```
+
+> **`--env-file` is mandatory.** `resolved.yml` resolves variable
+> substitutions at config time but the per-service `profiles:` keys
+> are still active filters at `up` time. Without `--env-file`,
+> `COMPOSE_PROFILES` is unset, every service gets filtered out, and
+> `up -d` exits **0** with `no service selected` and an empty
+> container set — a silent zero-container "success". Always pass the
+> same `generated.env` here that was used in Step 3.
 
 > **Do NOT use `--force-recreate` on retries.** It destroys already-warm NIM containers, forcing another 3–5 min torch.compile + CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix the root cause (usually perms or an env typo) and just re-run `up -d` — Docker will re-create only the containers whose config changed or that are down.
 
 `docker compose up -d` returns as soon as the daemon has **created** the containers — it does **not** wait for the processes inside to finish initializing. Polling `docker ps | grep -qx <name>` immediately after returns 0 (container exists) while `curl :8000/docs` returns exit 7 (Python process inside is still importing modules, loading models, binding the port). Eval verifiers and humans both regularly trip on this — declaring "deploy done" right after `up -d` returns probes a half-warm stack, and `vss-agent` / `:8000/docs` / `vss-agent-ui` checks all spuriously fail before the agent has actually bound its ports.
 
 ### Step 5b — Wait until the stack is actually healthy
+
+**Gate 0 — container count must be > 0.** `docker compose up -d` can
+return 0 while starting **zero** containers (see the `--env-file`
+warning in Step 5). The readiness probes in `readiness.md` walk an
+empty container list and incorrectly report success. Refuse to
+proceed past `up -d` until at least one container exists:
+
+```bash
+expected=$(docker compose --env-file $ENV_GEN -f resolved.yml config --services | wc -l)
+actual=$(docker compose -f resolved.yml ps -q | wc -l)
+[ "$actual" -gt 0 ] && [ "$actual" -ge "$expected" ] \
+  || { echo "FAIL: expected $expected services, got $actual — re-check Step 5 --env-file"; exit 1; }
+```
 
 `docker compose up -d` returns once containers are *created*, not when
 the processes inside are *ready*. Cold deploys can legitimately take
@@ -266,10 +332,6 @@ per-profile `curl` checks + slow-container triage) lives in
 `references/<profile>.md` lists the endpoints that must be reachable
 for that profile. **Never declare the deploy done after `up -d`
 returns** — only after every documented endpoint succeeds.
-
-### Step 6 — 
-Fron
-
 
 ## Tear Down
 
@@ -310,5 +372,3 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 ## Troubleshooting
 
 Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
-
-bump:1
