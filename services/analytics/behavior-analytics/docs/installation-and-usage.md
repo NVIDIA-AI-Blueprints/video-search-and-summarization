@@ -51,13 +51,10 @@ pipenv run python3 apps/analytics/main_analytics_3d_app.py --config <path>
 # Public Safety
 pipenv run python3 apps/public_safety/main_public_safety_app.py --config <path>
 
-# Robot Speed Control
-pipenv run python3 apps/robot_speed_control/main_robot_speed_control_app.py --config <path>
-
 # Dev Example (incidents demo)
 pipenv run python3 apps/dev_example/main_dev_example_app.py --config <path>
 ```
-> Most apps expect a config JSON; see `configs/` examples or `readmes/configuration.md`.
+> Most apps expect a config JSON; see `configs/` examples or `docs/configuration.md`.
 > Apps that use spatial calibration also require `--calibration <path>` (see calibration examples under `configs/`).
 
 ## Running Applications (pip)
@@ -68,7 +65,6 @@ python3 apps/smart_city/main_smart_city_app.py --config <path>
 python3 apps/analytics/main_analytics_2d_app.py --config <path>
 python3 apps/analytics/main_analytics_3d_app.py --config <path>
 python3 apps/public_safety/main_public_safety_app.py --config <path>
-python3 apps/robot_speed_control/main_robot_speed_control_app.py --config <path>
 python3 apps/dev_example/main_dev_example_app.py --config <path>
 ```
 > Add `--calibration <path>` for apps that need calibration files (e.g., spatial analytics, dev example).
@@ -78,11 +74,10 @@ python3 apps/dev_example/main_dev_example_app.py --config <path>
 - Smart City: `apps/smart_city/main_smart_city_app.py`
 - Spatial Analytics 2D/3D: `apps/analytics/main_analytics_2d_app.py` / `_3d_app.py`
 - Public Safety: `apps/public_safety/main_public_safety_app.py`
-- Robot Speed Control: `apps/robot_speed_control/main_robot_speed_control_app.py`
 - Dev Example (incidents demo): `apps/dev_example/main_dev_example_app.py`
 - Tools: under `src/mdx/analytics/core/tools/`
 
 ## Configuration files
 - Examples in `configs/` (e.g., `smart_city_config.json`, `warehouse_2d_config.json`, `frame_playback_config.json`).
 - Defaults and helpers: `src/mdx/analytics/core/schema/config.py`.
-- Incident details: `readmes/incident-detection.md`.
+- Incident details: `docs/incident-detection.md`.

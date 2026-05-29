@@ -21,7 +21,7 @@ pipenv run python src/mdx/analytics/core/tools/latency/latency_monitor.py \
 ```
 
 ## Common issues
-- No incidents: verify incident configs enabled; see `readmes/incident-detection.md`.
+- No incidents: verify incident configs enabled; see `docs/incident-detection.md`.
 - Incidents stay off unless `...IncidentEnable` flags are set (defaults are false per docs).
 - Too many false incidents: raise thresholds or expiration windows.
 - Playback not emitting: check topic names in config and broker connectivity.
