@@ -283,13 +283,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         instances = [
             {
                 "name": "vss-eval-rtx-2g",
-                "status": "RUNNING READY",
+                "status": "RUNNING",
                 "gpu": "RTX PRO 6000",
                 "instance_type": "g7e.12xlarge",
             },
             {
                 "name": "vss-eval-rtx-1g-2",
-                "status": "RUNNING READY",
+                "status": "RUNNING",
                 "gpu": "RTX PRO 6000",
                 "instance_type": "g7e.4xlarge",
             },

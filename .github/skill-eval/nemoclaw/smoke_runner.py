@@ -85,7 +85,7 @@ def _parse_brev_json(raw: str) -> list[dict[str, Any]]:
 
 def _status_ready(status: str) -> bool:
     upper = status.upper()
-    return "RUNNING" in upper and "READY" in upper
+    return "RUNNING" in upper or "READY" in upper
 
 
 def _loose_tokens_match(want: tuple[str, ...], have: str) -> bool:
@@ -106,7 +106,8 @@ def _instance_candidates(
         name = str(inst.get("name") or "")
         if not name.startswith("vss-eval-"):
             continue
-        if not _status_ready(str(inst.get("status") or "")):
+        status_text = " ".join(str(inst.get(key) or "") for key in ("status", "state"))
+        if status_text and not _status_ready(status_text):
             continue
         lowered = name.lower()
         gpu_text = " ".join(
@@ -161,6 +162,19 @@ def _list_instances() -> list[dict[str, Any]]:
     return instances
 
 
+def _cleanup_results(results_root: Path, run_id: str) -> None:
+    """Drop stale run results so workflow artifacts only include this run."""
+    results_root.mkdir(parents=True, exist_ok=True)
+    for child in results_root.iterdir():
+        if child.name in (run_id, "_viewer"):
+            continue
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
+    (results_root / run_id).mkdir(parents=True, exist_ok=True)
+
+
 def _reachable(instance: str) -> bool:
     result = _run(["brev", "exec", instance, "echo harbor-ready"], timeout=45)
     return result.returncode == 0 and "harbor-ready" in result.stdout
@@ -174,6 +188,11 @@ def _select_instance(platform: str, gpu_count: int, explicit: str | None) -> str
 
     instances = _list_instances()
     candidates = _instance_candidates(instances, platform=platform, gpu_count=gpu_count)
+    print(
+        "[nemoclaw-ci] candidate workers:",
+        ", ".join(candidates) if candidates else "<none>",
+        flush=True,
+    )
     if not candidates:
         raise RuntimeError(f"no RUNNING+READY vss-eval-* candidate for {platform}")
     for candidate in candidates:
@@ -353,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["SKILLS_EVAL_RUNNER"] = "nemoclaw"
     os.environ["PYTHONPATH"] = f"{SKILL_EVAL_ROOT}:{os.environ.get('PYTHONPATH', '')}"
     Path("/tmp/skill-eval").mkdir(parents=True, exist_ok=True)
+    _cleanup_results(results_root, run_id)
 
     try:
         _generate_dataset(args.profile, args.platform, dataset_root)
