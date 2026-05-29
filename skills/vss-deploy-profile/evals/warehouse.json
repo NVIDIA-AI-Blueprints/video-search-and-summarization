@@ -9,10 +9,10 @@
       }
     }
   },
-  "env": "A multi-GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. The warehouse 2D profile (`bp_wh_2d` — 2D Vision AI **with Agents**) runs RT-DETR perception locally on one GPU plus an **always-local** RTVI-VLM on a second GPU, on top of the full VSS stack (agent + UI + VST + behavior-analytics) over a Kafka broker. The `/vss-deploy-profile` skill, which refers to the warehouse.md, is responsible for the full deploy workflow — this spec verifies the resulting state by probing the live stack.",
+  "env": "A multi-GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. The warehouse 2D profile (`bp_wh_2d` — 2D Vision AI **with Agents**) runs RT-DETR perception locally on one GPU plus an **always-local** RTVI-VLM on a second GPU, on top of the full VSS stack (agent + UI + VST + behavior-analytics) over a Kafka broker. Remote LLM endpoint env vars (`LLM_REMOTE_URL`/`LLM_REMOTE_MODEL`) should also be set. The `/vss-deploy-profile` skill, which refers to the warehouse.md, is responsible for the full deploy workflow — this spec verifies the resulting state by probing the live stack.",
   "expects": [
     {
-      "query": "Deploy the VSS **warehouse** profile in 2D mode (`bp_wh_2d`, the agents variant) on {{platform}}, using the `/vss-deploy-profile` skill end-to-end and autonomously.",
+      "query": "Deploy the VSS **warehouse** profile in 2D mode (`bp_wh_2d`, the agents variant) on {{platform}}, set LLM_REMOTE_URL and LLM_REMOTE_MODEL, and use the `/vss-deploy-profile` skill end-to-end and autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
