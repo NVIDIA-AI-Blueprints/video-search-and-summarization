@@ -380,9 +380,9 @@ jobs:
           # Wait up to 2h for a matching vss-eval-* worker lock, then
           # leave enough step budget for Harbor to run if a worker frees up.
           export NEMOCLAW_LOCK_TIMEOUT_SEC=7200
-          # Default to the 2-GPU search smoke because the warm RTX pool keeps
-          # 2-GPU workers online while the 1-GPU RTX workers may be stopped.
-          export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-search}"
+          # Default to the lighter base smoke. If only the 2-GPU RTX warm pool
+          # is online, the smoke runner can place this 1-GPU profile there.
+          export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-base}"
           export PR_NUMBER=""
           export PR_BASE="${{ github.ref_name }}"
           export PR_HEAD_SHA="${{ github.sha }}"
