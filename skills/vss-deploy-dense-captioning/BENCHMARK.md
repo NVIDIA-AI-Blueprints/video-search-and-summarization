@@ -1,0 +1,64 @@
+# Skills Eval Benchmark
+
+Generated: 2026-05-29 04:15:00 UTC
+Specs: 2
+
+---
+
+## Skill Eval - `skills/vss-deploy-dense-captioning/evals/standalone_api.json`
+
+Head: `8049a622` - 1 platform - spec `standalone_api`
+Result source: B200 standalone validation plus PR static checks. Formal skills-eval
+trace artifacts were not rerun after the documentation-only follow-up fixes.
+
+| Platform | Mode | Query | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
+|---|---|---|---|---|---|---|---|---|---|
+| B200 | standalone | Deploy standalone RT-VLM from the copied compose, validate health/API/OpenAPI/chat/completions, register and clean up the RTSP sample stream, and leave the service running for verifier probes. | PASS - core flow passed | n/a | n/a | n/a | n/a | n/a | manual |
+
+Observed coverage:
+- Standalone compose copy flow worked.
+- The copied compose required removing the dangling `rtvi-vlm.depends_on` block; the normalized copy passed `docker compose config --quiet`.
+- RT-VLM deployed successfully, downloaded and served Cosmos Reason 2, and became healthy.
+- API validation passed for `/v1/health/ready`, `/v1/models`, `/openapi.json`, `/v1/assets/stats`, text-only `/v1/chat/completions`, and expected HTTP 400 for text-only legacy `/v1/completions`.
+- RTSP stream registration, dense caption generation, stop-captioning, and stream cleanup worked.
+
+Expected verifier checks after this PR:
+- Use host port `8018` consistently in the skill/evals/deploy reference.
+- Derive the RT-VLM image tag from compose; current documented fallback is `3.2.0-26.05.4`.
+- Treat `/openapi.json` as endpoint source of truth; do not call `/v1/license` unless exposed.
+- Require an RTSP probe to discover video stream/caps; an exit code of `0` with unknown media type is not sufficient without a cross-check.
+- Handle agent-safe secret handoff for `NGC_CLI_API_KEY` and call out manual `sudo chown` ownership when required.
+
+---
+
+## Skill Eval - `skills/vss-deploy-dense-captioning/evals/alerts_profile_api.json`
+
+Head: `8049a622` - 1 platform - spec `alerts_profile_api`
+Result source: B200 RT-VLM validation with Kafka enabled after broker/listener
+correction, plus PR static checks. Formal skills-eval trace artifacts were not
+rerun after the documentation-only follow-up fixes.
+
+| Platform | Mode | Query | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
+|---|---|---|---|---|---|---|---|---|---|
+| B200 | alerts real-time / RT-VLM direct API | Validate RT-VLM readiness/API/OpenAPI/chat/completions against an alerts-style deployment and show Kafka incident-consumer guidance. | PASS - core API and Kafka path passed after documented broker setup | n/a | n/a | n/a | n/a | n/a | manual |
+
+Observed coverage:
+- Kafka validation worked after starting a broker with an advertised listener reachable at `${HOST_IP}:9092` and restarting RT-VLM.
+- `vision-llm-messages` received caption messages.
+- `vision-llm-events-incidents` received incident messages.
+- Caption and incident message keys matched for the same request/chunk.
+
+Expected verifier checks after this PR:
+- Use `vision-llm-events-incidents` as the current default incident topic, not the legacy mdx-prefixed incident topic.
+- Start Kafka before RT-VLM when Kafka is enabled, or restart/recreate `rtvi-vlm` after Kafka comes up or the advertised listener changes.
+- Use `KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"` for repo infra Kafka examples; override only for custom broker container names.
+- Use deterministic positive alert prompts first when validating Kafka wiring, then switch back to scene-analysis prompts.
+- Preserve model cache volumes; avoid `docker compose down -v` unless intentionally forcing a large model re-download.
+
+All core RT-VLM deployment, API, caption generation, Kafka caption publishing, and
+Kafka incident publishing checks passed during manual validation after the
+documented prerequisites were satisfied. The remaining changes in this PR are
+skill/documentation reliability fixes intended to make the same outcome
+repeatable for automated validation.
+
+---
