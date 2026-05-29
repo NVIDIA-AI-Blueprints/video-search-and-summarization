@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Bind metrics endpoint on all interfaces inside the container so docker
+# healthcheck (curl http://localhost:9600) succeeds.
+api.http.host: 0.0.0.0
+api.http.port: 9600
+
+# Disable X-Pack monitoring; we don't ship metrics to Elastic Cloud.
+xpack.monitoring.enabled: false
+
+# Reload pipeline definitions when their files change. Useful in dev; the
+# release image rebuilds and re-deploys instead.
+config.reload.automatic: true
+config.reload.interval: 10s
+
+# Allow the Kafka input to use the embedded JRE for SASL/Kerberos libs even
+# when not currently configured (no-op when unused).
+log.level: info
+
+# Persistent queue keeps in-flight messages on disk; we use the default
+# memory queue here because the Kafka consumer offset commit handles
+# at-least-once delivery semantics for us.
+queue.type: memory
+
+# Keep legacy (non-ECS) field names so the Elasticsearch document shape
+# written by the visionllm pipeline stays compatible with what
+# via-ctx-rag's ElasticsearchDBTool.add_summary expects.
+# Logstash 9.x may change the default; set explicitly to be safe.
+pipeline.ecs_compatibility: disabled

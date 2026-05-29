@@ -59,6 +59,31 @@ export NGC_CLI_API_KEY="<your-key>"
 
 Each profile may also ship a **`.env`** under **`developer-profiles/<profile>/`** for defaults; the script generates or merges runtime env (e.g. **`generated.env`**) as documented in the script help.
 
+### Direct Compose data directories
+
+The helper scripts create and permission the data directories automatically. If you run
+`docker compose -f compose.yml ...` directly, set **`VSS_DATA_DIR`** and create writable
+host directories for the bind-mounted infrastructure volumes before starting the stack:
+
+```bash
+export VSS_DATA_DIR=/path/to/vss-apps-data
+
+mkdir -p \
+  "$VSS_DATA_DIR/data_log/elastic/data" \
+  "$VSS_DATA_DIR/data_log/elastic/logs" \
+  "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/redis/data" \
+  "$VSS_DATA_DIR/data_log/redis/log"
+
+chmod -R 777 "$VSS_DATA_DIR/data_log"
+```
+
+The root compose maps Elasticsearch data/log volumes to
+`$VSS_DATA_DIR/data_log/elastic/{data,logs}`, Kafka data to
+`$VSS_DATA_DIR/data_log/kafka`, and Redis data/logs to
+`$VSS_DATA_DIR/data_log/redis`. Missing or non-writable host directories can cause
+startup failures such as Kafka being unable to write `/tmp/kafka-data/cluster_id` or
+Elasticsearch being unable to open `gc.log`.
 ### LVS Compose notes
 
 Docker Compose does not use Kubernetes secrets or the NIM Operator. For the LVS profile, local model bring-up uses the **`NGC_CLI_API_KEY`** environment variable directly for image pulls and NIM/RT-VLM model access.
