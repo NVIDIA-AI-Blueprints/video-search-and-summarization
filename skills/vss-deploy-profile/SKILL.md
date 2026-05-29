@@ -85,6 +85,24 @@ auto-install snippet for DGX-Spark / IGX-Thor / AGX-Thor, and the
 remediation steps for each failure live in
 [`references/prerequisites.md`](references/prerequisites.md#preflight).
 
+**Detect sudo mode first.** Several pre-flight remediations and the
+edge cache-cleaner installer call `sudo`. If the host requires a
+sudo password, those steps will silently no-op under `sudo -n` and
+leave the deploy in a half-prepared state.
+
+```bash
+if sudo -n true 2>/dev/null; then
+  echo "passwordless sudo — pre-flight will auto-install missing pieces"
+else
+  echo "sudo requires password — pre-flight will NOT auto-install; hand commands to the user"
+fi
+```
+
+When sudo needs a password, the skill **must not** run privileged
+installers itself. Surface the copy-pasteable command block from
+`references/prerequisites.md` to the user with a *"run this once and
+confirm"* handoff, then resume after the user replies.
+
 Minimum smoke test (must succeed):
 
 ```bash
@@ -116,6 +134,64 @@ Always follow this sequence. Never skip the dry-run.
 If a deployment already exists, tear it down AND clear stale data volumes before redeploying. 
 
 Full procedure lives in [`references/teardown.md`](references/teardown.md).
+
+### Step 0a — Credentials gate (run before any env mutation)
+
+Validate every credential the chosen profile needs **before** Step 1c
+copies `.env` to `generated.env`. A 401 here is a 30-second failure;
+the same 401 inside a NIM cold-start is a 10–20 min failure.
+
+**Required by profile:**
+
+| Profile / mode | Required credentials |
+|---|---|
+| Any local NIM (`LLM_MODE=local`/`local_shared`, `VLM_MODE=local`/`local_shared`) | `NGC_CLI_API_KEY` |
+| Any remote NIM (`LLM_MODE=remote` or `VLM_MODE=remote`) | `NVIDIA_API_KEY` |
+| Edge — DGX Spark / IGX-Thor / AGX-Thor with Edge 4B | add `HF_TOKEN` (gated model) |
+
+**Discovery — never auto-source; confirm with the user first.**
+
+1. **Env vars** — if `$NGC_CLI_API_KEY` / `$NVIDIA_API_KEY` / `$HF_TOKEN` are already exported, skip to the probes below.
+2. **NGC fallback — `~/.ngc/config`.** If `$NGC_CLI_API_KEY` is unset but `~/.ngc/config` exists, surface the discovered identity to the user instead of silently sourcing it:
+   ```bash
+   ngc_key=$(awk -F'= ' '/^apikey/{print $2}' ~/.ngc/config)
+   ngc_org=$(awk -F'= ' '/^org/{print $2}' ~/.ngc/config)
+   ngc_team=$(awk -F'= ' '/^team/{print $2}' ~/.ngc/config)
+   echo "Found NGC key in ~/.ngc/config (org=${ngc_org}, team=${ngc_team})."
+   ```
+   Ask the user (`AskUserQuestion` or equivalent): *"Use this NGC account for the deploy?"*  Only export `NGC_CLI_API_KEY` after explicit confirmation.
+3. **HF fallback — `~/.cache/huggingface/token`.** Same pattern. Surface the file location and prompt before use.
+
+**Probes (fail fast on 401/403):**
+
+```bash
+# NGC — local NIM image pulls
+[ -n "$NGC_CLI_API_KEY" ] && \
+  curl -sf -u "\$oauthtoken:$NGC_CLI_API_KEY" \
+    "https://authn.nvidia.com/token?service=ngc" >/dev/null \
+  && echo "NGC_CLI_API_KEY ok" \
+  || echo "NGC_CLI_API_KEY missing or invalid"
+
+# build.nvidia.com — remote NIM endpoints
+[ -n "$NVIDIA_API_KEY" ] && \
+  curl -sf -H "Authorization: Bearer $NVIDIA_API_KEY" \
+    "https://integrate.api.nvidia.com/v1/models" >/dev/null \
+  && echo "NVIDIA_API_KEY ok" \
+  || echo "NVIDIA_API_KEY missing or invalid"
+
+# HF — only required on edge platforms with Edge 4B
+[ -n "$HF_TOKEN" ] && \
+  status=$(curl -sf -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $HF_TOKEN" \
+    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8") \
+  && [ "$status" = "200" ] && echo "HF_TOKEN ok" \
+  || echo "HF_TOKEN missing/invalid or no access to gated Edge 4B"
+```
+
+**On any failure** — prompt the user for the missing key and re-probe.
+Do **not** proceed to Step 1 with a missing or 401-ing credential; the
+deploy will fail mid-way (NIM image pull or remote chat call) after
+generating env mutations and starting containers.
 
 ### Step 1 — Gather context
 
@@ -249,14 +325,35 @@ Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 
 ```bash
 cd $REPO/deploy/docker
-docker compose -f resolved.yml up -d
+docker compose --env-file $ENV_GEN -f resolved.yml up -d
 ```
+
+> **`--env-file` is mandatory.** `resolved.yml` resolves variable
+> substitutions at config time but the per-service `profiles:` keys
+> are still active filters at `up` time. Without `--env-file`,
+> `COMPOSE_PROFILES` is unset, every service gets filtered out, and
+> `up -d` exits **0** with `no service selected` and an empty
+> container set — a silent zero-container "success". Always pass the
+> same `generated.env` here that was used in Step 3.
 
 > **Do NOT use `--force-recreate` on retries.** It destroys already-warm NIM containers, forcing another 3–5 min torch.compile + CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix the root cause (usually perms or an env typo) and just re-run `up -d` — Docker will re-create only the containers whose config changed or that are down.
 
 `docker compose up -d` returns as soon as the daemon has **created** the containers — it does **not** wait for the processes inside to finish initializing. Polling `docker ps | grep -qx <name>` immediately after returns 0 (container exists) while `curl :8000/docs` returns exit 7 (Python process inside is still importing modules, loading models, binding the port). Eval verifiers and humans both regularly trip on this — declaring "deploy done" right after `up -d` returns probes a half-warm stack, and `vss-agent` / `:8000/docs` / `vss-agent-ui` checks all spuriously fail before the agent has actually bound its ports.
 
 ### Step 5b — Wait until the stack is actually healthy
+
+**Gate 0 — container count must be > 0.** `docker compose up -d` can
+return 0 while starting **zero** containers (see the `--env-file`
+warning in Step 5). The readiness probes in `readiness.md` walk an
+empty container list and incorrectly report success. Refuse to
+proceed past `up -d` until at least one container exists:
+
+```bash
+expected=$(docker compose --env-file $ENV_GEN -f resolved.yml config --services | wc -l)
+actual=$(docker compose -f resolved.yml ps --services --format '{{.Name}}' | wc -l)
+[ "$actual" -gt 0 ] && [ "$actual" -ge "$expected" ] \
+  || { echo "FAIL: expected $expected services, got $actual — re-check Step 5 --env-file"; exit 1; }
+```
 
 `docker compose up -d` returns once containers are *created*, not when
 the processes inside are *ready*. Cold deploys can legitimately take

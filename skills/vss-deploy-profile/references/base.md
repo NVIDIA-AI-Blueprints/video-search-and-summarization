@@ -6,18 +6,20 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 
 ## Services Deployed
 
+Profile `bp_developer_base_2d` activates only the services below. Elasticsearch, Kafka, and VST MCP are **not** part of `base` — they ship with `search`, `lvs`, and `alerts` (see those profile references). If you see `VST_MCP_URL` / `VSS_VA_MCP_PORT` warnings during `docker compose config`, that's expected on `base` and not an error.
+
 | Service | Container | Port | Purpose |
 |---|---|---|---|
-| VSS Agent | mdx-vss-agent-1 | 8000 | Orchestrates tool calls and model inference |
-| VSS UI | mdx-vss-ui-1 | 3000 | Web UI — chat, video upload, views |
-| VST | mdx-vst-1 | 30888 | Video Storage Tool — ingest, record, playback |
-| VST MCP | mdx-vst-mcp-1 | 8001 | VST management API |
-| LLM NIM | mdx-nim-llm-1 | 30081 | Nemotron LLM for reasoning |
-| VLM NIM | mdx-nim-vlm-1 | 30082 | Cosmos Reason VLM for vision |
-| Elasticsearch | mdx-elasticsearch-1 | 9200 | Analytics data store |
-| Kafka | mdx-kafka-1 | 9092 | Message broker |
-| Redis | mdx-redis-1 | 6379 | Cache |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability / telemetry |
+| VSS Agent | vss-agent | 8000 | Orchestrates tool calls and model inference |
+| VSS UI | vss-ui | 3000 | Web UI — chat, video upload, views |
+| HAProxy Ingress | vss-haproxy-ingress | 7777 | Browser-facing entry point — proxies UI + Agent API + VST |
+| VST Ingress | vst-ingress | 30888 | Video Storage Tool — ingest, record, playback |
+| Sensor MS | sensor-ms | — | VIOS sensor management |
+| Stream Processing MS | streamprocessing-ms | — | VIOS stream processing |
+| LLM NIM | mdx-nim-llm-1 | 30081 | Nemotron LLM for reasoning (activated by `llm_local*` / `llm_local_shared*` COMPOSE_PROFILES) |
+| VLM NIM | mdx-nim-vlm-1 | 30082 | Cosmos Reason VLM for vision (activated by `vlm_local*` / `vlm_local_shared*` COMPOSE_PROFILES) |
+| Redis | redis | 6379 | Cache |
+| Phoenix | phoenix | 6006 | Observability / telemetry |
 
 ## Default Models
 
