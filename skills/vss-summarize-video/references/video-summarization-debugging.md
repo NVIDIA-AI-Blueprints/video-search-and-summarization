@@ -6,8 +6,11 @@ deployed or partially deployed.
 ## Fast Status
 
 ```bash
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
+
 curl -s -o /dev/null -w '%{http_code}\n' \
-  "${LVS_BACKEND_URL:-http://localhost:38111}/v1/ready"
+  "$VIDEO_SUMMARIZATION_URL/v1/ready"
 
 docker ps --filter name=vss-lvs --format '{{.Names}} {{.Status}}'
 docker logs --tail 100 vss-lvs

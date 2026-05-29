@@ -14,8 +14,12 @@ deployment-specific. For the VSS developer `lvs` profile, the default external
 URL is:
 
 ```bash
-export BASE_URL="${LVS_BACKEND_URL:-http://localhost:38111}"
+export BASE_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+BASE_URL="${BASE_URL%/}"
 ```
+
+Do not infer this host from the video URL. The video URL identifies media; the
+base URL identifies the video summarization service.
 
 The OpenAPI declares bearer auth globally, but local VSS developer deployments
 usually expose these endpoints without an auth header. If the deployment

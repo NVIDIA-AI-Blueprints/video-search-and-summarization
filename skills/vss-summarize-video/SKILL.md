@@ -34,9 +34,10 @@ timestamped events when the LVS microservice path is reachable.
 
 ## Prerequisites
 
-- VSS `lvs` profile running on `$HOST_IP` (port 38111) OR a reachable
-  VLM/RT-VLM endpoint as a fallback. The `vss-deploy-profile` skill brings
-  these up.
+- VSS `lvs` profile reachable at `LVS_BACKEND_URL` /
+  `VIDEO_SUMMARIZATION_URL`, or at the deployment-configured `HOST_IP` on port
+  38111, OR a reachable VLM/RT-VLM endpoint as a fallback. The
+  `vss-deploy-profile` skill brings these up.
 - Network reachability from the agent host to both endpoints; clip URLs from
   VIOS must be fetchable by the chosen backend.
 - `jq` and `curl` available on the agent host.
@@ -101,11 +102,13 @@ for video summarization-specific service details.
 
 Decide purely from video summarization service availability (probed in
 *Setup → Availability checks* below). **Duration does not drive routing.**
+The Setup block resolves `VIDEO_SUMMARIZATION_URL` before probing; use that
+resolved value for the LVS readiness and summarize calls.
 
 | `/v1/ready` | Backend | Endpoint |
 |---|---|---|
-| HTTP 200 | LVS microservice with HITL | `POST ${LVS_BACKEND_URL}/v1/summarize` |
-| Anything else | VLM / RT-VLM with the default prompt + fallback note | `POST ${VLM_BASE_URL}/v1/chat/completions` |
+| HTTP 200 | LVS microservice with HITL | `POST ${VIDEO_SUMMARIZATION_URL}/v1/summarize` |
+| Anything else | VLM / RT-VLM with the default prompt + fallback note | `POST ${VLM}/v1/chat/completions` |
 
 Fallback message when the LVS service is unreachable — copy verbatim above the summary:
 
@@ -117,11 +120,11 @@ Fallback message when the LVS service is unreachable — copy verbatim above the
 
 ## Deployment prerequisite
 
-The VSS **lvs** profile on `$HOST_IP` is the primary backend. If the
-`/v1/ready` probe (see *Setup → Availability checks*) returns anything
-other than 200 after the warmup retries, ask the user:
+The VSS **lvs** profile behind the resolved video summarization URL is the
+primary backend. If the `/v1/ready` probe (see *Setup → Availability checks*)
+returns anything other than 200 after the warmup retries, ask the user:
 
-> *"The VSS `lvs` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p lvs`? Reply `no` to summarize with the VLM-only fallback instead (lower quality, no scenario/events targeting)."*
+> *"The VSS `lvs` profile is not reachable at the configured video summarization URL. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p lvs`? Reply `no` to summarize with the VLM-only fallback instead (lower quality, no scenario/events targeting)."*
 
 - **Yes** → hand off to `/vss-deploy-profile`, then re-probe and continue with Step 2 (LVS + HITL).
 - **No** → go straight to **Step 2 fallback (VLM with default prompt)** and prepend the Routing fallback note. Do not ask again, and do not run scenario/events HITL.
@@ -135,10 +138,17 @@ other than 200 after the warmup retries, ask the user:
 **Endpoints (defaults for a local VSS `lvs` deployment):**
 
 - VLM / RT-VLM: `${VLM_BASE_URL}` — default `${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}`
-- LVS service: `${LVS_BACKEND_URL}` — default `http://${HOST_IP:-localhost}:38111`
+- LVS service: `${LVS_BACKEND_URL}` or `${VIDEO_SUMMARIZATION_URL}` — default `http://${HOST_IP:-localhost}:38111`
 - VIOS: owned by `vss-manage-video-io-storage`; refer there.
 
 Use env vars when set (strip trailing `/v1` from the VLM base — the skill appends it). Otherwise use the defaults. If neither works, ask the user — do not scan ports or read config files to guess.
+
+**Endpoint precedence is strict.** If `LVS_BACKEND_URL` or
+`VIDEO_SUMMARIZATION_URL` is set, use that value exactly (apart from removing a
+trailing slash). Do **not** set or override `HOST_IP` from the input video URL,
+clip URL, VIOS URL, RTSP stream URL, S3 URL, or any other media location. Media
+hosts and backend service hosts are separate systems. Use `HOST_IP` only when it
+is already configured by the deployment environment.
 
 **Model name:** read `${VLM_NAME}` (default
 `nim_nvidia_cosmos-reason2-8b_hf-1208`). It must match the id RT-VLM
@@ -154,6 +164,7 @@ inspect the body.
 
 ```bash
 VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
+VLM="${VLM%/}"
 VLM="${VLM%/v1}"
 
 # VLM / RT-VLM: 200 on /v1/models
@@ -162,7 +173,8 @@ vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
 [ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
 
 # Video summarization service: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
 video_sum_code=000
 for i in $(seq 1 10); do
   video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$VIDEO_SUMMARIZATION_URL/v1/ready")
@@ -199,6 +211,8 @@ URL as the final answer. From VIOS collect three values:
 
 Everything else (auth, upload, `disableAudio`, expiry, etc.) lives in the
 `vss-manage-video-io-storage` skill — refer users there if VIOS fails.
+Never derive `HOST_IP`, `LVS_BACKEND_URL`, `VIDEO_SUMMARIZATION_URL`, or
+`VLM_BASE_URL` from the clip URL host.
 
 ---
 
@@ -212,6 +226,16 @@ For advanced fields (`media_info`, `schema`, structured output, stream captionin
 
 Full walk-through is in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run HITL before calling the LVS service.
 
+HITL is parameter collection, not a second approval gate. After the user has
+asked for a summary and provided `scenario` / `events` values (or opted into
+defaults), immediately submit the video URL to `/v1/summarize` and return the
+backend summary. Do not ask "should I call summarize now?" or require another
+confirmation before the curl. Only pause for an extra review-before-send
+confirmation if the user explicitly requested it, or if the resolved backend
+would send private media outside the user's expected VSS deployment boundary;
+ordinary configured `LVS_BACKEND_URL`, `VIDEO_SUMMARIZATION_URL`, `HOST_IP`, or
+localhost targets do not require that extra confirmation.
+
 **Autonomous-mode defaults.** When the caller has bypassed HITL ("run
 autonomously without prompting") AND the original query asks for
 `default`/`defaults` (or gives none), use
@@ -224,7 +248,8 @@ short" or "the user seems in a hurry" are not valid reasons.
 Prefer `POST /v1/summarize` (3.2 GA route); `/summarize` is a compatibility alias.
 
 ```bash
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
 
 # From HITL reply:
 SCENARIO='warehouse monitoring'
@@ -266,6 +291,7 @@ Use this path **only** when `/v1/ready` did not return 200 after warmup. Do NOT 
 
 ```bash
 VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
+VLM="${VLM%/}"
 VLM="${VLM%/v1}"
 PROMPT='Describe in detail what is happening in this video,
 including all visible people, vehicles, equipments, objects,
@@ -356,8 +382,13 @@ mixed into it.
 
 - **Route by service availability, not by duration.** Probe `/v1/ready` once
   in Setup; HTTP 200 → LVS+HITL for every clip; anything else → VLM fallback.
+- **Endpoint env vars are authoritative.** Use `LVS_BACKEND_URL` /
+  `VIDEO_SUMMARIZATION_URL` exactly when set. Never derive `HOST_IP` or backend
+  URLs from the clip URL, VIOS URL, RTSP URL, or media storage host.
 - **HITL is mandatory on the LVS path.** The `defaults` opt-in is the only
-  sanctioned bypass. The VLM fallback path is silent (no HITL).
+  sanctioned bypass. HITL collects `scenario` / `events`; it is not an extra
+  confirmation before the summarize call. The VLM fallback path is silent (no
+  HITL).
 - **Readiness = HTTP 200 on `/v1/ready`. Nothing else.** Body may be empty.
   Always use `curl -s -o /dev/null -w '%{http_code}'` — never pipe through
   `jq`/`grep`/`head`.

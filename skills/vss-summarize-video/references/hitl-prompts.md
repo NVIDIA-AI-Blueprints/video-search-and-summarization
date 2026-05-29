@@ -8,18 +8,27 @@ response.** Do not call the video summarization service with defaults silently �
 defaults, they must say so explicitly (e.g., "use the generic
 defaults").
 
+This HITL step collects summarization parameters; it is not a second
+permission prompt after the user has already asked for a summary. Once the user
+provides values or replies `defaults`, send the `/v1/summarize` request without
+asking for another confirmation. Pause for an additional review-before-send
+confirmation only if the user explicitly requested that review, or if the
+resolved backend would send private media outside the user's expected VSS
+deployment boundary. Ordinary configured `LVS_BACKEND_URL`,
+`VIDEO_SUMMARIZATION_URL`, `HOST_IP`, and localhost targets do not require that
+extra confirmation.
+
 You MAY reuse previously confirmed `scenario` / `events` /
 `objects_of_interest` from earlier in the same chat **only if** the user
 is asking to re-summarize the **same video** (same `streamId` / clip
 URL) — in that case, remind the user which parameters you're about to
-reuse and let them change them before calling. For any **different
-video**, re-run the HITL from scratch.
+reuse, then call the service unless they change them or cancel. For any
+**different video**, re-run the HITL from scratch.
 
 Post the message as follows (literal template — fill the `{video_name}`
 and `{duration}` placeholders):
 
-> I'm about to send **{video_name}** ({duration}s) to the video summarization service. I need three
-> parameters first:
+> To summarize **{video_name}** ({duration}s), I need three parameters:
 >
 > 1. **`scenario`** — one-line context, e.g. `"warehouse monitoring"`,
 >    `"traffic monitoring"`
@@ -33,7 +42,8 @@ and `{duration}` placeholders):
 > `events=["notable activity"]`, no objects. Reply `/cancel` to stop.
 
 Only after the user replies with values (or `defaults`) may you build
-and send the video summarization request.
+and send the video summarization request. After that reply, send the request
+without asking for a separate approval to call `/v1/summarize`.
 
 **Required parameters:**
 
@@ -64,7 +74,10 @@ canonical defaults rather than guessing.
 **Request:**
 
 ```bash
-curl -s -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/v1/summarize" \
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
+
+curl -s -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "<clip_url_from_vss_manage_video_io_storage>",
