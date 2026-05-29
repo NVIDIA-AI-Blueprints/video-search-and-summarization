@@ -8,35 +8,11 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
-## Purpose
-
-Inspect and manage the VIOS storage layer that backs every VSS video input.
-
 ## Prerequisites
 
 - Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
 - `curl`, `jq`, and Docker available on the caller.
-
-## Instructions
-
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
-
-## Examples
-
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
-
-## Limitations
-
-- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
-- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
-- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
-
-## Troubleshooting
-
-- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
-- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
-- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # VIOS Operations
 
@@ -81,54 +57,17 @@ This skill is primarily an API client and assumes VIOS is already up and reachab
 
 ## Known limitation — leftover containers from prior deploys
 
-The following VIOS API paths can return **HTTP 502 Bad Gateway** or
-stale results when the host has leftover containers from an earlier
-deploy:
-
-- `GET /vst/api/v1/sensor/list`
-- `GET /vst/api/v1/sensor/<sensorId>/streams`
-
-Root cause: the alerts compose profile (`bp_developer_alerts_2d_cv` /
-`bp_developer_alerts_2d_vlm`) brings up the `*-smc` set of VST
-microservices alongside the `*-dev` set, both with `network_mode: host`
-binding the same host ports (30000 for `sensor-ms`, 30888 for
-`vst-ingress`). When a subsequent base/lvs/search deploy runs, those
-`*-smc` containers can survive past the `/vss-deploy-profile` skill's Step 0
-teardown if the teardown grep doesn't catch them — and one
-sensor-ms loses the port-bind race, returning 502 to anything that
-proxies through `vst-ingress`. See
-[issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151)
-and `references/deploy-vios-service.md § Known Deployment Issues` for the
-full failure-mode catalogue and remediation steps.
-
-The `/vss-deploy-profile` skill's Step 0 teardown grep was extended to cover the
-full set (`sensor-ms-*`, `vst-ingress-*`, `centralizedb-*`,
-`storage-ms-*`, `sdr-*`, `envoy-*`, `sdr-controller`, `sdrc-*`,
-`rtspserver-ms-*`, etc.), so
-fresh deploys via `/vss-deploy-profile` should not hit this. If you inherit a
-host without re-deploying and see 502s, re-run `/vss-deploy-profile` to clean.
-
-> **Note on the current deploy contract:** SDR (`vss-vios-sdr`) and Envoy
-> (`vss-vios-envoy`) have been replaced. The current deploy modes are:
->
-> - **Direct routing** (`base` profile): sensor → streamprocessing on `:30001`
->   via `nginx-vst-direct.conf` (`STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:30001`,
->   `VST_NGINX_MODE=vst-direct`). No SDR, no SDRC. See
->   [`dev-profile-base/.env:222-224`](../../deploy/docker/developer-profiles/dev-profile-base/.env)
->   and the `nginx-vst-direct.conf` template under `services/vios/configs/`.
-> - **SDRC routing** (`lvs`, `search`, `alerts_2d_cv`, `alerts_2d_vlm`, and all
->   warehouse profiles): sensor → `sdr-controller`'s Envoy listener on `:10000` →
->   streamprocessing on `:30001`. The combined WDM controller + Envoy router lives at
->   [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
->
-> The legacy `sdr-streamprocessing` + `envoy-streamprocessing` services have
-> been removed from the tree along with the `services/vios/sdr/` directory
-> (PR #711, commit `3c9de80e`). The `sdr-*` / `envoy-*` patterns in the
-> teardown grep above are retained to clean up stale hosts that still carry
-> these containers from an older `develop` checkout.
-
-Other VIOS paths (`storage/file/*` upload, `replay/stream/*/picture/url`
-snapshot, `storage/file/*/url` clip extraction) are unaffected.
+`GET /vst/api/v1/sensor/list` and `GET /vst/api/v1/sensor/<sensorId>/streams`
+can return **HTTP 502 Bad Gateway** or stale results when leftover `*-smc`
+VST containers from an earlier deploy survive teardown and win the
+`network_mode: host` port-bind race on `:30000` / `:30888`. **Remediation:
+re-run `/vss-deploy-profile`** — its Step 0 teardown grep clears the full
+`sensor-ms-*` / `vst-ingress-*` / `sdr-*` / `sdrc-*` / `rtspserver-ms-*` set.
+Other paths (`storage/file/*` upload, `*/picture/url` snapshot, `*/url` clip
+extraction) are unaffected. Full failure-mode catalogue, remediation, and the
+current routing contract (direct vs SDRC; SDR/Envoy removed in PR #711) live in
+`references/deploy-vios-service.md § Known Deployment Issues` and
+[issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151).
 
 ---
 
@@ -255,5 +194,3 @@ If you see double-`http://` prefixes in `imageUrl` or `videoUrl` fields on `/url
 - **Identifying sensor type (RTSP vs uploaded file):** Call `GET /sensor/<sensorId>/streams` and inspect the `url` field of each stream. If `url` starts with `rtsp://` it is a live RTSP/IP camera stream. If `url` is a file path (e.g. `"/home/vst/vst_release/streamer_videos/TruckAccident.mp4"`) it is an uploaded file sensor. This determines which delete flow to use — see Section 8.
 - **Upload timestamp is honored for the recorded timeline:** When uploading a file via `PUT /vst/api/v1/storage/file/<filename>?timestamp=<iso>`, the timeline returned by `GET /storage/<streamId>/timelines` is anchored at the supplied timestamp, not the upload wall-clock time. Subsequent snapshot / clip queries MUST use timestamps within this range — fetch the timeline first. See `references/api-reference.md § 8` and `references/integrate-vios-service.md § Integration Interfaces > Inputs > Upload video file` for the authoritative contract.
 - **Endpoint resolution:** The VST endpoint is provided by the VSS deployment context. Do not attempt manual IP/port discovery. If unavailable, ask the user. All curl examples use `<VST_ENDPOINT>` as a placeholder — substitute the resolved endpoint before executing.
-
-bump:1
