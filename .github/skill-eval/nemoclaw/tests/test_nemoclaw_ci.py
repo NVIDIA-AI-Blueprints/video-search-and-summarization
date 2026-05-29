@@ -344,6 +344,38 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(report["response"]["error_type"], "FileNotFoundError")
         self.assertIn("missing.md", report["response"]["error"])
 
+    def test_cli_launch_runs_openclaw_agent_inside_sandbox(self):
+        calls: list[tuple[str, ...]] = []
+        previous = {
+            "_run": headless_runner._run,
+            "_gateway_reachable": headless_runner._gateway_reachable,
+        }
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="agent done", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner._run = fake_run
+            headless_runner._gateway_reachable = lambda sandbox: True
+            try:
+                response = headless_runner.run_openclaw_cli(
+                    "demo",
+                    "Deploy base",
+                    30,
+                    log_dir,
+                )
+            finally:
+                headless_runner._run = previous["_run"]
+                headless_runner._gateway_reachable = previous["_gateway_reachable"]
+
+            openclaw_log = (log_dir / "openclaw-agent.log").read_text(encoding="utf-8")
+
+        self.assertEqual(response["body"]["mode"], "cli")
+        self.assertTrue(any("openclaw agent" in " ".join(call) for call in calls))
+        self.assertIn("agent done", openclaw_log)
+
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
     def test_default_smoke_profile_is_lightweight_base(self):
@@ -726,7 +758,9 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertIn('vss_orchestrator__docker_up', task_toml)
             self.assertIn("headless_runner.py", instruction)
             self.assertIn("--log-dir /logs/artifacts/nemoclaw", instruction)
-            self.assertIn("--timeout 2400", instruction)
+            self.assertIn("--launch-mode cli", instruction)
+            self.assertIn("--timeout 1800", instruction)
+            self.assertNotIn("--wait-profile", instruction)
             self.assertTrue((task_dir / "tests" / "nemoclaw_prompt.md").exists())
 
     def test_missing_eval_spec_does_not_generate_nemoclaw_launcher(self):
