@@ -644,6 +644,16 @@ class InitNemoClawScriptTest(unittest.TestCase):
         self.assertIn("start_dashboard_forward \"$port\" \"$forward_log\"", source)
         self.assertIn("retrying start", source)
 
+    def test_existing_sandbox_path_refreshes_tunnel_and_recovers_stale_state(self):
+        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("ensure_nemoclaw_tunnel", source)
+        self.assertIn("NEMOCLAW_EXISTING_SANDBOX_READY_TIMEOUT", source)
+        self.assertIn("rerunning NemoClaw setup", source)
+        self.assertIn("onboard_or_install_sandbox", source)
+
 
 class UpdateOpenClawConfigTest(unittest.TestCase):
     def test_registers_sse_mcp_server(self):

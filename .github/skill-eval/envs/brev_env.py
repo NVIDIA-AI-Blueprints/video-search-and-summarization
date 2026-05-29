@@ -613,6 +613,7 @@ set -u
 export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
 REPO="$HOME/video-search-and-summarization"
 cd "$REPO"
+rm -rf /tmp/skill-eval/nemoclaw /logs/artifacts/nemoclaw 2>/dev/null || true
 mkdir -p /tmp/skill-eval/nemoclaw
 python3 -m pip install --user --quiet nbformat nbclient ipykernel >/tmp/skill-eval/nemoclaw/pip-install.log 2>&1 || {{
   cat /tmp/skill-eval/nemoclaw/pip-install.log >&2
