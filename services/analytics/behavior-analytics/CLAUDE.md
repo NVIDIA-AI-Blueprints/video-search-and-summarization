@@ -119,7 +119,6 @@ quick table for common tasks:
 - Configuration guide: `docs/configuration.md`
 - Dynamic configuration (runtime updates): `docs/dynamic-config.md`
 - Modules overview: `docs/modules-overview.md`
-- Dev example walkthrough (Cursor session): `docs/cursor-dev-example-walkthrough.md`
 - Testing: `docs/testing.md`
 - Troubleshooting: `docs/troubleshooting.md`
 

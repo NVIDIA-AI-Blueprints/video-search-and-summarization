@@ -93,4 +93,3 @@ For the full schema and dynamic-config behavior (runtime updates via Flask endpo
 - [Incident Detection](./docs/incident-detection.md)
 - [Dynamic Configuration](./docs/dynamic-config.md)
 - [Dynamic Calibration](./docs/dynamic-calibration.md)
-- [Dev Example Walkthrough](./docs/cursor-dev-example-walkthrough.md)

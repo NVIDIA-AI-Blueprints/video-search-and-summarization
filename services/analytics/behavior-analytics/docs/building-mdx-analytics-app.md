@@ -1,6 +1,6 @@
 # Building an MDX Analytics App (Warehouse2D example)
 
-> Part of behavior-analytics docs. See `../README.md` for the project overview. For the Cursor case study, see `docs/cursor-dev-example-walkthrough.md`.
+> Part of behavior-analytics docs. See `../README.md` for the project overview.
 
 This guide walks you through creating an analytics application using the MDX `behavior-analytics` library. We'll use the `Analytics2DApp` at `apps/analytics/main_analytics_2d_app.py` as our reference implementation to demonstrate how to build a robust analytics app that processes video frames and generates behaviors and events. Most apps load configuration from JSON via `AppConfig` (see `configs/` examples and defaults in `config.py`).
 
