@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import base64
 import contextlib
 import importlib.util
 import io
@@ -137,12 +138,20 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         env_keys = (
             "LLM_REMOTE_URL",
             "LLM_REMOTE_MODEL",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_API_KEY",
+            "NEMOCLAW_ENDPOINT_URL",
+            "NEMOCLAW_MODEL",
+            "COMPATIBLE_API_KEY",
             "NVIDIA_API_KEY",
             "VSS_ORCHESTRATOR_MCP_URL",
             "VSS_ORCHESTRATOR_MCP_TYPE",
             "VSS_ORCHESTRATOR_MCP_SSE_PORT",
         )
         previous = {key: os.environ.get(key) for key in env_keys}
+        for key in env_keys:
+            os.environ.pop(key, None)
         os.environ["LLM_REMOTE_URL"] = "https://inference-api.example"
         os.environ["LLM_REMOTE_MODEL"] = "nvidia/example-model"
         os.environ["NVIDIA_API_KEY"] = "nvapi-ci"
@@ -161,6 +170,46 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9989/sse")
+
+    def test_parameter_cell_prefers_ci_agent_model_over_vss_runtime_model(self):
+        defaults = {
+            "HARDWARE_PROFILE": "RTXPRO6000BW",
+            "NEMOCLAW_ENDPOINT_URL": "",
+            "NEMOCLAW_MODEL": "",
+            "COMPATIBLE_API_KEY": "",
+        }
+        env_keys = (
+            "LLM_REMOTE_URL",
+            "LLM_REMOTE_MODEL",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_API_KEY",
+            "NEMOCLAW_ENDPOINT_URL",
+            "NEMOCLAW_MODEL",
+            "COMPATIBLE_API_KEY",
+            "NVIDIA_API_KEY",
+        )
+        previous = {key: os.environ.get(key) for key in env_keys}
+        for key in env_keys:
+            os.environ.pop(key, None)
+        os.environ["LLM_REMOTE_URL"] = "https://vss-runtime.example"
+        os.environ["LLM_REMOTE_MODEL"] = "nvidia/nvidia-nemotron-nano-9b-v2"
+        os.environ["ANTHROPIC_BASE_URL"] = "https://ci-agent.example/v1"
+        os.environ["ANTHROPIC_MODEL"] = "aws/anthropic/bedrock-claude-opus-4-8"
+        os.environ["ANTHROPIC_API_KEY"] = "anthropic-ci"
+        os.environ["NVIDIA_API_KEY"] = "nvapi-ci"
+        try:
+            exec(notebook_adapter.PARAMETER_SOURCE, defaults)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        self.assertEqual(defaults["NEMOCLAW_ENDPOINT_URL"], "https://ci-agent.example/v1")
+        self.assertEqual(defaults["NEMOCLAW_MODEL"], "aws/anthropic/bedrock-claude-opus-4-8")
+        self.assertEqual(defaults["COMPATIBLE_API_KEY"], "anthropic-ci")
 
     def test_parameter_cell_tolerates_missing_advanced_defaults(self):
         defaults = {
@@ -375,6 +424,12 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(response["body"]["mode"], "cli")
         self.assertTrue(any("base64 -d" in " ".join(call) for call in calls))
         self.assertIn("agent done", openclaw_log)
+        wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
+        encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
+        script = base64.b64decode(encoded).decode("utf-8")
+        self.assertIn("--message", script)
+        self.assertIn("--local --json", script)
+        self.assertIn("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1", script)
 
     def test_sandbox_exec_wraps_multiline_scripts_for_nemoclaw(self):
         calls: list[tuple[str, ...]] = []
