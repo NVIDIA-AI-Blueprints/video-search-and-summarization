@@ -23,21 +23,23 @@ Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_c
 
 ## What gets deployed
 
+Container names below are the actual `container_name:` keys from `deploy/docker/services/**/compose.yml`. LLM/VLM NIM containers are named after the selected model (default shown; varies with `LLM_NAME_SLUG`).
+
 | Service | Container | Port | Purpose | Mode |
 |---|---|---|---|---|
-| RT-CV (DeepStream perception) | vss-rtvi-cv | — (host net) | Object detection (Grounding DINO via `MODEL_NAME_2D=GDINO`) | **2d_cv only** |
-| Behavior analytics | vss-behavior-analytics | — | Rule-based alerts from RT-CV metadata | **2d_cv only** |
-| RT-VLM | vss-rtvi-vlm | 8018 | VLM runner (Cosmos Reason 2 by default) | both |
-| Alert-bridge | (alert-bridge) | 9080 | Realtime alerting API; drives `POST/DELETE /api/v1/realtime` on the agent | both |
-| LLM NIM | mdx-nim-llm-1 | 30081 | Same options as `base` (Nano 9B v2 default) | both |
-| nvstreamer-alerts | vss-vios-nvstreamer | 31000 | Plays back dataset video to simulate live cameras | both |
-| VST | mdx-vst-1 | 30888 | Video storage + ingest | both |
-| VSS Agent | mdx-vss-agent-1 | 8000 | Orchestrates alert verification and incident reports | both |
-| VSS UI | mdx-vss-ui-1 | 3000 | Alerts tab | both |
-| Video-Analytics MCP | vss-va-mcp | 9901 | Analytics API for the agent | both |
-| Elasticsearch + Kibana | mdx-elasticsearch-1, kibana | 9200, 5601 | Alert/event storage | both |
-| Kafka | mdx-kafka-1 | 9092 | Message bus | both |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability | both |
+| RT-CV (DeepStream perception) | `vss-rtvi-cv` | — (host net) | Object detection (Grounding DINO via `MODEL_NAME_2D=GDINO`) | **2d_cv only** |
+| Behavior analytics | `vss-behavior-analytics` | — | Rule-based alerts from RT-CV metadata | **2d_cv only** |
+| RT-VLM | `vss-rtvi-vlm` | 8018 | VLM runner (Cosmos Reason 2 by default) | both |
+| Alert-bridge | `vss-alert-bridge` | 9080 | Realtime alerting API; drives `POST/DELETE /api/v1/realtime` on the agent | both |
+| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. | both |
+| nvstreamer-alerts | `vss-vios-nvstreamer` | 31000 | Plays back dataset video to simulate live cameras | both |
+| VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest | both |
+| VSS Agent | `vss-agent` | 8000 | Orchestrates alert verification and incident reports | both |
+| VSS Agent UI | `vss-agent-ui` | 3000 | Alerts tab | both |
+| Video-Analytics MCP | `vss-va-mcp` | 9901 | Analytics API for the agent | both |
+| Elasticsearch + Kibana | `elasticsearch`, `kibana` | 9200, 5601 | Alert/event storage | both |
+| Kafka | `kafka` | 9092 | Message bus | both |
+| Phoenix | `phoenix` | 6006 | Observability | both |
 
 ## Default models
 
