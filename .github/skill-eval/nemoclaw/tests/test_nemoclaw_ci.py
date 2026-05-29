@@ -309,6 +309,38 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(candidates[0], "vss-eval-rtx-1g-2")
         self.assertNotIn("personal-rtx", candidates)
 
+    def test_worker_selection_skips_locked_candidate(self):
+        previous = {
+            "_list_instances": smoke_runner._list_instances,
+            "_reachable": smoke_runner._reachable,
+            "_try_acquire_lock": smoke_runner._try_acquire_lock,
+        }
+        instances = [
+            {"name": "vss-eval-rtx-1g-2", "status": "RUNNING", "gpu": "RTX PRO 6000"},
+            {"name": "vss-eval-rtx-1g-3", "status": "RUNNING", "gpu": "RTX PRO 6000"},
+        ]
+
+        smoke_runner._list_instances = lambda: instances
+        smoke_runner._reachable = lambda instance: True
+        smoke_runner._try_acquire_lock = (
+            lambda instance: None
+            if instance == "vss-eval-rtx-1g-2"
+            else (123, object())
+        )
+        try:
+            selected, _, _ = smoke_runner._select_and_lock_instance(
+                "RTXPRO6000BW",
+                1,
+                None,
+                10,
+            )
+        finally:
+            smoke_runner._list_instances = previous["_list_instances"]
+            smoke_runner._reachable = previous["_reachable"]
+            smoke_runner._try_acquire_lock = previous["_try_acquire_lock"]
+
+        self.assertEqual(selected, "vss-eval-rtx-1g-3")
+
 
 class OpenClawStreamPatchTest(unittest.TestCase):
     def test_patch_openai_chat_completions_disables_streaming_tools(self):
