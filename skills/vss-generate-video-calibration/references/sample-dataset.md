@@ -217,9 +217,9 @@ r.raise_for_status()
 project_id = r.json()["project_id"]
 print(f"[1] Created project {project_name} → {project_id}")
 
-# Step 2 — Upload videos — see references/videos.md for the canonical multipart
-# upload implementation; sample dataset just feeds the bundled cam_*.mp4 files
-# (sorted alphabetically; upload order defines camera indices).
+# Step 2 — Upload videos (sorted; upload order defines the camera indices).
+# Same multipart pattern as videos.md § "Step 2 — Upload videos (sorted)",
+# iterating over this script's `videos` (the bundled cam_*.mp4).
 files, handles = [], []
 for v in videos:
     f = open(v, "rb"); handles.append(f)

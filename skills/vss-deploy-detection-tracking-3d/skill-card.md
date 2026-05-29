@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to call the VIOS REST API (sensor list, timelines, clip extraction, snapshots, add/delete sensors and streams). Not for VLM inference or search. <br>
+Deploy and operate the RTVI-CV-3D stack (Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers managing video cameras, sensors, RTSP streams, recordings, snapshots, and storage through the VIOS REST API in NVIDIA VSS deployments. <br>
+Developers and engineers deploying multi-camera 3D object detection and tracking pipelines using the NVIDIA Video Search and Summarization warehouse blueprint. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,18 +19,23 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [VIOS REST API Reference](references/api-reference.md) <br>
-- [NvStreamer REST API Reference](references/nvstreamer-api-reference.md) <br>
-- [Deploy VIOS Service](references/deploy-vios-service.md) <br>
-- [Integrate VIOS Service](references/integrate-vios-service.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Video Search and Summarization GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [deploy-rtvi-cv-3d-stack.md](references/deploy-rtvi-cv-3d-stack.md) <br>
+- [calibration-workflow.md](references/calibration-workflow.md) <br>
+- [configure-cameras.md](references/configure-cameras.md) <br>
+- [verify-and-view.md](references/verify-and-view.md) <br>
+- [troubleshooting.md](references/troubleshooting.md) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
+**Output Type(s):** [Shell commands, Configuration instructions] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Tasks: <br>
+3-Tier NVSkills-Eval benchmark (external profile); Tier 1 static validation (9 checks, 13 findings) and Tier 2 deduplication (2 checks, 0 findings) completed. Tier 3 live agent evaluation not available. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
