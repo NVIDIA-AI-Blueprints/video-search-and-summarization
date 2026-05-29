@@ -438,7 +438,7 @@ jobs:
               --exclude='hooks_token' \
               --exclude='*.sig' \
               "${TAR_PATHS[@]}"
-            echo "archived $(echo "$RESULTS" | wc -l) result.json files"
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded; on-disk tree preserved for harbor view)"
           else
             echo "current run results dir is empty — nothing to archive"
           fi

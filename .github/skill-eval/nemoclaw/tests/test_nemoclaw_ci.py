@@ -176,6 +176,18 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["NEMOCLAW_INSTALL_REF"], "")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
 
+    def test_agent_setup_cell_allows_managed_python_downloads(self):
+        notebook = json.loads((REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_nemoclaw_vss.ipynb").read_text())
+        setup_cells = [cell for cell in notebook["cells"] if cell.get("id") == "c13aaf5e"]
+        self.assertEqual(len(setup_cells), 1)
+        source = "".join(setup_cells[0].get("source", ""))
+
+        self.assertIn('uv_env["UV_PYTHON_DOWNLOADS"] = "automatic"', source)
+        self.assertIn('run_uv(["uv", "python", "install", "3.13"])', source)
+        self.assertIn("stdout tail", source)
+        self.assertIn("stderr tail", source)
+        compile(source, "deploy_nemoclaw_vss.ipynb:c13aaf5e", "exec")
+
 
 class SkillsEvalAgentProtocolTest(unittest.TestCase):
     def test_final_marker_must_be_last_nonempty_line(self):
