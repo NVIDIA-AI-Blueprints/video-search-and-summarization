@@ -380,7 +380,9 @@ jobs:
           # Wait up to 2h for a matching vss-eval-* worker lock, then
           # leave enough step budget for Harbor to run if a worker frees up.
           export NEMOCLAW_LOCK_TIMEOUT_SEC=7200
-          export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-base}"
+          # Default to the 2-GPU search smoke because the warm RTX pool keeps
+          # 2-GPU workers online while the 1-GPU RTX workers may be stopped.
+          export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-search}"
           export PR_NUMBER=""
           export PR_BASE="${{ github.ref_name }}"
           export PR_HEAD_SHA="${{ github.sha }}"
@@ -413,7 +415,13 @@ jobs:
         env:
           RUN_RESULTS: /tmp/skill-eval/results/${{ github.run_id }}
         run: |
+          # Self-hosted runners reuse /tmp across jobs. Always remove a prior
+          # archive first so a blocker run cannot upload stale results.
           rm -f /tmp/skills-eval-results.tar.gz
+          # Agent writes harbor output to $RUN_RESULTS (runtime-only;
+          # not tracked under the repo). Blocker paths
+          # (missing_platforms_declaration, missing_probe, etc.) finish
+          # without producing a results dir — that's a success, not a failure.
           if [ ! -d "$RUN_RESULTS" ]; then
             echo "no results dir for this run — agent blocked before running trials"
             exit 0

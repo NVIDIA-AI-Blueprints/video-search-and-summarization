@@ -28,6 +28,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SKILL_EVAL_ROOT = REPO_ROOT / ".github" / "skill-eval"
 DEFAULT_DATASET_ROOT = Path("/tmp/skill-eval/datasets/vss-deploy-profile")
 DEFAULT_RESULTS_ROOT = Path("/tmp/skill-eval/results")
+DEFAULT_PROFILE = "search"
+DEFAULT_PLATFORM = "RTXPRO6000BW"
 
 PLATFORM_TASK = {
     "RTXPRO6000BW": "rtxpro6000bw",
@@ -173,6 +175,24 @@ def _generate_dataset(profile: str, platform: str, dataset_root: Path) -> None:
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr, flush=True)
         raise RuntimeError(f"dataset generation failed with exit {result.returncode}")
+
+
+def _gpu_count_from_spec(profile: str, platform: str) -> int:
+    spec_path = REPO_ROOT / "skills" / "vss-deploy-profile" / "evals" / f"{profile}.json"
+    if not spec_path.exists():
+        raise RuntimeError(f"missing vss-deploy-profile eval spec: {spec_path}")
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    platform_spec = (
+        spec.get("resources", {})
+        .get("platforms", {})
+        .get(platform, {})
+    )
+    try:
+        return int(platform_spec["gpu_count"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"missing gpu_count for profile={profile!r}, platform={platform!r} in {spec_path}"
+        ) from exc
 
 
 def _list_instances() -> list[dict[str, Any]]:
@@ -485,9 +505,9 @@ def _ensure_uvx() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", default=os.environ.get("NEMOCLAW_EVAL_PROFILE", "base"))
-    parser.add_argument("--platform", default=os.environ.get("NEMOCLAW_EVAL_PLATFORM", "RTXPRO6000BW"))
-    parser.add_argument("--gpu-count", type=int, default=int(os.environ.get("NEMOCLAW_EVAL_GPU_COUNT", "1")))
+    parser.add_argument("--profile", default=os.environ.get("NEMOCLAW_EVAL_PROFILE", DEFAULT_PROFILE))
+    parser.add_argument("--platform", default=os.environ.get("NEMOCLAW_EVAL_PLATFORM", DEFAULT_PLATFORM))
+    parser.add_argument("--gpu-count", type=int, default=None)
     parser.add_argument("--instance", default=os.environ.get("NEMOCLAW_BREV_INSTANCE"))
     parser.add_argument("--lock-timeout", type=int, default=int(os.environ.get("NEMOCLAW_LOCK_TIMEOUT_SEC", "600")))
     parser.add_argument("--harbor-timeout", type=int, default=int(os.environ.get("NEMOCLAW_HARBOR_TIMEOUT_SEC", "3300")))
@@ -501,6 +521,12 @@ def main(argv: list[str] | None = None) -> int:
     task_name = PLATFORM_TASK.get(args.platform)
     if not task_name:
         raise RuntimeError(f"unsupported platform {args.platform!r}")
+    if args.gpu_count is None:
+        args.gpu_count = (
+            int(os.environ["NEMOCLAW_EVAL_GPU_COUNT"])
+            if os.environ.get("NEMOCLAW_EVAL_GPU_COUNT")
+            else _gpu_count_from_spec(args.profile, args.platform)
+        )
 
     os.environ["SKILLS_EVAL_RUNNER"] = "nemoclaw"
     os.environ["PYTHONPATH"] = f"{SKILL_EVAL_ROOT}:{os.environ.get('PYTHONPATH', '')}"
@@ -544,7 +570,10 @@ def main(argv: list[str] | None = None) -> int:
             log_path=log_path,
         )
         if harbor_rc == 0 and reward is not None and reward >= 1.0:
-            print("DONE: NemoClaw vss-deploy-profile/base smoke passed", flush=True)
+            print(
+                f"DONE: NemoClaw vss-deploy-profile/{args.profile} smoke passed",
+                flush=True,
+            )
             return 0
         print(
             "BLOCKED: NemoClaw smoke failed "
