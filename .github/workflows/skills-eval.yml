@@ -398,6 +398,11 @@ jobs:
           export SKILLS_EVAL_RUNNER="nemoclaw"
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
+          # NemoClaw is an opt-in CI smoke path. Keep it deterministic:
+          # generate one scenario, lock one worker, run Harbor once, and exit.
+          # The generic Claude meta-agent is intentionally not used here
+          # because prior runs fanned out all profiles and started polling
+          # live workers, which can burn the full generic 12-hour slot.
           python3 .github/skill-eval/nemoclaw/smoke_runner.py
 
       - name: Collect results for workflow artifact
