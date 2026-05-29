@@ -263,7 +263,9 @@ For advanced fields (`media_info`, `schema`, structured output, stream captionin
 `POST /v1/summarize` is **not** the VLM chat-completions API. Send top-level
 summarization fields: `url` (or `id`), `model`, `scenario`, and `events`. Do not
 send `messages` or `video_url` content blocks to `/v1/summarize`; use that shape
-only for the VLM `/v1/chat/completions` fallback.
+only for the VLM `/v1/chat/completions` fallback. If your `/v1/summarize`
+payload contains a `messages` key, stop and rebuild it from the LVS example
+below before running `curl`.
 
 If you are unsure about the request schema, check the running service before
 guessing:

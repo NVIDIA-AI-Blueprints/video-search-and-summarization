@@ -14,6 +14,394 @@ from urllib.parse import urlparse
 
 
 MODEL_ID = os.environ.get("MODEL_ID", "nim_nvidia_cosmos-reason2-8b_hf-1208")
+QUERY_ID = "123e4567-e89b-12d3-a456-426614174000"
+DEFAULT_VIDEO_UUID = "987fcdeb-51a2-43d1-b567-537725285111"
+FIXTURE_VIDEO_UUIDS = {
+    "warehouse-2024-06-15": "11111111-2222-4333-8444-555555555555",
+    "parking-lot-overnight": "22222222-3333-4444-8555-666666666666",
+    "factory-floor-tuesday": "33333333-4444-4555-8666-777777777777",
+    "submitted-video": DEFAULT_VIDEO_UUID,
+}
+
+SUMMARIZATION_QUERY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["model", "scenario", "events"],
+    "properties": {
+        "alert_category": {"type": "string", "maxLength": 256},
+        "auto_generate_prompt": {"type": "boolean"},
+        "batch_response_method": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^[A-Za-z_]*$",
+        },
+        "chunk_duration": {
+            "type": "integer",
+            "maximum": 3600,
+            "minimum": 0,
+            "format": "int32",
+            "default": 0,
+        },
+        "chunk_overlap_duration": {
+            "type": "integer",
+            "maximum": 3600,
+            "minimum": 0,
+            "format": "int32",
+            "default": 0,
+        },
+        "creation_time": {"type": "string", "maxLength": 24, "minLength": 24},
+        "custom_metadata": {
+            "patternProperties": {
+                "^(.|\\n)*$": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "pattern": "^(.|\\n)*$",
+                }
+            },
+            "propertyNames": {"maxLength": 1024},
+            "type": "object",
+        },
+        "delete_external_collection": {"type": "boolean"},
+        "enable_audio": {"type": "boolean", "default": False},
+        "enable_reasoning": {"type": "boolean", "default": False},
+        "enable_vlm_structured_output": {"type": "boolean", "default": True},
+        "events": {
+            "type": "array",
+            "description": "List of events to detect or extract from the video",
+            "maxItems": 1000,
+            "items": {
+                "type": "string",
+                "maxLength": 1024,
+                "pattern": "^(.|\\n)*$",
+            },
+        },
+        "id": {
+            "anyOf": [
+                {"type": "string", "format": "uuid", "maxLength": 36, "minLength": 36},
+                {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "maxLength": 36,
+                        "minLength": 36,
+                    },
+                },
+                {"type": "null"},
+            ],
+            "description": "Unique ID or list of IDs of the file or live stream to summarize",
+        },
+        "ignore_eos": {"type": "boolean"},
+        "max_tokens": {
+            "type": "integer",
+            "maximum": 1000000,
+            "minimum": 1,
+            "format": "int32",
+        },
+        "media_info": {
+            "anyOf": [
+                {"$ref": "#/components/schemas/MediaInfoOffset"},
+                {"$ref": "#/components/schemas/MediaInfoTimeStamp"},
+            ],
+            "description": "Provide Start and End times offsets for processing part of a video file.",
+        },
+        "min_tokens": {
+            "type": "integer",
+            "maximum": 1000000,
+            "minimum": 1,
+            "format": "int32",
+        },
+        "mm_processor_kwargs": {"type": "object", "additionalProperties": True},
+        "model": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^(.|\\n)*$",
+            "description": "Model to use for this query",
+        },
+        "num_frames_per_chunk": {
+            "type": "integer",
+            "maximum": 120,
+            "minimum": 0,
+            "format": "int32",
+            "default": 0,
+            "deprecated": True,
+        },
+        "num_frames_per_second_or_fixed_frames_chunk": {
+            "type": "number",
+            "maximum": 120,
+            "minimum": 0,
+        },
+        "objects_of_interest": {
+            "type": "array",
+            "maxItems": 1000,
+            "default": [],
+            "items": {
+                "type": "string",
+                "maxLength": 256,
+                "pattern": "^(.|\\n)*$",
+            },
+        },
+        "override_vlm_prompt": {"type": "boolean", "default": False},
+        "prompt": {
+            "type": "string",
+            "maxLength": 512000,
+            "pattern": "^[\\s\\S]*$",
+            "default": "",
+        },
+        "scenario": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^(.|\\n)*$",
+            "description": "Scenario or use case context for the summarization",
+        },
+        "schema": {
+            "type": "string",
+            "maxLength": 50000,
+            "pattern": "^(.|\\n)*$",
+        },
+        "seed": {
+            "type": "integer",
+            "maximum": 4294967295,
+            "minimum": 1,
+            "format": "int64",
+        },
+        "summary_duration": {
+            "type": "integer",
+            "maximum": 3600,
+            "minimum": -1,
+            "format": "int32",
+            "default": 0,
+        },
+        "system_prompt": {
+            "type": "string",
+            "maxLength": 5000,
+            "pattern": "^(.|\\n)*$",
+            "default": "",
+        },
+        "temperature": {"type": "number", "maximum": 1, "minimum": 0},
+        "top_k": {"type": "number", "maximum": 1000, "minimum": 1},
+        "top_p": {"type": "number", "maximum": 1, "minimum": 0},
+        "url": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "pattern": (
+                        "(^s3://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+                        "(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*)/"
+                        "(?:[^?\\s]+)$)|(^https?://[A-Za-z0-9_.\\-/:%?#&=+~,]+$)"
+                    ),
+                },
+                {"type": "null"},
+            ],
+            "description": "URL of the video to summarize",
+        },
+        "use_fps_for_chunking": {"type": "boolean", "default": False},
+        "vlm_input_height": {
+            "type": "integer",
+            "maximum": 4096,
+            "minimum": 0,
+            "format": "int32",
+            "default": 0,
+        },
+        "vlm_input_width": {
+            "type": "integer",
+            "maximum": 4096,
+            "minimum": 0,
+            "format": "int32",
+            "default": 0,
+        },
+    },
+}
+SUMMARIZATION_QUERY_FIELDS = set(SUMMARIZATION_QUERY_SCHEMA["properties"])
+
+MEDIA_INFO_OFFSET_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["type"],
+    "properties": {
+        "type": {"type": "string", "const": "offset"},
+        "start_offset": {
+            "type": "integer",
+            "maximum": 4000000000,
+            "minimum": 0,
+            "format": "int64",
+        },
+        "end_offset": {
+            "type": "integer",
+            "maximum": 4000000000,
+            "minimum": 0,
+            "format": "int64",
+        },
+    },
+}
+MEDIA_INFO_TIMESTAMP_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["type"],
+    "properties": {
+        "type": {"type": "string", "const": "timestamp"},
+        "start_timestamp": {
+            "type": "string",
+            "maxLength": 24,
+            "minLength": 24,
+            "pattern": "^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{3})?Z$",
+        },
+        "end_timestamp": {
+            "type": "string",
+            "maxLength": 24,
+            "minLength": 24,
+            "pattern": "^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{3})?Z$",
+        },
+    },
+}
+COMPLETION_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["id", "video_id", "choices", "created", "model", "media_info", "object"],
+    "properties": {
+        "id": {"type": "string", "format": "uuid", "maxLength": 36, "minLength": 36},
+        "video_id": {"type": "string", "format": "uuid", "maxLength": 36, "minLength": 36},
+        "choices": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {"$ref": "#/components/schemas/CompletionResponseChoice"},
+        },
+        "created": {
+            "type": "integer",
+            "maximum": 4000000000,
+            "minimum": 0,
+            "format": "int64",
+        },
+        "model": {"type": "string", "maxLength": 1024, "pattern": "^(.|\\n)*$"},
+        "media_info": {
+            "anyOf": [
+                {"$ref": "#/components/schemas/MediaInfoTimeStamp"},
+                {"$ref": "#/components/schemas/MediaInfoOffset"},
+            ],
+        },
+        "object": {"$ref": "#/components/schemas/CompletionObject"},
+        "usage": {
+            "anyOf": [
+                {"$ref": "#/components/schemas/CompletionUsage"},
+                {"type": "null"},
+            ]
+        },
+    },
+}
+OPENAPI_SCHEMAS: dict[str, Any] = {
+    "SummarizationQuery": SUMMARIZATION_QUERY_SCHEMA,
+    "CompletionResponse": COMPLETION_RESPONSE_SCHEMA,
+    "CompletionResponseChoice": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["finish_reason", "index", "message"],
+        "properties": {
+            "finish_reason": {"$ref": "#/components/schemas/CompletionFinishReason"},
+            "index": {"type": "integer", "maximum": 4000000000, "minimum": 0, "format": "int64"},
+            "message": {"$ref": "#/components/schemas/ChatCompletionResponseMessage"},
+        },
+    },
+    "ChatCompletionResponseMessage": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["content", "role"],
+        "properties": {
+            "content": {
+                "type": "string",
+                "maxLength": 1000000,
+                "pattern": "^(.|\\n)*$",
+                "nullable": True,
+            },
+            "tool_calls": {
+                "type": "array",
+                "maxItems": 100,
+                "default": [],
+                "items": {"$ref": "#/components/schemas/ChatCompletionMessageToolCall"},
+            },
+            "role": {"type": "string", "const": "assistant"},
+        },
+    },
+    "ChatCompletionMessageToolCall": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["type", "alert"],
+        "properties": {
+            "type": {"$ref": "#/components/schemas/ChatCompletionToolType"},
+            "alert": {"$ref": "#/components/schemas/ChatCompletionMessageAlertTool"},
+        },
+    },
+    "ChatCompletionMessageAlertTool": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["name", "detectedEvents", "details"],
+        "properties": {
+            "name": {"type": "string", "maxLength": 256, "pattern": "^[A-Za-z0-9_.\\-\"\\' ,]*$"},
+            "ntpTimestamp": {
+                "anyOf": [
+                    {"type": "string", "maxLength": 24, "minLength": 24},
+                    {"type": "null"},
+                ]
+            },
+            "offset": {"type": "integer", "maximum": 4000000, "minimum": 0, "format": "int64"},
+            "detectedEvents": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.\\-\"\\' ,]*$",
+                },
+            },
+            "details": {"type": "string", "maxLength": 10000, "pattern": "^(.|\\n)*$"},
+        },
+    },
+    "ChatCompletionToolType": {"type": "string", "enum": ["alert"]},
+    "CompletionFinishReason": {
+        "type": "string",
+        "enum": ["stop", "length", "content_filter", "tool_calls"],
+    },
+    "CompletionObject": {
+        "type": "string",
+        "enum": [
+            "chat.completion",
+            "summarization.completion",
+            "summarization.progressing",
+            "vlm_captions.completion",
+            "vlm_captions.progressing",
+        ],
+    },
+    "CompletionUsage": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["query_processing_time", "total_chunks_processed"],
+        "properties": {
+            "query_processing_time": {"type": "integer", "maximum": 1000000, "minimum": 0},
+            "total_chunks_processed": {"type": "integer", "maximum": 1000000, "minimum": 0},
+            "summary_tokens": {"type": "integer", "maximum": 1000000, "minimum": 0, "default": 0},
+            "aggregation_tokens": {"type": "integer", "maximum": 1000000, "minimum": 0, "default": 0},
+            "summary_requests": {"type": "integer", "maximum": 1000000, "minimum": 0, "default": 0},
+            "summary_latency": {"type": "number", "maximum": 1000000, "minimum": 0, "default": 0},
+            "aggregation_latency": {"type": "number", "maximum": 1000000, "minimum": 0, "default": 0},
+        },
+    },
+    "MediaInfoOffset": MEDIA_INFO_OFFSET_SCHEMA,
+    "MediaInfoTimeStamp": MEDIA_INFO_TIMESTAMP_SCHEMA,
+    "LvsError": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["code", "message"],
+        "properties": {
+            "code": {"type": "string", "maxLength": 128, "pattern": "^[A-Za-z]*$"},
+            "message": {
+                "type": "string",
+                "maxLength": 1024,
+                "pattern": "^[A-Za-z\\-. ,_\"\\']*$",
+            },
+        },
+    },
+}
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
@@ -22,6 +410,57 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
 
 def _event_type(label: str) -> str:
     return label.strip().lower().replace(" ", "_") or "notable_activity"
+
+
+def _bad_request(message: str) -> dict[str, Any]:
+    return {"code": "ValidationError", "message": message}
+
+
+def _validate_file_summarize_request(request: dict[str, Any]) -> dict[str, Any] | None:
+    missing: list[str] = []
+    has_url = isinstance(request.get("url"), str) and request["url"].strip()
+    raw_id = request.get("id")
+    has_id = False
+    if isinstance(raw_id, str):
+        has_id = bool(raw_id.strip())
+    elif isinstance(raw_id, list):
+        has_id = any(isinstance(item, str) and item.strip() for item in raw_id)
+    unexpected_fields = sorted(set(request) - SUMMARIZATION_QUERY_FIELDS)
+    if unexpected_fields:
+        if "messages" in unexpected_fields:
+            return _bad_request(
+                "SummarizationQuery expects top level model scenario events and url or id. "
+                "The messages field is not valid for summarize. Use chat completions only for fallback."
+            )
+        if "video_url" in unexpected_fields:
+            return _bad_request(
+                "SummarizationQuery expects top level model scenario events and url or id. "
+                "The video_url field is not valid for summarize. Use url instead."
+            )
+        return _bad_request(
+            f"Unexpected field {unexpected_fields[0]} in SummarizationQuery."
+        )
+
+    if not isinstance(request.get("model"), str) or not request["model"].strip():
+        missing.append("model")
+    if not isinstance(request.get("scenario"), str) or not request["scenario"].strip():
+        missing.append("scenario")
+    if not isinstance(request.get("events"), list) or not request["events"]:
+        missing.append("events")
+
+    if missing:
+        return _bad_request(
+            "Missing required SummarizationQuery fields "
+            f"{' '.join(missing)}."
+        )
+
+    if not all(isinstance(item, str) and item.strip() for item in request["events"]):
+        return _bad_request("events must be a non empty array of strings.")
+
+    if not has_url and not has_id:
+        return _bad_request("A video source url or id is required by this eval mock.")
+
+    return None
 
 
 def _fixture_for_url(url: str) -> dict[str, Any]:
@@ -235,7 +674,7 @@ def _make_events(request: dict[str, Any], fixture: dict[str, Any]) -> list[dict[
 
 
 def _summarize_payload(request: dict[str, Any]) -> dict[str, Any]:
-    url = str(request.get("url") or request.get("video_url") or "submitted video")
+    url = str(request.get("url") or request.get("id") or "submitted video")
     fixture = _fixture_for_url(url)
     events = _make_events(request, fixture)
     return {
@@ -244,17 +683,22 @@ def _summarize_payload(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _video_uuid(video_id: str) -> str:
+    return FIXTURE_VIDEO_UUIDS.get(video_id, DEFAULT_VIDEO_UUID)
+
+
 def _completion_response(request: dict[str, Any]) -> dict[str, Any]:
     model = str(request.get("model") or MODEL_ID)
     content = json.dumps(_summarize_payload(request), sort_keys=True)
+    fixture_id = _fixture_for_url(str(request.get("url") or request.get("id") or ""))["video_id"]
     now = int(time.time())
     return {
-        "id": "cmpl-vss-summary",
-        "video_id": _fixture_for_url(str(request.get("url") or request.get("video_url") or ""))["video_id"],
-        "object": "chat.completion",
+        "id": QUERY_ID,
+        "video_id": _video_uuid(fixture_id),
+        "object": "summarization.completion",
         "created": now,
         "model": model,
-        "media_info": {"url": request.get("url") or request.get("video_url")},
+        "media_info": {"type": "offset", "start_offset": 0, "end_offset": 0},
         "choices": [
             {
                 "index": 0,
@@ -263,9 +707,13 @@ def _completion_response(request: dict[str, Any]) -> dict[str, Any]:
             }
         ],
         "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
+            "query_processing_time": 1,
+            "total_chunks_processed": 1,
+            "summary_tokens": 0,
+            "aggregation_tokens": 0,
+            "summary_requests": 1,
+            "summary_latency": 0,
+            "aggregation_latency": 0,
         },
     }
 
@@ -355,14 +803,71 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(
                 200,
                 {
-                    "openapi": "3.0.0",
+                    "openapi": "3.1.0",
                     "info": {"title": "Mock VSS backend", "version": "eval"},
                     "paths": {
                         "/v1/ready": {"get": {}},
                         "/models": {"get": {}},
                         "/recommended_config": {"post": {}},
                         "/metrics": {"get": {}},
-                        "/v1/summarize": {"post": {}},
+                        "/v1/summarize": {
+                            "post": {
+                                "operationId": "summarize_video",
+                                "requestBody": {
+                                    "required": True,
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {"$ref": "#/components/schemas/SummarizationQuery"}
+                                        }
+                                    },
+                                },
+                                "responses": {
+                                    "200": {
+                                        "description": "Successful Response.",
+                                        "content": {
+                                            "application/json": {
+                                                "schema": {"$ref": "#/components/schemas/CompletionResponse"}
+                                            }
+                                        },
+                                    },
+                                    "400": {
+                                        "description": "Bad Request.",
+                                        "content": {
+                                            "application/json": {
+                                                "schema": {"$ref": "#/components/schemas/LvsError"}
+                                            }
+                                        },
+                                    },
+                                    "422": {
+                                        "description": "Failed to process request.",
+                                        "content": {
+                                            "application/json": {
+                                                "schema": {"$ref": "#/components/schemas/LvsError"}
+                                            }
+                                        },
+                                    },
+                                    "500": {
+                                        "description": "Internal Server Error.",
+                                        "content": {
+                                            "application/json": {
+                                                "schema": {"$ref": "#/components/schemas/LvsError"}
+                                            }
+                                        },
+                                    },
+                                    "503": {
+                                        "description": "Server is busy processing another file.",
+                                        "content": {
+                                            "application/json": {
+                                                "schema": {"$ref": "#/components/schemas/LvsError"}
+                                            }
+                                        },
+                                    },
+                                },
+                            }
+                        },
+                    },
+                    "components": {
+                        "schemas": OPENAPI_SCHEMAS,
                     },
                 },
             )
@@ -392,7 +897,14 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
-        if path in {"/v1/summarize", "/summarize", "/v1/stream_summarize"}:
+        if path in {"/v1/summarize", "/summarize"}:
+            validation_error = _validate_file_summarize_request(request)
+            if validation_error:
+                self._send_json(422, validation_error)
+                return
+            self._send_json(200, _completion_response(request))
+            return
+        if path == "/v1/stream_summarize":
             self._send_json(200, _completion_response(request))
             return
         if path == "/v1/generate_captions":
