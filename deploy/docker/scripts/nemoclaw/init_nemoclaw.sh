@@ -383,9 +383,21 @@ dashboard_forward_healthy() {
     | grep -q '"ok"[[:space:]]*:[[:space:]]*true'
 }
 
+start_dashboard_forward() {
+  local port="$1"
+  local forward_log="$2"
+  : >"$forward_log"
+  if have setsid; then
+    setsid -f openshell forward start "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >>"$forward_log" 2>&1 || true
+  else
+    openshell forward start --background "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >>"$forward_log" 2>&1 || true
+  fi
+}
+
 ensure_dashboard_forward() {
   local port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
   local forward_log="/tmp/nemoclaw-forward-${port}.log"
+  local attempt
   if ! have openshell; then
     log "ERROR: OpenShell not available; cannot refresh dashboard port-forward"
     return 1
@@ -404,18 +416,21 @@ ensure_dashboard_forward() {
   pkill -TERM -f "[o]penshell forward start ${port} ${NEMOCLAW_SANDBOX_NAME}" >/dev/null 2>&1 || true
   kill_stale_dashboard_listeners "$port"
 
-  if have setsid; then
-    setsid -f openshell forward start "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >"$forward_log" 2>&1 || true
-  else
-    openshell forward start --background "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >"$forward_log" 2>&1 || true
-  fi
+  start_dashboard_forward "$port" "$forward_log"
 
-  for _attempt in $(seq 1 30); do
+  for attempt in $(seq 1 60); do
     if forward_owned_by_sandbox "$port" "$NEMOCLAW_SANDBOX_NAME" && dashboard_forward_healthy "$port"; then
       log "Dashboard port-forward on ${port} is healthy for sandbox ${NEMOCLAW_SANDBOX_NAME}"
       return
     fi
-    sleep 1
+    if [ $((attempt % 5)) -eq 0 ]; then
+      log "Dashboard port-forward on ${port} is not healthy yet; retrying start (attempt=${attempt})"
+      openshell forward stop "$port" "$NEMOCLAW_SANDBOX_NAME" >/dev/null 2>&1 || true
+      pkill -TERM -f "[o]penshell forward start ${port} ${NEMOCLAW_SANDBOX_NAME}" >/dev/null 2>&1 || true
+      kill_stale_dashboard_listeners "$port"
+      start_dashboard_forward "$port" "$forward_log"
+    fi
+    sleep 2
   done
 
   log "ERROR: could not (re)start dashboard forward on ${port}; the OpenClaw UI and /hooks endpoint are unreachable at http://127.0.0.1:${port}"
