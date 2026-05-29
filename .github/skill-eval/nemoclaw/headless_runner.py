@@ -301,9 +301,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.launch_mode == "cli":
             response = run_openclaw_cli(sandbox_name, prompt, args.timeout, log_dir)
             if _response_ok(response):
-                wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
-                collect_openclaw_cli_log(sandbox_name, log_dir)
-                if wait_report.get("ok"):
+                try:
+                    wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
+                finally:
+                    collect_openclaw_cli_log(sandbox_name, log_dir)
                     stop_openclaw_cli(sandbox_name)
         else:
             hooks_token = _read_hooks_token()
