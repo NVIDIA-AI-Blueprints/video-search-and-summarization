@@ -57,6 +57,8 @@ NEMOCLAW_INSTALL_REF = os.environ.get("NEMOCLAW_INSTALL_REF", NEMOCLAW_INSTALL_R
 NEMOCLAW_SANDBOX_NAME = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo").strip()
 OPENCLAW_HOOKS_ENABLED = os.environ.get("OPENCLAW_HOOKS_ENABLED", "1").lower() not in ("0", "false", "no")
 OPENCLAW_HOOKS_PATH = os.environ.get("OPENCLAW_HOOKS_PATH", OPENCLAW_HOOKS_PATH).strip() or "/hooks"
+OPENCLAW_DISABLE_STREAMING_TOOL_CALLS = os.environ.get("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS", "1").strip() or "1"
+os.environ["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"] = OPENCLAW_DISABLE_STREAMING_TOOL_CALLS
 
 # Optional VSS endpoint/model overrides used by the orchestrator MCP server.
 VSS_LLM_NAME = os.environ.get("VSS_LLM_NAME", VSS_LLM_NAME).strip()
@@ -85,6 +87,7 @@ _token_file.parent.mkdir(parents=True, exist_ok=True)
 _keys = [
     "NEMOCLAW_SANDBOX_NAME",
     "OPENCLAW_HOOKS_PATH",
+    "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
     "MCP_URL",
     "MCP_PORT",
     "HOST_INTERNAL_ALIAS",

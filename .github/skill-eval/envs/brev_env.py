@@ -383,6 +383,7 @@ class BrevEnvironment(BaseEnvironment):
             # the forwarded LLM_REMOTE_* + NVIDIA_API_KEY values below.
             "NEMOCLAW_ENDPOINT_URL", "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
             "NEMOCLAW_FALLBACK_ENDPOINT_URL", "NEMOCLAW_FALLBACK_MODEL",
+            "NEMOCLAW_PREFERRED_API", "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
             "OPENAI_API_KEY", "NVIDIA_BASE_URL", "OPENSHELL_PROVIDER_NAME",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
