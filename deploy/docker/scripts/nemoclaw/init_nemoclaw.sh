@@ -350,6 +350,33 @@ forward_owned_by_sandbox() {
   forward_running_for_sandbox "$port" "$sandbox_name" || forward_process_running_for_sandbox "$port" "$sandbox_name"
 }
 
+dashboard_listener_pids() {
+  local port="$1"
+  if have lsof; then
+    lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NF'
+  elif have fuser; then
+    fuser -n tcp "$port" 2>/dev/null | tr ' ' '\n' | awk 'NF'
+  fi
+}
+
+kill_stale_dashboard_listeners() {
+  local port="$1"
+  local pid
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    [ "$pid" != "$$" ] || continue
+    log "Stopping stale dashboard listener on ${port} (pid=${pid})"
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+  done < <(dashboard_listener_pids "$port")
+  sleep 2
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    [ "$pid" != "$$" ] || continue
+    log "Force-stopping stale dashboard listener on ${port} (pid=${pid})"
+    kill -KILL "$pid" >/dev/null 2>&1 || true
+  done < <(dashboard_listener_pids "$port")
+}
+
 dashboard_forward_healthy() {
   local port="$1"
   have curl && curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null \
@@ -375,6 +402,7 @@ ensure_dashboard_forward() {
 
   openshell forward stop "$port" "$NEMOCLAW_SANDBOX_NAME" >/dev/null 2>&1 || true
   pkill -TERM -f "[o]penshell forward start ${port} ${NEMOCLAW_SANDBOX_NAME}" >/dev/null 2>&1 || true
+  kill_stale_dashboard_listeners "$port"
 
   if have setsid; then
     setsid -f openshell forward start "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >"$forward_log" 2>&1 || true

@@ -584,6 +584,17 @@ class OpenClawStreamPatchTest(unittest.TestCase):
         self.assertIn("stream: false", updated)
 
 
+class InitNemoClawScriptTest(unittest.TestCase):
+    def test_dashboard_forward_cleanup_handles_stale_port_listener(self):
+        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("kill_stale_dashboard_listeners", source)
+        self.assertIn("lsof -tiTCP", source)
+        self.assertIn("kill_stale_dashboard_listeners \"$port\"", source)
+
+
 class UpdateOpenClawConfigTest(unittest.TestCase):
     def test_registers_sse_mcp_server(self):
         data: dict = {}
