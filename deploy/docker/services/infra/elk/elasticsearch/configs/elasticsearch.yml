@@ -1,3 +1,5 @@
+# This file is provided under your choice of: (a) the Server Side Public License v1 (SSPLv1); or (b) the GNU Affero General Public License v3 (AGPLv3).
+
 #cluster.name: "docker-cluster"
 network.host: 0.0.0.0
 http.port: 9200
