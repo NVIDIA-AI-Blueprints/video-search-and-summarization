@@ -11,12 +11,12 @@
       }
     }
   },
-  "env": "VSS **alerts** profile already deployed (either `verification` or `real-time` mode) on the target host so the VA-MCP server is reachable at `http://${HOST_IP:-localhost}:9901/mcp` and backed by Elasticsearch. At least one sensor registered in VIOS (e.g. `warehouse_sample` onboarded through NVStreamer) and at least a few incidents already written to Elasticsearch so analytics tools return non-empty results. `HOST_IP` resolved (defaulting to `localhost`), and `curl` + `jq` available on the caller. The skill is read-only over VA-MCP — it must NOT trigger deploys or call live VLM/report endpoints. See `skills/vss-query-analytics/SKILL.md`.",
+  "env": "VSS **alerts** profile already deployed (either `verification` or `real-time` mode) on the target host so the VA-MCP server is reachable at `http://localhost:9901/mcp` and backed by Elasticsearch. At least one sensor registered in VIOS (e.g. `warehouse_sample` onboarded through NVStreamer) and at least a few incidents already written to Elasticsearch so analytics tools return non-empty results. `curl` + `jq` available on the caller. The skill is read-only over VA-MCP — it must NOT trigger deploys or call live VLM/report endpoints. See `skills/vss-query-analytics/SKILL.md`.",
   "expects": [
     {
       "query": "Verify the VA-MCP analytics endpoint is reachable and ready to answer queries.",
       "checks": [
-        "The trajectory probed VA-MCP liveness with `curl -sf --max-time 5 http://${HOST_IP:-localhost}:9901/mcp` (or a `GET /` fallback) before issuing any `tools/call`.",
+        "The trajectory probed VA-MCP liveness with `curl -sf --max-time 5 http://localhost:9901/mcp` (or a `GET /` fallback) before issuing any `tools/call`.",
         "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:9901/mcp` returns an HTTP code in the 2xx/3xx/405 range (the endpoint exists and speaks MCP) — not connection refused.",
         "The final assistant reply states that VA-MCP is reachable and ready (or, if it is not, names the failure mode — `connection refused` vs `timeout` vs `404` — per the skill's MCP connection guidance) rather than silently moving on."
       ]
