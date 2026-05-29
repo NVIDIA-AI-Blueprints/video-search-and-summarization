@@ -311,11 +311,11 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
 
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
-    def test_default_smoke_profile_matches_running_rtx_2g_pool(self):
-        self.assertEqual(smoke_runner.DEFAULT_PROFILE, "search")
+    def test_default_smoke_profile_is_lightweight_base(self):
+        self.assertEqual(smoke_runner.DEFAULT_PROFILE, "base")
         self.assertEqual(
-            smoke_runner._gpu_count_from_spec("search", "RTXPRO6000BW"),
-            2,
+            smoke_runner._gpu_count_from_spec("base", "RTXPRO6000BW"),
+            1,
         )
 
     def test_brev_json_parser_ignores_trailing_cli_text(self):
@@ -354,9 +354,9 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(candidates[0], "vss-eval-rtx-1g-2")
         self.assertNotIn("personal-rtx", candidates)
-        self.assertNotIn("vss-eval-rtx-2g", candidates)
+        self.assertIn("vss-eval-rtx-2g", candidates)
 
-    def test_instance_candidates_filter_known_wrong_gpu_partition(self):
+    def test_instance_candidates_allow_larger_partition_for_one_gpu_smoke(self):
         instances = [
             {"name": "vss-eval-rtx-1g-2", "status": "RUNNING", "gpu": "RTX PRO 6000"},
             {"name": "vss-eval-rtx-2g-4", "status": "RUNNING", "gpu": "RTX PRO 6000"},
@@ -373,7 +373,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             gpu_count=2,
         )
 
-        self.assertEqual(one_gpu, ["vss-eval-rtx-1g-2"])
+        self.assertEqual(one_gpu, ["vss-eval-rtx-1g-2", "vss-eval-rtx-2g-4"])
         self.assertEqual(two_gpu, ["vss-eval-rtx-2g-4"])
 
     def test_worker_selection_skips_locked_candidate(self):
@@ -680,6 +680,8 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertIn('requires_mcp = true', task_toml)
             self.assertIn('vss_orchestrator__docker_up', task_toml)
             self.assertIn("headless_runner.py", instruction)
+            self.assertIn("--log-dir /logs/artifacts/nemoclaw", instruction)
+            self.assertIn("--timeout 2400", instruction)
             self.assertTrue((task_dir / "tests" / "nemoclaw_prompt.md").exists())
 
 
