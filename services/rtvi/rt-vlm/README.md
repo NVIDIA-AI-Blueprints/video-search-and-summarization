@@ -137,12 +137,23 @@ docker compose down
 docker compose up
 ```
 
-For DGX Spark/SBSA Docker Compose testing, build an ARM64/SBSA image from the `rt-vlm/` directory and load it into the local Docker image store:
+For DGX Spark/SBSA Docker Compose testing, build an ARM64/SBSA image from the `rt-vlm/` directory and load it into the local Docker image store. Export `IS_SBSA=true` on the host shell before the build command so the Dockerfile resolves the `-sbsa` base image automatically:
+
+```bash
+export IS_SBSA=true
+docker buildx build --platform linux/arm64 \
+  --build-arg IS_SBSA \
+  -f docker/Dockerfile \
+  -t <registry>/<repo>/vss-rt-vlm:3.2.0-custom-sbsa \
+  --load .
+```
+
+For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default base image (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4`) is multi-arch, so a `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
 
 ```bash
 docker buildx build --platform linux/arm64 \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.2.0-custom-sbsa \
+  -t <registry>/<repo>/vss-rt-vlm:3.2.0-custom-thor \
   --load .
 ```
 

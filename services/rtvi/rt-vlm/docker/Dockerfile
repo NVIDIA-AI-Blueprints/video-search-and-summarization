@@ -13,7 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4"
+# Export IS_SBSA=true on the host and pass `--build-arg IS_SBSA` to select the
+# ARM64/SBSA base image; otherwise the default (x86_64) tag is used. Override
+# BASE_IMAGE directly to point at a fully custom base.
+ARG IS_SBSA=
+ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4${IS_SBSA:+-sbsa}"
 FROM ${BASE_IMAGE}
 
 # Overlay the open-source RTVI VLM Python sources on top of the base image.
