@@ -197,4 +197,4 @@ No HAProxy ingress under MV3DT — `vss-haproxy-ingress` is gated under `bp_wh` 
 
 ## When something is wrong
 
-[`troubleshooting.md`](troubleshooting.md) covers MV3DT-specific failure modes. For broader warehouse issues that aren't MV3DT-specific (low FPS tuning, GPU saturation, NGC pull errors), `vss-deploy-profile/references/warehouse-debug.md` is the deeper reference.
+See [`troubleshooting.md`](troubleshooting.md).
