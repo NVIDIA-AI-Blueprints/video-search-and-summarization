@@ -2035,7 +2035,7 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
 
 async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
     """SSH in and count GPUs via nvidia-smi. Raises only if the box has
-    FEWER GPUs than required — over-provisioned boxes are accepted (>=)."""
+    fewer GPUs than required; over-provisioned boxes are accepted."""
     result = await _run_brev_exec(
         instance_name,
         "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",

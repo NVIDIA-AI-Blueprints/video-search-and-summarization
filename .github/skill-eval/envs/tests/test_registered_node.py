@@ -154,6 +154,43 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
         finally:
             brev_env._get_instance_gpu_count_from_catalog = original
 
+    def test_larger_gpu_partition_satisfies_smaller_requirement(self):
+        inst = {"name": "test", "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-2g"}
+
+        async def fake_catalog_count(instance_type):
+            return 2
+
+        original = brev_env._get_instance_gpu_count_from_catalog
+        brev_env._get_instance_gpu_count_from_catalog = fake_catalog_count
+        try:
+            asyncio.run(
+                brev_env._check_instance_matches(
+                    inst,
+                    {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+                )
+            )
+        finally:
+            brev_env._get_instance_gpu_count_from_catalog = original
+
+    def test_smaller_gpu_partition_fails_larger_requirement(self):
+        inst = {"name": "test", "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-1g"}
+
+        async def fake_catalog_count(instance_type):
+            return 1
+
+        original = brev_env._get_instance_gpu_count_from_catalog
+        brev_env._get_instance_gpu_count_from_catalog = fake_catalog_count
+        try:
+            with self.assertRaisesRegex(RuntimeError, "want at least 2"):
+                asyncio.run(
+                    brev_env._check_instance_matches(
+                        inst,
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 2},
+                    )
+                )
+        finally:
+            brev_env._get_instance_gpu_count_from_catalog = original
+
 
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
