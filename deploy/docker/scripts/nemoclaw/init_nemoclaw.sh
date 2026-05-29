@@ -660,8 +660,45 @@ run_install() {
   )
 }
 
+onboard_or_install_sandbox() {
+  log "Start installing/onboarding NemoClaw"
+  if have nemoclaw; then
+    run_onboard
+  else
+    run_install
+  fi
+  log "Finished installing/onboarding NemoClaw"
+}
+
 sandbox_exists() {
   have openshell && openshell sandbox get "$NEMOCLAW_SANDBOX_NAME" >/dev/null 2>&1
+}
+
+ensure_nemoclaw_tunnel() {
+  local nemoclaw_cmd tunnel_log
+  nemoclaw_cmd="$(resolve_nemoclaw)" || {
+    log "nemoclaw is not currently resolvable; skipping tunnel refresh"
+    return 0
+  }
+  tunnel_log="/tmp/nemoclaw-tunnel-start.log"
+
+  if pgrep -f '[c]loudflared' >/dev/null 2>&1; then
+    log "NemoClaw tunnel process is already running"
+    return 0
+  fi
+
+  log "Starting NemoClaw tunnel for sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  : >"${tunnel_log}"
+  if have setsid; then
+    setsid -f "$nemoclaw_cmd" tunnel start >>"${tunnel_log}" 2>&1 || true
+  else
+    "$nemoclaw_cmd" tunnel start >>"${tunnel_log}" 2>&1 &
+  fi
+  sleep 5
+  if ! pgrep -f '[c]loudflared' >/dev/null 2>&1; then
+    log "WARN: NemoClaw tunnel process is not running yet"
+    tail -n 20 "${tunnel_log}" | sed 's/^/[init_nemoclaw] tunnel log: /' >&2 || true
+  fi
 }
 
 strip_ansi() {
@@ -708,14 +745,15 @@ main() {
   if sandbox_exists; then
     log "Sandbox ${NEMOCLAW_SANDBOX_NAME} already exists; skipping NemoClaw onboard/install"
     configure_openshell_provider
-  else
-    log "Start installing/onboarding NemoClaw"
-    if have nemoclaw; then
-      run_onboard
-    else
-      run_install
+    ensure_nemoclaw_tunnel
+    if ! wait_for_sandbox_ready "${NEMOCLAW_EXISTING_SANDBOX_READY_TIMEOUT:-90}"; then
+      log "Existing sandbox ${NEMOCLAW_SANDBOX_NAME} is not ready; rerunning NemoClaw setup"
+      onboard_or_install_sandbox
+      ensure_nemoclaw_tunnel
     fi
-    log "Finished installing/onboarding NemoClaw"
+  else
+    onboard_or_install_sandbox
+    ensure_nemoclaw_tunnel
   fi
 
   # Onboard can return before OpenClaw is executable inside the sandbox.
