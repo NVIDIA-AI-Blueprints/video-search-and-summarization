@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -136,6 +136,25 @@ class SpaceUtilization {
         }
     }
 
+    /** 
+     * Retrieves an object containing histogram of space-utilization metrics.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {Array<string>} [input.roiIds] - ROI IDs used to filter space-utilization metrics.
+     * @param {string} [input.fromTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {string} [input.toTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {number} [input.minutesAgo] - Time window in minutes before now. Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {number} [input.bucketCount=20] - Number of histogram buckets returned.
+     * @returns {Promise<Object>} Histogram of space-utilization metrics is returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {roiIds: ["roi-1"], fromTimestamp: "2023-01-12T11:20:10.000Z", toTimestamp: "2023-01-12T14:20:10.000Z", bucketCount: 24};
+     * let spaceUtilizationObject = new mdx.Metrics.SpaceUtilization();
+     * let histogramResult = await spaceUtilizationObject.getHistogramOfSpaceUtilizationMetrics(elastic,input);
+     */
     async getHistogramOfSpaceUtilizationMetrics(documentDb, input){
         const schema = {
             type: "object",

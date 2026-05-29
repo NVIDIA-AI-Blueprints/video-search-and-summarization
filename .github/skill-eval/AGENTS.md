@@ -14,27 +14,55 @@ workflow runs your invocation with a 12-hour hard timeout.
 
 ## Startup hygiene (do this first, before step 1)
 
-The CI runner host reuses `/tmp/skill-eval/` across runs. Prior
-runs — including cancelled ones — leave datasets and partial results
-behind that will confuse you if you read them as "current". Clean at
-startup, then never look at `<other_run_id>` artifacts again:
+The CI runner host reuses `/tmp/skill-eval/` across runs, and since
+the workflow allows parallel `workflow_dispatch` sweeps you may share
+the host with one or more peer agents holding their own in-flight
+state under `/tmp/skill-eval/`. **Never delete a peer run's subtree.**
+Confine every piece of scratch state this run owns to `$SCRATCH` and
+only ever clean inside that:
 
 ```bash
-# Drop every dataset — you're regenerating in step 4 anyway.
-rm -rf /tmp/skill-eval/datasets/*
+# Every per-run path in this file is rooted here. Export it for every
+# subshell you spawn — adapter generators, harbor invocations, and any
+# helper script all reference $SCRATCH instead of bare /tmp paths.
+export SCRATCH=/tmp/skill-eval/$GITHUB_RUN_ID
+mkdir -p "$SCRATCH"
 
-# Keep your own run's results; drop everything else.
-find /tmp/skill-eval/results -mindepth 1 -maxdepth 1 -type d \
-  ! -name "${GITHUB_RUN_ID}" ! -name "_viewer" -exec rm -rf {} +
+# Drop only THIS run's prior dataset tree (e.g. from a re-attempt).
+# Never `rm -rf /tmp/skill-eval/datasets/*` — that's a peer's data.
+rm -rf "$SCRATCH/datasets"
 
-# One authoritative brev snapshot — don't re-list repeatedly.
-brev ls > /tmp/skill-eval/brev-snapshot.txt
+# Authoritative brev snapshot for this run.
+brev ls > "$SCRATCH/brev-snapshot.txt"
 ```
 
-If you find yourself reading files under `/tmp/skill-eval/results/<other_id>/`
-to figure out what "used to work", stop — that path belongs to a
-different run and its invocation may be stale. The canonical command
-template is in § Harbor invocation below.
+Hard rules:
+
+- **Never delete `/tmp/skill-eval/results/<other_run_id>/`.** A peer
+  in-flight workflow run owns that subtree and an `rm -rf` from your
+  agent will corrupt its trial output mid-flight. Stale-dir cleanup is
+  operator-managed (cron + retention budget on the validator host),
+  not your job.
+- **Never read from `/tmp/skill-eval/results/<other_run_id>/`** to
+  figure out what "used to work" — that path belongs to a different
+  run and its invocation may be different too. The canonical command
+  template is in § Harbor invocation below.
+- **Never write to `/tmp/skill-eval/` outside `$SCRATCH`** for state
+  this run owns. The intentionally shared paths are listed below;
+  everything else is per-run.
+
+Intentionally shared paths (do NOT scope these under `$SCRATCH`):
+
+- `/tmp/skill-eval/results/$GITHUB_RUN_ID/` — harbor's output dir
+  convention; the `<run_id>` is already in the path. Peer runs
+  occupy sibling subdirs and the `_viewer` symlink farm is
+  operator-managed.
+- `/tmp/skill-eval/active-deploy.txt` on each Brev box — per-box
+  marker carrying `<profile_tag>|<run_id>`. Concurrent overwrites
+  from peer runs are by design: the marker exists so the next trial
+  on that box knows whether to redeploy.
+- `/tmp/brev/<INSTANCE_NAME>.lock` — per-box flock, intentionally
+  cross-run; it's the arbiter.
 
 ## Your job, in order
 
@@ -156,7 +184,7 @@ template is in § Harbor invocation below.
          --base "$SOURCE_BRANCH" \
          --head "$BOT_BRANCH" \
          --title "[skill-eval] ${SKILL} adapter for PR #${PR_NUMBER}" \
-         --body-file /tmp/skill-eval/bot-pr-body.md)
+         --body-file "$SCRATCH/bot-pr-body.md")
 
        gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "
        The skills-eval bot generated/updated the adapter required to
@@ -235,7 +263,7 @@ template is in § Harbor invocation below.
 
 4. **Regenerate the dataset** for each `(skill, spec, platform)` the
    spec's `resources.platforms` enumerates. Datasets land at
-   `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/`,
+   `$SCRATCH/datasets/<skill>/<spec_stem>/<platform>/`,
    where `<spec_stem>` is the spec filename with `.json` dropped.
    **Gate**: only run this step for skills that did NOT trigger 3c/3d
    in this run. A skill with an open bot PR is parked until the
@@ -256,7 +284,7 @@ template is in § Harbor invocation below.
       # Candidates: RUNNING+READY ^vss-eval-* boxes whose gpu/platform
       # matches the trial. (envs/brev_env.py validates the pick post-
       # selection; this step just narrows the field.)
-      brev ls --json > /tmp/skill-eval/brev-snapshot.txt
+      brev ls --json > "$SCRATCH/brev-snapshot.txt"
       # For each candidate read /tmp/skill-eval/active-deploy.txt
       # via `brev exec <name> -- cat ...`. Score:
       #   1. marker == "<profile>" desired by trial   (warm)
@@ -294,7 +322,7 @@ template is in § Harbor invocation below.
       # Pseudocode for the wait-for-pool case:
       DEADLINE=$(( $(date +%s) + 43200 ))
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-          brev ls --json > /tmp/skill-eval/brev-snapshot.txt
+          brev ls --json > "$SCRATCH/brev-snapshot.txt"
           # Re-evaluate candidates against the snapshot (same scoring
           # as above). If any RUNNING+READY ^vss-eval-* matches the
           # platform's hardware (hard req), break and proceed to flock
@@ -325,24 +353,28 @@ template is in § Harbor invocation below.
       already holds the lock for this box, wait up to 12 h; beyond
       that, fall back to step 5a and rescore — another box may have
       come free. Final fallback: emit `BLOCKED: lock timeout` and exit.
-   c. Drive harbor one trial at a time (they share GPU/ports on the
-      host). Use the canonical invocation in § Harbor invocation
-      below — **do not improvise flags**. Before the `uvx harbor run`
-      call, `export BREV_INSTANCE=<name>` to the instance you
-      resolved in step 5a; the canonical snippet has the line —
-      omitting it makes `BrevEnvironment.start()` raise immediately
-      ("no instance resolved, harness does not auto-provision") and
-      the trial fails before harbor invokes the agent. If a trial fails, read the
+   c. Drive harbor **one trial at a time per box** (within a box,
+      trials share GPU/ports; across boxes, fan-out is fine — see
+      § Harbor invocation "Wait contract" for the fan-out pattern).
+      Use the canonical invocation in § Harbor invocation below —
+      **do not improvise flags**. Before each `uvx harbor run` call,
+      `export BREV_INSTANCE=<name>` to the instance you resolved in
+      step 5a; the canonical snippet has the line — omitting it makes
+      `BrevEnvironment.start()` raise immediately ("no instance
+      resolved, harness does not auto-provision") and the trial fails
+      before harbor invokes the agent. If a trial fails, read the
       trial log, fix the adapter (not the flags), rerun. While a
-      trial is running, do NOT babysit the remote box (no
-      `brev exec` polling, no `Monitor` on remote logs); harbor has
-      its own agent-execution timeout and will fail the trial
-      cleanly. Spend turns on the next trial's setup or on reading
-      already-completed trial logs instead.
+      trial is running, do NOT poll the remote box from your tool loop
+      — harbor has its own agent-execution timeout and will fail the
+      trial cleanly. Spend turns on the next trial's setup or on
+      reading already-completed trial logs instead.
    d. After each trial, parse
-      `/tmp/skill-eval/results/<run_id>/<date>/<trial>/verifier/reward.txt`
+      `$TRIAL_OUT/<date>/<trial>/verifier/reward.txt` (i.e.
+      `/tmp/skill-eval/results/<run_id>/<spec_stem>-<platform>/<date>/<trial>/verifier/reward.txt`)
       and `test-stdout.txt`. Record `(spec, platform, reward,
-      checks_passed/total, duration_s, trace_url)` for the comment.
+      checks_passed/total, duration_s, trace_url)` for the comment. A
+      missing `reward.txt` means the trial errored (e.g. non-zero
+      harbor exit) — record it as a failure, do not skip it silently.
 
 6. **Post ONE results comment per `(PR, eval_spec)` batch** when every
    `(platform)` tuple in that spec's matrix has a result. Format
@@ -427,19 +459,25 @@ template is in § Harbor invocation below.
 
 ## Platform topology
 
-| Platform | Brev instance | Lifecycle | Notes |
-|---|---|---|---|
-| `l40s` | `vss-eval-l40s` (`massedcompute_L40Sx2`) | **non-stoppable — delete after trials complete** (MC doesn't support stop) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48GB GPU. |
-| `h100` | `vss-eval-h100` (launchpad `dmz.h100x2.pcie` preferred) | **non-stoppable — delete after trials complete** | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` | `vss-eval-rtx` (`g7e.12xlarge`) | **stop after trials complete** | RTX PRO 6000 BW, 2× GPU, full matrix. |
-| `spark` | BYOH registered node `SPARK` | **no-op — never stop, never delete** | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
-| `H100-VLM` | BYOH registered node | **no-op** | Secondary H100 node if the cloud one is slow. |
+| Platform | Fleet prefix in `brev ls` | Notes |
+|---|---|---|
+| `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
+| `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
+| `rtx` / `rtxpro6000bw` | `vss-eval-rtx*` (e.g. `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g-3`) | RTX PRO 6000 BW. Suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). |
+| `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
+
+Pool naming is operator-managed; the actual fleet is whatever
+`brev ls` reports matching the prefix. Don't hardcode a specific
+instance name — the fleet-selection algorithm in § 5a picks the
+candidate. **Lifecycle is the operator's job**; you only acquire
+the per-box flock, run trials, and release the flock — see Hard
+rules about `brev create / start / stop / delete / reset`.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** Scan
-`/tmp/skill-eval/brev-snapshot.txt` for `^vss-eval-*` candidates
+`$SCRATCH/brev-snapshot.txt` for `^vss-eval-*` candidates
 matching the trial's platform; score by (active-deploy marker match,
 free-lock, name) per § 5a; pick the best free candidate; export
 `BREV_INSTANCE` to it before the `uvx harbor run` call (§ Harbor
@@ -518,6 +556,14 @@ flag names have bitten multiple runs (`--include-task-name`, not
 a file path).
 
 ```bash
+# uvx (and claude) install under ~/.local/bin. A fresh `bash -c` /
+# subshell does NOT source ~/.bashrc, so $HOME/.local/bin is missing
+# from PATH and `uvx` resolves to "command not found" — the trial
+# never starts. Re-export PATH defensively at the top of every Bash
+# call that runs harbor (observed on PR #827: "uvx is not in PATH for
+# subshells", whole sweep stalled).
+export PATH="$HOME/.local/bin:$PATH"
+
 # PYTHONPATH lets uvx harbor resolve envs.brev_env:BrevEnvironment.
 # The workflow step already exports it, but re-export defensively in
 # case you're driving harbor from a subshell.
@@ -537,9 +583,21 @@ export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
 # and that's how parallelism happens.
 export BREV_INSTANCE="$INSTANCE_NAME"
 
+# Per-(spec, platform) output ROOT. This is load-bearing: harbor
+# creates a <date>/<trial> subdir keyed to the *second* under -o, so
+# two harbor runs that share one -o and start in the same second
+# collide with FileExistsError and silently lose a trial (observed on
+# PR #827: base/lvs/alerts_cv vanished when 6 specs fanned out onto a
+# shared -o). Giving every invocation its own root makes serial
+# retries, stale dirs left by a failed attempt, and concurrent
+# fan-out (§ Wait contract #4) all collision-proof. NEVER point two
+# harbor runs at the same -o.
+RESULTS="/tmp/skill-eval/results/$GITHUB_RUN_ID"
+TRIAL_OUT="$RESULTS/<spec_stem>-<platform>"   # e.g. $RESULTS/base-rtxpro6000bw
+
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
-  -p /tmp/skill-eval/datasets/<skill>/<spec_stem> \
+  -p "$SCRATCH/datasets/<skill>/<spec_stem>" \
   --include-task-name "<platform>" \
   -a claude-code \
   --model "$ANTHROPIC_MODEL" \
@@ -549,7 +607,14 @@ uvx harbor run \
   --agent-timeout-multiplier 6.0 \
   --verifier-timeout-multiplier 3.0 \
   --max-retries 0 -n 1 --yes \
-  -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
+  -o "$TRIAL_OUT"
+
+# Check the exit code — NEVER mask a harbor failure with `; echo done`
+# (that's how PR #827 reported "base done" for trials that never ran).
+# A non-zero exit means the trial did not produce a reward; record it
+# as failed and move on, don't pretend it passed.
+rc=$?
+[ "$rc" -ne 0 ] && echo "TRIAL FAILED rc=$rc spec=<spec_stem> platform=<platform>"
 ```
 
 Notes that have burned prior runs:
@@ -580,17 +645,23 @@ Notes that have burned prior runs:
 
   ```bash
   # Pre-condition: the spec lays out step_count subdirs under
-  # /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/ named
+  # $SCRATCH/datasets/<skill>/<spec_stem>/<platform>/ named
   # step-1, step-2, ..., step-<step_count>. Read step_count from
   # any step's task.toml [metadata] (it's the same on every step).
   STEP_COUNT=$(grep -oP '^step_count\s*=\s*\K\d+' \
-    /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/step-1/task.toml)
+    "$SCRATCH/datasets/<skill>/<spec_stem>/<platform>/step-1/task.toml")
   RESULTS=/tmp/skill-eval/results/"$GITHUB_RUN_ID"
+  # All steps of one (spec, platform) share ONE output root — they run
+  # serially in this loop so there's no same-second collision between
+  # them — but that root is still unique per (spec, platform) so a
+  # peer fan-out invocation can never write into it. See § Harbor
+  # invocation for why -o must be unique.
+  TRIAL_OUT="$RESULTS/<spec_stem>-<platform>"
 
   for STEP in $(seq 1 "$STEP_COUNT"); do
     uvx harbor run \
       --environment-import-path "envs.brev_env:BrevEnvironment" \
-      -p /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform> \
+      -p "$SCRATCH/datasets/<skill>/<spec_stem>/<platform>" \
       --include-task-name "<platform>-step-${STEP}" \
       -a claude-code \
       --model "$ANTHROPIC_MODEL" \
@@ -600,11 +671,11 @@ Notes that have burned prior runs:
       --agent-timeout-multiplier 6.0 \
       --verifier-timeout-multiplier 3.0 \
       --max-retries 0 -n 1 --yes \
-      -o "$RESULTS"
+      -o "$TRIAL_OUT"
 
-    # Read the just-completed step's reward. The trial dir is
-    # named step-<N>__<rand6>, so glob it.
-    REWARD=$(cat "$RESULTS"/*/*/step-${STEP}__*/verifier/reward.txt \
+    # Read the just-completed step's reward. Layout under $TRIAL_OUT is
+    # <date>/<trial>, and the trial dir is named step-<N>__<rand6>.
+    REWARD=$(cat "$TRIAL_OUT"/*/step-${STEP}__*/verifier/reward.txt \
       2>/dev/null | tail -n 1)
     REWARD="${REWARD:-0}"
 
@@ -615,7 +686,7 @@ Notes that have burned prior runs:
     awk -v r="$REWARD" 'BEGIN { exit !(r+0 < 1.0) }' && {
       for SKIP in $(seq $((STEP + 1)) "$STEP_COUNT"); do
         printf '%s\n' "skipped (prior-step fail, step=$STEP reward=$REWARD)" \
-          > /tmp/skill-eval/skipped-<spec_stem>-<platform>-step-${SKIP}.txt
+          > "$SCRATCH/skipped-<spec_stem>-<platform>-step-${SKIP}.txt"
       done
       break
     }
@@ -664,47 +735,108 @@ Notes that have burned prior runs:
   one is at 6.0 (the trial-work budget) — env-build and verifier
   stay at 3.0 because provisioning and judging haven't shown the
   same cold-box runtime pressure as the agent step.
-- Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
-  Then migrate to the viewer (see § Harbor viewer).
+- Output goes to `$TRIAL_OUT/<date>/<trial>/`, i.e.
+  `/tmp/skill-eval/results/$GITHUB_RUN_ID/<spec_stem>-<platform>/<date>/<trial>/`.
+  Then migrate to the viewer (see § Harbor viewer). Read this trial's
+  reward / trajectory from `$TRIAL_OUT` — never glob the shared
+  `$RESULTS` root, which now holds one subdir per (spec, platform).
 
-### No polling — block on harbor
+### Wait contract — every harbor invocation is reaped before the Bash tool returns
 
-`uvx harbor run` MUST block this SDK turn until the trial exits.
-Do NOT background the harbor invocation and then sit in a polling
-loop watching `/logs/agent/claude-code.txt` line counts (or any
-other progress indicator) over `brev exec`. Each poll iteration
-counts as a tool turn and burns the SDK's turn budget. We
-observed run 25256515296 on PR #221 spend ~25 turns in
-`until [ "$(brev exec ... 'wc -l ...')" -gt N ]; do sleep 30; done`
-loops, then run out of turns mid-trial and exit without ever
-posting a comment — green ✓ workflow with $23.52 spent and zero
-signal to the contributor. The wrapper now exits 4 in that case
-(see § Output requirements), so silently giving up is a real
-failure now, not a quiet success.
+The SDK driving this agent **does not deliver any post-tool-return
+"trial finished" notification**. Your `Bash` tool surface is one-shot:
+when the foreground shell of that Bash call exits, the tool returns
+control to you. If you launch a `uvx harbor run` in the background
+and the Bash tool returns while harbor is still executing on a box,
+that trial is **orphaned from your tool loop** — you will never get
+woken up when it finishes, and you'll burn the rest of your turn
+budget hallucinating a watch mechanism that doesn't exist. Run
+26599065317 spent 80 minutes and $20.12 sitting in *"the monitor
+will notify me when each trial finishes"* loops before exit-coding 4.
+
+The rule, then, is about **reaping**, not about backgrounding syntax:
+every `uvx harbor run` you launch in a Bash tool call MUST have
+terminated by the time that call's foreground shell exits.
 
 Acceptable patterns:
-- `uvx harbor run …` (foreground, blocks until trial exits) —
-  preferred.
-- `timeout 1h uvx harbor run …` — bounded blocking.
-- `uvx harbor run … &; wait $!` — backgrounded then a single
-  blocking `wait`. No polling.
-
-Forbidden pattern:
 
 ```bash
-# DO NOT do this. Trial-supervision via tool-turn polling.
+# 1. Foreground (preferred for simplicity)
+uvx harbor run …
+
+# 2. Bounded foreground
+timeout 1h uvx harbor run …
+
+# 3. Backgrounded then explicitly waited
+uvx harbor run … &
+wait $!
+
+# 4. Fan-out within a single Bash call — N harbor invocations against
+#    N different boxes, single `wait` reaps all of them. The Bash tool
+#    returns when the slowest finishes; wall clock = max(trial_times).
+#    Pre-acquire one flock per box, give each invocation its OWN -o
+#    root keyed by (spec_stem, platform) — NOT just by skill: fanning
+#    out several specs of the *same* skill onto `$RESULTS/<skill>`
+#    re-collides exactly like PR #827. Capture each job's pid and check
+#    its exit code after `wait`; never assume a backgrounded run passed.
+uvx harbor run -p "$SCRATCH/datasets/<skill>/<spec-a>" -o "$RESULTS/<spec-a>-<platform>" --include-task-name "<platform>" … &  p_a=$!
+uvx harbor run -p "$SCRATCH/datasets/<skill>/<spec-b>" -o "$RESULTS/<spec-b>-<platform>" --include-task-name "<platform>" … &  p_b=$!
+uvx harbor run -p "$SCRATCH/datasets/<skill>/<spec-c>" -o "$RESULTS/<spec-c>-<platform>" --include-task-name "<platform>" … &  p_c=$!
+for pv in p_a p_b p_c; do
+  wait "${!pv}" || echo "TRIAL FAILED job=$pv rc=$?"
+done
+```
+
+Pre-flight for fan-out (cheap, prevents the whole class of PR #827
+collisions): assert every `-o` root is distinct before you launch.
+
+```bash
+# OUTS is the list of -o roots you're about to use this batch.
+printf '%s\n' "${OUTS[@]}" | sort | uniq -d | grep -q . && {
+  echo "BUG: duplicate -o root in fan-out batch — would collide"; exit 1; }
+```
+
+Forbidden patterns:
+
+```bash
+# (a) Backgrounded without reaping. Bash tool returns immediately,
+# harbor keeps running on the box with no path back to your tool loop.
+uvx harbor run … &
+echo "now I'll wait for a notification"   # ← that notification never arrives
+
+# (b) Backgrounded with tool-turn polling. Each iteration of the
+# until-loop is its own Bash call that costs turns; runs blew up like
+# this before (PR #221, run 25256515296: ~25 turns spent in the loop,
+# then turn budget exhausted mid-trial with no PR comment, $23.52
+# spent, green ✓ + zero signal to the contributor).
 uvx harbor run … &
 until [ "$(brev exec "$INSTANCE" -- 'wc -l /logs/agent/claude-code.txt' | awk 'NR==1{print $1}')" -gt "$N" ]; do
     sleep 30
 done
+
+# (c) Concurrent runs sharing one -o root. Harbor's <date>/<trial>
+# subdir is timestamped to the second; two runs that start in the same
+# second race to create it and one dies with FileExistsError, silently
+# dropping that trial (PR #827: base/lvs/alerts_cv lost this way). Every
+# concurrent invocation MUST have its own per-(spec,platform) -o root.
+uvx harbor run -p .../<spec-a> -o "$RESULTS" … &   # ← shared
+uvx harbor run -p .../<spec-b> -o "$RESULTS" … &   # ← collides
+wait
+
+# (d) Masking a harbor failure so the loop marches on as if it passed.
+uvx harbor run … ; echo "<spec> done"   # ← exit code ignored; a
+# crashed trial reports "done" and you never rerun it. Check $? (or
+# `wait "$pid" || …`) and treat non-zero as a failed trial.
 ```
 
-If you need to peek at intermediate state (rare — usually only when
-debugging a stuck trial), do it ONCE between trials, not in a loop.
-The trial owns the trial; don't supervise it tool-call-by-tool-call.
+Intermediate state inspection is fine *once* between trials when
+debugging — a single `brev exec` to look at one log file is one tool
+call, not a loop. The trial owns the trial; don't supervise it tool-
+call-by-tool-call.
 
 If a trial errors out, read
-`/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/trial.log` —
+`$TRIAL_OUT/<date>/<trial>/trial.log` (i.e.
+`/tmp/skill-eval/results/$GITHUB_RUN_ID/<spec_stem>-<platform>/<date>/<trial>/trial.log`) —
 it has the harness + adapter traceback. Fix the adapter
 (`.github/skill-eval/adapters/<skill>/generate.py`), regenerate the
 dataset for that spec, rerun. Do not start modifying flags.
@@ -716,21 +848,24 @@ dataset for that spec, rerun. Do not start modifying flags.
 serving `/tmp/skill-eval/results/_viewer`, tunneled to
 `https://harbor-<BREV_ENV_ID>.brevlab.com`. For the viewer to pick
 up a trial, its directory must live under
-`/tmp/skill-eval/results/_viewer/<run_id>__<date>/` as a **real dir
-(not a symlink)**, flattened — no nested `<date>/` level. Migrate
-with:
+`/tmp/skill-eval/results/_viewer/<run_id>__<spec_stem>-<platform>__<date>/`
+as a **real dir (not a symlink)**, flattened — no nested `<date>/`
+level. Because trials now live under a per-(spec,platform) root, fold
+that segment into the viewer dir name so peer specs don't overwrite
+each other. Migrate with:
 
 ```bash
 cd /tmp/skill-eval/results
-mv "<run_id>/<date>" "_viewer/<run_id>__<date>"
-rmdir "<run_id>" 2>/dev/null
+# $TRIAL_OUT = <run_id>/<spec_stem>-<platform>; <date> is its one child.
+mv "$TRIAL_OUT/<date>" "_viewer/<run_id>__<spec_stem>-<platform>__<date>"
+rmdir "$TRIAL_OUT" 2>/dev/null
 ```
 
 Do this between trials so each new trial's traces are reachable
 via the SPA URL:
 
 ```
-https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<spec_stem>-<platform>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
 **CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
@@ -768,8 +903,8 @@ one step-1 trial showed 7549 steps spanning 50 hours of prior runs).
 Three things you should know when debugging:
 
 - **Per-trial trajectory.json is clean.** Each trial's harbor
-  copy-back at `/tmp/skill-eval/results/<run>/<date>/<trial>/agent/`
-  contains only that trial's `claude-code.txt` + session JSONL. The
+  copy-back at `$TRIAL_OUT/<date>/<trial>/agent/` contains only that
+  trial's `claude-code.txt` + session JSONL. The
   trace tab in the harbor viewer scopes correctly. Step counts
   reflect just that trial.
 - **Box-side history lives at `$HOME/.claude-archive/`.** SSH to the
@@ -824,13 +959,15 @@ prior step's trace to see the actual failure.
 
 ### Extracting per-trial metrics
 
-For each completed trial under `/tmp/skill-eval/results/<run_id>/<date>/<trial>/`,
+For each completed trial under
+`$TRIAL_OUT/<date>/<trial>/` (i.e.
+`/tmp/skill-eval/results/<run_id>/<spec_stem>-<platform>/<date>/<trial>/`),
 populate the new columns by reading the trajectory's `final_metrics`
 block (or falling back to the streaming usage blocks if `final_metrics`
 is missing because the trial crashed mid-run):
 
 ```bash
-TRAJ=/tmp/skill-eval/results/<run>/<date>/<trial>/agent/trajectory.json
+TRAJ="$TRIAL_OUT"/<date>/<trial>/agent/trajectory.json
 
 # Turns = count of assistant messages (one per agent reasoning step)
 jq '[.steps[].message | fromjson | select(.type=="assistant")] | length' "$TRAJ"
@@ -872,7 +1009,7 @@ fi
 # in seconds; render as `<m>m <s>s` for under an hour, `<h>h <m>m` for
 # over.
 jq -r '[.trial_started_at, .trial_finished_at] | @tsv' \
-  /tmp/skill-eval/results/<run>/<date>/<trial>/result.json
+  "$TRIAL_OUT"/<date>/<trial>/result.json
 ```
 
 Render tokens with k/M suffixes — `8400` → `8.4k`, `5_178_086` → `5.2M`.
@@ -893,8 +1030,8 @@ columns — there's no trial to extract from.
 ### Suggestions
 
 > (concatenate non-null `suggestion` fields from each failing trial's
-> `results/<run_id>/<date>/<trial>/suggestions.json`; omit the
-> section entirely if all are null)
+> `results/<run_id>/<spec_stem>-<platform>/<date>/<trial>/suggestions.json`;
+> omit the section entirely if all are null)
 
 <sub>Generated by the skills-eval agent. Adapter/verifier changes
 required to make this PR evaluable were raised as bot PRs targeting
@@ -905,7 +1042,7 @@ the workflow artifact at
 `skills-eval-results-pr-<N>-<run_id>.tar.gz`.</sub>
 ```
 
-Use `gh pr comment $PR_NUMBER --body-file /tmp/pr-<spec>.md`. Never
+Use `gh pr comment $PR_NUMBER --body-file "$SCRATCH/pr-<spec>.md"`. Never
 post a partial batch. If you posted a blocker earlier in the run
 (`missing_probe`, `env_blocker`), the final results comment is still
 separate; don't conflate the two.

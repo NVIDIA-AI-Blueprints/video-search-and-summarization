@@ -3,12 +3,13 @@ Use to select, configure, deploy, verify, debug, or tear down a VSS profile (bas
 
 This skill is ready for commercial/non-commercial use. <br>
 
-## Owner: NVIDIA <br>
+## Owner
+NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to deploy, configure, verify, and debug NVIDIA Video Search and Summarization (VSS) blueprint profiles on GPU-equipped hosts. <br>
+Developers and engineers deploying, configuring, verifying, debugging, or tearing down NVIDIA Video Search and Summarization (VSS) compose-based profiles on GPU-accelerated infrastructure. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -18,9 +19,16 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
-- [VSS GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Base Profile Reference](references/base.md) <br>
+- [Search Profile Reference](references/search.md) <br>
+- [LVS Profile Reference](references/lvs-profile.md) <br>
+- [Warehouse Profile Reference](references/warehouse.md) <br>
+- [Edge Deployment Reference](references/edge.md) <br>
+- [Environment Overrides](references/env-overrides.md) <br>
+- [Troubleshooting](references/troubleshooting.md) <br>
 
 
 ## Skill Output: <br>
@@ -28,6 +36,16 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Metrics Used: <br>
+Reported benchmark dimensions: <br>
+- Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
+- Correctness: Checks whether the agent follows the expected workflow and produces the correct final output. <br>
+- Discoverability: Checks whether the agent loads the skill when relevant and avoids using it when irrelevant. <br>
+- Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
+- Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
+
+
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

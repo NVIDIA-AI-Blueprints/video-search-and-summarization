@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -97,7 +97,7 @@ class Kafka extends MessageBroker {
      * Used to return topic
      * @public
      * @static
-     * @param {string} topicType 
+     * @param {string} topicType - Topic type used to retrieve the configured topic.
      * @returns {string|undefined} Returns topic
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -108,6 +108,13 @@ class Kafka extends MessageBroker {
         return this.#topics.get(topicType);
     }
 
+    /**
+     * Returns the regex pattern string used to subscribe to a Kafka topic family.
+     * @public
+     * @static
+     * @param {string} topicType - Topic pattern identifier.
+     * @returns {string|undefined} Topic regex pattern for the given type.
+     */
     static getTopicPattern(topicType){
         return this.#topicPattern.get(topicType);
     }
@@ -130,8 +137,8 @@ class Kafka extends MessageBroker {
      * @public
      * @static
      * @async
-     * @param {Object} client
-     * @param {string} topic
+     * @param {Object} client - Kafka client object.
+     * @param {string} topic - Kafka topic to consume.
      * @param {Array<Object>} messages - Each message will have value and may contain key and headers.
      * @returns {Promise<Object>} A success message is returned
      * @example
@@ -165,6 +172,18 @@ class Kafka extends MessageBroker {
         return allTopics;
     }
 
+    /**
+     * Creates, subscribes, and runs a Kafka consumer with restart handling.
+     * @public
+     * @static
+     * @async
+     * @param {Function} messageTransferFunction - Callback invoked for each consumed message.
+     * @param {Object} client - Kafka client used to create the consumer.
+     * @param {Object} adminClient - Kafka admin client used to inspect topic availability.
+     * @param {string} consumerGroup - Consumer group identifier.
+     * @param {string|RegExp} topic - Topic name or regex pattern to subscribe to.
+     * @param {Object} [options={}] - Consumer startup options.
+     */
     static async initializeConsumer(messageTransferFunction, client, adminClient, consumerGroup, topic, options={}) {
         const optionsSchema = {
             type: "object",
