@@ -549,7 +549,7 @@ def generate_task(
     task_dir.mkdir(parents=True, exist_ok=True)
     spec_path = _spec_path_for(skill_dir, profile)
     raw_spec = json.loads(spec_path.read_text()) if spec_path else {}
-    nemoclaw = _uses_nemoclaw(raw_spec)
+    nemoclaw = bool(spec_path and spec_path.exists() and _uses_nemoclaw(raw_spec))
 
     # -- instruction.md --
     # Prefer the spec's expects[0].query (with {{platform}} substituted) so
@@ -605,7 +605,7 @@ def generate_task(
         # _ensure_prerequisite_deployed pre-deploy hook is gone. The
         # `platform` key below is purely informational.
         f'platform = "{platform}"',
-        *_nemoclaw_meta_lines(raw_spec, profile, platform, profile_def),
+        *(_nemoclaw_meta_lines(raw_spec, profile, platform, profile_def) if nemoclaw else []),
     ]
     deploy_flag_m = profile_def.get("deploy_mode")
     if deploy_flag_m:
