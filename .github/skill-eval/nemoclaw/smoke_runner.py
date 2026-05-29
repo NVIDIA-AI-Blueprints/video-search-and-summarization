@@ -15,6 +15,7 @@ import fcntl
 import json
 import os
 import selectors
+import signal
 import shutil
 import subprocess
 import sys
@@ -252,8 +253,10 @@ def _stream_command(
             text=True,
             env=env,
             bufsize=1,
+            start_new_session=True,
         )
         started = time.time()
+        last_heartbeat = started
         assert proc.stdout is not None
         selector = selectors.DefaultSelector()
         selector.register(proc.stdout, selectors.EVENT_READ)
@@ -265,22 +268,37 @@ def _stream_command(
                         print(line, end="", flush=True)
                         log.write(line)
                         log.flush()
+                now = time.time()
+                if now - last_heartbeat >= 60:
+                    elapsed = int(now - started)
+                    heartbeat = f"[nemoclaw-ci] Harbor still running ({elapsed}s elapsed)\n"
+                    print(heartbeat, end="", flush=True)
+                    log.write(heartbeat)
+                    log.flush()
+                    last_heartbeat = now
                 if proc.poll() is not None:
                     for rest in proc.stdout:
                         print(rest, end="", flush=True)
                         log.write(rest)
                     return proc.returncode or 0
                 if time.time() - started > timeout_s:
-                    proc.terminate()
+                    _kill_process_group(proc, signal.SIGTERM)
                     try:
                         proc.wait(timeout=120)
                     except subprocess.TimeoutExpired:
-                        proc.kill()
+                        _kill_process_group(proc, signal.SIGKILL)
                     return 124
         finally:
             selector.close()
             if proc.poll() is None:
-                proc.kill()
+                _kill_process_group(proc, signal.SIGKILL)
+
+
+def _kill_process_group(proc: subprocess.Popen[str], sig: int) -> None:
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        return
 
 
 def _latest_reward(results_root: Path, run_id: str) -> tuple[float | None, Path | None]:
