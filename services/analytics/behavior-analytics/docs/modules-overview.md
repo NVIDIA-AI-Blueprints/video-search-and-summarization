@@ -232,8 +232,8 @@ Referenced in `pyrightconfig.json` via `extraPaths`.
 
 ## Cross-references
 
-- Configuration details: `readmes/configuration.md`
-- Building an app: `readmes/building-mdx-analytics-app.md` (and the `new-app` skill)
-- Incident detection: `readmes/incident-detection.md` (and the `new-incident` skill)
-- Dev example walkthrough: `readmes/cursor-dev-example-walkthrough.md`
+- Configuration details: `docs/configuration.md`
+- Building an app: `docs/building-mdx-analytics-app.md` (and the `new-app` skill)
+- Incident detection: `docs/incident-detection.md` (and the `new-incident` skill)
+- Dev example walkthrough: `docs/cursor-dev-example-walkthrough.md`
 - Repo rules for agents: `../CLAUDE.md`
