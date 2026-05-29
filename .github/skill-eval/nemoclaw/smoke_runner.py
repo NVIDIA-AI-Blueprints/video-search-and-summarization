@@ -326,6 +326,7 @@ def _append_summary(
 
 
 def _harbor_command(dataset_root: Path, profile: str, task_name: str, results_root: Path, run_id: str) -> list[str]:
+    uvx = _ensure_uvx()
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
     if not model:
@@ -334,7 +335,7 @@ def _harbor_command(dataset_root: Path, profile: str, task_name: str, results_ro
         raise RuntimeError("ANTHROPIC_BASE_URL is required")
     api_base = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
     return [
-        "uvx",
+        uvx,
         "harbor",
         "run",
         "--environment-import-path",
@@ -365,6 +366,27 @@ def _harbor_command(dataset_root: Path, profile: str, task_name: str, results_ro
         "-o",
         str(results_root / run_id),
     ]
+
+
+def _ensure_uvx() -> str:
+    """Return a usable uvx binary, installing uv into ~/.local/bin if needed."""
+    user_bin = str(Path.home() / ".local" / "bin")
+    os.environ["PATH"] = f"{user_bin}:{os.environ.get('PATH', '')}"
+    found = shutil.which("uvx")
+    if found:
+        return found
+    print("[nemoclaw-ci] uvx not found; installing uv with pip --user", flush=True)
+    result = _run(
+        [sys.executable, "-m", "pip", "install", "--user", "--quiet", "uv"],
+        timeout=180,
+        env=os.environ.copy(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"failed to install uv: {result.stderr[-1000:]}")
+    found = shutil.which("uvx")
+    if not found:
+        raise RuntimeError("uv install completed but uvx is still not on PATH")
+    return found
 
 
 def main(argv: list[str] | None = None) -> int:
