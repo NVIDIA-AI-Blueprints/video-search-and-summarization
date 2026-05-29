@@ -173,7 +173,7 @@ def _openclaw_cli_command(prompt: str, timeout_s: int) -> str:
         f"export NODE_EXTRA_CA_CERTS={shlex.quote(ca_path)}; "
         "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
         "openclaw agent --agent main --thinking medium "
-        "--local --json "
+        "--json "
         f"--timeout {int(timeout_s)} "
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
