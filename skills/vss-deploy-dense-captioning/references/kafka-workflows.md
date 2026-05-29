@@ -60,8 +60,10 @@ response to the caller and Kafka records for downstream message-bus consumers.
 
 For deterministic validation, first check topic offsets:
 ```bash
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # set to mdx-kafka if your deployment uses that name
+
 for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
-  docker exec mdx-kafka kafka-get-offsets \
+  docker exec "$KAFKA_CONTAINER" kafka-get-offsets \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T"
 done
@@ -109,11 +111,13 @@ After Kafka is running, confirm RT-VLM can reach the same broker address it was
 configured with:
 
 ```bash
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # repo infra compose uses container_name: kafka
+
 docker exec vss-rtvi-vlm printenv KAFKA_BOOTSTRAP_SERVERS
 docker logs vss-rtvi-vlm 2>&1 | grep -i 'KafkaTimeoutError\\|Failed to update metadata' || true
 
 for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
-  docker exec rtvi-vlm-kafka-1 kafka-get-offsets \
+  docker exec "$KAFKA_CONTAINER" kafka-get-offsets \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T"
 done
@@ -133,8 +137,10 @@ Then consume bounded, metadata-only samples from all three topics. `--timeout-ms
 prevents a no-message topic from hanging indefinitely; `print.value=false` avoids
 printing protobuf bytes:
 ```bash
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}" # use rtvi-vlm-kafka-1 only for that custom broker
+
 for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
-  docker exec mdx-kafka kafka-console-consumer \
+  docker exec "$KAFKA_CONTAINER" kafka-console-consumer \
     --bootstrap-server 127.0.0.1:9092 \
     --topic "$T" \
     --from-beginning \
