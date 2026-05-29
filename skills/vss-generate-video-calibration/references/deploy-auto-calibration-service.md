@@ -42,7 +42,7 @@ Standard compose-centric workflow: env overrides → `docker compose --env-file 
 
 ### Step 1 — NGC login
 
-AMC pulls from `nvcr.io/nvidia/vss-core/`. The user must have access to the `vss-core` namespace.
+AMC pulls its images from the `vss-core` namespace on `nvcr.io` (the exact org — e.g. `nvidia` for published releases — is whatever the compose files in the table above reference). The user's NGC key must have access to that namespace.
 
 The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell/env file. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
 
