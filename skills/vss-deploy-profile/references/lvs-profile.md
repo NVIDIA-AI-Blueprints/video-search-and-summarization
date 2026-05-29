@@ -40,7 +40,7 @@ Post-deploy readiness probe: `curl -sf http://${HOST_IP}:38111/v1/ready` should 
 
 > **`VLM_NAME` must be the basename of `RTVI_VLM_MODEL_PATH` — NOT the friendly NIM name.** RT-VLM advertises this exact string in `/v1/models`, and the LVS service / agent calls the model by that id. Setting `VLM_NAME=nvidia/cosmos-reason2-8b` (the friendly NIM name) reproduces a real production bug: vss-lvs returns `400 BadParameters: No such model 'nvidia/cosmos-reason2-8b'` and summarization fails. **Always set `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` for the default integrated path.** Same caveat as `alerts.md`.
 
-LLM alternates: same as base — `NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`.
+LLM alternates: same as base — `NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` (DGX Spark only; see `edge.md`), `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`.
 
 VLM alternates: see [VLM serving paths](#vlm-serving-paths) below.
 
@@ -170,7 +170,7 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 
 - **`VLM_NAME` must equal RT-VLM's `/v1/models` basename.** This is the single most important field for LVS to function. For the default integrated Cosmos2: `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208`. Using the friendly NIM name `nvidia/cosmos-reason2-8b` causes vss-lvs to return `400 BadParameters: No such model …` and summarization fails — confirmed in production (2026-05-10). Transformation rule for NGC NIM paths: `ngc:nim/<org>/<model>:<tag>` → `nim_<org>_<model>_<tag>`. For HF git paths or any custom MODEL_PATH, verify by `curl http://${HOST_IP}:8018/v1/models | jq` after RT-VLM boots and copy the `id` field.
 - **L40S (48 GB) cannot host the LLM + RT-VLM shared.** 23.4 + 20.8 = 44.2 GB > 40.8 GB usable. Use a 2-GPU L40S host (LLM on device 0, RT-VLM on device 1) or escalate to the user about a remote VLM (Path B).
-- **Edge platforms (DGX-Spark / Thor) need the SBSA RT-VLM image.** Set `RTVI_VLM_IMAGE_TAG=3.2.0-26.05.1-sbsa` in `dev-profile-lvs/generated.env` (matches the commented variant in the source `.env`). LLM-side, follow `edge.md` (Edge 4B mandatory for shared mode on edge).
+- **Edge platforms (DGX-Spark / Thor) need the SBSA RT-VLM image.** In `dev-profile-lvs/generated.env`, set `RTVI_VLM_IMAGE_TAG` to the commented `-sbsa` tag from `dev-profile-lvs/.env` (currently `3.2.0-26.05.4-sbsa`). LLM-side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
 - **Don't co-deploy a standalone Cosmos NIM with RT-VLM.** The standalone `vlm_local_*_cosmos-reason2-8b` profile must NOT be active for LVS. Verify by checking that `resolved.yml` doesn't have a `cosmos-reason2-8b` or `cosmos-reason2-8b-shared-gpu` service alongside `rtvi-vlm`.
 - **`VLM_MODE=remote` ⇒ `RTVI_VLM_MODEL_PATH=none`.** Forgetting this leaves RT-VLM trying to load weights AND proxy at the same time → startup hang or OOM.
 - **`/v1` suffix mismatch.** `VLM_BASE_URL` no `/v1`; `RTVI_VLM_ENDPOINT` yes `/v1`. The skill should always write both consistently when going remote.

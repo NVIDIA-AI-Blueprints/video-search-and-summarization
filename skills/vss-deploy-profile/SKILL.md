@@ -55,7 +55,7 @@ Match the user's request to a profile, then load that profile's reference for si
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
 
-**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md) for the 4B-LLM recipe (`config_edge.yml` + standalone vLLM on port 30081). Edge platforms share a single unified-memory GPU between LLM and VLM, so the Nemotron Edge 4B is the default and the Nemotron Nano 9B v2 FP8 is an option when memory allows.
+**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the DGX Spark-only `NVIDIA-Nemotron-Nano-9B-v2-DGX-Spark` NIM as a standalone local LLM on port `30081` until the image is wired into compose. AGX/IGX Thor still uses the Edge 4B standalone vLLM fallback because this skill does not have a verified Thor Nano 9B NIM path.
 
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
 
@@ -80,10 +80,10 @@ The source `.env` is treated as **read-only defaults** committed to the repo. Th
 
 ### Pre-flight check
 
-Run before every deploy. The full check list, the cache-cleaner
-auto-install snippet for DGX-Spark / IGX-Thor / AGX-Thor, and the
-remediation steps for each failure live in
-[`references/prerequisites.md`](references/prerequisites.md#preflight).
+Run before every deploy. The full system checklist and remediation steps live
+in [`references/prerequisites.md`](references/prerequisites.md#preflight).
+For DGX Spark / IGX Thor / AGX Thor, also run the cache-cleaner check in
+[`references/edge.md`](references/edge.md#cache-cleaner-every-edge-deploy).
 
 Minimum smoke test (must succeed):
 
@@ -105,7 +105,7 @@ for the remediation tree.
 
 If no combination on this host satisfies the profile's sizing requirements, **stop and report the blocker** — don't silently pick another shape.
 
-> **Edge shared mode requires Edge 4B + `HF_TOKEN`.** On DGX Spark and AGX/IGX Thor, both LLM and VLM must fit in unified memory, AND the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image has a broken arm64 manifest. Run `NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` as a standalone vLLM container on port 30081 with the agent pointed at it via `--use-remote-llm`. Full recipe and the mandatory `HF_TOKEN` verification step are in [`references/edge.md`](references/edge.md).
+> **Edge shared mode is platform-specific.** On DGX Spark, run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and point the agent at it with `LLM_MODE=remote`. On AGX/IGX Thor, keep using the Edge 4B standalone vLLM fallback with `HF_TOKEN`. Full recipes are in [`references/edge.md`](references/edge.md).
 
 ## Deployment Flow
 

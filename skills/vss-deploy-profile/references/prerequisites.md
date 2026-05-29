@@ -12,9 +12,9 @@ Verifies system readiness for any VSS developer profile. For NGC CLI setup speci
 
 Use the [SKILL.md `Pre-flight check` block](../SKILL.md#pre-flight-check)
 for the minimum gates, then follow the detailed checks below for
-remediation when any gate fails. The edge cache-cleaner installer
-(DGX-Spark / IGX-Thor / AGX-Thor) lives further down in the
-`Cache cleaner — every edge deploy` section of this document.
+remediation when any gate fails. For DGX Spark / IGX Thor / AGX Thor, also
+run the cache-cleaner install and verification block in
+[`edge.md`](edge.md#cache-cleaner-every-edge-deploy).
 
 ## When to Use
 
