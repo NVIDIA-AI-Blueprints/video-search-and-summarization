@@ -217,17 +217,9 @@ r.raise_for_status()
 project_id = r.json()["project_id"]
 print(f"[1] Created project {project_name} → {project_id}")
 
-# Step 2 — Upload videos — see references/videos.md for the canonical multipart
-# upload implementation; sample dataset just feeds the bundled cam_*.mp4 files
-# (sorted alphabetically; upload order defines camera indices).
-files, handles = [], []
-for v in videos:
-    f = open(v, "rb"); handles.append(f)
-    files.append(("files", (v.name, f, "video/mp4")))
-r = s.post(f"{BASE_URL}/upload_video_files/{project_id}", files=files, timeout=300)
-for f in handles: f.close()
-r.raise_for_status()
-print(f"[2] Uploaded {len(videos)} videos")
+# Step 2 — Upload videos: run the canonical multipart-upload block from
+# videos.md § "Step 2 — Upload videos (sorted)" here, iterating over `videos`
+# (the bundled cam_*.mp4, sorted — upload order defines the camera indices).
 
 # Step 3 — Upload alignment JSON
 with open(alignment, "rb") as f:
