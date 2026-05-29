@@ -170,6 +170,12 @@ jobs:
           export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORMS="${{ matrix.platforms }}"
+          # Per-leg scratch scope. All legs of one run share GITHUB_RUN_ID
+          # and (on a single host) the same /tmp/skill-eval tree, so the
+          # agent keys datasets/results/viewer under <run_id>/<slug> to
+          # keep concurrent legs from clobbering each other (AGENTS.md
+          # § "Per-leg scratch isolation").
+          export EVAL_SLUG="${{ matrix.slug }}"
           # `.github` isn't a valid Python package prefix; expose the
           # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
@@ -178,12 +184,16 @@ jobs:
 
       - name: Collect results for workflow artifact
         if: always()
+        env:
+          EVAL_SLUG: ${{ matrix.slug }}
         run: |
-          # Agent writes harbor output to /tmp/skill-eval/results/<run_id>/.
-          # missing_adapter / blocker legs finish without a results dir —
-          # that's a valid outcome, not a failure.
-          if [ ! -d /tmp/skill-eval/results ]; then
-            echo "no results dir — leg blocked before running a trial (expected for blocker outcomes)"
+          # This leg's harbor output lives under its own scratch scope,
+          # /tmp/skill-eval/results/<run_id>/<slug>/, so the artifact
+          # carries only this spec's trials (not siblings'). missing_adapter
+          # / blocker legs finish without a results dir — a valid outcome.
+          LEG_RESULTS="/tmp/skill-eval/results/${GITHUB_RUN_ID}/${EVAL_SLUG}"
+          if [ ! -d "$LEG_RESULTS" ]; then
+            echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
             exit 0
           fi
           # Exclude per-trial agent/ trajectory subdirs from the tarball
@@ -193,10 +203,10 @@ jobs:
           # secret values into the public artifact (PR #516 leaked
           # NGC_CLI_API_KEY this way). Reward / judge / result.json — what
           # the report consumes — stay in.
-          RESULTS=$(find /tmp/skill-eval/results -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
+          RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
             tar czf /tmp/skills-eval-results.tar.gz \
-              -C /tmp/skill-eval --exclude='agent' results
+              -C "/tmp/skill-eval/results/${GITHUB_RUN_ID}" --exclude='agent' "$EVAL_SLUG"
             echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
           else
             echo "results dir exists but empty — nothing to archive"

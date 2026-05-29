@@ -21,29 +21,48 @@ The steps below describe the **full** flow (diff → … → comment). In
 single-spec mode step 1 is the plan job's job, not yours — you start at
 step 3 with the spec you were given.
 
-## Startup hygiene (do this first, before step 1)
+## Per-leg scratch isolation (read before any path below)
 
-The CI runner host reuses `/tmp/skill-eval/` across runs. Prior
-runs — including cancelled ones — leave datasets and partial results
-behind that will confuse you if you read them as "current". Clean at
-startup, then never look at `<other_run_id>` artifacts again:
+Many legs share one runner host and one `GITHUB_RUN_ID`, so **every**
+runner-local path is scoped by `<run_id>/<leg-slug>` to keep concurrent
+legs (and concurrent PR runs) from clobbering each other's datasets,
+results, or viewer entries. The `leg-slug` is `<skill>__<spec_stem>`:
+
+- **Single-spec mode:** it's `$EVAL_SLUG` (exported by the workflow).
+  Set the two roots once, up front.
+- **Manual-sweep mode:** there is no `$EVAL_SLUG`; one process owns the
+  host so cross-leg collisions can't happen, but still set
+  `LEG="${skill}__${spec_stem}"` (and the roots below) **per spec** as
+  you iterate, so each spec's scratch is separated.
 
 ```bash
-# Drop every dataset — you're regenerating in step 4 anyway.
-rm -rf /tmp/skill-eval/datasets/*
-
-# Keep your own run's results; drop everything else.
-find /tmp/skill-eval/results -mindepth 1 -maxdepth 1 -type d \
-  ! -name "${GITHUB_RUN_ID}" ! -name "_viewer" -exec rm -rf {} +
-
-# One authoritative brev snapshot — don't re-list repeatedly.
-brev ls > /tmp/skill-eval/brev-snapshot.txt
+LEG="${EVAL_SLUG:-${skill}__${spec_stem}}"
+DS="/tmp/skill-eval/datasets/${GITHUB_RUN_ID}/${LEG}"     # this leg's datasets
+RES="/tmp/skill-eval/results/${GITHUB_RUN_ID}/${LEG}"     # this leg's harbor -o
 ```
 
-If you find yourself reading files under `/tmp/skill-eval/results/<other_id>/`
-to figure out what "used to work", stop — that path belongs to a
-different run and its invocation may be stale. The canonical command
-template is in § Harbor invocation below.
+The brev snapshot is per-leg too (`brev-snapshot-${LEG}.json`) so a
+sibling's `brev ls` can't half-overwrite yours.
+
+## Startup hygiene (do this first, before step 1)
+
+Clean only **your own** leg's scratch (idempotent across retries) — never
+a global wipe, which would delete a concurrent sibling's live dataset:
+
+```bash
+rm -rf "$DS" "$RES" && mkdir -p "$DS" "$RES"
+
+# GC scratch from OTHER runs (different run_id), but never the current
+# run's sibling legs or the shared viewer. Age-gate so an in-flight
+# run isn't touched.
+find /tmp/skill-eval/datasets /tmp/skill-eval/results \
+  -mindepth 1 -maxdepth 1 -type d \
+  ! -name "${GITHUB_RUN_ID}" ! -name "_viewer" -mmin +720 -exec rm -rf {} + 2>/dev/null || true
+```
+
+Never read another run's `results/<other_id>/` to infer "what used to
+work" — that path belongs to a different run and may be stale. The
+canonical harbor command is in § Harbor invocation.
 
 ## Your job, in order
 
@@ -215,8 +234,8 @@ template is in § Harbor invocation below.
 
 4. **Regenerate the dataset** for each `(skill, spec, platform)` the
    spec's `resources.platforms` enumerates. Datasets land at
-   `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/`,
-   where `<spec_stem>` is the spec filename with `.json` dropped.
+   `$DS/<platform>/` (the per-leg root from § "Per-leg scratch
+   isolation"; `$DS = datasets/<run_id>/<leg-slug>`).
    **Gate**: only run this step for skills that did NOT trigger 3c/3d
    in this run. A skill with an open bot PR is parked until the
    contributor merges it; trials for that skill resume on the next
@@ -236,7 +255,7 @@ template is in § Harbor invocation below.
       # Candidates: RUNNING+READY ^vss-eval-* boxes whose gpu/platform
       # matches the trial. (envs/brev_env.py validates the pick post-
       # selection; this step just narrows the field.)
-      brev ls --json > /tmp/skill-eval/brev-snapshot.txt
+      brev ls --json > "/tmp/skill-eval/brev-snapshot-${LEG}.json"
       # Score:
       #   1. lock free (try flock -n)            (free)
       #   2. instance name asc                   (tiebreak)
@@ -297,7 +316,7 @@ template is in § Harbor invocation below.
       cleanly. Spend turns on the next trial's setup or on reading
       already-completed trial logs instead.
    d. After each trial, parse
-      `/tmp/skill-eval/results/<run_id>/<date>/<trial>/verifier/reward.txt`
+      `$RES/<date>/<trial>/verifier/reward.txt`
       and `test-stdout.txt`. Record `(spec, platform, reward,
       checks_passed/total, duration_s, trace_url)` for the comment.
 
@@ -455,7 +474,7 @@ export BREV_INSTANCE="$INSTANCE_NAME"
 
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
-  -p /tmp/skill-eval/datasets/<skill>/<spec_stem> \
+  -p "$DS" \
   --include-task-name "<platform>" \
   -a claude-code \
   --model "$ANTHROPIC_MODEL" \
@@ -465,8 +484,12 @@ uvx harbor run \
   --agent-timeout-multiplier 6.0 \
   --verifier-timeout-multiplier 3.0 \
   --max-retries 0 -n 1 --yes \
-  -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
+  -o "$RES"
 ```
+
+(`$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
+isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
+path; concurrent legs share the host.)
 
 Notes that have burned prior runs:
 - `--include-task-name` is an **fnmatch glob** against the full task
@@ -496,17 +519,16 @@ Notes that have burned prior runs:
 
   ```bash
   # Pre-condition: the spec lays out step_count subdirs under
-  # /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/ named
-  # step-1, step-2, ..., step-<step_count>. Read step_count from
-  # any step's task.toml [metadata] (it's the same on every step).
+  # $DS/<platform>/ named step-1, step-2, ..., step-<step_count>.
+  # Read step_count from any step's task.toml [metadata] (same on each).
   STEP_COUNT=$(grep -oP '^step_count\s*=\s*\K\d+' \
-    /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/step-1/task.toml)
-  RESULTS=/tmp/skill-eval/results/"$GITHUB_RUN_ID"
+    "$DS/<platform>/step-1/task.toml")
+  RESULTS="$RES"
 
   for STEP in $(seq 1 "$STEP_COUNT"); do
     uvx harbor run \
       --environment-import-path "envs.brev_env:BrevEnvironment" \
-      -p /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform> \
+      -p "$DS/<platform>" \
       --include-task-name "<platform>-step-${STEP}" \
       -a claude-code \
       --model "$ANTHROPIC_MODEL" \
@@ -564,8 +586,8 @@ Notes that have burned prior runs:
   - `--verifier-timeout-multiplier 3.0` → 1800s verify. `generic_judge.py`
     runs a judge per check (4-6 on specs like `vss-manage-video-io-storage`),
     which compounds past 600s and raises `VerifierTimeoutError`.
-- Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
-  Then migrate to the viewer (see § Harbor viewer).
+- Output goes to `$RES/<date>/<trial>/`. Migrate to the viewer
+  (see § Harbor viewer).
 
 ### No polling — block on harbor
 
@@ -579,8 +601,7 @@ the harness boundary — so just run harbor in the foreground (optionally
 `timeout 1h uvx harbor run …`). To peek at a stuck trial, do it ONCE
 between trials, never in a loop.
 
-If a trial errors out, read
-`/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/trial.log` —
+If a trial errors out, read `$RES/<date>/<trial>/trial.log` —
 it has the harness + adapter traceback. Fix the adapter
 (`.github/skill-eval/adapters/<skill>/generate.py`), regenerate the
 dataset for that spec, rerun. Do not start modifying flags.
@@ -589,24 +610,23 @@ dataset for that spec, rerun. Do not start modifying flags.
 
 `harbor view` runs persistently on the CI runner host under the
 `harbor-view.service` systemd unit at `http://localhost:8080`,
-serving `/tmp/skill-eval/results/_viewer`, tunneled to
-`https://harbor-<BREV_ENV_ID>.brevlab.com`. For the viewer to pick
-up a trial, its directory must live under
-`/tmp/skill-eval/results/_viewer/<run_id>__<date>/` as a **real dir
-(not a symlink)**, flattened — no nested `<date>/` level. Migrate
-with:
+serving the **shared, fixed** `/tmp/skill-eval/results/_viewer`,
+tunneled to `https://harbor-<BREV_ENV_ID>.brevlab.com`. For the viewer
+to pick up a trial, its directory must live under
+`/tmp/skill-eval/results/_viewer/<run_id>__<leg-slug>__<date>/` as a
+**real dir (not a symlink)**, flattened — no nested `<date>/` level.
+The `<leg-slug>` keeps concurrent legs from colliding on one viewer
+entry. Migrate from this leg's scoped results root:
 
 ```bash
-cd /tmp/skill-eval/results
-mv "<run_id>/<date>" "_viewer/<run_id>__<date>"
-rmdir "<run_id>" 2>/dev/null
+mv "$RES/<date>" "/tmp/skill-eval/results/_viewer/${GITHUB_RUN_ID}__${LEG}__<date>"
 ```
 
 Do this between trials so each new trial's traces are reachable
 via the SPA URL:
 
 ```
-https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<leg-slug>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
 **CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
@@ -621,8 +641,8 @@ When generating the URL, read the value from the runner env
 from `brev ls` output.
 
 Values for `<source>` / `<agent>` / `<model>` / `<task>` come from
-`GET http://localhost:8080/api/jobs/<run_id>__<date>/tasks`; slashes
-in `<model>` and `<task>` must be URL-encoded (`%2F`).
+`GET http://localhost:8080/api/jobs/<run_id>__<leg-slug>__<date>/tasks`;
+slashes in `<model>` and `<task>` must be URL-encoded (`%2F`).
 
 ### Per-trial trajectory isolation
 
@@ -632,8 +652,8 @@ before this trial's `claude --print` runs, because harbor's mapper
 merges **every** `*.jsonl` under `sessions/projects/<project>/` into one
 trajectory.json — on a warm box that would otherwise splice in every
 prior trial (observed: 7549 steps spanning 50 h). So when debugging:
-each trial's copy-back at `results/<run>/<date>/<trial>/agent/` is clean
-and independently visitable in the viewer; box-side history is at
+each trial's copy-back at `$RES/<date>/<trial>/agent/` is clean and
+independently visitable in the viewer; box-side history is at
 `$HOME/.claude-archive/<ts>/` (`ssh <box> "ls .claude-archive/"`).
 
 ## Result comment format
@@ -670,13 +690,13 @@ prior step's trace to see the actual failure.
 
 ### Extracting per-trial metrics
 
-For each completed trial under `/tmp/skill-eval/results/<run_id>/<date>/<trial>/`,
-populate the new columns by reading the trajectory's `final_metrics`
-block (or falling back to the streaming usage blocks if `final_metrics`
-is missing because the trial crashed mid-run):
+For each completed trial under `$RES/<date>/<trial>/`, populate the new
+columns by reading the trajectory's `final_metrics` block (or falling
+back to the streaming usage blocks if `final_metrics` is missing because
+the trial crashed mid-run):
 
 ```bash
-TRAJ=/tmp/skill-eval/results/<run>/<date>/<trial>/agent/trajectory.json
+TRAJ="$RES/<date>/<trial>/agent/trajectory.json"
 
 # Turns = count of assistant messages (one per agent reasoning step)
 jq '[.steps[].message | fromjson | select(.type=="assistant")] | length' "$TRAJ"
@@ -718,7 +738,7 @@ fi
 # in seconds; render as `<m>m <s>s` for under an hour, `<h>h <m>m` for
 # over.
 jq -r '[.trial_started_at, .trial_finished_at] | @tsv' \
-  /tmp/skill-eval/results/<run>/<date>/<trial>/result.json
+  "$RES/<date>/<trial>/result.json"
 ```
 
 Render tokens with k/M suffixes — `8400` → `8.4k`, `5_178_086` → `5.2M`.
@@ -739,7 +759,7 @@ columns — there's no trial to extract from.
 ### Suggestions
 
 > (concatenate non-null `suggestion` fields from each failing trial's
-> `results/<run_id>/<date>/<trial>/suggestions.json`; omit the
+> `$RES/<date>/<trial>/suggestions.json`; omit the
 > section entirely if all are null)
 
 <sub>Generated by the skills-eval agent. Adapter/verifier changes

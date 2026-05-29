@@ -143,7 +143,36 @@ harbor synchronously.
 - The artifact tarball step (now per-leg, one artifact per spec:
   `skills-eval-results-pr-<N>-<spec>-<run_id>.tar.gz`).
 
+## Concurrency / shared-state isolation
+
+All legs of one run share `GITHUB_RUN_ID` and — on a single runner host —
+the same `/tmp/skill-eval/` tree. So every runner-local path is scoped by
+`<run_id>/<leg-slug>` (`leg-slug = <skill>__<spec_stem>`, == `$EVAL_SLUG`):
+`datasets/<run_id>/<slug>/`, `results/<run_id>/<slug>/`, the viewer entry
+`_viewer/<run_id>__<slug>__<date>/`, and `brev-snapshot-<slug>.json`. The
+old global `rm -rf datasets/*` startup wipe is gone (it would delete a
+concurrent sibling's live dataset) — each leg cleans only its own scratch
+and age-GCs *other* run_ids. `run_id` is in the key too, so two different
+PRs' runs on the same host don't collide either.
+
+**Box mutex.** The per-box `flock /tmp/brev/<box>.lock` serializes trials
+on a box. This is a valid mutex **only while all eval legs run on one
+host** — flock is host-local. If the `vss-skill-eval-runner` label ever
+spans multiple hosts, two legs could lock their own local files and both
+drive the same brev box (docker/port collision + trajectory corruption
+via `start()`'s archive-on-start racing a live session). Keep the label
+pinned to one host, or move the lock onto the box itself.
+
 ## Open questions / future
+
+- **No pre-trial box reset.** Post-#781 there is no harness-side
+  `docker compose down` / volume wipe before a trial — cleanup is
+  delegated to the trial's own `/vss-deploy-profile` first query. With
+  the matrix reusing warm boxes across *heterogeneous* specs (leg A =
+  alerts, leg B = base), cross-profile container/volume leftovers can
+  cause port/GPU conflicts or stale-data false results. Candidate fix: a
+  harness-side reset in `BrevEnvironment.start()` (compose-down all VSS
+  projects + optional volume prune) so every trial starts clean.
 
 - **(spec × platform) legs** for very long multi-platform specs.
 - **Consolidated comment** — if N per-spec comments prove noisy, add a
