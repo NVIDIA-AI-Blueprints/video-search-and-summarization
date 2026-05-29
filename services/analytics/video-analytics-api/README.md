@@ -12,9 +12,7 @@ Frame, behavior, event, alert, incident, tracker, clustering, and metrics data i
 
 ### Available Endpoints
 
-The REST routes are registered from `src/app/controllers/rest-apis/`:
-
-The API provides endpoints for the following functionalities:
+The REST routes are registered from `src/app/controllers/rest-apis/`. The API provides endpoints for the following functionalities:
 
 - **Metrics** - Computation of key performance indicators
 - **Tracker** - Tracker-related data retrieval
@@ -86,7 +84,7 @@ The default configuration can be found at [config.json](./configs/default-config
 |---------|--------|-------------|
 | `server.port` | HTTP port | Default: `8081` |
 | `server.configs[].postBodySizeLimit` | Request body limit | Maximum POST body size. Default: `50mb` |
-| `server.configs[].amrRetentionInSec` | AMR retention | AMR data retention period in seconds. Default: `300` |
+| `server.configs[].amrRetentionInSec` | AMR retention | AMR data retention period in seconds. Default: `3` |
 | `server.configs[].inSimulationMode` | Simulation mode | Enables simulation behavior. Default: `false` |
 | `server.configs[].configStatusTimeoutMs` | Config ACK timeout | Time to wait for config-update acknowledgement. Default: `30000` |
 | `server.configs[].configStatusTimeoutCheckFrequencyMs` | Config timeout scan interval | Interval for checking timed-out config updates. Default: `900000` |
