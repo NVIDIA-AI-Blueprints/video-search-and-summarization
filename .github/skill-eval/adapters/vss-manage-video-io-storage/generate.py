@@ -186,12 +186,34 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # sees — they live in the spec, are copied into tests/, and the
         # verifier evaluates them independently. If the agent sees the checks
         # it can write to the test rather than do the work.
+        # The header must NOT presuppose a deployment state — that is the
+        # spec's job. Profile-less specs (nvstreamer_ops.json) explicitly
+        # say "No VSS profile is pre-deployed" and require the agent to
+        # stand VIOS+NvStreamer up itself and probe BOTH the VIOS (30888)
+        # and NvStreamer (31000) ports; hardcoding "VSS base profile
+        # already running / 30888 must respond" here directly contradicts
+        # that env and drives false negatives. Emit the deployment-state
+        # claim ONLY when the spec declares a `profile` (the coordinator
+        # then guarantees the stack is up); otherwise defer entirely to the
+        # spec's `env` notes below.
+        if spec.get("profile"):
+            setup_line = (
+                f"Use the `/vss-manage-video-io-storage` skill against the VSS "
+                f"`{spec['profile']}` profile already running on this `{platform}` "
+                "host (`http://localhost:30888/vst/api/v1/sensor/version` must "
+                "respond)."
+            )
+        else:
+            setup_line = (
+                f"Use the `/vss-manage-video-io-storage` skill on this `{platform}` "
+                "host. No VSS profile is pre-deployed by the harness — follow the "
+                "**Environment notes** below to determine what must be running and "
+                "to stand up any prerequisites yourself before exercising the API."
+            )
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-manage-video-io-storage` skill against the VSS base profile "
-            f"already running on this `{platform}` host "
-            "(`http://localhost:30888/vst/api/v1/sensor/version` must respond).",
+            setup_line,
             "",
             f"## Query {idx} of {len(expects)}",
             "",
