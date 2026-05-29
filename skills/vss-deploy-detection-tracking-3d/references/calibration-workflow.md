@@ -207,7 +207,9 @@ sudo chmod -R a+rX "${CAL_DIR}"
 Idempotent — re-running this block is safe and does nothing once values are populated.
 
 ```bash
-if jq -e '.sensors[0].group.name == ""' "${CAL_DIR}/calibration.json" >/dev/null 2>&1; then
+# `// ""` makes this null-safe: AMC may emit group as an empty-string object, as
+# null, or omit the key entirely — all three mean "needs patching".
+if jq -e '(.sensors[0].group.name // "") == ""' "${CAL_DIR}/calibration.json" >/dev/null 2>&1; then
   jq '
     .sensors |= map(
         .group = {
@@ -283,7 +285,7 @@ If no candidate PNG is available (rare — most users have a layout for the AMC 
 ```bash
 ls "${CAL_DIR}/camInfo/"*.{yml,yaml} 2>/dev/null | wc -l   # must equal user's camera count
 test -f "${CAL_DIR}/calibration.json" && jq -e '.sensors | length' "${CAL_DIR}/calibration.json" >/dev/null && echo "calibration.json OK"
-jq -e '.sensors[0].group.name != ""' "${CAL_DIR}/calibration.json" >/dev/null && echo "group/region/place populated"
+jq -e '(.sensors[0].group.name // "") != ""' "${CAL_DIR}/calibration.json" >/dev/null && echo "group/region/place populated"
 # Extended profile only:
 test -f "${CAL_DIR}/images/Top.png" && test -f "${CAL_DIR}/images/imageMetadata.json" && echo "overlay assets OK"
 ```
