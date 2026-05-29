@@ -29,8 +29,8 @@ A minimal standalone bring-up looks like:
 
 ```bash
 cd $REPO/deploy/docker
-docker compose -f services/perception/behavior-analytics/compose.yml \
-  --env-file dev-profile-warehouse/.env up -d vss-behavior-analytics
+export VSS_APPS_DIR=$(pwd)
+docker compose -f services/analytics/behavior-analytics/compose.yml up -d vss-behavior-analytics-base
 ```
 
 Follow `references/deploy-behavior-analytics-service.md` for the full
