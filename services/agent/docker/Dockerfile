@@ -103,6 +103,8 @@ ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG TARGETPLATFORM
 ARG TARGETARCH
+ENV VSS_RUNTIME_UID=${USER_ID}
+ENV VSS_RUNTIME_GID=${GROUP_ID}
 
 # Copy cleanup script (as root to ensure proper permissions)
 COPY --from=builder /vss-agent/cleanup_vulnerabilities.py /tmp/cleanup_vulnerabilities.py
@@ -134,6 +136,10 @@ COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/lib
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/third_party/ffmpeg /vss-agent/third_party/ffmpeg
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
+
+# NAT writes transient workflow state here at startup. Keep app resources
+# immutable, but provide a narrowly scoped writable scratch directory.
+RUN ["/usr/local/bin/python3", "-c", "import os; os.makedirs('/vss-agent/.tmp', exist_ok=True); os.chown('/vss-agent/.tmp', int(os.environ['VSS_RUNTIME_UID']), int(os.environ['VSS_RUNTIME_GID'])); os.chmod('/vss-agent/.tmp', 0o700)"]
 FROM runtime AS agent-runtime
 ARG TARGETARCH
 
