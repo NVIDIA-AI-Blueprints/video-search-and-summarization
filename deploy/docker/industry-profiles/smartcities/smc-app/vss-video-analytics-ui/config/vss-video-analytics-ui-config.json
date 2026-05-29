@@ -1,0 +1,35 @@
+{
+	"debugAnomaly": false,
+	"uiDelaySeconds": 20,
+	"docType": "uiConfig",
+	"alertQueryDurationInHours": 2,
+	"alertListLength": 20,
+	"apiRefreshIntervalSeconds": 2,
+	"intersectionInactiveInSec": 60,
+	"defaultCorridor": "Montague",
+	"mapOptions": {
+		"map": "Google",
+		"city": {
+			"zoom": {
+				"default": 14,
+				"min": 13,
+				"max": 15
+			},
+			"mapType": {
+				"showControl": true,
+				"id": "roadmap"
+			}
+		},
+		"intersection": {
+			"zoom": {
+				"default": 18,
+				"min": 18,
+				"max": 20
+			},
+			"mapType": {
+				"showControl": true,
+				"id": "roadmap"
+			}
+		}
+	}
+}
