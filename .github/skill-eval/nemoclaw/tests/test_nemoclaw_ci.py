@@ -419,17 +419,43 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 headless_runner._run = previous["_run"]
                 headless_runner._gateway_reachable = previous["_gateway_reachable"]
 
-            openclaw_log = (log_dir / "openclaw-agent.log").read_text(encoding="utf-8")
+            launch_log = (log_dir / "openclaw-launch.log").read_text(encoding="utf-8")
 
+        self.assertEqual(response["status"], 202)
         self.assertEqual(response["body"]["mode"], "cli")
         self.assertTrue(any("base64 -d" in " ".join(call) for call in calls))
-        self.assertIn("agent done", openclaw_log)
+        self.assertIn("agent done", launch_log)
         wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
         encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
         script = base64.b64decode(encoded).decode("utf-8")
+        self.assertIn("nohup sh -lc", script)
         self.assertIn("--message", script)
         self.assertIn("--local --json", script)
         self.assertIn("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1", script)
+
+    def test_collect_openclaw_cli_log_copies_sandbox_output(self):
+        calls: list[tuple[str, ...]] = []
+        previous = headless_runner._run
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="agent transcript", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner._run = fake_run
+            try:
+                headless_runner.collect_openclaw_cli_log("demo", log_dir)
+            finally:
+                headless_runner._run = previous
+
+            openclaw_log = (log_dir / "openclaw-agent.log").read_text(encoding="utf-8")
+
+        self.assertEqual(openclaw_log, "agent transcript")
+        wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
+        encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
+        script = base64.b64decode(encoded).decode("utf-8")
+        self.assertIn("openclaw-agent.log", script)
 
     def test_sandbox_exec_wraps_multiline_scripts_for_nemoclaw(self):
         calls: list[tuple[str, ...]] = []
@@ -834,8 +860,8 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertIn("headless_runner.py", instruction)
             self.assertIn("--log-dir /logs/artifacts/nemoclaw", instruction)
             self.assertIn("--launch-mode cli", instruction)
-            self.assertIn("--timeout 1800", instruction)
-            self.assertNotIn("--wait-profile", instruction)
+            self.assertIn("--timeout 2400", instruction)
+            self.assertIn("--wait-profile base", instruction)
             self.assertTrue((task_dir / "tests" / "nemoclaw_prompt.md").exists())
 
     def test_missing_eval_spec_does_not_generate_nemoclaw_launcher(self):
