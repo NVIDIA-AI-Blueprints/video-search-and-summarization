@@ -1,0 +1,27 @@
+{
+  "skills": ["vss-deploy-omni-nemotron"],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["standalone"]
+      }
+    }
+  },
+  "env": "A GPU host matching `{{platform}}` with at least ~48 GB VRAM on the pinned device (Nemotron Omni 30B-A3B NVFP4 needs roughly 40 GB for weights plus KV headroom). Host-installed vLLM that supports `vllm serve` with Nemotron Omni flags (`--reasoning-parser nemotron_v3`, `--trust-remote-code`, etc.). The following SECRETS must already be provisioned by the harness in the environment (never inlined into the prompt, never committed): `HF_TOKEN` with access to `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` on Hugging Face. This eval deploys ONLY the standalone Nemotron Omni vLLM server on port 30082 via host `vllm serve`. It does not deploy a full VSS profile and must not use `/vss-deploy-profile`, `scripts/dev-profile.sh`, RT-VLM compose, or Cosmos NIM on 30082. Pin a non-default GPU with `CUDA_VISIBLE_DEVICES` when another GPU is in use. First boot may take many minutes for weight download and load; allow sufficient wait before `/v1/models` checks. Use `VLM_HOST` reachable from the eval verifier (typically the host primary IP, not only 127.0.0.1 if checks run from another context).",
+  "expects": [
+    {
+      "query": "Use the `/vss-deploy-omni-nemotron` skill to deploy the audio-enabled Nemotron-3-Nano-Omni VLM standalone on {{platform}}. Run prerequisite checks (GPU, vLLM, HF_TOKEN, port 30082 free), serve `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` with vLLM on http://0.0.0.0:30082 using the blueprint Omni flags, wait until `/v1/models` returns a non-empty model list, print the model id for later VSS wiring, and leave the server running for verifier probes. Do not deploy VSS or RT-VLM. Run autonomously.",
+      "checks": [
+        "The agent did not invoke `/vss-deploy-profile`, `scripts/dev-profile.sh`, `/vss-deploy-dense-captioning`, or deploy a full VSS profile.",
+        "The agent ran prerequisite checks before starting vLLM (GPU visibility, vLLM availability, HF_TOKEN presence, port 30082 availability).",
+        "The agent started host `vllm serve` for `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` listening on port 30082 with `--host 0.0.0.0` and the Omni-related flags from the skill (including `--trust-remote-code`, `--reasoning-parser nemotron_v3`, and video/media kwargs).",
+        "The agent pinned a GPU with `CUDA_VISIBLE_DEVICES` when multiple GPUs were present.",
+        "The agent waited for model load to complete before declaring readiness and did not fabricate `HF_TOKEN` or echo full token strings in its final reply.",
+        "`curl -sf --max-time 120 http://127.0.0.1:30082/v1/models` returns exit 0 and JSON with a non-empty `.data` array.",
+        "The response from `/v1/models` includes a model `id` string the agent reported for downstream `VLM_NAME` / `--vlm` use.",
+        "`ss -ltn 2>/dev/null | grep -q ':30082 '` or equivalent confirms something is listening on port 30082.",
+        "The agent did not start `nvcr.io/nim/nvidia/cosmos-reason2-8b` or other Cosmos NIM as a substitute for Nemotron Omni."
+      ]
+    }
+  ]
+}
