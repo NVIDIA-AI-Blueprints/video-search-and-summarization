@@ -122,6 +122,10 @@ def _instance_candidates(
         gpu_match = _loose_tokens_match(gpu_hints, gpu_text) if gpu_hints else True
         if not (name_match or gpu_match):
             continue
+        if gpu_count == 1 and "-2g" in lowered:
+            continue
+        if gpu_count >= 2 and "-1g" in lowered:
+            continue
 
         score = 0
         if gpu_count == 1 and "-1g" in lowered:
