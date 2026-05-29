@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -70,6 +71,34 @@ PREAMBLE = (
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
     "setup action the trial requires."
 )
+
+
+# ---------------------------------------------------------------------------
+# Spec rendering
+# ---------------------------------------------------------------------------
+
+def _render_eval_spec(spec: dict, platform: str) -> dict:
+    """Substitute ``{{platform}}`` and ``{{repo_root}}`` into every string field."""
+    substitutions = {
+        "platform": platform,
+        "repo_root": "$HOME/video-search-and-summarization",
+    }
+    pattern = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+    _LEGACY_REPO = "/home/ubuntu/video-search-and-summarization"
+    _PORTABLE_REPO = "$HOME/video-search-and-summarization"
+
+    def _sub(value):
+        if isinstance(value, str):
+            rendered = pattern.sub(
+                lambda m: str(substitutions.get(m.group(1), m.group(0))), value)
+            return rendered.replace(_LEGACY_REPO, _PORTABLE_REPO)
+        if isinstance(value, list):
+            return [_sub(v) for v in value]
+        if isinstance(value, dict):
+            return {k: _sub(v) for k, v in value.items()}
+        return value
+
+    return _sub(spec)
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +225,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
 
     The spec has a single `expects` entry, so this collapses to a flat
     `base/<platform_short>/` (no step-<k>/ subdirs)."""
+    spec = _render_eval_spec(spec, platform)
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
@@ -283,11 +313,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     (tests_dir / "test.sh").write_text(generate_test_script(1, spec_name))
     if GENERIC_JUDGE.exists():
         shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-    spec_src = skill_dir / "evals" / spec_name
-    if spec_src.exists():
-        shutil.copy(spec_src, tests_dir / spec_name)
-    else:
-        (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+    (tests_dir / spec_name).write_text(json.dumps(spec, indent=2) + "\n")
 
     # solution/
     solution_dir = step_dir / "solution"
