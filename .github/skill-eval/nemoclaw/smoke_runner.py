@@ -180,42 +180,59 @@ def _reachable(instance: str) -> bool:
     return result.returncode == 0 and "harbor-ready" in result.stdout
 
 
-def _select_instance(platform: str, gpu_count: int, explicit: str | None) -> str:
-    if explicit:
-        if not _reachable(explicit):
-            raise RuntimeError(f"explicit BREV_INSTANCE {explicit!r} is not reachable")
-        return explicit
-
-    instances = _list_instances()
-    candidates = _instance_candidates(instances, platform=platform, gpu_count=gpu_count)
-    print(
-        "[nemoclaw-ci] candidate workers:",
-        ", ".join(candidates) if candidates else "<none>",
-        flush=True,
-    )
-    if not candidates:
-        raise RuntimeError(f"no RUNNING+READY vss-eval-* candidate for {platform}")
-    for candidate in candidates:
-        if _reachable(candidate):
-            return candidate
-        print(f"[nemoclaw-ci] skipping unreachable candidate {candidate}", flush=True)
-    raise RuntimeError(f"no reachable vss-eval-* candidate for {platform}")
-
-
-def _acquire_lock(instance: str, timeout_s: int) -> tuple[int, Any]:
+def _try_acquire_lock(instance: str) -> tuple[int, Any] | None:
     lock_dir = Path("/tmp/brev")
     lock_dir.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_dir / f"{instance}.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd, os.fdopen(fd, "w")
+    except BlockingIOError:
+        os.close(fd)
+        return None
+
+
+def _select_and_lock_instance(
+    platform: str,
+    gpu_count: int,
+    explicit: str | None,
+    timeout_s: int,
+) -> tuple[str, int, Any]:
     deadline = time.time() + timeout_s
     while True:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fd, os.fdopen(fd, "w")
-        except BlockingIOError:
-            if time.time() >= deadline:
-                os.close(fd)
-                raise RuntimeError(f"lock timeout for {instance}")
-            time.sleep(10)
+        if explicit:
+            candidates = [explicit]
+        else:
+            instances = _list_instances()
+            candidates = _instance_candidates(instances, platform=platform, gpu_count=gpu_count)
+        print(
+            "[nemoclaw-ci] candidate workers:",
+            ", ".join(candidates) if candidates else "<none>",
+            flush=True,
+        )
+        if not candidates:
+            raise RuntimeError(f"no running vss-eval-* candidate for {platform}")
+
+        for candidate in candidates:
+            if not _reachable(candidate):
+                print(f"[nemoclaw-ci] skipping unreachable candidate {candidate}", flush=True)
+                continue
+            lock = _try_acquire_lock(candidate)
+            if lock is not None:
+                fd, handle = lock
+                return candidate, fd, handle
+            print(f"[nemoclaw-ci] skipping locked candidate {candidate}", flush=True)
+
+        if time.time() >= deadline:
+            raise RuntimeError(
+                "lock timeout: no reachable unlocked worker for "
+                f"{platform} after {timeout_s}s"
+            )
+        if explicit:
+            print(f"[nemoclaw-ci] waiting for explicit worker lock: {explicit}", flush=True)
+        else:
+            print("[nemoclaw-ci] all candidates busy; retrying worker selection", flush=True)
+        time.sleep(10)
 
 
 def _stream_command(
@@ -376,9 +393,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         _generate_dataset(args.profile, args.platform, dataset_root)
-        instance = _select_instance(args.platform, args.gpu_count, args.instance)
+        instance, lock_fd, lock_handle = _select_and_lock_instance(
+            args.platform,
+            args.gpu_count,
+            args.instance,
+            args.lock_timeout,
+        )
         print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
-        lock_fd, lock_handle = _acquire_lock(instance, args.lock_timeout)
         try:
             os.environ["BREV_INSTANCE"] = instance
             harbor_env = os.environ.copy()
