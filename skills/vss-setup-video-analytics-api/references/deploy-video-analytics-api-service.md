@@ -79,7 +79,7 @@ Top-level shape:
 | Section | What it controls |
 |---|---|
 | `server.port` | HTTP port the API listens on. Default **8081**. |
-| `server.configs[]` | List of `{name, value}` pairs. Knobs like `postBodySizeLimit` (max POST body, default `50mb`), `amrRetentionInSec` (AMR data retention, default `3`s in profiles / `300`s in image default), `inSimulationMode` (default `false`), `configStatusTimeoutMs` (config update ACK timeout, default `30000`ms), `configStatusTimeoutCheckFrequencyMs` (how often to check for timed-out config updates, default `900000`ms). |
+| `server.configs[]` | List of `{name, value}` pairs. Knobs like `postBodySizeLimit` (max POST body, default `50mb`), `amrRetentionInSec` (AMR data retention, default `3`s), `inSimulationMode` (default `false`), `configStatusTimeoutMs` (config update ACK timeout, default `30000`ms), `configStatusTimeoutCheckFrequencyMs` (how often to check for timed-out config updates, default `900000`ms). |
 | `elasticsearch` | `node` (ES URL), `indexPrefix` (default `mdx-`), `rawIndex` (default `mdx-raw-*`), `retries` (default `15`). |
 | `kafka` | `brokers` (array of `"host:port"` strings; empty = Kafka disabled), `retries` (KafkaJS retry count; `null` = KafkaJS default). |
 
