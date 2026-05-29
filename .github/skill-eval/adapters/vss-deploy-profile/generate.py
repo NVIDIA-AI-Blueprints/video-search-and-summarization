@@ -144,6 +144,9 @@ PROFILES: dict[str, dict] = {
     "search": {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
     },
+    "warehouse": {
+        "description": "VSS warehouse blueprint — RT-DETR 2D (`bp_wh_2d`) with always-local RTVI VLM, agent, UI, behavior analytics, Kafka",
+    },
 }
 
 
@@ -336,16 +339,34 @@ def generate_solve_script(profile: str, platform: str) -> str:
     the agent's `/vss-deploy-profile` skill reads the forwarded env vars
     (`LLM_REMOTE_URL`, `VLM_REMOTE_URL`, `NGC_CLI_API_KEY`) and picks
     placement itself.
+
+    warehouse uses a different .env path:
+        `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env`
+    All other core profiles use:
+        `<repo>/deployments/developer-workflow/dev-profile-<profile>/.env`
     """
     env_profile = deploy_profile(profile)
     deploy_flag_m = PROFILES[profile].get("deploy_mode")
 
-    overrides: dict[str, str] = {
-        "HARDWARE_PROFILE": platform,
-        "VSS_APPS_DIR": "$REPO/deployments",
-        "VSS_DATA_DIR": "$REPO/data",
-        "HOST_IP": "$(hostname -I | awk '{print $1}')",
-    }
+    is_warehouse = (env_profile == "warehouse")
+
+    if is_warehouse:
+        env_file_line = 'ENV_FILE=$REPO/deploy/docker/industry-profiles/warehouse-operations/.env'
+        overrides: dict[str, str] = {
+            "HARDWARE_PROFILE": platform,
+            "VSS_APPS_DIR": "$REPO/deploy/docker",
+            "VSS_DATA_DIR": "$REPO/data",
+            "HOST_IP": "$(hostname -I | awk '{print $1}')",
+        }
+    else:
+        env_file_line = 'ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env'
+        overrides = {
+            "HARDWARE_PROFILE": platform,
+            "VSS_APPS_DIR": "$REPO/deployments",
+            "VSS_DATA_DIR": "$REPO/data",
+            "HOST_IP": "$(hostname -I | awk '{print $1}')",
+        }
+
     sed_lines = "\n".join(
         'sed -i "s|^' + k + "=.*|" + k + "=" + v + '|" "$ENV_FILE"'
         for k, v in overrides.items()
@@ -410,7 +431,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
         "",
         "# --- Configure .env ---",
         f"PROFILE={env_profile}",
-        'ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env',
+        env_file_line,
         "",
         sed_lines,
         "",
@@ -419,7 +440,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
         "fi",
         "",
         f"# --- Deploy ({deploy_args}) ---",
-        "cd $REPO/deployments",
+        "cd $REPO/deploy/docker" if is_warehouse else "cd $REPO/deployments",
         "docker compose --env-file $ENV_FILE config 2>/dev/null > resolved.yml",
         "docker compose -f resolved.yml up -d",
         "",
