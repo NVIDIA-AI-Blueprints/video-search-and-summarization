@@ -1,19 +1,21 @@
 # Skills Eval Benchmark
 
-Generated: 2026-05-29 04:15:00 UTC
+Generated: 2026-05-29 06:23:00 UTC
 Specs: 2
 
 ---
 
 ## Skill Eval - `skills/vss-deploy-dense-captioning/evals/standalone_api.json`
 
-Head: `8049a622` - 1 platform - spec `standalone_api`
-Result source: B200 standalone validation plus PR static checks. Formal skills-eval
-trace artifacts were not rerun after the documentation-only follow-up fixes.
+Branch: `fix/nvbug-6228187-rtvi-vlm-skill` - 2 platforms - spec `standalone_api`
+Result source: B200 standalone validation, RTX PRO manual validation, and PR
+static checks. Formal skills-eval trace artifacts were not rerun after the
+documentation-only follow-up fixes.
 
 | Platform | Mode | Query | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
 |---|---|---|---|---|---|---|---|---|---|
 | B200 | standalone | Deploy standalone RT-VLM from the copied compose, validate health/API/OpenAPI/chat/completions, register and clean up the RTSP sample stream, and leave the service running for verifier probes. | PASS - core flow passed | n/a | n/a | n/a | n/a | n/a | manual |
+| RTX PRO 6000 Blackwell | standalone + Kafka | Deploy standalone RT-VLM from the copied compose on GPU 7, validate health/API/chat/completions, precheck RTSP, generate captions, publish Kafka caption and incident records, and clean up the temporary stream. | PASS - RTSP caption and Kafka path passed | n/a | n/a | n/a | n/a | n/a | manual |
 
 Observed coverage:
 - Standalone compose copy flow worked.
@@ -21,6 +23,9 @@ Observed coverage:
 - RT-VLM deployed successfully, downloaded and served Cosmos Reason 2, and became healthy.
 - API validation passed for `/v1/health/ready`, `/v1/models`, `/openapi.json`, `/v1/assets/stats`, text-only `/v1/chat/completions`, and expected HTTP 400 for text-only legacy `/v1/completions`.
 - RTSP stream registration, dense caption generation, stop-captioning, and stream cleanup worked.
+- RTX PRO validation used image `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4`, cached Cosmos Reason 2 FP4 model `nim_nvidia_cosmos-reason2-8b_0303-fp4-dynamic-kv8`, and RTSP precheck discovered `video,852,480`.
+- RTX PRO Kafka validation confirmed live env topics `mdx-vlm`, `mdx-vlm-incidents`, and `vision-llm-errors`; offsets moved to `mdx-vlm:0:46`, `mdx-vlm-incidents:0:21`, and `vision-llm-errors:0:0`.
+- RTX PRO validation cleaned up the temporary `rt-vlm-eval-rtxpro-local` stream and restored the pre-existing `bench-kafka` container after using a temporary broker with `host.docker.internal:9092` advertised.
 
 Expected verifier checks after this PR:
 - Use host port `8018` consistently in the skill/evals/deploy reference.
@@ -33,7 +38,7 @@ Expected verifier checks after this PR:
 
 ## Skill Eval - `skills/vss-deploy-dense-captioning/evals/alerts_profile_api.json`
 
-Head: `8049a622` - 1 platform - spec `alerts_profile_api`
+Branch: `fix/nvbug-6228187-rtvi-vlm-skill` - 1 platform - spec `alerts_profile_api`
 Result source: B200 RT-VLM validation with Kafka enabled after broker/listener
 correction, plus PR static checks. Formal skills-eval trace artifacts were not
 rerun after the documentation-only follow-up fixes.
@@ -57,9 +62,9 @@ Expected verifier checks after this PR:
 - Preserve model cache volumes; avoid `docker compose down -v` unless intentionally forcing a large model re-download.
 
 All core RT-VLM deployment, API, caption generation, Kafka caption publishing, and
-Kafka incident publishing checks passed during manual validation after the
-documented prerequisites were satisfied. The remaining changes in this PR are
-skill/documentation reliability fixes intended to make the same outcome
-repeatable for automated validation.
+Kafka incident publishing checks passed during manual validation on B200 and RTX
+PRO after the documented prerequisites were satisfied. The remaining changes in
+this PR are skill/documentation reliability fixes intended to make the same
+outcome repeatable for automated validation.
 
 ---
