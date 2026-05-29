@@ -309,6 +309,27 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(candidates[0], "vss-eval-rtx-1g-2")
         self.assertNotIn("personal-rtx", candidates)
+        self.assertNotIn("vss-eval-rtx-2g", candidates)
+
+    def test_instance_candidates_filter_known_wrong_gpu_partition(self):
+        instances = [
+            {"name": "vss-eval-rtx-1g-2", "status": "RUNNING", "gpu": "RTX PRO 6000"},
+            {"name": "vss-eval-rtx-2g-4", "status": "RUNNING", "gpu": "RTX PRO 6000"},
+        ]
+
+        one_gpu = smoke_runner._instance_candidates(
+            instances,
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+        )
+        two_gpu = smoke_runner._instance_candidates(
+            instances,
+            platform="RTXPRO6000BW",
+            gpu_count=2,
+        )
+
+        self.assertEqual(one_gpu, ["vss-eval-rtx-1g-2"])
+        self.assertEqual(two_gpu, ["vss-eval-rtx-2g-4"])
 
     def test_worker_selection_skips_locked_candidate(self):
         previous = {
