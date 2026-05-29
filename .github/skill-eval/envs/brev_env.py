@@ -709,16 +709,23 @@ else
 fi
 # Drop leftover working-tree state from a prior trial, but keep data/
 # (sample-data extract — slow to re-pull from NGC) and any .env tweaks
-# the active trial may have placed.
-# A prior STEP's deploy may have chattr +i'd generated files (e.g.
-# deploy/docker/resolved.yml, developer-profiles/*/generated.env) — strip
-# the immutable bit or git clean dies with "Operation not permitted" and
-# kills the whole step chain.
-chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
-# Use sudo git clean as a fallback: prior docker containers may have created
-# root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
-# a non-root git clean cannot remove ("Permission denied").
-git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
+# the active trial may have placed. Some VSS services write root-owned
+# bind-mount content under the checkout, so remove known deployment
+# output dirs with sudo before falling back to git clean.
+for stale_path in "$REPO/deployments" "$REPO/deploy/docker/data-dir"; do
+  if [ -e "$stale_path" ]; then
+    sudo rm -rf "$stale_path" || true
+  fi
+done
+if ! git clean -fdx -e data/ -e .env; then
+  echo "git clean failed; repairing checkout ownership and retrying" >&2
+  sudo find "$REPO" \
+    -path "$REPO/.git" -prune -o \
+    -path "$REPO/data" -prune -o \
+    -path "$REPO/.env" -prune -o \
+    -exec chown -h "$(id -u):$(id -g)" {{}} + || true
+  git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
+fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
