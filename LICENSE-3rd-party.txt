@@ -2,6 +2,7 @@ This file contains the list of third party software with their licenses used in 
 
 See below files for the licenses:
 - services/agent/LICENSE-3rd-party.txt
+- services/alert/LICENSE-3rd-party.txt
 - services/ui/LICENSE-3rd-party.txt
 - services/analytics/video-analytics-api/3rdParty_Licenses.md
 - services/analytics/behavior-analytics/3rdParty_Licenses.md

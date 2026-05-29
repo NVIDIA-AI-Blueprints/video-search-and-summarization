@@ -1,0 +1,26 @@
+# Sanity Drop 07 — REST API accepts JSON incident
+#
+# Mirrors test/functional/p1/test_http_json_payload/run.sh. POSTs one incident
+# to AB's REST /api/v1/incidents with synthetic sensorId; asserts HTTP 202
+# and the doc subsequently appears in ES with the same sensorId.
+#
+# Two-step verification:
+#   1. apply() does the POST and stashes the HTTP status — checked by probe via PROBE_ENV
+#   2. probe asserts ES sees the doc
+
+PROBE="probes/assert_es_field_value.sh"
+PROBE_ENV_FIELD="sensorId"
+PROBE_ENV_LOOKBACK_MINUTES=5
+WAIT_TRAFFIC_SECONDS=5
+
+apply() {
+    SENSOR_ID=$(inject_rest_incident "http_json" "1") || return 1
+    local status
+    status=$(last_http_status)
+    log_info "POST returned HTTP $status for sensorId=$SENSOR_ID"
+    if [[ "$status" != "202" ]]; then
+        return 1
+    fi
+    PROBE_ENV_SENSOR_ID="$SENSOR_ID"
+    PROBE_ENV_EXPECTED_VALUE="$SENSOR_ID"
+}

@@ -1,0 +1,38 @@
+# VCS and CI/CD
+.git
+.gitmodules
+.github
+.gitattributes
+.gitignore
+
+# Docs, examples, notebooks
+docs/
+notebooks/
+*.md
+
+# Tests and fixtures
+test/
+tests/
+**/test_*/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+
+# Security scanning
+.nspect-vuln-allowlist.toml
+
+# Local/dev files
+scripts/
+releases/
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.env
+.env*
+.editorconfig
+
+# Compose and local deploy files
+docker-compose*.yml
+deploy_*.yml
+
