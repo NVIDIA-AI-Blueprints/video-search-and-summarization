@@ -426,9 +426,7 @@ resolve_vss_gateway_container() {
     return 0
   fi
 
-  # Match either the legacy kubectl-driver gateway (openshell-cluster-*) or the
-  # newer Docker-driver gateway (nemoclaw-openshell-*) emitted by NemoClaw >= v0.0.40.
-  docker ps --format '{{.Names}}' | awk '/^(openshell-cluster-|nemoclaw-openshell-)/{print; exit}'
+  docker ps --format '{{.Names}}' | awk '/^nemoclaw-openshell-/{print; exit}'
 }
 
 apply_vss_policy() {
@@ -533,32 +531,17 @@ install_vss_openclaw_plugin() {
   log "Installing VSS OpenClaw plugin ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME} (variant=${OPENCLAW_PLUGIN_VARIANT})"
   log "Plugin install command: ${install_cmd}"
 
-  if [[ "${container_name}" == nemoclaw-openshell-* ]]; then
-    log "Streaming ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}:${remote_tgz}"
-    printf -v shell_cmd 'cat > %q' "${remote_tgz}"
-    if ! openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -c "${shell_cmd}" < "${tgz_path}"; then
-      log "ERROR: failed to stream ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}"
-      return 1
-    fi
+  log "Streaming ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}:${remote_tgz}"
+  printf -v shell_cmd 'cat > %q' "${remote_tgz}"
+  if ! openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -c "${shell_cmd}" < "${tgz_path}"; then
+    log "ERROR: failed to stream ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}"
+    return 1
+  fi
 
-    printf -v shell_cmd '%s && rm -f %q' "${install_cmd}" "${remote_tgz}"
-    if ! openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc "${shell_cmd}" </dev/null; then
-      log "ERROR: openclaw plugins install failed for ${tgz_name}"
-      return 1
-    fi
-  else
-    log "Streaming ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}:${remote_tgz}"
-    if ! sudo docker exec -i "${container_name}" kubectl exec -i -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- \
-        sh -c "cat > '${remote_tgz}'" < "${tgz_path}"; then
-      log "ERROR: failed to stream ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}"
-      return 1
-    fi
-
-    if ! sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- \
-        sh -lc "$(printf 'su - sandbox -c %q && rm -f %q' "${install_cmd}" "${remote_tgz}")"; then
-      log "ERROR: openclaw plugins install failed for ${tgz_name}"
-      return 1
-    fi
+  printf -v shell_cmd '%s && rm -f %q' "${install_cmd}" "${remote_tgz}"
+  if ! openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc "${shell_cmd}" </dev/null; then
+    log "ERROR: openclaw plugins install failed for ${tgz_name}"
+    return 1
   fi
 
   log "VSS OpenClaw plugin installed"
