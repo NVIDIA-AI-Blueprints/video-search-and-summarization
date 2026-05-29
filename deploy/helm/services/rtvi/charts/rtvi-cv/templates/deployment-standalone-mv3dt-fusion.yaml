@@ -68,9 +68,9 @@ spec:
           readinessProbe:
             exec:
               command:
-                - sh
+                - python3
                 - -c
-                - test -f /tmp/fusion_ready
+                - import os, sys; sys.exit(0 if os.path.exists("/tmp/fusion_ready") else 1)
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 6
@@ -78,9 +78,9 @@ spec:
           livenessProbe:
             exec:
               command:
-                - sh
+                - python3
                 - -c
-                - test -f /tmp/fusion_ready
+                - import os, sys; sys.exit(0 if os.path.exists("/tmp/fusion_ready") else 1)
             initialDelaySeconds: 30
             periodSeconds: 30
             failureThreshold: 5

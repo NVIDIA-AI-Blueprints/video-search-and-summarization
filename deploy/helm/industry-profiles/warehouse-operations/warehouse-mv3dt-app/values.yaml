@@ -10,6 +10,10 @@ global:
 bp-configurator:
   enabled: true
   name: bp-configurator-mv3dt
+  data:
+    enabled: true
+    mountPath: /opt/data
+    seedConfigMapName: vss-behavior-analytics-resources
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-configurator
     tag: "3.2-2026.05.04"
@@ -319,7 +323,7 @@ rtvi:
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcAppDataOrg: nvstaging
-    ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
+    ngcAppDataResourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-05212026
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:
