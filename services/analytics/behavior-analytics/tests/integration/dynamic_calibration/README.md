@@ -4,7 +4,7 @@ Smaller-scope end-to-end driver for the dynamic-calibration flow. Acts as a
 "fake video analytics api" against the live `mdx-notification` topic (with
 `key="calibration"`) while the integration-test docker-compose stack is up.
 
-For the architecture / contract docs, see `../../../readmes/dynamic-calibration.md`.
+For the architecture / contract docs, see `../../../docs/dynamic-calibration.md`.
 
 ## Scenarios covered
 
