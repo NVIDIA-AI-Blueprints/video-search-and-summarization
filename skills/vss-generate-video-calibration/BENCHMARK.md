@@ -49,10 +49,13 @@ Top findings:
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 2 total findings.
+Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 3 total findings.
 
 Top findings:
 
+- HIGH DUPLICATE/duplicate: Duplicate content found across references/sample-dataset.md and references/videos.md:
+  "# iterating over this script's `videos` (the bundled cam_*.mp4)." in references/sample-dataset.md (lines 222-231)
+  vs "# Step 2 — Upload videos (sorted)" in references/videos.md (lines 167-176) (`references/sample-dataset.md:222`)
 - HIGH DUPLICATE/duplicate: Duplicate content found across references/calibration-tail.md and references/common-steps.md and references/rtsp.md and references/sample-dataset.md and references/videos.md:
   "# Step A — Verify project" in references/calibration-tail.md (lines 13-15)
   vs "## Create project" in references/common-steps.md (lines 7-25)

@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to run AutoMagicCalib camera calibration on video files or RTSP streams and to deploy the AMC microservice within the NVIDIA VSS Blueprint. <br>
+Developers and engineers use this skill to run automated camera calibration (AutoMagicCalib) on video inputs from local files, RTSP streams, or bundled sample datasets, and to deploy the AMC microservice when needed. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -22,14 +22,14 @@ Mitigation: Review and scan skill before deployment. <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy Auto-Calibration Service](references/deploy-auto-calibration-service.md) <br>
-- [Videos Mode Reference](references/videos.md) <br>
-- [RTSP Mode Reference](references/rtsp.md) <br>
-- [Sample Dataset Reference](references/sample-dataset.md) <br>
+- [Videos Input Mode](references/videos.md) <br>
+- [RTSP Input Mode](references/rtsp.md) <br>
+- [Sample Dataset](references/sample-dataset.md) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [API Calls, Shell commands, Configuration instructions] <br>
-**Output Format:** [Markdown with inline bash code blocks] <br>
+**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
+**Output Format:** [Markdown with inline bash code blocks and JSON API payloads] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
