@@ -78,9 +78,12 @@ jobs:
     # below.
     timeout-minutes: 720
 
-    # Allow mirror-branch pushes OR manual full-sweep dispatch. Never run
-    # on develop/main pushes — those aren't covered by either trigger.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # Allow mirror-branch pushes OR manual full-sweep dispatch. Run
+    # on develop only — those aren't covered by either trigger.
+    # NOTE: for now I need to temporarily add 'push' event because this workflow
+    # is not merged yet, so it doesn't show up on Git Action UI.
+    # will removed after get merged by another PR
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout mirror head
