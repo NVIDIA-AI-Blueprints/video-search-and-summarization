@@ -18,7 +18,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
-COPY --chown=10001:10001 mock_vss_backend.py /app/mock_vss_backend.py
+COPY --chmod=0444 mock_vss_backend.py /app/mock_vss_backend.py
 
 USER 10001:10001
 
