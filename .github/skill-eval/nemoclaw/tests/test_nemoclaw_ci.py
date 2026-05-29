@@ -341,6 +341,26 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(selected, "vss-eval-rtx-1g-3")
 
+    def test_worker_selection_reports_visible_pool_when_platform_missing(self):
+        previous = {"_list_instances": smoke_runner._list_instances}
+        smoke_runner._list_instances = lambda: [
+            {"name": "vss-eval-l40s-1g", "status": "RUNNING", "gpu": "L40S"},
+        ]
+        try:
+            with self.assertRaises(smoke_runner.InfrastructureBlocked) as ctx:
+                smoke_runner._select_and_lock_instance(
+                    "RTXPRO6000BW",
+                    1,
+                    None,
+                    0,
+                )
+        finally:
+            smoke_runner._list_instances = previous["_list_instances"]
+
+        message = str(ctx.exception)
+        self.assertIn("no running vss-eval-* candidate for RTXPRO6000BW", message)
+        self.assertIn("vss-eval-l40s-1g", message)
+
 
 class OpenClawStreamPatchTest(unittest.TestCase):
     def test_patch_openai_chat_completions_disables_streaming_tools(self):
