@@ -40,13 +40,14 @@ Tier 3 dimension rollup was not available in this report.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 3 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 4 total findings.
 
 Top findings:
 
+- MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-deploy-profile/SKILL.md`)
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in alerts.md (`skills/vss-deploy-profile/SKILL.md`)
+- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-profile/SKILL.md`)
 - LOW QUALITY/quality_efficiency: Non-descriptive filename: ngc.md (`skills/vss-deploy-profile/SKILL.md`)
-- LOW SCHEMA/author_format: Author must be of the form 'Name <email@host>' (`skills/vss-deploy-profile/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
