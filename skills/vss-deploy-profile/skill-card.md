@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers deploying, configuring, verifying, debugging, or tearing down NVIDIA Video Search and Summarization (VSS) compose-based profiles on GPU-accelerated infrastructure. <br>
+Developers and engineers who need to deploy, configure, verify, debug, or tear down NVIDIA Video Search and Summarization (VSS) profiles on GPU-equipped hosts. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -22,13 +22,6 @@ Mitigation: Review and scan skill before deployment. <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [Base Profile Reference](references/base.md) <br>
-- [Search Profile Reference](references/search.md) <br>
-- [LVS Profile Reference](references/lvs-profile.md) <br>
-- [Warehouse Profile Reference](references/warehouse.md) <br>
-- [Edge Deployment Reference](references/edge.md) <br>
-- [Environment Overrides](references/env-overrides.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
 
 
 ## Skill Output: <br>
