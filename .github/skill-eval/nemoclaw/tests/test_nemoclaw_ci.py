@@ -184,6 +184,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
 
         self.assertIn('uv_env["UV_PYTHON_DOWNLOADS"] = "automatic"', source)
         self.assertIn('run_uv(["uv", "python", "install", "3.13"])', source)
+        self.assertIn('run_uv(["uv", "venv", "--clear", "--python", "3.13"])', source)
         self.assertIn("stdout tail", source)
         self.assertIn("stderr tail", source)
         compile(source, "deploy_nemoclaw_vss.ipynb:c13aaf5e", "exec")
