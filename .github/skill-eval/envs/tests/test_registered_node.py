@@ -229,7 +229,10 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         try:
             env = brev_env.BrevEnvironment()
             env._instance_name = "vss-eval-test"
-            env._task_metadata = {"runner": "nemoclaw"}
+            env._task_metadata = {
+                "runner": "nemoclaw",
+                "deployment_profile": "base",
+            }
             await env.exec(
                 "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
                 timeout_sec=123,
@@ -242,6 +245,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("NemoClaw direct Harbor launcher", command)
         self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
         self.assertIn("--launch-mode cli", command)
+        self.assertIn("--wait-profile base", command)
         self.assertIn("--prompt-file /tests/nemoclaw_prompt.md", command)
         self.assertNotIn("claude --print", command)
 

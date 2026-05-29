@@ -430,7 +430,8 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         script = base64.b64decode(encoded).decode("utf-8")
         self.assertIn("nohup sh -lc", script)
         self.assertIn("--message", script)
-        self.assertIn("--local --json", script)
+        self.assertNotIn("--local", script)
+        self.assertIn("--json", script)
         self.assertIn("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1", script)
 
     def test_collect_openclaw_cli_log_copies_sandbox_output(self):
