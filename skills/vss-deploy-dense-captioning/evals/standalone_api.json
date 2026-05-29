@@ -17,6 +17,7 @@
         "The agent handled standalone compose validation by removing or otherwise neutralizing the optional `rtvi-vlm.depends_on` references to sibling services if Docker Compose rejected the single-file project.",
         "The standalone env set `RTVI_VLM_PORT=8018`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, a non-empty `RTVI_VLM_ENDPOINT`, a non-empty `VLM_NAME`, and `RTVI_VLM_KAFKA_ENABLED=false` unless the agent also started a Kafka broker.",
         "If the agent started Kafka for standalone validation, it used a self-contained broker or first proved the full repo infra compose validated with the available env/config; it did not treat the full infra compose as guaranteed to work with a minimal RT-VLM-only env.",
+        "If Kafka or port 9092 was already in use, the agent confirmed whether to reuse the existing broker or launch/replace a broker before stopping any container or service.",
         "`curl -sf --max-time 15 http://localhost:8018/v1/health/ready` returns exit 0.",
         "`curl -sf --max-time 15 http://localhost:8018/v1/models` returns exit 0 and returns JSON with a non-empty model list or model metadata.",
         "`curl -sf --max-time 15 http://localhost:8018/openapi.json` returns exit 0 and the agent used it as the endpoint source of truth.",

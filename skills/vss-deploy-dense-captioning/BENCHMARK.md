@@ -59,6 +59,7 @@ Expected verifier checks after this PR:
 - For the VSS alerts/profile source, use `mdx-vlm-incidents` as the incident topic; use the `vision-llm-events-incidents` fallback only for a bare copied compose with no topic override.
 - Start Kafka before RT-VLM when Kafka is enabled, or restart/recreate `rtvi-vlm` after Kafka comes up or the advertised listener changes.
 - Use a self-contained standalone Kafka broker for RT-VLM-only validation; use full repo infra Kafka only when the full profile env/config is present and `docker compose config --quiet` passes.
+- If Kafka is already running, confirm with the user whether to reuse it or launch/replace a broker before stopping anything.
 - Use deterministic positive alert prompts first when validating Kafka wiring, then switch back to scene-analysis prompts.
 - Preserve model cache volumes; avoid `docker compose down -v` unless intentionally forcing a large model re-download.
 

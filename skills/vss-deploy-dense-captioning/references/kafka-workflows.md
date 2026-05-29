@@ -104,13 +104,56 @@ equivalent broker before starting RT-VLM. The critical requirement is that the
 broker advertises the same `${HOST_IP}:9092` value that RT-VLM uses for
 `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`.
 
-Use a self-contained broker for standalone validation:
+First choose how Kafka should be provided:
+
+- **Use existing Kafka** if a broker is already running and the user confirms it
+  is safe to reuse for validation.
+- **Launch a dedicated broker** only when port `9092` is free, or after the user
+  explicitly confirms that the existing broker/container may be stopped or
+  replaced.
+- **Disable Kafka** for API-only validation by setting
+  `RTVI_VLM_KAFKA_ENABLED=false`.
+
+Never stop or replace an existing Kafka container without user confirmation.
+Preflight the host before choosing:
+
+```bash
+ss -ltn | grep -E ':(9092|9093)([[:space:]]|$)' || true
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' \
+  | grep -Ei 'kafka|9092' || true
+```
+
+If reusing an existing broker, set `KAFKA_CONTAINER` to its container name and
+confirm RT-VLM can reach its advertised listener. `localhost:9092` as an
+advertised listener is usually wrong for RT-VLM running in a different
+container; it may make Kafka CLI checks pass while RT-VLM publish fails.
+
+```bash
+: "${KAFKA_CONTAINER:?Set this to the existing Kafka container name}"
+: "${HOST_IP:=host.docker.internal}"
+```
+
+If launching a dedicated broker, first confirm that port `9092` is free. If it
+is occupied, ask the user whether to use the existing broker or stop/replace it
+before continuing.
 
 ```bash
 : "${HOST_IP:=host.docker.internal}"
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-rtvi-vlm-kafka}"
 
-docker rm -f "$KAFKA_CONTAINER" >/dev/null 2>&1 || true
+if docker ps -a --format '{{.Names}}' | grep -qx "$KAFKA_CONTAINER"; then
+  echo "Kafka container $KAFKA_CONTAINER already exists."
+  echo "Set CONFIRMED_REPLACE_KAFKA=true only after explicit confirmation."
+  [ "${CONFIRMED_REPLACE_KAFKA:-false}" = "true" ] || exit 1
+  docker rm -f "$KAFKA_CONTAINER"
+fi
+
+if ss -ltn | grep -Eq ':(9092)([[:space:]]|$)'; then
+  echo "Host port 9092 is already in use by another service."
+  echo "Use the existing broker, or stop it only after user confirmation, then rerun."
+  exit 1
+fi
+
 docker run -d --name "$KAFKA_CONTAINER" \
   --add-host=host.docker.internal:host-gateway \
   -p 9092:9092 -p 9093:9093 \

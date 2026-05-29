@@ -447,9 +447,10 @@ inside the broker and service containers is not the host, and a broker alias
 such as `kafka:9092` only works when both containers share that Docker network.
 For RT-VLM-only validation, prefer the self-contained broker in
 `references/kafka-workflows.md` over the full repo infra compose; the latter
-expects full-profile SDRC env/config. Run CLI checks inside the actual broker
-container, but still configure the advertised listener so RT-VLM can connect
-from its container network.
+expects full-profile SDRC env/config. If Kafka is already running, ask the user
+whether to reuse it or launch a dedicated broker before stopping or replacing
+anything. Run CLI checks inside the actual broker container, but still configure
+the advertised listener so RT-VLM can connect from its container network.
 
 Incident protobuf (`ext.proto :: Incident`) key fields: `sensorId`, `timestamp`, `end`,
 `objectIds`, `frameIds`, `place`, `analyticsModule`, `category`, `isAnomaly` (`true` for
