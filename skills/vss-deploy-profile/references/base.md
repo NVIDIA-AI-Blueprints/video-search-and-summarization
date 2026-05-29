@@ -8,18 +8,21 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 
 Profile `bp_developer_base_2d` activates only the services below. Elasticsearch, Kafka, and VST MCP are **not** part of `base` — they ship with `search`, `lvs`, and `alerts` (see those profile references). If you see `VST_MCP_URL` / `VSS_VA_MCP_PORT` warnings during `docker compose config`, that's expected on `base` and not an error.
 
+Container names below are exactly what `docker ps` reports (sourced from the `container_name:` keys in `deploy/docker/services/**/compose.yml`). LLM/VLM NIM containers are named after the selected model — the row shows the **default**; swapping `LLM_NAME_SLUG` / `VLM_NAME_SLUG` in `generated.env` selects a different per-model compose with its own `container_name`.
+
 | Service | Container | Port | Purpose |
 |---|---|---|---|
-| VSS Agent | vss-agent | 8000 | Orchestrates tool calls and model inference |
-| VSS UI | vss-ui | 3000 | Web UI — chat, video upload, views |
-| HAProxy Ingress | vss-haproxy-ingress | 7777 | Browser-facing entry point — proxies UI + Agent API + VST |
-| VST Ingress | vst-ingress | 30888 | Video Storage Tool — ingest, record, playback |
-| Sensor MS | sensor-ms | — | VIOS sensor management |
-| Stream Processing MS | streamprocessing-ms | — | VIOS stream processing |
-| LLM NIM | mdx-nim-llm-1 | 30081 | Nemotron LLM for reasoning (activated by `llm_local*` / `llm_local_shared*` COMPOSE_PROFILES) |
-| VLM NIM | mdx-nim-vlm-1 | 30082 | Cosmos Reason VLM for vision (activated by `vlm_local*` / `vlm_local_shared*` COMPOSE_PROFILES) |
-| Redis | redis | 6379 | Cache |
-| Phoenix | phoenix | 6006 | Observability / telemetry |
+| VSS Agent | `vss-agent` | 8000 | Orchestrates tool calls and model inference |
+| VSS Agent UI | `vss-agent-ui` | 3000 | Web UI — chat, video upload, views |
+| HAProxy Ingress | `vss-haproxy-ingress` | 7777 | Browser-facing entry point — proxies UI + Agent API + VST |
+| VIOS Ingress (VST) | `vss-vios-ingress` | 30888 | Video Storage Tool — ingest, record, playback |
+| VIOS Postgres | `vss-vios-postgres` | — | VIOS metadata store |
+| VIOS Sensor MS | `vss-vios-sensor` | — | VIOS sensor management |
+| VIOS Stream Processing | `vss-vios-streamprocessing` | — | VIOS stream processing |
+| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Nemotron LLM for reasoning. Activated by `llm_<mode>_<slug>` COMPOSE_PROFILES; container name = `${LLM_NAME_SLUG}` (e.g. `nvidia-nemotron-nano-9b-v2-fp8`, `nemotron-3-nano`, `gpt-oss-20b`, `llama-3.3-nemotron-super-49b-v1.5`). |
+| VLM NIM (default) | `nvidia-cosmos-reason2-8b` | 30082 | Cosmos Reason VLM for vision. Activated by `vlm_<mode>_<slug>`; container name = `${VLM_NAME_SLUG}` (e.g. `cosmos-reason1-7b`, `qwen3-vl-8b-instruct`). |
+| Redis | `redis` | 6379 | Cache |
+| Phoenix | `phoenix` | 6006 | Observability / telemetry |
 
 ## Default Models
 
