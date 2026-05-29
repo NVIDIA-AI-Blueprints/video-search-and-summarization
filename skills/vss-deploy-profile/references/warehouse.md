@@ -755,8 +755,8 @@ LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
 
 # --- RTVI VLM (bp_wh; always local — these are image/model selectors, not a mode toggle) ---
 # vss-rtvi-vlm is always deployed for bp_wh (hardcoded in compose profile bp_wh_2d).
-VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
 
 # --- MQTT (mv3dt only — cross-camera messaging for BEV Fusion) ---
