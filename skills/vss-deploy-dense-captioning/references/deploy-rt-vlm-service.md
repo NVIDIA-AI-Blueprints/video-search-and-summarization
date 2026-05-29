@@ -17,7 +17,7 @@ Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode 
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
 In this compose, rtvi-vlm is wired by default to call a **sibling NIM**
 (`cosmos-reason1-7b`, `cosmos-reason2-8b`, or `qwen3-vl-8b-instruct`) over
-OpenAI-compat HTTP (`VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
+OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
 host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
 
 ## 2. Related Skill
@@ -182,10 +182,10 @@ mkdir -p ./rtvi-logs && sudo chown 1001:1001 ./rtvi-logs
 | `VSS_DATA_DIR` | **YES (effectively)** | — | Interpolated into VST clip-storage bind mount; no fallback |
 | `NGC_CLI_API_KEY` | **YES for documented pull / local NGC model path** | — | `docker login nvcr.io`, image pull, and NGC model/artifact download |
 | `RTVI_VLM_API_KEY` | optional / backend-dependent | `${NGC_CLI_API_KEY}` fallback in compose | RT-VLM bearer auth or non-NGC backend auth; does not replace `NGC_CLI_API_KEY` for registry pulls |
-| `VLM_MODEL_TO_USE` (via `RTVI_VLM_MODEL_TO_USE`) | effectively required | `openai-compat` | `cosmos-reason1` / `cosmos-reason2` / `openai-compat` / `custom` |
+| `RTVI_VLM_MODEL_TO_USE` | effectively required | `openai-compat` | `cosmos-reason1` / `cosmos-reason2` / `openai-compat` / `custom` |
 | `RTVI_VLM_ENDPOINT` | if `openai-compat` | — | Remote/sibling OpenAI-compatible VLM endpoint |
 | `VLM_NAME` | if `openai-compat` | — | Model name exposed by the remote/sibling VLM endpoint |
-| `MODEL_PATH` (via `RTVI_VLM_MODEL_PATH`) | conditional | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Needed when not `openai-compat`. **Override to `:1208-fp8-static-kv8`** — this is the tag VSS docs and NIM sibling composes serve; the compose default `:hf-1208` is a different quant variant. See §20. |
+| `RTVI_VLM_MODEL_PATH` | conditional | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Needed when not `openai-compat`. Keep the source-backed `:hf-1208` default unless a hardware-specific profile, such as RTX PRO 4500 Blackwell, explicitly overrides it. |
 
 The most important host-side variables use the `RTVI_VLM_*` or `RTVI_VLLM_*`
 prefix and are rewritten to canonical container-side names by compose.
@@ -294,9 +294,9 @@ Model is downloaded and served by vLLM inside the container. Requires ~16–20 G
 VRAM for the 8B models.
 
 ```bash
-# .env for cosmos-reason2 (recommended tag — matches VSS docs / NIM siblings):
+# .env for cosmos-reason2 (source-backed default used by VSS alerts/LVS):
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:1208-fp8-static-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
 NGC_CLI_API_KEY=<ngc-key>
 
 # .env for cosmos-reason1:
@@ -482,7 +482,7 @@ RTVI_VLM_IMAGE_TAG=${VLM_TAG}
 RT_VLM_DEVICE_ID=0
 # Model config (choose one option from §11):
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:1208-fp8-static-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
 EOF
 chmod 600 .env
 grep -qxF .env .gitignore 2>/dev/null || printf '.env\n' >> .gitignore
@@ -681,14 +681,16 @@ docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
 - **🟢 Healthcheck tuning divergence**: docs show `start_period: 300s`,
   `retries: 3`; compose sets `1200s` / `5`. The compose values are
   deliberately more lenient for model-download-on-first-boot. Not a bug.
-- **🔴 Default MODEL_PATH tag divergence — always override**: compose default
-  is `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208`, but the tag that matches VSS
-  docs and sibling NIM composes is **`:1208-fp8-static-kv8`** (FP8-static
-  weights + KV8 cache). Use that tag unless you have a specific reason to run
-  the `hf-1208` variant. The two are **not interchangeable** — different quant
-  schemes produce different `torch_aot_compile` cache hashes, so swapping tags
-  on a live cache volume will emit the `_Missing has no attribute _modules`
-  warning and force a full vLLM recompile on first boot.
+- **🟢 Source-backed MODEL_PATH default**: compose, `vss-deploy-profile`, and
+  the default alerts/LVS paths use
+  `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208`. Keep that default for standalone
+  local Cosmos Reason 2 validation unless the source profile explicitly changes
+  it. The known exception is RTX PRO 4500 Blackwell, where `dev-profile.sh`
+  overrides `RTVI_VLM_MODEL_PATH` to
+  `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` to fit the smaller
+  VRAM target. Model tags are not interchangeable; swapping tags on a live
+  cache volume can trigger a `torch_aot_compile` / `_Missing has no attribute
+  _modules` warning and force a full vLLM recompile on first boot.
 - **Profiles are mandatory**: `docker compose up` without `--profile` starts
   nothing. 6 profiles available — §12.
 - **`container_name: vss-rtvi-vlm` hardcoded** (line 22) — can't run two instances

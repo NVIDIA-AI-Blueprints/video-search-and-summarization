@@ -119,6 +119,8 @@ Minimum standalone `.env` values:
 | `RTVI_VLM_PORT` | Always | Host API port mapped to container `8000` |
 | `HOST_IP` | Always | Kafka bootstrap host (`${HOST_IP}:9092`) |
 | `VSS_DATA_DIR` | Always | Required clip-storage bind mount |
+| `RTVI_VLM_MODEL_TO_USE` | Always for standalone | Backend selector; use `cosmos-reason2` for the default local model or `openai-compat` for a remote/sibling endpoint |
+| `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason 2 path: `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` |
 | `RTVI_VLM_ENDPOINT` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Remote/sibling OpenAI-compatible VLM endpoint |
 | `VLM_NAME` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Model/deployment name exposed by that endpoint |
 
