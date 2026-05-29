@@ -36,17 +36,19 @@ ENV GIT_LFS_SKIP_SMUDGE=1
 WORKDIR /vss-agent
 
 # Copy project files
-COPY --chown=${USER_ID}:${GROUP_ID} agent/pyproject.toml /vss-agent
-COPY --chown=${USER_ID}:${GROUP_ID} agent/LICENSE-3rd-party.txt /vss-agent
-COPY --chown=${USER_ID}:${GROUP_ID} agent/uv.lock /vss-agent
-COPY --chown=${USER_ID}:${GROUP_ID} agent/src/vss_agents /vss-agent/src/vss_agents
+# Own as root:root and copy read-only (0444 files, 0555 dirs) so the non-root
+# runtime user can read/execute but not own or modify the copied resources.
+COPY --chown=root:root --chmod=0444 agent/pyproject.toml /vss-agent
+COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
+COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
+COPY --chown=root:root --chmod=0555 agent/src/vss_agents /vss-agent/src/vss_agents
 # `lib/` is a sibling top-level package shipped in the same wheel
 # (see pyproject.toml `packages = ["src/vss_agents", "src/lib"]`); without
 # this copy, lib.knowledge would be missing from the built image.
-COPY --chown=${USER_ID}:${GROUP_ID} agent/src/lib /vss-agent/src/lib
-COPY --chown=${USER_ID}:${GROUP_ID} agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
-COPY --chown=${USER_ID}:${GROUP_ID} agent/docker/verify_ffmpeg_tarball.py /vss-agent/verify_ffmpeg_tarball.py
-COPY --chown=${USER_ID}:${GROUP_ID} agent/3rdparty/ffmpeg /vss-agent/third_party/ffmpeg
+COPY --chown=root:root --chmod=0555 agent/src/lib /vss-agent/src/lib
+COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
+COPY --chown=root:root --chmod=0444 agent/docker/verify_ffmpeg_tarball.py /vss-agent/verify_ffmpeg_tarball.py
+COPY --chown=root:root --chmod=0555 agent/3rdparty/ffmpeg /vss-agent/third_party/ffmpeg
 
 # Fail early if FFmpeg source tarball is missing or invalid (required for LGPL compliance)
 RUN python3 /vss-agent/verify_ffmpeg_tarball.py
@@ -129,9 +131,9 @@ COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/lib
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libcrypto.so.* /usr/lib/aarch64-linux-gnu/
 
 # Copy application without any dev needs
-COPY --from=builder --chown=${USER_ID}:${GROUP_ID} /vss-agent/.venv /vss-agent/.venv
-COPY --from=builder --chown=${USER_ID}:${GROUP_ID} /vss-agent/third_party/ffmpeg /vss-agent/third_party/ffmpeg
-COPY --from=builder --chown=${USER_ID}:${GROUP_ID} /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
+COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
+COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/third_party/ffmpeg /vss-agent/third_party/ffmpeg
+COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
 FROM runtime AS agent-runtime
 ARG TARGETARCH
 
