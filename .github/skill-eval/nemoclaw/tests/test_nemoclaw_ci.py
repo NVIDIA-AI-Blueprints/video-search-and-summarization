@@ -273,6 +273,13 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
 
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
+    def test_default_smoke_profile_matches_running_rtx_2g_pool(self):
+        self.assertEqual(smoke_runner.DEFAULT_PROFILE, "search")
+        self.assertEqual(
+            smoke_runner._gpu_count_from_spec("search", "RTXPRO6000BW"),
+            2,
+        )
+
     def test_brev_json_parser_ignores_trailing_cli_text(self):
         raw = '[{"name":"vss-eval-rtx-1g-2","status":"RUNNING READY"}]\nNext steps...'
 
