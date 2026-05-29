@@ -856,6 +856,176 @@ if [ -n "$EXT_RULE_ID" ]; then
     do_request "DELETE" "/api/v1/realtime/${EXT_RULE_ID}" >/dev/null
 fi
 
+# ===========================================================================
+# Test 11: Stream reuse via GET /v1/streams/get-stream-info
+#          Two rules with the same sensor_id should share one RTVI stream:
+#          rule A calls /streams/add, rule B sees the existing entry and
+#          reuses it. Verifies the get-stream-info probe + dedupe logic.
+# ===========================================================================
+REUSE_SENSOR_ID="test-sensor-reuse-001"
+REUSE_RULE_A=""
+REUSE_RULE_B=""
+
+clear_rtvi_calls
+print_status "wait" "Test 11: Create rule A with sensor_id=$REUSE_SENSOR_ID..."
+RESPONSE=$(do_request "POST" "/api/v1/realtime" "{
+    \"liveStreamUrl\": \"$RTSP_URL\",
+    \"sensor_id\": \"$REUSE_SENSOR_ID\",
+    \"sensor_name\": \"Reuse-Test-Cam\",
+    \"prompt\": \"Detect intrusion\",
+    \"alert_type\": \"intrusion\",
+    \"model\": \"test-model\"
+}" || echo '{"status":"error"}')
+REUSE_RULE_A=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+
+if [ -n "$REUSE_RULE_A" ]; then
+    print_status "ok" "PASS: Rule A created (id=$REUSE_RULE_A)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Rule A creation failed"
+    echo "  Response: $RESPONSE"
+    ((FAILED++))
+fi
+
+print_status "wait" "Test 11b: Create rule B with same sensor_id (should reuse)..."
+RESPONSE=$(do_request "POST" "/api/v1/realtime" "{
+    \"liveStreamUrl\": \"$RTSP_URL\",
+    \"sensor_id\": \"$REUSE_SENSOR_ID\",
+    \"sensor_name\": \"Reuse-Test-Cam\",
+    \"prompt\": \"Detect fire\",
+    \"alert_type\": \"fire\",
+    \"model\": \"test-model\"
+}" || echo '{"status":"error"}')
+REUSE_RULE_B=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+
+if [ -n "$REUSE_RULE_B" ]; then
+    print_status "ok" "PASS: Rule B created (id=$REUSE_RULE_B)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Rule B creation failed"
+    echo "  Response: $RESPONSE"
+    ((FAILED++))
+fi
+
+# Verify only ONE /streams/add call hit RTVI even though we created TWO rules.
+# The second rule's _resolve_or_add_stream sees the existing stream via
+# get-stream-info and reuses its id without re-adding.
+print_status "wait" "Test 11c: Verify only one /streams/add for two rules..."
+ADD_COUNT=$(rtvi_calls "POST" "streams/add" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null || echo "0")
+
+if [ "$ADD_COUNT" = "1" ]; then
+    print_status "ok" "PASS: Only 1 /streams/add call (reuse worked)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Expected 1 /streams/add, got $ADD_COUNT"
+    ((FAILED++))
+fi
+
+# Verify get-stream-info was called (at least twice — once per rule).
+print_status "wait" "Test 11d: Verify GET /v1/streams/get-stream-info was called..."
+GET_INFO_COUNT=$(rtvi_calls "GET" "streams/get-stream-info" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null || echo "0")
+
+if [ "$GET_INFO_COUNT" -ge 2 ]; then
+    print_status "ok" "PASS: get-stream-info called $GET_INFO_COUNT time(s)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Expected get-stream-info ≥ 2, got $GET_INFO_COUNT"
+    ((FAILED++))
+fi
+
+# Verify rule B's ES doc is flagged owns_rtvi_stream=False (it reused, didn't add).
+print_status "wait" "Test 11e: Verify rule B has owns_rtvi_stream=False in ES..."
+sleep 1
+RULE_B_ES=$(es_get_rule "$REUSE_RULE_B")
+RULE_B_OWNS=$(echo "$RULE_B_ES" | python3 -c "
+import sys, json
+src = json.load(sys.stdin).get('_source', {})
+print(src.get('owns_rtvi_stream', 'MISSING'))
+" 2>/dev/null || echo "error")
+
+if [ "$RULE_B_OWNS" = "False" ]; then
+    print_status "ok" "PASS: Rule B owns_rtvi_stream=False (reuse path)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Rule B owns_rtvi_stream=$RULE_B_OWNS (expected False)"
+    ((FAILED++))
+fi
+
+# Verify rule A's ES doc is flagged owns_rtvi_stream=True (it added the stream).
+print_status "wait" "Test 11f: Verify rule A has owns_rtvi_stream=True in ES..."
+RULE_A_ES=$(es_get_rule "$REUSE_RULE_A")
+RULE_A_OWNS=$(echo "$RULE_A_ES" | python3 -c "
+import sys, json
+src = json.load(sys.stdin).get('_source', {})
+print(src.get('owns_rtvi_stream', 'MISSING'))
+" 2>/dev/null || echo "error")
+
+if [ "$RULE_A_OWNS" = "True" ]; then
+    print_status "ok" "PASS: Rule A owns_rtvi_stream=True (owner)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Rule A owns_rtvi_stream=$RULE_A_OWNS (expected True)"
+    ((FAILED++))
+fi
+
+# ===========================================================================
+# Test 12: Ref-count stop semantics
+#          Deleting one of two siblings must NOT call /streams/delete; the
+#          stream is only torn down when the *last* reader is removed.
+# ===========================================================================
+clear_rtvi_calls
+print_status "wait" "Test 12: DELETE rule A while rule B still references the stream..."
+RESPONSE=$(do_request "DELETE" "/api/v1/realtime/${REUSE_RULE_A}" || echo '{"status":"error"}')
+DEL_STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "error")
+
+if [ "$DEL_STATUS" = "success" ]; then
+    print_status "ok" "PASS: Rule A deleted"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Delete rule A failed (status=$DEL_STATUS)"
+    ((FAILED++))
+fi
+
+print_status "wait" "Test 12b: Verify /streams/delete NOT called (rule B still uses stream)..."
+sleep 1
+DELETE_STREAM_COUNT=$(rtvi_calls "DELETE" "streams/delete" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null || echo "0")
+
+if [ "$DELETE_STREAM_COUNT" = "0" ]; then
+    print_status "ok" "PASS: streams/delete NOT called — sibling protected"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Expected 0 streams/delete calls, got $DELETE_STREAM_COUNT"
+    ((FAILED++))
+fi
+
+# Captions for rule A *should* have been stopped, even though the stream stays.
+print_status "wait" "Test 12c: Verify generate_captions DELETE called (rule A's captions stopped)..."
+DELETE_CAPTIONS_COUNT=$(rtvi_calls "DELETE" "generate_captions" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null || echo "0")
+
+if [ "$DELETE_CAPTIONS_COUNT" -ge 1 ]; then
+    print_status "ok" "PASS: stop_captions called for rule A"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: Expected stop_captions ≥ 1, got $DELETE_CAPTIONS_COUNT"
+    ((FAILED++))
+fi
+
+# Now delete rule B — last reader, so /streams/delete should fire.
+clear_rtvi_calls
+print_status "wait" "Test 12d: DELETE rule B (last reader) — expect streams/delete..."
+RESPONSE=$(do_request "DELETE" "/api/v1/realtime/${REUSE_RULE_B}" || echo '{"status":"error"}')
+DEL_STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "error")
+sleep 1
+DELETE_STREAM_COUNT=$(rtvi_calls "DELETE" "streams/delete" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null || echo "0")
+
+if [ "$DEL_STATUS" = "success" ] && [ "$DELETE_STREAM_COUNT" -ge 1 ]; then
+    print_status "ok" "PASS: Rule B deleted, streams/delete fired (last reader cleanup)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: del_status=$DEL_STATUS streams/delete count=$DELETE_STREAM_COUNT"
+    ((FAILED++))
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

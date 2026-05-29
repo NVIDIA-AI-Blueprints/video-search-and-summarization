@@ -57,6 +57,7 @@ class RTVIVLMClient:
 
     RTVI VLM API endpoints:
     - POST   /streams/add                      — Add live stream(s)
+    - GET    /streams/get-stream-info           — List registered live streams
     - DELETE /streams/delete/{stream_id}        — Remove a live stream
     - POST   /generate_captions                 — Start caption generation
     - DELETE /generate_captions/{stream_id}     — Stop caption generation
@@ -113,6 +114,53 @@ class RTVIVLMClient:
             )
         resp.raise_for_status()
         return resp.json()
+
+    async def get_stream_info(self) -> List[Dict[str, Any]]:
+        """GET /streams/get-stream-info — list every live stream RTVI has registered.
+
+        Used by :class:`RealtimeAlertService` to (1) check whether a stream
+        with the requested ``sensor_id`` is already registered and reuse
+        its ``stream_id`` instead of issuing a duplicate ``/streams/add``,
+        and (2) confirm that a freshly-added stream is visible to RTVI
+        before declaring the rule active. The endpoint is documented in
+        the VSS RT-Embed API reference under "Live Stream".
+
+        Returns the list of stream entries verbatim from RTVI. Common
+        envelope shapes:
+
+        * ``{"results": [...]}`` — modern RTVI builds.
+        * ``{"streams": [...]}`` — older builds.
+        * ``[...]`` — bare list.
+
+        The method normalises all three to a plain ``List[Dict]`` so
+        callers don't have to hand-roll the envelope check at every
+        call site. Network / HTTP errors propagate as ``httpx.HTTPError``
+        so callers can decide whether to fall back (e.g. degrade to
+        ``streams/add``) or fail the request.
+        """
+        url = f"{self.base_url}/streams/get-stream-info"
+        logger.debug("Calling RTVI VLM streams/get-stream-info: %s", url)
+        resp = await self._client.get(url)
+        if not resp.is_success:
+            logger.error(
+                "RTVI streams/get-stream-info returned %s: %s",
+                resp.status_code,
+                resp.text,
+            )
+        resp.raise_for_status()
+        body = resp.json()
+        if isinstance(body, list):
+            return body
+        if isinstance(body, dict):
+            for key in ("results", "streams", "items", "data"):
+                value = body.get(key)
+                if isinstance(value, list):
+                    return value
+        logger.warning(
+            "RTVI streams/get-stream-info returned unexpected shape: %r",
+            type(body).__name__,
+        )
+        return []
 
     async def stop_stream(self, rtvi_stream_id: str) -> Dict[str, Any]:
         """DELETE to RTVI VLM /streams/delete/{stream_id} to stop a running stream."""

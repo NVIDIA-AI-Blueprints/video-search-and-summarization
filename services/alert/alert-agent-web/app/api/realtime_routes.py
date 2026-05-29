@@ -324,16 +324,71 @@ def validate_always_on_config_at_startup() -> None:
     status_code=201,
     summary="Create a real-time VLM alert rule",
     description=(
-        "Create a real-time VLM alert rule on a live RTSP stream. "
-        "Each rule monitors for exactly one alert_type. "
-        "Returns the rule's `id` — use it as `alert_rule_id` in the "
-        "path of subsequent management endpoints "
-        "(`GET`/`DELETE /api/v1/realtime/{alert_rule_id}`)."
+        "Start monitoring a live RTSP stream for a single `alert_type`. "
+        "On success returns the rule's `id`, which you pass as "
+        "`alert_rule_id` to `GET` / `DELETE /api/v1/realtime/{alert_rule_id}`.\n\n"
+
+        "### Stream sharing\n"
+        "Provide `sensor_id` to share one underlying RTVI stream across "
+        "multiple rules:\n"
+        "- If RTVI already has a stream registered with that id, it is "
+        "reused — no extra connection to the camera.\n"
+        "- Otherwise a new stream is opened.\n"
+        "- The stream is only torn down when the **last** rule using it "
+        "is deleted.\n\n"
+
+        "### How a create is validated\n"
+        "1. The rule is persisted (if persistence is enabled).\n"
+        "2. The RTVI stream is opened (or reused).\n"
+        "3. The service waits briefly for caption generation to start "
+        "and, for new streams, polls RTVI until the stream is visible.\n"
+        "4. If the RTSP source cannot be opened, you get a `502` with "
+        "`rtvi_stream_not_readable` — no silent late failure.\n\n"
+
+        "### When you might get blocked\n"
+        "While `POST /api/v1/realtime/replay` is running, this endpoint "
+        "returns `503 replay_in_progress`. Retry once the replay "
+        "finishes."
     ),
     responses={
-        201: {"description": "Alert rule created", "model": RealtimeAlertResponse},
-        422: {"description": "Validation error", "model": RealtimeAlertErrorResponse},
-        502: {"description": "RTVI VLM service unavailable", "model": RealtimeAlertErrorResponse},
+        201: {
+            "description": "Alert rule created successfully.",
+            "model": RealtimeAlertResponse,
+        },
+        422: {
+            "description": (
+                "Request rejected before reaching RTVI. Common causes:\n"
+                "- Invalid payload (missing field, bad RTSP URL, etc.)\n"
+                "- No VLM model resolved — neither `model` in the "
+                "request nor `rtvi_vlm.default_model` is set.\n\n"
+                "Returned with `error: validation_failed`."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
+        502: {
+            "description": (
+                "An upstream system failed. Check `error` to know which:\n"
+                "- `rtvi_vlm_unavailable` — RTVI VLM is unreachable or "
+                "rejected the request at the HTTP layer.\n"
+                "- `rtvi_stream_not_readable` — RTVI accepted the call "
+                "but the RTSP source could not be opened in time "
+                "(camera offline, bad URL, codec mismatch, ...).\n"
+                "- `rtvi_invalid_response` — RTVI accepted the stream "
+                "but did not return a stream id; the rule cannot be "
+                "managed.\n"
+                "- `elasticsearch_write_failed` — failed to persist "
+                "the rule to Elasticsearch."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
+        503: {
+            "description": (
+                "A replay is currently re-onboarding rules onto RTVI. "
+                "New rules cannot be created until it finishes. "
+                "Returned with `error: replay_in_progress`."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
     },
 )
 async def create_realtime_alert(
@@ -427,14 +482,49 @@ async def list_realtime_alerts(
     response_model=RealtimeAlertDeleteResponse,
     summary="Delete an alert rule",
     description=(
-        "Delete a real-time VLM alert rule. "
-        "Stops caption generation and removes the stream."
+        "Delete a real-time VLM alert rule.\n\n"
+        "The rule is removed from storage first, so it disappears from "
+        "list/get even if RTVI VLM is unreachable.\n\n"
+
+        "### What gets stopped\n"
+        "- Caption generation for this rule is **always** stopped.\n"
+        "- The shared RTVI stream is stopped **only** if this was the "
+        "last rule using it. If other rules still share the stream "
+        "(same `sensor_id`), it keeps running for them.\n\n"
+
+        "### When you might get blocked\n"
+        "While `POST /api/v1/realtime/replay` is running, this "
+        "endpoint returns `503 replay_in_progress`."
     ),
     responses={
         200: {"description": "Alert rule deleted", "model": RealtimeAlertDeleteResponse},
-        404: {"description": "Alert rule not found", "model": RealtimeAlertErrorResponse},
-        422: {"description": "Invalid UUID format", "model": RealtimeAlertErrorResponse},
-        502: {"description": "RTVI VLM service unavailable", "model": RealtimeAlertErrorResponse},
+        404: {
+            "description": "Alert rule not found (`not_found`).",
+            "model": RealtimeAlertErrorResponse,
+        },
+        422: {
+            "description": "Invalid UUID format",
+            "model": RealtimeAlertErrorResponse,
+        },
+        502: {
+            "description": (
+                "Upstream failure. Possible `error` codes: "
+                "`elasticsearch_query_failed` (failed to read the rule "
+                "before delete), `elasticsearch_write_failed` (failed "
+                "to delete the rule). RTVI teardown failures are "
+                "logged but do not surface as 502 — they leave the "
+                "stream as a tracked orphan."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
+        503: {
+            "description": (
+                "Replay in progress — rule deletion is gated until "
+                "`POST /api/v1/realtime/replay` finishes (error code "
+                "`replay_in_progress`)."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
     },
 )
 async def delete_realtime_alert(
@@ -551,12 +641,27 @@ async def replay_realtime_alerts(
     "/{alert_rule_id}",
     response_model=RealtimeAlertGetResponse,
     summary="Get a single alert rule",
-    description="Retrieve a single real-time VLM alert rule by ID.",
+    description=(
+        "Retrieve a single real-time VLM alert rule by ID. "
+        "Reads from Elasticsearch when persistence is enabled, "
+        "otherwise from the in-memory registry."
+    ),
     responses={
         200: {"description": "Alert rule", "model": RealtimeAlertGetResponse},
-        404: {"description": "Alert rule not found", "model": RealtimeAlertErrorResponse},
-        422: {"description": "Invalid UUID format", "model": RealtimeAlertErrorResponse},
-        502: {"description": "Elasticsearch unavailable", "model": RealtimeAlertErrorResponse},
+        404: {
+            "description": "Alert rule not found (`not_found`).",
+            "model": RealtimeAlertErrorResponse,
+        },
+        422: {
+            "description": "Invalid UUID format",
+            "model": RealtimeAlertErrorResponse,
+        },
+        502: {
+            "description": (
+                "Elasticsearch query failed (`elasticsearch_query_failed`)."
+            ),
+            "model": RealtimeAlertErrorResponse,
+        },
     },
 )
 async def get_realtime_alert(

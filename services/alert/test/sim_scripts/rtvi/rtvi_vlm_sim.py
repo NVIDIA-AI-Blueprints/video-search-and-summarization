@@ -18,6 +18,7 @@ RTVI VLM Simulator for functional tests.
 
 Mocks the RTVI VLM microservice endpoints used by RealtimeAlertService:
   POST   /v1/streams/add                     — add a stream
+  GET    /v1/streams/get-stream-info         — list registered streams
   DELETE /v1/streams/delete/{stream_id}      — remove a stream
   POST   /v1/generate_captions               — start caption generation
   DELETE /v1/generate_captions/{stream_id}   — stop caption generation
@@ -44,6 +45,13 @@ def create_app():
 
     call_log = []
     call_log_lock = threading.Lock()
+
+    # In-memory stream registry: stream_id -> entry dict matching the
+    # shape RTVI returns. Keeps ``streams_add`` and ``get-stream-info``
+    # in sync so functional tests can verify the realtime service's
+    # reuse logic against a state that mirrors a real RTVI deployment.
+    streams_registry = {}
+    streams_registry_lock = threading.Lock()
 
     # {endpoint_key: {"status_code": int, "body": dict}}
     faults = {}
@@ -93,14 +101,34 @@ def create_app():
 
         streams = body.get("streams", [])
         results = []
-        for s in streams:
-            stream_id = s.get("id") or str(uuid.uuid4())
-            results.append({
-                "id": stream_id,
-                "liveStreamUrl": s.get("liveStreamUrl", ""),
-                "status": "added",
-            })
+        with streams_registry_lock:
+            for s in streams:
+                stream_id = s.get("id") or str(uuid.uuid4())
+                entry = {
+                    "id": stream_id,
+                    "liveStreamUrl": s.get("liveStreamUrl", ""),
+                    "description": s.get("description", ""),
+                    "sensor_name": s.get("sensor_name"),
+                }
+                streams_registry[stream_id] = entry
+                results.append({
+                    "id": stream_id,
+                    "liveStreamUrl": entry["liveStreamUrl"],
+                    "status": "added",
+                })
         return jsonify({"results": results, "errors": []})
+
+    @app.route("/v1/streams/get-stream-info", methods=["GET"])
+    def streams_get_info():
+        record_call("GET", "/v1/streams/get-stream-info")
+
+        fault = check_fault("get_stream_info")
+        if fault:
+            return jsonify(fault["body"]), fault["status_code"]
+
+        with streams_registry_lock:
+            results = list(streams_registry.values())
+        return jsonify({"results": results})
 
     @app.route("/v1/streams/delete/<stream_id>", methods=["DELETE"])
     def streams_delete(stream_id):
@@ -110,6 +138,8 @@ def create_app():
         if fault:
             return jsonify(fault["body"]), fault["status_code"]
 
+        with streams_registry_lock:
+            streams_registry.pop(stream_id, None)
         return jsonify({"status": "deleted", "stream_id": stream_id})
 
     @app.route("/v1/generate_captions", methods=["POST"])

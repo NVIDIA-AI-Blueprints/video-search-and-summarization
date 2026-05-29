@@ -84,9 +84,52 @@ except ImportError:
 
 
 _INTERNAL_FIELDS = frozenset({
-    "rtvi_stream_id", "previous_rtvi_stream_id",
+    "rtvi_stream_id", "previous_rtvi_stream_id", "owns_rtvi_stream",
     "_id", "_index", "_seq_no", "_primary_term",
 })
+
+
+class _StreamReadinessError(Exception):
+    """Raised by :meth:`_wait_stream_ready` when the captions task fails
+    *after* the initial ack window — i.e. during the get-stream-info
+    readiness probe. Lets the caller distinguish "RTVI rejected the
+    request outright" (ack-phase ``httpx.HTTPError`` propagates as-is)
+    from "RTVI accepted the call but the stream itself isn't readable"
+    so the two cases can map to ``RTVI_VLM_UNAVAILABLE`` vs
+    ``RTVI_STREAM_NOT_READABLE`` respectively.
+    """
+
+    def __init__(self, cause: BaseException):
+        super().__init__(str(cause))
+        self.cause = cause
+
+
+class _StreamIdentityConflict(Exception):
+    """Raised by :meth:`_resolve_or_add_stream` when the existing RTVI
+    stream registered under ``sensor_id`` points at a different
+    ``liveStreamUrl`` than the request asks for.
+
+    Reusing such a stream would silently bind the new rule to an
+    unrelated camera while persisting the *requested* URL on the rule
+    document, and a later last-reader delete could tear down a stream
+    this service never created. Surface the mismatch as a 409 so the
+    caller can either pick a fresh ``sensor_id`` or reconcile with the
+    existing registration.
+    """
+
+    def __init__(
+        self,
+        *,
+        sensor_id: str,
+        requested_url: str,
+        existing_url: str,
+    ) -> None:
+        super().__init__(
+            "sensor_id is already registered with a different stream URL"
+        )
+        self.sensor_id = sensor_id
+        self.requested_url = requested_url
+        self.existing_url = existing_url
 
 
 def _observe(histogram, method: str, duration: float) -> None:
@@ -137,20 +180,36 @@ class RealtimeAlertService:
     Lifecycle of ``start_alert`` (persistent path):
 
     1. Write the rule to Elasticsearch with ``status=pending``.
-    2. Add the live stream to RTVI VLM (``/streams/add``).
-       On failure → delete the ES record → return 502.
-    3. Verify RTVI returned a stream id.
-       On failure → delete the ES record → return 502.
-    4. Trigger caption generation and await the ack window.  If the
-       initial HTTP call fails → mark ES ``FAILED``, stop stream → 502.
-    4b. If the ack window times out (streaming mode) and
-       ``stream_readiness_timeout > 0``, hold the response open for
-       up to ``stream_readiness_timeout`` additional seconds.  If the
-       captions task fails during this window → mark ES ``FAILED``,
-       stop stream → 502.  Total worst-case latency is
-       ``captions_ack_timeout + stream_readiness_timeout`` (12 s default).
-    5. Update the ES record with ``rtvi_stream_id`` and ``status=active``.
-    6. Commit the rule to the in-memory registry and return 201.
+    2. Resolve the RTVI stream via :meth:`_resolve_or_add_stream`. When
+       the request carries a ``sensor_id``, ``GET /streams/get-stream-info``
+       is consulted first and a matching registration (``id == sensor_id``)
+       is reused — no new ``/streams/add`` is issued. The
+       ``owns_rtvi_stream`` flag records whether this rule was the one
+       that added the stream and is preserved as diagnostic metadata.
+       On RTVI HTTP error → delete the ES record → return 502.
+       On missing stream id → delete the ES record → return 502.
+    3. Trigger caption generation and call :meth:`_wait_stream_ready`,
+       which waits up to ``captions_ack_timeout`` for the initial HTTP
+       ack and — for newly-added streams only — polls
+       ``GET /streams/get-stream-info`` every
+       ``stream_readiness_poll_interval`` seconds (capped at
+       ``stream_readiness_max_wait``) to confirm the stream is visible.
+       Reused streams skip the probe entirely.
+       Ack-phase ``httpx.HTTPError`` → ``RTVI_VLM_UNAVAILABLE`` 502;
+       readiness-phase failure → ``RTVI_STREAM_NOT_READABLE`` 502.
+    4. Update the ES record with ``rtvi_stream_id``, ``status=active``,
+       and the resolved ``owns_rtvi_stream`` flag.
+    5. Commit the rule to the in-memory registry and return 201.
+
+    Lifecycle of ``stop_alert`` uses live ref-count semantics: after
+    deleting the rule from ES / the in-memory registry, count *other*
+    rules referencing the same ``rtvi_stream_id``. If the count is
+    zero the deleted rule was the last reader, so both
+    ``stop_captions`` and ``stop_stream`` fire. Otherwise only
+    ``stop_captions`` runs so siblings keep streaming. The same logic
+    applies to background ``_cleanup_failed_rule`` calls; ``start_alert``
+    rollbacks additionally include ``PENDING`` rules in the count so a
+    concurrent in-flight create isn't accidentally torn down.
     """
 
     def __init__(
@@ -168,9 +227,25 @@ class RealtimeAlertService:
         timeout = rtvi_cfg.get("timeout", 30)
         self._default_model = rtvi_cfg.get("default_model", "")
         self._captions_ack_timeout = rtvi_cfg.get("captions_ack_timeout", 2.0)
-        self._stream_readiness_timeout = rtvi_cfg.get(
-            "stream_readiness_timeout", 10.0,
+        # Readiness now polls ``/streams/get-stream-info`` (cheap GET) instead
+        # of holding the response open for the full caption-task ack window.
+        # ``stream_readiness_max_wait`` caps the total polling time; the loop
+        # sleeps ``stream_readiness_poll_interval`` between probes. Defaults
+        # are tuned so a healthy stream confirms in well under a second while
+        # an unreachable RTVI fails fast.
+        self._stream_readiness_poll_interval = rtvi_cfg.get(
+            "stream_readiness_poll_interval", 0.5,
         )
+        self._stream_readiness_max_wait = rtvi_cfg.get(
+            "stream_readiness_max_wait", 2.0,
+        )
+        # ``stream_readiness_timeout`` is deprecated — kept only so existing
+        # configs don't fail to load. The polling helper ignores it.
+        if "stream_readiness_timeout" in rtvi_cfg:
+            logger.warning(
+                "rtvi_vlm.stream_readiness_timeout is deprecated and ignored; "
+                "use stream_readiness_max_wait + stream_readiness_poll_interval"
+            )
 
         self._client = RTVIVLMClient(base_url=base_url, timeout=timeout)
         self._rule_store = rule_store
@@ -183,12 +258,30 @@ class RealtimeAlertService:
         # has not yet aborted — lets the create path detect and undo a racing
         # ES ACTIVE write before committing the rule to _rules.
         self._readiness_failed_ids: Set[str] = set()
+        # In-flight create refs keyed by ``rtvi_stream_id`` → set of
+        # ``alert_rule_id`` currently mid-create on that stream. Populated
+        # right after :meth:`_resolve_or_add_stream` returns and cleared
+        # once the rule has been durably committed (or fully rolled back).
+        # Bridges the gap left by ``_build_rule_doc`` writing the PENDING
+        # ES row before ``rtvi_stream_id`` is known: rollback paths use
+        # this set to recognise concurrent siblings reusing the same
+        # stream, so a rolling-back owner can't tear the stream out from
+        # under a sibling that hasn't yet reached the ACTIVE update.
+        self._pending_stream_refs: Dict[str, Set[str]] = {}
         # Async callbacks invoked when a rule is permanently removed by
         # readiness cleanup or a late caption-task failure.  Each is called
         # with the alert_rule_id string.
         self._rule_removed_callbacks: List[Callable[[str], Coroutine[Any, Any, None]]] = []
         self._replay_lock = asyncio.Lock()
         self._replaying: bool = False
+        # Per-``sensor_id`` locks serialise the get-stream-info → maybe add
+        # critical section so concurrent ``start_alert`` calls (notably the
+        # always-on fan-out which fires N rules per camera in parallel) can't
+        # race past the existence check and each issue their own
+        # ``/streams/add`` for the same ``sensor_id``. The dict itself is
+        # protected by ``self._lock`` because Python dict mutation isn't
+        # async-safe even though each lookup is O(1).
+        self._sensor_locks: Dict[str, asyncio.Lock] = {}
 
         logger.info(
             "RealtimeAlertService initialized",
@@ -197,7 +290,8 @@ class RealtimeAlertService:
                 "default_model": self._default_model,
                 "persistent": rule_store is not None,
                 "captions_ack_timeout": self._captions_ack_timeout,
-                "stream_readiness_timeout": self._stream_readiness_timeout,
+                "stream_readiness_poll_interval": self._stream_readiness_poll_interval,
+                "stream_readiness_max_wait": self._stream_readiness_max_wait,
             },
         )
 
@@ -298,13 +392,22 @@ class RealtimeAlertService:
         # ``sensor_name`` may be ``None`` (legacy ES doc) — the RTVI
         # client tolerates that by forwarding ``null`` and letting RTVI
         # apply its own defaults.
+        #
+        # Routes through :meth:`_resolve_or_add_stream` so a partial
+        # earlier replay that already pushed the stream to RTVI is
+        # detected via ``GET /streams/get-stream-info`` and reused
+        # instead of re-issuing ``/streams/add`` (which would mint a
+        # second registration for the same id and leak the original).
+        replay_ctx: Dict[str, Any] = {
+            "alert_rule_id": rule_id,
+            "alert_type": config.alert_type,
+            "correlation_id": correlation_id,
+            "stage": "replay_rule",
+        }
         try:
-            rtvi_resp = await self._client.start_stream(
-                self._build_start_stream_payload(config)
+            rtvi_stream_id, owns_stream = await self._resolve_or_add_stream(
+                config, replay_ctx,
             )
-            rtvi_stream_id = self._extract_stream_id(rtvi_resp)
-            if not rtvi_stream_id:
-                raise RuntimeError("RTVI returned no stream id")
         except Exception:
             # start_stream failed or returned no usable stream id.
             # Mark the ES record FAILED so it doesn't remain ACTIVE/PENDING
@@ -314,105 +417,56 @@ class RealtimeAlertService:
                 asyncio.create_task(cb(rule_id))
             raise
 
-        replay_ctx = {
-            "alert_rule_id": rule_id,
-            "rtvi_stream_id": rtvi_stream_id,
-            "correlation_id": correlation_id,
-            "stage": "replay_rule",
-        }
+        replay_ctx["rtvi_stream_id"] = rtvi_stream_id
+        replay_ctx["owns_stream"] = owns_stream
 
-        t0 = time.monotonic()
-        captions_task = asyncio.create_task(
-            self._client.generate_captions(
-                stream_id=rtvi_stream_id,
-                prompt=config.prompt,
-                model=model,
-                system_prompt=config.system_prompt,
-                chunk_duration=config.chunk_duration,
-                chunk_overlap_duration=config.chunk_overlap_duration,
-                alert_category=config.alert_type,
-                num_frames_per_second_or_fixed_frames_chunk=config.num_frames_per_second_or_fixed_frames_chunk,
-                use_fps_for_chunking=config.use_fps_for_chunking,
-                vlm_input_width=config.vlm_input_width,
-                vlm_input_height=config.vlm_input_height,
-                enable_reasoning=config.enable_reasoning,
-                api_type=config.api_type,
-                response_format=config.response_format,
-                stream_options=config.stream_options,
-                max_tokens=config.max_tokens,
-                temperature=config.temperature,
-                top_p=config.top_p,
-                top_k=config.top_k,
-                ignore_eos=config.ignore_eos,
-                seed=config.seed,
-                media_info=config.media_info,
-                enable_audio=config.enable_audio,
-                mm_processor_kwargs=config.mm_processor_kwargs,
-            )
-        )
+        # Replay re-onboards rules in parallel via ``asyncio.gather``,
+        # so the same in-flight race that ``start_alert`` guards against
+        # applies here: register the pending stream ref before
+        # ``generate_captions`` so a sibling rolling back can see us.
+        self._register_pending_stream_ref(rtvi_stream_id, rule_id)
         try:
-            await asyncio.wait_for(
-                asyncio.shield(captions_task), timeout=self._captions_ack_timeout,
+            captions_task = asyncio.create_task(
+                self._client.generate_captions(
+                    stream_id=rtvi_stream_id,
+                    prompt=config.prompt,
+                    model=model,
+                    system_prompt=config.system_prompt,
+                    chunk_duration=config.chunk_duration,
+                    chunk_overlap_duration=config.chunk_overlap_duration,
+                    alert_category=config.alert_type,
+                    num_frames_per_second_or_fixed_frames_chunk=config.num_frames_per_second_or_fixed_frames_chunk,
+                    use_fps_for_chunking=config.use_fps_for_chunking,
+                    vlm_input_width=config.vlm_input_width,
+                    vlm_input_height=config.vlm_input_height,
+                    enable_reasoning=config.enable_reasoning,
+                    api_type=config.api_type,
+                    response_format=config.response_format,
+                    stream_options=config.stream_options,
+                    max_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    top_k=config.top_k,
+                    ignore_eos=config.ignore_eos,
+                    seed=config.seed,
+                    media_info=config.media_info,
+                    enable_audio=config.enable_audio,
+                    mm_processor_kwargs=config.mm_processor_kwargs,
+                )
             )
-        except asyncio.TimeoutError:
-            # Streaming mode — wait inline so the rule is only marked ACTIVE
-            # after the stream survives the readiness window.
-            if self._stream_readiness_timeout > 0:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.shield(captions_task),
-                        timeout=self._stream_readiness_timeout,
-                    )
-                    _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-                    logger.info(
-                        "Caption generation completed during replay readiness window",
-                        extra=replay_ctx,
-                    )
-                except asyncio.TimeoutError:
-                    logger.info(
-                        "Replay stream survived readiness window (%ss) without error — "
-                        "not a positive readiness signal; late failures still possible",
-                        self._captions_ack_timeout + self._stream_readiness_timeout,
-                        extra=replay_ctx,
-                    )
-                except httpx.HTTPError as readiness_exc:
-                    _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-                    _inc_failure(RTVI_CALL_FAILURES, "generate_captions")
-                    _inc_stage_failure(REALTIME_RULES_FAILED, "stream_readiness")
-                    logger.error(
-                        "Stream failed readiness check during replay — rolling back",
-                        extra={
-                            **replay_ctx,
-                            "error": str(readiness_exc),
-                            "error_type": type(readiness_exc).__name__,
-                            "outcome": "stream_readiness_failed",
-                        },
-                    )
-                    self._readiness_cleaned_streams.add(rtvi_stream_id)
-                    await self._safe_stop_stream(rtvi_stream_id)
-                    await self._mark_rule_failed(rule_id)
-                    for cb in self._rule_removed_callbacks:
-                        asyncio.create_task(cb(rule_id))
-                    raise
-                except Exception as readiness_exc:
-                    _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-                    _inc_stage_failure(REALTIME_RULES_FAILED, "stream_readiness_crash")
-                    logger.error(
-                        "Caption task crashed during replay readiness check — rolling back",
-                        extra={
-                            **replay_ctx,
-                            "error": str(readiness_exc),
-                            "error_type": type(readiness_exc).__name__,
-                            "outcome": "stream_readiness_crash",
-                        },
-                        exc_info=True,
-                    )
-                    self._readiness_cleaned_streams.add(rtvi_stream_id)
-                    await self._safe_stop_stream(rtvi_stream_id)
-                    await self._mark_rule_failed(rule_id)
-                    for cb in self._rule_removed_callbacks:
-                        asyncio.create_task(cb(rule_id))
-                    raise
+            try:
+                await self._wait_stream_ready(
+                    captions_task, rtvi_stream_id, owns_stream, replay_ctx,
+                )
+            except Exception:
+                self._readiness_cleaned_streams.add(rtvi_stream_id)
+                await self._maybe_stop_stream_on_rollback(
+                    rtvi_stream_id, rule_id, owns_stream, replay_ctx,
+                )
+                await self._mark_rule_failed(rule_id)
+                for cb in self._rule_removed_callbacks:
+                    asyncio.create_task(cb(rule_id))
+                raise
 
             if not captions_task.done():
                 self._caption_tasks.add(captions_task)
@@ -420,105 +474,94 @@ class RealtimeAlertService:
                 captions_task.add_done_callback(
                     lambda t, sid=rtvi_stream_id, rid=rule_id, svc=self: svc._log_caption_task_result(t, sid, rid)
                 )
-        except httpx.HTTPError as exc:
-            _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-            _inc_failure(RTVI_CALL_FAILURES, "generate_captions")
-            _inc_stage_failure(REALTIME_RULES_FAILED, "generate_captions")
-            logger.error(
-                "generate_captions failed during replay — rolling back stream",
-                extra={
-                    **replay_ctx,
-                    "error": str(exc),
-                    "error_type": type(exc).__name__,
-                    "outcome": "generate_captions_failed",
-                },
-            )
-            await self._safe_stop_stream(rtvi_stream_id)
-            await self._mark_rule_failed(rule_id)
-            for cb in self._rule_removed_callbacks:
-                asyncio.create_task(cb(rule_id))
-            raise
 
-        now_iso = datetime.now(timezone.utc).isoformat()
-        try:
-            await asyncio.to_thread(
-                self._rule_store.update, rule_id, {
-                    "rtvi_stream_id": rtvi_stream_id,
-                    "last_replay_at": now_iso,
-                    "status": RuleStatus.ACTIVE,
-                },
-            )
-        except Exception:
-            logger.error(
-                "ES update failed after starting new RTVI stream — "
-                "rolling back stream %s to avoid orphan",
-                rtvi_stream_id,
+            now_iso = datetime.now(timezone.utc).isoformat()
+            try:
+                await asyncio.to_thread(
+                    self._rule_store.update, rule_id, {
+                        "rtvi_stream_id": rtvi_stream_id,
+                        "last_replay_at": now_iso,
+                        "status": RuleStatus.ACTIVE,
+                        "owns_rtvi_stream": owns_stream,
+                    },
+                )
+            except Exception:
+                logger.error(
+                    "ES update failed after starting new RTVI stream — "
+                    "rolling back stream %s to avoid orphan",
+                    rtvi_stream_id,
+                    extra={
+                        "alert_rule_id": rule_id,
+                        "rtvi_stream_id": rtvi_stream_id,
+                        "correlation_id": correlation_id,
+                        "stage": "replay_rule",
+                        "outcome": "failure",
+                    },
+                    exc_info=True,
+                )
+                await self._maybe_stop_stream_on_rollback(
+                    rtvi_stream_id, rule_id, owns_stream, replay_ctx,
+                )
+                await self._mark_rule_failed(rule_id)
+                for cb in self._rule_removed_callbacks:
+                    asyncio.create_task(cb(rule_id))
+                raise
+
+            rule = {
+                "id": rule_id,
+                "rtvi_stream_id": rtvi_stream_id,
+                "owns_rtvi_stream": owns_stream,
+                "live_stream_url": config.live_stream_url,
+                "alert_type": config.alert_type,
+                "sensor_id": config.sensor_id,
+                "sensor_name": config.sensor_name,
+                "prompt": config.prompt,
+                "system_prompt": config.system_prompt,
+                "model": model,
+                "chunk_duration": config.chunk_duration,
+                "chunk_overlap_duration": config.chunk_overlap_duration,
+                "num_frames_per_second_or_fixed_frames_chunk": config.num_frames_per_second_or_fixed_frames_chunk,
+                "use_fps_for_chunking": config.use_fps_for_chunking,
+                "vlm_input_width": config.vlm_input_width,
+                "vlm_input_height": config.vlm_input_height,
+                "enable_reasoning": config.enable_reasoning,
+                "status": RuleStatus.ACTIVE,
+                "created_at": rule_doc.get("created_at", ""),
+            }
+            # Carry the stream-identity / location metadata into the
+            # in-memory registry too — GET /api/v1/realtime falls back to
+            # this dict when the persistent listing path isn't in use, so
+            # the same fields that survived ES must also reach the
+            # public response.
+            for _field in STREAM_IDENTITY_OPTIONAL_FIELDS:
+                _val = getattr(config, _field, None)
+                if _val is not None:
+                    rule[_field] = _val
+            for _field in EXTENDED_OPTIONAL_FIELDS:
+                _val = getattr(config, _field, None)
+                if _val is not None:
+                    rule[_field] = _val
+            with self._lock:
+                already_tracked = rule_id in self._rules
+                self._rules[rule_id] = rule
+
+            if REALTIME_RULES_ACTIVE is not None and not already_tracked:
+                REALTIME_RULES_ACTIVE.inc()
+
+            logger.info(
+                "Re-onboarded rule %s (new rtvi_stream_id=%s)", rule_id, rtvi_stream_id,
                 extra={
                     "alert_rule_id": rule_id,
                     "rtvi_stream_id": rtvi_stream_id,
+                    "alert_type": config.alert_type,
                     "correlation_id": correlation_id,
                     "stage": "replay_rule",
-                    "outcome": "failure",
+                    "outcome": "success",
                 },
-                exc_info=True,
             )
-            await self._safe_stop_stream(rtvi_stream_id)
-            await self._mark_rule_failed(rule_id)
-            for cb in self._rule_removed_callbacks:
-                asyncio.create_task(cb(rule_id))
-            raise
-
-        rule = {
-            "id": rule_id,
-            "rtvi_stream_id": rtvi_stream_id,
-            "live_stream_url": config.live_stream_url,
-            "alert_type": config.alert_type,
-            "sensor_id": config.sensor_id,
-            "sensor_name": config.sensor_name,
-            "prompt": config.prompt,
-            "system_prompt": config.system_prompt,
-            "model": model,
-            "chunk_duration": config.chunk_duration,
-            "chunk_overlap_duration": config.chunk_overlap_duration,
-            "num_frames_per_second_or_fixed_frames_chunk": config.num_frames_per_second_or_fixed_frames_chunk,
-            "use_fps_for_chunking": config.use_fps_for_chunking,
-            "vlm_input_width": config.vlm_input_width,
-            "vlm_input_height": config.vlm_input_height,
-            "enable_reasoning": config.enable_reasoning,
-            "status": RuleStatus.ACTIVE,
-            "created_at": rule_doc.get("created_at", ""),
-        }
-        # Carry the stream-identity / location metadata into the in-memory
-        # registry too — GET /api/v1/realtime falls back to this dict when
-        # the persistent listing path isn't in use, so the same fields
-        # that survived ES must also reach the public response.
-        for _field in STREAM_IDENTITY_OPTIONAL_FIELDS:
-            _val = getattr(config, _field, None)
-            if _val is not None:
-                rule[_field] = _val
-        for _field in EXTENDED_OPTIONAL_FIELDS:
-            _val = getattr(config, _field, None)
-            if _val is not None:
-                rule[_field] = _val
-        with self._lock:
-            already_tracked = rule_id in self._rules
-            self._rules[rule_id] = rule
-
-        if REALTIME_RULES_ACTIVE is not None and not already_tracked:
-            REALTIME_RULES_ACTIVE.inc()
-
-        logger.info(
-            "Re-onboarded rule %s (new rtvi_stream_id=%s)", rule_id, rtvi_stream_id,
-            extra={
-                "alert_rule_id": rule_id,
-                "rtvi_stream_id": rtvi_stream_id,
-                "alert_type": config.alert_type,
-                "correlation_id": correlation_id,
-                "stage": "replay_rule",
-                "outcome": "success",
-            },
-        )
-        return rtvi_stream_id
+            return rtvi_stream_id
+        finally:
+            self._unregister_pending_stream_ref(rtvi_stream_id, rule_id)
 
     # ------------------------------------------------------------------
     # Replay
@@ -554,7 +597,7 @@ class RealtimeAlertService:
             # 501 short-circuits never start an actual replay run, and
             # mixing them into the invocations counter inflates the
             # "real replay activity" rate that operators alert on (see
-            # Per the maintainer review, the
+            # the maintainer review).  The
             # ``replay_end`` log line below is the canonical signal
             # that a 501 short-circuit happened.
             logger.info(
@@ -579,7 +622,7 @@ class RealtimeAlertService:
             )
 
         if self._replay_lock.locked():
-            # Same rationale as the 501 path above: 409
+            # Same rationale as the 501 path above (Finding 3): 409
             # short-circuits don't represent an actual replay run, so
             # they are tracked via ``replay_end`` log lines instead of
             # the ``REPLAY_INVOCATIONS`` counter.
@@ -811,7 +854,8 @@ class RealtimeAlertService:
                 # and any failure in Steps 1–4 below will roll the
                 # row back out.  The counter fires after Step 4 so
                 # that ``…_persisted_total`` only ever counts rules
-                # that reached ACTIVE status durably.
+                # that reached ACTIVE status durably — see Finding 2
+                # in the maintainer review.
                 logger.info(
                     "Rule persisted to ES (status=pending)",
                     extra={**ctx, "stage": "post", "outcome": "persisted"},
@@ -834,15 +878,17 @@ class RealtimeAlertService:
                     message=f"Failed to persist rule to Elasticsearch: {exc}",
                 )
 
-        # ── Step 1: add stream to RTVI ────────────────────────────────
-        stream_payload = self._build_start_stream_payload(config)
-
-        t0 = time.monotonic()
+        # ── Step 1: resolve or add the RTVI stream ────────────────────
+        # ``_resolve_or_add_stream`` returns ``owns_stream=True`` when this
+        # call issued ``/streams/add`` and ``False`` when it reused an
+        # existing RTVI stream (matched by ``id == sensor_id``). The flag
+        # propagates into the rule doc so ``stop_alert`` knows whether to
+        # tear the underlying stream down on delete or only stop captions.
         try:
-            rtvi_resp = await self._client.start_stream(stream_payload)
-            _observe(RTVI_CALL_DURATION, "start_stream", time.monotonic() - t0)
+            rtvi_stream_id, owns_stream = await self._resolve_or_add_stream(
+                config, ctx,
+            )
         except httpx.HTTPError as exc:
-            _observe(RTVI_CALL_DURATION, "start_stream", time.monotonic() - t0)
             _inc_failure(RTVI_CALL_FAILURES, "start_stream")
             _inc_stage_failure(REALTIME_RULES_FAILED, "start_stream")
             logger.error(
@@ -861,18 +907,37 @@ class RealtimeAlertService:
                 error=ErrorCode.RTVI_VLM_UNAVAILABLE,
                 message=f"Failed to start realtime alert: {exc}",
             )
-
-        # ── Step 2: extract & validate stream id ──────────────────────
-        rtvi_stream_id = self._extract_stream_id(rtvi_resp)
-        if not rtvi_stream_id:
+        except _StreamIdentityConflict as conflict:
+            # Sensor id is already registered for a different live URL.
+            # Reusing it would bind this rule to the wrong camera, so
+            # roll back the PENDING ES row and tell the caller to pick
+            # a different ``sensor_id`` (or reconcile the existing
+            # registration). 409 matches the standard "your request
+            # conflicts with the current resource state" semantics.
+            await self._rollback_rule(alert_rule_id)
+            return self._error_response(
+                code=409,
+                error=ErrorCode.RTVI_STREAM_CONFLICT,
+                message=(
+                    f"sensor_id '{conflict.sensor_id}' is already "
+                    "registered with a different liveStreamUrl; refusing "
+                    "to silently reuse the existing stream. Either "
+                    "delete the existing rule using that id or pick a "
+                    "different sensor_id."
+                ),
+            )
+        except RuntimeError as exc:
+            # ``_resolve_or_add_stream`` raises this when ``/streams/add``
+            # returned 200 but no usable stream id — RTVI may have minted
+            # an orphan we can't manage.
             _inc_stage_failure(REALTIME_RULES_FAILED, "missing_stream_id")
             logger.error(
                 "RTVI start_stream returned no stream id — stream may be orphaned",
                 extra={
                     **ctx,
-                    "rtvi_response": rtvi_resp,
                     "stage": "post",
                     "outcome": "missing_stream_id",
+                    "error": str(exc),
                 },
             )
             await self._rollback_rule(alert_rule_id)
@@ -886,287 +951,230 @@ class RealtimeAlertService:
             )
 
         ctx["rtvi_stream_id"] = rtvi_stream_id
-        logger.info("RTVI stream started", extra=ctx)
+        ctx["owns_stream"] = owns_stream
 
-        # ── Step 3: trigger caption generation ────────────────────────
-        t0 = time.monotonic()
-        captions_task = asyncio.create_task(
-            self._client.generate_captions(
-                stream_id=rtvi_stream_id,
-                prompt=config.prompt,
-                model=model,
-                system_prompt=config.system_prompt,
-                chunk_duration=config.chunk_duration,
-                chunk_overlap_duration=config.chunk_overlap_duration,
-                alert_category=config.alert_type,
-                num_frames_per_second_or_fixed_frames_chunk=config.num_frames_per_second_or_fixed_frames_chunk,
-                use_fps_for_chunking=config.use_fps_for_chunking,
-                vlm_input_width=config.vlm_input_width,
-                vlm_input_height=config.vlm_input_height,
-                enable_reasoning=config.enable_reasoning,
-                api_type=config.api_type,
-                response_format=config.response_format,
-                stream_options=config.stream_options,
-                max_tokens=config.max_tokens,
-                temperature=config.temperature,
-                top_p=config.top_p,
-                top_k=config.top_k,
-                ignore_eos=config.ignore_eos,
-                seed=config.seed,
-                media_info=config.media_info,
-                enable_audio=config.enable_audio,
-                mm_processor_kwargs=config.mm_processor_kwargs,
-            )
-        )
-
+        # Track this rule as an in-flight reader of ``rtvi_stream_id``
+        # before we kick off ``generate_captions`` so a concurrent
+        # sibling rolling back can see us via
+        # :meth:`_count_other_rules_for_stream` even though our ES row
+        # is still PENDING with no ``rtvi_stream_id`` set. The
+        # corresponding unregister is in the ``finally`` block guarding
+        # Steps 2–5: by the time we leave the block the rule is either
+        # in ``self._rules`` / ES ACTIVE (so the regular ref-count
+        # finds it) or fully rolled back (so it shouldn't be counted).
+        self._register_pending_stream_ref(rtvi_stream_id, alert_rule_id)
         try:
-            await asyncio.wait_for(
-                asyncio.shield(captions_task),
-                timeout=self._captions_ack_timeout,
+            # ── Step 2: trigger caption generation ────────────────────
+            captions_task = asyncio.create_task(
+                self._client.generate_captions(
+                    stream_id=rtvi_stream_id,
+                    prompt=config.prompt,
+                    model=model,
+                    system_prompt=config.system_prompt,
+                    chunk_duration=config.chunk_duration,
+                    chunk_overlap_duration=config.chunk_overlap_duration,
+                    alert_category=config.alert_type,
+                    num_frames_per_second_or_fixed_frames_chunk=config.num_frames_per_second_or_fixed_frames_chunk,
+                    use_fps_for_chunking=config.use_fps_for_chunking,
+                    vlm_input_width=config.vlm_input_width,
+                    vlm_input_height=config.vlm_input_height,
+                    enable_reasoning=config.enable_reasoning,
+                    api_type=config.api_type,
+                    response_format=config.response_format,
+                    stream_options=config.stream_options,
+                    max_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    top_k=config.top_k,
+                    ignore_eos=config.ignore_eos,
+                    seed=config.seed,
+                    media_info=config.media_info,
+                    enable_audio=config.enable_audio,
+                    mm_processor_kwargs=config.mm_processor_kwargs,
+                )
             )
-            _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-            logger.info("Caption generation acknowledged (fast ack)", extra=ctx)
-        except asyncio.TimeoutError:
-            # Task still running — streaming mode.  Wait for the readiness
-            # window inline so the caller only sees 201 once the stream is
-            # verified.  Unreadable sources surface as 502 here instead of
-            # being cleaned up after a false-positive 201.
-            if self._stream_readiness_timeout > 0:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.shield(captions_task),
-                        timeout=self._stream_readiness_timeout,
-                    )
-                    _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-                    logger.info("Caption generation completed during readiness window", extra=ctx)
-                except asyncio.TimeoutError:
-                    logger.info(
-                        "Stream survived readiness window (%ss) without error — "
-                        "not a positive readiness signal; late failures still possible",
-                        self._captions_ack_timeout + self._stream_readiness_timeout,
-                        extra=ctx,
-                    )
-                except httpx.HTTPError as readiness_exc:
-                    _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-                    _inc_failure(RTVI_CALL_FAILURES, "generate_captions")
-                    _inc_stage_failure(REALTIME_RULES_FAILED, "stream_readiness")
-                    logger.error(
-                        "Stream failed during readiness check — rolling back",
-                        extra={
-                            **ctx,
-                            "error": str(readiness_exc),
-                            "error_type": type(readiness_exc).__name__,
-                            "stage": "post",
-                            "outcome": "stream_readiness_failed",
-                            "readiness_window_s": self._stream_readiness_timeout,
-                        },
-                    )
-                    self._readiness_cleaned_streams.add(rtvi_stream_id)
-                    await self._mark_rule_failed(alert_rule_id)
-                    await self._safe_stop_stream(rtvi_stream_id)
-                    return self._error_response(
-                        code=502,
-                        error=ErrorCode.RTVI_STREAM_NOT_READABLE,
-                        message=f"Stream failed readiness check: {readiness_exc}",
-                    )
-                except Exception as readiness_exc:
-                    _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-                    _inc_stage_failure(REALTIME_RULES_FAILED, "stream_readiness_crash")
-                    logger.error(
-                        "Caption task crashed during readiness check — rolling back",
-                        extra={
-                            **ctx,
-                            "error": str(readiness_exc),
-                            "error_type": type(readiness_exc).__name__,
-                            "stage": "post",
-                            "outcome": "stream_readiness_crash",
-                            "readiness_window_s": self._stream_readiness_timeout,
-                        },
-                        exc_info=True,
-                    )
-                    self._readiness_cleaned_streams.add(rtvi_stream_id)
-                    await self._mark_rule_failed(alert_rule_id)
-                    await self._safe_stop_stream(rtvi_stream_id)
-                    return self._error_response(
-                        code=502,
-                        error=ErrorCode.RTVI_STREAM_NOT_READABLE,
-                        message=f"Stream crashed during readiness check: {readiness_exc}",
-                    )
-            else:
-                logger.info(
-                    "Caption generation streaming (async) — readiness check disabled",
-                    extra={**ctx, "ack_timeout_s": self._captions_ack_timeout},
+
+            # ── Step 3: wait for ack / stream visibility ──────────────
+            try:
+                await self._wait_stream_ready(
+                    captions_task, rtvi_stream_id, owns_stream, ctx,
+                )
+            except httpx.HTTPError as exc:
+                # Ack-window failure: RTVI rejected ``generate_captions``
+                # at the HTTP layer. Surface as RTVI_VLM_UNAVAILABLE —
+                # the upstream is the problem, not the RTSP source.
+                await self._rollback_rule(alert_rule_id)
+                await self._maybe_stop_stream_on_rollback(
+                    rtvi_stream_id, alert_rule_id, owns_stream, ctx,
+                )
+                return self._error_response(
+                    code=502,
+                    error=ErrorCode.RTVI_VLM_UNAVAILABLE,
+                    message=f"Failed to start caption generation: {exc}",
+                )
+            except _StreamReadinessError as readiness_exc:
+                # Readiness-phase failure: RTVI accepted the call but
+                # the captions task crashed mid-stream (typical cause:
+                # GStreamer could not open the RTSP source). Map to
+                # ``RTVI_STREAM_NOT_READABLE`` so SDR can react to it.
+                self._readiness_cleaned_streams.add(rtvi_stream_id)
+                await self._mark_rule_failed(alert_rule_id)
+                await self._maybe_stop_stream_on_rollback(
+                    rtvi_stream_id, alert_rule_id, owns_stream, ctx,
+                )
+                return self._error_response(
+                    code=502,
+                    error=ErrorCode.RTVI_STREAM_NOT_READABLE,
+                    message=(
+                        f"Stream failed readiness check: {readiness_exc.cause}"
+                    ),
                 )
 
+            # Register the captions task for late-failure cleanup.
+            # Skipped when the task already finished inside the
+            # ack/readiness window (no need for a done callback if
+            # it's already done).
             if not captions_task.done():
                 self._caption_tasks.add(captions_task)
                 captions_task.add_done_callback(self._caption_tasks.discard)
                 captions_task.add_done_callback(
                     lambda t, sid=rtvi_stream_id, rid=alert_rule_id, svc=self: svc._log_caption_task_result(t, sid, rid)
                 )
-            elif captions_task.exception() is not None:
-                post_window_exc = captions_task.exception()
-                _inc_stage_failure(REALTIME_RULES_FAILED, "stream_readiness_post_window")
-                logger.error(
-                    "Caption task failed immediately after readiness window — rolling back",
-                    extra={
-                        **ctx,
-                        "error": str(post_window_exc),
-                        "error_type": type(post_window_exc).__name__,
-                        "stage": "post",
-                        "outcome": "stream_readiness_post_window",
-                    },
-                )
-                self._readiness_cleaned_streams.add(rtvi_stream_id)
-                await self._mark_rule_failed(alert_rule_id)
-                await self._safe_stop_stream(rtvi_stream_id)
-                return self._error_response(
-                    code=502,
-                    error=ErrorCode.RTVI_STREAM_NOT_READABLE,
-                    message=f"Stream failed immediately after readiness window: {post_window_exc}",
-                )
-        except httpx.HTTPError as exc:
-            _observe(RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0)
-            _inc_failure(RTVI_CALL_FAILURES, "generate_captions")
-            _inc_stage_failure(REALTIME_RULES_FAILED, "generate_captions")
-            logger.error(
-                "generate_captions failed — rolling back stream",
-                extra={
-                    **ctx,
-                    "error": str(exc),
-                    "error_type": type(exc).__name__,
-                    "stage": "post",
-                    "outcome": "generate_captions_failed",
-                },
-            )
-            await self._rollback_rule(alert_rule_id)
-            await self._safe_stop_stream(rtvi_stream_id)
-            return self._error_response(
-                code=502,
-                error=ErrorCode.RTVI_VLM_UNAVAILABLE,
-                message=f"Failed to start caption generation: {exc}",
-            )
 
-        # ── Step 4: update ES with rtvi_stream_id ─────────────────────
-        if self._rule_store is not None:
-            try:
-                await asyncio.to_thread(
-                    self._rule_store.update,
-                    alert_rule_id,
-                    {"rtvi_stream_id": rtvi_stream_id, "status": RuleStatus.ACTIVE},
-                )
-                # End-to-end durable success: the rule has both an
-                # ACTIVE row in ES and a live RTVI stream.  This is
-                # the earliest point at which the rule will survive a
-                # process restart unmodified, so it is the correct
-                # spot to increment ``REALTIME_RULES_PERSISTED`` —
-                # rolled-back PENDING rows from Steps 1–3 must not
-                # inflate the counter.
-                _inc(REALTIME_RULES_PERSISTED)
-                logger.info("ES rule updated with rtvi_stream_id (status=active)", extra=ctx)
-                await self._refresh_rules_count_gauge()
-            except Exception as exc:
-                logger.error(
-                    "Failed to update rule in ES after RTVI success — rolling back",
-                    extra={
-                        **ctx,
-                        "error": str(exc),
-                        "error_type": type(exc).__name__,
-                        "stage": "post",
-                        "outcome": "es_update_failed",
-                    },
-                )
-                _inc_stage_failure(REALTIME_RULES_FAILED, "es_update")
-                await self._safe_stop_stream(rtvi_stream_id)
-                await self._rollback_rule(alert_rule_id)
-                return self._error_response(
-                    code=502,
-                    error=ErrorCode.ELASTICSEARCH_WRITE_FAILED,
-                    message=f"Failed to update rule in Elasticsearch: {exc}",
-                )
-
-        # ── Readiness-failure guard ────────────────────────────────────
-        # The background readiness monitor may have fired and called
-        # _cleanup_failed_rule while we were awaiting the ES update above,
-        # potentially racing with (and losing to) our ACTIVE write.  Detect
-        # this and undo: mark ES FAILED and abort before committing to _rules.
-        if alert_rule_id in self._readiness_failed_ids:
-            self._readiness_failed_ids.discard(alert_rule_id)
-            logger.warning(
-                "Readiness failure detected after ES commit — marking rule failed and aborting",
-                extra={**ctx, "stage": "post", "outcome": "readiness_failed_after_es_commit"},
-            )
-            _inc_stage_failure(REALTIME_RULES_FAILED, "stream_readiness_post_commit")
+            # ── Step 4: update ES with rtvi_stream_id ─────────────────
             if self._rule_store is not None:
                 try:
                     await asyncio.to_thread(
                         self._rule_store.update,
                         alert_rule_id,
-                        {"status": RuleStatus.FAILED, "rtvi_stream_id": None},
+                        {
+                            "rtvi_stream_id": rtvi_stream_id,
+                            "status": RuleStatus.ACTIVE,
+                            "owns_rtvi_stream": owns_stream,
+                        },
                     )
-                except Exception:
-                    logger.exception(
-                        "Failed to mark rule as failed in ES after post-commit readiness failure",
-                        extra={"alert_rule_id": alert_rule_id},
+                    # End-to-end durable success: the rule has both an
+                    # ACTIVE row in ES and a live RTVI stream.  This is
+                    # the earliest point at which the rule will survive
+                    # a process restart unmodified, so it is the correct
+                    # spot to increment ``REALTIME_RULES_PERSISTED`` —
+                    # rolled-back PENDING rows from Steps 1–3 must not
+                    # inflate the counter (Finding 2).
+                    _inc(REALTIME_RULES_PERSISTED)
+                    logger.info("ES rule updated with rtvi_stream_id (status=active)", extra=ctx)
+                    await self._refresh_rules_count_gauge()
+                except Exception as exc:
+                    logger.error(
+                        "Failed to update rule in ES after RTVI success — rolling back",
+                        extra={
+                            **ctx,
+                            "error": str(exc),
+                            "error_type": type(exc).__name__,
+                            "stage": "post",
+                            "outcome": "es_update_failed",
+                        },
                     )
-            return self._error_response(
-                code=502,
-                error=ErrorCode.RTVI_STREAM_NOT_READABLE,
-                message="Stream failed readiness check during rule creation",
+                    _inc_stage_failure(REALTIME_RULES_FAILED, "es_update")
+                    # Drop the ES row first so the ref-count below
+                    # excludes this rule, then tear the stream down
+                    # only if no other rule was racing alongside us
+                    # for the same stream id.
+                    await self._rollback_rule(alert_rule_id)
+                    await self._maybe_stop_stream_on_rollback(
+                        rtvi_stream_id, alert_rule_id, owns_stream, ctx,
+                    )
+                    return self._error_response(
+                        code=502,
+                        error=ErrorCode.ELASTICSEARCH_WRITE_FAILED,
+                        message=f"Failed to update rule in Elasticsearch: {exc}",
+                    )
+
+            # ── Readiness-failure guard ────────────────────────────────
+            # The background readiness monitor may have fired and called
+            # _cleanup_failed_rule while we were awaiting the ES update
+            # above, potentially racing with (and losing to) our ACTIVE
+            # write. Detect this and undo: mark ES FAILED and abort
+            # before committing to _rules.
+            if alert_rule_id in self._readiness_failed_ids:
+                self._readiness_failed_ids.discard(alert_rule_id)
+                logger.warning(
+                    "Readiness failure detected after ES commit — marking rule failed and aborting",
+                    extra={**ctx, "stage": "post", "outcome": "readiness_failed_after_es_commit"},
+                )
+                _inc_stage_failure(REALTIME_RULES_FAILED, "stream_readiness_post_commit")
+                if self._rule_store is not None:
+                    try:
+                        await asyncio.to_thread(
+                            self._rule_store.update,
+                            alert_rule_id,
+                            {"status": RuleStatus.FAILED, "rtvi_stream_id": None},
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to mark rule as failed in ES after post-commit readiness failure",
+                            extra={"alert_rule_id": alert_rule_id},
+                        )
+                return self._error_response(
+                    code=502,
+                    error=ErrorCode.RTVI_STREAM_NOT_READABLE,
+                    message="Stream failed readiness check during rule creation",
+                )
+
+            # ── Step 5: commit rule to in-memory registry ─────────────
+            rule = {
+                "id": alert_rule_id,
+                "rtvi_stream_id": rtvi_stream_id,
+                "owns_rtvi_stream": owns_stream,
+                "sensor_id": config.sensor_id,
+                "sensor_name": config.sensor_name,
+                "live_stream_url": config.live_stream_url,
+                "alert_type": config.alert_type,
+                "prompt": config.prompt,
+                "system_prompt": config.system_prompt,
+                "model": model,
+                "chunk_duration": config.chunk_duration,
+                "chunk_overlap_duration": config.chunk_overlap_duration,
+                "num_frames_per_second_or_fixed_frames_chunk": config.num_frames_per_second_or_fixed_frames_chunk,
+                "use_fps_for_chunking": config.use_fps_for_chunking,
+                "vlm_input_width": config.vlm_input_width,
+                "vlm_input_height": config.vlm_input_height,
+                "enable_reasoning": config.enable_reasoning,
+                "status": RuleStatus.ACTIVE,
+                "created_at": created_at,
+            }
+            # Include optional stream-identity / location fields only
+            # when set — keeps the in-memory listing aligned with the
+            # persistent ES doc (which also omits None via _build_rule_doc).
+            for _field in STREAM_IDENTITY_OPTIONAL_FIELDS:
+                _val = getattr(config, _field, None)
+                if _val is not None:
+                    rule[_field] = _val
+            # Include optional extended fields only when set.
+            for _field in EXTENDED_OPTIONAL_FIELDS:
+                _val = getattr(config, _field, None)
+                if _val is not None:
+                    rule[_field] = _val
+            with self._lock:
+                self._rules[alert_rule_id] = rule
+
+            if REALTIME_RULES_CREATED is not None:
+                REALTIME_RULES_CREATED.inc()
+            if REALTIME_RULES_ACTIVE is not None:
+                REALTIME_RULES_ACTIVE.inc()
+
+            logger.info(
+                "Realtime alert rule created",
+                extra={**ctx, "stage": "post", "outcome": "success"},
             )
 
-        # ── Step 5: commit rule to in-memory registry ─────────────────
-        rule = {
-            "id": alert_rule_id,
-            "rtvi_stream_id": rtvi_stream_id,
-            "sensor_id": config.sensor_id,
-            "sensor_name": config.sensor_name,
-            "live_stream_url": config.live_stream_url,
-            "alert_type": config.alert_type,
-            "prompt": config.prompt,
-            "system_prompt": config.system_prompt,
-            "model": model,
-            "chunk_duration": config.chunk_duration,
-            "chunk_overlap_duration": config.chunk_overlap_duration,
-            "num_frames_per_second_or_fixed_frames_chunk": config.num_frames_per_second_or_fixed_frames_chunk,
-            "use_fps_for_chunking": config.use_fps_for_chunking,
-            "vlm_input_width": config.vlm_input_width,
-            "vlm_input_height": config.vlm_input_height,
-            "enable_reasoning": config.enable_reasoning,
-            "status": RuleStatus.ACTIVE,
-            "created_at": created_at,
-        }
-        # Include optional stream-identity / location fields only when set —
-        # keeps the in-memory listing aligned with the persistent ES doc
-        # (which also omits None values via _build_rule_doc).
-        for _field in STREAM_IDENTITY_OPTIONAL_FIELDS:
-            _val = getattr(config, _field, None)
-            if _val is not None:
-                rule[_field] = _val
-        # Include optional extended fields only when set
-        for _field in EXTENDED_OPTIONAL_FIELDS:
-            _val = getattr(config, _field, None)
-            if _val is not None:
-                rule[_field] = _val
-        with self._lock:
-            self._rules[alert_rule_id] = rule
-
-        if REALTIME_RULES_CREATED is not None:
-            REALTIME_RULES_CREATED.inc()
-        if REALTIME_RULES_ACTIVE is not None:
-            REALTIME_RULES_ACTIVE.inc()
-
-        logger.info(
-            "Realtime alert rule created",
-            extra={**ctx, "stage": "post", "outcome": "success"},
-        )
-
-        return {
-            "status": ResponseStatus.SUCCESS,
-            "id": alert_rule_id,
-            "created_at": created_at,
-            "message": "Realtime alert rule created",
-        }, 201
+            return {
+                "status": ResponseStatus.SUCCESS,
+                "id": alert_rule_id,
+                "created_at": created_at,
+                "message": "Realtime alert rule created",
+            }, 201
+        finally:
+            self._unregister_pending_stream_ref(rtvi_stream_id, alert_rule_id)
 
     async def stop_alert(
         self,
@@ -1261,7 +1269,13 @@ class RealtimeAlertService:
             )
 
         rtvi_stream_id = rule.get("rtvi_stream_id")
+        # ``owns_rtvi_stream`` is preserved as a diagnostic ("did this rule
+        # originally add the stream?") but the actual stop_stream decision
+        # below uses the live ref-count so a reuse rule that turns out to
+        # be the *last* reader still cleans the stream up.
+        owns_stream = rule.get("owns_rtvi_stream", True)
         ctx["rtvi_stream_id"] = rtvi_stream_id
+        ctx["owns_stream"] = owns_stream
 
         # Step 1: delete the durable record so the rule is gone from the
         # user's perspective regardless of what happens with RTVI.
@@ -1311,13 +1325,22 @@ class RealtimeAlertService:
             REALTIME_RULES_ACTIVE.dec()
         await self._refresh_rules_count_gauge()
 
-        # Step 2: best-effort RTVI teardown (matches in-memory path behavior).
-        # Track outcome so the summary log line distinguishes "full" delete
-        # (ES + RTVI both clean) from "partial" (ES gone, RTVI orphaned).
+        # Step 2: best-effort RTVI teardown driven by the live ref-count.
+        # Count *other* rules that still reference the same stream id; if
+        # this is the last reader, also call ``/streams/delete`` so the
+        # RTVI stream is removed too. Otherwise leave it running for the
+        # remaining sharers and only stop captions for this rule's
+        # session.  Track outcome so the summary log line distinguishes
+        # "full" delete (ES + RTVI both clean) from "partial" (ES gone,
+        # RTVI orphaned).
         rtvi_outcome = "n/a"
         if rtvi_stream_id:
+            other_count = await self._count_other_rules_for_stream(
+                rtvi_stream_id, alert_rule_id,
+            )
+            ctx["other_active_rules"] = other_count
             rtvi_outcome = await self._safe_teardown_rtvi_with_outcome(
-                rtvi_stream_id, ctx,
+                rtvi_stream_id, ctx, stop_stream=(other_count == 0),
             )
 
         delete_outcome = "success" if rtvi_outcome in ("success", "n/a") else "partial"
@@ -1423,13 +1446,25 @@ class RealtimeAlertService:
             )
 
         rtvi_stream_id = rule.get("rtvi_stream_id")
-        ctx = {"alert_rule_id": alert_rule_id, "rtvi_stream_id": rtvi_stream_id}
+        owns_stream = rule.get("owns_rtvi_stream", True)
+        ctx = {
+            "alert_rule_id": alert_rule_id,
+            "rtvi_stream_id": rtvi_stream_id,
+            "owns_stream": owns_stream,
+        }
 
-        if rtvi_stream_id:
-            await self._safe_teardown_rtvi(rtvi_stream_id, ctx)
-
+        # Pop the rule first so the ref-count below excludes it.
         with self._lock:
             self._rules.pop(alert_rule_id, None)
+
+        if rtvi_stream_id:
+            other_count = await self._count_other_rules_for_stream(
+                rtvi_stream_id, alert_rule_id,
+            )
+            ctx["other_active_rules"] = other_count
+            await self._safe_teardown_rtvi(
+                rtvi_stream_id, ctx, stop_stream=(other_count == 0),
+            )
 
         if REALTIME_RULES_DELETED is not None:
             REALTIME_RULES_DELETED.inc()
@@ -1523,6 +1558,12 @@ class RealtimeAlertService:
         (``id`` is required by ``RTVIVLMClient.start_stream``), so all
         replayed rules would otherwise fail and operators would silently
         lose the values they set via POST.
+
+        ``owns_rtvi_stream`` defaults to ``True`` here as the safe
+        starting value: if the rule never reaches Step 4 (where the
+        flag is overwritten with the resolved ownership) we want
+        ``stop_alert`` to clean up any RTVI resources eagerly rather
+        than leak them.
         """
         doc: Dict[str, Any] = {
             "live_stream_url": config.live_stream_url,
@@ -1540,6 +1581,7 @@ class RealtimeAlertService:
             "vlm_input_height": config.vlm_input_height,
             "enable_reasoning": config.enable_reasoning,
             "status": RuleStatus.PENDING,
+            "owns_rtvi_stream": True,
             "created_at": created_at,
         }
         # Include optional stream-identity / location fields only when set —
@@ -1578,6 +1620,561 @@ class RealtimeAlertService:
             if stream_id:
                 return stream_id
         return rtvi_resp.get("stream_id") or rtvi_resp.get("id")
+
+    def _get_sensor_lock(self, sensor_id: str) -> asyncio.Lock:
+        """Return the ``asyncio.Lock`` for ``sensor_id``, creating it lazily.
+
+        Locks are kept for the lifetime of the service: the set of distinct
+        ``sensor_id`` values is bounded by the number of cameras (in the
+        thousands at most) so the memory overhead of never evicting them
+        is negligible, and never evicting means we can't accidentally
+        race a "free the lock" with a coroutine still waiting on it.
+
+        The dict mutation is protected by ``self._lock`` (a regular
+        ``threading.Lock``) because asyncio coroutines can be scheduled
+        concurrently between ``await`` points and a bare ``setdefault``
+        on a Python dict is *not* an atomic operation under the hood.
+        """
+        with self._lock:
+            lock = self._sensor_locks.get(sensor_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._sensor_locks[sensor_id] = lock
+            return lock
+
+    async def _resolve_or_add_stream(
+        self, config: AlertRuleConfig, ctx: Dict[str, Any],
+    ) -> Tuple[str, bool]:
+        """Resolve the RTVI stream id to use for this rule, adding one if needed.
+
+        Returns ``(rtvi_stream_id, owns_stream)`` where ``owns_stream`` is
+        ``True`` when this call was the one that issued ``/streams/add``
+        (and is therefore responsible for tearing the stream down again on
+        rule deletion), and ``False`` when an existing RTVI stream was
+        reused.
+
+        Behaviour:
+
+        * No ``sensor_id`` on the config: skip the existence probe and
+          ``/streams/add`` straight away. RTVI will mint a fresh id and
+          this rule owns it. The probe is pointless because RTVI's
+          ``streams/add`` does not deduplicate by URL anyway, so a check
+          would never find a match.
+        * ``sensor_id`` set: take the per-``sensor_id`` lock, call
+          ``GET /streams/get-stream-info``, and look for an entry whose
+          ``id`` matches ``sensor_id``. If found, validate that the
+          existing registration's ``liveStreamUrl`` matches the
+          requested ``live_stream_url`` before reusing — a mismatch
+          means another caller (or a stale / externally-owned
+          registration) already occupies this id pointing at a
+          different camera, so silently reusing it would bind the new
+          rule to the wrong source while persisting the requested URL
+          on the rule document. Reject with
+          :class:`_StreamIdentityConflict` instead. When the URL does
+          match, reuse the stream id (``owns_stream=False``).
+          Otherwise issue ``/streams/add`` while still holding the
+          lock so a concurrent ``start_alert`` for the same
+          ``sensor_id`` can't double-add.
+        * If ``get-stream-info`` itself fails (network, RTVI restart
+          mid-call): log a warning and fall back to ``/streams/add``
+          unconditionally so a transient RTVI hiccup degrades gracefully
+          instead of failing the whole rule creation.
+
+        ``ctx`` is the per-request log context (already carries
+        ``alert_rule_id``, ``alert_type``, ``model``, ``live_stream_url``).
+        """
+        sensor_id = config.sensor_id
+
+        async def _add() -> Tuple[str, bool]:
+            t0 = time.monotonic()
+            try:
+                rtvi_resp = await self._client.start_stream(
+                    self._build_start_stream_payload(config)
+                )
+            finally:
+                _observe(
+                    RTVI_CALL_DURATION, "start_stream", time.monotonic() - t0,
+                )
+            stream_id = self._extract_stream_id(rtvi_resp)
+            if not stream_id:
+                raise RuntimeError("RTVI returned no stream id")
+            return stream_id, True
+
+        if sensor_id is None:
+            stream_id, owns = await _add()
+            logger.info(
+                "RTVI stream added (no sensor_id, RTVI generated id)",
+                extra={**ctx, "rtvi_stream_id": stream_id, "owns_stream": owns},
+            )
+            return stream_id, owns
+
+        async with self._get_sensor_lock(sensor_id):
+            t0 = time.monotonic()
+            try:
+                streams = await self._client.get_stream_info()
+            except httpx.HTTPError as exc:
+                _inc_failure(RTVI_CALL_FAILURES, "get_stream_info")
+                logger.warning(
+                    "get-stream-info probe failed; falling back to streams/add",
+                    extra={
+                        **ctx,
+                        "sensor_id": sensor_id,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                stream_id, owns = await _add()
+                return stream_id, owns
+            finally:
+                _observe(
+                    RTVI_CALL_DURATION, "get_stream_info", time.monotonic() - t0,
+                )
+
+            existing = next(
+                (s for s in streams if s.get("id") == sensor_id),
+                None,
+            )
+            if existing is not None:
+                stream_id = existing.get("id") or sensor_id
+                # Identity guard: when RTVI exposes the live URL on the
+                # registration, refuse to silently bind to a stream
+                # whose URL differs from what this caller asked for.
+                # Anything else opens the door to a stale / externally
+                # owned registration capturing the rule, and a later
+                # last-reader delete tearing down a stream this service
+                # never created. Older RTVI builds may omit
+                # ``liveStreamUrl`` from the listing — when we don't
+                # have a value to compare, log it but allow reuse so
+                # the validation doesn't break working setups.
+                requested_url = (config.live_stream_url or "").strip()
+                existing_url = (existing.get("liveStreamUrl") or "").strip()
+                if (
+                    requested_url
+                    and existing_url
+                    and existing_url != requested_url
+                ):
+                    logger.warning(
+                        "RTVI stream id collision: sensor_id is already "
+                        "registered for a different liveStreamUrl",
+                        extra={
+                            **ctx,
+                            "sensor_id": sensor_id,
+                            "rtvi_stream_id": stream_id,
+                            "requested_live_stream_url": requested_url,
+                            "existing_live_stream_url": existing_url,
+                            "stage": "post",
+                            "outcome": "stream_identity_conflict",
+                        },
+                    )
+                    _inc_stage_failure(
+                        REALTIME_RULES_FAILED, "stream_identity_conflict",
+                    )
+                    raise _StreamIdentityConflict(
+                        sensor_id=sensor_id,
+                        requested_url=requested_url,
+                        existing_url=existing_url,
+                    )
+                if not existing_url:
+                    logger.debug(
+                        "RTVI registration has no liveStreamUrl; reuse "
+                        "identity check skipped",
+                        extra={
+                            **ctx,
+                            "sensor_id": sensor_id,
+                            "rtvi_stream_id": stream_id,
+                        },
+                    )
+                logger.info(
+                    "Reusing existing RTVI stream",
+                    extra={
+                        **ctx,
+                        "sensor_id": sensor_id,
+                        "rtvi_stream_id": stream_id,
+                        "owns_stream": False,
+                    },
+                )
+                return stream_id, False
+
+            stream_id, owns = await _add()
+            logger.info(
+                "RTVI stream added (sensor_id was not registered)",
+                extra={
+                    **ctx,
+                    "sensor_id": sensor_id,
+                    "rtvi_stream_id": stream_id,
+                    "owns_stream": owns,
+                },
+            )
+            return stream_id, owns
+
+    async def _wait_stream_ready(
+        self,
+        captions_task: asyncio.Task,
+        rtvi_stream_id: str,
+        owns_stream: bool,
+        ctx: Dict[str, Any],
+    ) -> None:
+        """Wait for caption ack or stream visibility before returning 201.
+
+        Two-phase wait that replaces the previous 12 s readiness window
+        (``captions_ack_timeout`` + the deprecated
+        ``stream_readiness_timeout``) with a much shorter probe-based
+        check:
+
+        1. **Ack window** (``captions_ack_timeout``, default 2 s). Wait
+           on the ``generate_captions`` task under ``asyncio.shield`` so
+           timing out here doesn't cancel the underlying HTTP request.
+           A clean return = the captions task itself completed inside
+           the window (full response body received) — the stream is
+           good and we don't need to probe. An ``httpx.HTTPError`` here
+           means RTVI rejected the request and is re-raised so the
+           caller rolls back. ``TimeoutError`` is the normal path for
+           streaming responses and falls through to phase 2.
+
+        2. **Readiness window** (``stream_readiness_max_wait``, default
+           2 s). For ``owns_stream=False`` (we just confirmed the stream
+           exists in :meth:`_resolve_or_add_stream`) the window is
+           skipped — there is nothing to verify and re-asking RTVI for
+           something it just told us about is wasted latency. For new
+           streams we monitor the captions task throughout the window:
+           every ``stream_readiness_poll_interval`` seconds we re-check
+           ``captions_task.done()`` and, until the stream first appears
+           in the registry, ``GET /streams/get-stream-info``. We do
+           *not* exit early on registry visibility — ``/streams/add``
+           registers the stream synchronously while GStreamer can still
+           fail to open the RTSP source milliseconds later, so leaving
+           the window the moment the id shows up would let a fast
+           post-registration failure slip past as a 201 and only get
+           cleaned up asynchronously, contradicting the inline
+           ``rtvi_stream_not_readable`` contract. Only a captions-task
+           completion / failure or the ``max_wait`` deadline ends the
+           window. A still-running task at the deadline is *not* a
+           failure — late failures are caught by the done callback the
+           caller attaches.
+
+        Raises whatever exception ``captions_task`` produced when it
+        fails so the caller can return 502 and roll back. Returns
+        ``None`` on success / "survived without confirmation".
+        """
+        t0 = time.monotonic()
+        try:
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(captions_task),
+                    timeout=self._captions_ack_timeout,
+                )
+                logger.info("Caption generation acknowledged (fast ack)", extra=ctx)
+                return
+            except asyncio.TimeoutError:
+                pass
+            except httpx.HTTPError as exc:
+                _inc_failure(RTVI_CALL_FAILURES, "generate_captions")
+                _inc_stage_failure(REALTIME_RULES_FAILED, "generate_captions")
+                logger.error(
+                    "generate_captions failed",
+                    extra={
+                        **ctx,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                        "stage": "post",
+                        "outcome": "generate_captions_failed",
+                    },
+                )
+                raise
+
+            if not owns_stream:
+                logger.info(
+                    "Reused stream — readiness already verified, skipping poll",
+                    extra={**ctx, "ack_timeout_s": self._captions_ack_timeout},
+                )
+                return
+
+            deadline = time.monotonic() + self._stream_readiness_max_wait
+            visible = False
+
+            def _raise_task_failure(exc: BaseException) -> None:
+                if isinstance(exc, httpx.HTTPError):
+                    _inc_failure(RTVI_CALL_FAILURES, "generate_captions")
+                    _inc_stage_failure(REALTIME_RULES_FAILED, "stream_readiness")
+                else:
+                    _inc_stage_failure(
+                        REALTIME_RULES_FAILED, "stream_readiness_crash",
+                    )
+                logger.error(
+                    "Caption task failed during readiness poll — rolling back",
+                    extra={
+                        **ctx,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                        "stage": "post",
+                        "outcome": "stream_readiness_failed",
+                    },
+                )
+                raise _StreamReadinessError(exc) from exc
+
+            while True:
+                if captions_task.done():
+                    exc = captions_task.exception()
+                    if exc is None:
+                        logger.info(
+                            "Caption task completed during readiness poll",
+                            extra=ctx,
+                        )
+                        return
+                    _raise_task_failure(exc)
+
+                # Skip the probe once the stream has shown up in the
+                # registry: re-asking RTVI for the same id every poll is
+                # wasted load. The probe's only job is to confirm
+                # ``/streams/add`` landed; the captions task is the
+                # authority on whether the source is actually readable,
+                # so we keep monitoring it for the full window even
+                # after first sighting.
+                if not visible:
+                    try:
+                        streams = await self._client.get_stream_info()
+                        if any(s.get("id") == rtvi_stream_id for s in streams):
+                            visible = True
+                    except httpx.HTTPError as probe_exc:
+                        logger.debug(
+                            "get-stream-info probe failed during readiness; will retry",
+                            extra={
+                                **ctx,
+                                "error": str(probe_exc),
+                                "error_type": type(probe_exc).__name__,
+                            },
+                        )
+
+                if time.monotonic() >= deadline:
+                    break
+                await asyncio.sleep(self._stream_readiness_poll_interval)
+
+            # Final task check: catches the narrow window where the caption
+            # task failed between the last in-loop check and exiting the
+            # loop. Without this, a fast-failing task could slip through to
+            # ES ACTIVE before the done callback's _readiness_failed_ids
+            # guard fires.
+            if captions_task.done() and captions_task.exception() is not None:
+                _raise_task_failure(captions_task.exception())
+
+            elapsed = time.monotonic() - t0
+            logger.info(
+                "Readiness window elapsed; captions task still running — "
+                "proceeding (late failures handled by caption task callback)",
+                extra={
+                    **ctx,
+                    "stream_visible": visible,
+                    "max_wait_s": self._stream_readiness_max_wait,
+                    "readiness_elapsed_s": elapsed,
+                },
+            )
+        finally:
+            # One histogram observation per call captures the total time
+            # spent waiting — covers ack-only fast paths, reuse-skip
+            # paths, the polling loop, and the error-raise paths
+            # uniformly so dashboards always see a meaningful sample.
+            _observe(
+                RTVI_CALL_DURATION, "generate_captions", time.monotonic() - t0,
+            )
+
+    async def _maybe_stop_stream_on_rollback(
+        self,
+        rtvi_stream_id: str,
+        alert_rule_id: str,
+        owns_stream: bool,
+        ctx: Dict[str, Any],
+    ) -> None:
+        """Tear down ``rtvi_stream_id`` on a rollback only when nobody else
+        is using it.
+
+        ``owns_stream=False`` (we reused a stream the original creator
+        owns): never stop, ever — we're not the owner, the creator
+        will clean up on its own delete.
+
+        ``owns_stream=True`` but other rules race-reused the stream
+        between our ``/streams/add`` and our failure: count them
+        across both ACTIVE and PENDING (a concurrent in-flight create
+        is still a valid reader) and skip ``stop_stream`` if
+        non-zero. Otherwise we are the last reader and stop the stream.
+
+        Counting includes PENDING *and* the in-memory pending stream
+        refs maintained by :meth:`_register_pending_stream_ref`
+        because the always-on fan-out path creates many rules in
+        parallel; each holds the per-sensor lock briefly to add/reuse
+        then continues asynchronously, and ``_build_rule_doc`` writes
+        the PENDING ES row *before* ``rtvi_stream_id`` is known so
+        the ES PENDING bucket alone would miss a sibling that has
+        already reused the stream but hasn't yet hit the ACTIVE
+        update. The in-memory mode (no rule store) similarly doesn't
+        persist PENDING, so without the in-memory ref-count an
+        in-flight sibling would be entirely invisible.
+        """
+        if not owns_stream:
+            logger.info(
+                "Rollback: not the stream owner — leaving RTVI stream alone",
+                extra={**ctx, "rtvi_stream_id": rtvi_stream_id},
+            )
+            return
+
+        other_count = await self._count_other_rules_for_stream(
+            rtvi_stream_id,
+            alert_rule_id,
+            statuses=[RuleStatus.ACTIVE, RuleStatus.PENDING],
+            include_pending_refs=True,
+        )
+        if other_count == 0:
+            await self._safe_stop_stream(rtvi_stream_id)
+            return
+
+        logger.info(
+            "Rollback: %d other rule(s) still reference this RTVI stream — "
+            "skipping stop_stream",
+            other_count,
+            extra={
+                **ctx,
+                "rtvi_stream_id": rtvi_stream_id,
+                "other_rules": other_count,
+            },
+        )
+
+    def _register_pending_stream_ref(
+        self, rtvi_stream_id: str, alert_rule_id: str,
+    ) -> None:
+        """Mark ``alert_rule_id`` as mid-create on ``rtvi_stream_id``.
+
+        Must be called as soon as :meth:`_resolve_or_add_stream`
+        returns a usable id (and before any subsequent ``await`` that
+        could let a concurrent sibling roll back) so other coroutines
+        querying :meth:`_count_other_rules_for_stream` with
+        ``include_pending_refs=True`` can see this rule even while its
+        ES PENDING row still has ``rtvi_stream_id=None``.
+        """
+        with self._lock:
+            self._pending_stream_refs.setdefault(rtvi_stream_id, set()).add(
+                alert_rule_id,
+            )
+
+    def _unregister_pending_stream_ref(
+        self, rtvi_stream_id: str, alert_rule_id: str,
+    ) -> None:
+        """Drop the pending ref recorded by :meth:`_register_pending_stream_ref`.
+
+        Idempotent — safe to call from a ``finally`` block regardless of
+        whether the rule ultimately committed or rolled back.
+        """
+        with self._lock:
+            refs = self._pending_stream_refs.get(rtvi_stream_id)
+            if not refs:
+                return
+            refs.discard(alert_rule_id)
+            if not refs:
+                self._pending_stream_refs.pop(rtvi_stream_id, None)
+
+    async def _count_other_rules_for_stream(
+        self,
+        rtvi_stream_id: str,
+        exclude_rule_id: str,
+        *,
+        statuses: Optional[List[str]] = None,
+        include_pending_refs: bool = False,
+    ) -> int:
+        """Return the number of *other* rules (excluding ``exclude_rule_id``)
+        that currently reference ``rtvi_stream_id``.
+
+        Used to drive the ref-count stop semantics: when a rule is
+        deleted, the underlying RTVI stream is only torn down once
+        this count drops to zero — i.e. the deleted rule was the last
+        reader. This way two rules created via the reuse path can
+        share a stream safely; whichever one is deleted last
+        actually triggers ``/streams/delete``.
+
+        Reads from Elasticsearch when persistence is enabled
+        (so always-on fan-outs and survival across restarts are
+        covered), otherwise scans the in-memory ``_rules`` registry.
+        ``statuses`` defaults to ``[ACTIVE]`` for the deletion path;
+        callers in rollback paths can widen this to include
+        ``PENDING`` so concurrent in-flight creates aren't ignored.
+
+        ``include_pending_refs`` (rollback / late-failure callers
+        only) folds in the in-memory pending refs maintained by
+        :meth:`_register_pending_stream_ref`. The ES PENDING bucket
+        alone is *not* enough: ``_build_rule_doc`` writes the PENDING
+        row before ``rtvi_stream_id`` is known and the in-memory mode
+        doesn't persist PENDING at all, so a sibling that has just
+        reused the stream but not yet reached the ACTIVE update would
+        otherwise be invisible to ref-counting and the rolling-back
+        owner would tear the shared stream down.
+
+        Failures are degraded to ``0`` so a transient ES blip can't
+        leave the user unable to delete a rule — the worst case is
+        an unnecessary stream teardown, which the next reuser will
+        re-create.
+        """
+        if statuses is None:
+            statuses = [RuleStatus.ACTIVE]
+
+        seen: Set[str] = set()
+
+        if self._rule_store is not None:
+            try:
+                # The ES list helper accepts a single status filter;
+                # query each status separately and de-dupe by alert
+                # rule id so we count each rule once even if it
+                # appears in multiple buckets (shouldn't, but
+                # belt-and-braces against schema drift).
+                for status in statuses:
+                    try:
+                        result = await asyncio.to_thread(
+                            self._rule_store.list,
+                            filters={
+                                "rtvi_stream_id": rtvi_stream_id,
+                                "status": status,
+                            },
+                            size=200,
+                            from_=0,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to count rules for stream — assuming 0",
+                            extra={
+                                "rtvi_stream_id": rtvi_stream_id,
+                                "exclude_rule_id": exclude_rule_id,
+                                "status": status,
+                                "error": str(exc),
+                            },
+                        )
+                        continue
+                    for item in result.get("items", []):
+                        item_id = item.get("_id") or item.get("id")
+                        if item_id and item_id != exclude_rule_id:
+                            seen.add(item_id)
+            except Exception:
+                logger.exception(
+                    "Unexpected error counting rules for stream — assuming 0",
+                    extra={
+                        "rtvi_stream_id": rtvi_stream_id,
+                        "exclude_rule_id": exclude_rule_id,
+                    },
+                )
+                seen.clear()
+        else:
+            with self._lock:
+                for rule_id, rule in self._rules.items():
+                    if (
+                        rule_id != exclude_rule_id
+                        and rule.get("rtvi_stream_id") == rtvi_stream_id
+                    ):
+                        seen.add(rule_id)
+
+        if include_pending_refs:
+            with self._lock:
+                for rid in self._pending_stream_refs.get(
+                    rtvi_stream_id, frozenset(),
+                ):
+                    if rid != exclude_rule_id:
+                        seen.add(rid)
+
+        return len(seen)
 
     async def _rollback_rule(self, alert_rule_id: str) -> None:
         """Best-effort rollback of an ES rule record."""
@@ -1636,25 +2233,50 @@ class RealtimeAlertService:
             )
 
     async def _safe_teardown_rtvi(
-        self, rtvi_stream_id: str, ctx: Dict[str, Any],
+        self,
+        rtvi_stream_id: str,
+        ctx: Dict[str, Any],
+        stop_stream: bool = True,
     ) -> None:
-        """Stop captions and stream concurrently.  Best-effort — both
-        calls tolerate failures so neither blocks nor aborts the other."""
-        await asyncio.gather(
-            self._safe_stop_captions(rtvi_stream_id, ctx),
-            self._safe_stop_stream_with_ctx(rtvi_stream_id, ctx),
-        )
+        """Stop captions and (when ``stop_stream``) the stream concurrently.
+
+        Best-effort — both calls tolerate failures so neither blocks
+        nor aborts the other. ``stop_stream=False`` skips the
+        ``/streams/delete`` call entirely so the underlying RTVI
+        stream is left running for any other alert rules that are
+        still reusing it. The caller is expected to compute that flag
+        from the live refcount rather than just the deleted rule's
+        ``owns_rtvi_stream`` attribute (see
+        :meth:`_count_other_rules_for_stream`).
+        """
+        coros = [self._safe_stop_captions(rtvi_stream_id, ctx)]
+        if stop_stream:
+            coros.append(self._safe_stop_stream_with_ctx(rtvi_stream_id, ctx))
+        else:
+            logger.info(
+                "Skipping stop_stream — other rules still use this RTVI stream",
+                extra=ctx,
+            )
+        await asyncio.gather(*coros)
 
     async def _safe_teardown_rtvi_with_outcome(
-        self, rtvi_stream_id: str, ctx: Dict[str, Any],
+        self,
+        rtvi_stream_id: str,
+        ctx: Dict[str, Any],
+        stop_stream: bool = True,
     ) -> str:
         """Variant of :meth:`_safe_teardown_rtvi` that reports the outcome.
 
-        Returns ``"success"`` when both stop_captions and stop_stream
-        completed cleanly, ``"partial"`` when at least one raised an
-        HTTPError. Used by :meth:`_stop_alert_persistent` so the
-        summary log line can distinguish a clean delete from one that
-        left an orphaned RTVI stream behind.
+        Returns ``"success"`` when every call this rule was responsible
+        for completed cleanly and ``"partial"`` when at least one
+        raised an HTTPError. Used by :meth:`_stop_alert_persistent`
+        so the summary log line can distinguish a clean delete from
+        one that left an orphaned RTVI stream behind.
+
+        ``stop_stream=False`` (other rules still use this stream)
+        suppresses the ``/streams/delete`` call entirely — the rule
+        being deleted is *not* the last reader of this stream. The
+        outcome then reflects the captions teardown only.
 
         The work is duplicated from :meth:`_safe_stop_captions` and
         :meth:`_safe_stop_stream_with_ctx` rather than wrapping them
@@ -1694,8 +2316,18 @@ class RealtimeAlertService:
                 )
                 return False
 
-        captions_ok, stream_ok = await asyncio.gather(_stop_captions(), _stop_stream())
-        return "success" if captions_ok and stream_ok else "partial"
+        if stop_stream:
+            captions_ok, stream_ok = await asyncio.gather(
+                _stop_captions(), _stop_stream(),
+            )
+            return "success" if captions_ok and stream_ok else "partial"
+
+        logger.info(
+            "Skipping stop_stream — other rules still use this RTVI stream",
+            extra=ctx,
+        )
+        captions_ok = await _stop_captions()
+        return "success" if captions_ok else "partial"
 
     async def _refresh_rules_count_gauge(self) -> None:
         """Refresh ``REALTIME_RULES_COUNT`` from Elasticsearch.
@@ -1826,6 +2458,15 @@ class RealtimeAlertService:
         that cleanup can proceed even when the rule has not yet been
         committed to ``_rules``.  When omitted the method falls back to
         scanning ``_rules`` by ``rtvi_stream_id``.
+
+        ``stop_stream`` is suppressed when *other* rules still reference
+        the same RTVI stream id — counted via
+        :meth:`_count_other_rules_for_stream` across both ACTIVE and
+        PENDING statuses (and the in-memory pending stream refs
+        registered before ``generate_captions``) so a concurrent
+        in-flight create on the same ``sensor_id`` isn't accidentally
+        killed by a different rule's late failure even when the
+        sibling's ES PENDING row hasn't yet had ``rtvi_stream_id`` set.
         """
         if alert_rule_id is None:
             with self._lock:
@@ -1839,7 +2480,28 @@ class RealtimeAlertService:
             # writing ACTIVE to ES if it detects this flag after an await.
             self._readiness_failed_ids.add(alert_rule_id)
 
-        await self._safe_stop_stream(rtvi_stream_id)
+        other_count = 0
+        if alert_rule_id is not None:
+            other_count = await self._count_other_rules_for_stream(
+                rtvi_stream_id,
+                alert_rule_id,
+                statuses=[RuleStatus.ACTIVE, RuleStatus.PENDING],
+                include_pending_refs=True,
+            )
+
+        if other_count == 0:
+            await self._safe_stop_stream(rtvi_stream_id)
+        else:
+            logger.info(
+                "Skipping stop_stream during cleanup — %d other rule(s) still "
+                "reference this RTVI stream",
+                other_count,
+                extra={
+                    "alert_rule_id": alert_rule_id,
+                    "rtvi_stream_id": rtvi_stream_id,
+                    "other_rules": other_count,
+                },
+            )
 
         if alert_rule_id:
             with self._lock:

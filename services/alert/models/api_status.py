@@ -41,6 +41,7 @@ class ErrorCode:
     RTVI_VLM_UNAVAILABLE = "rtvi_vlm_unavailable"
     RTVI_STREAM_NOT_READABLE = "rtvi_stream_not_readable"
     RTVI_INVALID_RESPONSE = "rtvi_invalid_response"
+    RTVI_STREAM_CONFLICT = "rtvi_stream_conflict"
     ELASTICSEARCH_UNAVAILABLE = "elasticsearch_unavailable"
     ELASTICSEARCH_QUERY_FAILED = "elasticsearch_query_failed"
     ELASTICSEARCH_WRITE_FAILED = "elasticsearch_write_failed"

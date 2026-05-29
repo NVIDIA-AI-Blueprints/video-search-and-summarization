@@ -51,11 +51,18 @@ def make_config(**overrides) -> AlertRuleConfig:
 
 @pytest.fixture()
 def mock_rtvi_client():
-    """Return an AsyncMock that simulates RTVIVLMClient."""
+    """Return an AsyncMock that simulates RTVIVLMClient.
+
+    ``get_stream_info`` defaults to ``[]`` so :meth:`start_alert` always
+    falls through to ``streams/add`` in the happy path. Tests that exercise
+    the reuse branch override this fixture's return value to include the
+    expected stream entry.
+    """
     client = AsyncMock()
     client.start_stream.return_value = {
         "results": [{"id": "stream-abc-123", "status": "added"}]
     }
+    client.get_stream_info.return_value = []
     client.generate_captions.return_value = {
         "status": "started", "stream_id": "stream-abc-123"
     }
@@ -78,6 +85,8 @@ def realtime_service(mock_rtvi_client):
             "timeout": 5,
             "default_model": "default-vlm",
             "captions_ack_timeout": 0.1,
+            "stream_readiness_poll_interval": 0.01,
+            "stream_readiness_max_wait": 0.05,
         }
     }):
         svc = RealtimeAlertService()

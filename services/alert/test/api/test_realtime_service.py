@@ -815,6 +815,8 @@ def persistent_service(mock_rtvi_client, fake_rule_store):
             "timeout": 5,
             "default_model": "default-vlm",
             "captions_ack_timeout": 0.1,
+            "stream_readiness_poll_interval": 0.01,
+            "stream_readiness_max_wait": 0.05,
         }
     }):
         svc = RealtimeAlertService(rule_store=fake_rule_store)
@@ -1607,7 +1609,8 @@ class TestNewMetrics:
         self, persistent_service, mock_rtvi_client,
     ):
         """RTVI start_stream failure after ES PENDING create → counter
-        must NOT move (rolled back path).  Incrementing on the
+        must NOT move (rolled back path).  This is the Finding 2 case
+        from the maintainer review: incrementing on the
         PENDING create would over-count rules that were never usable.
         """
         from realtime.services import realtime_service as rs_mod
@@ -1631,7 +1634,7 @@ class TestNewMetrics:
     ):
         """ES update (PENDING → ACTIVE) failure → counter stays put.
 
-        Boundary case: the create succeeded,
+        This is the boundary case for Finding 2: the create succeeded,
         RTVI succeeded, but the follow-up update that flips status to
         ACTIVE fails and the rule is rolled back.  ``…_persisted_total``
         must reflect "rules durably ACTIVE", not "rules that ever
@@ -1805,7 +1808,7 @@ class TestNewMetrics:
                  for o in outcomes}
         assert before == after, (
             "REPLAY_INVOCATIONS moved on a 501 short-circuit; "
-            "Counter must stay flat for short-circuits"
+            "Finding 3 requires the counter to stay flat for short-circuits"
         )
 
     @pytest.mark.asyncio
@@ -1814,7 +1817,7 @@ class TestNewMetrics:
     ):
         """409 short-circuit must NOT touch ``REPLAY_INVOCATIONS``.
 
-        Same rationale as the 501 test above: the counter
+        Same rationale as the 501 test above (Finding 3): the counter
         only reflects real replay activity, not rejected calls.
         """
         from realtime.services import realtime_service as rs_mod
@@ -1832,7 +1835,7 @@ class TestNewMetrics:
                      for o in outcomes}
             assert before == after, (
                 "REPLAY_INVOCATIONS moved on a 409 short-circuit; "
-                "Counter must stay flat for short-circuits"
+                "Finding 3 requires the counter to stay flat for short-circuits"
             )
         finally:
             persistent_service._replay_lock.release()
@@ -1869,22 +1872,24 @@ class TestStreamReadinessCheck:
     stream id) but the generate_captions streaming task fails later when
     GStreamer cannot open the RTSP source.
 
-    The readiness check runs inline — the HTTP response is held open for
-    up to ``captions_ack_timeout + stream_readiness_timeout``.  Failures
-    during this window return 502 synchronously (rule marked FAILED in
-    ES, RTVI stream stopped).
+    The readiness check runs inline — after the captions ack window the
+    realtime service polls ``GET /streams/get-stream-info`` for up to
+    ``stream_readiness_max_wait`` while watching the captions task. A
+    failure at either phase returns 502 synchronously (rule marked
+    FAILED in ES, RTVI stream stopped).
     """
 
     @pytest.fixture()
     def readiness_service(self, mock_rtvi_client):
-        """Service with short ack timeout and moderate readiness timeout."""
+        """Service with short ack window and moderate readiness probe budget."""
         with patch("realtime.services.realtime_service.load_config", return_value={
             "rtvi_vlm": {
                 "base_url": "http://mock:8000",
                 "timeout": 5,
                 "default_model": "default-vlm",
                 "captions_ack_timeout": 0.05,
-                "stream_readiness_timeout": 0.5,
+                "stream_readiness_poll_interval": 0.05,
+                "stream_readiness_max_wait": 0.5,
             }
         }):
             svc = RealtimeAlertService()
@@ -1893,14 +1898,15 @@ class TestStreamReadinessCheck:
 
     @pytest.fixture()
     def readiness_disabled_service(self, mock_rtvi_client):
-        """Service with readiness check disabled (legacy behavior)."""
+        """Service with the readiness probe budget set to 0 (skip polling)."""
         with patch("realtime.services.realtime_service.load_config", return_value={
             "rtvi_vlm": {
                 "base_url": "http://mock:8000",
                 "timeout": 5,
                 "default_model": "default-vlm",
                 "captions_ack_timeout": 0.05,
-                "stream_readiness_timeout": 0,
+                "stream_readiness_poll_interval": 0.05,
+                "stream_readiness_max_wait": 0,
             }
         }):
             svc = RealtimeAlertService()
@@ -1999,7 +2005,7 @@ class TestStreamReadinessCheck:
 
     @pytest.fixture()
     def persistent_readiness_service(self, mock_rtvi_client):
-        """Persistent service with short ack + readiness timeouts for replay tests."""
+        """Persistent service with short ack + readiness probe knobs for replay tests."""
         fake_store = _FakeRuleStore()
         with patch("realtime.services.realtime_service.load_config", return_value={
             "rtvi_vlm": {
@@ -2007,7 +2013,8 @@ class TestStreamReadinessCheck:
                 "timeout": 5,
                 "default_model": "default-vlm",
                 "captions_ack_timeout": 0.05,
-                "stream_readiness_timeout": 0.5,
+                "stream_readiness_poll_interval": 0.05,
+                "stream_readiness_max_wait": 0.5,
             }
         }):
             svc = RealtimeAlertService(rule_store=fake_store)
@@ -2120,3 +2127,572 @@ class TestStreamReadinessCheck:
 # test file. The pure in-memory fallback path it routes into is already
 # covered by ``TestPersistenceDisabledFallback`` above.
 
+
+# ---------------------------------------------------------------------------
+# Stream reuse via /streams/get-stream-info
+# ---------------------------------------------------------------------------
+
+class TestStreamReuse:
+    """Cover the get-stream-info dedupe path added so multiple rules with the
+    same ``sensor_id`` (e.g. the always-on fan-out for one camera) can share a
+    single RTVI stream instead of issuing redundant ``/streams/add`` calls.
+    """
+
+    @pytest.mark.asyncio
+    async def test_existing_sensor_id_reuses_stream(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """When ``GET /streams/get-stream-info`` already lists the
+        ``sensor_id``, ``start_alert`` reuses that stream id and skips
+        ``/streams/add``. The in-memory rule records ``owns_rtvi_stream=False``.
+        """
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "test-sensor-001", "liveStreamUrl": SAMPLE_RTSP_URL},
+        ]
+
+        data, code = await realtime_service.start_alert(make_config())
+
+        assert code == 201
+        mock_rtvi_client.start_stream.assert_not_awaited()
+        mock_rtvi_client.generate_captions.assert_awaited_once()
+        kwargs = mock_rtvi_client.generate_captions.await_args.kwargs
+        assert kwargs["stream_id"] == "test-sensor-001"
+
+        rule = realtime_service._rules[data["id"]]
+        assert rule["owns_rtvi_stream"] is False
+        assert rule["rtvi_stream_id"] == "test-sensor-001"
+
+    @pytest.mark.asyncio
+    async def test_unknown_sensor_id_calls_streams_add(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """``sensor_id`` provided but not present in get-stream-info → fall
+        back to ``/streams/add`` and mark the rule as owning the stream."""
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "different-sensor", "liveStreamUrl": "rtsp://other"},
+        ]
+
+        data, code = await realtime_service.start_alert(make_config())
+
+        assert code == 201
+        mock_rtvi_client.start_stream.assert_awaited_once()
+        rule = realtime_service._rules[data["id"]]
+        assert rule["owns_rtvi_stream"] is True
+
+    @pytest.mark.asyncio
+    async def test_no_sensor_id_skips_get_stream_info(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """No ``sensor_id`` in the request → don't probe RTVI; let
+        ``/streams/add`` mint a fresh id. RTVI itself dedupes when needed."""
+        cfg = make_config(sensor_id=None)
+
+        data, code = await realtime_service.start_alert(cfg)
+
+        assert code == 201
+        mock_rtvi_client.get_stream_info.assert_not_awaited()
+        mock_rtvi_client.start_stream.assert_awaited_once()
+        rule = realtime_service._rules[data["id"]]
+        assert rule["owns_rtvi_stream"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_stream_info_http_error_falls_back_to_add(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """A network blip on get-stream-info must not fail the whole request;
+        the service degrades to issuing ``/streams/add`` anyway."""
+        mock_rtvi_client.get_stream_info.side_effect = httpx.ConnectError(
+            "RTVI unreachable",
+        )
+
+        data, code = await realtime_service.start_alert(make_config())
+
+        assert code == 201
+        mock_rtvi_client.start_stream.assert_awaited_once()
+        rule = realtime_service._rules[data["id"]]
+        assert rule["owns_rtvi_stream"] is True
+
+    @pytest.mark.asyncio
+    async def test_concurrent_start_alert_same_sensor_id_serialises(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """The per-``sensor_id`` lock must prevent two parallel
+        ``start_alert`` calls from both racing past the existence check
+        and each issuing their own ``/streams/add``. After the first one
+        adds, the second sees the freshly-registered stream and reuses it."""
+        registered = []
+
+        async def _fake_add(payload):
+            await asyncio.sleep(0)
+            stream_id = payload["id"]
+            registered.append({"id": stream_id})
+            return {"results": [{"id": stream_id, "status": "added"}]}
+
+        async def _fake_get_info():
+            return list(registered)
+
+        mock_rtvi_client.start_stream.side_effect = _fake_add
+        mock_rtvi_client.get_stream_info.side_effect = _fake_get_info
+
+        cfg_a = make_config(alert_type="intrusion")
+        cfg_b = make_config(alert_type="fire")
+        results = await asyncio.gather(
+            realtime_service.start_alert(cfg_a),
+            realtime_service.start_alert(cfg_b),
+        )
+
+        for _, code in results:
+            assert code == 201
+        assert mock_rtvi_client.start_stream.await_count == 1
+
+        owns_flags = sorted(
+            realtime_service._rules[data["id"]]["owns_rtvi_stream"]
+            for data, _ in results
+        )
+        assert owns_flags == [False, True]
+
+    @pytest.mark.asyncio
+    async def test_stop_alert_last_rule_stops_stream_even_if_reused(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """Ref-count semantics: a rule that originally reused a stream
+        still triggers ``stop_stream`` when it turns out to be the last
+        alert-agent rule referencing that stream id. This way orphaned
+        external streams are cleaned up after their last reader leaves."""
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "test-sensor-001", "liveStreamUrl": SAMPLE_RTSP_URL},
+        ]
+        data, _ = await realtime_service.start_alert(make_config())
+
+        await realtime_service.stop_alert(data["id"])
+
+        mock_rtvi_client.stop_captions.assert_awaited_once()
+        mock_rtvi_client.stop_stream.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_alert_with_remaining_rules_skips_stop_stream(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """When a sibling rule still references the same stream id, the
+        deleted rule must NOT call ``stop_stream`` — that would break
+        the still-active siblings."""
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "test-sensor-001", "liveStreamUrl": SAMPLE_RTSP_URL},
+        ]
+        data_a, _ = await realtime_service.start_alert(
+            make_config(alert_type="intrusion"),
+        )
+        data_b, _ = await realtime_service.start_alert(
+            make_config(alert_type="fire"),
+        )
+
+        await realtime_service.stop_alert(data_a["id"])
+
+        mock_rtvi_client.stop_captions.assert_awaited_once()
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+        # Deleting the last sibling now tears the stream down too.
+        await realtime_service.stop_alert(data_b["id"])
+        mock_rtvi_client.stop_stream.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_alert_calls_stop_stream_for_owned_rule(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """Regression: a rule that's the only reference to its stream
+        (so ref-count goes to zero on delete) tears the stream down."""
+        data, _ = await realtime_service.start_alert(make_config())
+
+        await realtime_service.stop_alert(data["id"])
+
+        mock_rtvi_client.stop_captions.assert_awaited_once()
+        mock_rtvi_client.stop_stream.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_alert_legacy_rule_without_flag_stops_stream(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """Rules persisted before the reuse work shipped don't carry
+        ``owns_rtvi_stream``. Ref-count semantics still apply: the rule
+        is the last reader, so the stream is torn down."""
+        data, _ = await realtime_service.start_alert(make_config())
+        # Simulate a rule that predates the field
+        realtime_service._rules[data["id"]].pop("owns_rtvi_stream", None)
+
+        await realtime_service.stop_alert(data["id"])
+
+        mock_rtvi_client.stop_captions.assert_awaited_once()
+        mock_rtvi_client.stop_stream.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_persistent_stop_alert_with_siblings_skips_stop_stream(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        """ES-backed path mirrors the in-memory path: ref-count via ES
+        list keeps the stream alive while siblings exist."""
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "test-sensor-001", "liveStreamUrl": SAMPLE_RTSP_URL},
+        ]
+        data_a, _ = await persistent_service.start_alert(
+            make_config(alert_type="intrusion"),
+        )
+        data_b, _ = await persistent_service.start_alert(
+            make_config(alert_type="fire"),
+        )
+        # Both rules saw the stream existed → both flagged as reusers.
+        assert fake_rule_store.get(data_a["id"])["owns_rtvi_stream"] is False
+        assert fake_rule_store.get(data_b["id"])["owns_rtvi_stream"] is False
+
+        await persistent_service.stop_alert(data_a["id"])
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+        await persistent_service.stop_alert(data_b["id"])
+        mock_rtvi_client.stop_stream.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Replay reuse
+# ---------------------------------------------------------------------------
+
+class TestReplayStreamReuse:
+    """Replay also routes through ``_resolve_or_add_stream`` so a partial
+    earlier replay (or a process restart that crashed mid-replay) doesn't
+    re-add the same stream a second time."""
+
+    @pytest.mark.asyncio
+    async def test_replay_reuses_existing_stream(
+        self, mock_rtvi_client,
+    ):
+        fake_store = _FakeRuleStore()
+        with patch("realtime.services.realtime_service.load_config", return_value={
+            "rtvi_vlm": {
+                "base_url": "http://mock:8000",
+                "timeout": 5,
+                "default_model": "default-vlm",
+                "captions_ack_timeout": 0.1,
+                "stream_readiness_poll_interval": 0.01,
+                "stream_readiness_max_wait": 0.05,
+            }
+        }):
+            svc = RealtimeAlertService(rule_store=fake_store)
+        svc._client = mock_rtvi_client
+
+        fake_store.create("rule-1", {
+            "status": RuleStatus.ACTIVE,
+            "created_at": "2025-01-01T00:00:00Z",
+            "live_stream_url": SAMPLE_RTSP_URL,
+            "alert_type": "intrusion",
+            "prompt": "Detect intrusion",
+            "sensor_id": "camera-001",
+            "model": "test-model",
+        })
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "camera-001", "liveStreamUrl": SAMPLE_RTSP_URL},
+        ]
+
+        data, code = await svc.replay()
+
+        assert code == 200
+        assert data["replayed"] == 1
+        mock_rtvi_client.start_stream.assert_not_awaited()
+        mock_rtvi_client.generate_captions.assert_awaited_once()
+
+        stored = fake_store.get("rule-1")
+        assert stored["owns_rtvi_stream"] is False
+        assert stored["rtvi_stream_id"] == "camera-001"
+
+
+# ---------------------------------------------------------------------------
+# Readiness window: registry visibility ≠ readability (P1 regression)
+# ---------------------------------------------------------------------------
+
+class TestReadinessVisibilityNotReadiness:
+    """``/streams/add`` registers a stream with RTVI synchronously, but
+    ``generate_captions`` may still fail moments later when GStreamer
+    cannot open the RTSP source. ``_wait_stream_ready`` must therefore
+    keep monitoring the captions task for the full readiness window
+    even after the stream first appears in ``get-stream-info`` —
+    otherwise a fast post-registration failure would slip past as a
+    spurious 201 with an asynchronous cleanup, breaking the inline
+    ``rtvi_stream_not_readable`` contract.
+    """
+
+    @pytest.fixture()
+    def visibility_service(self, mock_rtvi_client):
+        with patch("realtime.services.realtime_service.load_config", return_value={
+            "rtvi_vlm": {
+                "base_url": "http://mock:8000",
+                "timeout": 5,
+                "default_model": "default-vlm",
+                "captions_ack_timeout": 0.05,
+                "stream_readiness_poll_interval": 0.02,
+                "stream_readiness_max_wait": 0.5,
+            }
+        }):
+            svc = RealtimeAlertService()
+        svc._client = mock_rtvi_client
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_visible_stream_failing_after_registration_returns_502(
+        self, visibility_service, mock_rtvi_client,
+    ):
+        """Registry visibility must not end the readiness window early.
+
+        Simulates ``/streams/add`` registering a fresh stream
+        synchronously while the underlying ``generate_captions`` task
+        fails ~150 ms later (typical GStreamer "could not open RTSP
+        source" timing). Before the fix, ``_wait_stream_ready`` saw
+        the stream id appear in ``get-stream-info`` and returned
+        immediately, letting the rule reach 201 + ES ACTIVE despite
+        the source being unreadable. The fix keeps polling the
+        captions task for the full ``stream_readiness_max_wait`` so
+        the failure surfaces inline as a 502.
+        """
+        # Note: the visibility_service uses the in-memory mode (no
+        # rule_store) to keep the fixture self-contained — both modes
+        # share the same ``_wait_stream_ready`` code so the regression
+        # is identical either way.
+        mock_rtvi_client.start_stream.return_value = {
+            "results": [{"id": "fresh-stream", "status": "added"}]
+        }
+        # The new stream is visible to ``get-stream-info`` immediately
+        # after ``/streams/add`` — i.e. the exact scenario the previous
+        # ``break`` on visibility was incorrectly trusting as success.
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "fresh-stream", "liveStreamUrl": SAMPLE_RTSP_URL},
+        ]
+
+        async def _delayed_failure(**kwargs):
+            await asyncio.sleep(0.15)
+            raise httpx.ReadError(
+                "GStreamer: Could not open resource for reading"
+            )
+
+        mock_rtvi_client.generate_captions.side_effect = _delayed_failure
+
+        # Use a config without sensor_id so we exercise the
+        # ``owns_stream=True`` path that actually runs the readiness
+        # poll (sensor_id reuse paths skip the poll entirely).
+        data, code = await visibility_service.start_alert(
+            make_config(sensor_id=None),
+        )
+
+        assert code == 502
+        assert data["error"] == "rtvi_stream_not_readable"
+        list_data, _ = await visibility_service.list_alerts()
+        assert list_data["count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Pending stream refs survive concurrent rollback (P2 regression)
+# ---------------------------------------------------------------------------
+
+class TestPendingStreamRefRollback:
+    """An in-flight create reusing a sibling's stream must be visible to
+    the sibling's rollback ref-count even though its ES PENDING row
+    doesn't yet carry ``rtvi_stream_id``. Without the in-memory pending
+    ref the always-on parallel fan-out hit the documented race: the
+    first owner's rollback would compute ``other_count == 0`` and tear
+    the shared stream out from under a sibling that had reused it but
+    hadn't reached the ACTIVE update yet.
+    """
+
+    @pytest.fixture()
+    def quick_persistent_service(self, mock_rtvi_client):
+        fake_store = _FakeRuleStore()
+        with patch("realtime.services.realtime_service.load_config", return_value={
+            "rtvi_vlm": {
+                "base_url": "http://mock:8000",
+                "timeout": 5,
+                "default_model": "default-vlm",
+                "captions_ack_timeout": 0.05,
+                "stream_readiness_poll_interval": 0.01,
+                "stream_readiness_max_wait": 0.05,
+            }
+        }):
+            svc = RealtimeAlertService(rule_store=fake_store)
+        svc._client = mock_rtvi_client
+        return svc, fake_store
+
+    @pytest.mark.asyncio
+    async def test_register_unregister_helpers_round_trip(
+        self, realtime_service,
+    ):
+        """Lightweight unit check on the helpers that back the fix:
+        registration is observable to ``_count_other_rules_for_stream``
+        with ``include_pending_refs=True`` and unregister cleans up.
+        """
+        realtime_service._register_pending_stream_ref("stream-X", "rule-A")
+
+        # Excluding rule-A: nobody else holds the stream → 0.
+        count = await realtime_service._count_other_rules_for_stream(
+            "stream-X", "rule-A", include_pending_refs=True,
+        )
+        assert count == 0
+
+        # A sibling registers → seen by rule-A's rollback query.
+        realtime_service._register_pending_stream_ref("stream-X", "rule-B")
+        count = await realtime_service._count_other_rules_for_stream(
+            "stream-X", "rule-A", include_pending_refs=True,
+        )
+        assert count == 1
+
+        # Without ``include_pending_refs`` the pending-only sibling is
+        # invisible — that's the pre-fix behavior, kept as the default
+        # so the user-driven delete path doesn't suddenly count
+        # transient creates.
+        count = await realtime_service._count_other_rules_for_stream(
+            "stream-X", "rule-A", include_pending_refs=False,
+        )
+        assert count == 0
+
+        # Unregister is idempotent and prunes the inner set on empty.
+        realtime_service._unregister_pending_stream_ref("stream-X", "rule-A")
+        realtime_service._unregister_pending_stream_ref("stream-X", "rule-B")
+        realtime_service._unregister_pending_stream_ref(
+            "stream-X", "rule-already-gone",
+        )
+        assert realtime_service._pending_stream_refs == {}
+
+    @pytest.mark.asyncio
+    async def test_rollback_with_pending_sibling_does_not_stop_stream(
+        self, quick_persistent_service, mock_rtvi_client,
+    ):
+        """Rolling-back owner sees an in-flight sibling reuser via the
+        in-memory pending ref and skips ``stop_stream`` even though
+        the sibling's ES row is still PENDING with ``rtvi_stream_id=None``.
+        """
+        svc, fake_store = quick_persistent_service
+
+        # Pre-register a sibling rule's PENDING row directly — exactly
+        # what ``_build_rule_doc`` writes (no ``rtvi_stream_id`` set
+        # yet) — and pretend the sibling has just reused our stream by
+        # registering its in-memory pending ref.
+        sibling_id = "sibling-rule"
+        fake_store.create(sibling_id, {
+            "status": RuleStatus.PENDING,
+            "live_stream_url": SAMPLE_RTSP_URL,
+            "alert_type": "fire",
+            "prompt": "p",
+            "sensor_id": "test-sensor-001",
+            "model": "m",
+        })
+        svc._register_pending_stream_ref("stream-abc-123", sibling_id)
+
+        # Force the owner's create to fail at ES update so we hit the
+        # rollback path that used to over-eagerly stop the stream.
+        mock_rtvi_client.start_stream.return_value = {
+            "results": [{"id": "stream-abc-123", "status": "added"}]
+        }
+        original_update = fake_store.update
+
+        def _fail_active_update(rule_id, partial):
+            if partial.get("status") == RuleStatus.ACTIVE:
+                raise RuntimeError("simulated ES update failure")
+            return original_update(rule_id, partial)
+
+        with patch.object(fake_store, "update", side_effect=_fail_active_update):
+            data, code = await svc.start_alert(make_config())
+
+        assert code == 502
+        # The owner rolled back, but the sibling's pending ref kept the
+        # shared stream alive — the regression we're guarding against.
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+        # Cleanup so we don't leak pending refs into other tests.
+        svc._unregister_pending_stream_ref("stream-abc-123", sibling_id)
+
+
+# ---------------------------------------------------------------------------
+# Sensor-id reuse identity check (medium-severity regression)
+# ---------------------------------------------------------------------------
+
+class TestStreamIdentityConflict:
+    """``_resolve_or_add_stream`` reuses an existing RTVI registration
+    only when the ``liveStreamUrl`` matches what the caller asked for.
+    A mismatch surfaces as a 409 — silently binding to a stream that
+    points at a different camera (and would be torn down by a later
+    last-reader delete on a stream this service never created) is the
+    medium-severity adversarial-review concern this guards against.
+    """
+
+    @pytest.mark.asyncio
+    async def test_url_mismatch_on_reuse_returns_409(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        # The registry already has the requested ``sensor_id`` but
+        # pointing at a *different* live URL — a stale or externally
+        # owned registration.
+        mock_rtvi_client.get_stream_info.return_value = [
+            {
+                "id": "test-sensor-001",
+                "liveStreamUrl": "rtsp://other-camera/stream1",
+            },
+        ]
+
+        data, code = await realtime_service.start_alert(make_config())
+
+        assert code == 409
+        assert data["error"] == "rtvi_stream_conflict"
+        assert "sensor_id" in data["message"]
+        # Crucially: we did NOT issue ``/streams/add`` (would create a
+        # duplicate) and did NOT call ``generate_captions`` (would have
+        # bound the rule to the wrong camera).
+        mock_rtvi_client.start_stream.assert_not_awaited()
+        mock_rtvi_client.generate_captions.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_url_match_on_reuse_still_succeeds(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """Sanity check: same id + matching URL is still a valid reuse."""
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "test-sensor-001", "liveStreamUrl": SAMPLE_RTSP_URL},
+        ]
+
+        data, code = await realtime_service.start_alert(make_config())
+
+        assert code == 201
+        mock_rtvi_client.start_stream.assert_not_awaited()
+        mock_rtvi_client.generate_captions.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_missing_url_in_registry_falls_back_to_reuse(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        """Older RTVI builds may omit ``liveStreamUrl`` from the listing.
+        We can't validate identity in that case, so we allow reuse
+        rather than fail-closed (which would break working setups).
+        """
+        mock_rtvi_client.get_stream_info.return_value = [
+            {"id": "test-sensor-001"},
+        ]
+
+        data, code = await realtime_service.start_alert(make_config())
+
+        assert code == 201
+        mock_rtvi_client.start_stream.assert_not_awaited()
+        mock_rtvi_client.generate_captions.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_url_mismatch_rolls_back_es_pending_row(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        """The conflict path runs after the persist-first PENDING row
+        is written. It must roll the row back so the user isn't left
+        with an orphan PENDING when they reissue the create.
+        """
+        mock_rtvi_client.get_stream_info.return_value = [
+            {
+                "id": "test-sensor-001",
+                "liveStreamUrl": "rtsp://other-camera/stream1",
+            },
+        ]
+
+        data, code = await persistent_service.start_alert(make_config())
+
+        assert code == 409
+        assert data["error"] == "rtvi_stream_conflict"
+        # PENDING row from Step 0 must be cleaned up.
+        assert fake_rule_store._docs == {}
