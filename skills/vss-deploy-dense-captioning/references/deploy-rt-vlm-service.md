@@ -3,16 +3,21 @@
 ## 1. Overview
 
 **Service**: `rtvi-vlm` (container name `vss-rtvi-vlm`)
-**Image (x86 / Jetson-Tegra)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.04.1` (multiarch)
-**Image (SBSA / DGX Spark / Grace)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.04.1-sbsa`
+**Image (x86 / Jetson-Tegra)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4` (multiarch)
+**Image (SBSA / DGX Spark / Grace)**: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4-sbsa`
 **Primary port**: `${RTVI_VLM_PORT}` → container `8000` (FastAPI REST, `/v1`)
 **Validated GPUs**: H100 · RTX PRO 6000 Blackwell · L40S · DGX SPARK · IGX Thor · AGX Thor
+
+Derive `<compose-default>` from the checked-out
+`deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` instead of
+hardcoding it in commands. The current `develop` compose default is
+`3.2.0-26.05.4`; SBSA server-ARM platforms append `-sbsa`.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
 In this compose, rtvi-vlm is wired by default to call a **sibling NIM**
 (`cosmos-reason1-7b`, `cosmos-reason2-8b`, or `qwen3-vl-8b-instruct`) over
-OpenAI-compat HTTP (`VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
+OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
 host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
 
 ## 2. Related Skill
@@ -45,6 +50,22 @@ live-authoritative schema — see §16.
 > ⚠ **Profiles are mandatory.** Service declares **6 blueprint profiles**
 > (§12). Plain `docker compose up` starts **nothing** — pass `--profile <name>`.
 
+For standalone Kafka setup, use
+[`kafka-workflows.md`](kafka-workflows.md#standalone-kafka-listener-setup). This
+reference is self-contained; do not depend on access-gated internal documents
+for required deploy behavior because they may redirect to sign-in during
+validation.
+
+Run these preflights before any pull or `up`; fix failures here before debugging
+RT-VLM itself:
+
+```bash
+nvidia-smi
+nvidia-container-cli info
+docker compose version
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+```
+
 ## 4. NGC / Registry Preflight
 
 ```bash
@@ -52,16 +73,42 @@ live-authoritative schema — see §16.
 export NGC_CLI_API_KEY="<YOUR_NGC_KEY>"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 
-# Verify pull for the exact production image
-docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.04.1}"
+# Derive the default tag from the compose file in this checkout/copy.
+COMPOSE_FILE="${COMPOSE_FILE:-rtvi-vlm-docker-compose.yml}"
+if [ ! -f "$COMPOSE_FILE" ]; then
+  COMPOSE_FILE="deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
+fi
+COMPOSE_DEFAULT_TAG=$(sed -nE 's/.*RTVI_VLM_IMAGE_TAG:-([^}]+).*/\1/p' "$COMPOSE_FILE" | head -n1)
+: "${COMPOSE_DEFAULT_TAG:?Could not derive RTVI_VLM_IMAGE_TAG default from $COMPOSE_FILE}"
+export RTVI_VLM_IMAGE_TAG="${RTVI_VLM_IMAGE_TAG:-$COMPOSE_DEFAULT_TAG}"
+
+# Verify pull for the exact image this compose will use.
+docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG}"
 ```
 
 > ⚠ **`docker compose pull` fails on standalone deployments** (recent Docker
 > Compose): the compose file's `depends_on` references sibling NIM services
 > that are not defined in this single-file project. Compose rejects this as
 > `invalid compose project` at project-load time even when every reference is
-> `required: false`, and `--no-deps` does NOT bypass project validation. Use
+> `required: false`. On Compose 2.38, `pull --no-deps` is not a valid command,
+> and plain `pull rtvi-vlm` still validates the whole project first. Use
 > `docker pull` directly (above) to warm the image cache instead.
+
+If `docker pull` fails with a containerd snapshotter/unpack error on Docker 28+,
+merge this feature setting into `/etc/docker/daemon.json`, then restart Docker
+(this stops running containers):
+
+```json
+{
+  "features": {
+    "containerd-snapshotter": false
+  }
+}
+```
+
+```bash
+sudo systemctl restart docker
+```
 
 ## 5. Required Secrets & Credentials
 
@@ -72,7 +119,8 @@ rewrite to canonical container-side names at the compose boundary.
 
 | Host env var | → Container env | Purpose | Where to get |
 |---|---|---|---|
-| `NGC_CLI_API_KEY` or `RTVI_VLM_API_KEY` | `NGC_API_KEY` + `VIA_VLM_API_KEY` | Image pull + NIM backend auth | <https://ngc.nvidia.com/setup/api-key> |
+| `NGC_CLI_API_KEY` | `NGC_API_KEY` | NGC registry image pull and NGC model/artifact downloads | <https://ngc.nvidia.com/setup/api-key> |
+| `RTVI_VLM_API_KEY` or `NGC_CLI_API_KEY` | `VIA_VLM_API_KEY` | RT-VLM bearer auth / OpenAI-compatible backend auth after the service is running | Deployment owner |
 | `HF_TOKEN` | `HF_TOKEN` | Gated HF models (Qwen3-VL) | <https://huggingface.co/settings/tokens> |
 | `NVIDIA_API_KEY` | `NVIDIA_API_KEY` | Generic NVIDIA API (defaults to `NOAPIKEYSET`) | NVIDIA dev portal |
 | `OPENAI_API_KEY` | `OPENAI_API_KEY` | OpenAI directly when `openai-compat` (defaults `NOAPIKEYSET`) | <https://platform.openai.com/api-keys> |
@@ -81,7 +129,20 @@ rewrite to canonical container-side names at the compose boundary.
 | `VLM_NAME` | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | Remote model name | Your backend |
 | `REDIS_PASSWORD` | `REDIS_PASSWORD` | Only when `ENABLE_REDIS_ERROR_MESSAGES=true` | Your Redis |
 
-> ⚠ **Minimum to boot**: `NGC_CLI_API_KEY` + whatever the sibling NIM needs.
+> ⚠️ **Minimum to boot standalone with the documented pull path**:
+> `NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`, plus either
+> `RTVI_VLM_ENDPOINT` + `VLM_NAME` for `openai-compat` or
+> `RTVI_VLM_MODEL_TO_USE` + `RTVI_VLM_MODEL_PATH` for local self-hosted model
+> loading. `RTVI_VLM_API_KEY` can satisfy RT-VLM bearer/backend auth, but it
+> does **not** replace `NGC_CLI_API_KEY` for `docker login nvcr.io`, image
+> pulls, or NGC model/artifact downloads.
+
+For agent-driven validation, provision `NGC_CLI_API_KEY` through the agent
+process environment, a secret manager, or the local `.env` file with mode
+`0600`. Do not paste the key into chat or command history. Before pulling,
+verify the agent can see the key with `test -n "$NGC_CLI_API_KEY"` and perform
+`docker login nvcr.io`; if the key only exists in `.env`, load that file into
+the shell before the login step.
 
 Use the `.env` block in §12 as the starting point.
 
@@ -95,9 +156,9 @@ Use the `.env` block in §12 as the starting point.
 | 111 | `${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache` (named) | **yes** | **YES — re-download weights** |
 | 112 | `${RTVI_VLM_LOG_DIR:-/dummy}${RTVI_VLM_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}` (optional bind) | no | no |
 
-**Required host-path setup** — `VSS_DATA_DIR` is not optional. See **Step 2** in the
-Quick-Start section below for the exact commands to prepare the VST clip-storage
-host directory.
+**Required host-path setup** — `VSS_DATA_DIR` is not optional. See the
+host-path setup step in the Quick-Start section below for the exact commands to
+prepare the VST clip-storage host directory.
 
 Optional host-path overrides:
 
@@ -119,12 +180,24 @@ mkdir -p ./rtvi-logs && sudo chown 1001:1001 ./rtvi-logs
 | `RTVI_VLM_PORT` | **YES** (`${RTVI_VLM_PORT?}` strict) | — | Host REST API port |
 | `HOST_IP` | **YES (effectively)** | — | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback |
 | `VSS_DATA_DIR` | **YES (effectively)** | — | Interpolated into VST clip-storage bind mount; no fallback |
-| `NGC_CLI_API_KEY` | **YES** | — | Image pull + NIM auth |
-| `VLM_MODEL_TO_USE` (via `RTVI_VLM_MODEL_TO_USE`) | effectively required | `openai-compat` | `cosmos-reason1` / `cosmos-reason2` / `openai-compat` / `custom` |
-| `MODEL_PATH` (via `RTVI_VLM_MODEL_PATH`) | conditional | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Needed when not `openai-compat`. **Override to `:1208-fp8-static-kv8`** — this is the tag VSS docs and NIM sibling composes serve; the compose default `:hf-1208` is a different quant variant. See §20. |
+| `NGC_CLI_API_KEY` | **YES for documented pull / local NGC model path** | — | `docker login nvcr.io`, image pull, and NGC model/artifact download |
+| `RTVI_VLM_API_KEY` | optional / backend-dependent | `${NGC_CLI_API_KEY}` fallback in compose | RT-VLM bearer auth or non-NGC backend auth; does not replace `NGC_CLI_API_KEY` for registry pulls |
+| `RTVI_VLM_MODEL_TO_USE` | effectively required | `openai-compat` | `cosmos-reason1` / `cosmos-reason2` / `openai-compat` / `custom` |
+| `RTVI_VLM_ENDPOINT` | if `openai-compat` | — | Remote/sibling OpenAI-compatible VLM endpoint |
+| `VLM_NAME` | if `openai-compat` | — | Model name exposed by the remote/sibling VLM endpoint |
+| `RTVI_VLM_MODEL_PATH` | conditional | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` | Needed when not `openai-compat`. Keep the source-backed `:0303-fp8-dynamic-kv8` default unless the deployment source explicitly overrides it. |
 
 The most important host-side variables use the `RTVI_VLM_*` or `RTVI_VLLM_*`
 prefix and are rewritten to canonical container-side names by compose.
+
+Minimum standalone openai-compatible deployment using the documented image pull:
+`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`,
+`RTVI_VLM_ENDPOINT`, and `VLM_NAME`. Add `RTVI_VLM_API_KEY` when the remote
+backend or RT-VLM bearer policy requires a token different from the NGC key.
+
+Minimum standalone self-hosted Cosmos deployment:
+`NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`,
+`RTVI_VLM_MODEL_TO_USE`, and `RTVI_VLM_MODEL_PATH`.
 
 ## 8. Optional / Feature-Flag Environment Variables
 
@@ -173,11 +246,15 @@ Kafka and Redis are **not bundled** — expected on host or in a sibling compose
 Set `RTVI_VLM_MODEL_TO_USE` in `.env` to select the backend. After any change:
 
 ```bash
-sudo docker compose -f rtvi-vlm-docker-compose.yml \
+sudo docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm
 ```
 
-Verify what loaded: `curl -s "http://localhost:${RTVI_VLM_PORT}/v1/models" | jq`
+Verify what loaded:
+```bash
+curl -s -H "Authorization: Bearer ${NGC_CLI_API_KEY:-${RTVI_VLM_API_KEY:-}}" \
+  "http://localhost:${RTVI_VLM_PORT}/v1/models" | jq
+```
 
 ---
 
@@ -217,9 +294,9 @@ Model is downloaded and served by vLLM inside the container. Requires ~16–20 G
 VRAM for the 8B models.
 
 ```bash
-# .env for cosmos-reason2 (recommended tag — matches VSS docs / NIM siblings):
+# .env for cosmos-reason2 (source-backed default used by VSS alerts/LVS):
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:1208-fp8-static-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 NGC_CLI_API_KEY=<ngc-key>
 
 # .env for cosmos-reason1:
@@ -281,7 +358,12 @@ volumes:
   - /host/path/to/models:/opt/models:ro
 ```
 
-## 12. Deploy
+## 12. Deployment Flow
+
+This mirrors the compose-centric workflow used by
+[`../../vss-deploy-profile/SKILL.md`](../../vss-deploy-profile/SKILL.md): work
+from a local copy, build a deploy-specific `.env`, dry-run, review, deploy, and
+wait for health. Always follow this sequence. Never skip the dry-run.
 
 This compose declares **6 blueprint profiles**. Service will NOT start under
 plain `docker compose up` — `--profile <name>` is required.
@@ -298,35 +380,46 @@ plain `docker compose up` — `--profile <name>` is required.
 Generic VLM workflow → `bp_developer_alerts_2d_vlm`.
 
 ```bash
-# 0. Fetch compose (if not in a met-blueprints checkout)
-mkdir -p /work/rtvi_deploy && cd /work/rtvi_deploy
-VSS_RELEASE_REF="d64e6c5b96c56f1d11809905fe6463ffbffd9b42" # upstream release/3.2.0
-wget -q -O rtvi-vlm-docker-compose.yml \
-  "https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/${VSS_RELEASE_REF}/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
+# Step 0. Get compose (copy from checkout, or fetch the same path from VSS_REF)
+# Keep the checked-in compose read-only; mutate only this standalone copy.
+: "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to any writable standalone working directory, e.g. /colossus/tmp/rtvi_deploy}"
+mkdir -p "$RTVI_DEPLOY_DIR" && cd "$RTVI_DEPLOY_DIR"
+VSS_CHECKOUT="${VSS_CHECKOUT:-}"
+if [ -n "$VSS_CHECKOUT" ] && [ -f "$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml" ]; then
+  cp "$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml" .
+else
+  VSS_REF="${VSS_REF:-e9caf1593ffcd4964426c3e481c2f05f880d2d58}" # validated 26.05.4 compose
+  wget -q -O rtvi-vlm-docker-compose.yml \
+    "https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/${VSS_REF}/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
+fi
 
-# 0a. Detect platform → select correct image tag
-#     x86_64 and Tegra-based Jetson/AGX/IGX Thor use the multiarch image.
-#     SBSA server-ARM (DGX Spark, Grace Hopper) requires the -sbsa variant.
+# Step 0a. Derive the compose default tag, then select the platform variant.
+#          x86_64 and Tegra-based Jetson/AGX/IGX Thor use the multiarch image.
+#          SBSA server-ARM (DGX Spark, Grace Hopper) requires the -sbsa variant.
+COMPOSE_DEFAULT_TAG=$(sed -nE 's/.*RTVI_VLM_IMAGE_TAG:-([^}]+).*/\1/p' rtvi-vlm-docker-compose.yml | head -n1)
+: "${COMPOSE_DEFAULT_TAG:?Could not derive RTVI_VLM_IMAGE_TAG default}"
+RTVI_VLM_IMAGE_TAG="${RTVI_VLM_IMAGE_TAG:-$COMPOSE_DEFAULT_TAG}"
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ]; then
-VLM_TAG="3.2.0-26.04.1"
+  VLM_TAG="$RTVI_VLM_IMAGE_TAG"
 elif [ "$ARCH" = "aarch64" ]; then
   if grep -qi tegra /proc/cpuinfo 2>/dev/null || [ -f /etc/nv_tegra_release ]; then
-    VLM_TAG="3.2.0-26.04.1"         # Jetson / AGX Thor / IGX Thor (Tegra)
+    VLM_TAG="$RTVI_VLM_IMAGE_TAG"       # Jetson / AGX Thor / IGX Thor (Tegra)
   else
-    VLM_TAG="3.2.0-26.04.1-sbsa"    # DGX Spark / Grace Hopper (SBSA server-ARM)
+    VLM_TAG="${RTVI_VLM_IMAGE_TAG%-sbsa}-sbsa" # DGX Spark / Grace Hopper (SBSA server-ARM)
   fi
 else
   echo "Unsupported architecture: $ARCH" && exit 1
 fi
 echo "Platform: $ARCH → image tag: $VLM_TAG"
-export VSS_DATA_DIR=/work/rtvi_deploy/vss-data
+export VSS_DATA_DIR="${VSS_DATA_DIR:-$RTVI_DEPLOY_DIR/vss-data}"
 
-# 0b. Standalone fix — recent Docker Compose rejects `depends_on` references to
-#     sibling NIMs that aren't defined in this single-file project, even with
-#     `required: false`. Strip the depends_on block for standalone deploys.
-#     Use yq if available (handles YAML correctly), otherwise fall back to a
-#     small stdlib-only Python edit of this known compose file:
+# Step 0b. Standalone fix — recent Docker Compose rejects `depends_on`
+#          references to sibling NIMs that aren't defined in this single-file
+#          project, even with `required: false`. Strip the depends_on block for
+#          standalone deploys. Use yq if available (handles YAML correctly),
+#          otherwise fall back to a small stdlib-only Python edit of this known
+#          compose file:
 if command -v yq >/dev/null; then
   yq -i 'del(.services.rtvi-vlm.depends_on)' rtvi-vlm-docker-compose.yml
 else
@@ -352,10 +445,13 @@ for line in p.read_text().splitlines():
 p.write_text("\n".join(out) + "\n")
 PY
 fi
-#     Verify it's gone (should print 0):
-grep -c 'depends_on' rtvi-vlm-docker-compose.yml
+#     Verify it's gone before Compose validates the project:
+if grep -q 'depends_on' rtvi-vlm-docker-compose.yml; then
+  echo "standalone compose still contains depends_on; remove it before up" >&2
+  exit 1
+fi
 
-# 1. Config — set model vars per §11 (Options A–E)
+# Step 1. Config — set model vars per §11 (Options A–E)
 #
 # SECURITY NOTE: Writing API keys to `.env` via the shell (`cat > .env`)
 # puts the secret into the shell process for the duration of the heredoc.
@@ -367,8 +463,9 @@ grep -c 'depends_on' rtvi-vlm-docker-compose.yml
 #   (b) Render the file from a templated source with an external secret
 #       manager (HashiCorp Vault, AWS Secrets Manager, sealed-secrets).
 #   (c) Manage `.env` with `chmod 600` and `chown $(id -u):$(id -g)`
-#       immediately after writing it, and add the path to `.gitignore`
-#       (it already is — keep it that way).
+#       immediately after writing it. If this working directory is inside a
+#       git repo, add `.env` to `.gitignore`; otherwise keep it outside any repo
+#       and do not commit or archive it.
 #
 # In all cases, NEVER commit `.env` to a repository, NEVER leave it in
 # `/tmp`, NEVER paste the value into chat history, and clear the shell
@@ -378,66 +475,79 @@ grep -c 'depends_on' rtvi-vlm-docker-compose.yml
 umask 077  # ensure the file is created mode 0600
 cat > .env <<EOF
 NGC_CLI_API_KEY=<your-ngc-key>
-RTVI_VLM_PORT=8100
+RTVI_VLM_PORT=8018
 HOST_IP=<host-ip>
 VSS_DATA_DIR=${VSS_DATA_DIR}
 RTVI_VLM_IMAGE_TAG=${VLM_TAG}
 RT_VLM_DEVICE_ID=0
 # Model config (choose one option from §11):
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:1208-fp8-static-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 EOF
 chmod 600 .env
+grep -qxF .env .gitignore 2>/dev/null || printf '.env\n' >> .gitignore
 
-# 2. Prepare VST clip-storage host dir (required per §6 above)
+# Step 2. Prepare VST clip-storage host dir (required per §6 above).
+# Compose `config` validates schema/interpolation, but it does not prove this
+# host bind path exists or is writable by the container user.
 mkdir -p "$VSS_DATA_DIR/data_log/vst/clip_storage"
 sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"
+# If sudo is unavailable in an agent session, stop here and have the host owner
+# run the chown. Do not work around this with world-writable permissions.
 
-# 3. NGC auth — if running docker via sudo, pass the key inline (sudo drops env vars)
+# Step 3. Validate the standalone compose before creating containers.
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+  --profile bp_developer_alerts_2d_vlm config --quiet
+
+# Step 4. NGC auth — if running docker via sudo, pass the key inline (sudo drops env vars)
 echo "<your-ngc-key>" | sudo docker login nvcr.io -u '$oauthtoken' --password-stdin
 # Or preserve env: sudo --preserve-env=NGC_CLI_API_KEY bash -c \
 #   'echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u $oauthtoken --password-stdin'
 
-# 4. Pull image directly (as described in §4 above)
+# Step 5. Pull image directly (docker compose pull fails on standalone — see §4)
 sudo docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${VLM_TAG}"
 
-# 5. Bring up — plain `up` (no profile) starts nothing
+# Step 6. Bring up — plain `up` (no profile) starts nothing
 sudo --preserve-env=NGC_CLI_API_KEY \
-  docker compose -f rtvi-vlm-docker-compose.yml \
+  docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm up -d
 
-# 6. Wait for healthy — start_period is 1200s (20 MIN) on first boot.
-#    Model weight download + vLLM warmup can take the full window.
-#    Do NOT kill as "stuck" before 20 minutes have elapsed.
-until [ "$(sudo docker compose -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
+# Step 7. Wait for healthy — start_period is 1200s (20 MIN) on first boot.
+#         Model weight download + vLLM warmup can take the full window.
+#         Do NOT kill as "stuck" before 20 minutes have elapsed.
+until [ "$(sudo docker compose --env-file .env -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
   | jq -r '[.[].Health] | all(. == "healthy")')" = "true" ]; do
   echo "waiting for rtvi-vlm… (up to 20 minutes on first run)"
   sleep 15
 done
 
-# 7. Verify
+# Step 8. Verify
 curl -f "http://localhost:${RTVI_VLM_PORT}/v1/health/ready"
 ```
 
 ## 13. Dry Run
 
+Run dry-runs from the standalone working directory after §12 Step 0b has stripped
+the dangling `depends_on` block. The raw checked-in compose is valid only inside
+the full VSS/met-blueprints multi-file project where sibling services exist.
+
 ```bash
-cd deploy/docker/services/rtvi/rtvi-vlm
+cd "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to your standalone working directory}"
 
 # Resolved compose (audit; --no-interpolate keeps ${VAR} literal — no secrets leaked)
-docker compose -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm config --no-interpolate
 
 # Validation only
-docker compose -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm config --quiet && echo "compose valid"
 
 # Create containers + pull + volumes, but don't start
-docker compose -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm up --no-start
 
 # Cleanup
-docker compose -f rtvi-vlm-docker-compose.yml down
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down
 ```
 
 > Note: compose uses `${VAR:+:path}` conditional-bind on `ASSET_STORAGE_DIR` and
@@ -451,7 +561,8 @@ docker compose -f rtvi-vlm-docker-compose.yml down
 curl -f "http://localhost:${RTVI_VLM_PORT}/v1/health/ready"
 
 # Loaded model
-curl -s "http://localhost:${RTVI_VLM_PORT}/v1/models" | jq
+curl -s -H "Authorization: Bearer ${NGC_CLI_API_KEY:-${RTVI_VLM_API_KEY:-}}" \
+  "http://localhost:${RTVI_VLM_PORT}/v1/models" | jq
 
 # OpenAPI spec (FastAPI auto-docs)
 curl -s "http://localhost:${RTVI_VLM_PORT}/openapi.json" | jq '.paths | keys'
@@ -467,14 +578,14 @@ Healthy log signatures (`docker logs vss-rtvi-vlm`):
 ## 15. Logs & Status
 
 ```bash
-docker compose -f rtvi-vlm-docker-compose.yml ps
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml ps
 
 # By container name (compose sets container_name: vss-rtvi-vlm)
 docker logs -f vss-rtvi-vlm
 
 # Or by service via compose
-docker compose -f rtvi-vlm-docker-compose.yml logs -f rtvi-vlm
-docker compose -f rtvi-vlm-docker-compose.yml logs --tail 200 --since 10m rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml logs -f rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml logs --tail 200 --since 10m rtvi-vlm
 
 docker stats vss-rtvi-vlm
 nvidia-smi dmon -s u
@@ -513,10 +624,12 @@ once the service is up):
 |---|---|---|
 | `docker compose up` starts nothing | `--profile` not specified | Add `--profile bp_developer_alerts_2d_vlm` (§12) |
 | `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `.env` |
-| Container starts but Kafka errors `:9092 connection refused` | `HOST_IP` unset → `KAFKA_BOOTSTRAP_SERVERS=:9092` | Set `HOST_IP` to an address reachable from the container. Non-fatal for API/inference — Kafka publishing is just disabled. |
+| Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | `HOST_IP` unset, or no broker is reachable at `${HOST_IP}:9092` when RT-VLM starts | Set `HOST_IP` to an address reachable from the container, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
-| `service "X" depends on undefined service "Y": invalid compose project` | Recent Docker Compose rejects `depends_on` refs to sibling NIM services not defined in this single-file project — even with `required: false`. `--no-deps` does NOT bypass this validation. | Remove the `depends_on` block from the local compose copy (§12 step 0b). Only needed for standalone deploys without the full met-blueprints project. |
+| `sudo chown` prompts for a password or fails in an agent session | Host path ownership requires user privileges | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
+| `service "X" depends on undefined service "Y": invalid compose project` | Recent Docker Compose rejects `depends_on` refs to sibling NIM services not defined in this single-file project — even with `required: false`. | Remove the `depends_on` block from the local compose copy (§12 step 0b). Only needed for standalone deploys without the full met-blueprints project. |
 | `docker compose pull` → `invalid compose project` | Same `depends_on` validation runs before pull | Use `docker pull nvcr.io/nvstaging/vss-core/vss-rt-vlm:<tag>` directly (§4) |
+| `docker compose pull --no-deps` → `unknown flag: --no-deps` | Compose 2.38 does not support `--no-deps` on `pull` | Use direct `docker pull` (§4), or strip `depends_on` and validate before `up` (§12 step 0b). |
 | `password is empty` on `sudo docker login` | `sudo` drops the user's environment — `$NGC_CLI_API_KEY` is not set in the sudo shell | Pass the key inline: `echo "<key>" \| sudo docker login nvcr.io -u '$oauthtoken' --password-stdin`, or use `sudo --preserve-env=NGC_CLI_API_KEY` |
 | `unauthorized` on `docker compose pull` | Missing NGC auth or no org access | `docker login nvcr.io` with a key that has `nvidia/vss-core` access |
 | `Exited (1)` "Error: No GPUs were found" | Container can't see GPUs | Install NVIDIA Container Toolkit; `docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` must work |
@@ -530,16 +643,16 @@ once the service is up):
 **Forward**:
 ```bash
 # .env: RTVI_VLM_IMAGE_TAG=<new-tag>
-docker compose -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
-docker compose -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
 ```
 
 **Rollback**:
 ```bash
-# Record current tag first: `docker compose -f ... images rtvi-vlm`
+# Record current tag first: `docker compose --env-file .env -f ... images rtvi-vlm`
 # .env: RTVI_VLM_IMAGE_TAG=<prior-tag>
-docker compose -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
-docker compose -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
 ```
 
 Named volumes survive both. Re-download only if `MODEL_PATH` changes.
@@ -547,16 +660,16 @@ Named volumes survive both. Re-download only if `MODEL_PATH` changes.
 ## 19. Tear Down
 
 ```bash
-cd deploy/docker/services/rtvi/rtvi-vlm
+cd "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to your standalone working directory}"
 
 # Keep named volumes (model caches preserved)
-docker compose -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down
 
 # WIPES model caches (20–80 GB re-download)
-docker compose -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down -v
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down -v
 
 # Remove locally-pulled image
-docker compose -f rtvi-vlm-docker-compose.yml down --rmi local
+docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
 
 # Optional host-side (do NOT rm $VSS_DATA_DIR — shared with other services)
 # rm -rf ./rtvi-assets ./rtvi-logs
@@ -568,14 +681,14 @@ docker compose -f rtvi-vlm-docker-compose.yml down --rmi local
 - **🟢 Healthcheck tuning divergence**: docs show `start_period: 300s`,
   `retries: 3`; compose sets `1200s` / `5`. The compose values are
   deliberately more lenient for model-download-on-first-boot. Not a bug.
-- **🔴 Default MODEL_PATH tag divergence — always override**: compose default
-  is `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208`, but the tag that matches VSS
-  docs and sibling NIM composes is **`:1208-fp8-static-kv8`** (FP8-static
-  weights + KV8 cache). Use that tag unless you have a specific reason to run
-  the `hf-1208` variant. The two are **not interchangeable** — different quant
-  schemes produce different `torch_aot_compile` cache hashes, so swapping tags
-  on a live cache volume will emit the `_Missing has no attribute _modules`
-  warning and force a full vLLM recompile on first boot.
+- **🟢 Source-backed MODEL_PATH default**: compose, `vss-deploy-profile`, and
+  the default alerts/LVS paths use
+  `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8`. Keep that default for standalone
+  local Cosmos Reason 2 validation unless the source profile explicitly changes
+  it. RTX PRO 4500 Blackwell uses the same FP8 default with tighter sizing
+  caps for the smaller VRAM target. Model tags are not interchangeable; swapping tags on a live
+  cache volume can trigger a `torch_aot_compile` / `_Missing has no attribute
+  _modules` warning and force a full vLLM recompile on first boot.
 - **Profiles are mandatory**: `docker compose up` without `--profile` starts
   nothing. 6 profiles available — §12.
 - **`container_name: vss-rtvi-vlm` hardcoded** (line 22) — can't run two instances
@@ -586,11 +699,11 @@ docker compose -f rtvi-vlm-docker-compose.yml down --rmi local
 - **`depends_on.required: false` is NOT enough on recent Docker Compose**: Compose
   validates all `depends_on` service references at project load time and rejects
   them with `invalid compose project` if the services aren't defined — regardless
-  of `required: false`. `--no-deps` does not bypass this. For standalone
-  deployments (no full met-blueprints project), strip the `depends_on` block
-  from the local compose copy (§12 step 0b). The `required: false` behavior
-  works correctly only when running under the full met-blueprints multi-file
-  project where all sibling services are defined.
+  of `required: false`. For standalone deployments (no full met-blueprints
+  project), strip the `depends_on` block from the local compose copy (§12 step
+  0b). The `required: false` behavior works correctly only when running under
+  the full met-blueprints multi-file project where all sibling services are
+  defined.
 - **`sudo docker` drops environment variables**: `NGC_CLI_API_KEY` and other
   vars set in the user shell are invisible to `sudo docker`. Pass secrets inline
   (`echo "<key>" | sudo docker login ...`) or use `sudo --preserve-env=VAR_NAME`.
@@ -599,6 +712,10 @@ docker compose -f rtvi-vlm-docker-compose.yml down --rmi local
   `host.docker.internal` is wired via `extra_hosts` as an alternative value.
 - **`VSS_DATA_DIR` required**: no default on the bind mount. Without it the
   mount spec expands to garbage.
+- **Kafka startup order matters for validation**: when `RTVI_VLM_KAFKA_ENABLED=true`,
+  start Kafka with an advertised `${HOST_IP}:9092` listener before RT-VLM. If the
+  broker was missing or its listener changed after RT-VLM started, run
+  `docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm`.
 - **Host-var rewrite convention**: most host-side vars use `RTVI_VLM_*` or
   `RTVI_VLLM_*` and rewrite to canonical names inside the container.
 - **`VLM_MODEL_TO_USE=openai-compat` by default**: this stack expects a sibling

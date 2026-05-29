@@ -59,7 +59,7 @@ restart), or are consumed only by dev-only ``tools/`` modules. Rejecting
 them at validation time keeps operators from silently believing a config
 landed when it actually requires a restart.
 
-See ``readmes/dynamic-config.md`` for the full consumer classification.
+See ``docs/dynamic-config.md`` for the full consumer classification.
 
 Result semantics
 ----------------

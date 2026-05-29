@@ -3,12 +3,13 @@ Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions
 
 This skill is ready for commercial/non-commercial use. <br>
 
-## Owner: NVIDIA <br>
+## Owner
+NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and operators managing VSS alert pipelines use this skill to configure real-time video monitoring, create alert subscriptions, set up Slack notifications, query incidents, and onboard cameras. <br>
+Developers and engineers use this skill to operate and manage VSS alert pipelines including real-time VLM monitoring, Alert-Bridge subscription CRUD, Slack incident notifications, alert queries, and camera onboarding. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,15 +21,28 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [Alert Notify Reference](references/alert-notify.md) <br>
 - [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [NVIDIA Build Experience](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
+**Output Type(s):** [Shell commands, Configuration instructions, Analysis] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Tasks: <br>
+Evaluated via NVSkills-Eval `external` profile across Tier 1 static validation (9 checks) and Tier 2 deduplication (2 checks). Tier 3 live agent evaluation not available. <br>
+
+## Evaluation Metrics Used: <br>
+Reported benchmark dimensions: <br>
+- Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
+- Correctness: Checks whether the agent follows the expected workflow and produces the correct final output. <br>
+- Discoverability: Checks whether the agent loads the skill when relevant and avoids using it when irrelevant. <br>
+- Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
+- Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
+
+
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

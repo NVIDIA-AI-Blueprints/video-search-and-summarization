@@ -75,7 +75,7 @@ If any required prerequisite fails, surface the gap before going further.
 
 ## Workflow
 
-Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its four steps in order:
+Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its steps in order:
 
 1. Pick an entrypoint (analytics 2D / 3D / mv3dt, dev_example, fusion_search).
 2. Choose a config — profile-shipped or custom.
