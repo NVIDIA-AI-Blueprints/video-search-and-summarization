@@ -80,7 +80,9 @@ on the host. Stop and tell the user.
 ## Deployment
 
 Deployment is delegated to the VSS Orchestrator MCP server at
-`http://host.openshell.internal:9988/mcp`. Do **not** invoke
+`http://host.openshell.internal:9988/mcp` and is also registered natively
+in OpenClaw through the SSE endpoint on port `9989`. Prefer native
+`vss_orchestrator__*` tools when OpenClaw exposes them. Do **not** invoke
 `deploy/docker/scripts/dev-profile.sh`, scan for repo paths, or prompt the
 user for `HARDWARE_PROFILE` / `NGC_CLI_API_KEY` — the MCP server inherits
 them from the host environment.
@@ -93,14 +95,11 @@ inside the sandbox.
 
 ## Calling MCP tools
 
-OpenClaw's built-in MCP client can't fully handshake with the orchestrator's
-`nat mcp serve` (protocol mismatch: OpenClaw opens the SSE GET before
-establishing a session). Only **`vss_orchestrator__docker_list`** reliably
-registers as a native tool. Prefer it natively when present. Every other
-orchestrator tool (`prereqs`, `docker_generate`, `docker_up`, `docker_down`,
-`docker_status`, `docker_logs`, `docker_read`, `profiles`) must be invoked
-via `curl` from the `exec` tool. Ignore `react_agent` — it's the workflow's
-entry function, not a deployment tool.
+The notebook starts two host-side MCP endpoints: streamable HTTP on `9988`
+for readiness/fallback and SSE on `9989` for OpenClaw native tool discovery.
+Prefer native tools when they are visible. If OpenClaw does not expose a
+needed tool, use the `9988/mcp` curl fallback below. Ignore `react_agent` —
+it's the workflow's entry function, not a deployment tool.
 
 ### Handshake (once per session)
 

@@ -128,7 +128,9 @@ The canonical harbor command is in § Harbor invocation.
    or a spec sets `runner: "nemoclaw"`, do not debug by hot-patching
    the live Brev worker, OpenClaw container, OpenClaw image, notebook
    output, `~/.eval_env`, or unrelated run artifacts. Run the canonical
-   Harbor command once for the selected scenario. If setup or Harbor
+   Harbor command once for the selected scenario, in the foreground.
+   Do not use the `Monitor` tool, background Harbor with `&`, or keep
+   checking remote progress with sleep/poll loops. If setup or Harbor
    fails, read only this run's `trial.log`, `test-stdout.txt`,
    `nemoclaw_hooks_response.json`, and readiness/setup artifacts, record
    a concise `BLOCKED:` or failed-result summary, and exit. Fixes must
