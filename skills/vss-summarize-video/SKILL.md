@@ -194,7 +194,7 @@ This step is a sub-task — do NOT end your turn here; do NOT return the clip
 URL as the final answer. From VIOS collect three values:
 
 1. **`streamId`** (via `sensor/list` → `sensor/<id>/streams`, or directly from an upload response).
-2. **Timeline** — `{startTime, endTime}` (ISO 8601 UTC). `endTime - startTime` is the duration; needed only for the user-facing header (routing is driven solely by `/v1/ready`).
+2. **Timeline** - `{startTime, endTime}` (ISO 8601 UTC). `endTime - startTime` is the duration; needed only for the user-facing header (routing is driven solely by `/v1/ready`).
 3. **Temporary MP4 clip URL** — the `/storage/file/<streamId>/url` variant with `container=mp4`. Response field: `.videoUrl`. Both backends need an HTTP(S) URL they can `GET`.
 
 Everything else (auth, upload, `disableAudio`, expiry, etc.) lives in the

@@ -27,7 +27,7 @@ Sample configurations are available in `configs/sample-configs/`:
 |--------|-------------|---------|
 | `server.port` | HTTP port for the API server | 8081 |
 | `server.configs.postBodySizeLimit` | Maximum POST body size | 50mb |
-| `server.configs.amrRetentionInSec` | AMR data retention period in seconds | 300 |
+| `server.configs.amrRetentionInSec` | AMR data retention period in seconds | 3 |
 | `server.configs.inSimulationMode` | Enable simulation mode | false |
 
 ### Elasticsearch
