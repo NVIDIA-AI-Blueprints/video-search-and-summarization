@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import textwrap
@@ -165,6 +167,10 @@ class NemoClawEnvFileTest(unittest.TestCase):
 
 
 class NemoClawHeadlessRunnerTest(unittest.TestCase):
+    def test_non_json_hook_response_is_not_treated_as_success(self):
+        self.assertFalse(headless_runner._response_ok({"status": 200, "body": "ok"}))
+        self.assertTrue(headless_runner._response_ok({"status": 200, "body": {"ok": True}}))
+
     def test_healthy_dashboard_forward_is_kept_even_if_registry_is_empty(self):
         calls: list[tuple[str, ...]] = []
         previous = {
@@ -188,6 +194,45 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             headless_runner._run = previous["_run"]
 
         self.assertEqual(calls, [])
+
+    def test_forward_failure_writes_structured_report(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            log_dir = root / "logs"
+            prompt.write_text("deploy base", encoding="utf-8")
+            previous = {
+                "OPENCLAW_HOOKS_TOKEN": os.environ.get("OPENCLAW_HOOKS_TOKEN"),
+                "NEMOCLAW_HOOKS_TOKEN_FILE": os.environ.get("NEMOCLAW_HOOKS_TOKEN_FILE"),
+                "ensure_forward": headless_runner.ensure_forward,
+            }
+            os.environ["OPENCLAW_HOOKS_TOKEN"] = "token"
+            os.environ.pop("NEMOCLAW_HOOKS_TOKEN_FILE", None)
+            headless_runner.ensure_forward = lambda port, sandbox: (_ for _ in ()).throw(RuntimeError("forward down"))
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = headless_runner.main([
+                        "--prompt-file",
+                        str(prompt),
+                        "--log-dir",
+                        str(log_dir),
+                    ])
+            finally:
+                headless_runner.ensure_forward = previous["ensure_forward"]
+                if previous["OPENCLAW_HOOKS_TOKEN"] is None:
+                    os.environ.pop("OPENCLAW_HOOKS_TOKEN", None)
+                else:
+                    os.environ["OPENCLAW_HOOKS_TOKEN"] = previous["OPENCLAW_HOOKS_TOKEN"]
+                if previous["NEMOCLAW_HOOKS_TOKEN_FILE"] is None:
+                    os.environ.pop("NEMOCLAW_HOOKS_TOKEN_FILE", None)
+                else:
+                    os.environ["NEMOCLAW_HOOKS_TOKEN_FILE"] = previous["NEMOCLAW_HOOKS_TOKEN_FILE"]
+
+            report = json.loads((log_dir / "nemoclaw_hooks_response.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(report["response"]["error_type"], "RuntimeError")
+        self.assertIn("forward down", report["response"]["error"])
 
 
 class OpenClawStreamPatchTest(unittest.TestCase):

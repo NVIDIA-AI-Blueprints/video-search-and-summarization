@@ -126,6 +126,11 @@ def post_hook(url: str, token: str, payload: dict[str, Any], timeout: int) -> di
         return {"status": 0, "body": "", "error": str(exc)}
 
 
+def _response_ok(response: dict[str, Any]) -> bool:
+    body = response.get("body")
+    return 200 <= int(response.get("status", 0)) < 300 and isinstance(body, dict) and bool(body.get("ok"))
+
+
 def _vss_base_ready() -> tuple[bool, str]:
     probes = [
         ["curl", "-sf", "--max-time", "15", "http://localhost:8000/docs"],
@@ -187,18 +192,27 @@ def main(argv: list[str] | None = None) -> int:
     sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo")
     hooks_token = _read_hooks_token()
     hooks_path = "/" + os.environ.get("OPENCLAW_HOOKS_PATH", "/hooks").strip("/")
-    if not hooks_token:
-        raise RuntimeError("OpenClaw hooks token is not available; run the notebook setup adapter first")
-
-    ensure_forward(str(args.dashboard_port), sandbox_name)
     hook_url = f"http://127.0.0.1:{args.dashboard_port}{hooks_path}/agent"
     payload = {"name": args.name, "message": prompt}
     started = time.time()
-    response = post_hook(hook_url, hooks_token, payload, timeout=60)
-    elapsed = time.time() - started
+    response: dict[str, Any] = {"status": 0, "body": "", "error": ""}
     wait_report = {"waited": False}
-    if 200 <= int(response.get("status", 0)) < 300 and bool((response.get("body") or {}).get("ok")):
-        wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
+    if not hooks_token:
+        response["error"] = "OpenClaw hooks token is not available; run the notebook setup adapter first"
+    else:
+        try:
+            ensure_forward(str(args.dashboard_port), sandbox_name)
+            response = post_hook(hook_url, hooks_token, payload, timeout=60)
+            if _response_ok(response):
+                wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
+        except Exception as exc:  # Keep Harbor artifacts structured on setup failures.
+            response = {
+                "status": 0,
+                "body": "",
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            }
+    elapsed = time.time() - started
 
     report = {
         "hook_url": hook_url,
@@ -217,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
 
-    ok = 200 <= int(response.get("status", 0)) < 300 and bool((response.get("body") or {}).get("ok"))
+    ok = _response_ok(response)
     if wait_report.get("waited"):
         ok = ok and bool(wait_report.get("ok"))
     print(json.dumps(report, indent=2))
