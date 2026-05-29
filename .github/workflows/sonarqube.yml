@@ -93,6 +93,7 @@ jobs:
             echo "sonar.scm.provider=git"
             echo "sonar.sources=${SONAR_SOURCES}"
             echo "sonar.exclusions=${exclusions}"
+            echo "sonar.qualitygate.wait=true"
           } > sonar-project.properties
 
           if [ -n "$SONAR_TESTS" ]; then

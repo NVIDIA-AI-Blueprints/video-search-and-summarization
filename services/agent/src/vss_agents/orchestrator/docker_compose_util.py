@@ -34,6 +34,8 @@ from pydantic import Field
 from pydantic import field_validator
 import yaml
 
+from vss_agents.utils.sanitize import confine_to_base
+
 from .network_util import apply_brev_proxy_env
 from .network_util import detect_external_ip
 from .network_util import detect_internal_ip
@@ -734,11 +736,16 @@ def sanitize_resolved_compose(compose_text: str) -> str:
 
 def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[dict[str, str], Path, Path]:
     resolved_env = build_resolved_env(config)
-    config.output_env_file.parent.mkdir(parents=True, exist_ok=True)
-    config.output_env_file.write_text(render_generated_env(config.source_env_file, resolved_env))
-    config.output_compose_file.parent.mkdir(parents=True, exist_ok=True)
-    config.output_compose_file.write_text(resolve_compose(config))
-    return resolved_env, config.output_env_file, config.output_compose_file
+    # Confine each artifact to its declared output directory: the file name is
+    # reduced to a single component and the resolved target is verified to stay
+    # inside the parent, so a crafted output path can't escape via traversal.
+    env_file = confine_to_base(config.output_env_file.parent, config.output_env_file.name)
+    compose_file = confine_to_base(config.output_compose_file.parent, config.output_compose_file.name)
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text(render_generated_env(config.source_env_file, resolved_env))
+    compose_file.parent.mkdir(parents=True, exist_ok=True)
+    compose_file.write_text(resolve_compose(config))
+    return resolved_env, env_file, compose_file
 
 
 def print_configuration_summary(config: DryRunRecipe, resolved_env: dict[str, str]) -> None:

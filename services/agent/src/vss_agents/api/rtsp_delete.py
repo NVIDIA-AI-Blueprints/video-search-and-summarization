@@ -41,6 +41,7 @@ from vss_agents.api.rtsp_ingest import cleanup_rtvi_vlm_stream
 from vss_agents.api.rtsp_ingest import cleanup_vst_sensor
 from vss_agents.api.rtsp_ingest import cleanup_vst_storage
 from vss_agents.api.rtsp_ingest import get_stream_info_by_name
+from vss_agents.utils.sanitize import scrub_log
 
 logger = logging.getLogger(__name__)
 
@@ -85,18 +86,18 @@ def create_rtsp_delete_router(config: ServiceConfig) -> APIRouter:
         """
         results: list[bool] = []
 
-        logger.info(f"Deleting stream by name '{name}'")
+        logger.info("Deleting stream by name '%s'", scrub_log(name))
 
         success, msg, stream_id, rtsp_url = await get_stream_info_by_name(config, name)
         if not success:
-            logger.error(f"Failed to find stream '{name}': {msg}")
+            logger.error("Failed to find stream '%s': %s", scrub_log(name), scrub_log(msg))
             return DeleteStreamResponse(
                 status="failure",
                 message=f"Failed to find stream with name '{name}': {msg}",
                 name=name,
             )
 
-        logger.info(f"Found stream_id '{stream_id}' for name '{name}'")
+        logger.info("Found stream_id '%s' for name '%s'", scrub_log(stream_id), scrub_log(name))
         if stream_id is None:
             return DeleteStreamResponse(
                 status="failure",
@@ -147,7 +148,7 @@ def create_rtsp_delete_router(config: ServiceConfig) -> APIRouter:
             status = "failure"
             message = f"Failed to delete stream '{name}'"
 
-        logger.info(f"Delete stream '{name}' completed with status: {status}")
+        logger.info("Delete stream '%s' completed with status: %s", scrub_log(name), status)
 
         return DeleteStreamResponse(
             status=status,
