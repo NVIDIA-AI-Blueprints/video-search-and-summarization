@@ -373,8 +373,28 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             openclaw_log = (log_dir / "openclaw-agent.log").read_text(encoding="utf-8")
 
         self.assertEqual(response["body"]["mode"], "cli")
-        self.assertTrue(any("openclaw agent" in " ".join(call) for call in calls))
+        self.assertTrue(any("base64 -d" in " ".join(call) for call in calls))
         self.assertIn("agent done", openclaw_log)
+
+    def test_sandbox_exec_wraps_multiline_scripts_for_nemoclaw(self):
+        calls: list[tuple[str, ...]] = []
+        previous = headless_runner._run
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+        headless_runner._run = fake_run
+        try:
+            result = headless_runner._sandbox_exec("demo", "echo one\necho two", timeout=30)
+        finally:
+            headless_runner._run = previous
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(calls), 1)
+        command = calls[0]
+        self.assertTrue(all("\n" not in arg and "\r" not in arg for arg in command))
+        self.assertIn("base64 -d", " ".join(command))
 
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
