@@ -162,6 +162,20 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9989/sse")
 
+    def test_parameter_cell_tolerates_missing_advanced_defaults(self):
+        defaults = {
+            "HARDWARE_PROFILE": "RTXPRO6000BW",
+            "NEMOCLAW_ENDPOINT_URL": "",
+            "NEMOCLAW_MODEL": "",
+            "COMPATIBLE_API_KEY": "",
+        }
+
+        exec(notebook_adapter.PARAMETER_SOURCE, defaults)
+
+        self.assertEqual(defaults["OPENCLAW_HOOKS_PATH"], "/hooks")
+        self.assertEqual(defaults["NEMOCLAW_INSTALL_REF"], "")
+        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
+
 
 class SkillsEvalAgentProtocolTest(unittest.TestCase):
     def test_final_marker_must_be_last_nonempty_line(self):
