@@ -380,6 +380,9 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            # Use the CI evaluation model for the OpenClaw/NemoClaw agent
+            # when available; keep LLM_REMOTE_* for the VSS app runtime.
+            "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
             # NemoClaw/OpenClaw provider configuration. CI can either set
             # these explicitly, or the notebook adapter can derive them from
             # the forwarded LLM_REMOTE_* + NVIDIA_API_KEY values below.

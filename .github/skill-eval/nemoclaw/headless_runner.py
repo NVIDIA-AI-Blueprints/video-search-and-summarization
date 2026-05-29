@@ -170,9 +170,12 @@ def run_openclaw_cli(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Pa
         f"export NO_PROXY={shlex.quote(no_proxy)}; "
         f"export no_proxy={shlex.quote(no_proxy)}; "
         f"export NODE_EXTRA_CA_CERTS={shlex.quote(ca_path)}; "
+        "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
         "openclaw agent --agent main --thinking medium "
+        "--local --json "
+        f"--timeout {int(timeout_s)} "
         f"--session-id {shlex.quote(session_id)} "
-        f"-m {shlex.quote(prompt)}"
+        f"--message {shlex.quote(prompt)}"
     )
     result = _sandbox_exec(sandbox_name, inner, timeout=timeout_s)
     (log_dir / "openclaw-agent.log").write_text(

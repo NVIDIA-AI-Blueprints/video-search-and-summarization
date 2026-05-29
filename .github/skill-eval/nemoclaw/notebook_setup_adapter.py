@@ -52,6 +52,7 @@ COMPATIBLE_API_KEY = os.environ.get("COMPATIBLE_API_KEY", _notebook_default("COM
 if not NEMOCLAW_ENDPOINT_URL:
     NEMOCLAW_ENDPOINT_URL = (
         os.environ.get("NEMOCLAW_FALLBACK_ENDPOINT_URL")
+        or os.environ.get("ANTHROPIC_BASE_URL")
         or os.environ.get("LLM_REMOTE_URL")
         or ""
     ).strip()
@@ -59,6 +60,7 @@ NEMOCLAW_ENDPOINT_URL = _openai_base_url(NEMOCLAW_ENDPOINT_URL)
 if not NEMOCLAW_MODEL:
     NEMOCLAW_MODEL = (
         os.environ.get("NEMOCLAW_FALLBACK_MODEL")
+        or os.environ.get("ANTHROPIC_MODEL")
         or os.environ.get("LLM_REMOTE_MODEL")
         or NEMOCLAW_MODEL
         or ""
@@ -66,6 +68,7 @@ if not NEMOCLAW_MODEL:
 if NEMOCLAW_ENDPOINT_URL and not COMPATIBLE_API_KEY:
     COMPATIBLE_API_KEY = (
         os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
         or os.environ.get("NVIDIA_API_KEY")
         or ""
     ).strip()
