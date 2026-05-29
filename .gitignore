@@ -18,11 +18,3 @@ deploy/docker/resolved.yml
 *.log
 *checkpoint.*
 .orchestrator-artifacts/*
-
-# Documentation build helpers under .mermaid-render/ (node_modules, vendored
-# pandoc binary, intermediate build files). The source scripts under
-# .mermaid-render/ are tracked; the build artefacts are not.
-.mermaid-render/node_modules/
-.mermaid-render/pandoc.tar.gz
-.mermaid-render/pandoc-*/
-.mermaid-render/build/
