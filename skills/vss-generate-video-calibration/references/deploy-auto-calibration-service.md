@@ -47,7 +47,7 @@ AMC pulls its images from the `vss-core` namespace on `nvcr.io` (the exact org â
 The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell/env file. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
 
 ```bash
-echo "NGC_CLI_API_KEY: ${NGC_CLI_API_KEY:+SET}${NGC_CLI_API_KEY:-NOT SET}"
+echo "NGC_CLI_API_KEY: $([ -n "${NGC_CLI_API_KEY}" ] && echo SET || echo 'NOT SET')"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
