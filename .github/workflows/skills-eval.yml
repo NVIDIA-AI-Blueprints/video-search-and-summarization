@@ -295,7 +295,16 @@ jobs:
           # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
-          python3 .github/skill-eval/skills_eval_agent.py
+          if [ "${SKILLS_EVAL_RUNNER:-claude-code}" = "nemoclaw" ]; then
+            # NemoClaw is an opt-in CI smoke path. Keep the whole eval bounded
+            # so setup/runtime issues return signal instead of burning a
+            # 12-hour generic skill-eval slot.
+            export AGENT_MAX_TURNS="${AGENT_MAX_TURNS:-350}"
+            timeout --kill-after=2m "${NEMOCLAW_SKILLS_EVAL_TIMEOUT:-60m}" \
+              python3 .github/skill-eval/skills_eval_agent.py
+          else
+            python3 .github/skill-eval/skills_eval_agent.py
+          fi
 
       - name: Collect results for workflow artifact
         if: always()

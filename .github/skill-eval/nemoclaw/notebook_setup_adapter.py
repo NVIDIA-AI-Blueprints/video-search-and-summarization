@@ -28,6 +28,12 @@ PARAMETER_SOURCE = r'''
 # not contain API keys.
 import os
 
+def _openai_base_url(url):
+    url = (url or "").strip().rstrip("/")
+    if url and not url.endswith("/v1"):
+        url = f"{url}/v1"
+    return url
+
 NGC_CLI_API_KEY = os.environ.get("NGC_CLI_API_KEY", "")
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
 HARDWARE_PROFILE = os.environ.get("HARDWARE_PROFILE", HARDWARE_PROFILE).strip()
@@ -40,6 +46,7 @@ if not NEMOCLAW_ENDPOINT_URL:
         or os.environ.get("LLM_REMOTE_URL")
         or ""
     ).strip()
+NEMOCLAW_ENDPOINT_URL = _openai_base_url(NEMOCLAW_ENDPOINT_URL)
 if not NEMOCLAW_MODEL:
     NEMOCLAW_MODEL = (
         os.environ.get("NEMOCLAW_FALLBACK_MODEL")
@@ -59,6 +66,21 @@ OPENCLAW_HOOKS_ENABLED = os.environ.get("OPENCLAW_HOOKS_ENABLED", "1").lower() n
 OPENCLAW_HOOKS_PATH = os.environ.get("OPENCLAW_HOOKS_PATH", OPENCLAW_HOOKS_PATH).strip() or "/hooks"
 OPENCLAW_DISABLE_STREAMING_TOOL_CALLS = os.environ.get("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS", "1").strip() or "1"
 os.environ["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"] = OPENCLAW_DISABLE_STREAMING_TOOL_CALLS
+VSS_ORCHESTRATOR_MCP_SSE_PORT = int(os.environ.get("VSS_ORCHESTRATOR_MCP_SSE_PORT", "9989"))
+VSS_ORCHESTRATOR_MCP_URL = os.environ.get(
+    "VSS_ORCHESTRATOR_MCP_URL",
+    f"http://host.openshell.internal:{VSS_ORCHESTRATOR_MCP_SSE_PORT}/sse",
+).strip()
+VSS_ORCHESTRATOR_MCP_TYPE = os.environ.get("VSS_ORCHESTRATOR_MCP_TYPE", "sse").strip() or "sse"
+os.environ["VSS_ORCHESTRATOR_MCP_URL"] = VSS_ORCHESTRATOR_MCP_URL
+os.environ["VSS_ORCHESTRATOR_MCP_TYPE"] = VSS_ORCHESTRATOR_MCP_TYPE
+os.environ["VSS_ORCHESTRATOR_MCP_SSE_PORT"] = str(VSS_ORCHESTRATOR_MCP_SSE_PORT)
+if NEMOCLAW_ENDPOINT_URL:
+    os.environ["NEMOCLAW_ENDPOINT_URL"] = NEMOCLAW_ENDPOINT_URL
+if NEMOCLAW_MODEL:
+    os.environ["NEMOCLAW_MODEL"] = NEMOCLAW_MODEL
+if COMPATIBLE_API_KEY:
+    os.environ["COMPATIBLE_API_KEY"] = COMPATIBLE_API_KEY
 
 # Optional VSS endpoint/model overrides used by the orchestrator MCP server.
 VSS_LLM_NAME = os.environ.get("VSS_LLM_NAME", VSS_LLM_NAME).strip()
@@ -90,6 +112,13 @@ _keys = [
     "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
     "MCP_URL",
     "MCP_PORT",
+    "MCP_SSE_URL",
+    "MCP_SSE_PORT",
+    "OPENCLAW_MCP_URL",
+    "OPENCLAW_MCP_TYPE",
+    "VSS_ORCHESTRATOR_MCP_URL",
+    "VSS_ORCHESTRATOR_MCP_TYPE",
+    "VSS_ORCHESTRATOR_MCP_SSE_PORT",
     "HOST_INTERNAL_ALIAS",
     "HARDWARE_PROFILE",
     "NEMOCLAW_HOOKS_TOKEN_FILE",
