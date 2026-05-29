@@ -115,7 +115,7 @@ Filename in path; timestamp and sensorId as query params.
 
 ```bash
 # filename: no whitespace, supported video container
-# timestamp: ISO 8601 UTC. Default when user has not specified: 2025-01-01T00:00:00.000Z
+# timestamp: ISO 8601 UTC query param (default convention: see api-reference.md § timestamp)
 # sensorId: optional — if omitted, the server generates a UUID
 curl -s -X PUT "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/storage/file/<filename>?timestamp=<timestamp>&sensorId=<sensorId>" \
   -H "Content-Type: application/octet-stream" \
