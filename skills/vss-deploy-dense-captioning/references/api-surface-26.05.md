@@ -4,7 +4,13 @@ Use the live OpenAPI as the source of truth before running optional endpoints:
 
 ```bash
 curl -fsS "$BASE_URL/openapi.json" | jq -r '.paths | keys[]' | sort
+MODEL_ID="$(curl -fsS "$BASE_URL/v1/models" -H "Authorization: Bearer $API_KEY" | jq -r '.data[0].id // .id')"
 ```
+
+Use the exact `MODEL_ID` returned by `/v1/models` in request payloads. On local
+Cosmos Reason 2 this is usually `nim_nvidia_cosmos-reason2-8b_hf-1208`; backend
+selector aliases such as `cosmos-reason1` or `cosmos-reason2` return HTTP 400
+unless the live model list exposes those exact ids.
 
 ## Caption Response Shape
 
@@ -83,7 +89,7 @@ Text-only:
 ```bash
 curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"cosmos-reason1","messages":[{"role":"user","content":"Summarize this scene."}]}'
+  -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Summarize this scene.\"}]}"
 ```
 
 Text-only streaming:
@@ -91,7 +97,7 @@ Text-only streaming:
 ```bash
 curl -N -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"cosmos-reason1","stream":true,"messages":[{"role":"user","content":"List the visible safety risks."}]}'
+  -d "{\"model\":\"$MODEL_ID\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"List the visible safety risks.\"}]}"
 ```
 
 Uploaded-video-backed chat:
@@ -100,7 +106,7 @@ Uploaded-video-backed chat:
 curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
-    \"model\": \"cosmos-reason1\",
+    \"model\": \"$MODEL_ID\",
     \"id\": \"$FILE_ID\",
     \"messages\": [{\"role\":\"user\",\"content\":\"What happens in this video?\"}]
   }"
@@ -112,7 +118,7 @@ Direct `video_url` chat:
 curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "cosmos-reason1",
+    "model": "nim_nvidia_cosmos-reason2-8b_hf-1208",
     "messages": [
       {
         "role": "user",
@@ -131,7 +137,7 @@ Direct `image_url` chat:
 curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "cosmos-reason1",
+    "model": "nim_nvidia_cosmos-reason2-8b_hf-1208",
     "messages": [
       {
         "role": "user",
@@ -151,7 +157,7 @@ OpenAPI exposes `id` for chat requests:
 curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
-    \"model\": \"cosmos-reason1\",
+    \"model\": \"$MODEL_ID\",
     \"id\": \"$STREAM_ID\",
     \"messages\": [{\"role\":\"user\",\"content\":\"What is happening on this live stream right now?\"}]
   }"

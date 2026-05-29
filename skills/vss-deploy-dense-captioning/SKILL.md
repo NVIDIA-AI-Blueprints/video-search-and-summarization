@@ -138,7 +138,7 @@ Every request below uses `Authorization: Bearer $API_KEY`. Health endpoints
 **Smoke test before use:**
 ```bash
 curl -fsS "$BASE_URL/v1/health/ready"
-curl -fsS "$BASE_URL/v1/models" -H "Authorization: Bearer $API_KEY" | jq
+MODEL_ID="$(curl -fsS "$BASE_URL/v1/models" -H "Authorization: Bearer $API_KEY" | jq -r '.data[0].id // .id')"
 curl -fsS "$BASE_URL/openapi.json" | jq -r '.paths | keys[]' | sort
 ```
 
@@ -159,7 +159,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -d "{
     \"id\": \"$FILE_ID\",
     \"prompt\": \"Write a concise dense caption for each 10-second segment of this warehouse video.\",
-    \"model\": \"cosmos-reason1\",
+    \"model\": \"$MODEL_ID\",
     \"chunk_duration\": 10,
     \"stream\": true
   }"
@@ -177,7 +177,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
 |-------|------|-------------|
 | `id` | string \| array | UUID of a previously-uploaded file, or id of an active live stream. Accepts a list of ids for batch |
 | `prompt` | string | User prompt to the VLM (e.g. dense-caption instruction) |
-| `model` | string | Model name — see `GET /v1/models` |
+| `model` | string | Exact model id returned by `GET /v1/models`, for example `nim_nvidia_cosmos-reason2-8b_hf-1208`; backend selector aliases such as `cosmos-reason2` are not request model ids |
 
 **Key optional fields:**
 | Field | Type | Default | Description |
@@ -203,7 +203,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -d '{
     "id": "123e4567-e89b-12d3-a456-426614174000",
     "prompt": "Dense-caption this warehouse video, one sentence per 10s chunk.",
-    "model": "cosmos-reason1",
+    "model": "nim_nvidia_cosmos-reason2-8b_hf-1208",
     "chunk_duration": 10,
     "stream": true
   }'
@@ -293,7 +293,7 @@ direct `image_url`, streaming, and RTSP-backed chat examples, see
 ```bash
 curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"cosmos-reason1","messages":[{"role":"user","content":"Summarize this scene."}]}'
+  -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Summarize this scene.\"}]}"
 ```
 
 #### `POST /v1/completions` — OpenAI-compatible legacy completions
@@ -334,7 +334,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -d "{
     \"id\": \"$FILE_ID\",
     \"prompt\": \"Describe warehouse events in 1 sentence per 10s chunk.\",
-    \"model\": \"cosmos-reason1\",
+    \"model\": \"$MODEL_ID\",
     \"chunk_duration\": 10,
     \"stream\": true
   }"
@@ -358,7 +358,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -d "{
     \"id\": \"$STREAM_ID\",
     \"prompt\": \"Describe each event; start each sentence with a timestamp.\",
-    \"model\": \"cosmos-reason1\",
+    \"model\": \"$MODEL_ID\",
     \"chunk_duration\": 10,
     \"num_frames_per_second_or_fixed_frames_chunk\": 2,
     \"use_fps_for_chunking\": true,
@@ -395,7 +395,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
     \"id\": \"$STREAM_ID\",
     \"prompt\": \"You are a warehouse monitoring system. Describe the scene in one sentence, then on a new line output exactly:\\nAnomaly Detected: Yes/No\\nReason: <one sentence>\\nFlag an anomaly if any worker is missing a hard hat or high-vis vest.\",
     \"system_prompt\": \"Answer the user's question correctly in yes or no.\",
-    \"model\": \"cosmos-reason2\",
+    \"model\": \"$MODEL_ID\",
     \"chunk_duration\": 60,
     \"chunk_overlap_duration\": 10,
     \"stream\": true
