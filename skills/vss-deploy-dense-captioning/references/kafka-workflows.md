@@ -118,7 +118,18 @@ Never stop or replace an existing Kafka container without user confirmation.
 Preflight the host before choosing:
 
 ```bash
-ss -ltn | grep -E ':(9092|9093)([[:space:]]|$)' || true
+list_kafka_ports() {
+  if command -v ss >/dev/null 2>&1 && ports="$(ss -ltn 2>/dev/null)"; then
+    printf '%s\n' "$ports" | grep -E ':(9092|9093)([[:space:]]|$)' || true
+  elif command -v netstat >/dev/null 2>&1 && ports="$(netstat -ltn 2>/dev/null)"; then
+    printf '%s\n' "$ports" | grep -E '[:.](9092|9093)[[:space:]]' || true
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:9092 -iTCP:9093 -sTCP:LISTEN 2>/dev/null || true
+  else
+    echo "No host socket-listing tool available; inspect docker ps below and ask before replacing Kafka."
+  fi
+}
+list_kafka_ports
 docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' \
   | grep -Ei 'kafka|9092' || true
 ```
@@ -140,6 +151,7 @@ before continuing.
 ```bash
 : "${HOST_IP:=host.docker.internal}"
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-rtvi-vlm-kafka}"
+KAFKA_IMAGE="${KAFKA_IMAGE:-apache/kafka:4.1.1}"
 
 if docker ps -a --format '{{.Names}}' | grep -qx "$KAFKA_CONTAINER"; then
   echo "Kafka container $KAFKA_CONTAINER already exists."
@@ -148,26 +160,80 @@ if docker ps -a --format '{{.Names}}' | grep -qx "$KAFKA_CONTAINER"; then
   docker rm -f "$KAFKA_CONTAINER"
 fi
 
-if ss -ltn | grep -Eq ':(9092)([[:space:]]|$)'; then
+host_port_in_use() {
+  port="$1"
+  if command -v ss >/dev/null 2>&1 && ports="$(ss -ltn 2>/dev/null)"; then
+    printf '%s\n' "$ports" | grep -Eq ":${port}([[:space:]]|$)"
+    return $?
+  elif command -v netstat >/dev/null 2>&1 && ports="$(netstat -ltn 2>/dev/null)"; then
+    printf '%s\n' "$ports" | grep -Eq "[:.]${port}[[:space:]]"
+    return $?
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  elif command -v nc >/dev/null 2>&1; then
+    nc -z 127.0.0.1 "$port" >/dev/null 2>&1
+    return $?
+  fi
+  return 2
+}
+
+host_port_in_use 9092
+port_status=$?
+if [ "$port_status" = "0" ]; then
   echo "Host port 9092 is already in use by another service."
   echo "Use the existing broker, or stop it only after user confirmation, then rerun."
   exit 1
+elif [ "$port_status" = "2" ]; then
+  echo "Could not inspect host port 9092 in this environment."
+  echo "Ask the user whether Kafka is already running before launching a broker."
+  exit 1
 fi
 
-docker run -d --name "$KAFKA_CONTAINER" \
-  --add-host=host.docker.internal:host-gateway \
-  -p 9092:9092 -p 9093:9093 \
-  -e KAFKA_NODE_ID=1 \
-  -e KAFKA_PROCESS_ROLES=broker,controller \
-  -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093 \
-  -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${HOST_IP}:9092 \
-  -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
-  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
-  -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
-  -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
-  -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
-  -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
-  apache/kafka:4.1.1
+# If Docker Hub rate-limits apache/kafka with HTTP 429, set:
+#   KAFKA_IMAGE=confluentinc/cp-kafka:8.2.0
+case "$KAFKA_IMAGE" in
+  apache/kafka:*)
+    docker run -d --name "$KAFKA_CONTAINER" \
+      --add-host=host.docker.internal:host-gateway \
+      -p 9092:9092 -p 9093:9093 \
+      -e KAFKA_NODE_ID=1 \
+      -e KAFKA_PROCESS_ROLES=broker,controller \
+      -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093 \
+      -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${HOST_IP}:9092 \
+      -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+      -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
+      -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+      -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+      -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+      -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+      "$KAFKA_IMAGE"
+    ;;
+  confluentinc/cp-kafka:*)
+    KAFKA_CLUSTER_ID="${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}"
+    docker run -d --name "$KAFKA_CONTAINER" \
+      --add-host=host.docker.internal:host-gateway \
+      -p 9092:9092 -p 9093:9093 \
+      -e CLUSTER_ID="$KAFKA_CLUSTER_ID" \
+      -e KAFKA_NODE_ID=1 \
+      -e KAFKA_PROCESS_ROLES=broker,controller \
+      -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093 \
+      -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${HOST_IP}:9092 \
+      -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+      -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
+      -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+      -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+      -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+      -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+      -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+      -e KAFKA_LOG_DIRS=/tmp/kraft-combined-logs \
+      "$KAFKA_IMAGE"
+    ;;
+  *)
+    echo "Unsupported KAFKA_IMAGE=$KAFKA_IMAGE; use apache/kafka:4.1.1 or confluentinc/cp-kafka:8.2.0"
+    exit 1
+    ;;
+esac
 
 kafka_cli() {
   docker exec "$KAFKA_CONTAINER" sh -lc '

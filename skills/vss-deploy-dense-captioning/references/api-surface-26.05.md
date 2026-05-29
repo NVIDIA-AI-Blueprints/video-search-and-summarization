@@ -49,6 +49,11 @@ curl -X POST "$BASE_URL/v1/files" -H "Authorization: Bearer $API_KEY" \
 `POST /v1/stream/add`, `GET /v1/stream/get-stream-info`, and
 `POST /v1/stream/remove`. Use these when a workflow or release note explicitly uses
 the key/value envelope; otherwise prefer the plural RT-VLM stream endpoints.
+During standalone validation, do not treat the CV-style info response as the
+source of truth for RT-VLM caption streams: `/v1/stream/add` may return
+`status:"added"` while `/v1/stream/get-stream-info` immediately reports
+`stream_count:0`. Use plural `/v1/streams/add` and its `results[0].id` for
+caption generation and cleanup.
 
 ```bash
 curl -fsS -X POST "$BASE_URL/v1/stream/add" \

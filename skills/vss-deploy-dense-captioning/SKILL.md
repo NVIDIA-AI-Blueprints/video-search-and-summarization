@@ -190,7 +190,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
 | `num_frames_per_second_or_fixed_frames_chunk` | number | — | FPS (if `use_fps_for_chunking=true`) or fixed frames per chunk |
 | `use_fps_for_chunking` | boolean | false | Interpret above as FPS vs. fixed-frame count |
 | `vlm_input_width` / `vlm_input_height` | int | — | Resize frames before inference (0 = native) |
-| `media_info` | object | — | `{"start_offset_ms": ..., "end_offset_ms": ...}` to process a slice of a file (not live streams) |
+| `media_info` | object | — | `{"type":"offset","start_offset":0,"end_offset":10}` to process a slice of a file (not live streams) |
 | `stream` | boolean | false | SSE: emit per-chunk caption deltas as `data:` events (recommended for long videos) |
 | `max_tokens` / `temperature` / `top_p` / `top_k` / `seed` / `ignore_eos` | | | Standard sampling controls |
 | `response_format` | object | — | Query response format object |
@@ -278,8 +278,8 @@ STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
 `POST /v1/stream/add`, `GET /v1/stream/get-stream-info`, and
 `POST /v1/stream/remove`. Use these when a workflow or release note explicitly uses
 the key/value envelope; otherwise prefer the plural RT-VLM stream endpoints
-above. Examples are in
-[`references/api-surface-26.05.md`](references/api-surface-26.05.md).
+above. See [`references/api-surface-26.05.md`](references/api-surface-26.05.md)
+for examples and the `stream_count:0` compatibility caveat.
 
 ### NIM Compatible
 > OpenAI-compatible endpoints for interop with OpenAI/NVIDIA-API clients.
@@ -495,6 +495,6 @@ Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response mo
 - **`chunk_duration=0` disables chunking** — the entire video is sent to the VLM as one shot. Only meaningful for short clips; long videos will OOM or exceed `max_model_len`.
 - **Default frame budget caps at `VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES` (256).** Requesting FPS that implies >256 frames per chunk is silently capped; drop FPS or shorten `chunk_duration` to stay within budget.
 - **`enable_reasoning` requires a Cosmos Reason model.** Passing it with Qwen3-VL or other non-reasoning models is a no-op.
-- **`/v1/metrics` requires auth**, unlike `/v1/health/*`. Prometheus scrapers need the Bearer token.
+- **`/v1/metrics` is unauthenticated on current 26.05 standalone builds.** A Bearer token is harmless if a deployment has stricter auth, but do not fail validation when `/v1/metrics` returns HTTP 200 without auth.
 - **File upload is multipart, not JSON.** Use `-F file=@path -F purpose=vision -F media_type=video`; a `-d` body returns 422.
 - **Live-stream lifecycle cleanup must unregister the stream:** `DELETE /v1/streams/delete/{stream_id}` removes the RTSP source. If the live schema also exposes `DELETE /v1/generate_captions/{stream_id}`, call it first to stop inference explicitly.
