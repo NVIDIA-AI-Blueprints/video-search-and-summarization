@@ -369,9 +369,12 @@ Intentionally shared paths (do NOT scope these under `$SCRATCH`):
       trial cleanly. Spend turns on the next trial's setup or on
       reading already-completed trial logs instead.
    d. After each trial, parse
-      `/tmp/skill-eval/results/<run_id>/<date>/<trial>/verifier/reward.txt`
+      `$TRIAL_OUT/<date>/<trial>/verifier/reward.txt` (i.e.
+      `/tmp/skill-eval/results/<run_id>/<spec_stem>-<platform>/<date>/<trial>/verifier/reward.txt`)
       and `test-stdout.txt`. Record `(spec, platform, reward,
-      checks_passed/total, duration_s, trace_url)` for the comment.
+      checks_passed/total, duration_s, trace_url)` for the comment. A
+      missing `reward.txt` means the trial errored (e.g. non-zero
+      harbor exit) — record it as a failure, do not skip it silently.
 
 6. **Post ONE results comment per `(PR, eval_spec)` batch** when every
    `(platform)` tuple in that spec's matrix has a result. Format
@@ -553,6 +556,14 @@ flag names have bitten multiple runs (`--include-task-name`, not
 a file path).
 
 ```bash
+# uvx (and claude) install under ~/.local/bin. A fresh `bash -c` /
+# subshell does NOT source ~/.bashrc, so $HOME/.local/bin is missing
+# from PATH and `uvx` resolves to "command not found" — the trial
+# never starts. Re-export PATH defensively at the top of every Bash
+# call that runs harbor (observed on PR #827: "uvx is not in PATH for
+# subshells", whole sweep stalled).
+export PATH="$HOME/.local/bin:$PATH"
+
 # PYTHONPATH lets uvx harbor resolve envs.brev_env:BrevEnvironment.
 # The workflow step already exports it, but re-export defensively in
 # case you're driving harbor from a subshell.
@@ -572,6 +583,18 @@ export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
 # and that's how parallelism happens.
 export BREV_INSTANCE="$INSTANCE_NAME"
 
+# Per-(spec, platform) output ROOT. This is load-bearing: harbor
+# creates a <date>/<trial> subdir keyed to the *second* under -o, so
+# two harbor runs that share one -o and start in the same second
+# collide with FileExistsError and silently lose a trial (observed on
+# PR #827: base/lvs/alerts_cv vanished when 6 specs fanned out onto a
+# shared -o). Giving every invocation its own root makes serial
+# retries, stale dirs left by a failed attempt, and concurrent
+# fan-out (§ Wait contract #4) all collision-proof. NEVER point two
+# harbor runs at the same -o.
+RESULTS="/tmp/skill-eval/results/$GITHUB_RUN_ID"
+TRIAL_OUT="$RESULTS/<spec_stem>-<platform>"   # e.g. $RESULTS/base-rtxpro6000bw
+
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
   -p "$SCRATCH/datasets/<skill>/<spec_stem>" \
@@ -584,7 +607,14 @@ uvx harbor run \
   --agent-timeout-multiplier 6.0 \
   --verifier-timeout-multiplier 3.0 \
   --max-retries 0 -n 1 --yes \
-  -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
+  -o "$TRIAL_OUT"
+
+# Check the exit code — NEVER mask a harbor failure with `; echo done`
+# (that's how PR #827 reported "base done" for trials that never ran).
+# A non-zero exit means the trial did not produce a reward; record it
+# as failed and move on, don't pretend it passed.
+rc=$?
+[ "$rc" -ne 0 ] && echo "TRIAL FAILED rc=$rc spec=<spec_stem> platform=<platform>"
 ```
 
 Notes that have burned prior runs:
@@ -621,6 +651,12 @@ Notes that have burned prior runs:
   STEP_COUNT=$(grep -oP '^step_count\s*=\s*\K\d+' \
     "$SCRATCH/datasets/<skill>/<spec_stem>/<platform>/step-1/task.toml")
   RESULTS=/tmp/skill-eval/results/"$GITHUB_RUN_ID"
+  # All steps of one (spec, platform) share ONE output root — they run
+  # serially in this loop so there's no same-second collision between
+  # them — but that root is still unique per (spec, platform) so a
+  # peer fan-out invocation can never write into it. See § Harbor
+  # invocation for why -o must be unique.
+  TRIAL_OUT="$RESULTS/<spec_stem>-<platform>"
 
   for STEP in $(seq 1 "$STEP_COUNT"); do
     uvx harbor run \
@@ -635,11 +671,11 @@ Notes that have burned prior runs:
       --agent-timeout-multiplier 6.0 \
       --verifier-timeout-multiplier 3.0 \
       --max-retries 0 -n 1 --yes \
-      -o "$RESULTS"
+      -o "$TRIAL_OUT"
 
-    # Read the just-completed step's reward. The trial dir is
-    # named step-<N>__<rand6>, so glob it.
-    REWARD=$(cat "$RESULTS"/*/*/step-${STEP}__*/verifier/reward.txt \
+    # Read the just-completed step's reward. Layout under $TRIAL_OUT is
+    # <date>/<trial>, and the trial dir is named step-<N>__<rand6>.
+    REWARD=$(cat "$TRIAL_OUT"/*/step-${STEP}__*/verifier/reward.txt \
       2>/dev/null | tail -n 1)
     REWARD="${REWARD:-0}"
 
@@ -699,8 +735,11 @@ Notes that have burned prior runs:
   one is at 6.0 (the trial-work budget) — env-build and verifier
   stay at 3.0 because provisioning and judging haven't shown the
   same cold-box runtime pressure as the agent step.
-- Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
-  Then migrate to the viewer (see § Harbor viewer).
+- Output goes to `$TRIAL_OUT/<date>/<trial>/`, i.e.
+  `/tmp/skill-eval/results/$GITHUB_RUN_ID/<spec_stem>-<platform>/<date>/<trial>/`.
+  Then migrate to the viewer (see § Harbor viewer). Read this trial's
+  reward / trajectory from `$TRIAL_OUT` — never glob the shared
+  `$RESULTS` root, which now holds one subdir per (spec, platform).
 
 ### Wait contract — every harbor invocation is reaped before the Bash tool returns
 
@@ -735,12 +774,26 @@ wait $!
 # 4. Fan-out within a single Bash call — N harbor invocations against
 #    N different boxes, single `wait` reaps all of them. The Bash tool
 #    returns when the slowest finishes; wall clock = max(trial_times).
-#    Pre-acquire one flock per box, point each invocation at a
-#    different `-o` subdir, then:
-uvx harbor run -p "$SCRATCH/datasets/<skill-a>/<spec>" -o "$RESULTS/<skill-a>" … &
-uvx harbor run -p "$SCRATCH/datasets/<skill-b>/<spec>" -o "$RESULTS/<skill-b>" … &
-uvx harbor run -p "$SCRATCH/datasets/<skill-c>/<spec>" -o "$RESULTS/<skill-c>" … &
-wait
+#    Pre-acquire one flock per box, give each invocation its OWN -o
+#    root keyed by (spec_stem, platform) — NOT just by skill: fanning
+#    out several specs of the *same* skill onto `$RESULTS/<skill>`
+#    re-collides exactly like PR #827. Capture each job's pid and check
+#    its exit code after `wait`; never assume a backgrounded run passed.
+uvx harbor run -p "$SCRATCH/datasets/<skill>/<spec-a>" -o "$RESULTS/<spec-a>-<platform>" --include-task-name "<platform>" … &  p_a=$!
+uvx harbor run -p "$SCRATCH/datasets/<skill>/<spec-b>" -o "$RESULTS/<spec-b>-<platform>" --include-task-name "<platform>" … &  p_b=$!
+uvx harbor run -p "$SCRATCH/datasets/<skill>/<spec-c>" -o "$RESULTS/<spec-c>-<platform>" --include-task-name "<platform>" … &  p_c=$!
+for pv in p_a p_b p_c; do
+  wait "${!pv}" || echo "TRIAL FAILED job=$pv rc=$?"
+done
+```
+
+Pre-flight for fan-out (cheap, prevents the whole class of PR #827
+collisions): assert every `-o` root is distinct before you launch.
+
+```bash
+# OUTS is the list of -o roots you're about to use this batch.
+printf '%s\n' "${OUTS[@]}" | sort | uniq -d | grep -q . && {
+  echo "BUG: duplicate -o root in fan-out batch — would collide"; exit 1; }
 ```
 
 Forbidden patterns:
@@ -760,6 +813,20 @@ uvx harbor run … &
 until [ "$(brev exec "$INSTANCE" -- 'wc -l /logs/agent/claude-code.txt' | awk 'NR==1{print $1}')" -gt "$N" ]; do
     sleep 30
 done
+
+# (c) Concurrent runs sharing one -o root. Harbor's <date>/<trial>
+# subdir is timestamped to the second; two runs that start in the same
+# second race to create it and one dies with FileExistsError, silently
+# dropping that trial (PR #827: base/lvs/alerts_cv lost this way). Every
+# concurrent invocation MUST have its own per-(spec,platform) -o root.
+uvx harbor run -p .../<spec-a> -o "$RESULTS" … &   # ← shared
+uvx harbor run -p .../<spec-b> -o "$RESULTS" … &   # ← collides
+wait
+
+# (d) Masking a harbor failure so the loop marches on as if it passed.
+uvx harbor run … ; echo "<spec> done"   # ← exit code ignored; a
+# crashed trial reports "done" and you never rerun it. Check $? (or
+# `wait "$pid" || …`) and treat non-zero as a failed trial.
 ```
 
 Intermediate state inspection is fine *once* between trials when
@@ -768,7 +835,8 @@ call, not a loop. The trial owns the trial; don't supervise it tool-
 call-by-tool-call.
 
 If a trial errors out, read
-`/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/trial.log` —
+`$TRIAL_OUT/<date>/<trial>/trial.log` (i.e.
+`/tmp/skill-eval/results/$GITHUB_RUN_ID/<spec_stem>-<platform>/<date>/<trial>/trial.log`) —
 it has the harness + adapter traceback. Fix the adapter
 (`.github/skill-eval/adapters/<skill>/generate.py`), regenerate the
 dataset for that spec, rerun. Do not start modifying flags.
@@ -780,21 +848,24 @@ dataset for that spec, rerun. Do not start modifying flags.
 serving `/tmp/skill-eval/results/_viewer`, tunneled to
 `https://harbor-<BREV_ENV_ID>.brevlab.com`. For the viewer to pick
 up a trial, its directory must live under
-`/tmp/skill-eval/results/_viewer/<run_id>__<date>/` as a **real dir
-(not a symlink)**, flattened — no nested `<date>/` level. Migrate
-with:
+`/tmp/skill-eval/results/_viewer/<run_id>__<spec_stem>-<platform>__<date>/`
+as a **real dir (not a symlink)**, flattened — no nested `<date>/`
+level. Because trials now live under a per-(spec,platform) root, fold
+that segment into the viewer dir name so peer specs don't overwrite
+each other. Migrate with:
 
 ```bash
 cd /tmp/skill-eval/results
-mv "<run_id>/<date>" "_viewer/<run_id>__<date>"
-rmdir "<run_id>" 2>/dev/null
+# $TRIAL_OUT = <run_id>/<spec_stem>-<platform>; <date> is its one child.
+mv "$TRIAL_OUT/<date>" "_viewer/<run_id>__<spec_stem>-<platform>__<date>"
+rmdir "$TRIAL_OUT" 2>/dev/null
 ```
 
 Do this between trials so each new trial's traces are reachable
 via the SPA URL:
 
 ```
-https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
+https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<spec_stem>-<platform>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
 **CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
@@ -832,8 +903,8 @@ one step-1 trial showed 7549 steps spanning 50 hours of prior runs).
 Three things you should know when debugging:
 
 - **Per-trial trajectory.json is clean.** Each trial's harbor
-  copy-back at `/tmp/skill-eval/results/<run>/<date>/<trial>/agent/`
-  contains only that trial's `claude-code.txt` + session JSONL. The
+  copy-back at `$TRIAL_OUT/<date>/<trial>/agent/` contains only that
+  trial's `claude-code.txt` + session JSONL. The
   trace tab in the harbor viewer scopes correctly. Step counts
   reflect just that trial.
 - **Box-side history lives at `$HOME/.claude-archive/`.** SSH to the
@@ -888,13 +959,15 @@ prior step's trace to see the actual failure.
 
 ### Extracting per-trial metrics
 
-For each completed trial under `/tmp/skill-eval/results/<run_id>/<date>/<trial>/`,
+For each completed trial under
+`$TRIAL_OUT/<date>/<trial>/` (i.e.
+`/tmp/skill-eval/results/<run_id>/<spec_stem>-<platform>/<date>/<trial>/`),
 populate the new columns by reading the trajectory's `final_metrics`
 block (or falling back to the streaming usage blocks if `final_metrics`
 is missing because the trial crashed mid-run):
 
 ```bash
-TRAJ=/tmp/skill-eval/results/<run>/<date>/<trial>/agent/trajectory.json
+TRAJ="$TRIAL_OUT"/<date>/<trial>/agent/trajectory.json
 
 # Turns = count of assistant messages (one per agent reasoning step)
 jq '[.steps[].message | fromjson | select(.type=="assistant")] | length' "$TRAJ"
@@ -936,7 +1009,7 @@ fi
 # in seconds; render as `<m>m <s>s` for under an hour, `<h>h <m>m` for
 # over.
 jq -r '[.trial_started_at, .trial_finished_at] | @tsv' \
-  /tmp/skill-eval/results/<run>/<date>/<trial>/result.json
+  "$TRIAL_OUT"/<date>/<trial>/result.json
 ```
 
 Render tokens with k/M suffixes — `8400` → `8.4k`, `5_178_086` → `5.2M`.
@@ -957,8 +1030,8 @@ columns — there's no trial to extract from.
 ### Suggestions
 
 > (concatenate non-null `suggestion` fields from each failing trial's
-> `results/<run_id>/<date>/<trial>/suggestions.json`; omit the
-> section entirely if all are null)
+> `results/<run_id>/<spec_stem>-<platform>/<date>/<trial>/suggestions.json`;
+> omit the section entirely if all are null)
 
 <sub>Generated by the skills-eval agent. Adapter/verifier changes
 required to make this PR evaluable were raised as bot PRs targeting
