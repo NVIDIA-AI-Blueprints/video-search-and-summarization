@@ -137,6 +137,13 @@ rewrite to canonical container-side names at the compose boundary.
 > does **not** replace `NGC_CLI_API_KEY` for `docker login nvcr.io`, image
 > pulls, or NGC model/artifact downloads.
 
+For agent-driven validation, provision `NGC_CLI_API_KEY` through the agent
+process environment, a secret manager, or the local `.env` file with mode
+`0600`. Do not paste the key into chat or command history. Before pulling,
+verify the agent can see the key with `test -n "$NGC_CLI_API_KEY"` and perform
+`docker login nvcr.io`; if the key only exists in `.env`, load that file into
+the shell before the login step.
+
 Use the `.env` block in §12 as the starting point.
 
 ## 6. Required Volume Mounts
@@ -617,7 +624,7 @@ once the service is up):
 |---|---|---|
 | `docker compose up` starts nothing | `--profile` not specified | Add `--profile bp_developer_alerts_2d_vlm` (§12) |
 | `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `.env` |
-| Container starts but Kafka errors `:9092 connection refused` | `HOST_IP` unset → `KAFKA_BOOTSTRAP_SERVERS=:9092` | Set `HOST_IP` to an address reachable from the container. Non-fatal for API/inference — Kafka publishing is just disabled. |
+| Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | `HOST_IP` unset, or no broker is reachable at `${HOST_IP}:9092` when RT-VLM starts | Set `HOST_IP` to an address reachable from the container, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
 | `sudo chown` prompts for a password or fails in an agent session | Host path ownership requires user privileges | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
 | `service "X" depends on undefined service "Y": invalid compose project` | Recent Docker Compose rejects `depends_on` refs to sibling NIM services not defined in this single-file project — even with `required: false`. | Remove the `depends_on` block from the local compose copy (§12 step 0b). Only needed for standalone deploys without the full met-blueprints project. |
