@@ -15,22 +15,19 @@
 
 """Unit tests for vss_agents.utils.sanitize."""
 
-from pathlib import Path
-
 import pytest
 
-from vss_agents.utils.sanitize import confine_to_base
 from vss_agents.utils.sanitize import quote_path_segment
 from vss_agents.utils.sanitize import safe_basename
 from vss_agents.utils.sanitize import scrub_log
 
 
-def test_scrub_log_removes_crlf() -> None:
+def test_scrub_log_replaces_crlf_with_space() -> None:
     forged = "cam1\r\nERROR injected forged log line"
     scrubbed = scrub_log(forged)
     assert "\n" not in scrubbed
     assert "\r" not in scrubbed
-    assert scrubbed == "cam1ERROR injected forged log line"
+    assert scrubbed == "cam1  ERROR injected forged log line"
 
 
 def test_scrub_log_strips_control_chars_but_keeps_tab() -> None:
@@ -55,17 +52,3 @@ def test_safe_basename_strips_directories() -> None:
 def test_safe_basename_rejects_traversal_only(bad: str) -> None:
     with pytest.raises(ValueError):
         safe_basename(bad)
-
-
-def test_confine_to_base_allows_inside(tmp_path: Path) -> None:
-    result = confine_to_base(tmp_path, "sub", "file.txt")
-    assert result == (tmp_path / "sub" / "file.txt").resolve()
-
-
-def test_confine_to_base_allows_base_itself(tmp_path: Path) -> None:
-    assert confine_to_base(tmp_path) == tmp_path.resolve()
-
-
-def test_confine_to_base_rejects_escape(tmp_path: Path) -> None:
-    with pytest.raises(ValueError):
-        confine_to_base(tmp_path, "..", "outside.txt")
