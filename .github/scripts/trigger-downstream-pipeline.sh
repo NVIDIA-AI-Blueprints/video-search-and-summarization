@@ -33,6 +33,45 @@ def require_env(name: str) -> str:
     return value
 
 
+def env_prefix() -> str:
+    if len(sys.argv) > 2:
+        emit_error(f"Usage: {sys.argv[0]} [ENV_PREFIX]")
+        raise SystemExit(1)
+
+    if len(sys.argv) == 1:
+        return "DOWNSTREAM"
+
+    prefix = sys.argv[1].strip().upper().replace("-", "_").rstrip("_")
+    if not prefix:
+        emit_error("ENV_PREFIX must not be empty")
+        raise SystemExit(1)
+
+    return prefix
+
+
+def prefixed_env(prefix: str, suffix: str) -> str:
+    return f"{prefix}_{suffix}"
+
+
+def parse_extra_variables(prefix: str) -> list[tuple[str, str]]:
+    raw = os.environ.get(prefixed_env(prefix, "VARIABLES"), "")
+    variables: list[tuple[str, str]] = []
+    for line_number, raw_line in enumerate(raw.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            emit_error(f"{prefixed_env(prefix, 'VARIABLES')} line {line_number} must be KEY=value")
+            raise SystemExit(1)
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            emit_error(f"{prefixed_env(prefix, 'VARIABLES')} line {line_number} has invalid key {key!r}")
+            raise SystemExit(1)
+        variables.append((key, value))
+    return variables
+
+
 def api_base_url(raw_url: str) -> str:
     base = raw_url.rstrip("/")
     if not base.endswith("/api/v4"):
@@ -150,6 +189,7 @@ def trigger_pipeline(
     commit_sha: str,
     target_branch: str,
     compare_branch: str,
+    extra_variables: list[tuple[str, str]],
 ) -> dict[str, Any]:
     payload_pairs: list[tuple[str, str]] = [
         ("ref", ref),
@@ -160,19 +200,26 @@ def trigger_pipeline(
         ("variables[][key]", "VSS_COMPARE_BRANCH"),
         ("variables[][value]", compare_branch),
     ]
+    for key, value in extra_variables:
+        payload_pairs.extend(
+            [
+                ("variables[][key]", key),
+                ("variables[][value]", value),
+            ]
+        )
     payload = urlencode(payload_pairs).encode("utf-8")
     return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
 
 
-def fetch_pr_base_ref(repo: str, pr_number: int, token: str) -> str:
-    """Fetch a PR's base ref from the GitHub REST API.
+def fetch_pr_context(repo: str, pr_number: int, token: str) -> dict[str, str]:
+    """Fetch PR branch context from the GitHub REST API.
 
-    Uses the workflow GITHUB_TOKEN. Returns an empty string on any failure -
-    callers should fall back to a sane default rather than aborting the
-    pipeline trigger.
+    Uses the workflow GITHUB_TOKEN. Returns an empty dict on any failure -
+    callers should fall back to sane defaults rather than aborting the pipeline
+    trigger.
     """
     if not repo or pr_number <= 0:
-        return ""
+        return {}
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -185,22 +232,36 @@ def fetch_pr_base_ref(repo: str, pr_number: int, token: str) -> str:
         with urlopen(request) as response:
             payload = response.read().decode("utf-8")
     except (HTTPError, URLError, ContentTooShortError):
-        return ""
+        return {}
     try:
         data = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return ""
+        return {}
     if not isinstance(data, dict):
-        return ""
+        return {}
+
+    context: dict[str, str] = {}
     base = data.get("base")
     if isinstance(base, dict):
         ref = base.get("ref")
         if isinstance(ref, str):
-            return ref
-    return ""
+            context["base_ref"] = ref
+
+    head = data.get("head")
+    if isinstance(head, dict):
+        ref = head.get("ref")
+        if isinstance(ref, str):
+            context["head_ref"] = ref
+        head_repo = head.get("repo")
+        if isinstance(head_repo, dict):
+            full_name = head_repo.get("full_name")
+            if isinstance(full_name, str):
+                context["head_repo"] = full_name
+
+    return context
 
 
-def resolve_branches() -> tuple[str, str]:
+def resolve_branches() -> tuple[str, str, list[tuple[str, str]]]:
     """Resolve (target_branch, compare_branch) for the downstream pipeline.
 
     On a push to a copy-pr-bot synthetic branch ``pull-request/<N>``:
@@ -214,11 +275,12 @@ def resolve_branches() -> tuple[str, str]:
     ref_name = os.environ.get("GITHUB_REF_NAME", "").strip()
     pr_match = re.fullmatch(r"pull-request/(\d+)", ref_name)
     if not pr_match:
-        return ref_name, ref_name
+        return ref_name, ref_name, []
     pr_number = int(pr_match.group(1))
     repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
     token = os.environ.get("GITHUB_TOKEN", "").strip()
-    base_ref = fetch_pr_base_ref(repo, pr_number, token)
+    pr_context = fetch_pr_context(repo, pr_number, token)
+    base_ref = pr_context.get("base_ref", "")
     if not base_ref:
         # Couldn't resolve via the API - keep the synthetic branch as the
         # target so we never silently send a wrong release branch downstream.
@@ -226,8 +288,50 @@ def resolve_branches() -> tuple[str, str]:
             f"::warning::Could not resolve base ref for PR #{pr_number}; "
             "falling back to GITHUB_REF_NAME for VSS_TARGET_BRANCH"
         )
-        return ref_name, ref_name
-    return base_ref, ref_name
+        return ref_name, ref_name, [("UPSTREAM_PULL_REQUEST_NUMBER", str(pr_number))]
+
+    downstream_variables = [
+        ("UPSTREAM_PULL_REQUEST_NUMBER", str(pr_number)),
+        ("UPSTREAM_TARGET_BRANCH", base_ref),
+    ]
+    head_repo = pr_context.get("head_repo", "")
+    if head_repo:
+        downstream_variables.append(("UPSTREAM_PULL_REQUEST_HEAD_REPO", head_repo))
+    if head_repo.lower() == repo.lower() and pr_context.get("head_ref"):
+        downstream_variables.append(("UPSTREAM_SOURCE_BRANCH", pr_context["head_ref"]))
+
+    return base_ref, ref_name, downstream_variables
+
+
+def github_head_commit_title() -> str:
+    event_path = os.environ.get("GITHUB_EVENT_PATH", "").strip()
+    if not event_path:
+        return ""
+    try:
+        with open(event_path, encoding="utf-8") as event_file:
+            event = json.load(event_file)
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(event, dict):
+        return ""
+    head_commit = event.get("head_commit")
+    if not isinstance(head_commit, dict):
+        return ""
+    message = head_commit.get("message")
+    if not isinstance(message, str):
+        return ""
+    return message.splitlines()[0].strip()
+
+
+def append_missing_variables(
+    variables: list[tuple[str, str]], additions: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    existing_keys = {key for key, _ in variables}
+    for key, value in additions:
+        if value and key not in existing_keys:
+            variables.append((key, value))
+            existing_keys.add(key)
+    return variables
 
 
 def write_summary(message: str) -> None:
@@ -248,23 +352,43 @@ def write_output(key: str, value: str) -> None:
 
 def main() -> int:
     try:
-        raw_url = require_env("DOWNSTREAM_CI_URL")
+        prefix = env_prefix()
+        raw_url = require_env(prefixed_env(prefix, "CI_URL"))
         base_url = api_base_url(raw_url)
-        token = require_env("DOWNSTREAM_CI_TOKEN")
-        project_path = require_env("DOWNSTREAM_PROJECT_PATH")
+        token = require_env(prefixed_env(prefix, "CI_TOKEN"))
+        project_path = require_env(prefixed_env(prefix, "PROJECT_PATH"))
         commit_sha = require_env("GITHUB_SHA")
-        ref = os.environ.get("DOWNSTREAM_REF", "main")
-        variable_name = os.environ.get("DOWNSTREAM_SUBMODULE_HASH_VARIABLE", "VSS_SUBMODULE_HASH")
+        ref = os.environ.get(prefixed_env(prefix, "REF"), "main")
+        variable_name = os.environ.get(prefixed_env(prefix, "SUBMODULE_HASH_VARIABLE"), "VSS_SUBMODULE_HASH")
+        extra_variables = parse_extra_variables(prefix)
 
         # Mask the raw URL (e.g. "https://gitlab.example.com"), the API
         # base URL (with "/api/v4" appended), and every path component of
         # the project so no combination of them can leak into the log.
         for value in (raw_url, base_url, token, project_path, ref, variable_name):
             add_mask(value)
+        for _, value in extra_variables:
+            add_mask(value)
         for segment in project_path.split("/"):
             add_mask(segment)
 
-        target_branch, compare_branch = resolve_branches()
+        target_branch, compare_branch, branch_variables = resolve_branches()
+        extra_variables = append_missing_variables(extra_variables, branch_variables)
+        commit_title = github_head_commit_title()
+        if commit_title:
+            signature_commit_title = os.environ.get(
+                prefixed_env(prefix, "SIGNATURE_COMMIT_TITLE"),
+                "Attach NVSkills validation signatures",
+            )
+            extra_variables = append_missing_variables(
+                extra_variables,
+                [("UPSTREAM_COMMIT_TITLE", commit_title)],
+            )
+            if commit_title == signature_commit_title:
+                extra_variables = append_missing_variables(
+                    extra_variables,
+                    [("SIGNED_REPORT_ONLY", "true")],
+                )
 
         project_id = fetch_project_id(base_url, token, project_path)
         pipeline = trigger_pipeline(
@@ -276,6 +400,7 @@ def main() -> int:
             commit_sha,
             target_branch,
             compare_branch,
+            extra_variables,
         )
 
         pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")
