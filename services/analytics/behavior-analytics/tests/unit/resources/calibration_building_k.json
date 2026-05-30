@@ -1,0 +1,2628 @@
+{
+    "version": "1.0",
+    "osmURL": "",
+    "calibrationType": "cartesian",
+    "sensors": [
+      {
+        "type": "camera",
+        "id": "Warehouse_Cam_1",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": "nvstreamer"
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 157,
+            "y": 1013
+          },
+          {
+            "x": 375,
+            "y": 765
+          },
+          {
+            "x": 543,
+            "y": 482
+          },
+          {
+            "x": 628,
+            "y": 402
+          },
+          {
+            "x": 694,
+            "y": 345
+          },
+          {
+            "x": 904,
+            "y": 291
+          },
+          {
+            "x": 1047,
+            "y": 95
+          },
+          {
+            "x": 1230,
+            "y": 105
+          },
+          {
+            "x": 1279,
+            "y": 282
+          },
+          {
+            "x": 1001,
+            "y": 138
+          },
+          {
+            "x": 1217,
+            "y": 71
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 302,
+            "y": 535
+          },
+          {
+            "x": 373,
+            "y": 535
+          },
+          {
+            "x": 519,
+            "y": 503
+          },
+          {
+            "x": 589,
+            "y": 503
+          },
+          {
+            "x": 661,
+            "y": 503
+          },
+          {
+            "x": 738,
+            "y": 642
+          },
+          {
+            "x": 1369,
+            "y": 658
+          },
+          {
+            "x": 1259,
+            "y": 843
+          },
+          {
+            "x": 740,
+            "y": 843
+          },
+          {
+            "x": 1131,
+            "y": 640
+          },
+          {
+            "x": 1482,
+            "y": 815
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Warehouse_Cam_2",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 753,
+            "y": 889
+          },
+          {
+            "x": 928,
+            "y": 158
+          },
+          {
+            "x": 1036,
+            "y": 164
+          },
+          {
+            "x": 1191,
+            "y": 257
+          },
+          {
+            "x": 1255,
+            "y": 397
+          },
+          {
+            "x": 1398,
+            "y": 696
+          },
+          {
+            "x": 1680,
+            "y": 696
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 146,
+            "y": 587
+          },
+          {
+            "x": 146,
+            "y": 31
+          },
+          {
+            "x": 221,
+            "y": 61
+          },
+          {
+            "x": 302,
+            "y": 254
+          },
+          {
+            "x": 302,
+            "y": 394
+          },
+          {
+            "x": 302,
+            "y": 535
+          },
+          {
+            "x": 373,
+            "y": 535
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Warehouse_Cam_3",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 374,
+            "y": 754
+          },
+          {
+            "x": 579,
+            "y": 783
+          },
+          {
+            "x": 736,
+            "y": 544
+          },
+          {
+            "x": 814,
+            "y": 436
+          },
+          {
+            "x": 924,
+            "y": 351
+          },
+          {
+            "x": 962,
+            "y": 356
+          },
+          {
+            "x": 268,
+            "y": 551
+          },
+          {
+            "x": 1064,
+            "y": 421
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 372,
+            "y": 254
+          },
+          {
+            "x": 302,
+            "y": 253
+          },
+          {
+            "x": 302,
+            "y": 394
+          },
+          {
+            "x": 302,
+            "y": 534
+          },
+          {
+            "x": 252,
+            "y": 843
+          },
+          {
+            "x": 221,
+            "y": 843
+          },
+          {
+            "x": 519,
+            "y": 362
+          },
+          {
+            "x": 145,
+            "y": 587
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Warehouse_Cam_4",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 155,
+            "y": 839
+          },
+          {
+            "x": 380,
+            "y": 868
+          },
+          {
+            "x": 664,
+            "y": 888
+          },
+          {
+            "x": 1303,
+            "y": 765
+          },
+          {
+            "x": 1536,
+            "y": 748
+          },
+          {
+            "x": 773,
+            "y": 511
+          },
+          {
+            "x": 825,
+            "y": 352
+          },
+          {
+            "x": 1175,
+            "y": 462
+          },
+          {
+            "x": 1105,
+            "y": 330
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 660,
+            "y": 222
+          },
+          {
+            "x": 589,
+            "y": 221
+          },
+          {
+            "x": 519,
+            "y": 221
+          },
+          {
+            "x": 373,
+            "y": 254
+          },
+          {
+            "x": 301,
+            "y": 253
+          },
+          {
+            "x": 519,
+            "y": 362
+          },
+          {
+            "x": 519,
+            "y": 504
+          },
+          {
+            "x": 373,
+            "y": 395
+          },
+          {
+            "x": 372,
+            "y": 535
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Warehouse_Synthetic_Cam_1",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 59,
+            "y": 719
+          },
+          {
+            "x": 245,
+            "y": 719
+          },
+          {
+            "x": 745,
+            "y": 716
+          },
+          {
+            "x": 933,
+            "y": 715
+          },
+          {
+            "x": 1426,
+            "y": 710
+          },
+          {
+            "x": 1613,
+            "y": 710
+          },
+          {
+            "x": 583,
+            "y": 237
+          },
+          {
+            "x": 926,
+            "y": 235
+          },
+          {
+            "x": 1171,
+            "y": 235
+          },
+          {
+            "x": 126,
+            "y": 810
+          },
+          {
+            "x": 583,
+            "y": 806
+          },
+          {
+            "x": 1036,
+            "y": 805
+          },
+          {
+            "x": 1488,
+            "y": 801
+          },
+          {
+            "x": 503,
+            "y": 1049
+          },
+          {
+            "x": 1064,
+            "y": 1044
+          },
+          {
+            "x": 1619,
+            "y": 1040
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 411,
+            "y": 576
+          },
+          {
+            "x": 411,
+            "y": 550
+          },
+          {
+            "x": 410,
+            "y": 484
+          },
+          {
+            "x": 411,
+            "y": 460
+          },
+          {
+            "x": 411,
+            "y": 395
+          },
+          {
+            "x": 411,
+            "y": 369
+          },
+          {
+            "x": 88,
+            "y": 550
+          },
+          {
+            "x": 88,
+            "y": 459
+          },
+          {
+            "x": 88,
+            "y": 395
+          },
+          {
+            "x": 438,
+            "y": 558
+          },
+          {
+            "x": 438,
+            "y": 502
+          },
+          {
+            "x": 438,
+            "y": 447
+          },
+          {
+            "x": 438,
+            "y": 393
+          },
+          {
+            "x": 494,
+            "y": 502
+          },
+          {
+            "x": 493,
+            "y": 447
+          },
+          {
+            "x": 493,
+            "y": 392
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Warehouse_Synthetic_Cam_2",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 635,
+            "y": 94
+          },
+          {
+            "x": 646,
+            "y": 118
+          },
+          {
+            "x": 682,
+            "y": 181
+          },
+          {
+            "x": 697,
+            "y": 210
+          },
+          {
+            "x": 747,
+            "y": 301
+          },
+          {
+            "x": 770,
+            "y": 344
+          },
+          {
+            "x": 847,
+            "y": 483
+          },
+          {
+            "x": 883,
+            "y": 554
+          },
+          {
+            "x": 1017,
+            "y": 796
+          },
+          {
+            "x": 1085,
+            "y": 924
+          },
+          {
+            "x": 1118,
+            "y": 650
+          },
+          {
+            "x": 913,
+            "y": 363
+          },
+          {
+            "x": 131,
+            "y": 751
+          },
+          {
+            "x": 169,
+            "y": 556
+          },
+          {
+            "x": 259,
+            "y": 110
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 87,
+            "y": 5
+          },
+          {
+            "x": 87,
+            "y": 31
+          },
+          {
+            "x": 87,
+            "y": 96
+          },
+          {
+            "x": 87,
+            "y": 122
+          },
+          {
+            "x": 87,
+            "y": 187
+          },
+          {
+            "x": 87,
+            "y": 212
+          },
+          {
+            "x": 88,
+            "y": 278
+          },
+          {
+            "x": 88,
+            "y": 303
+          },
+          {
+            "x": 88,
+            "y": 369
+          },
+          {
+            "x": 87,
+            "y": 395
+          },
+          {
+            "x": 109,
+            "y": 339
+          },
+          {
+            "x": 108,
+            "y": 228
+          },
+          {
+            "x": 2,
+            "y": 338
+          },
+          {
+            "x": 3,
+            "y": 283
+          },
+          {
+            "x": 4,
+            "y": 7
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Warehouse_Synthetic_Cam_3",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 102,
+            "y": 987
+          },
+          {
+            "x": 1065,
+            "y": 815
+          },
+          {
+            "x": 1193,
+            "y": 935
+          },
+          {
+            "x": 1497,
+            "y": 870
+          },
+          {
+            "x": 649,
+            "y": 885
+          },
+          {
+            "x": 536,
+            "y": 637
+          },
+          {
+            "x": 227,
+            "y": 314
+          },
+          {
+            "x": 524,
+            "y": 300
+          },
+          {
+            "x": 379,
+            "y": 291
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 108,
+            "y": 303
+          },
+          {
+            "x": 108,
+            "y": 368
+          },
+          {
+            "x": 88,
+            "y": 369
+          },
+          {
+            "x": 88,
+            "y": 395
+          },
+          {
+            "x": 108,
+            "y": 338
+          },
+          {
+            "x": 163,
+            "y": 338
+          },
+          {
+            "x": 411,
+            "y": 303
+          },
+          {
+            "x": 412,
+            "y": 369
+          },
+          {
+            "x": 438,
+            "y": 338
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Warehouse_Synthetic_Cam_4",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 65,
+            "y": 429
+          },
+          {
+            "x": 619,
+            "y": 349
+          },
+          {
+            "x": 652,
+            "y": 380
+          },
+          {
+            "x": 762,
+            "y": 470
+          },
+          {
+            "x": 811,
+            "y": 515
+          },
+          {
+            "x": 981,
+            "y": 660
+          },
+          {
+            "x": 1064,
+            "y": 732
+          },
+          {
+            "x": 1367,
+            "y": 991
+          },
+          {
+            "x": 504,
+            "y": 385
+          },
+          {
+            "x": 577,
+            "y": 464
+          },
+          {
+            "x": 669,
+            "y": 566
+          },
+          {
+            "x": 793,
+            "y": 700
+          },
+          {
+            "x": 968,
+            "y": 891
+          },
+          {
+            "x": 250,
+            "y": 504
+          },
+          {
+            "x": 298,
+            "y": 619
+          },
+          {
+            "x": 363,
+            "y": 777
+          },
+          {
+            "x": 455,
+            "y": 1005
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 519,
+            "y": 561
+          },
+          {
+            "x": 411,
+            "y": 576
+          },
+          {
+            "x": 411,
+            "y": 550
+          },
+          {
+            "x": 410,
+            "y": 484
+          },
+          {
+            "x": 411,
+            "y": 460
+          },
+          {
+            "x": 411,
+            "y": 395
+          },
+          {
+            "x": 411,
+            "y": 369
+          },
+          {
+            "x": 411,
+            "y": 303
+          },
+          {
+            "x": 438,
+            "y": 558
+          },
+          {
+            "x": 438,
+            "y": 502
+          },
+          {
+            "x": 438,
+            "y": 448
+          },
+          {
+            "x": 438,
+            "y": 393
+          },
+          {
+            "x": 438,
+            "y": 338
+          },
+          {
+            "x": 493,
+            "y": 503
+          },
+          {
+            "x": 493,
+            "y": 448
+          },
+          {
+            "x": 493,
+            "y": 392
+          },
+          {
+            "x": 493,
+            "y": 338
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Retail_Synthetic_Cam_1",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 448,
+            "y": 390
+          },
+          {
+            "x": 389,
+            "y": 452
+          },
+          {
+            "x": 671,
+            "y": 452
+          },
+          {
+            "x": 1238,
+            "y": 452
+          },
+          {
+            "x": 275,
+            "y": 663
+          },
+          {
+            "x": 1661,
+            "y": 665
+          },
+          {
+            "x": 1411,
+            "y": 449
+          },
+          {
+            "x": 1364,
+            "y": 392
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 596,
+            "y": 593
+          },
+          {
+            "x": 594,
+            "y": 547
+          },
+          {
+            "x": 547,
+            "y": 547
+          },
+          {
+            "x": 451,
+            "y": 546
+          },
+          {
+            "x": 584,
+            "y": 451
+          },
+          {
+            "x": 412,
+            "y": 450
+          },
+          {
+            "x": 424,
+            "y": 548
+          },
+          {
+            "x": 424,
+            "y": 594
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Retail_Synthetic_Cam_2",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 829,
+            "y": 790
+          },
+          {
+            "x": 1193,
+            "y": 807
+          },
+          {
+            "x": 1376,
+            "y": 569
+          },
+          {
+            "x": 1806,
+            "y": 580
+          },
+          {
+            "x": 1731,
+            "y": 454
+          },
+          {
+            "x": 237,
+            "y": 556
+          },
+          {
+            "x": 512,
+            "y": 490
+          },
+          {
+            "x": 775,
+            "y": 429
+          },
+          {
+            "x": 85,
+            "y": 548
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 289,
+            "y": 463
+          },
+          {
+            "x": 324,
+            "y": 463
+          },
+          {
+            "x": 324,
+            "y": 299
+          },
+          {
+            "x": 378,
+            "y": 298
+          },
+          {
+            "x": 379,
+            "y": 77
+          },
+          {
+            "x": 162,
+            "y": 321
+          },
+          {
+            "x": 161,
+            "y": 215
+          },
+          {
+            "x": 162,
+            "y": 58
+          },
+          {
+            "x": 134,
+            "y": 320
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Retail_Synthetic_Cam_3",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 154,
+            "y": 378
+          },
+          {
+            "x": 282,
+            "y": 421
+          },
+          {
+            "x": 614,
+            "y": 529
+          },
+          {
+            "x": 798,
+            "y": 592
+          },
+          {
+            "x": 894,
+            "y": 566
+          },
+          {
+            "x": 1407,
+            "y": 793
+          },
+          {
+            "x": 1707,
+            "y": 892
+          },
+          {
+            "x": 1807,
+            "y": 849
+          },
+          {
+            "x": 1838,
+            "y": 161
+          },
+          {
+            "x": 1894,
+            "y": 208
+          },
+          {
+            "x": 25,
+            "y": 85
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 618,
+            "y": 283
+          },
+          {
+            "x": 586,
+            "y": 283
+          },
+          {
+            "x": 520,
+            "y": 284
+          },
+          {
+            "x": 489,
+            "y": 284
+          },
+          {
+            "x": 489,
+            "y": 297
+          },
+          {
+            "x": 411,
+            "y": 284
+          },
+          {
+            "x": 378,
+            "y": 284
+          },
+          {
+            "x": 378,
+            "y": 296
+          },
+          {
+            "x": 548,
+            "y": 581
+          },
+          {
+            "x": 520,
+            "y": 549
+          },
+          {
+            "x": 854,
+            "y": 396
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Retail_Synthetic_Cam_4",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 1,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": ""
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [],
+        "imageCoordinates": [
+          {
+            "x": 1594,
+            "y": 754
+          },
+          {
+            "x": 1313,
+            "y": 747
+          },
+          {
+            "x": 742,
+            "y": 735
+          },
+          {
+            "x": 924,
+            "y": 580
+          },
+          {
+            "x": 414,
+            "y": 573
+          },
+          {
+            "x": 1599,
+            "y": 1024
+          },
+          {
+            "x": 450,
+            "y": 985
+          },
+          {
+            "x": 965,
+            "y": 501
+          },
+          {
+            "x": 1735,
+            "y": 505
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 619,
+            "y": 465
+          },
+          {
+            "x": 585,
+            "y": 465
+          },
+          {
+            "x": 520,
+            "y": 464
+          },
+          {
+            "x": 520,
+            "y": 297
+          },
+          {
+            "x": 411,
+            "y": 297
+          },
+          {
+            "x": 597,
+            "y": 549
+          },
+          {
+            "x": 520,
+            "y": 548
+          },
+          {
+            "x": 505,
+            "y": 78
+          },
+          {
+            "x": 744,
+            "y": 77
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Building_K_Cam1",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 56.47021300733757,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": "nvstreamer"
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [
+          {
+            "name": "building",
+            "value": "Nvidia-Bldg-K"
+          }
+        ],
+        "imageCoordinates": [
+          {
+            "x": 157,
+            "y": 1013
+          },
+          {
+            "x": 375,
+            "y": 765
+          },
+          {
+            "x": 543,
+            "y": 482
+          },
+          {
+            "x": 628,
+            "y": 402
+          },
+          {
+            "x": 694,
+            "y": 345
+          },
+          {
+            "x": 904,
+            "y": 291
+          },
+          {
+            "x": 1047,
+            "y": 95
+          },
+          {
+            "x": 1230,
+            "y": 105
+          },
+          {
+            "x": 1279,
+            "y": 282
+          },
+          {
+            "x": 1001,
+            "y": 138
+          },
+          {
+            "x": 1217,
+            "y": 71
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 5.347952202,
+            "y": 9.474021285
+          },
+          {
+            "x": 6.605252223,
+            "y": 9.474021285
+          },
+          {
+            "x": 9.190686069,
+            "y": 8.907350853
+          },
+          {
+            "x": 10.430277639,
+            "y": 8.907350853
+          },
+          {
+            "x": 11.705286111,
+            "y": 8.907350853
+          },
+          {
+            "x": 13.068836838,
+            "y": 11.368825542
+          },
+          {
+            "x": 24.242869419,
+            "y": 11.652160758
+          },
+          {
+            "x": 22.294939809,
+            "y": 14.928224193
+          },
+          {
+            "x": 13.10425374,
+            "y": 14.928224193
+          },
+          {
+            "x": 20.028258081,
+            "y": 11.33340864
+          },
+          {
+            "x": 26.243924382,
+            "y": 14.432387565
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Building_K_Cam2",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 56.47021300733757,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": "nvstreamer"
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [
+          {
+            "name": "building",
+            "value": "Nvidia-Bldg-K"
+          }
+        ],
+        "imageCoordinates": [
+          {
+            "x": 395,
+            "y": 946
+          },
+          {
+            "x": 555,
+            "y": 946
+          },
+          {
+            "x": 600,
+            "y": 865
+          },
+          {
+            "x": 1404,
+            "y": 959
+          },
+          {
+            "x": 1335,
+            "y": 843
+          },
+          {
+            "x": 1227,
+            "y": 640
+          },
+          {
+            "x": 772,
+            "y": 411
+          },
+          {
+            "x": 826,
+            "y": 411
+          },
+          {
+            "x": 1099,
+            "y": 406
+          },
+          {
+            "x": 848,
+            "y": 305
+          },
+          {
+            "x": 880,
+            "y": 306
+          },
+          {
+            "x": 1040,
+            "y": 295
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 22.84390179,
+            "y": 15.601145331
+          },
+          {
+            "x": 22.84390179,
+            "y": 14.928224193
+          },
+          {
+            "x": 22.294939809,
+            "y": 14.928224193
+          },
+          {
+            "x": 22.879318692000002,
+            "y": 11.368825542
+          },
+          {
+            "x": 22.153272201,
+            "y": 11.368825542
+          },
+          {
+            "x": 20.01054963,
+            "y": 11.368825542
+          },
+          {
+            "x": 13.653215721,
+            "y": 15.601145331
+          },
+          {
+            "x": 13.653215721,
+            "y": 14.928224193
+          },
+          {
+            "x": 13.086545289,
+            "y": 11.368825542
+          },
+          {
+            "x": 4.462529652,
+            "y": 15.601145331
+          },
+          {
+            "x": 4.462529652,
+            "y": 14.928224193
+          },
+          {
+            "x": 2.585433846,
+            "y": 10.394860737
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Building_K_Cam3",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 56.47021300733757,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": "nvstreamer"
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [
+          {
+            "name": "building",
+            "value": "Nvidia-Bldg-K"
+          }
+        ],
+        "imageCoordinates": [
+          {
+            "x": 753,
+            "y": 889
+          },
+          {
+            "x": 928,
+            "y": 158
+          },
+          {
+            "x": 1036,
+            "y": 164
+          },
+          {
+            "x": 1191,
+            "y": 257
+          },
+          {
+            "x": 1255,
+            "y": 397
+          },
+          {
+            "x": 1398,
+            "y": 696
+          },
+          {
+            "x": 1680,
+            "y": 696
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 2.585433846,
+            "y": 10.394860737
+          },
+          {
+            "x": 2.585433846,
+            "y": 0.548961981
+          },
+          {
+            "x": 3.913567671,
+            "y": 1.080215511
+          },
+          {
+            "x": 5.347952202,
+            "y": 4.497946554
+          },
+          {
+            "x": 5.347952202,
+            "y": 6.977129694
+          },
+          {
+            "x": 5.347952202,
+            "y": 9.474021285
+          },
+          {
+            "x": 6.605252223,
+            "y": 9.474021285
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Building_K_Cam4",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 56.47021300733757,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": "nvstreamer"
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [
+          {
+            "name": "building",
+            "value": "Nvidia-Bldg-K"
+          }
+        ],
+        "imageCoordinates": [
+          {
+            "x": 1302,
+            "y": 964
+          },
+          {
+            "x": 1059,
+            "y": 661
+          },
+          {
+            "x": 1036,
+            "y": 586
+          },
+          {
+            "x": 1024,
+            "y": 529
+          },
+          {
+            "x": 680,
+            "y": 500
+          },
+          {
+            "x": 1518,
+            "y": 630
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 6.605252223,
+            "y": 4.497946554
+          },
+          {
+            "x": 9.190686069,
+            "y": 3.913567671
+          },
+          {
+            "x": 10.430277639,
+            "y": 3.913567671
+          },
+          {
+            "x": 11.68757766,
+            "y": 3.913567671
+          },
+          {
+            "x": 13.068836838,
+            "y": 0.442711275
+          },
+          {
+            "x": 9.190686069,
+            "y": 6.392750811
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Building_K_Cam5",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 56.47021300733757,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": "nvstreamer"
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [
+          {
+            "name": "building",
+            "value": "Nvidia-Bldg-K"
+          }
+        ],
+        "imageCoordinates": [
+          {
+            "x": 374,
+            "y": 754
+          },
+          {
+            "x": 579,
+            "y": 783
+          },
+          {
+            "x": 736,
+            "y": 544
+          },
+          {
+            "x": 814,
+            "y": 436
+          },
+          {
+            "x": 924,
+            "y": 351
+          },
+          {
+            "x": 962,
+            "y": 356
+          },
+          {
+            "x": 268,
+            "y": 551
+          },
+          {
+            "x": 1064,
+            "y": 421
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 6.587543772,
+            "y": 4.497946554
+          },
+          {
+            "x": 5.347952202,
+            "y": 4.480238103
+          },
+          {
+            "x": 5.347952202,
+            "y": 6.977129694
+          },
+          {
+            "x": 5.347952202,
+            "y": 9.456312834
+          },
+          {
+            "x": 4.462529652,
+            "y": 14.928224193
+          },
+          {
+            "x": 3.913567671,
+            "y": 14.928224193
+          },
+          {
+            "x": 9.190686069,
+            "y": 6.410459262
+          },
+          {
+            "x": 2.567725395,
+            "y": 10.394860737
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Building_K_Cam6",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 56.47021300733757,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": "nvstreamer"
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [
+          {
+            "name": "building",
+            "value": "Nvidia-Bldg-K"
+          }
+        ],
+        "imageCoordinates": [
+          {
+            "x": 155,
+            "y": 839
+          },
+          {
+            "x": 380,
+            "y": 868
+          },
+          {
+            "x": 664,
+            "y": 888
+          },
+          {
+            "x": 1303,
+            "y": 765
+          },
+          {
+            "x": 1536,
+            "y": 748
+          },
+          {
+            "x": 773,
+            "y": 511
+          },
+          {
+            "x": 825,
+            "y": 352
+          },
+          {
+            "x": 1175,
+            "y": 462
+          },
+          {
+            "x": 1105,
+            "y": 330
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 11.68757766,
+            "y": 3.931276122
+          },
+          {
+            "x": 10.430277639,
+            "y": 3.913567671
+          },
+          {
+            "x": 9.190686069,
+            "y": 3.913567671
+          },
+          {
+            "x": 6.605252223,
+            "y": 4.497946554
+          },
+          {
+            "x": 5.330243751,
+            "y": 4.480238103
+          },
+          {
+            "x": 9.190686069,
+            "y": 6.410459262
+          },
+          {
+            "x": 9.190686069,
+            "y": 8.925059304
+          },
+          {
+            "x": 6.605252223,
+            "y": 6.994838145
+          },
+          {
+            "x": 6.587543772,
+            "y": 9.474021285
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      },
+      {
+        "type": "camera",
+        "id": "Building_K_Cam7",
+        "origin": {
+          "lng": 0,
+          "lat": 0
+        },
+        "geoLocation": {
+          "lng": 0,
+          "lat": 0
+        },
+        "coordinates": {
+          "x": 0,
+          "y": 0
+        },
+        "scaleFactor": 56.47021300733757,
+        "attributes": [
+          {
+            "name": "fps",
+            "value": "30"
+          },
+          {
+            "name": "depth",
+            "value": ""
+          },
+          {
+            "name": "fieldOfView",
+            "value": ""
+          },
+          {
+            "name": "direction",
+            "value": ""
+          },
+          {
+            "name": "source",
+            "value": "nvstreamer"
+          },
+          {
+            "name": "frameWidth",
+            "value": "1920"
+          },
+          {
+            "name": "frameHeight",
+            "value": "1080"
+          }
+        ],
+        "place": [
+          {
+            "name": "building",
+            "value": "Nvidia-Bldg-K"
+          }
+        ],
+        "imageCoordinates": [
+          {
+            "x": 21,
+            "y": 939
+          },
+          {
+            "x": 94,
+            "y": 474
+          },
+          {
+            "x": 481,
+            "y": 389
+          },
+          {
+            "x": 646,
+            "y": 383
+          },
+          {
+            "x": 690,
+            "y": 257
+          },
+          {
+            "x": 717,
+            "y": 190
+          },
+          {
+            "x": 921,
+            "y": 183
+          },
+          {
+            "x": 951,
+            "y": 243
+          },
+          {
+            "x": 999,
+            "y": 351
+          },
+          {
+            "x": 1157,
+            "y": 356
+          },
+          {
+            "x": 1294,
+            "y": 365
+          },
+          {
+            "x": 1529,
+            "y": 465
+          },
+          {
+            "x": 1865,
+            "y": 788
+          }
+        ],
+        "globalCoordinates": [
+          {
+            "x": 4.480238103,
+            "y": 14.928224193
+          },
+          {
+            "x": 2.585433846,
+            "y": 10.412569188
+          },
+          {
+            "x": 5.347952202,
+            "y": 9.474021285
+          },
+          {
+            "x": 6.605252223,
+            "y": 9.474021285
+          },
+          {
+            "x": 6.605252223,
+            "y": 6.977129694
+          },
+          {
+            "x": 6.605252223,
+            "y": 4.480238103
+          },
+          {
+            "x": 9.190686069,
+            "y": 3.913567671
+          },
+          {
+            "x": 9.190686069,
+            "y": 6.410459262
+          },
+          {
+            "x": 9.190686069,
+            "y": 8.907350853
+          },
+          {
+            "x": 10.430277639,
+            "y": 8.907350853
+          },
+          {
+            "x": 11.705286111,
+            "y": 8.907350853
+          },
+          {
+            "x": 13.068836838,
+            "y": 11.368825542
+          },
+          {
+            "x": 13.10425374,
+            "y": 14.928224193
+          }
+        ],
+        "tripwires": [],
+        "rois": []
+      }
+    ]
+}

@@ -59,6 +59,31 @@ export NGC_CLI_API_KEY="<your-key>"
 
 Each profile may also ship a **`.env`** under **`developer-profiles/<profile>/`** for defaults; the script generates or merges runtime env (e.g. **`generated.env`**) as documented in the script help.
 
+### Direct Compose data directories
+
+The helper scripts create and permission the data directories automatically. If you run
+`docker compose -f compose.yml ...` directly, set **`VSS_DATA_DIR`** and create writable
+host directories for the bind-mounted infrastructure volumes before starting the stack:
+
+```bash
+export VSS_DATA_DIR=/path/to/vss-apps-data
+
+mkdir -p \
+  "$VSS_DATA_DIR/data_log/elastic/data" \
+  "$VSS_DATA_DIR/data_log/elastic/logs" \
+  "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/redis/data" \
+  "$VSS_DATA_DIR/data_log/redis/log"
+
+chmod -R 777 "$VSS_DATA_DIR/data_log"
+```
+
+The root compose maps Elasticsearch data/log volumes to
+`$VSS_DATA_DIR/data_log/elastic/{data,logs}`, Kafka data to
+`$VSS_DATA_DIR/data_log/kafka`, and Redis data/logs to
+`$VSS_DATA_DIR/data_log/redis`. Missing or non-writable host directories can cause
+startup failures such as Kafka being unable to write `/tmp/kafka-data/cluster_id` or
+Elasticsearch being unable to open `gc.log`.
 ### LVS Compose notes
 
 Docker Compose does not use Kubernetes secrets or the NIM Operator. For the LVS profile, local model bring-up uses the **`NGC_CLI_API_KEY`** environment variable directly for image pulls and NIM/RT-VLM model access.
@@ -68,7 +93,7 @@ Default LVS model wiring:
 | Component | Local Compose behavior | Default model name |
 |-----------|------------------------|--------------------|
 | LLM | Starts the **`nvidia-nemotron-nano-9b-v2`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nvidia-nemotron-nano-9b-v2` |
-| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
+| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8` |
 
 For external endpoints, use the helper flags instead of editing Compose files directly:
 
@@ -82,7 +107,7 @@ export VLM_ENDPOINT_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
   --use-remote-llm \
   --use-remote-vlm \
   --llm nvidia/nvidia-nemotron-nano-9b-v2 \
-  --vlm nim_nvidia_cosmos-reason2-8b_hf-1208
+  --vlm nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
 ```
 
 The helper probes **`${LLM_ENDPOINT_URL}/v1/models`** and **`${VLM_ENDPOINT_URL}/v1/models`**, and the agent config appends **`/v1`** to **`LLM_BASE_URL`** / **`VLM_BASE_URL`**. Do not include **`/v1`** in the endpoint environment variables.

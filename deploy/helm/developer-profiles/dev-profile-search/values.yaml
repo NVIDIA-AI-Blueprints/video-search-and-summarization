@@ -478,7 +478,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.5-220a0fdacdd2
+    vssAgentVersion: 3.2.0-26.05.5-8ad30888571b
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -512,7 +512,7 @@ agent:
       - name: LLM_MODE
         value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $llm }}remote{{- else }}local{{- end }}'
       - name: VLM_MODE
-        value: remote
+        value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $vlm }}remote{{- else }}local{{- end }}'
       - name: LLM_MODEL_TYPE
         value: nim
       - name: VLM_MODEL_TYPE
@@ -578,7 +578,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.5-220a0fdacdd2" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.5-8ad30888571b" }}'
 
 vss-agent-ui:
   enabled: true
@@ -605,11 +605,11 @@ vss-agent-ui:
     - name: ngc-docker-reg-secret
   resources:
     requests:
-      memory: 512Mi
-      cpu: 250m
+      memory: 4Gi
+      cpu: 2
     limits:
-      memory: 1Gi
-      cpu: 500m
+      memory: 4Gi
+      cpu: 2
   envOverrides:
     - name: NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE
       value: 'Generate a report for incident {incidentId} with sensor id {sensorId}.'

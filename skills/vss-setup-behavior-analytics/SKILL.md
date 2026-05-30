@@ -29,8 +29,8 @@ A minimal standalone bring-up looks like:
 
 ```bash
 cd $REPO/deploy/docker
-docker compose -f services/perception/behavior-analytics/compose.yml \
-  --env-file dev-profile-warehouse/.env up -d vss-behavior-analytics
+export VSS_APPS_DIR=$(pwd)
+docker compose -f services/analytics/behavior-analytics/compose.yml up -d vss-behavior-analytics-base
 ```
 
 Follow `references/deploy-behavior-analytics-service.md` for the full
@@ -75,7 +75,7 @@ If any required prerequisite fails, surface the gap before going further.
 
 ## Workflow
 
-Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its four steps in order:
+Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its steps in order:
 
 1. Pick an entrypoint (analytics 2D / 3D / mv3dt, dev_example, fusion_search).
 2. Choose a config — profile-shipped or custom.

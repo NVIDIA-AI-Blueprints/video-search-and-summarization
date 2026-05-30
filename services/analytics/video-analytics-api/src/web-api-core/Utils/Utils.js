@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -44,7 +44,7 @@ class Utils {
      * Extracts place hierarchy from input place
      * @public
      * @static
-     * @param {string} place
+     * @param {string} place - Place string to split into levels.
      * @returns {string} 
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -65,9 +65,9 @@ class Utils {
      * Compares two timestamps.
      * @public
      * @static
-     * @param {string} timestamp1
-     * @param {('>'|'>='|'<'|'<='|'==')} comparison
-     * @param {string} timestamp2
+     * @param {string} timestamp1 - First timestamp in ISO 8601 format.
+     * @param {('>'|'>='|'<'|'<='|'==')} comparison - Comparison operator used between timestamps.
+     * @param {string} timestamp2 - Second timestamp in ISO 8601 format.
      * @returns {boolean} Returns whether the comparison is true or false
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -115,8 +115,8 @@ class Utils {
      * Calculates set difference.
      * @public
      * @static
-     * @param {Set} set1
-     * @param {Set} set2
+     * @param {Set} set1 - First set.
+     * @param {Set} set2 - Second set.
      * @returns {Set} Returns a set which is a set difference of the input sets
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -131,8 +131,8 @@ class Utils {
      * Calculates set intersection.
      * @public
      * @static
-     * @param {Set} set1
-     * @param {Set} set2
+     * @param {Set} set1 - First set.
+     * @param {Set} set2 - Second set.
      * @returns {Set} Returns a set which is a set intersection of the input sets
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -148,7 +148,7 @@ class Utils {
      * @public
      * @static
      * @async
-     * @param {number} ms - The number of milliseconds to wait. ms must be an integer.
+     * @param {number} ms - Number of milliseconds to wait.
      * @returns {Promise<void>} A promise that resolves after the specified time has elapsed.
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -163,7 +163,7 @@ class Utils {
      * @public
      * @static
      * @async
-     * @param {Array<string>} filePaths
+     * @param {Array<string>} filePaths - File paths to delete.
      * @returns {Promise<Object>} A success message is returned once files are deleted
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -183,6 +183,15 @@ class Utils {
         return ({ success: true });
     }
 
+    /**
+     * Awaits the input only when it is a promise and otherwise returns the value unchanged.
+     * @public
+     * @static
+     * @async
+     * @template T
+     * @param {T|Promise<T>} value - Synchronous value or promise-like value.
+     * @returns {Promise<T>} Resolved value.
+     */
     static async conditionalAsync(value){
         if(value instanceof Promise){
             return await value;

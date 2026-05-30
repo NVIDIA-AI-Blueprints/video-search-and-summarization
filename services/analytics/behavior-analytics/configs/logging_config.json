@@ -1,0 +1,33 @@
+{
+    "version": 1,
+    "disable_existing_loggers": false,
+    "formatters": {
+        "standard": {
+            "format": "[%(asctime)s] [%(levelname)s] [%(processName)s] [%(filename)s: %(lineno)d] - %(message)s",
+            "use_microseconds": true
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "DEBUG",
+            "formatter": "standard",
+            "stream": "ext://sys.stdout"
+        }
+    },
+    "loggers": {
+        "mdx.analytics.core.stream.state.behavior": {
+            "level": "WARNING",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "be.kuleuven.cs.dtai.mapmatching": {
+            "level": "CRITICAL",
+            "propagate": false
+        }
+    },
+    "root": {
+        "level": "INFO",
+        "handlers": ["console"]
+    }
+}
