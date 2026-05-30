@@ -52,6 +52,7 @@ Match the user's request to a mode, then load that mode's reference for input co
 
 - AMC microservice + UI running. If not, walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first.
 - Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` → `{"code":0,...}`.
+- Projects directory writable by the container user. If you didn't just deploy (so Step 5 of the deploy reference hasn't run), confirm the write test in [`references/deploy-auto-calibration-service.md` § Step 5](references/deploy-auto-calibration-service.md#step-5--confirm-the-projects-directory-is-writable) — otherwise the first `create_project` returns `[Errno 13] Permission denied`.
 - Python 3 with `requests` installed (each input-mode reference includes a self-healing venv fallback for direct runs).
 
 Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) live in the respective references.
@@ -70,6 +71,14 @@ Response: `{"project_state": "READY"}` — must be `READY` before calibrating. I
 
 ### Step B — Start Calibration
 
+**Confirm the plan before calibrating.** Whether the settings file and detector were auto-detected or asked, present a short summary and confirm via `AskUserQuestion` before the `POST /calibrate`. The resolved values are the defaults, so confirming is one click — but the user can switch the detector or skip an auto-detected settings file. Summarize:
+
+- **Detector** — `resnet` or `transformer` (the value to be sent).
+- **Calibration settings** — the file being applied (path), or "defaults" if none.
+- **Optional overrides** — ground-truth zip and focal lengths, if any.
+
+The sample-dataset install-check run uses a fixed `resnet` and can proceed without this confirmation.
+
 ```
 POST /v1/calibrate/<project_id>
 Content-Type: application/json
@@ -77,7 +86,7 @@ Content-Type: application/json
 {"detector_type": "resnet"}   # or "transformer"
 ```
 
-`detector_type` is a separate `/calibrate` parameter — **not** consumed by `/v1/config/<id>`. If the user provided a calibration settings file, parse it for `"detector"` / `"detector_type"` and use that value. If no settings file, ask the user via `AskUserQuestion`:
+`detector_type` is a separate `/calibrate` parameter — **not** consumed by `/v1/config/<id>`. If the user provided a calibration settings file, parse it for `"detector"` / `"detector_type"` and use that value. If the file doesn't specify one, the default (`resnet`) is the value shown in the confirmation above — the user can switch it there before calibrating. If there's no settings file at all, ask the user via `AskUserQuestion`:
 
 - `resnet` — default, fast.
 - `transformer` — slower, better under heavy occlusion.

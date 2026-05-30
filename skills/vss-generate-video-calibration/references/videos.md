@@ -17,7 +17,7 @@ The skill scans the **videos directory** and its **parent directory** for these 
 
 | File | Candidate filenames |
 |---|---|
-| Calibration settings | `settings.json`, `config.json`, `calibration_config.json` (UI Step 3 Download produces one of these). When provided, this file replaces the entire UI Step 3 Parameters dialog. If they don't have a file, ask which detector to use separately (see below). |
+| Calibration settings | `calibration_settings.json`, `settings.json`, `config.json`, `calibration_config.json` (UI Step 3 Download produces one of these). When provided, this file replaces the entire UI Step 3 Parameters dialog. If they don't have a file, ask which detector to use separately (see below). |
 | Alignment JSON | `alignment_data.json` |
 | Layout PNG | `layout.png` |
 
@@ -152,7 +152,7 @@ def _resolve_local(override, candidate_names, scan_dirs, label):
     return None
 
 _scan_dirs = [VIDEO_DIR, VIDEO_DIR.parent]
-CONFIG_FILE    = _resolve_local(CONFIG_FILE,    ["settings.json", "config.json", "calibration_config.json"], _scan_dirs, "config")
+CONFIG_FILE    = _resolve_local(CONFIG_FILE,    ["calibration_settings.json", "settings.json", "config.json", "calibration_config.json"], _scan_dirs, "config")
 ALIGNMENT_JSON = _resolve_local(ALIGNMENT_JSON, ["alignment_data.json"],                                       _scan_dirs, "alignment")
 LAYOUT_PNG     = _resolve_local(LAYOUT_PNG,     ["layout.png"],                                                _scan_dirs, "layout")
 

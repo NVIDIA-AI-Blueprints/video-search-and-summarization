@@ -39,6 +39,7 @@ if r.status_code == 200:
         print(f"    {k}: {v}")
 
 print(f"\nProject: {project_id}")
+print(f"Detector used: {DETECTOR_TYPE}")
 ```
 
 See [SKILL.md Shared Calibration Tail](../SKILL.md#shared-calibration-tail) for
