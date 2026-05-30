@@ -4,10 +4,14 @@
 
 """Generate a license-diff CSV between two git refs for OSRB review.
 
-Walks every `uv.lock` (Python) and `package-lock.json` (Node) tracked by the
-repo at the base and head refs, diffs the (package, version) sets, and writes
-one CSV row per change. Python rows are enriched with license + repository URL
-from PyPI; Node rows use the metadata embedded in the lockfile.
+Walks every Python lockfile (`uv.lock`, `Pipfile.lock`) and Node lockfile
+(`package-lock.json`) tracked by the repo at the base and head refs — at any
+nesting depth (services/*, tools/*, repo root) — diffs the (package, version)
+sets, and writes one CSV row per change. Python rows are enriched with license
++ repository URL from PyPI; Node rows use the metadata embedded in the lockfile.
+
+For Pipfile.lock only the `default` (runtime) section is inventoried — dev-only
+deps never ship, so OSRB does not review them.
 
 CSV columns: language, package, change, old_version, new_version, old_license,
 new_license, repository_url, notes.
@@ -83,6 +87,28 @@ def parse_uv_lock(data: bytes) -> Inventory:
         # useful repository URL — leave empty and let PyPI metadata fill it.
         repo = source.get("git") or source.get("url") or ""
         out[(name, version)] = {"repository_url": str(repo)}
+    return out
+
+
+def parse_pipfile_lock(data: bytes) -> Inventory:
+    """Return {(name, version): {repository_url}} parsed from Pipfile.lock.
+
+    Pipfile.lock is JSON with `default` (runtime) and `develop` (dev-only)
+    sections; each maps a package name to `{"version": "==X.Y.Z", ...}`. Only
+    `default` is inventoried — those are the packages that actually ship, which
+    is what OSRB reviews (dev-only tools like linters never reach a release
+    artifact). Versions are pinned as `==X.Y.Z`; strip the `==`. No license or
+    repository_url is embedded in the lock, so (like uv.lock registry packages)
+    those fields are left empty and filled from PyPI metadata downstream.
+    """
+    doc = json.loads(data.decode("utf-8"))
+    out: Inventory = {}
+    for name, meta in (doc.get("default") or {}).items():
+        lname = (name or "").lower()
+        version = str((meta or {}).get("version") or "").lstrip("=").strip()
+        if not lname or not version:
+            continue
+        out[(lname, version)] = {"repository_url": ""}
     return out
 
 
@@ -306,8 +332,22 @@ def main() -> int:
 
     _log(f"Comparing {args.base_ref} -> {args.head_ref}")
 
-    py_base = _inventory_at_ref(args.base_ref, "uv.lock", parse_uv_lock)
-    py_head = _inventory_at_ref(args.head_ref, "uv.lock", parse_uv_lock)
+    # Each (filename, parser) is scanned recursively across the whole repo tree
+    # at the given ref (_list_lockfiles uses `git ls-tree -r`), so lockfiles at
+    # any nesting depth — services/<svc>/..., tools/<tool>/..., or the repo
+    # root — are all picked up. Python deps may be locked by uv (uv.lock) or
+    # pipenv (Pipfile.lock); merge both into one Python inventory.
+    PYTHON_LOCKS = [("uv.lock", parse_uv_lock), ("Pipfile.lock", parse_pipfile_lock)]
+
+    def python_inventory(ref: str) -> Inventory:
+        merged: Inventory = {}
+        for filename, parser_fn in PYTHON_LOCKS:
+            for key, meta in _inventory_at_ref(ref, filename, parser_fn).items():
+                merged.setdefault(key, meta)
+        return merged
+
+    py_base = python_inventory(args.base_ref)
+    py_head = python_inventory(args.head_ref)
     nd_base = _inventory_at_ref(args.base_ref, "package-lock.json", parse_node_lock)
     nd_head = _inventory_at_ref(args.head_ref, "package-lock.json", parse_node_lock)
 
