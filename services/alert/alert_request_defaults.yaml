@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Entity Management Default Values Configuration
-# 
+#
 # This file contains all default values for VSS and VLM parameters.
 # Operators can modify these values to tune system behavior without code changes.
 

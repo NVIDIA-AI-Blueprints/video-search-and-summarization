@@ -50,8 +50,8 @@ services:
       #- VSS_BASE_URL=${VSS_BASE_URL:-}
     volumes:
       - ${ALERT_BRIDGE_CONFIG_FILE:-./config.yaml}:/app/config.yaml
-      
-    
+
+
     container_name: alert-bridge
     depends_on:
       - alert-bridge-redis

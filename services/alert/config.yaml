@@ -57,7 +57,7 @@ vlm:
   model: "nvidia/cosmos-reason2-8b"
   max_tokens: 4096
   request_timeout: 5
-  
+
   # VLM Media Source: how to send video to VLM endpoint
   # false (default) - Pass video URL to VLM (VLM fetches from URL)
   # true - Download video locally, base64-encode, upload to VLM
@@ -238,7 +238,7 @@ alert_agent:
 
   media_download:
     enabled: false                                # Enable direct media URL processing
-    max_media_count: 5                           # Maximum number of media URLs per request 
+    max_media_count: 5                           # Maximum number of media URLs per request
     timeout_seconds: 30                          # Download timeout per file
     max_size_mb: 50                              # Maximum file size to download
     allow_private_urls: true                     # Allow private/local URLs (development only, SSRF risk)

@@ -67,13 +67,13 @@ vlm:
 event_bridge:
   sourceType: "kafka"                     # redisStream or "kafka"
   sinkType: "kafka"                       # redisStream or "kafka"
-  
+
   kafka_source:
     group_id: 'alert-bridge-vlm-group1'
     topics:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
-  
+
   # Redis Streams Configuration
   redis_source:
     host: "localhost"
@@ -88,10 +88,10 @@ event_bridge:
       heartbeat_stream: "alert-bridge-heartbeats-stream"
     consumer_group: "vlm_agents_group"
     consumer_config:
-      block_time: 10                          
-      count: 1                                 
-      batch_size: 1     
-  
+      block_time: 10
+      count: 1
+      batch_size: 1
+
   redis_sink:
     host: "localhost"
     port: 6379
@@ -99,11 +99,11 @@ event_bridge:
     streams:
       enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
       incidents_stream: "alert-bridge-incidents-stream"
-  
+
 prompt:
   prefer_payload_prompt: false
   override_prompts_on_start: true
-  
+
 # Alert Type Configuration
 alert_type_config_file: "blueprint_config/alert_type_config_public_safety.json"
 

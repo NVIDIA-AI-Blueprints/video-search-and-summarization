@@ -33,7 +33,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'  # This is a randomly generated cluster ID
     healthcheck:
-      test: [ "CMD", "bash", "-c", "echo > /dev/tcp/localhost/9092" ]
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/9092"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -55,5 +55,3 @@ services:
 
 volumes:
   redis_data:
-
-

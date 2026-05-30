@@ -96,10 +96,10 @@ event_bridge:
       heartbeat_stream: "alert-bridge-heartbeats-stream"
     consumer_group: "vlm_agents_group-sssd"
     consumer_config:
-      block_time: 10                          
-      count: 1                                 
-      batch_size: 1     
-  
+      block_time: 10
+      count: 1
+      batch_size: 1
+
   redis_sink:
     host: "localhost"
     port: 6379
@@ -107,11 +107,11 @@ event_bridge:
     streams:
       enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
       incidents_stream: "alert-bridge-incidents-stream"
-  
+
 prompt:
   prefer_payload_prompt: false
   override_prompts_on_start: true
-  
+
 # Alert Type Configuration
 alert_type_config_file: "blueprint_config/alert_type_config_warehouse_blueprint.json"
 

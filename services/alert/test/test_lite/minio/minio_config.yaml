@@ -14,11 +14,10 @@
 # limitations under the License.
 
 minio:
-  host: "localhost"          
+  host: "localhost"
   port: 9000                  # MinIO S3 API port
   console_port: 9001          # MinIO Console (Web UI) port
   access_key: "minioadmin"    # MinIO access key
   secret_key: "minioadmin123" # MinIO secret key
   bucket: "alert-media"       # Default bucket for media files
   secure: false               # Use HTTPS (false for local testing)
-

@@ -58,18 +58,18 @@ vlm:
 event_bridge:
   sourceType: "kafka"
   sinkType: "kafka"
-  
+
   kafka_source:
     group_id: "alert-bridge-vlm-group"
     topics:
       incident: "mdx-incidents"
       alert: "mdx-alerts"
-  
+
   kafka_sink:
     topics:
       enhanced_anomaly: "alert-bridge-enhanced-alerts"
       incidents: "alert-bridge-incidents"
-  
+
   # Redis Streams Configuration (for when sourceType/sinkType is redisStream)
   redis_source:
     host: "localhost"
@@ -88,7 +88,7 @@ event_bridge:
       block_time: 10
       count: 1
       batch_size: 1
-  
+
   redis_sink:
     host: "localhost"
     port: 6379

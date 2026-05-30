@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Response Schema - Field mappings for outgoing messages  
+# Response Schema - Field mappings for outgoing messages
 # This file defines how to format outgoing JSON messages
 
 version: "1.0"
@@ -24,14 +24,14 @@ fields:
   message_id: "eventId"
   timestamp: "timestamp"
   sensor_id: "sensor.id"
-  vehicle_id: "object.id" 
+  vehicle_id: "object.id"
   anomaly_type: "analyticsModule.id"
   stream_id: "streamId"
   alert_type: "alertType"
   media_file_path: "mediaFilePath"
   start_time: "start_time"
   end_time: "end_time"
-  
+
   # Enhanced fields added by VLM processing
   vlm_analysis: "vlmAnalysis"
   confidence_score: "confidenceScore"
@@ -73,4 +73,4 @@ required_output_fields:
 output_defaults:
   confidence_score: 0.0
   vlm_analysis: "No analysis available"
-  enhanced_description: "Enhanced by VLM processing" 
+  enhanced_description: "Enhanced by VLM processing"
