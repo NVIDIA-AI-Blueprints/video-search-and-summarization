@@ -619,6 +619,14 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         if not merged.get("VLM_BASE_URL", "").strip():
             raise ValidationError("VLM_BASE_URL is required when VLM_MODE=remote.")
 
+    if not merged.get("NGC_CLI_API_KEY", "").strip() and (
+        merged["LLM_MODE"] != MODE_REMOTE or merged["VLM_MODE"] != MODE_REMOTE
+    ):
+        raise ValidationError(
+            "NGC_CLI_API_KEY is required when LLM_MODE or VLM_MODE uses a local/local_shared deployment. "
+            "Export NGC_CLI_API_KEY in the MCP server environment or pass it through docker_generate env_overrides."
+        )
+
     if (
         merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles
         and config.profile in {PROFILE_BASE, PROFILE_ALERTS}

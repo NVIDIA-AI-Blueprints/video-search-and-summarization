@@ -69,7 +69,7 @@ def _make_recipe(
     return dcu.DryRunRecipe(
         profile=profile,  # type: ignore[arg-type]
         env_overrides=env_overrides or {},
-        ngc_cli_api_key=ngc_cli_api_key,
+        ngc_cli_api_key="test-ngc" if ngc_cli_api_key is None else ngc_cli_api_key,  # pragma: allowlist secret
         nvidia_api_key=nvidia_api_key,
         hardware_profile=hardware_profile,
         external_ip=external_ip,
@@ -619,6 +619,36 @@ class TestBuildResolvedEnv:
 
         assert resolved["NGC_CLI_API_KEY"] == "from-override-ngc"  # pragma: allowlist secret
         assert resolved["NVIDIA_API_KEY"] == "from-override-nvidia"  # pragma: allowlist secret
+
+    def test_build_resolved_env_requires_ngc_key_for_local_models(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=local",
+                "BP_PROFILE=base",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=thor",
+                "LLM_MODE=local",
+                "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
+                "VLM_MODE=remote",
+                "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=none",
+                "VLM_BASE_URL=http://vlm.example/v1",
+                "HOST_IP=10.0.0.8",
+                "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
+                "VSS_APPS_DIR=/path/to/deploy/docker",
+                "NGC_CLI_API_KEY=",  # pragma: allowlist secret
+            ),
+            ngc_cli_api_key="",
+        )
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+        with pytest.raises(dcu.ValidationError, match="NGC_CLI_API_KEY is required"):
+            dcu.build_resolved_env(recipe)
 
     def test_build_resolved_env_alerts_real_time_sets_edge_and_rtvi_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
