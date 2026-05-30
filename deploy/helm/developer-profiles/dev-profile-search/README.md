@@ -150,6 +150,13 @@ If **`local-path`** is listed but is **not** the default (no **`(default)`** mar
 
 ## Step 2: Install Ingress Controller (HAProxy)
 
+This profile uses the HAProxy Kubernetes Ingress controller for two distinct paths:
+
+1. **External traffic** (browser → VSS UI / agent / Kibana / Phoenix) — uses the controller's host ports `80`/`443` exposed by a DaemonSet.
+2. **In-cluster RTVI affinity** (vss-agent → rtvi-cv / rtvi-embed, when `global.rtviInternalIngress.enabled=true`) — uses the controller's **ClusterIP Service** at `haproxy-kubernetes-ingress.haproxy-controller:80`.
+
+Both paths share the same controller install. Keep the Service enabled (`controller.service.type=ClusterIP`) so the in-cluster path works:
+
 ```bash
 helm repo add haproxytech https://haproxytech.github.io/helm-charts
 helm repo update
@@ -158,20 +165,21 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
   --version 1.49.0 \
   -n haproxy-controller --create-namespace \
   --set controller.kind=DaemonSet \
-  --set controller.service.enabled=false \
   --set controller.daemonset.useHostPort=true \
   --set controller.daemonset.hostPorts.http=80 \
-  --set controller.daemonset.hostPorts.https=443
+  --set controller.daemonset.hostPorts.https=443 \
+  --set controller.service.type=ClusterIP
 ```
 
-Verify the controller is running:
+Verify the controller is running and the in-cluster Service is created:
 
 ```bash
 kubectl get pods -n haproxy-controller
 kubectl get ingressclass
+kubectl get svc -n haproxy-controller haproxy-kubernetes-ingress
 ```
 
-You should see an IngressClass named `haproxy`.
+You should see an IngressClass named `haproxy` and a ClusterIP Service `haproxy-kubernetes-ingress` in namespace `haproxy-controller`. The `global.rtviInternalIngress.controllerService` default (`haproxy-kubernetes-ingress.haproxy-controller`) and `controllerPort` default (`80`) match this install; override only if you used a different release name or namespace.
 
 ## Step 3: Deploy the Search Profile
 
