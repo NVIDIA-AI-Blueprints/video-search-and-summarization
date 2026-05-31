@@ -180,8 +180,11 @@ def requirements_inventory(ref: str) -> dict[str, str]:
         if data is None:
             continue
         for name, version in parse_requirements(data).items():
-            # Prefer a pinned version if any file pins it.
-            if version or name not in merged:
+            # Prefer a pinned version over unpinned; among multiple pinned
+            # entries use first-seen so the same service consistently wins
+            # across base and head refs (last-pinned-wins would let one
+            # service's unchanged pin silently mask another's version bump).
+            if name not in merged or (version and not merged[name]):
                 merged[name] = version
     return merged
 
