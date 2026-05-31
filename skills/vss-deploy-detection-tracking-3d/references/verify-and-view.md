@@ -173,7 +173,7 @@ echo "mdx-raw: ${r1} -> ${r2}    mdx-bev: ${b1} -> ${b2}"
 3. Every expected sensor reports **online**.
 4. Both `mdx-raw` and `mdx-bev` offsets grew between the two samples.
 
-If any fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. A sensor-set mismatch or stale/offline record is the [stale-VST-state](deploy-rtvi-cv-3d-stack.md) case — a scoped `down -v` + redeploy is usually the fix.
+If any fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. A sensor-set mismatch, stale/offline record, or `Active sources : 0` on healthy containers is the stale-state case — the fix is a **full clean redeploy** (`down -v` **and** clearing host-side `data_log`, then redeploy), not `down -v` alone. See the redeploy note in [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 3.
 
 ## Step 5 — VST video wall
 
