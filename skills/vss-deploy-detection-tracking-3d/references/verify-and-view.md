@@ -181,6 +181,26 @@ The VST UI loads over TCP/30888, but video playback uses **WebRTC**. The browser
 3. **Bypass UI entirely; consume `mdx-bev`.** The data is on the broker — write a downstream consumer in your language of choice.
 4. **Self-host TURN.** Heavyweight: stand up a TURN server on TCP/443 (reachable through corp HTTPS) and point VST at it. Out of scope for this skill; needs VST config edits.
 
+#### Edge and remote hosts (Thor, cloud VM, SSH / VPN / NAT)
+
+On IGX-THOR / AGX-THOR and other edge or cloud hosts you often reach the box only through SSH, a VPN, or a proxy — `HOST_IP` isn't directly routable from your laptop. Forwarding the UI port is enough to *load* the dashboard but **not** to play video:
+
+```bash
+# Loads the VST UI in your laptop browser — dashboard only.
+ssh -L 30888:localhost:30888 <user>@<edge-host>
+# then open: http://localhost:30888/vst/#/live-streams
+```
+
+WebRTC media travels over **UDP on a random port range plus STUN**, which a TCP `-L` tunnel does not carry — so playback still fails with `Error 2: Failed to start inbound stream`, `Error 22`, or an ICE failure even though the UI loaded. To actually see frames through SSH, forward the **RTSP** port instead (RTSP over TCP tunnels cleanly) and play the per-sensor stream:
+
+```bash
+# Real frames over SSH — no overlays, but reliable through a tunnel.
+ssh -L 30554:localhost:30554 <user>@<edge-host>
+ffplay "rtsp://localhost:30554/live/<sensorId>"   # sensorId from /vst/api/v1/sensor/list
+```
+
+For the full overlay UI on these hosts, run the browser **on the host** (VNC / X-forward / RDP — workaround 1 above) or stand up a TURN server (workaround 4). Forwarding only TCP/30888 reproduces the "UI loads, playback fails" symptom and is the most common cause of `Error 2` / `Error 22` on Thor and other SSH/VPN-only hosts.
+
 If the user is on a host without these restrictions (LAN, public IP with permissive firewall), Step 5 just works.
 
 ## Step 6 — Other diagnostic endpoints
