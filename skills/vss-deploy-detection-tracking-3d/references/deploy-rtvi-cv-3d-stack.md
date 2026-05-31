@@ -321,15 +321,24 @@ If any of the core are missing, `COMPOSE_PROFILES` is wrong — re-check `MODE` 
 
 ## Step 3 — Deploy
 
-> **Redeploying after a dataset / camera-set change?** Reset the MV3DT named volumes first so VST sensor records re-initialize from the new calibration:
+> **Redeploying? `down -v` alone is not a clean reset.** It resets the named volumes (Kafka log, VST Postgres), but host-side runtime state under `${VSS_DATA_DIR}/data_log` (VST / SDRC / configurator / broker state) is left in place and gets reused — which can leave MV3DT at `Active sources : 0` even though every container is healthy. For a truly fresh redeploy (new dataset, changed camera set/names, or any "stuck at 0 sources" reset), clear **both**:
 >
 > ```bash
 > cd "${VSS_APPS_DIR}"
-> docker compose -f compose.yml \
->   --env-file industry-profiles/warehouse-operations/.env down -v
+> # 1. Reset containers + named volumes
+> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+>
+> # 2. Clear host-side data_log — rotate it (non-destructive, keeps a backup):
+> ts=$(date +%Y%m%d_%H%M%S)
+> mv "${VSS_DATA_DIR}/data_log" "${VSS_DATA_DIR}/data_log.bak.${ts}"
+> #    ...or delete in place with the bundled script:
+> #    bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env --skip-revert-from-oldest-backup
+>
+> # 3. Recreate the data_log subdirs and re-apply the scoped ACLs — see SKILL.md Prerequisites §4
+> #    (mkdir the subdirs, then setfacl for UIDs 70/999/1000 — NOT chmod 777).
 > ```
 >
-> Plain `docker compose down` (without `-v`) preserves the Kafka log and the VST Postgres DB by design — useful for restarting against the same dataset, less useful when the camera names or count have changed. Full discussion: [`teardown.md`](teardown.md). For first-time deploys on a clean host, skip this and go straight to the commands below.
+> Then redeploy (below) and confirm with the **readiness gate** in [`verify-and-view.md`](verify-and-view.md) (Step 4b) — `Active sources == NUM_STREAMS` and growing `mdx-raw`/`mdx-bev` offsets — not just container health. Plain `docker compose down` (no `-v`, no `data_log` clear) is only for restarting against the **same** dataset. Full teardown discussion: [`teardown.md`](teardown.md). For first-time deploys on a clean host, skip this and go straight to the commands below.
 
 ```bash
 cd "${VSS_APPS_DIR}"
