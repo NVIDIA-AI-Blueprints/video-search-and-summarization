@@ -14,19 +14,24 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 | `vss-rtvi-cv-bev-fusion` | `nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-bev-fusion:${BEV_FUSION_MV3DT_TAG}` | BEV Fusion — fuses per-camera detections to a single BEV frame |
 | `mosquitto` | `eclipse-mosquitto:2` | MQTT bus between perception and fusion |
 | `kafka` *or* `redis` | (per `STREAM_TYPE`) | Carries `mdx-raw` (input) and `mdx-bev` (output) |
-| `broker-health-check` | (built locally) | Validates broker + creates topics |
-| `vss-vios-sensor` (`sensor-ms-mv3dt`) | VST sensor image | VST sensor microservice |
-| `centralizedb` (PostgreSQL) | postgres | Backing store for VST sensor-ms |
+| `vss-broker-health-check` | (built locally) | Validates broker + creates topics (one-shot, exits 0) |
+| `vss-vios-sensor` | VST sensor image | VST sensor microservice |
+| `vss-vios-ingress` | VST | VST ingress (healthy) |
+| `vss-vios-streamprocessing` | VST | Records streams; serves the VST video wall |
+| `vss-haproxy-ingress` | haproxy | Ingress — **present under MV3DT** (services are still reached on their direct ports) |
+| `vss-vios-postgres` (PostgreSQL) | postgres | Backing store for VST sensor-ms |
+| `sdr-controller` | (built locally) | SDR + Envoy consolidation (registers streamprocessing) |
 | `vss-configurator-mv3dt` (+ `*-init`) | `nvcr.io/nvstaging/vss-core/vss-configurator` | Sensor registration, DeepStream config materialization |
 | `vss-vios-nvstreamer-mv3dt` | nvstreamer | RTSP server for sample/videos data |
-| `vss-auto-calibration` (+ `-ui`) | AMC images | Calibration UI on port 5000 (always under `bp_wh_*_mv3dt`) |
 | **`vss-behavior-analytics-mv3dt`** | analytics | 3D spatial analytics — always under `bp_wh_*_mv3dt`, **not** gated by `MINIMAL_PROFILE` |
+
+> **Auto-calibration is not part of this deploy.** AMC (`vss-auto-calibration` / `-ui`) is **not** in the `bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt` profile — those differ from the `bp_wh_auto_calib_mv3dt` / `auto_calib` profiles that enable AMC. When calibration is missing, the [`calibration-workflow.md`](calibration-workflow.md) chain brings AMC up separately (the `auto_calib` profile) and tears it down before this deploy. If you see `vss-auto-calibration` running alongside MV3DT, it's from that separate flow, not this one.
 
 ### Extra under extended (`MINIMAL_PROFILE=""`) — needed for VST overlays
 
 | Container | Why |
 |---|---|
-| `elasticsearch` + `elasticsearch-init-container` | Backing store for the `mdx-bev` index; VST renders overlays only when this is populated |
+| `elasticsearch` + `vss-elasticsearch-init` | Backing store for the `mdx-bev` index; VST renders overlays only when this is populated |
 | `logstash` | Pipes broker metadata → Elasticsearch |
 | `kibana` + `vss-kibana-init-mv3dt` | Dashboards (also needed for overlay rendering) |
 | `vss-video-analytics-api-mv3dt` | Serves overlay data to VST |
@@ -71,6 +76,50 @@ echo "the configurator will trim videos to that cap at deploy time."
 ```
 
 If videos < camera count and `HARDWARE_PROFILE.mv3dt.max_streams_supported` < camera count, the deploy will appear to succeed but you'll only get a subset of streams. Fix one of: source missing videos, raise `HARDWARE_PROFILE`-supported cap, or lower expectations.
+
+### Step 0a — Detect stale state from a prior deploy (redeploys only)
+
+A prior deploy leaves two kinds of stale state that get silently reused and break the next `up`. On a fresh host both checks are no-ops. On a redeploy, run them **before** `up`.
+
+**(i) Stale `mdx_*` named volumes.** MV3DT's `kafka` / `elastic` / `postgres` data live in Docker **named volumes** (`mdx_mdx-kafka`, `mdx_vios_pg_data`, …) that bind to a host path baked in **at volume-creation time**. If `VSS_DATA_DIR` has changed since the last deploy, the next `up` fails with `failed to mount local volume: … no such file or directory`. This is detectable with nothing running:
+
+```bash
+CUR="${VSS_DATA_DIR%/}"
+STALE_VOL=0
+for v in $(docker volume ls -q | grep -E '^mdx_'); do
+  dev=$(docker volume inspect "$v" --format '{{.Options.device}}' 2>/dev/null)
+  case "$dev" in
+    "${CUR}"/*|"") ;;                                 # current path or non-bind — fine
+    *) echo "STALE volume ${v} -> ${dev}"; STALE_VOL=1 ;;
+  esac
+done
+[ "$STALE_VOL" = 1 ] && echo "Stale mdx_* volumes point outside VSS_DATA_DIR=${CUR} — reset with 'down -v' below."
+```
+
+**(ii) Stale VST sensor records.** A prior deploy's VST Postgres DB and configurator state survive a plain `docker compose down`, so old sensor records (a different dataset, a removed camera, or empty/offline entries) get reused and perception stalls at `Active sources : 0` while containers still look healthy. Only checkable when VST is already up:
+
+```bash
+VST_HOST="${HOST_IP:-localhost}"; VST_PORT="${VST_PORT:-30888}"
+
+if docker ps --format '{{.Names}}' | grep -q '^vss-vios-sensor$'; then
+  EXISTING=$(curl -sf "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/list" 2>/dev/null \
+    | jq -r '.[].name' 2>/dev/null | sort)
+  EXPECTED=$(jq -r '.sensors[].id' "${CAL_DIR}/calibration.json" 2>/dev/null | sort)
+  echo "VST already running."
+  echo "Registered sensors:"; echo "${EXISTING:-(none)}"
+  echo "Expected for ${SAMPLE_VIDEO_DATASET}:"; echo "${EXPECTED:-(unknown)}"
+  if [ "${EXISTING}" != "${EXPECTED}" ]; then
+    echo "STALE / MISMATCHED VST state — the registered sensors do not match this dataset."
+    echo "A scoped reset is recommended before deploying (resets VST Postgres + named volumes):"
+    echo "  docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v"
+    echo "  bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env --skip-revert-from-oldest-backup"
+  else
+    echo "VST sensor set matches the expected dataset — no reset needed."
+  fi
+fi
+```
+
+`down -v` is destructive (drops the VST DB and broker volumes), so **confirm with the user via `AskUserQuestion` before running it.** Full discussion of `down -v` semantics is in [`teardown.md`](teardown.md); the targeted sensor-trim alternative is in [`configure-cameras.md`](configure-cameras.md) Step 5.
 
 ### Step 0b — Patch hardcoded `streamprocessing` mounts (custom datasets only)
 
@@ -190,7 +239,7 @@ sudo chmod -R a+rX /path/to/vss-warehouse-app-data
 # Then point VSS_DATA_DIR at /path/to/vss-warehouse-app-data
 ```
 
-After extraction, run the `mkdir -p` + `chmod -R 777 $VSS_DATA_DIR/data_log` step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it.
+After extraction, run the `mkdir -p` + scoped-ACL `data_log` permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it.
 
 > Always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's `mv3dt` cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying.
 
@@ -238,9 +287,18 @@ docker compose -f compose.yml \
   config | grep -E '(container_name|profiles:)' | head -80
 ```
 
+> **Filtering compose noise.** `docker compose config`/`up` prints a `level=warning msg="The \"VAR\" variable is not set. Defaulting to a blank string."` line for every variable that belongs to a profile you're **not** deploying (`EVAL_*`, `LVS_*`, `MILVUS_*`, `GF_*`, `VST_MCP_URL`, …). For MV3DT these are **expected and benign** — they are not a problem. To see only the lines that matter, drop them:
+>
+> ```bash
+> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env config 2>&1 >/dev/null \
+>   | grep -v 'variable is not set'
+> # Empty output = no real errors. Anything that still prints here is actionable —
+> # e.g. "couldn't find env file: ..." means a path in .env is wrong; fix before deploying.
+> ```
+
 **Extended** (`MINIMAL_PROFILE=""`) — expect ~18–22 `container_name:` entries. Confirm these are present in addition to the always-deployed core:
 
-- `elasticsearch` + `elasticsearch-init-container`
+- `elasticsearch` + `vss-elasticsearch-init`
 - `logstash`
 - `kibana` + `vss-kibana-init-mv3dt`
 - `vss-video-analytics-api-mv3dt`
@@ -301,8 +359,8 @@ Expected first-run timing:
 
 - `vss-rtvi-cv-mv3dt` sits in `(starting)` for 5–10 min while DeepStream builds the BodyPose3DNet TensorRT engine. Tail `docker logs -f vss-rtvi-cv-mv3dt` for `Build engine successfully` lines.
 - `vss-rtvi-cv-bev-fusion` reports unhealthy until `/tmp/fusion_ready` is created — the health check probes that sentinel file.
-- `broker-health-check` reaches `Exit 0` once the broker is up and topics are seeded. If it stays running, the broker is still booting.
-- Under extended: `elasticsearch-init-container`, `vss-kibana-init-mv3dt`, and `vss-import-calibration-output-mv3dt` are one-shot init containers and reach `Exit 0` after completing — leave them alone.
+- `vss-broker-health-check` reaches `Exit 0` once the broker is up and topics are seeded. If it stays running, the broker is still booting.
+- Under extended: `vss-elasticsearch-init`, `vss-kibana-init-mv3dt`, and `vss-import-calibration-output-mv3dt` are one-shot init containers and reach `Exit 0` after completing — leave them alone.
 
 Once perception logs an FPS line and `/tmp/fusion_ready` exists (check via `docker inspect`), continue to [`verify-and-view.md`](verify-and-view.md).
 
@@ -311,7 +369,7 @@ Once perception logs an FPS line and `/tmp/fusion_ready` exists (check via `dock
 - Image pull 401 / 403 → re-run `docker login nvcr.io`; verify `ngc registry image list "nvstaging/vss-core/*"` (or `nvidia/vss-core/*`) returns results.
 - `error from registry: Incorrect Repository Format` mid-pull → Docker/Compose version incompatibility with the bare-tag local-build services in `services/infra/compose.yml`. See [`troubleshooting.md`](troubleshooting.md) — "`error from registry: Incorrect Repository Format` during compose pull" for a version-independent pre-build workaround and the Docker-pin alternative.
 - `unknown or invalid runtime name: nvidia` → install NVIDIA Container Toolkit (`vss-deploy-profile/references/prerequisites.md` §2.3).
-- `redis ... Can't open the log file: Permission denied`, `kafka ... /tmp/kafka-data/cluster_id: Permission denied`, or elasticsearch `AccessDeniedException` → `$VSS_DATA_DIR/data_log` perms weren't opened up. Run the `mkdir -p` + `chmod -R 777` step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 and redeploy. Don't recursive-chown.
+- `redis ... Can't open the log file: Permission denied`, `kafka ... /tmp/kafka-data/cluster_id: Permission denied`, or elasticsearch `AccessDeniedException` → `$VSS_DATA_DIR/data_log` isn't writable by the container UIDs. Run the `mkdir -p` + scoped-ACL permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 and redeploy. Don't recursive-chown.
 - `vss-configurator-mv3dt` exits 1 immediately → almost always `VSS_DATA_DIR` pointing at the repo instead of the extracted app-data directory. See Step 0 checks.
 - Containers in `Created` state forever → almost always the same `VSS_DATA_DIR` issue. Stop everything, fix `.env`, redeploy.
 - Profile mismatch (e.g. expected containers not in `docker compose config`) → confirm `MODE=mv3dt`, `BP_PROFILE` is one of `bp_wh_kafka` / `bp_wh_redis`. Other failure modes → [`troubleshooting.md`](troubleshooting.md).
