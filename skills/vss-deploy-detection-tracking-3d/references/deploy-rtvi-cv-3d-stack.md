@@ -211,17 +211,23 @@ ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calib
 | User videos (after AMC) | Whatever the user chose in Q3 (e.g. `customer-aisle-4cams`) — [`calibration-workflow.md`](calibration-workflow.md) lands files there |
 | User RTSP (after AMC) | Same — Q3 slug |
 
-### SBSA (DGX-SPARK / ARM64) note
+### SBSA note (DGX-SPARK and GB200 only)
 
-Swap to `-sbsa` image tags. From the shipped `.env`:
+Use `-sbsa` image tags **only** on **DGX-SPARK** and **GB200**. Do not infer SBSA from the platform being ARM64 — **AGX-THOR and IGX-THOR are ARM64 but use the shipped non-SBSA tags.** On every platform except DGX-SPARK and GB200, leave the `.env` tags exactly as shipped.
+
+On DGX-SPARK / GB200, the shipped `.env` is the source of truth for which images have an SBSA build: each one carries its `-sbsa` variant as a commented line directly below the default tag. **Only switch the keys that ship such a commented `-sbsa` line** — comment the default and uncomment the `-sbsa` line beside it:
 
 ```bash
-# In .env, comment the multi-arch tag and uncomment the -sbsa variant next to it:
-# PERCEPTION_TAG="3.2.0-sbsa-26.05.1"
-# BEV_FUSION_MV3DT_TAG="3.2.0-26.05.3-sbsa"
+# PERCEPTION_TAG ships an SBSA variant — comment the default, uncomment the -sbsa line:
+# PERCEPTION_TAG="3.2.0-26.05.1"
+PERCEPTION_TAG="3.2.0-sbsa-26.05.1"
 ```
 
-Apply the same pattern to `RTVI_VLM_IMAGE_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG` if those keys are set in your `.env`. Per-key list lives in `vss-deploy-profile/references/warehouse.md` (search for "SBSA").
+Per the Warehouse Quickstart guide, the images with SBSA builds on DGX-SPARK are **Perception (RTVI-CV) and VST** — swap only the keys whose `.env` carries a commented `-sbsa` line beside the default. In the current `.env` that's `PERCEPTION_TAG`; VST tags follow the same pattern when your release ships them, so check your `.env` rather than assuming.
+
+**Not every image publishes an SBSA build — do not hand-construct a `-sbsa` tag.** A tag that isn't published fails the pull. In particular, `BEV_FUSION_MV3DT_TAG` has **no** `-sbsa` variant — leave it at its shipped tag. The `blueprint-configurator` enforces the rule that does apply: on `HARDWARE_PROFILE=DGX-SPARK` it validates that `PERCEPTION_TAG` contains `sbsa`.
+
+The authoritative per-key list lives in the shipped `.env` (commented `-sbsa` lines) and `vss-deploy-profile/references/warehouse.md` (search for "SBSA").
 
 ## Step 2 — Dry-run
 
