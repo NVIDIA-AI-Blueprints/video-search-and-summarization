@@ -149,7 +149,7 @@ EXPECTED=$(jq -r '.sensors[].id' "${CAL_DIR}/calibration.json" | sort)
 SENSORS=$(curl -sf "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/list" | jq -r '.[] | "\(.name)\t\(.state)"')
 echo "VST sensors (name/state):"; printf '%s\n' "${SENSORS}" | sed 's/^/  /'
 ALL_NAMES=$(printf '%s\n' "${SENSORS}"    | awk -F'\t' 'NF{print $1}' | sort)
-ONLINE_NAMES=$(printf '%s\n' "${SENSORS}" | awk -F'\t' 'tolower($2) ~ /on|online/{print $1}' | sort)
+ONLINE_NAMES=$(printf '%s\n' "${SENSORS}" | awk -F'\t' 'tolower($2) == "online"{print $1}' | sort)
 [ "${ALL_NAMES}" = "${EXPECTED}" ] \
   && echo "  sensor set matches calibration exactly" \
   || echo "  MISMATCH — extra / missing / empty sensor records present"
