@@ -66,9 +66,10 @@ print(f"Detector: {DETECTOR_TYPE}")
 # Evaluation metrics are only produced when a ground-truth GT.zip was uploaded.
 # A missing result here is normal (no GT) — it is not the end of result reporting.
 r = s.get(f"{BASE_URL}/result/{project_id}/evaluation_statistics")
-if r.status_code == 200 and r.json().get("statistics"):
+_stats = r.json().get("statistics") if r.status_code == 200 else None
+if _stats:
     print("Evaluation metrics:")
-    for k, v in r.json()["statistics"].items():
+    for k, v in _stats.items():
         print(f"    {k}: {v}")
 else:
     print("Evaluation metrics: not available — upload a ground-truth GT.zip before calibrating to get L2 / reprojection metrics.")
