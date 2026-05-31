@@ -100,6 +100,7 @@ done
 
 ```bash
 VST_HOST="${HOST_IP:-localhost}"; VST_PORT="${VST_PORT:-30888}"
+CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}"
 
 if docker ps --format '{{.Names}}' | grep -q '^vss-vios-sensor$'; then
   EXISTING=$(curl -sf "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/list" 2>/dev/null \
@@ -108,7 +109,12 @@ if docker ps --format '{{.Names}}' | grep -q '^vss-vios-sensor$'; then
   echo "VST already running."
   echo "Registered sensors:"; echo "${EXISTING:-(none)}"
   echo "Expected for ${SAMPLE_VIDEO_DATASET}:"; echo "${EXPECTED:-(unknown)}"
-  if [ "${EXISTING}" != "${EXPECTED}" ]; then
+  if [ -z "${EXPECTED}" ]; then
+    # calibration.json wasn't readable — skip the comparison rather than flag a
+    # false-positive that would recommend a destructive down -v. Fix CAL_DIR /
+    # SAMPLE_VIDEO_DATASET first (these come from the Step 0 .env sourcing).
+    echo "Could not read expected sensors from ${CAL_DIR}/calibration.json — skipping stale-sensor check."
+  elif [ "${EXISTING}" != "${EXPECTED}" ]; then
     echo "STALE / MISMATCHED VST state — the registered sensors do not match this dataset."
     echo "A scoped reset is recommended before deploying (resets VST Postgres + named volumes):"
     echo "  docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v"
