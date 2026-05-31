@@ -175,20 +175,29 @@ echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 
 ### Step 5 — Confirm the projects directory is writable
 
-AMC stores each project under a host directory bind-mounted into the container. The container runs as UID 1000, so that directory must be writable by UID 1000 — otherwise the first `POST /v1/create_project` returns `[Errno 13] Permission denied`. Check this once after the stack is healthy, before any calibration run:
+AMC stores each project under a host directory bind-mounted into the container. The container runs as **UID 1000** (`triton-server`), so that directory must be writable by UID 1000 — otherwise the first `POST /v1/create_project` returns `[Errno 13] Permission denied`. **On a fresh checkout this almost always fails the first time**: a `git clone` leaves `services/auto-calibration/projects` owned by the cloning user (whatever their UID is), and unless that happens to be UID 1000 the container can't write. Treat the write-test failing as the expected default on a new host and apply the scoped ACL below. Check this once after the stack is healthy, before any calibration run:
 
 ```bash
 PROJECTS_DIR="${VSS_APPS_DIR}/services/auto-calibration/projects"
 mkdir -p "$PROJECTS_DIR"
 
-# Write-test as the container user (path is relative to the container working dir)
+# Write-test as the container user, against the actual bind-mount destination
+# inside the container (resolved from `docker inspect`, so this is robust to the
+# container's WorkingDir and to release path changes — do NOT hardcode it).
+DEST=$(docker inspect vss-auto-calibration \
+  --format '{{range .Mounts}}{{println .Source .Destination}}{{end}}' \
+  | awk -v s="$PROJECTS_DIR" '$1==s {print $2}')
+DEST=${DEST:-/home/auto-calibration-ms/server/projects}
+
 docker exec vss-auto-calibration sh -c \
-  'touch server/projects/.amc_write_test && rm -f server/projects/.amc_write_test' \
+  "touch '$DEST/.amc_write_test' && rm -f '$DEST/.amc_write_test'" \
   && echo "projects directory is writable" \
-  || echo "projects directory is not writable by the container — apply the fix below"
+  || echo "projects directory is not writable by the container — apply the ACL below"
 ```
 
-If the write test does not succeed, grant the container user access with a narrow ACL (ask the user before changing host permissions). This adds write access for UID 1000 only and leaves existing ownership intact:
+> The container WorkingDir is `/home/auto-calibration-ms/server` and the projects dir mounts at `…/server/projects`, so a workdir-relative `server/projects` is wrong (it resolves to `server/server/projects` → "No such file or directory", which masks a real permission failure). Resolving the mount destination from `docker inspect` avoids this entirely.
+
+If the write test does not succeed (the common case on a fresh host — see above), grant the container user access with a narrow ACL (ask the user before changing host permissions). This adds write access for UID 1000 only and leaves existing ownership intact:
 
 ```bash
 setfacl -m u:1000:rwx "$PROJECTS_DIR"     # prefix with sudo if the directory is root-owned

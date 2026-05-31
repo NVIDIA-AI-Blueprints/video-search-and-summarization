@@ -311,8 +311,10 @@ Average reprojection error 0(px)     : < 10
 
 ```bash
 PROJECT_ID=<id_from_step_1>
-# Calibration log lives inside the MS container's working dir.
-docker exec vss-auto-calibration tail -F server/projects/project_${PROJECT_ID}/calibration.log
+# Calibration log lives under the projects dir, relative to the container
+# WorkingDir (/home/auto-calibration-ms/server) — so the path is projects/...,
+# NOT server/projects/... (that resolves to server/server/projects → no such file).
+docker exec vss-auto-calibration tail -F projects/project_${PROJECT_ID}/calibration.log
 ```
 
 Or stream MS logs:
