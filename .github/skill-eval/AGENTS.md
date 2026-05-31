@@ -264,7 +264,7 @@ The canonical harbor command is in § Harbor invocation.
       #   1. lock free (try flock -n)            (free)
       #   2. instance name asc                   (tiebreak)
       # Pick the first candidate that scores best AND whose flock -n
-      # succeeds. If none free, block on flock -w 43200 of the
+      # succeeds. If none free, block on flock -w 21000 of the
       # first hardware-matching candidate.
       INSTANCE_NAME=<picked>
       ```
@@ -283,7 +283,7 @@ The canonical harbor command is in § Harbor invocation.
 
       If no hardware-matching candidate exists, **wait** for one — the
       pool is operator-managed and a box may come online mid-run.
-      Re-snapshot `brev ls --json` every 5 min up to the 43200s budget,
+      Re-snapshot `brev ls --json` every 5 min up to the 21000s budget,
       rescoring each time; only after the full budget elapses with zero
       matches do you emit `BLOCKED: pool exhausted for <platform>`. This
       pool-wait is allowed (it waits on a resource that may not yet
@@ -295,16 +295,20 @@ The canonical harbor command is in § Harbor invocation.
       chosen instance (filename keys off `$INSTANCE_NAME`):
       ```bash
       exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
-      flock -w 43200 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
+      flock -w 21000 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
       # ... trials ...
       exec {LFD}>&-        # release on exit; the kernel also releases
                            # automatically on process death (no userspace
                            # trap needed for cancel-in-progress / SIGKILL).
       ```
-      12-hour max hold (matches the job timeout). If another worker
-      already holds the lock for this box, wait up to 12 h; beyond
-      that, fall back to step 5a and rescore — another box may have
-      come free. Final fallback: emit `BLOCKED: lock timeout` and exit.
+      The flock wait (21000s ≈ 5.8 h) sits just under the per-leg job
+      timeout (`skills-eval.yml` `timeout-minutes: 360` = 6 h), so the
+      agent always reaches the `BLOCKED: lock timeout` line before the
+      job-killer fires (the old 12 h / 43200s budget was for the
+      retired single-job sweep and would have been silently killed
+      mid-wait). If another worker holds the lock past that window,
+      fall back to step 5a and rescore — another box may have come
+      free. Final fallback: emit `BLOCKED: lock timeout` and exit.
    c. Drive harbor one trial at a time (they share GPU/ports on the
       host). Use the canonical invocation in § Harbor invocation
       below — **do not improvise flags**. Before the `uvx harbor run`
@@ -387,7 +391,7 @@ The canonical harbor command is in § Harbor invocation.
   releasing the per-box flock.
   If no hardware-matching pool member exists for the trial's
   platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
-  poll, 43200s budget, then `BLOCKED: pool exhausted for
+  poll, 21000s budget, then `BLOCKED: pool exhausted for
   <platform>`) — provisioning is the operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
@@ -787,7 +791,7 @@ separate; don't conflate the two.
   have run; include the reward if present.
 - **Pool exhausted for the trial's platform.** `brev ls` shows zero
   RUNNING+READY `^vss-eval-*` boxes whose `gpu_type` matches. Wait
-  per § 5a (5-min `brev ls` poll, up to 43200s budget). If no
+  per § 5a (5-min `brev ls` poll, up to 21000s budget). If no
   matching candidate appears within the window, emit
   `BLOCKED: pool exhausted for <platform>` and exit. Do NOT
   `brev create`, `brev start`, or `brev reset` — the operator
@@ -799,7 +803,7 @@ separate; don't conflate the two.
   3x. If still failing, emit `BLOCKED: anthropic rate limit` and
   exit.
 - **Lock contention** (another CI run holds the Brev lock). Wait up
-  to 12 h (flock `-w 43200`). If you time out, emit `BLOCKED: lock
+  to ~5.8 h (flock `-w 21000`, the per-leg job timeout is 6 h). If you time out, emit `BLOCKED: lock
   timeout on <instance>`.
 
 ## Single-spec mode

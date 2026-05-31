@@ -125,8 +125,11 @@ jobs:
     # sequential harbor invocations, each up to the 1 h agent ceiling
     # (AGENTS.md `--agent-timeout-multiplier 6.0`). 360m covers a ~4-step
     # cold-box spec plus deploy/dataset/comment overhead without the
-    # whole-sweep 12 h cap the single-job design needed. The flock-hold
-    # timeout in AGENTS.md (flock -w 43200) is the cross-leg lock budget.
+    # whole-sweep 12 h cap the single-job design needed. AGENTS.md's
+    # box-lock wait (flock -w 21000 ≈ 5.8 h) is kept strictly under this
+    # 360 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
+    # before the job-killer fires (a 43200 s / 12 h wait would be
+    # silently killed mid-flock with no verdict — the exit-4 trap).
     timeout-minutes: 360
     steps:
       - name: Checkout mirror head
@@ -202,9 +205,16 @@ jobs:
           # secret values into the public artifact (PR #516 leaked
           # NGC_CLI_API_KEY this way). Reward / judge / result.json — what
           # the report consumes — stay in.
+          # Per-leg tarball path scoped by slug + run_id. `max-parallel`
+          # places multiple legs on one runner host, so a fixed
+          # /tmp/skills-eval-results.tar.gz would let overlapping legs
+          # overwrite each other's archive before upload — each leg then
+          # uploads whichever sibling wrote last. The slug makes the path
+          # unique per (skill,spec,platform).
+          LEG_TARBALL="/tmp/skills-eval-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
           RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
-            tar czf /tmp/skills-eval-results.tar.gz \
+            tar czf "$LEG_TARBALL" \
               -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
             echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
           else
@@ -216,7 +226,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: skills-eval-results-pr-${{ needs.plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
-          path: /tmp/skills-eval-results.tar.gz
+          path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 7
 
