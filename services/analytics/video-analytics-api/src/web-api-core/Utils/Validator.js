@@ -102,7 +102,7 @@ class Validator {
      * @static
      * @param {string} fromTimestamp - fromTimestamp to validate.
      * @param {string} toTimestamp - toTimestamp to validate.
-     * @returns {boolean} Returns a boolean signifying whether the input time range was valid
+     * @returns {Object} Returns an object containing the validity of the time range and the reason for the invalidity if any.
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
      * let result = mdx.Utils.Validator.isValidTimeRange("2023-01-12T11:20:10.000Z","2023-01-12T14:20:10.000Z");
@@ -126,7 +126,7 @@ class Validator {
      * @param {Object} jsonInput - JSON input object to validate.
      * @param {Object} schema - JSON schema used for validation.
      * @param {boolean} [coerceTypes=true] - Whether to coerce input types during validation.
-     * @returns {{valid:boolean,reason:?string}} Returns the validity of the json input.
+     * @returns {Object} Returns an object containing the validity of the json input and the reason for the invalidity if any.
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
      * let result = mdx.Utils.Validator.validateJsonSchema(jsonInput,schema);
