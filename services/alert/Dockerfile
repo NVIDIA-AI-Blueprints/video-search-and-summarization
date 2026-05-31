@@ -80,6 +80,10 @@ COPY --from=strip /rootfs /
 # Copy application files into the final image
 COPY . /app
 
+# Ship the NVIDIA Software License inside the container (governs the distributed
+# image; must match the NGC catalog card). Source files remain Apache-2.0.
+COPY NVIDIA-Software-License-Agreement.pdf /app/NVIDIA-Software-License-Agreement.pdf
+
 # Minimal Python runtime settings and non-root execution
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app

@@ -1,6 +1,7 @@
 *.log
 *.pyc
 *.pdf
+!NVIDIA-Software-License-Agreement.pdf
 *.csv
 *.pickle
 *.gz
