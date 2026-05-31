@@ -3,8 +3,11 @@ This file contains the list of third party software with their licenses used in 
 See below files for the licenses:
 - services/agent/LICENSE-3rd-party.txt
 - services/ui/LICENSE-3rd-party.txt
-- services/analytics/video-analytics-api/src/app/3rdParty_Licenses.md
+- services/analytics/video-analytics-api/3rdParty_Licenses.md
+- services/analytics/behavior-analytics/3rdParty_Licenses.md
 - deploy/docker/scripts/LICENSE-3rd-party-dev-profile.txt
 - deploy/docker/services/infra/3rdParty_Licenses
 - deploy/LICENSE-3rd-party.txt
 - libs/analytics/spatialai-data-utils/3rdParty_Licenses.md
+- tools/message-broker-consumers/3rdParty_Licenses.md
+- tools/sdg-postprocessing/3rdParty_Licenses.md
