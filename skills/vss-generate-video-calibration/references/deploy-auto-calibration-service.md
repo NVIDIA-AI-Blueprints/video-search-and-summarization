@@ -127,7 +127,13 @@ docker compose --env-file industry-profiles/warehouse-operations/.env config > r
 
 # 2. Confirm the NGC key can access the AMC images before bringing the stack up.
 #    Image references are read from the resolved compose, so this tracks the release tag automatically.
-for img in $(docker compose --env-file industry-profiles/warehouse-operations/.env config --images | grep auto-calibration); do
+AMC_IMAGES=$(docker compose --env-file industry-profiles/warehouse-operations/.env config --images | grep auto-calibration)
+if [ -z "$AMC_IMAGES" ]; then
+  echo "No auto-calibration images found in the resolved compose."
+  echo "Confirm COMPOSE_PROFILES is exported and the chosen profile includes vss-auto-calibration before continuing."
+  exit 1
+fi
+for img in $AMC_IMAGES; do
   echo "Checking access: $img"
   if ! docker pull "$img"; then
     echo
