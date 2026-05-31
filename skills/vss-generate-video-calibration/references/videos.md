@@ -27,6 +27,7 @@ See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-p
 4. **Detector type** — see [SKILL.md § Step B — Start Calibration](../SKILL.md#step-b--start-calibration) for the `resnet` vs `transformer` choice and the
    AskUserQuestion fallback. When a config file is provided, the script extracts
    the detector automatically.
+5. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step B](../SKILL.md#step-b--start-calibration) for the exact prompt.
 
 ### Optional
 5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).

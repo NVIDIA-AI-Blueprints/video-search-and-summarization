@@ -74,7 +74,7 @@ Response: `{"project_state": "READY"}` — must be `READY` before calibrating. I
 **Confirm the plan before calibrating.** Whether the settings file and detector were auto-detected or asked, present a short summary and confirm via `AskUserQuestion` before the `POST /calibrate`. The resolved values are the defaults, so confirming is one click — but the user can switch the detector or skip an auto-detected settings file. Summarize:
 
 - **Detector** — `resnet` or `transformer` (the value to be sent).
-- **Calibration settings** — the file being applied (path), or "defaults" if none.
+- **Calibration settings** — the file being applied (path), or default parameters (with the option to tune them in the UI first — see below).
 - **Optional overrides** — ground-truth zip and focal lengths, if any.
 
 The sample-dataset install-check run uses a fixed `resnet` and can proceed without this confirmation.
@@ -92,6 +92,13 @@ Content-Type: application/json
 - `transformer` — slower, better under heavy occlusion.
 
 UI Step 3 (Parameters) does NOT cover detector choice; never assume the user picked one in the UI.
+
+**Also when there's no settings file, ask whether to tune the calibration parameters first** (`AskUserQuestion`):
+
+- **Proceed with the default parameters** — well-suited to typical warehouse scenes; recommended unless the user has specific tuning in mind.
+- **Adjust parameters in the UI first** — open the project, go to Step 3: Parameters, change values, and click Save; then continue.
+
+Wait for the user's choice — and, if they choose to tune, for them to confirm they've Saved — before calling `/calibrate`.
 
 ### Step C — Poll for Completion
 
