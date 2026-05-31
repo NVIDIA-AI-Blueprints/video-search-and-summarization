@@ -107,6 +107,8 @@ Poll every 10 s. `project_info.project_state`:
 | `COMPLETED` | Finished |
 | `ERROR` | Failed — pull log via `GET /v1/amc/calibrate/<id>/log` |
 
+When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`), and the log endpoint so the user can watch progress while the run proceeds. During `RUNNING`, emit a progress line at least once a minute with elapsed time so a long run doesn't look stalled. On `ERROR`, fetch and show the last lines of `GET /v1/amc/calibrate/<id>/log` before stopping. Live logs can also be streamed via `GET /v1/calibrate/<project_id>/log/<type>/stream`.
+
 Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample).
 
 ### Step D — Results
@@ -114,10 +116,17 @@ Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample
 ```
 GET /v1/get_project_info/<project_id>                    # project state
 GET /v1/result/<project_id>/evaluation_statistics        # only if GT uploaded
+GET /v1/result/<project_id>/overlay_image                # visual overlay (PNG)
 GET /v1/amc/calibrate/<project_id>/log                   # calibration log
 ```
 
-Evaluation response includes `Average L2 distance(m)` and `Average reprojection error 0(px)`.
+Evaluation response includes `Average L2 distance(m)` and `Average reprojection error 0(px)`. Evaluation metrics are produced **only when a ground-truth `GT.zip` was uploaded** — a missing `evaluation_statistics` result is normal otherwise and is not the end of result reporting.
+
+After `COMPLETED`, always give the user a way to review the result for that exact project, regardless of whether metrics exist:
+
+- **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`; open the project, then the Results page to view the overlay.
+- **Overlay image on disk** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/multi_view_results/BA_output/results_ba_scaled_world/overlay_img_*.png` (single-camera projects use `output/single_view_results/cam_00/verification_map_overlay.png`).
+- **Project files** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/`.
 
 ### Step E — (Optional) VGGT Refinement
 
@@ -184,9 +193,11 @@ project_<project_id>/
 │   ├── single_view_results/cam_XX/
 │   │   ├── camInfo_hyper_XX.yaml
 │   │   └── trajDump_Stream_0_3d.txt
-│   └── multi_view_results/BA_output/results_ba/
-│       ├── initial/camInfo_XX.yaml
-│       └── refined/camInfo_XX.yaml          # ← final calibration
+│   ├── multi_view_results/BA_output/results_ba/
+│   │   ├── initial/camInfo_XX.yaml
+│   │   └── refined/camInfo_XX.yaml          # ← final calibration
+│   └── multi_view_results/BA_output/results_ba_scaled_world/
+│       └── overlay_img_XX.png               # ← visual overlay for review
 └── calibration.log
 ```
 
