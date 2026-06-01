@@ -49,6 +49,12 @@ SPEC_RE = re.compile(r"^skills/([^/]+)/(evals|eval)/([^/]+)\.json$")
 SKILL_FILE_RE = re.compile(r"^skills/([^/]+)/")
 # An adapter edit re-scopes its whole skill (the adapter feeds every spec).
 ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
+# A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
+# scratch/results paths (/tmp/skill-eval/results/<slug>/…). Skill dirs, spec
+# stems, and platform keys are safe today, but enforce the token so a future
+# name with a space/slash/colon fails the plan loudly instead of silently
+# corrupting an artifact name or escaping a path.
+SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def list_changed_files() -> list[str]:
@@ -198,6 +204,17 @@ def build_matrix(changed: list[str]) -> list[dict]:
 
 
 def emit(include: list[dict]) -> None:
+    # Fail fast on an unsafe slug before anything downstream consumes it as
+    # an artifact name or filesystem path.
+    for leg in include:
+        if not SAFE_SLUG_RE.match(leg["slug"]):
+            raise ValueError(
+                f"unsafe leg slug {leg['slug']!r}: skill / spec stem / "
+                f"platform key must match [A-Za-z0-9_-] (the slug names the "
+                f"workflow artifact and the scratch/results paths). Rename "
+                f"the offending spec file or resources.platforms key."
+            )
+
     matrix = json.dumps({"include": include}, separators=(",", ":"))
     has_targets = "true" if include else "false"
 

@@ -742,20 +742,21 @@ independently visitable in the viewer; box-side history is at
 
 ## Result comment format
 
-One comment per `(PR, eval_spec)` batch, posted only after every
-(platform) tuple in the spec's matrix has a recorded result.
+One comment per `(spec, platform)` leg. Your leg posts **its own** single
+comment for the one platform it ran (`EVAL_PLATFORM`) — it does **not**
+wait for or aggregate the spec's other platforms: those run as separate
+parallel legs this job cannot see. A two-platform spec therefore yields
+two independent comments, one per platform.
 
 ```markdown
 ## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
 
-Head: `<short-sha>` · N platforms · spec `<spec-sha>`
+Head: `<short-sha>` · platform `<platform>` · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
 
 | Platform | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
 |---|---|---|---|---|---|---|---|
 | L40S | ✅ 1.0 (7/7) | 1.0 | 9m 40s | 23 | 8.4k | 156k | [trace](…) |
-| RTXPRO6000BW | ❌ 0.57 (4/7) | 0.571 | 14m 42s | 41 | 31k | 412k | [trace](…) |
-| …    | …     | …    | … | … | … | … | … |
 
 For multi-step specs, render one row per step and mark
 prior-fail-skips explicitly:

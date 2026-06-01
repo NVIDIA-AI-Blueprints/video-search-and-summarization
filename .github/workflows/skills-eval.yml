@@ -302,3 +302,39 @@ jobs:
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
           python3 .github/skill-eval/skills_eval_agent.py
+
+      - name: Collect sweep results for workflow artifact
+        if: always()
+        run: |
+          # A sweep runs many (skill,spec,platform) legs, each writing
+          # /tmp/skill-eval/results/<slug>/<run_id>/, plus the assembled
+          # /tmp/skill-eval/<run_id>/benchmark.md. Bundle every result tree
+          # for this run + the benchmark into one artifact so a sweep is as
+          # debuggable as a per-leg push run. Exclude per-trial agent/
+          # trajectories — same secret hygiene as the eval job (they can
+          # carry .env / NGC key values).
+          RUN="${{ github.run_id }}"
+          OUT="/tmp/skills-eval-sweep-${RUN}.tar.gz"
+          MEMBERS=()
+          while IFS= read -r d; do
+            MEMBERS+=("${d#/}")          # tar relative to / (no leading-/ warning)
+          done < <(find /tmp/skill-eval/results -mindepth 2 -maxdepth 2 \
+                     -type d -name "$RUN" 2>/dev/null)
+          if [ -f "/tmp/skill-eval/${RUN}/benchmark.md" ]; then
+            MEMBERS+=("tmp/skill-eval/${RUN}/benchmark.md")
+          fi
+          if [ ${#MEMBERS[@]} -eq 0 ]; then
+            echo "no sweep results or benchmark for run ${RUN} — nothing to archive"
+            exit 0
+          fi
+          tar czf "$OUT" -C / --exclude='agent' "${MEMBERS[@]}"
+          echo "archived ${#MEMBERS[@]} member(s) into $OUT (agent/ trajectories excluded)"
+
+      - name: Upload sweep results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-sweep-${{ github.run_id }}
+          path: /tmp/skills-eval-sweep-${{ github.run_id }}.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7

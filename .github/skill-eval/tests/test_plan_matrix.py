@@ -177,5 +177,32 @@ class ListChangedFiles(unittest.TestCase):
         self.assertNotIn("compare", flat)
 
 
+class EmitSlugSafety(unittest.TestCase):
+    def test_emit_rejects_unsafe_slug(self):
+        """A slug with chars outside [A-Za-z0-9_-] — which would corrupt the
+        workflow artifact name or escape a scratch/results path — must fail
+        the plan loudly, not slip through."""
+        bad = [{
+            "skill": "x", "spec_path": "skills/x/evals/a b.json",
+            "spec_stem": "a b", "platform": "L40S", "kind": "eval",
+            "slug": "x__a b__L40S", "name": "x · a b · L40S",
+        }]
+        with self.assertRaises(ValueError):
+            plan_matrix.emit(bad)
+
+    def test_emit_accepts_safe_slug(self):
+        ok = [{
+            "skill": "x", "spec_path": "skills/x/evals/a.json",
+            "spec_stem": "a", "platform": "L40S", "kind": "eval",
+            "slug": "x__a__L40S", "name": "x · a · L40S",
+        }]
+        orig = os.environ.pop("GITHUB_OUTPUT", None)  # don't write a real output file
+        try:
+            plan_matrix.emit(ok)  # should not raise
+        finally:
+            if orig is not None:
+                os.environ["GITHUB_OUTPUT"] = orig
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
