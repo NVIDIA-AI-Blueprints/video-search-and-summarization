@@ -54,17 +54,17 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 92% (-8%) | 100% (+29%) |
-| Correctness | 8 | 90% (+8%) | 90% (+41%) |
-| Discoverability | 8 | 62% (-7%) | 66% (+10%) |
-| Effectiveness | 8 | 81% (+12%) | 74% (+41%) |
-| Efficiency | 8 | 48% (-5%) | 50% (+7%) |
+| Security | 8 | 100% (+0%) | 100% (+8%) |
+| Correctness | 8 | 84% (-9%) | 90% (+28%) |
+| Discoverability | 8 | 47% (-19%) | 68% (+11%) |
+| Effectiveness | 8 | 81% (-4%) | 79% (+33%) |
+| Efficiency | 8 | 38% (-11%) | 53% (+9%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 13 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 10 total findings.
 
 Top findings:
 
@@ -72,7 +72,7 @@ Top findings:
 - MEDIUM PII/gps_coordinates: GPS coordinates (location information) (`references/calibration-workflow.md:225`)
 - MEDIUM QUALITY/quality_discoverability: Description uses first/second person (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM QUALITY/quality_efficiency: Instructions lack clear action verbs (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in troubleshooting.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in teardown.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 

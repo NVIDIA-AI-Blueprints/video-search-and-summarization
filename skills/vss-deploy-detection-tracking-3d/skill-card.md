@@ -1,5 +1,5 @@
 ## Description: <br>
-Deploy and operate the RTVI-CV-3D stack (Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras. <br>
+Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying multi-view 3D tracking pipelines on NVIDIA hardware for video analytics applications using calibrated multi-camera setups. <br>
+Developers and engineers deploying multi-view 3D object detection and tracking pipelines on calibrated multi-camera setups using NVIDIA DeepStream and BEV Fusion, without the full warehouse agent/LLM/VLM stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,14 +19,14 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy RTVI-CV-3D Stack](references/deploy-rtvi-cv-3d-stack.md) <br>
 - [Calibration Workflow](references/calibration-workflow.md) <br>
 - [Configure Cameras](references/configure-cameras.md) <br>
 - [Verify and View](references/verify-and-view.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
 - [Teardown](references/teardown.md) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -42,7 +42,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-6 evaluation tasks covering skill routing and decision-making, with 2 attempts per task. Pass threshold: 50%. <br>
+Evaluated against 6 evaluation tasks (all positive skill-activation cases, 2 attempts each, 50% pass threshold). NVSkills-Eval profile: external. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,11 +66,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 92% (-8%) | 100% (+29%) |
-| Correctness | 8 | 90% (+8%) | 90% (+41%) |
-| Discoverability | 8 | 62% (-7%) | 66% (+10%) |
-| Effectiveness | 8 | 81% (+12%) | 74% (+41%) |
-| Efficiency | 8 | 48% (-5%) | 50% (+7%) |
+| Security | 8 | 100% (+0%) | 100% (+8%) |
+| Correctness | 8 | 84% (-9%) | 90% (+28%) |
+| Discoverability | 8 | 47% (-19%) | 68% (+11%) |
+| Effectiveness | 8 | 81% (-4%) | 79% (+33%) |
+| Efficiency | 8 | 38% (-11%) | 53% (+9%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
