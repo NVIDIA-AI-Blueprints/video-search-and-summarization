@@ -10,10 +10,9 @@
       }
     }
   },
-  "env": "A full-remote deployed VSS lvs profile (deploy mode = `remote-all` - the agent LLM and video summarization VLM dependencies are served by remote endpoints, no local NIMs). Run on one platform only: the video summarization API surface tested here is independent of GPU model once the lvs profile is deployed. Required: video summarization REST API reachable at http://localhost:38111, VSS Agent reachable at http://localhost:8000/docs, Docker available for non-destructive service status checks, and `jq` available for response validation. These checks intentionally avoid full video summarization because `skills/vss-summarize-video/evals/lvs_profile_summarize.json` owns end-to-end summarization coverage.",
   "expects": [
     {
-      "query": "Deploy the VSS **lvs** profile on `{{platform}}` via `/vss-deploy-profile -p lvs`. Run autonomously.",
+      "query": "Deploy the VSS **lvs** profile on `{{platform}}` via `/vss-deploy-profile -p lvs`. Run autonomously.\n\n**Environment & prerequisites:** A full-remote deployed VSS lvs profile (deploy mode = `remote-all` - the agent LLM and video summarization VLM dependencies are served by remote endpoints, no local NIMs). Run on one platform only: the video summarization API surface tested here is independent of GPU model once the lvs profile is deployed. Required: video summarization REST API reachable at http://localhost:38111, VSS Agent reachable at http://localhost:8000/docs, Docker available for non-destructive service status checks, and `jq` available for response validation. These checks intentionally avoid full video summarization because `skills/vss-summarize-video/evals/lvs_profile_summarize.json` owns end-to-end summarization coverage.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:38111/v1/ready` returns exit 0 (video summarization API ready)",

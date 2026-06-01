@@ -232,10 +232,6 @@ def generate_task(
             "",
             expect.get("query", ""),
             "",
-            "## Environment notes",
-            "",
-            rendered_spec.get("env", ""),
-            "",
             "Run autonomously without prompting for confirmation.",
             "",
         ]

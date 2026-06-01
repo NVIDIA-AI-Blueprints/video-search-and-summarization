@@ -10,10 +10,9 @@
       }
     }
   },
-  "env": "VSS **base** profile with the **`video_understanding` tool** exposed on the VSS agent. VSS agent HTTP API on **8000** (e.g. `http://localhost:8000/docs`), VST reachable at http://localhost:30888/vst/api/v1. Use **remote-all** (remote LLM + VLM) so no local NIMs are required.Set Brev secure-link env vars if checks validate `localhost` media URLs. The skill's canonical pattern is `POST /generate` with `input_message` that instructs the agent to use **`video_understanding`** to answer a **visual** question about a **named sensor** (see `skills/vss-ask-video/SKILL.md`).",
   "expects": [
     {
-      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.",
+      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** VSS **base** profile with the **`video_understanding` tool** exposed on the VSS agent. VSS agent HTTP API on **8000** (e.g. `http://localhost:8000/docs`), VST reachable at http://localhost:30888/vst/api/v1. Use **remote-all** (remote LLM + VLM) so no local NIMs are required.Set Brev secure-link env vars if checks validate `localhost` media URLs. The skill's canonical pattern is `POST /generate` with `input_message` that instructs the agent to use **`video_understanding`** to answer a **visual** question about a **named sensor** (see `skills/vss-ask-video/SKILL.md`).",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",

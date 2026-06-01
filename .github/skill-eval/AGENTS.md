@@ -101,18 +101,21 @@ The canonical harbor command is in § Harbor invocation.
    can ship multiple specs side-by-side.
 
    Hard requirements on a spec: `skills` (list), `resources.platforms`
-   (matrix), `env` (prose), `expects` (ordered query/checks list).
-   If the skill has specs but one of them lacks
-   `resources.platforms`, post a `missing_platforms_declaration`
-   blocker comment once for that spec and skip it — the others on
-   the same skill still run.
+   (matrix), `expects` (ordered query/checks list). There is no separate
+   `env` field — every prerequisite (deployed profile, required env vars,
+   ports, sample-data ingest, platform notes) lives **inside the
+   relevant `expects[].query`**, usually the first/setup query, so the
+   agent reads it as part of the instruction it acts on. If the skill
+   has specs but one of them lacks `resources.platforms`, post a
+   `missing_platforms_declaration` blocker comment once for that spec
+   and skip it — the others on the same skill still run.
 
    Optional: `profile` (string — the `/vss-deploy-profile -p <profile>`
    argument, e.g. `"alerts"`) and `deploy_mode` (string — the
    `/vss-deploy-profile -m <mode>` argument, e.g. `"verification"`).
-   These are **hints for the adapter** (used to render the trial's
-   environment prose and pick deploy-mode defaults). They are **NOT**
-   harness directives — the harness no longer pre-deploys anything.
+   These are **hints for the adapter** (used to pick the dataset
+   group / deploy-mode defaults). They are **NOT** harness directives —
+   the harness no longer pre-deploys anything.
    Every spec's first `expects[]` query is responsible for invoking
    `/vss-deploy-profile` (or the appropriate standalone deploy
    runbook) when the rest of its queries need VSS up. The agent is
