@@ -755,6 +755,8 @@ See `spatialai_data_utils/core/cameras/bev.py` for programmatic usage.
 
 The `create_camera_clusters.py` tool partitions ALL cameras into exactly N spatially compact clusters based on FOV coverage and spatial proximity. Unlike grouping (which finds overlapping camera sets), clustering assigns every camera to exactly one cluster with minimal spatial scatter.
 
+The positional `input_calibration` argument accepts either a `calibration.json` file path or a directory that contains one, so you can point it straight at a calibration file. When a file is given, outputs are written next to it and a sibling `Top.png` is auto-discovered for visualization.
+
 ## Key Features
 
 ✅ **Complete Coverage**: Every camera is assigned to exactly one cluster  
@@ -841,14 +843,17 @@ After Refinement (swaps to minimize scatter):
 ```bash
 cd spatialai_data_utils
 
-# Basic usage: Specify max cameras per cluster (required)
+# Pass a calibration.json file directly (outputs are written next to it)
+python tools/camera_grouping/create_camera_clusters.py data/scene/calibration.json --max_camera_per_group 10
+
+# Or pass a directory that contains calibration.json (and optionally Top.png)
 python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_per_group 10
 
-# With visualization
-python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_per_group 10 --visualize
+# Any calibration file name also works (e.g. a raw, ungrouped calibration)
+python tools/camera_grouping/create_camera_clusters.py data/scene/calibration_raw.json --max_camera_per_group 10
 
 # Override auto-calculated cluster count
-python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_per_group 10 --n_clusters 5
+python tools/camera_grouping/create_camera_clusters.py data/scene/calibration.json --max_camera_per_group 10 --n_clusters 5
 ```
 
 ## Command-Line Arguments
@@ -857,7 +862,7 @@ python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_p
 
 | Argument | Description |
 |----------|-------------|
-| `base_dir` | Path to dataset folder containing `calibration.json` and `Top.png` |
+| `input_calibration` | Path to a `calibration.json` file **or** a directory containing `calibration.json` (and optionally `Top.png`). When a file is given, outputs are written next to it and a sibling `Top.png` is auto-discovered for visualization. |
 | `--max_camera_per_group` | Maximum cameras per cluster; auto-calculates `n_clusters` |
 
 ### Clustering Parameters
@@ -1084,7 +1089,7 @@ This tool is a command-line wrapper around:
 from spatialai_data_utils.core.cameras.bev import create_camera_clusters_from_calibration
 
 output_path = create_camera_clusters_from_calibration(
-    calibration_assets_dir="data/scene",      # dir containing calibration.json (Top.png optional)
+    input_calibration="data/scene/calibration.json",  # calibration.json file or a directory containing it
     max_camera_per_group=10,                  # required
     output="data/scene/calibration_clustered.json",  # optional
     output_suffix="clustered",                # optional, default "clustered"
@@ -1261,6 +1266,9 @@ Result: 6 cameras × 3 groups × 3 per group = 9 slots
 ```bash
 cd spatialai_data_utils
 
+# Input can be a calibration.json file directly, or a directory containing one
+python tools/camera_grouping/create_camera_groups.py data/scene/calibration.json --auto
+
 # Auto mode: create groups with sizes 1, 2, ..., min(n_sensors, 18)
 python tools/camera_grouping/create_camera_groups.py data/scene --auto
 
@@ -1307,7 +1315,7 @@ python tools/camera_grouping/create_camera_groups.py data/scene \
 
 | Argument | Description |
 |----------|-------------|
-| `input_calibration` | Path to calibration.json or directory containing calibration.json |
+| `input_calibration` | Path to a `calibration.json` file **or** a directory containing `calibration.json`. When a file is given, outputs are written next to it. |
 
 ### Mode Selection (Choose One)
 
@@ -1877,7 +1885,7 @@ python tools/camera_grouping/calculate_origin.py --help | grep -A 20 "Examples:"
 
 ---
 
-**Last Updated**: 2026-04-02  
+**Last Updated**: 2026-06-01  
 **Tools Location**: `tools/camera_grouping/`  
 **Core Module**: `spatialai_data_utils.core.cameras.bev`  
 **Status**: ✅ Production Ready (all tools)
