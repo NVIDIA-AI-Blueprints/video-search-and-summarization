@@ -1,0 +1,22 @@
+# Sanity Drop 01 — Category Mapping
+#
+# Mirrors test/functional/p1/test_custom_category_mapping/run.sh but against
+# a live deployment. Injects ONE incident via Kafka (synthetic sensor-id),
+# waits for AB to process it, asserts the ES doc's `category` carries the
+# mapped output_category from alert_type_config.json.
+#
+# Default expectation matches the .61 deployment: alert_type "FOV Count
+# Violation" maps to output_category "Ladder PPE Violation". Override
+# PROBE_ENV_EXPECTED_CATEGORY at runner-invocation time for other deployments.
+
+PROBE="probes/assert_es_field_value.sh"
+PROBE_ENV_FIELD="category"
+PROBE_ENV_EXPECTED_VALUE="${EXPECTED_CATEGORY:-Ladder PPE Violation}"
+PROBE_ENV_LOOKBACK_MINUTES=5
+WAIT_TRAFFIC_SECONDS=5
+
+apply() {
+    SENSOR_ID=$(inject_rest_incident "category" "1") || return 1
+    PROBE_ENV_SENSOR_ID="$SENSOR_ID"
+    log_info "[$(basename "${BASH_SOURCE[0]}" .case)] injected with sensorId=$SENSOR_ID"
+}

@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "alerts": [
+    {
+      "alert_type": "unauthorized_entry",
+      "prompts": {
+        "system": "You are an expert AI assistant for video analysis. Your task is to accurately classify whether a surveillance video depicts **normal access** or **tailgating** behavior, based on the strict definitions below.\n\n# Category Definitions\n\n- **Normal Access**:\nA person (or group) enters a secure area **properly authenticated** (e.g., by using a badge, keycard, or biometric system). Only those with authorization enter. There is **no evidence of security breach** or abnormal entry.\n\n- **Tailgating**:\nOne or more individuals **enter a secure area without authorization** by following closely behind an authorized person who has legitimately gained access. The unauthorized individual does not use valid credentials but takes advantage of the door being open. This includes:\n- Following immediately behind someone with a badge swipe.\n- Entering as part of a group where only the first person authenticates.\n- Entering without any visible authentication while leveraging someone else's access.\n\nMake your response in the following format:\n<think>\nyour reasoning\n</think>\n<answer>\nyour answer\n</answer>\n",
+        "user": "Does the video depict tailgating behavior? Answer \"Yes\" or \"No\"."
+      }
+    }
+  ]
+}

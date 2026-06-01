@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Response Schema - Field mappings for outgoing messages
+# This file defines how to format outgoing JSON messages
+
+version: "1.0"
+description: "Schema definition for outgoing enhanced alert messages"
+
+# Core field mappings for output messages
+fields:
+  message_id: "eventId"
+  timestamp: "timestamp"
+  sensor_id: "sensor.id"
+  vehicle_id: "object.id"
+  anomaly_type: "analyticsModule.id"
+  stream_id: "streamId"
+  alert_type: "alertType"
+  media_file_path: "mediaFilePath"
+  start_time: "start_time"
+  end_time: "end_time"
+
+  # Enhanced fields added by VLM processing
+  vlm_analysis: "vlmAnalysis"
+  confidence_score: "confidenceScore"
+  processing_timestamp: "processingTimestamp"
+  enhanced_description: "enhancedDescription"
+
+# Output format template
+output_template:
+  eventId: "{message_id}"
+  timestamp: "{timestamp}"
+  processingTimestamp: "{processing_timestamp}"
+  sensor:
+    id: "{sensor_id}"
+    type: "camera"
+  object:
+    id: "{vehicle_id}"
+    type: "vehicle"
+  analyticsModule:
+    id: "{anomaly_type}"
+    version: "1.0"
+  vlmAnalysis: "{vlm_analysis}"
+  confidenceScore: "{confidence_score}"
+  enhancedDescription: "{enhanced_description}"
+  streamId: "{stream_id}"
+  alertType: "{alert_type}"
+  mediaFilePath: "{media_file_path}"
+  start_time: "{start_time}"
+  end_time: "{end_time}"
+
+# Required fields for output
+required_output_fields:
+  - "eventId"
+  - "timestamp"
+  - "processingTimestamp"
+  - "sensor.id"
+  - "object.id"
+
+# Default values for output
+output_defaults:
+  confidence_score: 0.0
+  vlm_analysis: "No analysis available"
+  enhanced_description: "Enhanced by VLM processing"
