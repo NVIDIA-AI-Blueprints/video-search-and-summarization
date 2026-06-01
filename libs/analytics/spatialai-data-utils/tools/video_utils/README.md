@@ -98,17 +98,17 @@ This matches the canonical `data/mtmc/synthetic/<scene>/` layout
 ```bash
 cd /path/to/spatialai_data_utils
 
-# Default invocation (matches data/mtmc/synthetic/SURF_Booth_031325/, etc.)
+# Default invocation (matches data/mtmc/synthetic/scene_001/, etc.)
 python tools/video_utils/video2frame_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/
+    data/mtmc/synthetic/scene_001/
 
 # Same scene, 8 workers
 python tools/video_utils/video2frame_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ --workers 8
+    data/mtmc/synthetic/scene_001/ --workers 8
 
 # Keep every 5th frame, capped at the first 200 source frames per camera
 python tools/video_utils/video2frame_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ --frame_skip 5 --end_frame 200
+    data/mtmc/synthetic/scene_001/ --frame_skip 5 --end_frame 200
 ```
 
 Cameras are discovered from filenames inside `<scene_dir>/<videos_dir>/`.
@@ -259,20 +259,20 @@ cd /path/to/spatialai_data_utils
 # Default: <scene>/Camera_*/rgb/rgb_<NNNNN>.jpg → 1080p grid video
 # (auto-threads the per-cam decode work)
 python tools/video_utils/frame2video_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ \
-    output/SURF_Booth_grid.mp4
+    data/mtmc/synthetic/scene_001/ \
+    output/scene_001_grid.mp4
 
 # Force 6 columns, 720p output, 12 worker threads
 python tools/video_utils/frame2video_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ \
-    output/SURF_Booth_grid.mp4 \
+    data/mtmc/synthetic/scene_001/ \
+    output/scene_001_grid.mp4 \
     --cols 6 --target_height 720 --workers 12
 
 # First 200 frames at 60 fps with a fixed run-label overlay
 python tools/video_utils/frame2video_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ \
+    data/mtmc/synthetic/scene_001/ \
     output/preview.mp4 \
-    --end_frame 200 --fps 60 --label 'SURF_Booth preview'
+    --end_frame 200 --fps 60 --label 'scene_001 preview'
 ```
 
 ### Threading speedup

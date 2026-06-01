@@ -1,6 +1,5 @@
 include ../spatialai_data_utils/assets/*.json
 include ../spatialai_data_utils/schemas/*.json
-include ../spatialai_data_utils/datasets/aicity25/splits/*.yaml
 include ../spatialai_data_utils/datasets/aicity25/scenes/*.json
 include ../spatialai_data_utils/datasets/aicity26/scenes/*.json
 include LICENSE
