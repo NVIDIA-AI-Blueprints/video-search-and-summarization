@@ -194,7 +194,7 @@ uvx harbor run \
 ### Inspect a result
 
 ```
-/tmp/skill-eval/results/<run_id>/<date>/<trial>/
+/tmp/skill-eval/results/<leg-slug>/<run_id>/<date>/<trial>/
 ├── config.json
 ├── trial.log
 ├── verifier/
@@ -209,8 +209,9 @@ still tars the leg's results root after the agent) into the viewer dir,
 flattened with the leg slug:
 
 ```bash
-cp -a "<leg-slug>/<run_id>/<date>" \
-  "/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>"
+VIEWER_JOB="/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>"
+mkdir -p "$VIEWER_JOB"
+cp -a "<leg-slug>/<run_id>/<date>/." "$VIEWER_JOB/"   # contents into a pre-made dir — idempotent
 ```
 
 Then open `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>`.

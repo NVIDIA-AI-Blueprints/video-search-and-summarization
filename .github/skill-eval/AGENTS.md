@@ -683,7 +683,9 @@ The `<leg-slug>` keeps concurrent legs from colliding on one viewer
 entry. **Copy** (don't move) from this leg's scoped results root:
 
 ```bash
-cp -a "$RES/<date>" "/tmp/skill-eval/results/_viewer/${LEG}__${GITHUB_RUN_ID}__<date>"
+VIEWER_JOB="/tmp/skill-eval/results/_viewer/${LEG}__${GITHUB_RUN_ID}__<date>"
+mkdir -p "$VIEWER_JOB"
+cp -a "$RES/<date>/." "$VIEWER_JOB/"
 ```
 
 `cp -a`, **not `mv`** — the workflow's "Collect results" step runs
@@ -692,6 +694,14 @@ would leave `$RES` empty and the uploaded artifact would have no
 `result.json` or traces. Copying keeps `$RES` intact for the collector
 (which excludes `agent/` from the public tarball) while the `_viewer`
 copy keeps `agent/` for the live Harbor Trace tab.
+
+**Use the `mkdir -p` + `cp -a "$RES/<date>/."` (trailing `/.`) form
+above, not `cp -a "$RES/<date>" "$VIEWER_JOB"`** — the latter is not
+idempotent: on the *second* trial of a multi-step spec, `$VIEWER_JOB`
+already exists, so `cp -a <date> <existing-dir>` nests the trial as
+`$VIEWER_JOB/<date>/...` and Harbor only sees the first (top-level)
+trial. Copying the directory *contents* into a pre-made `$VIEWER_JOB`
+keeps every trial at the job's top level.
 
 Do this between trials so each new trial's traces are reachable
 via the SPA URL:
