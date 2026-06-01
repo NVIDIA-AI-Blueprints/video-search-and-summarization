@@ -6,9 +6,10 @@ self-hosted box. Two modes:
 
 - **Single-spec** (push to a `pull-request/<N>` mirror): the workflow's
   `plan` job has already diffed the PR and resolved it into one matrix
-  leg per spec. Your leg is handed exactly one `(skill, spec)` via
-  `EVAL_*` env — you evaluate that one spec and post its one comment.
-  See § "Single-spec mode" for the step overrides.
+  leg per `(spec, platform)`. Your leg is handed exactly one
+  `(skill, spec, platform)` via `EVAL_*` env — you evaluate that one
+  `(spec, platform)` and post its one comment. See § "Single-spec mode"
+  for the step overrides.
 - **Manual full-sweep** (`workflow_dispatch`): no diff; enumerate every
   spec on the picked skill(s). See § "Manual full-sweep mode".
 
@@ -53,9 +54,9 @@ Slug-first ordering groups every run of one trial under one `<slug>/`
 dir (handy for history); `<run_id>` underneath isolates this run. The
 brev snapshot is per-leg too (`brev-snapshot-${LEG}.json`). `$SCRATCH`
 is shared by all legs of one run (they coexist on the host) — only the
-`pr-<spec>.md` / `bot-pr-body.md` / `skipped-*.txt` files live there,
-each already keyed by `<spec>`/`<spec_stem>-<platform>` so legs don't
-collide.
+`pr-<spec>.md` / `bot-pr-body-<slug>.md` / `skipped-*.txt` files live
+there, each keyed by `<spec>` or the leg `<slug>` so concurrent legs
+(including two skills both raising adapter bot-PRs) don't collide.
 
 ## Startup hygiene (do this first, before step 1)
 
@@ -186,7 +187,7 @@ The canonical harbor command is in § Harbor invocation.
          --base "$SOURCE_BRANCH" \
          --head "$BOT_BRANCH" \
          --title "[skill-eval] ${SKILL} adapter for PR #${PR_NUMBER}" \
-         --body-file "$SCRATCH/bot-pr-body.md")
+         --body-file "$SCRATCH/bot-pr-body-${EVAL_SLUG}.md")
 
        gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "
        The skills-eval bot generated/updated the adapter required to

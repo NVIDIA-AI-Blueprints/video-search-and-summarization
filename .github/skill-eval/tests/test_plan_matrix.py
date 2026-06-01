@@ -15,6 +15,7 @@ Or directly:
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -130,6 +131,50 @@ class BuildMatrix(unittest.TestCase):
         inc = plan_matrix.build_matrix(["skills/vss-summarize-video/SKILL.md"])
         for leg in inc:
             self.assertRegex(leg["slug"], r"^[A-Za-z0-9_-]+$")
+
+    def test_large_changeset_not_truncated(self):
+        # Guards the >300-file path at the planner level: build_matrix must
+        # process the entire changed-file list. The GitHub compare API caps
+        # its .files array at 300; plan_matrix now diffs locally
+        # (see list_changed_files), and build_matrix itself has no cap.
+        changed = [f"skills/vss-summarize-video/evals/s{i}.json" for i in range(400)]
+        inc = plan_matrix.build_matrix(changed)
+        self.assertEqual(len(inc), 400)
+        self.assertTrue(all(leg["kind"] == "eval" for leg in inc))
+
+
+class ListChangedFiles(unittest.TestCase):
+    def test_uses_local_git_diff_not_compare_api(self):
+        """Guards the >300-file fix: changed files come from a local
+        `git diff FETCH_HEAD...HEAD`, never the GitHub compare API (whose
+        `.files` array caps at 300 and would silently drop changed skills
+        on large PRs)."""
+        calls: list[list[str]] = []
+
+        class _R:
+            stdout = "skills/vss-x/evals/y.json\n"
+
+        def fake_run(cmd, *a, **k):
+            calls.append(list(cmd))
+            return _R()
+
+        orig_run = plan_matrix.subprocess.run
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        os.environ["PR_BASE"] = "develop"
+        plan_matrix.subprocess.run = fake_run  # type: ignore[assignment]
+        try:
+            files = plan_matrix.list_changed_files()
+        finally:
+            plan_matrix.subprocess.run = orig_run  # type: ignore[assignment]
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
+
+        self.assertEqual(files, ["skills/vss-x/evals/y.json"])
+        flat = " ".join(" ".join(c) for c in calls)
+        self.assertIn("git", flat)
+        self.assertIn("diff", flat)
+        self.assertIn("FETCH_HEAD...HEAD", flat)
+        self.assertNotIn("compare", flat)
 
 
 if __name__ == "__main__":

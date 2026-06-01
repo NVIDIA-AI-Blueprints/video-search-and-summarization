@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Compute the skills-eval dispatch matrix from a PR diff.
 
-Pure Python, no LLM. The only side effect is one `gh api …/compare` call
-to list changed files (skipped when CHANGED_FILES is provided, which the
-unit tests use). Prints `matrix` and `has_targets` to $GITHUB_OUTPUT so
-the workflow can fan out one `eval` leg per spec.
+Pure Python, no LLM. The only side effect is a local `git diff` against
+the base ref to list changed files (skipped when CHANGED_FILES is
+provided, which the unit tests use). Prints `matrix` and `has_targets`
+to $GITHUB_OUTPUT so the workflow can fan out one `eval` leg per spec.
 
 Rules (see docs/matrix-dispatch-design.md):
   - skills/<skill>/evals/<spec>.json (or legacy eval/) changed
@@ -25,9 +25,7 @@ leg (that leg's agent raises the one bot-PR), so N specs of an adapterless
 skill don't race to open N duplicate bot-PRs.
 
 Env:
-    PR_REPO        owner/repo (for the compare API)
-    PR_BASE        base branch, e.g. develop
-    PR_NUMBER      PR number -> compares base...pull-request/<N>
+    PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
     CHANGED_FILES  optional newline-separated override (tests / local)
     GITHUB_OUTPUT  optional; when set, key=value lines are appended here
 """
@@ -54,18 +52,29 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 
 
 def list_changed_files() -> list[str]:
-    """Changed files in the cumulative PR diff (base...mirror head)."""
+    """Changed files in the cumulative PR diff (base...mirror head).
+
+    Uses a local `git diff` rather than the GitHub compare API: the
+    compare endpoint caps its `.files` array at 300 entries (and
+    `--paginate` pages only the commits, not the files), so a PR touching
+    >300 files would silently drop changed skills/specs and skip
+    evaluating them. `git diff` has no such cap. The `plan` job checks out
+    the mirror with fetch-depth: 0, so the merge-base is present; we fetch
+    the base tip and diff `FETCH_HEAD...HEAD` (three-dot = merge-base..head,
+    matching the old `base...mirror` compare semantics).
+    """
     override = os.environ.get("CHANGED_FILES")
     if override is not None:
         return [ln.strip() for ln in override.splitlines() if ln.strip()]
 
-    repo = os.environ["PR_REPO"]
     base = os.environ["PR_BASE"]
-    pr = os.environ["PR_NUMBER"]
+    subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "fetch", "--no-tags", "--quiet",
+         "origin", base],
+        check=True,
+    )
     out = subprocess.run(
-        ["gh", "api", "--paginate",
-         f"repos/{repo}/compare/{base}...pull-request/{pr}",
-         "--jq", ".files[].filename"],
+        ["git", "-C", str(REPO_ROOT), "diff", "--name-only", "FETCH_HEAD...HEAD"],
         check=True, capture_output=True, text=True,
     ).stdout
     return [ln.strip() for ln in out.splitlines() if ln.strip()]
