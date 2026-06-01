@@ -120,7 +120,7 @@ Minimum standalone `.env` values:
 | `HOST_IP` | Always | Kafka bootstrap host (`${HOST_IP}:9092`) |
 | `VSS_DATA_DIR` | Always | Required clip-storage bind mount |
 | `RTVI_VLM_MODEL_TO_USE` | Always for standalone | Backend selector; use `cosmos-reason2` for the default local model or `openai-compat` for a remote/sibling endpoint |
-| `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason 2 path: `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` |
+| `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason 2 path: `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` |
 | `RTVI_VLM_ENDPOINT` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Remote/sibling OpenAI-compatible VLM endpoint |
 | `VLM_NAME` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Model/deployment name exposed by that endpoint |
 
@@ -177,7 +177,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
 |-------|------|-------------|
 | `id` | string \| array | UUID of a previously-uploaded file, or id of an active live stream. Accepts a list of ids for batch |
 | `prompt` | string | User prompt to the VLM (e.g. dense-caption instruction) |
-| `model` | string | Exact model id returned by `GET /v1/models`, for example `nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8`; backend selector aliases such as `cosmos-reason2` are not request model ids |
+| `model` | string | Exact model id returned by `GET /v1/models`, for example `nim_nvidia_cosmos-reason2-8b_hf-1208`; backend selector aliases such as `cosmos-reason2` are not request model ids |
 
 **Key optional fields:**
 | Field | Type | Default | Description |
@@ -203,7 +203,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -d '{
     "id": "123e4567-e89b-12d3-a456-426614174000",
     "prompt": "Dense-caption this warehouse video, one sentence per 10s chunk.",
-    "model": "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8",
+    "model": "nim_nvidia_cosmos-reason2-8b_hf-1208",
     "chunk_duration": 10,
     "stream": true
   }'

@@ -21,7 +21,7 @@
 
 profile: alerts
 mode: real-time
-vlmName: "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 ngc:
   createSecrets: true
@@ -53,7 +53,7 @@ agent:
     rtviVlmEnabled: true
     rtviVlmServiceName: "vss-rtvi-vlm"
     cosmosEmbedEnabled: false
-    vlmName: "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+    vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 # No alert-bridge; do not set NEXT_PUBLIC_ALERTS_API_URL
 vss-agent-ui:

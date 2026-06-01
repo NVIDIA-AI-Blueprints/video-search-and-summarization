@@ -22,7 +22,7 @@
 
 profile: alerts
 mode: verification
-vlmName: "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 ngc:
   createSecrets: true
@@ -55,7 +55,7 @@ agent:
   vss-agent:
     rtviVlmEnabled: true
     cosmosEmbedEnabled: false
-    vlmName: "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+    vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 vssIngress:
   enabled: true

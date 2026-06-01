@@ -25,7 +25,7 @@ Observed coverage:
 - API validation passed for `/v1/health/ready`, `/v1/models`, `/openapi.json`, `/v1/assets/stats`, text-only `/v1/chat/completions`, and expected HTTP 400 for text-only legacy `/v1/completions`.
 - RTSP stream registration, dense caption generation, stop-captioning, and stream cleanup worked.
 - File upload, metadata/list/content, file captioning, and file delete worked in the latest standalone retest.
-- RTX PRO validation used image `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4`, cached Cosmos Reason 2 FP8 model `nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8`, and RTSP precheck discovered `video,852,480`.
+- RTX PRO validation used image `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4`, cached Cosmos Reason 2 model `nim_nvidia_cosmos-reason2-8b_hf-1208`, and RTSP precheck discovered `video,852,480`.
 - RTX PRO Kafka validation confirmed live env topics `mdx-vlm`, `mdx-vlm-incidents`, and `vision-llm-errors`; offsets moved to `mdx-vlm:0:46`, `mdx-vlm-incidents:0:21`, and `vision-llm-errors:0:0`.
 - RTX PRO validation cleaned up the temporary `rt-vlm-eval-rtxpro-local` stream and restored the pre-existing `bench-kafka` container after using a temporary broker with `host.docker.internal:9092` advertised.
 - Full repo infra Kafka compose is not required for standalone validation and may fail with a minimal RT-VLM env because it includes full-profile SDRC compose fragments.
