@@ -4,7 +4,7 @@
 
 Build a dictionary of env var overrides based on user intent. Only include vars that differ from the profile's `.env` defaults.
 
-**Always set (they have placeholder defaults in the template):**
+**Always set (non-secret deployment values with placeholder defaults in the template):**
 
 | Var | Value |
 |---|---|
@@ -12,7 +12,12 @@ Build a dictionary of env var overrides based on user intent. Only include vars 
 | `VSS_APPS_DIR` | `<repo>/deployments` |
 | `VSS_DATA_DIR` | `<repo>/data` (or user-specified) |
 | `HOST_IP` | Detected host IP |
-| `NGC_CLI_API_KEY` | From environment or user |
+
+Credential env vars are mode-scoped. Set `NGC_CLI_API_KEY` only when
+local/local_shared NIM pulls are selected, `NVIDIA_API_KEY` only when the
+selected remote endpoint requires it, and `HF_TOKEN` only for edge recipes that
+use gated HF models. Validate them through
+[`credentials.md`](credentials.md) before writing them to `generated.env`.
 
 **Placement selection rules.**
 
@@ -31,8 +36,9 @@ Build a dictionary of env var overrides based on user intent. Only include vars 
   exact model id for each selected side. The catalog `/v1/models` endpoint can
   return many LLM/VLM models, so never use the first returned model as a
   default.
-- Before writing any selected remote endpoint to `generated.env`, run the
-  `/v1/models` probe in [`credentials.md`](credentials.md#remote-endpoint-probes).
+- Before writing any selected remote endpoint to `generated.env`, run
+  `scripts/probe_remote_models.sh` as described in
+  [`credentials.md`](credentials.md#remote-endpoint-probes).
 - In `dev-profile.sh`, the host input variable is `LLM_ENDPOINT_URL` /
   `VLM_ENDPOINT_URL`; in `generated.env`, the deployed agent keys are
   `LLM_BASE_URL` / `VLM_BASE_URL`.
@@ -67,7 +73,8 @@ all of the following before `docker compose up`:
    If the endpoint is `https://integrate.api.nvidia.com`, this is mandatory
    even though `/v1/models` is reachable: that endpoint is an aggregate catalog
    and may list many models.
-3. Probe `<endpoint>/v1/models` using
+3. Probe `<endpoint>/v1/models` with
+   `scripts/probe_remote_models.sh` as described in
    [`credentials.md`](credentials.md#remote-endpoint-probes). The selected
    model must appear in the response before you mutate `generated.env`.
 4. Write `LLM_MODE=remote` + `LLM_NAME_SLUG=none` + `LLM_BASE_URL=<url>` +

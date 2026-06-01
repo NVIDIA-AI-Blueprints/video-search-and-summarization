@@ -13,13 +13,16 @@ metadata:
 
 Deploy any VSS profile (`base`, `search`, `lvs`, `warehouse`, `alerts`, `edge`) using a compose-centric workflow: build env overrides, generate resolved compose (dry-run), review, then deploy. This SKILL.md covers the cross-profile concerns (**profile routing**, **prerequisites**, **NGC**, **GPU setup**, and the deploy/teardown flow). Profile-specific service lists, sizing, env recipes, endpoints, and debugging live in per-profile reference docs — load the one that matches the user's intent.
 
-Helper script: `run_script("scripts/normalize_resolved_yml.py", "<resolved.yml>")` normalizes a `docker compose config` dry-run dump for diff-friendly review during Step 3c. All other deployment work goes through `compose` / `dev-profile.sh`.
+Helper scripts normalize `docker compose config` output and probe selected
+remote model endpoints before env mutation. All other deployment work goes
+through `compose` / `dev-profile.sh`.
 
 ## Available Scripts
 
 | Script | Purpose | Arguments |
 |---|---|---|
 | `scripts/normalize_resolved_yml.py` | Strip optional `depends_on` entries for services filtered out of `resolved.yml` before deploy. | Path to `resolved.yml` |
+| `scripts/probe_remote_models.sh` | Probe an OpenAI-compatible remote LLM/VLM endpoint and verify the selected model id. | Base URL, optional expected model id |
 
 ## Profile Routing
 
@@ -56,7 +59,7 @@ The source `.env` is treated as **read-only defaults** committed to the repo. Th
 ## Prerequisites
 
 1. **Repo path** — find `video-search-and-summarization/` on disk.
-2. **NGC CLI & API key** — see [`references/ngc.md`](references/ngc.md). Confirm `$NGC_CLI_API_KEY` is set.
+2. **Credential gates** — see [`references/credentials.md`](references/credentials.md): `NGC_CLI_API_KEY` for local/local_shared NIM pulls, `NVIDIA_API_KEY` for remote NIM endpoints, and `HF_TOKEN` for edge recipes that use gated HF models.
 3. **System prerequisites (GPU driver, Docker, NVIDIA Container Toolkit, kernel sysctls)** — full checks in [`references/prerequisites.md`](references/prerequisites.md). Canonical hardware/driver matrix is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html).
 
 ### Pre-flight check
@@ -137,9 +140,9 @@ Validate every credential and selected remote endpoint the chosen profile
 needs **before** Step 1c copies `.env` to `generated.env`. A 401 here is a
 30-second failure; the same 401 inside a NIM cold-start is a 10–20 min
 failure. Run the discovery and probe flow in
-[`references/credentials.md`](references/credentials.md), including the
-customer endpoint `/v1/models` probe for any LLM/VLM endpoint you plan to
-write into `generated.env`. Map the result against the chosen mode: missing
+[`references/credentials.md`](references/credentials.md), including
+`scripts/probe_remote_models.sh` for any LLM/VLM endpoint you plan to write
+into `generated.env`. Map the result against the chosen mode: missing
 or invalid required credentials/endpoints are blockers, optional credentials
 are not.
 
