@@ -23,7 +23,7 @@ profile: lvs
 mode: ""
 llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
 vlmNameSlug: none # LVS uses the integrated RT-VLM checkpoint, not a VLM NIM subchart.
-vlmName: "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 ngc:
   createSecrets: true
@@ -40,7 +40,7 @@ global:
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+  vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 
 # Shared umbrella helm/services/nims — override gpuType here (see dev-profile-lvs/values.yaml for full nims.* defaults).

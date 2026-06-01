@@ -26,7 +26,7 @@ By default this profile is an **in-cluster** deployment:
 | Component | Default behavior | Default model name |
 |-----------|------------------|--------------------|
 | LLM | Deploys the **`nvidia-nemotron-nano-9b-v2`** NIM through the **`nims`** umbrella chart (`NIMCache` / `NIMService`). | `nvidia/nvidia-nemotron-nano-9b-v2` |
-| VLM / RT-VLM | Deploys **`vss-rtvi-vlm`** in this release. The RT-VLM pod loads the integrated Cosmos Reason2 checkpoint; the profile does **not** deploy a separate Cosmos VLM NIM by default. | `nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8` |
+| VLM / RT-VLM | Deploys **`vss-rtvi-vlm`** in this release. The RT-VLM pod loads the integrated Cosmos Reason2 checkpoint; the profile does **not** deploy a separate Cosmos VLM NIM by default. | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
 
 Switch to **external-service mode** only when the model endpoints already run outside this release. Setting **`global.llmBaseUrl`** or **`global.vlmBaseUrl`** (or the matching **`agent.vss-agent.*BaseUrl`** / **`vss-summarization.*BaseUrl`** overrides) makes those workloads call the supplied external service instead of the default in-cluster service. When both LLM and VLM are external, set **`nims.enabled=false`** and set **`rtvi.vss-rtvi-vlm.useSharedNim=true`** so RT-VLM proxies the external VLM instead of loading the integrated checkpoint.
 
@@ -69,8 +69,8 @@ Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` 
 |-----|---------|-------|
 | `rtvi.enabled` | `true` | Umbrella switch; set `false` only if you intentionally bypass RT-VLM. Also configure `vss-agent` `VLM_MODEL_TYPE=nim` and remove `vss-summarization.extraEnv` entries that target the RTVI service. |
 | `rtvi.vss-rtvi-vlm.enabled` | `true` | Deploy the RTVI-VLM pod. |
-| `rtvi.vss-rtvi-vlm.useSharedNim` | `false` | Load the integrated checkpoint in the RT-VLM pod. Sets `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` and `VLM_MODEL_TO_USE=cosmos-reason2`. |
-| `rtvi.vss-rtvi-vlm.modelPath` | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` | Integrated RT-VLM checkpoint path used when `useSharedNim=false`. |
+| `rtvi.vss-rtvi-vlm.useSharedNim` | `false` | Load the integrated checkpoint in the RT-VLM pod. Sets `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` and `VLM_MODEL_TO_USE=cosmos-reason2`. |
+| `rtvi.vss-rtvi-vlm.modelPath` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Integrated RT-VLM checkpoint path used when `useSharedNim=false`. |
 | `infra.kafka.enabled` | `true` | Deploy Kafka for RTVI-VLM event publishing and create the default VSS topics, including `mdx-vlm` and `mdx-vlm-incidents`. |
 | `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `true` | The RTVI-VLM init container waits for Kafka and required RTVI topics before startup. |
 | `rtvi.vss-rtvi-vlm.env` | full list | Replaces the subchart default `env`. Override individual values (e.g. edge `VLM_INPUT_*`) by editing the list in your overlay. |
@@ -196,7 +196,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`global.llmBaseUrl`** | **`""`** | **Single place** for remote LLM base URL shared by **vss-agent** and **vss-summarization** ( **`LLM_BASE_URL`**, **`LVS_LLM_BASE_URL`** ). Use the service root without trailing **`/v1`** (e.g. **`http://host:31081`**): **vss-agent** appends **`/v1`** in its config, and **vss-summarization** adds **`/v1`** when missing. Subchart **`agent.vss-agent.llmBaseUrl`** or **`vss-summarization.llmBaseUrl`** overrides when set. |
 | **`global.vlmBaseUrl`** | **`""`** | Same for VLM (**`VLM_BASE_URL`**, **`VIA_VLM_ENDPOINT`**). Use the same service-root convention without trailing **`/v1`** for compatibility with **vss-agent** and RT-VLM proxying. |
 | **`global.llmName`** | **`nvidia/nvidia-nemotron-nano-9b-v2`** | NGC model id for **both** **vss-agent** (**`LLM_NAME`**) and **vss-summarization** (**`LVS_LLM_MODEL_NAME`**). Override with **`agent.vss-agent.llmName`** or **`vss-summarization.llmName`** when a workload needs a different id (e.g. remote NIM). |
-| **`global.vlmName`** | **`nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8`** | Same for VLM (**`VLM_NAME`**, **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
+| **`global.vlmName`** | **`nim_nvidia_cosmos-reason2-8b_hf-1208`** | Same for VLM (**`VLM_NAME`**, **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
 | **`global.storageClass`** | unset in repo **`values.yaml`** | Set in **`values-lvs.yaml`**; used for **Elasticsearch**, **`vios.vstStorage`** PVCs, and other subcharts that inherit **`global.storageClass`**. |
 | **`vios.vstStorage.createSharedPvcs`** | **`true`** | **`true`:** the **`vios`** umbrella creates **PersistentVolumeClaims** so **sensor** and **streamprocessing** share on-disk folders for VST data and video; data survives pod restarts but your cluster must have a working **StorageClass** (see **`global.storageClass`**). **`false`:** no shared PVCs from **`vios`**; behavior depends on **`vios.vss-vios-*`** persistence settings. |
 | **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs (see **`helm/services/vios/templates/vst-storage-pvc.yaml`**). |
@@ -323,7 +323,7 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
   --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
-  --set-string global.vlmName="nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8" \
+  --set-string global.vlmName="nim_nvidia_cosmos-reason2-8b_hf-1208" \
   --set rtvi.vss-rtvi-vlm.useSharedNim=true
 ```
 

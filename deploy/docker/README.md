@@ -93,7 +93,7 @@ Default LVS model wiring:
 | Component | Local Compose behavior | Default model name |
 |-----------|------------------------|--------------------|
 | LLM | Starts the **`nvidia-nemotron-nano-9b-v2`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nvidia-nemotron-nano-9b-v2` |
-| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8` |
+| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
 
 For external endpoints, use the helper flags instead of editing Compose files directly:
 
@@ -107,7 +107,7 @@ export VLM_ENDPOINT_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
   --use-remote-llm \
   --use-remote-vlm \
   --llm nvidia/nvidia-nemotron-nano-9b-v2 \
-  --vlm nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
+  --vlm nim_nvidia_cosmos-reason2-8b_hf-1208
 ```
 
 The helper probes **`${LLM_ENDPOINT_URL}/v1/models`** and **`${VLM_ENDPOINT_URL}/v1/models`**, and the agent config appends **`/v1`** to **`LLM_BASE_URL`** / **`VLM_BASE_URL`**. Do not include **`/v1`** in the endpoint environment variables.
