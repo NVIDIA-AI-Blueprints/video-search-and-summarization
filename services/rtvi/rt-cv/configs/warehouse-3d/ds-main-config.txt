@@ -31,29 +31,32 @@ square-seq-grid=0
 
 #Note: [source-list] now support REST Server with use-nvmultiurisrcbin=1
 
-# Sources
+# Sources — file playback from NGC vss-warehouse-app-data bundle (standalone-3d profile)
 [source-list]
-num-source-bins=0
-list=
-sensor-id-list=
-sensor-name-list=
+num-source-bins=4
+list=file:///opt/storage/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/Camera.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/Camera_01.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/Camera_02.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/Camera_03.mp4
+sensor-id-list=Camera;Camera_01;Camera_02;Camera_03
+sensor-name-list=Camera;Camera_01;Camera_02;Camera_03
 # Set use-nvmultiurisrcbin to 1 to enable sensor provisioning/update feature
 use-nvmultiurisrcbin=1
+# Loop file sources so streams are not removed at EOS (standalone file playback).
+file-loop=1
 stream-name-display=1
 max-batch-size=4
 http-ip=localhost
 http-port=9000
-#Set low latency mode for bitstreams having I and IPPP frames on decoder
-low-latency-mode=1
+# Recorded file sources: keep decoder default (low-latency is for live IPPP streams).
+low-latency-mode=0
+# SEI disabled for standalone 3D (no custom SEI metadata path).
 extract-sei-type5-data=0
 sei-uuid=NVDS_CUSTOMMETA
 
 dummy-payload=0
-custom-ts-to-rfc=1
+custom-ts-to-rfc=0
 
 [source-attr-all]
 enable=1
-type=3
+type=2
 num-sources=1
 gpu-id=0
 cudadec-memtype=0
@@ -99,7 +102,8 @@ drop-backward-sei=0
 enable=1
 #Type - 1=FakeSink 2=EglSink 3=File
 type=1
-sync=0
+# sync=1: pace to PTS with live-source=0 so throughput matches wall clock.
+sync=1
 source-id=0
 gpu-id=0
 nvbuf-memory-type=0

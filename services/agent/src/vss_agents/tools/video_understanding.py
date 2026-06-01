@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import base64
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from datetime import timedelta
@@ -458,6 +457,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
         f"enable_audio: {config.enable_audio}, use_base64: {use_video_base64}, "
         f"use_video_file_base64: {use_video_file_base64}"
     )
+    logger.info(f"Using VLM profile: {config.vlm_name}, vlm_mode: {config.vlm_mode}, use_base64: {use_video_base64}")
 
     if not config.use_vst:
         s3_client = boto3.client(

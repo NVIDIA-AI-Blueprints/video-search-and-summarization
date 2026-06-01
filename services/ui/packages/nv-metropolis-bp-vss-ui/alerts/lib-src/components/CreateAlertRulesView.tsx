@@ -335,6 +335,12 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
         });
         return;
       }
+      if (!vstApiUrl) {
+        updateDraft(draftId, {
+          error: 'VST API URL is not configured; cannot resolve sensor_id and sensor_name.',
+        });
+        return;
+      }
       updateDraft(draftId, { saving: true, error: undefined });
       try {
         // Resolver returns undefined if the sensor isn't in VST's live-stream

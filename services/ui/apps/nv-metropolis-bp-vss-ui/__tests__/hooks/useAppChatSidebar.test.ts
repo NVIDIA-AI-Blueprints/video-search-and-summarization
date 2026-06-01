@@ -32,6 +32,18 @@ function dispatchPointerCompat(
   target.dispatchEvent(ev);
 }
 
+/** jsdom often lacks PointerEvent; the hook only reads clientX / pointerId on native listeners. */
+function dispatchPointerCompat(
+  target: HTMLElement,
+  type: 'pointermove' | 'pointerup',
+  clientX: number,
+  pointerId: number,
+) {
+  const ev = new MouseEvent(type, { bubbles: true, clientX });
+  Object.defineProperty(ev, 'pointerId', { value: pointerId, enumerable: true });
+  target.dispatchEvent(ev);
+}
+
 describe('useAppChatSidebar', () => {
   beforeEach(() => {
     jest.clearAllMocks();

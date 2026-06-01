@@ -111,6 +111,33 @@ def _resolve_service_config(config: Any) -> ServiceConfig:
     )
 
 
+def _resolve_service_config(config: Any) -> ServiceConfig:
+    """Build a ``ServiceConfig`` from ``general.front_end.streaming_ingest``.
+
+    Shared between ``register_rtsp_ingest_routes`` and
+    ``register_rtsp_delete_routes`` so both paths read the same YAML keys.
+    """
+    streaming_config = getattr(config.general.front_end, "streaming_ingest", None)
+    if streaming_config is None:
+        raise ValueError("streaming_ingest must be configured under general.front_end to register RTSP routes")
+
+    vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
+    if not vst_internal_url:
+        raise ValueError("streaming_ingest.vst_internal_url must be set for RTSP routes")
+
+    return ServiceConfig(
+        vst_internal_url=vst_internal_url,
+        rtvi_cv_base_url=getattr(streaming_config, "rtvi_cv_base_url", "") or "",
+        rtvi_embed_base_url=getattr(streaming_config, "rtvi_embed_base_url", "") or "",
+        rtvi_vlm_base_url=getattr(streaming_config, "rtvi_vlm_base_url", "") or "",
+        rtvi_embed_model=getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p"),
+        rtvi_embed_chunk_duration=getattr(streaming_config, "rtvi_embed_chunk_duration", 5),
+        delete_vst_storage_on_stream_remove=bool(
+            getattr(streaming_config, "delete_vst_storage_on_stream_remove", True)
+        ),
+    )
+
+
 # ============================================================================
 # Request/Response Models
 # ============================================================================

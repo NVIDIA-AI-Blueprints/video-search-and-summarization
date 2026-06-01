@@ -19,7 +19,7 @@ class-attrs-all:
 
 # Assign different thresholds for different classes for optimal performance
 class-attrs-0:
-  pre-cluster-threshold: 0.85
+  pre-cluster-threshold: 0.5
   topk: 20
 class-attrs-1:
   pre-cluster-threshold: 0.85
@@ -28,7 +28,7 @@ class-attrs-2:
 class-attrs-3:
   pre-cluster-threshold: 0.85
 class-attrs-4:
-  pre-cluster-threshold: 0.85
+  pre-cluster-threshold: 0.9
 class-attrs-5:
   pre-cluster-threshold: 0.5
 class-attrs-6:
@@ -54,6 +54,7 @@ property:
   onnx-file: <PATH_TO_ONNX_MODEL>
   # model-engine-file: <PATH_TO_ENGINE_FILE>
   num-detected-classes: 7
+  filter-out-class-ids: 4;6
   output-tensor-meta: 1
   output-blob-names: pred_boxes;pred_logits
   parse-bbox-func-name: NvDsInferParseCustomRTDETRTAO

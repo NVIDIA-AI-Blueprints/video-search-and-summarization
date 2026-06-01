@@ -1,0 +1,31 @@
+{
+  "skills": ["vss-manage-alerts", "vss-deploy-profile"],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["remote-all"]
+      }
+    }
+  },
+  "deploy_mode": "verification",
+  "env": "VSS alerts profile already deployed in CV verification mode (`deploy -p alerts -m verification`). Sensor `warehouse_sample` registered in VIOS with a live RTSP stream. Pre-authorized to deploy prerequisites.",
+  "description": "CV mode routing: Workflow A (onboard camera) and Workflow C (query incidents on CV). Subscription/notification surfaces (Workflows D and E) are scoped to VLM real-time mode only and are exercised in the VLM-mode evals.",
+  "expects": [
+    {
+      "query": "Add camera rtsp://192.168.1.100:554/stream1 to the alerts pipeline",
+      "checks": [
+        "The trajectory calls VIOS `POST /sensor/add` with the RTSP URL — Workflow A onboarding.",
+        "The agent does NOT call Alert Bridge or `POST /generate` with start-alert intent — on CV, onboarding the RTSP is the only step needed.",
+        "The agent confirms the sensor was added and that the CV pipeline will pick it up automatically."
+      ]
+    },
+    {
+      "query": "Show me recent alerts for sensor warehouse_sample",
+      "checks": [
+        "The trajectory calls `POST /generate` with a query intent — Workflow C works on both CV and VLM modes.",
+        "The agent's reply summarizes incidents or states that none have been recorded yet.",
+        "The agent does NOT refuse the query or suggest redeployment — querying incidents is valid on CV."
+      ]
+    }
+  ]
+}

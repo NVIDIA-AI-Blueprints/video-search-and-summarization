@@ -26,7 +26,7 @@ height=720
 gpu-id=0
 nvbuf-memory-type=0
 
-# Sources 
+# Sources — file playback from NGC vss-warehouse-app-data bundle (standalone Helm)
 [source-list]
 num-source-bins=0
 list=
@@ -34,10 +34,13 @@ sensor-id-list=
 sensor-name-list=
 # Set use-nvmultiurisrcbin to 1 to enable sensor provisioning/update feature
 use-nvmultiurisrcbin=1
+# nvurisrcbin (via parent): loop file:/// after EOS — keep in sync with [source-attr-all] file-loop.
+file-loop=1
 stream-name-display=1
 max-batch-size=4
 http-ip=localhost
-low-latency-mode=1
+# Recorded file sources: keep decoder default (low-latency is for live IPPP streams).
+low-latency-mode=0
 http-port=9000
 extract-sei-type5-data=0
 sei-uuid=NVDS_CUSTOMMETA
@@ -47,7 +50,9 @@ sgie-batch-size=4
 
 [source-attr-all]
 enable=1
-type=3
+type=2
+# nvurisrcbin: loop file:/// URIs after EOS (required here for looping; [tests] alone is not enough).
+file-loop=1
 num-sources=1
 gpu-id=0
 cudadec-memtype=0
@@ -61,7 +66,8 @@ drop-on-latency=1
 enable=1
 #Type - 1=FakeSink 2=EglSink 3=File
 type=1
-sync=0
+# sync=1: pace pipeline to buffer PTS so PERF FPS matches wall-clock (~native file frame rate).
+sync=1
 source-id=0
 gpu-id=0
 nvbuf-memory-type=0
@@ -202,7 +208,7 @@ interval=0
 #Required by the app for SGIE, when used along with config-file property
 gie-unique-id=1
 nvbuf-memory-type=0
-config-file=ds-ppl-analytics-pgie-config.yml
+config-file=ds-pgie-config.yml
 
 [tracker]
 enable=1
