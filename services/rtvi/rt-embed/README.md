@@ -377,7 +377,7 @@ The runner sets `PYTHONPATH` to `/opt/nvidia/rtvi/src` automatically so the `ser
 | Flag | Purpose |
 |------|---------|
 | `--unit` | Run unit tests only |
-| `--integration` | Run integration tests (requires `--server <url>`, e.g. `http://localhost:${BACKEND_PORT}` from `docker/.env`) |
+| `--integration` | Run integration tests (requires `--server <url>`, defaults to `http://localhost:8000`) |
 | `--all` | Run unit + integration tests |
 | `--coverage` | Emit an HTML + terminal coverage report |
 | `--parallel` | Run tests in parallel (requires `pytest-xdist`) |
