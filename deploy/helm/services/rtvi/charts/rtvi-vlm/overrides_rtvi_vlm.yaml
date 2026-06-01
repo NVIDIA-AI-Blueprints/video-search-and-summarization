@@ -13,7 +13,7 @@ enabled: true
 
 useSharedNim: false
 # NGC NIM model artifact path inside the vss-rtvi-vlm container (see deployment template when useSharedNim is false)
-modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
+modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
 
 waitForKafka:
   enabled: false

@@ -164,7 +164,7 @@ spec:
               value: {{ $deployName | quote }}
             {{- else }}
             - name: MODEL_PATH
-              value: {{ .Values.modelPath | default "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" | quote }}
+              value: {{ .Values.modelPath | default "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" | quote }}
             {{- end }}
             {{- $ngcSecret := .Values.ngcApiSecret.name | default (index (index .Values.global "ngcApiSecret") "name") | default "ngc-api" }}
             {{- $ngcKey := .Values.ngcApiSecret.key | default (index (index .Values.global "ngcApiSecret") "key") | default "NGC_API_KEY" }}
