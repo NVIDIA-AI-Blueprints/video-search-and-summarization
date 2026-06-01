@@ -1,5 +1,5 @@
 ## Description: <br>
-Deploy and operate the RTVI-CV-3D stack (also known as MV3DT, Multi-View 3D Tracking, or RTVI-CV-MV3DT) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras. <br>
+Deploy and operate the RTVI-CV-3D stack (Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying multi-camera 3D detection and tracking (RTVI-CV-3D/MV3DT) for warehouse video analytics using NVIDIA's Video Search and Summarization blueprint. <br>
+Developers and engineers deploying multi-view 3D tracking pipelines on NVIDIA hardware for video analytics applications using calibrated multi-camera setups. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,7 +20,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy RTVI-CV-3D Stack](references/deploy-rtvi-cv-3d-stack.md) <br>
 - [Calibration Workflow](references/calibration-workflow.md) <br>
 - [Configure Cameras](references/configure-cameras.md) <br>
@@ -42,7 +42,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 4 evaluation tasks (all positive skill-activation cases), 2 attempts per task, 50% pass threshold. NVSkills-Eval external profile, local environment. <br>
+6 evaluation tasks covering skill routing and decision-making, with 2 attempts per task. Pass threshold: 50%. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,11 +66,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 75% (+38%) | 75% (+25%) |
-| Correctness | 8 | 82% (+14%) | 73% (+18%) |
-| Discoverability | 8 | 86% (+15%) | 80% (+17%) |
-| Effectiveness | 8 | 47% (-1%) | 45% (+15%) |
-| Efficiency | 8 | 63% (+11%) | 70% (+26%) |
+| Security | 8 | 92% (-8%) | 100% (+29%) |
+| Correctness | 8 | 90% (+8%) | 90% (+41%) |
+| Discoverability | 8 | 62% (-7%) | 66% (+10%) |
+| Effectiveness | 8 | 81% (+12%) | 74% (+41%) |
+| Efficiency | 8 | 48% (-5%) | 50% (+7%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
