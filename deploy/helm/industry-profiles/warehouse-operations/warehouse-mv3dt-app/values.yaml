@@ -16,7 +16,7 @@ bp-configurator:
     seedConfigMapName: vss-behavior-analytics-resources
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-configurator
-    tag: "3.2-2026.05.04"
+    tag: "3.2-2026.05.12"
     pullPolicy: IfNotPresent
   init:
     enabled: true
