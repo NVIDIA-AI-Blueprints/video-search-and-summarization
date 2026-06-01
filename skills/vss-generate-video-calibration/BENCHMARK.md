@@ -54,23 +54,24 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+38%) | 79% (-12%) |
-| Correctness | 8 | 86% (+2%) | 78% (+26%) |
-| Discoverability | 8 | 81% (-1%) | 78% (+19%) |
-| Effectiveness | 8 | 60% (+2%) | 54% (+28%) |
-| Efficiency | 8 | 65% (+8%) | 66% (+20%) |
+| Security | 8 | 96% (+12%) | 79% (+12%) |
+| Correctness | 8 | 87% (+1%) | 82% (+26%) |
+| Discoverability | 8 | 89% (+9%) | 69% (+7%) |
+| Effectiveness | 8 | 57% (-3%) | 55% (+24%) |
+| Efficiency | 8 | 71% (+14%) | 53% (+6%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 3 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 4 total findings.
 
 Top findings:
 
-- MEDIUM SECURITY/Unknown (SDI-2): The skill instructs piping a remote shell script directly into `sh` via `curl -LsSf https://astral.sh/uv/install.sh | sh (`references/sample-dataset.md:132`)
-- MEDIUM SECURITY/Unknown (SQP-2): The RTSP capture request hardcodes `ssl_verify: false`, disabling TLS certificate verification. This exposes the connect (`references/rtsp.md:106`)
-- LOW SCHEMA/author_format: Author must be of the form 'Name <email@host>' (`skills/vss-generate-video-calibration/SKILL.md`)
+- MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-generate-video-calibration/SKILL.md`)
+- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-calibration/SKILL.md`)
+- MEDIUM SECURITY/Unknown (SDI-2): The script uses a curl-pipe-sh pattern to download and execute the `uv` installer from astral.sh without any integrity v (`references/sample-dataset.md:132`)
+- MEDIUM SECURITY/Unknown (SQP-2): SSL verification is explicitly disabled (`ssl_verify: false`) in the RTSP capture request, and the Python script also im (`references/rtsp.md:106`)
 
 ## Tier 2: Deduplication Summary
 
