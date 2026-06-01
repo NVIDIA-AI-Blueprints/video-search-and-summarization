@@ -1,5 +1,5 @@
 ## Description: <br>
-Deploy and operate the RTVI-CV-3D stack (also known as MV3DT, Multi-View 3D Tracking, or RTVI-CV-MV3DT) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras. <br>
+Deploy and operate the RTVI-CV-3D stack (Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to deploy and operate multi-view 3D tracking (RTVI-CV-3D / MV3DT) pipelines for multi-camera video analytics on sample data, custom videos, or live RTSP streams without the full warehouse agent / LLM / VLM stack. <br>
+Developers and engineers deploying the RTVI-CV-3D/MV3DT multi-camera 3D detection and tracking stack for warehouse video analytics without the full agent/LLM/VLM stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,14 +19,14 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy RTVI-CV-3D Stack](references/deploy-rtvi-cv-3d-stack.md) <br>
 - [Calibration Workflow](references/calibration-workflow.md) <br>
 - [Configure Cameras](references/configure-cameras.md) <br>
 - [Verify and View](references/verify-and-view.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
 - [Teardown](references/teardown.md) <br>
+- [Troubleshooting](references/troubleshooting.md) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -42,7 +42,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 6 evaluation tasks (all positive skill-activation cases) with 2 attempts per task using the NVSkills-Eval `external` profile. <br>
+Evaluated against 6 evaluation tasks (all positive skill-activation cases) with 2 attempts per task, using NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,11 +66,16 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 92% (+0%) | 100% (+0%) |
-| Correctness | 8 | 87% (-2%) | 84% (+16%) |
-| Discoverability | 8 | 55% (-5%) | 72% (+13%) |
-| Effectiveness | 8 | 81% (-5%) | 64% (+18%) |
-| Efficiency | 8 | 37% (-8%) | 60% (+13%) |
+| Security | 8 | 100% (+17%) | 100% (+8%) |
+| Correctness | 8 | 91% (-1%) | 92% (+36%) |
+| Discoverability | 8 | 63% (-5%) | 64% (+7%) |
+| Effectiveness | 8 | 84% (+2%) | 80% (+40%) |
+| Efficiency | 8 | 48% (-2%) | 50% (+5%) |
+
+## Testing Completed: <br>
+**[x] Agent Red-Teaming** <br>
+**[ ] Network Security** <br>
+**[ ] Product Security** <br>
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
