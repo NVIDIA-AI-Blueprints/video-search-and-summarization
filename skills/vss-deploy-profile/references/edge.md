@@ -2,25 +2,27 @@
 
 Base-profile deployment guidance for edge platforms.
 
-On **DGX Spark**, use **NVIDIA-Nemotron-Nano-9B-v2-DGX-Spark** as the
-LLM. This is a DGX Spark-only NIM container:
+On **DGX Spark, AGX Thor, and IGX Thor**, use
+**NVIDIA-Nemotron-Nano-9B-v2-DGX-Spark** as the default LLM. The image name
+is DGX Spark-branded, but this is the current standalone Nano 9B NIM path
+for all edge targets documented here:
 
 ```text
 nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant
 ```
 
 Do not use the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1`
-image on DGX Spark. That image has had an arm64 manifest problem in this
-blueprint context, and it is not the DGX Spark optimized NIM.
+image on DGX Spark or Thor. That image has had an arm64 manifest problem in
+this blueprint context, and it is not the edge-optimized NIM.
 
-The DGX Spark NIM is **not wired into the blueprint compose graph yet**.
+The edge Nano 9B NIM is **not wired into the blueprint compose graph yet**.
 Until `deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-dgx-spark/`
 exists, run the LLM NIM as a standalone local service on port `30081` and
 point the VSS agent at it with `LLM_MODE=remote`.
 
-On **AGX Thor / IGX Thor**, this skill does not have a verified Nano 9B
-DGX Spark NIM replacement. Keep using the Thor Edge 4B standalone vLLM path
-below unless a Thor-supported NIM is confirmed.
+On **AGX Thor / IGX Thor**, keep the Edge 4B standalone vLLM path below as
+an alternative when the default Nano 9B NIM cannot be used or when
+the operator explicitly chooses the smaller gated model.
 
 ## When to pick which
 
@@ -28,12 +30,13 @@ below unless a Thor-supported NIM is confirmed.
 |---|---|
 | DGX Spark shared mode | NVIDIA-Nemotron-Nano-9B-v2-DGX-Spark NIM, standalone on `localhost:30081` |
 | DGX Spark remote-LLM mode | External endpoint; no local LLM needed |
-| AGX/IGX Thor shared mode | Edge 4B standalone vLLM fallback |
+| AGX/IGX Thor shared mode (default) | NVIDIA-Nemotron-Nano-9B-v2-DGX-Spark NIM, standalone on `localhost:30081` |
+| AGX/IGX Thor Edge 4B alternative | Edge 4B standalone vLLM |
 | Non-edge hardware (H100, L40S, RTX PRO) | Standard Nano 9B v2 NIM compose path |
 
 ## Prerequisites
 
-- `NGC_API_KEY` or `NGC_CLI_API_KEY` for the DGX Spark NIM container.
+- `NGC_API_KEY` or `NGC_CLI_API_KEY` for the standalone edge Nano 9B NIM container.
 - Docker login to NGC before pulling private NIM images:
 
   ```bash
@@ -41,7 +44,7 @@ below unless a Thor-supported NIM is confirmed.
   echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
   ```
 
-- `HF_TOKEN` is required only for the Thor Edge 4B fallback path.
+- `HF_TOKEN` is required only for the Thor Edge 4B alternative path.
 - `NVIDIA_API_KEY` for agent-side NVIDIA API calls when the profile uses them.
 - GPU freed: `docker ps` should show no running VSS, NIM, or LLM containers
   before starting. Reboot the device if in doubt.
@@ -95,7 +98,7 @@ SKILL.md pre-flight smoke test does not install it.
 > sudo su -c 'echo performance > <VIC_DEVFREQ_PATH>/governor'
 > ```
 
-## DGX Spark - Nano 9B v2 DGX Spark NIM + local Cosmos Reason2 VLM
+## DGX Spark / AGX Thor / IGX Thor - Nano 9B v2 DGX Spark NIM
 
 Start the LLM as a standalone local NIM on port `30081`:
 
@@ -105,9 +108,9 @@ export LOCAL_NIM_CACHE="${LOCAL_NIM_CACHE:-$HOME/.cache/nim}"
 mkdir -p "$LOCAL_NIM_CACHE"
 chmod -R a+w "$LOCAL_NIM_CACHE"
 
-docker rm -f nemotron-dgx-spark 2>/dev/null || true
+docker rm -f nemotron-edge-nano 2>/dev/null || true
 
-docker run --gpus all -d --name nemotron-dgx-spark -p 30081:8000 \
+docker run --gpus all -d --name nemotron-edge-nano -p 30081:8000 \
     --runtime=nvidia \
     --shm-size=16GB \
     -e NGC_API_KEY="$NGC_API_KEY" \
@@ -119,7 +122,7 @@ docker run --gpus all -d --name nemotron-dgx-spark -p 30081:8000 \
 ```
 
 The conservative starting point is `NIM_KVCACHE_PERCENT=0.40`,
-`NIM_GPU_MEM_FRACTION=0.40`, and `NIM_MAX_NUM_SEQS=4`. The DGX Spark NIM
+`NIM_GPU_MEM_FRACTION=0.40`, and `NIM_MAX_NUM_SEQS=4`. The edge Nano 9B NIM
 variant does not support `NIM_MAX_MODEL_LEN` or running the container as a
 non-default user. If the NIM exits or reports memory pressure, lower
 `NIM_MAX_NUM_SEQS` or reduce the memory fraction by `0.05` and retry. The
@@ -140,20 +143,37 @@ Expected model ID is `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`. If
 `/v1/models` returns a different ID, use the returned ID as `LLM_NAME` in
 `generated.env`.
 
-Then apply env overrides to `dev-profile-base/generated.env`:
+Then apply common LLM env overrides to `dev-profile-base/generated.env`:
 
 | Key | Value | Why |
 |---|---|---|
-| `LLM_MODE` | `remote` | The DGX Spark NIM is standalone until it is wired into compose |
+| `LLM_MODE` | `remote` | The edge Nano 9B NIM is standalone until it is wired into compose |
 | `LLM_BASE_URL` | `http://localhost:30081` | The local NIM started above |
 | `LLM_NAME` | `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` | Expected served model ID; verify with `/v1/models` |
 | `LLM_NAME_SLUG` | `none` | Remote mode skips local LLM compose services |
+| `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
+| `VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
+
+Then apply the platform-specific VLM overrides:
+
+| Platform | Required overrides |
+|---|---|
+| DGX Spark | `HARDWARE_PROFILE=DGX-SPARK`, `VLM_MODE=local_shared`, `VLM_NAME=nvidia/cosmos-reason2-8b`, `VLM_NAME_SLUG=cosmos-reason2-8b` |
+| AGX Thor | `HARDWARE_PROFILE=AGX-THOR`, `VLM_MODE=local_shared`, `VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason2`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35` |
+| IGX Thor | `HARDWARE_PROFILE=IGX-THOR`, `VLM_MODE=local_shared`, `VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason2`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35` |
+
+For DGX Spark, the VLM is the compose-managed Cosmos Reason2 NIM. For Thor,
+the VLM is `rtvi-vlm` loading Cosmos Reason2 in-process; do not deploy a
+standalone Cosmos NIM on Thor.
+
+DGX Spark VLM values, expanded:
+
+| Key | Value | Why |
+|---|---|---|
 | `HARDWARE_PROFILE` | `DGX-SPARK` | Selects the DGX Spark VLM env file |
 | `VLM_MODE` | `local_shared` | VLM stays local on the shared edge GPU |
 | `VLM_NAME` | `nvidia/cosmos-reason2-8b` | Default local VLM |
 | `VLM_NAME_SLUG` | `cosmos-reason2-8b` | Compose-managed VLM service |
-| `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
-| `VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 
 Use the default agent config unless you have evidence this model needs the
 Edge 4B-specific prompt:
@@ -162,35 +182,39 @@ Edge 4B-specific prompt:
 VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml
 ```
 
-Then follow `SKILL.md` Steps 3-5 (resolve compose, normalize, `up -d`). The
-`cosmos-reason2-8b` NIM compose automatically loads
-`hw-DGX-SPARK-shared.env`, which caps the VLM side for shared edge memory.
+Then follow `SKILL.md` Steps 3-5 (resolve compose, normalize, `up -d`). On
+DGX Spark, the `cosmos-reason2-8b` NIM compose automatically loads
+`hw-DGX-SPARK-shared.env`, which caps the VLM side for shared edge memory. On
+Thor, keep the RT-VLM overrides above; do not deploy a standalone Cosmos NIM.
 
-## Future compose-supported DGX Spark path
+## Future compose-supported edge Nano 9B path
 
 If the repo later adds
 `deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-dgx-spark/`, do not
-run the standalone NIM. Instead use the compose-managed local-shared path:
+run the standalone NIM. Instead use the compose-managed local-shared LLM path:
 
 | Key | Value |
 |---|---|
-| `HARDWARE_PROFILE` | `DGX-SPARK` |
+| `HARDWARE_PROFILE` | `DGX-SPARK`, `AGX-THOR`, or `IGX-THOR` |
 | `LLM_NAME` | `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` |
 | `LLM_NAME_SLUG` | `nvidia-nemotron-nano-9b-v2-dgx-spark` |
 | `LLM_MODE` | `local_shared` |
-| `VLM_NAME` | `nvidia/cosmos-reason2-8b` |
-| `VLM_NAME_SLUG` | `cosmos-reason2-8b` |
-| `VLM_MODE` | `local_shared` |
 | `LLM_DEVICE_ID` | `0` |
 | `VLM_DEVICE_ID` | `0` |
 
-Before using that path, verify the resolved compose includes the DGX Spark
-LLM service and that its env file carries the same conservative cache and
-sequence limits from the standalone recipe above.
+Keep the same platform-specific VLM overrides from the standalone recipe:
+DGX Spark uses the compose-managed `cosmos-reason2-8b` VLM, while AGX/IGX
+Thor uses `rtvi-vlm` with `VLM_NAME_SLUG=none`. Before using this path,
+verify the resolved compose includes the edge Nano 9B LLM service and that
+its env file carries the same conservative cache and sequence limits from the
+standalone recipe above.
 
-## AGX Thor / IGX Thor - Edge 4B fallback + rtvi-vlm
+## AGX Thor / IGX Thor - Edge 4B alternative + rtvi-vlm
 
-On Thor, the VLM falls back to **`rtvi-vlm` serving Cosmos Reason 2
+Use this only when the default edge Nano 9B NIM path cannot be used or when
+the operator explicitly chooses the smaller Edge 4B model.
+
+On Thor, the VLM stays **`rtvi-vlm` serving Cosmos Reason 2
 in-process**. The standalone `cosmos-reason2-8b` NIM service does not run on
 Thor. `rtvi-vlm` loads `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` itself and
 advertises it at `http://${HOST_IP}:8018/v1` under
@@ -200,7 +224,7 @@ advertises it at `http://${HOST_IP}:8018/v1` under
 Remote VLM and `--vlm` swaps are not supported on Thor for `base` or
 `alerts`; this is the only deployed VLM shape documented by this skill.
 
-The Thor LLM fallback runs from a Jetson-specific vLLM image and requires
+The Thor LLM alternative runs from a Jetson-specific vLLM image and requires
 `HF_TOKEN` access to the Edge 4B weights.
 
 Before running the deploy, verify the token can reach the Edge 4B repo:
@@ -213,7 +237,7 @@ curl -sf -H "Authorization: Bearer $HF_TOKEN" \
 
 If the model is gated, the token's owner must request access on the HF page.
 
-Start the Thor LLM fallback:
+Start the Thor Edge 4B alternative:
 
 ```bash
 export HF_TOKEN=$HF_TOKEN
@@ -252,32 +276,34 @@ Then follow `SKILL.md` Steps 3-5. Thor uses the default 35% GPU budget for
 
 ## Caveats
 
-- **DGX Spark NIM is local but configured as remote in VSS.** This is only
+- **Edge Nano 9B NIM is local but configured as remote in VSS.** This is only
   because the image is not wired into compose yet. `LLM_MODE=remote` skips the
   local LLM compose service and points the agent at `localhost:30081`.
-- **DGX Spark NIM is DGX Spark-only.** Do not use it on H100, L40S, RTX PRO,
-  AGX Thor, or IGX Thor unless NVIDIA documents support for that platform.
+- **Edge Nano 9B NIM is edge-only in this guidance.** Use it for DGX Spark,
+  AGX Thor, and IGX Thor. Do not use it on H100, L40S, or RTX PRO unless
+  NVIDIA documents support for that platform.
 - **Confirm the served model ID.** The expected ID is
   `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, but `/v1/models` is the
   source of truth for `LLM_NAME`.
-- **No `HF_TOKEN` for DGX Spark NIM.** Use `NGC_API_KEY` /
-  `NGC_CLI_API_KEY`. `HF_TOKEN` applies only to the Thor Edge 4B fallback.
-- **DGX Spark NIM variant limitations.** NVIDIA's variant notes say not to
+- **No `HF_TOKEN` for the edge Nano 9B NIM.** Use `NGC_API_KEY` /
+  `NGC_CLI_API_KEY`. `HF_TOKEN` applies only to the Thor Edge 4B alternative.
+- **Edge Nano 9B NIM variant limitations.** NVIDIA's variant notes say not to
   use `-u $(id -u)` and that `NIM_MAX_MODEL_LEN` is not supported for this
   container. Tune sequence count and memory fractions instead.
-- **Do not point DGX Spark Nano 9B at `config_edge.yml` by default.**
-  `config_edge.yml` exists for the smaller Edge 4B fallback and deliberately
+- **Do not point edge Nano 9B at `config_edge.yml` by default.**
+  `config_edge.yml` exists for the smaller Edge 4B alternative and deliberately
   removes clarifying-question behavior. Start with `config.yml` for Nano 9B.
 - **Thor Edge 4B skips clarifying questions.** `config_edge.yml` simplifies
-  the planning prompt for the smaller fallback model. If ambiguous user
-  questions matter on Thor, use a verified remote LLM instead.
+  the planning prompt for the smaller alternative model. If ambiguous user
+  questions matter on Thor, use the default edge Nano 9B NIM or a verified
+  remote LLM instead.
 
 ## Known ARM64 gotcha
 
 `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` (the default `base` NIM
 tag) has had a broken arm64 manifest in this blueprint context. It declares
-arm64 but contains x86_64 binaries. This is why DGX Spark must use the Spark
-variant:
+arm64 but contains x86_64 binaries. This is why edge deployments use the
+Spark variant:
 
 ```text
 nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant

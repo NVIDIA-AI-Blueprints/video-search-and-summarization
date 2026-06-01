@@ -34,7 +34,7 @@ Match the user's request to a profile, then load that profile's reference for si
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
 
-**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the Spark Nano 9B standalone local LLM on port `30081`; AGX/IGX Thor uses the Edge 4B standalone vLLM fallback.
+**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark and AGX/IGX Thor use the Spark Nano 9B standalone local LLM on port `30081` by default; Edge 4B remains a Thor alternative.
 
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
 
@@ -104,7 +104,7 @@ for the remediation tree.
 
 If no combination on this host satisfies the profile's sizing requirements, **stop and report the blocker** — don't silently pick another shape.
 
-> **Edge shared mode is platform-specific.** On DGX Spark, run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and point the agent at it with `LLM_MODE=remote`. On AGX/IGX Thor, keep using the Edge 4B standalone vLLM fallback with `HF_TOKEN`. Full recipes are in [`references/edge.md`](references/edge.md).
+> **Edge shared mode is platform-specific.** On DGX Spark and AGX/IGX Thor, run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and point the agent at it with `LLM_MODE=remote`. Use the Edge 4B standalone vLLM path with `HF_TOKEN` only as a Thor alternative. Full recipes are in [`references/edge.md`](references/edge.md).
 
 ## Deployment Flow
 
@@ -312,4 +312,3 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 ## Troubleshooting
 
 Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
-

@@ -6,7 +6,7 @@ Run this before mutating `generated.env` or starting any image pull. Validate cr
 
 - `NGC_CLI_API_KEY`: required for any local NIM image pull (`LLM_MODE` or `VLM_MODE` set to `local` / `local_shared`).
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
-- `HF_TOKEN`: required on edge targets that use the gated Edge 4B model.
+- `HF_TOKEN`: required on Thor edge targets that use the gated Edge 4B alternative.
 
 ## Discovery
 
@@ -38,7 +38,7 @@ else
   echo "NVIDIA_API_KEY not set — skip (required only for remote NIM)"
 fi
 
-# HF — edge only (gated Edge 4B)
+# HF — Thor Edge 4B alternative only
 if [ -n "$HF_TOKEN" ]; then
   status=$(curl -sf -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer $HF_TOKEN" \
@@ -47,7 +47,7 @@ if [ -n "$HF_TOKEN" ]; then
     && echo "HF_TOKEN ok" \
     || echo "HF_TOKEN invalid or no access to gated Edge 4B (HTTP $status)"
 else
-  echo "HF_TOKEN not set — skip (required only on edge with Edge 4B)"
+  echo "HF_TOKEN not set — skip (required only for Thor Edge 4B alternative)"
 fi
 ```
 
