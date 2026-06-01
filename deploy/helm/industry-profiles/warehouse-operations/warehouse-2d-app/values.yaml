@@ -317,6 +317,8 @@ rtvi:
       bootstrapServers: ""
     standaloneWarehouse:
       streamType: kafka
+      kafka:
+        rawTopic: mdx-raw
     persistence:
       storageClass: ""
       models:

@@ -101,17 +101,42 @@ sync-inputs-ntp=0
 drop-backward-sei=0
 
 [sink0]
-enable=1
-#Type - 1=FakeSink 2=EglSink 3=File (standalone: no Kafka/Redis)
+enable=0
+#Type - 1=FakeSink 2=EglSink 3=File
 type=1
-# sync=1: pace to PTS with live-source=0 so throughput matches wall clock.
-sync=1
+sync=0
 source-id=0
 gpu-id=0
 nvbuf-memory-type=0
 
 [sink1]
-enable=0
+enable=1
+#Type - 1=FakeSink 2=EglSink 3=File 4=UDPSink 5=nvoverlaysink 6=MsgConvBroker
+type=6
+msg-conv-config=/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/deepstream-test5/configs/dstest5_msgconv_sample_config.txt
+#(0): PAYLOAD_DEEPSTREAM - Deepstream schema payload
+#(1): PAYLOAD_DEEPSTREAM_MINIMAL - Deepstream schema payload minimal
+#(256): PAYLOAD_RESERVED - Reserved type
+#(257): PAYLOAD_CUSTOM   - Custom schema payload
+msg-conv-payload-type=2
+#(0): Create payload using NvdsEventMsgMeta
+#(1): New Api to create payload using NvDsFrameMeta
+msg-conv-msg2p-new-api=0
+#Frame interval at which payload is generated
+msg-conv-frame-interval=1
+msg-broker-proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so
+msg-broker-conn-str=localhost;9092;mdx-bev
+topic=mdx-bev
+#Optional:
+msg-broker-config=ds-kafka-config.txt
+#new-api=0
+#(0) Use message adapter library api's
+#(1) Use new msgbroker library api's
+msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega.so
+sync=0
+msg-conv-embedding-filter=Person
+qos=0
+nvdslogger=1
 
 [sink2]
 enable=0

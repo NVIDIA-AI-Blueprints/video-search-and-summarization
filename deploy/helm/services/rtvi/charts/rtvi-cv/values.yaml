@@ -113,8 +113,10 @@ downloadNgcAppDataJob:
 
 # Used by warehouse standalone profile modes (metropolis warehouse ds-start.sh paths).
 standaloneWarehouse:
-  # No Kafka/Redis in standalone; ds-main uses FakeSink (sink0). Valid values depend on app; default avoids kafka client paths.
+  # Valid values depend on app profile; warehouse app profiles set kafka.
   streamType: "none"
+  kafka:
+    rawTopic: mdx-raw
   dsModeFlag2d: "1"
   dsModeFlag3d: "5"
   dsMessageRate: "1"
