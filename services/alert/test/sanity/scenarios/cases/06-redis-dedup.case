@@ -1,0 +1,24 @@
+# Sanity Drop 06 — Redis Dedup
+#
+# Mirrors test/functional/p1/test_redis_dedup/run.sh. Inject the SAME synthetic
+# sensor twice in quick succession (within Redis dedup TTL); assert exactly 1
+# doc lands in ES, not 2 (dedup fired).
+#
+# Both injects use the same id-suffix so AB's fingerprint matches and the
+# second is dropped at the Redis dedup layer.
+
+PROBE="probes/assert_es_doc_count_delta.sh"
+PROBE_ENV_EXPECTED_COUNT=1
+PROBE_ENV_LOOKBACK_MINUTES=5
+WAIT_TRAFFIC_SECONDS=5
+
+apply() {
+    SENSOR_ID=$(inject_kafka_incident "dedup" "1") || return 1
+    sleep 1
+    # Replay the EXACT same patched payload (same timestamp -> same fingerprint).
+    # Re-calling inject_kafka_incident would re-patch timestamp to a fresh
+    # now() value, giving a different fingerprint and bypassing dedup.
+    replay_last_kafka_inject || return 1
+    PROBE_ENV_SENSOR_ID="$SENSOR_ID"
+    log_info "injected + replayed SAME payload for sensorId=$SENSOR_ID; expect 1 doc"
+}

@@ -29,6 +29,30 @@ This project uses a dual-license model:
 
 See the [LICENSE](LICENSE) file for the full license texts.
 
+## File-level license headers
+
+If your contribution adds or modifies a source file, please:
+
+- Add or update the SPDX file header so that it reflects the correct copyright
+  holders and license identifier.
+- For new files authored by you (or your employer) on behalf of this project,
+  use the SPDX identifier `Apache-2.0` and add the appropriate copyright
+  notice.
+- For changes to files derived from third-party sources, preserve the existing
+  third-party copyright and license notices. For example: in Spatial AI Data
+  Utils, the nuScenes dev-kit-derived files and TrackEval-derived files are
+  listed in
+  [`libs/analytics/spatialai-data-utils/NOTICE`](libs/analytics/spatialai-data-utils/NOTICE).
+  List the file(s) you modified in your change description, and keep the
+  existing dual-license SPDX identifier (e.g. `MIT AND Apache-2.0`).
+- Do not introduce code under licenses that are incompatible with Apache-2.0
+  distribution. For example: if you need to vendor third-party code for Spatial
+  AI Data Utils, including code derived from the nuScenes dev-kit and TrackEval,
+  raise it in your change description so the appropriate notice can be added to
+  [`libs/analytics/spatialai-data-utils/NOTICE`](libs/analytics/spatialai-data-utils/NOTICE)
+  and
+  [`libs/analytics/spatialai-data-utils/3rdParty_Licenses.md`](libs/analytics/spatialai-data-utils/3rdParty_Licenses.md).
+
 ### Signing Your Work — Developer Certificate of Origin (DCO)
 
 We require that all contributors "sign off" on their commits. This certifies that the contribution is your original work, or that you have rights to submit it under the same license, or a compatible license. Any contribution which contains commits that are not Signed-Off will not be accepted.

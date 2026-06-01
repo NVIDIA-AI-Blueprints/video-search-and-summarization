@@ -1,0 +1,63 @@
+{
+  "version": "1.1",
+  "alerts": [
+    {
+      "alert_type": "collision",
+      "output_category": "Vehicle Collision",
+      "output_verdict_description": {
+        "confirmed": "Collision detected",
+        "rejected": "No collision detected"
+      },
+      "segment_anchor": "start",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "Based on the video, which category best describes what occurred at {place.name}:\n(A) Collision (physical contact or impact detected)\n(B) No collision (no contact or impact)\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer (A or B) immediately after the </think> tag.",
+        "enrichment": "Provide a detailed description of this collision event. Include: 1) Objects/vehicles involved and their identifiers, 2) Sequence of events leading to the collision, 3) Estimated speeds and trajectories, 4) Visible damage or safety concerns, 5) Environmental factors such as lighting, weather, or obstacles."
+      },
+      "vlm_params": {
+        "num_frames": 10,
+        "max_tokens": 2048,
+        "temperature": 0.4
+      }
+    },
+    {
+      "alert_type": "unsafe_behavior",
+      "segment_anchor": "middle",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "Evaluate whether any unsafe behavior occurs at {place.name}. Pay special attention to the worker {info.primaryObjectId} and describe interactions with nearby machinery or objects."
+      }
+    },
+    {
+      "alert_type": "Stop Anomaly Module",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "Based on the video, which category best describes the observed behavior at {place.name} (if available):\n(A) Stop anomaly (unexpected or unsafe stop)\n(B) Normal stop (safe and expected behavior)\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer (A or B) immediately after the </think> tag."
+      }
+    },
+    {
+      "alert_type": "unauthorized_entry",
+      "segment_anchor": "end",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "Does the video depict tailgating behavior?\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer (Yes or No) immediately after the </think> tag.",
+        "enrichment": "Describe the entry event in detail. Include: 1) Number of individuals involved, 2) Authentication methods observed (badge swipe, biometric, etc.), 3) Timing and spacing between individuals entering, 4) Door behavior (how long it remained open), 5) Any suspicious behavior patterns observed."
+      }
+    },
+    {
+      "alert_type": "proximity violation",
+      "segment_anchor": "middle",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "Analyze the provided image or video to determine if there is a risk of a physical accident. Leverage the bounding boxes to identify the objects involved in a potential accident.\n\n1. Identify potential violations: Check whether any people, objects, or equipment are too close to each other in a way that violates safety distance rules.\n- Safety distance rules include maintaining adequate spacing to prevent collisions, tripping hazards, or contact with dangerous machinery.\n- Examples:\n  - A person standing too close to moving equipment.\n  - Objects placed in walkways that block safe passage.\n  - Workers operating without the required clearance around heavy machinery, vehicles, or sharp tools.\n  - Items stacked in a way that could tip over due to insufficient clearance.\n\n2. Output requirements: Based on your analysis, respond with the following JSON structure:\n- dropped: Set to true if NO accident risk is detected (event should be dropped), false if risk IS detected (event should be kept).\n- confidence: A numeric value between 0 and 1, where 1 indicates the highest certainty in your analysis.\n- explanation: A concise description (2-3 sentences) explaining why the risk is or isn't present, citing specific proximity violations if detected."
+      }
+    },
+    {
+      "alert_type": "Movement Anomaly Module",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "Based on the video, which category best describes the movement behavior observed at {place.name} (if available):\n(A) Movement anomaly (abnormal or erratic movement)\n(B) Normal movement (expected and consistent motion)\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer (A or B) immediately after the </think> tag."
+      }
+    }
+  ]
+}
