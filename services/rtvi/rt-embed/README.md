@@ -570,7 +570,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 #### Docker Configuration
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `RTVI_IMAGE` | Docker image to use — set in `docker/.env` with your NGC `<tag>` (see Quick Start) | `nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>` | Yes (in `docker/.env`) |
+| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>` | No |
 | `HF_TOKEN` | Hugging Face Hub access token for private `git:` model downloads; forwarded from `docker/.env` into the container by Compose | - | No |
 
 #### AWS Configuration
