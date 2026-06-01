@@ -142,7 +142,7 @@ jobs:
           # Coverage does not exercise PDF rendering, so skip pycairo/rlpycairo
           # instead of requiring cairo headers and pkg-config on the runner.
           uv sync --group dev --frozen --no-install-package pycairo --no-install-package rlpycairo
-          uv run pytest \
+          uv run --no-sync pytest \
             --cov=src/vss_agents \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \

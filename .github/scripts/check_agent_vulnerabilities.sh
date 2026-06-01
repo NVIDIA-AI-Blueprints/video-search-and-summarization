@@ -29,7 +29,7 @@ uv export \
   --no-default-groups \
   --no-emit-project \
   --no-hashes \
-  --format requirements.txt \
+  --format requirements-txt \
   --output-file "$scan_dir/requirements.txt"
 
 grype "dir:$scan_dir" -o json --file "$output_dir/grype-report.json"
