@@ -40,6 +40,26 @@ service:
   type: ClusterIP
 httpPort: 9000
 
+# Stream-affinity routing via HAProxy consistent-hash on an HTTP header.
+# When enabled, the rendered Service carries `haproxy.org/*` annotations
+# that ask a HAProxy Ingress controller to consistent-hash every request
+# with the same hashHeader value to the same vss-rtvi-cv pod (Karger's
+# consistent hash). Required for replica count > 1 so the DeepStream
+# pipeline state stays coherent for the lifetime of a stream.
+#
+# IMPORTANT — these annotations are only honored when traffic actually
+# flows through HAProxy Ingress. In the default chart deployment the
+# vss-agent connects to `vss-rtvi-cv:9000` (ClusterIP), so kube-proxy
+# load-balances directly and these annotations are inert. To make them
+# functional you need to (a) install the HAProxy Technologies
+# kubernetes-ingress controller, (b) add an Ingress that routes to this
+# Service, and (c) repoint the agent's RTVI_CV_BASE_URL at the ingress
+# endpoint. This toggle only emits the annotations; it does not create
+# the Ingress.
+streamAffinity:
+  enabled: true
+  hashHeader: x-stream-id
+
 streamType: "kafka"
 modelType: "cnn"
 otelSdkDisabled: "true"

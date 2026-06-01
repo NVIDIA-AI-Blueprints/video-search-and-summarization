@@ -1,0 +1,160 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-summarization"
+version = "3.2.0rc11"
+description = "Video Summarization"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "requires_gpu: marks tests that require GPU hardware",
+    "smoke: marks smoke tests that spin up local FastAPI server (ViaTestServer)",
+    "integration: marks integration tests that connect to external services or servers",
+    "slow: marks slow-running tests (over 60 seconds)",
+    "unit: marks simple unit tests that don't require server or external dependencies",
+    "health: health check endpoint tests",
+    "metrics: metrics endpoint tests",
+    "models: models API endpoint tests",
+    "summarization: video summarization API tests",
+    "recommended_config: recommended config API tests",
+    "error_handling: error handling validation tests",
+    "test_in_ci: all tests to run in CI pipeline",
+    "stress: load/concurrency tests (deselect with -m 'not stress')",
+    "es_shard_limit: ES shard exhaustion regression suite",
+    "retain_mode: ES shard-limit subset run with LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=true",
+    "drop_mode: ES shard-limit subset run with LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=false (or unset)",
+]
+addopts = "--ignore-glob=**/test_gpt4v_azure_openai.py --ignore-glob=**/byov/** --ignore-glob=**/model/** --ignore-glob=tests/test_video_file_frame_getter.py --ignore-glob=tests/test_via_health_eval.py"
+timeout = 240
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:.*environs*:58",
+    "ignore::DeprecationWarning:.*ngcbpc*:",
+    "ignore::DeprecationWarning:.*pkg_resources*:",
+    "ignore::DeprecationWarning",
+    "ignore:pkg_resources is deprecated:DeprecationWarning::",
+    "ignore:The 'warn' method is deprecated:DeprecationWarning::",
+    "ignore::FutureWarning:.*huggingface_hub.file_download*:",
+    "ignore:DynamicImporter.exec_module:ImportWarning::",
+    "ignore::DeprecationWarning:pydantic.*:",
+    "ignore:WARNING\\! top_p is not default parameter:UserWarning::",
+    "ignore:unclosed <socket.socket:ResourceWarning::",
+    "ignore:.*`clean_up_tokenization_spaces` was not set.*",
+    "ignore::UserWarning:huggingface\\.tokenizers.*The current process just got forked, after parallelism has already been used.*",
+    "ignore:unclosed transport:ResourceWarning::",
+    "ignore:Deprecated call to :DeprecationWarning::",
+    "ignore:Pydantic V1 style*",
+    "ignore:Field \"model_uri\" has conflict*",
+    "ignore:Field \"model_name\" has conflict*",
+    "ignore:Field \"model_version\" has conflict*",
+    "ignore:Field *",
+    "ignore::UserWarning",
+    "ignore:UnboundLocalError*",
+    "ignore:IRuntime*",
+    "ignore:Please use `import python_multipart` instead:PendingDeprecationWarning::",
+    "ignore:Producer process has been terminated",
+    "ignore:The grpc package installed:RuntimeWarning",
+]
+
+[tool.isort]
+profile = "black"
+src_paths = ["src", "tests"]
+
+[tool.black]
+line-length = 100
+
+[tool.coverage.run]
+source = ["src"]
+relative_files = true  # Paths relative to cwd so SonarQube can resolve
+branch = true
+parallel = true
+dynamic_context = "test_function"
+omit = [
+    "tests/**",
+    "3rdparty/**",
+    "ui_utils/**",
+    "docker/**",
+    "src/cv_pipeline/**",
+    "src/models/vila15/VILA/**",
+    "src/models/nvila/VILA/**",
+    "/usr/lib/python3/**",
+    "src/via_demo_client.py",
+    "src/client/**",
+    "src/via_client_cli.py",
+    "src/trt_inference/**",
+    "src/models/openai_compat/internal/util.py",
+]
+
+[tool.coverage.report]
+skip_empty = false
+skip_covered = false
+include = ["src/**/*.py"]
+precision = 2
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+show_contexts = true
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+profile = "black"
+known-first-party = ["via_server", "via_utils", "via_logger", "via_exception", "vss_api_models", "vlm_pipeline"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.uv]
+managed = true
+
+[tool.pyright]
+extraPaths = ["src"]

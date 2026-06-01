@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,6 +29,19 @@ const Validator = require("../Utils/Validator");
 
 class Place {
     
+    /**
+     * Returns Elasticsearch query body with a sensor ID aggregation.
+     * @public
+     * @static
+     * @param {Object} input - Input object.
+     * @param {string} input.place - Place used to filter the sensor ID aggregation.
+     * @param {string} input.sensorIdField - Sensor ID field used in the aggregation. sensorIdField should be one of 'sensor.id' or 'sensorId'.
+     * @returns {Object} Elasticsearch query body with a sensor ID aggregation is returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * let input = {place: "building=abc/room=xyz", sensorIdField: "sensor.id"};
+     * let queryBody = mdx.Services.Place.buildEsSensorIdAggQueryForLeafPlace(input);
+     */
     static buildEsSensorIdAggQueryForLeafPlace(input){
         const schema = {
             type: "object",
@@ -79,6 +92,18 @@ class Place {
         return queryBody;
     }
 
+    /**
+     * Builds an Elasticsearch aggregation query that returns immediate child places for a non-leaf place.
+     * @public
+     * @static
+     * @param {Object} input - Input object.
+     * @param {string} input.place - Non-leaf place used to filter documents.
+     * @returns {Object} Elasticsearch query body with a place-successor aggregation is returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * let input = {place: "building=abc"};
+     * let queryBody = mdx.Services.Place.buildEsPlaceSuccessorAggQueryForNonLeafPlace(input);
+     */
     static buildEsPlaceSuccessorAggQueryForNonLeafPlace(input){
         const schema = {
             type: "object",

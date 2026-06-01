@@ -1,14 +1,15 @@
 ## Description: <br>
-Use to deploy the vss-video-analytics-api REST service standalone on top of Elasticsearch + optional Kafka. <br>
+Use to deploy the vss-video-analytics-api REST service standalone (config-source, data-log bind, Elasticsearch, optional Kafka). Not for full warehouse deploy. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
-## Owner: NVIDIA <br>
+## Owner
+NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers who need to deploy the video-analytics-api REST service independently against an existing Elasticsearch cluster, with optional Kafka integration for dynamic config, calibration, and RTLS/AMR features. <br>
+Developers and engineers who need to deploy the video-analytics-api REST service standalone with custom configuration, data-log bind, and Elasticsearch/Kafka connectivity without deploying the full VSS warehouse stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -18,9 +19,9 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [Deploy Video Analytics API Service](references/deploy-video-analytics-api-service.md) <br>
 - [Configuration Guide](references/configuration.md) <br>
-- [Deploy Video Analytics API — Standalone Service](references/deploy-video-analytics-api-service.md) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
@@ -29,6 +30,16 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Metrics Used: <br>
+Reported benchmark dimensions: <br>
+- Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
+- Correctness: Checks whether the agent follows the expected workflow and produces the correct final output. <br>
+- Discoverability: Checks whether the agent loads the skill when relevant and avoids using it when irrelevant. <br>
+- Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
+- Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
+
+
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

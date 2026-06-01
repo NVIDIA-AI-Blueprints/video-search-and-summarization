@@ -383,7 +383,7 @@ Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
-| RTX PRO 4500 Blackwell | `OTHER` — 32 GB; no dedicated profile, see [alerts.md § RTX PRO 4500](alerts.md#rtx-pro-4500-blackwell-32-gb) for the required `LLM_MODE=remote` env |
+| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + FP8 VLM model overrides |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -562,21 +562,7 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 
 #### 2.3 NVIDIA Container Toolkit
 
-```bash
-docker run --rm --gpus all ubuntu:24.04 nvidia-smi 2>&1 | head -8
-```
-
-If it fails:
-```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
+Canonical install + verify lives in [`prerequisites.md` § 3 NVIDIA Container Toolkit](prerequisites.md#3-nvidia-container-toolkit). Run that block and re-verify with `docker run --rm --gpus all ubuntu:24.04 nvidia-smi` before continuing.
 
 #### 2.4 Linux Kernel Settings
 
@@ -769,8 +755,8 @@ LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
 
 # --- RTVI VLM (bp_wh; always local — these are image/model selectors, not a mode toggle) ---
 # vss-rtvi-vlm is always deployed for bp_wh (hardcoded in compose profile bp_wh_2d).
-VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
 
 # --- MQTT (mv3dt only — cross-camera messaging for BEV Fusion) ---

@@ -173,7 +173,7 @@ The canonical harbor command is in § Harbor invocation.
          --base "$SOURCE_BRANCH" \
          --head "$BOT_BRANCH" \
          --title "[skill-eval] ${SKILL} adapter for PR #${PR_NUMBER}" \
-         --body-file /tmp/skill-eval/bot-pr-body.md)
+         --body-file "$SCRATCH/bot-pr-body.md")
 
        gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "
        The skills-eval bot generated/updated the adapter required to
@@ -318,15 +318,16 @@ The canonical harbor command is in § Harbor invocation.
       ("no instance resolved, harness does not auto-provision") and
       the trial fails before harbor invokes the agent. If a trial fails, read the
       trial log, fix the adapter (not the flags), rerun. While a
-      trial is running, do NOT babysit the remote box (no
-      `brev exec` polling, no `Monitor` on remote logs); harbor has
-      its own agent-execution timeout and will fail the trial
-      cleanly. Spend turns on the next trial's setup or on reading
-      already-completed trial logs instead.
+      trial is running, do NOT poll the remote box from your tool loop
+      — harbor has its own agent-execution timeout and will fail the
+      trial cleanly. Spend turns on the next trial's setup or on
+      reading already-completed trial logs instead.
    d. After each trial, parse
       `$RES/<date>/<trial>/verifier/reward.txt`
       and `test-stdout.txt`. Record `(spec, platform, reward,
-      checks_passed/total, duration_s, trace_url)` for the comment.
+      checks_passed/total, duration_s, trace_url)` for the comment. A
+      missing `reward.txt` means the trial errored (e.g. non-zero
+      harbor exit) — record it as a failure, do not skip it silently.
 
 6. **Post ONE results comment per `(PR, eval_spec)` batch** when every
    `(platform)` tuple in that spec's matrix has a result. Format
@@ -409,13 +410,19 @@ The canonical harbor command is in § Harbor invocation.
 
 ## Platform topology
 
-| Platform | Brev instance | Lifecycle | Notes |
-|---|---|---|---|
-| `l40s` | `vss-eval-l40s` (`massedcompute_L40Sx2`) | **non-stoppable — delete after trials complete** (MC doesn't support stop) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48GB GPU. |
-| `h100` | `vss-eval-h100` (launchpad `dmz.h100x2.pcie` preferred) | **non-stoppable — delete after trials complete** | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` | `vss-eval-rtx` (`g7e.12xlarge`) | **stop after trials complete** | RTX PRO 6000 BW, 2× GPU, full matrix. |
-| `spark` | BYOH registered node `SPARK` | **no-op — never stop, never delete** | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
-| `H100-VLM` | BYOH registered node | **no-op** | Secondary H100 node if the cloud one is slow. |
+| Platform | Fleet prefix in `brev ls` | Notes |
+|---|---|---|
+| `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
+| `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
+| `rtx` / `rtxpro6000bw` | `vss-eval-rtx*` (e.g. `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g-3`) | RTX PRO 6000 BW. Suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). |
+| `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
+
+Pool naming is operator-managed; the actual fleet is whatever
+`brev ls` reports matching the prefix. Don't hardcode a specific
+instance name — the fleet-selection algorithm in § 5a picks the
+candidate. **Lifecycle is the operator's job**; you only acquire
+the per-box flock, run trials, and release the flock — see Hard
+rules about `brev create / start / stop / delete / reset`.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
@@ -461,6 +468,14 @@ flag names have bitten multiple runs (`--include-task-name`, not
 a file path).
 
 ```bash
+# uvx (and claude) install under ~/.local/bin. A fresh `bash -c` /
+# subshell does NOT source ~/.bashrc, so $HOME/.local/bin is missing
+# from PATH and `uvx` resolves to "command not found" — the trial
+# never starts. Re-export PATH defensively at the top of every Bash
+# call that runs harbor (observed on PR #827: "uvx is not in PATH for
+# subshells", whole sweep stalled).
+export PATH="$HOME/.local/bin:$PATH"
+
 # PYTHONPATH lets uvx harbor resolve envs.brev_env:BrevEnvironment.
 # The workflow step already exports it, but re-export defensively in
 # case you're driving harbor from a subshell.
@@ -479,6 +494,18 @@ export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
 # workflow runs land on different boxes and that's how parallelism
 # happens.
 export BREV_INSTANCE="$INSTANCE_NAME"
+
+# Per-(spec, platform) output ROOT. This is load-bearing: harbor
+# creates a <date>/<trial> subdir keyed to the *second* under -o, so
+# two harbor runs that share one -o and start in the same second
+# collide with FileExistsError and silently lose a trial (observed on
+# PR #827: base/lvs/alerts_cv vanished when 6 specs fanned out onto a
+# shared -o). Giving every invocation its own root makes serial
+# retries, stale dirs left by a failed attempt, and concurrent
+# fan-out (§ Wait contract #4) all collision-proof. NEVER point two
+# harbor runs at the same -o.
+RESULTS="/tmp/skill-eval/results/$GITHUB_RUN_ID"
+TRIAL_OUT="$RESULTS/<spec_stem>-<platform>"   # e.g. $RESULTS/base-rtxpro6000bw
 
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
@@ -546,11 +573,11 @@ Notes that have burned prior runs:
       --agent-timeout-multiplier 6.0 \
       --verifier-timeout-multiplier 3.0 \
       --max-retries 0 -n 1 --yes \
-      -o "$RESULTS"
+      -o "$TRIAL_OUT"
 
-    # Read the just-completed step's reward. The trial dir is
-    # named step-<N>__<rand6>, so glob it.
-    REWARD=$(cat "$RESULTS"/*/*/step-${STEP}__*/verifier/reward.txt \
+    # Read the just-completed step's reward. Layout under $TRIAL_OUT is
+    # <date>/<trial>, and the trial dir is named step-<N>__<rand6>.
+    REWARD=$(cat "$TRIAL_OUT"/*/step-${STEP}__*/verifier/reward.txt \
       2>/dev/null | tail -n 1)
     REWARD="${REWARD:-0}"
 
@@ -561,7 +588,7 @@ Notes that have burned prior runs:
     awk -v r="$REWARD" 'BEGIN { exit !(r+0 < 1.0) }' && {
       for SKIP in $(seq $((STEP + 1)) "$STEP_COUNT"); do
         printf '%s\n' "skipped (prior-step fail, step=$STEP reward=$REWARD)" \
-          > /tmp/skill-eval/skipped-<spec_stem>-<platform>-step-${SKIP}.txt
+          > "$SCRATCH/skipped-<spec_stem>-<platform>-step-${SKIP}.txt"
       done
       break
     }
@@ -597,7 +624,7 @@ Notes that have burned prior runs:
 - Output goes to `$RES/<date>/<trial>/`. Migrate to the viewer
   (see § Harbor viewer).
 
-### No polling — block on harbor
+### Wait contract — every harbor invocation is reaped before the Bash tool returns
 
 `uvx harbor run` MUST block this turn until the trial exits. Do NOT
 background it and poll progress (line counts, `brev exec`, etc.) — each
@@ -779,7 +806,7 @@ this leg's workflow artifact
 `skills-eval-results-pr-<N>-<skill>__<spec>-<run_id>.tar.gz`.</sub>
 ```
 
-Use `gh pr comment $PR_NUMBER --body-file /tmp/pr-<spec>.md`. Never
+Use `gh pr comment $PR_NUMBER --body-file "$SCRATCH/pr-<spec>.md"`. Never
 post a partial batch. If you posted a blocker earlier in the run
 (`missing_probe`, `env_blocker`), the final results comment is still
 separate; don't conflate the two.

@@ -2,7 +2,7 @@
 
 ## Container Image
 
-- **Image name** — `nvcr.io/nvidia/vss-core/vss-rt-embed`. The Compose service uses `${RTVI_EMBED_IMAGE}` and `${RTVI_EMBED_TAG}` so the image and tag are overridable per environment.
+- **Image name** — `nvcr.io/nvstaging/vss-core/vss-rt-embed`. The Compose service uses `${RTVI_EMBED_IMAGE}` and `${RTVI_EMBED_TAG}` so the image and tag are overridable per environment.
 - **Tag pattern** — `<vss-release>-<image-build>` (Compose default: `3.2.0-26.05.4`). The major/minor matches the VSS release; the suffix tracks the underlying image build.
 - **Registry** — `nvcr.io`. Pulls require an authenticated session with NGC.
 - **NGC pull requirements** — `docker login nvcr.io` with `$oauthtoken` and a valid `NGC_API_KEY`. The same `NGC_API_KEY` must also be present in the container environment for model and asset access.
@@ -61,9 +61,15 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 
 ## Known Deployment Issues
 
-See `troubleshooting.md` for the consolidated symptom →
-root cause → fix table covering startup, model/cache, runtime, and GPU
-visibility issues.
+| Symptom | Root cause | Fix |
+|---|---|---|
+| Container is marked unhealthy within the first 20 minutes. | Health check `start_period` was shortened below the model warmup time. | Restore `start_period: 1200s` or longer for first boots; keep model and Triton volumes warm to shorten subsequent boots. |
+| `docker compose up` errors that `RTVI_EMBED_PORT` is required. | The `ports:` mapping uses `${RTVI_EMBED_PORT?}`, which fails fast when unset. | Set `RTVI_EMBED_PORT` in the environment or `.env` file before bringing the service up. |
+| Model download fails with HTTP 429 against Hugging Face. | Anonymous Hugging Face downloads are being rate-limited while pulling `nvidia/Cosmos-Embed1-448p`. | Set `HF_TOKEN` to a valid Hugging Face token to lift the rate limit, or pre-populate the `rtvi-hf-cache` volume so first boot does not need to re-fetch the weights. |
+| Model download fails with HTTP 401/403 against NGC. | `NGC_API_KEY` is missing or invalid. | Provide a valid `NGC_API_KEY` and confirm `docker login nvcr.io` succeeded on the host. |
+| Service starts but `/v1/ready` keeps returning 503. | A peer such as Redis or Kafka was enabled but is not reachable. | Either disable the feature on the host (`ENABLE_REDIS_ERROR_MESSAGES=false`, `RTVI_EMBED_KAFKA_ENABLED=false` — the latter maps to the container's `KAFKA_ENABLED`) or fix peer reachability (`REDIS_HOST`, `HOST_IP`/`KAFKA_BOOTSTRAP_SERVERS`). |
+| Process exits with permission errors on `/opt/nvidia/rtvi/.rtvi/ngc_model_cache` or `/tmp/huggingface`. | Host-side bind mount is not writable by UID/GID `1001:1001`. | `chown -R 1001:1001` on the host bind target, or rely on the named volumes which are provisioned with correct permissions. |
+| GPU not visible inside the container. | NVIDIA Container Toolkit not installed or driver too old. | Install/upgrade NVIDIA Container Toolkit and matching driver, then re-pull the image and restart the service. |
 
 ## Prerequisites
 

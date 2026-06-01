@@ -1,0 +1,100 @@
+{
+	"app": [
+		{
+			"name": "spaceAnalyticsIntervalSec",
+			"value": "1.0"
+		},
+		{
+			"name": "spaceAnalyticsCalibSensorsOnly",
+			"value": "false"
+		},
+		{
+			"name": "spaceAnalyticsGridSize",
+			"value": "0.2"
+		},
+		{
+			"name": "spaceAnalyticsUnsafeSize",
+			"value": "0.5"
+		},
+		{
+			"name": "spaceAnalyticsTargetClasses",
+			"value": "[\"Box\", \"Pallet\"]"
+		},
+		{
+			"name": "spaceAnalyticsUseGA",
+			"value": "false"
+		},
+		{
+			"name": "spaceAnalyticsPopulationSizeGA",
+			"value": "100"
+		},
+		{
+			"name": "spaceAnalyticsNumGenerationsGA",
+			"value": "100"
+		},
+		{
+			"name": "in3dMode",
+			"value": "true"
+		},
+		{
+			"name": "apiMDX",
+			"value": "http://10.117.11.105:8081"
+		},
+		{
+			"name": "apiRetryMaxCnt",
+			"value": "5"
+		},
+		{
+			"name": "apiRetryMaxTimeSec",
+			"value": "5"
+		},
+		{
+			"name": "cameraFontSize",
+			"value": "2"
+		},
+		{
+			"name": "advancedOverlay",
+			"value": "true"
+		},
+		{
+			"name": "confinedBboxColorRGB",
+			"value": "255, 128, 0"
+		},
+		{
+			"name": "confinedROIColorRGB",
+			"value": "255, 128, 0"
+		},
+		{
+			"name": "confinedBboxThickness",
+			"value": "3"
+		},
+		{
+			"name": "confinedROIThickness",
+			"value": "4"
+		},
+		{
+			"name": "restrictedBboxColorRGB",
+			"value": "153, 0, 0"
+		},
+		{
+			"name": "restrictedROIColorRGB",
+			"value": "153, 0, 0"
+		},
+		{
+			"name": "restrictedBboxThickness",
+			"value": "3"
+		},
+		{
+			"name": "restrictedROIThickness",
+			"value": "2"
+		},
+		{
+			"name": "proximityCenterObjType",
+			"value": "Humanoid"
+		},
+		{
+			"name": "proximityThickness",
+			"value": "3"
+		}
+	]
+}

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -256,14 +256,14 @@ class Frames {
      * returns an object containing an array of detected objects. Only the data point corresponding to the max confidence of each object id will be present in the array.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
+     * @param {string} input.sensorId - Sensor ID used to filter detected objects.
      * @param {?string} [input.objectId=null] - objectId and maxResultSize can't occur together.
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
-     * @param {number} [input.maxResultSize=100] - maxResultSize must be an integer. objectId and maxResultSize can't occur together.
-     * @param {number} [input.minConfidence=0.80]
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {number} [input.maxResultSize=100] - Maximum number of detected objects returned. objectId and maxResultSize can't occur together.
+     * @param {number} [input.minConfidence=0.80] - Minimum confidence used to filter detected objects.
      * @returns {Promise<Object>} An object containing an array of detected objects is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -381,11 +381,11 @@ class Frames {
      * returns the timestamp of the latest occurance of objectId in a frameId of a sensor.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.objectId
-     * @param {string} input.frameId
+     * @param {string} input.sensorId - Sensor ID used to filter the latest timestamp of frame with object.
+     * @param {string} input.objectId - Object ID used to filter the latest timestamp of frame with object.
+     * @param {string} input.frameId - Frame ID used to filter the latest timestamp of frame with object.
      * @returns {Promise<?string>} Timestamp of the frame is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -454,11 +454,11 @@ class Frames {
      * returns embedding of an objectId.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.objectId
-     * @param {string} input.timestamp
+     * @param {string} input.sensorId - Sensor ID used to filter embedding.
+     * @param {string} input.objectId - Object ID used to filter embedding.
+     * @param {string} input.timestamp - Timestamp for the query in ISO 8601 format.
      * @returns {Promise<?Array<number>>} Embedding of an objectId is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -541,11 +541,11 @@ class Frames {
      * returns details of proximity clusters.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
+     * @param {string} input.sensorId - Sensor ID used to filter proximity clusters.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @returns {Promise<Object>} An object containing details of proximity clusters is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -645,11 +645,11 @@ class Frames {
      * returns an object containing pts.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
+     * @param {string} input.sensorId - Sensor ID used to query pts.
      * @param {string} [input.timestamp] - Either timestamp or frameId should be present.
-     * @param {number} [input.frameId] - frameId must be an integer. Either timestamp or frameId should be present.
+     * @param {number} [input.frameId] - Frame ID used to query pts. Either timestamp or frameId should be present.
      * @returns {Promise<Object>} An object containing pts is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -795,14 +795,14 @@ class Frames {
      * returns an object containing an array of frames.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
+     * @param {string} input.sensorId - Sensor ID used to filter frames.
      * @param {string} [input.frameId] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present. frameId can't occur together with maxResultSize.
      * @param {string} [input.timestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present. timestamp can't occur together with maxResultSize.
      * @param {string} [input.fromTimestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present.
      * @param {string} [input.toTimestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present.
-     * @param {number} [input.maxResultSize=25] - maxResultSize must be an integer. maxResultSize can't occur together with either frameId or timestamp.
+     * @param {number} [input.maxResultSize=25] - Maximum number of frames returned. maxResultSize can't occur together with either frameId or timestamp.
      * @returns {Promise<Object>} An object containing an array of frames is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -925,14 +925,14 @@ class Frames {
      * returns an object containing an array of enhanced frames.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
+     * @param {string} input.sensorId - Sensor ID used to filter enhanced frames.
      * @param {string} [input.frameId] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present. frameId can't occur together with maxResultSize.
      * @param {string} [input.timestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present. timestamp can't occur together with maxResultSize.
      * @param {string} [input.fromTimestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present.
      * @param {string} [input.toTimestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present.
-     * @param {number} [input.maxResultSize=25] - maxResultSize must be an integer. maxResultSize can't occur together with either frameId or timestamp.
+     * @param {number} [input.maxResultSize=25] - Maximum number of enhanced frames returned. maxResultSize can't occur together with either frameId or timestamp.
      * @returns {Promise<Object>} An object containing an array of enhanced frames is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1055,14 +1055,14 @@ class Frames {
      * returns an object containing an array of bev frames.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
+     * @param {string} input.sensorId - Sensor ID used to filter bev frames.
      * @param {string} [input.frameId] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present. frameId can't occur together with maxResultSize.
      * @param {string} [input.timestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present. timestamp can't occur together with maxResultSize.
      * @param {string} [input.fromTimestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present.
      * @param {string} [input.toTimestamp] - Either frameId or timestamp or (fromTimestamp and toTimestamp) should be present.
-     * @param {number} [input.maxResultSize=25] - maxResultSize must be an integer. maxResultSize can't occur together with either frameId or timestamp.
+     * @param {number} [input.maxResultSize=25] - Maximum number of bev frames returned. maxResultSize can't occur together with either frameId or timestamp.
      * @returns {Promise<Object>} An object containing an array of bev frames is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1232,6 +1232,25 @@ class Frames {
         return results;
     }
 
+    /**
+     * Retrieves frame timestamps and sensor IDs for frames that contain matching alerts.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {?string} [input.sensorId=null] - Sensor ID used to filter frame alerts.
+     * @param {?string} [input.type=null] - Alert type used to filter frame alerts. type should be one of 'proximity', 'restricted-area' or 'confined-area'.
+     * @param {number} [input.maxResultSize=25] - Maximum number of alerts returned.
+     * @returns {Promise<Object>} An object containing an array of alerts is returned
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {fromTimestamp: "2023-01-12T11:20:10.000Z", toTimestamp: "2023-01-12T14:20:10.000Z"};
+     * let framesObject = new mdx.Services.Frames();
+     * let alerts = await framesObject.getAlerts(elastic,input);
+     */
     async getAlerts(documentDb, input) {
         const schema = {
             type: "object",

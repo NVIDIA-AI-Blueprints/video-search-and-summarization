@@ -1,0 +1,33 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			}
+		],
+		"producer": {
+			"lingerMs": 0
+		},
+		"group": "frame-playback-app"
+	},
+	"app": [
+		{
+			"name": "playbackLoop",
+			"value": "1"
+		},
+		{
+			"name": "playbackFilterEmptyObjects",
+			"value": "true"
+		},
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		}
+	]
+}

@@ -1,14 +1,15 @@
 ## Description: <br>
-Use to generate an LVS report through the Enterprise-RAG video_search_frag extension with knowledge retrieval and HITL. <br>
+Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
-## Owner: NVIDIA <br>
+## Owner
+NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to generate video summary reports backed by Enterprise RAG knowledge retrieval and human-in-the-loop parameter collection via the VSS video_search_frag extension. <br>
+Developers and engineers generating video summary reports with Enterprise RAG knowledge retrieval using the VSS frag pipeline. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -18,9 +19,8 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [NVIDIA Build Experience](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -28,6 +28,16 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Metrics Used: <br>
+Reported benchmark dimensions: <br>
+- Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
+- Correctness: Checks whether the agent follows the expected workflow and produces the correct final output. <br>
+- Discoverability: Checks whether the agent loads the skill when relevant and avoids using it when irrelevant. <br>
+- Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
+- Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
+
+
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

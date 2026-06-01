@@ -176,7 +176,8 @@ rtvi_vlm:
   timeout: 10
   default_model: "{{ $vlmNameStr }}"
   captions_ack_timeout: 2.0
-  stream_readiness_timeout: 10.0
+  stream_readiness_poll_interval: 0.2
+  stream_readiness_max_wait: 2.0
   rules_collection: "alert-realtime-rules"
   pending_ttl_seconds: 300
   health_check_interval_seconds: 30

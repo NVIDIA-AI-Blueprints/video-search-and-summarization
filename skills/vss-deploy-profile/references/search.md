@@ -14,18 +14,20 @@ Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. The
 
 ## What gets deployed
 
+Container names below are the actual `container_name:` keys from `deploy/docker/services/**/compose.yml`. LLM/VLM NIM containers are named after the selected model (default shown; varies with `LLM_NAME_SLUG` / `VLM_NAME_SLUG`).
+
 | Service | Container | Port | Purpose |
 |---|---|---|---|
-| RT-CV (DeepStream perception) | vss-rtvi-cv | — (host net) | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
-| RT-Embed (Cosmos Embed1) | vss-rtvi-embed | 8017 | Video + text embedding generation |
-| LLM NIM | mdx-nim-llm-1 | 30081 | Same options as `base` (Nano 9B v2 default) |
-| VLM | (depends on placement) | 30082 (NIM) / 8018 (RT-VLM) | **Only if Critique enabled** — see [VLM placement](#vlm-placement) |
-| VSS Agent | mdx-vss-agent-1 | 8000 | Orchestrates tool calls, embed search, critique |
-| VSS UI | mdx-vss-ui-1 | 3000 | Search tab |
-| VST | mdx-vst-1 | 30888 | Video storage + ingest |
-| Elasticsearch + Logstash + Kibana | mdx-elasticsearch-1, logstash, kibana | 9200, 5601 | Index, ingest pipeline, dashboards |
-| Kafka | mdx-kafka-1 | 9092 | Embedding pipeline message bus |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability |
+| RT-CV (DeepStream perception) | `vss-rtvi-cv` | — (host net) | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
+| RT-Embed (Cosmos Embed1) | `vss-rtvi-embed` | 8017 | Video + text embedding generation |
+| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. |
+| VLM | depends on placement; default `nvidia-cosmos-reason2-8b` (NIM) or `vss-rtvi-vlm` (RT-VLM) | 30082 (NIM) / 8018 (RT-VLM) | **Only if Critique enabled** — see [VLM placement](#vlm-placement) |
+| VSS Agent | `vss-agent` | 8000 | Orchestrates tool calls, embed search, critique |
+| VSS Agent UI | `vss-agent-ui` | 3000 | Search tab |
+| VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest |
+| Elasticsearch + Logstash + Kibana | `elasticsearch`, `logstash`, `kibana` | 9200, 5601 | Index, ingest pipeline, dashboards |
+| Kafka | `kafka` | 9092 | Embedding pipeline message bus |
+| Phoenix | `phoenix` | 6006 | Observability |
 
 ## Default models
 

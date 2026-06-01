@@ -56,8 +56,11 @@ permissions:
 # tracks an active-deploy marker). Same path handles SIGKILL (the
 # timeout-minutes terminator) and host reboots.
 concurrency:
-  group: skills-eval-${{ github.ref }}
-  cancel-in-progress: true
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch'
+      && format('skills-eval-manual-{0}', github.run_id)
+      || format('skills-eval-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 defaults:
   run:

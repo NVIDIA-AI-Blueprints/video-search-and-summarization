@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +20,11 @@
 const mdx = require("@nvidia-mdx/web-api-core");
 const elastic = require('../../initializers/elastic');
 
+/**
+ * Registers behavior routes on the provided router.
+ * @param {import("express").Router} router - Router instance used for the behavior API.
+ * @returns {void}
+ */
 module.exports = (router) => {
     
     // This will handle the url calls for /behavior

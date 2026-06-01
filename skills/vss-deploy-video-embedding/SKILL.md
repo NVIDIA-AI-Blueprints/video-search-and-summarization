@@ -1,30 +1,17 @@
 ---
 name: vss-deploy-video-embedding
-description: Use to deploy and operate the RT-Embed video-embedding microservice (Compose bring-up, /v1 REST, Redis/Kafka/OTel). Not for dense captioning or search.
+description: >
+  Deploy, operate, and integrate the VSS 3.2 GA RT-Embed Video Embedding
+  microservice. Covers Docker Compose bring-up,
+  GPU and storage prerequisites, the `/v1` REST API (file uploads,
+  text and video embeddings, live RTSP streams, health and metrics),
+  Redis/Kafka/OTel integration, common failure modes, and teardown.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
-## Purpose
-
-Stand up the RT-Embed video-embedding microservice, exercise its REST surface, and integrate it with Redis/Kafka/OTel.
-
-## Instructions
-
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
-
-## Examples
-
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
-
-## Limitations
-
-- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
-- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
-- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
 
 # VSS Video Embedding (RT-Embed)
 
@@ -44,7 +31,7 @@ Use this skill when you need to:
 - **Legacy 3.1 name:** RT-Embed.
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
-- **Image:** `nvcr.io/nvidia/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
+- **Image:** `nvcr.io/nvstaging/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
 - **Default tag:** `3.2.0-26.05.4` (override with `RTVI_EMBED_TAG`).
 - **Profile:** `bp_developer_search_2d`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
@@ -66,6 +53,29 @@ See `references/deploy-vss-deploy-video-embedding.md` for the full prerequisite 
 
 ## Deploy
 
+For **standalone RT-Embed**, work from the service directory:
+
+```bash
+cd "{{repo_root}}/deploy/docker/services/rtvi/rtvi-embed"
+```
+
+Do **not** use `/vss-deploy-profile` or `scripts/dev-profile.sh` for this standalone deployment.
+
+Set a minimal standalone environment before `docker compose up`:
+
+```bash
+export RTVI_EMBED_PORT=8017
+export VSS_DATA_DIR="${VSS_DATA_DIR:-$(pwd)/.standalone-data}"
+export NGC_API_KEY="<your-ngc-api-key>"
+export HOST_IP="$(hostname -I | awk '{print $1}')"
+export HF_TOKEN="${HF_TOKEN:-}"  # optional, but recommended to avoid HF 429s
+mkdir -p "${VSS_DATA_DIR}/data_log/vst/clip_storage"
+export RTVI_EMBED_KAFKA_ENABLED=false
+export ENABLE_REDIS_ERROR_MESSAGES=false
+```
+
+This avoids mounting `/data_log/vst/clip_storage` from filesystem root when `VSS_DATA_DIR` is unset, and prevents startup stalls from missing Kafka/Redis peers in standalone mode.
+
 ```bash
 # Bring up the service under the required Compose profile.
 docker compose -f rtvi-embed-docker-compose.yml \
@@ -85,16 +95,20 @@ BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
 curl -fsS "$BASE_URL/v1/ready"               # 200 when warm.
 curl -fsS "$BASE_URL/v1/ready?detailed=true" # Component-level status.
 curl -fsS "$BASE_URL/v1/version"
-curl -fsS "$BASE_URL/v1/models"              # Confirms cosmos-embed1-448p is loaded.
+MODELS_JSON=$(curl -fsS "$BASE_URL/v1/models")
+echo "$MODELS_JSON"                          # Confirms cosmos-embed1-448p is loaded.
+
+MODEL_ID="$(echo "$MODELS_JSON" | jq -r '.data[0].id // empty')"
+test -n "$MODEL_ID" || { echo "ERROR: /v1/models has no model id — wait until /v1/ready is 200" >&2; exit 1; }
 ```
+
+The sections below that call the API reuse `$BASE_URL` and `$MODEL_ID` from this block.
 
 ## Common Operations
 
 ### Generate video embeddings from an uploaded file
 
 ```bash
-BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
-
 FILE_ID=$(curl -fsS -X POST "$BASE_URL/v1/files" \
   -F purpose=vision \
   -F media_type=video \
@@ -104,7 +118,7 @@ curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
   -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$FILE_ID\",
-    \"model\": \"cosmos-embed1-448p\",
+    \"model\": \"$MODEL_ID\",
     \"chunk_duration\": 60,
     \"chunk_overlap_duration\": 10
   }"
@@ -115,7 +129,7 @@ curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
 ```bash
 curl -fsS -X POST "$BASE_URL/v1/generate_text_embeddings" \
   -H "Content-Type: application/json" \
-  -d '{"text_input": "a forklift moving pallets", "model": "cosmos-embed1-448p"}'
+  -d "{\"text_input\":\"a forklift moving pallets\",\"model\":\"${MODEL_ID}\"}"
 ```
 
 ### Embed a live RTSP stream
@@ -135,7 +149,7 @@ curl -N -X POST "$BASE_URL/v1/generate_video_embeddings" \
   -H "Accept: text/event-stream" \
   -d "{
     \"id\": \"$STREAM_ID\",
-    \"model\": \"cosmos-embed1-448p\",
+    \"model\": \"$MODEL_ID\",
     \"stream\": true,
     \"chunk_duration\": 10,
     \"chunk_overlap_duration\": 2
@@ -181,20 +195,31 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 
 ## Upgrade And Rollback
 
-See [Upgrade & Rollback](references/deploy-vss-deploy-video-embedding.md#upgrade--rollback)
-in the deployment reference for the full image-swap and rollback steps; named
-volumes persist across the swap.
+1. Update `RTVI_EMBED_IMAGE` and `RTVI_EMBED_TAG` to the target build.
+2. `docker compose -f rtvi-embed-docker-compose.yml pull rtvi-embed`.
+3. `docker compose -f rtvi-embed-docker-compose.yml --profile bp_developer_search_2d up -d rtvi-embed`.
+4. Watch `/v1/ready` until it returns 200.
+5. To roll back, re-pin `RTVI_EMBED_TAG` to the previous build and repeat. Named volumes persist across the swap.
 
 ## Tear Down
 
 ```bash
-docker compose -f rtvi-embed-docker-compose.yml down       # keeps caches
-docker compose -f rtvi-embed-docker-compose.yml down -v    # also removes the named caches; first re-start re-downloads the model and rebuilds the Triton repo (20+ min)
+# Preserve caches (named volumes survive).
+docker compose -f rtvi-embed-docker-compose.yml down
+
+# WARNING: removes rtvi-hf-cache, rtvi-ngc-model-cache, rtvi-triton-model-repo.
+# Next start will re-download the model and rebuild the Triton repo (20+ min).
+docker compose -f rtvi-embed-docker-compose.yml down -v
 ```
 
 ## References
 
-See [`references/README.md`](references/README.md) for the full reference index
-(deploy, integrate, API catalog, environment matrix, troubleshooting).
+| File | When to read |
+|---|---|
+| [references/README.md](references/README.md) | Table of contents for all reference files. |
+| [references/deploy-vss-deploy-video-embedding.md](references/deploy-vss-deploy-video-embedding.md) | Build Vision Agent deployment reference: image, GPU, storage, startup, prerequisites, known issues. |
+| [references/integrate-vss-deploy-video-embedding.md](references/integrate-vss-deploy-video-embedding.md) | Build Vision Agent integration reference: peers, inputs/outputs, env vars, network, example Compose snippet. |
+| [references/rest-api.md](references/rest-api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
+| [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
+| [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |
 
-bump:1

@@ -2,7 +2,7 @@
 
 Deploy **just** `vss-video-analytics-api` (no perception, no behavior-analytics, no UI) — useful when you want to:
 
-- Run the REST API against an existing Elasticsearch cluster (and optionally Kafka).
+- Run the REST API against an existing Elasticsearch cluster (and optionally Kafka), or bring up only the minimum infra it needs.
 - Serve calibration, sensor, behavior, alerts, events, tracking, incident, and metrics endpoints.
 
 Required host runtime: **Docker Engine 28.3.3** with **Docker Compose plugin v2.39.1+**.
@@ -20,18 +20,7 @@ You only edit the existing service compose:
 1. **`command:`** — which config file the Node server loads at startup.
 2. **`volumes:`** — what config (required) and what data-log directory (optional) to mount.
 
-After editing, deploy with:
-
-```bash
-cd <repo>/deploy/docker
-docker --version        # need 28.3.3
-docker compose version  # need v2.39.1+
-
-export VSS_APPS_DIR=$(pwd)
-export VSS_DATA_DIR=<path-to-data-directory>
-docker compose -f services/analytics/video-analytics-api/compose.yml \
-    up -d vss-video-analytics-api
-```
+Walk steps 1-3 below to decide each one; the bring-it-up command lives in [Deploy + verify](#deploy--verify) at the end.
 
 ---
 
@@ -61,7 +50,7 @@ The base compose already mounts the config from the services directory:
 services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json
 ```
 
-This config is identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when you have a local Kafka broker running.
+This config is identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when you have a local Kafka broker running. If Kafka is absent, the server can still start once Elasticsearch is healthy, but Kafka-dependent endpoints will fail until a broker becomes reachable. Use Option A or a custom config with `kafka.brokers: []` for a quiet broker-less deployment.
 
 No compose change needed — this is the default:
 
@@ -90,22 +79,29 @@ Top-level shape:
 | Section | What it controls |
 |---|---|
 | `server.port` | HTTP port the API listens on. Default **8081**. |
-| `server.configs[]` | List of `{name, value}` pairs. Knobs like `postBodySizeLimit` (max POST body, default `50mb`), `amrRetentionInSec` (AMR data retention, default `3`s in profiles / `300`s in image default), `inSimulationMode` (default `false`), `configStatusTimeoutMs` (config update ACK timeout, default `30000`ms), `configStatusTimeoutCheckFrequencyMs` (how often to check for timed-out config updates, default `900000`ms). |
+| `server.configs[]` | List of `{name, value}` pairs. Knobs like `postBodySizeLimit` (max POST body, default `50mb`), `amrRetentionInSec` (AMR data retention, default `3`s), `inSimulationMode` (default `false`), `configStatusTimeoutMs` (config update ACK timeout, default `30000`ms), `configStatusTimeoutCheckFrequencyMs` (how often to check for timed-out config updates, default `900000`ms). |
 | `elasticsearch` | `node` (ES URL), `indexPrefix` (default `mdx-`), `rawIndex` (default `mdx-raw-*`), `retries` (default `15`). |
 | `kafka` | `brokers` (array of `"host:port"` strings; empty = Kafka disabled), `retries` (KafkaJS retry count; `null` = KafkaJS default). |
 
 ---
 
-## Step 2 — Data log volume (optional)
+## Step 2 — Data log volume
 
-The compose mounts a data-log directory for file uploads (sensor images, calibration files uploaded via the REST API):
+The compose mounts a data-log directory for multipart upload handling and file-backed assets such as calibration images:
 
 ```yaml
 volumes:
   - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
 ```
 
-If you don't need file upload endpoints, you can drop this mount — the container will still start, but uploads will write to the container's ephemeral filesystem.
+If you keep this mount, set `$VSS_DATA_DIR` to a writable host path and pre-create the subdirectory before `docker compose up`:
+
+```bash
+export VSS_DATA_DIR=<path-to-data-directory>  # e.g. /tmp/vss-data
+mkdir -p "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
+```
+
+If you don't need image upload endpoints, you can drop this mount — the container will still start, but uploaded images will write to the container's ephemeral filesystem.
 
 ---
 
@@ -113,7 +109,7 @@ If you don't need file upload endpoints, you can drop this mount — the contain
 
 ### Elasticsearch (required)
 
-The server pings Elasticsearch on startup. If ES is unreachable, the server logs `[APP ERROR] Server initialization failed` and exits. The `restart: always` policy in the base compose will bring it back, and it retries with `[ELASTICSEARCH RETRY] attempt=N` log lines.
+The server pings Elasticsearch on startup. If ES is unreachable, the server logs `[APP ERROR] Server initialization failed` and exits. The `restart: always` policy in the base compose brings it back, so `docker ps` may show a `Restarting (N)` loop until ES is reachable.
 
 Make sure the `elasticsearch.node` in your config matches the running ES instance. With `network_mode: "host"`, ES must also be on the host network.
 
@@ -138,7 +134,7 @@ When brokers are configured and reachable, the API gains:
 - **Dynamic calibration** — produces calibration update notifications on `mdx-notification` (Kafka key `calibration`).
 - **RTLS / AMR** — consumes real-time location and AMR messages from `mdx-rtls` / `mdx-amr` topics and exposes them via REST.
 
-If brokers are configured but unreachable, the server still starts (ES must be up), but Kafka-dependent endpoints will fail.
+If brokers are configured but unreachable, the server still starts (ES must be up), but Kafka-dependent endpoints will fail. If you want the API to run broker-less without Kafka connection errors, set `kafka.brokers` to an empty array (`[]`) or `null`.
 
 ---
 
@@ -164,9 +160,10 @@ The server auto-discovers controllers from `src/app/controllers/rest-apis/` and 
 
 | Endpoint | What it does |
 |---|---|
-| `/livez` | Health check. Returns 200 when routes are registered and ES ping succeeded. |
+| `/livez` | Health check. Returns 200 when routes are registered and the server has initialized successfully. |
 | `/sensor` | CRUD for sensor metadata (GET / POST / DELETE). Supports file uploads (images). |
 | `/config` | Dynamic config management. GET retrieves current config; POST publishes config updates to Kafka. |
+| `/calibration` | Calibration retrieval, upsert, delete-sensor, image upload, and image metadata endpoints. Update operations can publish calibration notifications to Kafka. |
 | `/behavior` | Query behavior data from Elasticsearch. |
 | `/alerts` | Query alert data with time-range and sensor filters. |
 | `/events` | Query event data from Elasticsearch. |
@@ -176,7 +173,7 @@ The server auto-discovers controllers from `src/app/controllers/rest-apis/` and 
 | `/tracker` | Tracker data queries. |
 | `/clustering` | Clustering analysis queries. |
 
-All endpoints except `/livez` require Elasticsearch. Endpoints that publish notifications (config, calibration) also require Kafka.
+The server must initialize against Elasticsearch before `/livez` can return healthy. Data-query endpoints also need matching Elasticsearch indices and data. Endpoints that publish notifications (config, calibration) or expose RTLS / AMR streams also require Kafka.
 
 ---
 
@@ -188,14 +185,17 @@ docker --version        # need 28.3.3
 docker compose version  # need v2.39.1+
 
 export VSS_APPS_DIR=$(pwd)
-export VSS_DATA_DIR=<path-to-data-directory>  # e.g. /opt/vss/data
+export VSS_DATA_DIR=<path-to-data-directory>  # e.g. /tmp/vss-data
+mkdir -p "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
 
 # (one-time) edit services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json if needed.
 
 docker compose -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
 
 docker ps --filter "name=vss-video-analytics-api" --format '{{.Names}}\t{{.Status}}'
-docker logs -f vss-video-analytics-api
+# Compose auto-names the standalone container <project>-<service>-<index>; project defaults to
+# the compose file's parent dir, so the full name is:
+docker logs -f video-analytics-api-vss-video-analytics-api-1
 ```
 
 Healthy log lines include:
@@ -216,7 +216,7 @@ If Elasticsearch is not yet up, you'll see:
 {"timestamp":"...","level":"error","message":"[ELASTICSEARCH RETRY] attempt=1"}
 ```
 
-The container will keep retrying until ES is reachable (up to the configured `retries` count, then it exits and `restart: always` brings it back).
+The process retries until ES is reachable, up to the configured `elasticsearch.retries` count. If retries are exhausted, the app exits and `restart: always` starts a fresh cycle. This is expected when you bring up the API before ES; otherwise start ES and the next restart cycle will connect.
 
 ## Teardown
 
@@ -234,6 +234,7 @@ For a multi-service teardown (broker, ES, etc.) see ``teardown.md`` (see `../../
 |---|---|---|
 | `[APP ERROR] Server initialization failed` on startup | Elasticsearch unreachable. The server pings ES during bootstrap; if it fails, the server exits. | Check `elasticsearch.node` in your config matches the running ES instance. Verify with `curl -sf http://localhost:9200/_cluster/health`. |
 | `[INPUT ERROR] Invalid path for bootstrap config file.` | The `--config` path doesn't exist inside the container. | Verify the volume mount target matches the `--config` flag path. Use an absolute path. |
+| Compose tries to mount `/data_log/vss_video_analytics_api` from the filesystem root | `$VSS_DATA_DIR` is unset while the default data-log bind mount is still present. | Export `VSS_DATA_DIR` to a writable host path and create `$VSS_DATA_DIR/data_log/vss_video_analytics_api`, or remove the `/web-api-app/files` mount if image uploads are not needed. |
 | `EADDRINUSE` | Port 8081 (or your configured port) is already in use. | Check with `ss -tlnp | grep :8081`. Stop the conflicting process or change `server.port` in the config. |
 | Container alive but Kafka-dependent endpoints return errors | Kafka brokers configured but unreachable. | Verify brokers are reachable: `nc -zv <broker-host> <broker-port>`. Check `kafka.brokers` is a proper array of `"host:port"` strings. |
 | `/livez` returns 200 but data endpoints return empty results | Elasticsearch indices don't exist or have no data. | Check indices: `curl -s http://localhost:9200/_cat/indices?v \| grep mdx`. If empty, the upstream pipeline (behavior-analytics, perception) hasn't produced data yet. |
@@ -243,7 +244,7 @@ For a multi-service teardown (broker, ES, etc.) see ``teardown.md`` (see `../../
 **Inspect a mounted config inside the container** (same path as `command: node index.js --config …`):
 
 ```bash
-docker exec vss-video-analytics-api node -e \
+docker exec video-analytics-api-vss-video-analytics-api-1 node -e \
   "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
 ```
 
