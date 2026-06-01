@@ -55,7 +55,7 @@ The source `.env` is treated as **read-only defaults** committed to the repo. Th
 
 ## Prerequisites
 
-1. **Repo path** — find `video-search-and-summarization/` on disk. Check `TOOLS.md` if available.
+1. **Repo path** — find `video-search-and-summarization/` on disk.
 2. **NGC CLI & API key** — see [`references/ngc.md`](references/ngc.md). Confirm `$NGC_CLI_API_KEY` is set.
 3. **System prerequisites (GPU driver, Docker, NVIDIA Container Toolkit, kernel sysctls)** — full checks in [`references/prerequisites.md`](references/prerequisites.md). Canonical hardware/driver matrix is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html).
 
@@ -102,6 +102,21 @@ for the remediation tree.
 - `$LLM_REMOTE_URL` / `$VLM_REMOTE_URL` if the user asks for remote
 - `$NGC_CLI_API_KEY` (local NIMs) or `$NVIDIA_API_KEY` (remote)
 
+**Endpoint intent gate.** Do not infer remote placement from stray host
+environment variables alone. `LLM_ENDPOINT_URL`, `VLM_ENDPOINT_URL`,
+`LLM_BASE_URL`, or `VLM_BASE_URL` may be leftovers from an earlier run.
+Use remote LLM/VLM only when:
+
+1. the user explicitly requested a remote endpoint or supplied one,
+2. local sizing cannot satisfy the selected models and the user agrees to
+   remote placement, or
+3. an edge recipe requires a standalone local service that VSS treats as
+   `remote` (for example DGX Spark Nano 9B on `localhost:30081`).
+
+If any endpoint env var is already set but the user did not ask for remote,
+surface it in Step 1 and ask whether to use it or ignore it. Never silently
+deploy remote because an env var happened to exist.
+
 If no combination on this host satisfies the profile's sizing requirements, **stop and report the blocker** — don't silently pick another shape.
 
 > **Edge shared mode is platform-specific.** On DGX Spark, run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and point the agent at it with `LLM_MODE=remote`. On AGX/IGX Thor, keep using the Edge 4B standalone vLLM fallback with `HF_TOKEN`. Full recipes are in [`references/edge.md`](references/edge.md).
@@ -118,7 +133,15 @@ Full procedure lives in [`references/teardown.md`](references/teardown.md).
 
 ### Step 0a — Credentials gate (run before any env mutation)
 
-Validate every credential the chosen profile needs **before** Step 1c copies `.env` to `generated.env`. A 401 here is a 30-second failure; the same 401 inside a NIM cold-start is a 10–20 min failure. Run the discovery and probe flow in [`references/credentials.md`](references/credentials.md), then map the result against the chosen mode: missing or invalid required credentials are blockers, optional credentials are not.
+Validate every credential and selected remote endpoint the chosen profile
+needs **before** Step 1c copies `.env` to `generated.env`. A 401 here is a
+30-second failure; the same 401 inside a NIM cold-start is a 10–20 min
+failure. Run the discovery and probe flow in
+[`references/credentials.md`](references/credentials.md), including the
+customer endpoint `/v1/models` probe for any LLM/VLM endpoint you plan to
+write into `generated.env`. Map the result against the chosen mode: missing
+or invalid required credentials/endpoints are blockers, optional credentials
+are not.
 
 ### Step 1 — Gather context
 
@@ -129,7 +152,7 @@ Before building env overrides, confirm:
 | **Profile** | Match user intent to the routing table above. Default: `base` |
 | **Repo path** | Find `video-search-and-summarization/` on disk |
 | **Hardware** | `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` |
-| **LLM/VLM placement** | Cross-reference available GPUs against the chosen profile's **Minimum GPU count** table |
+| **LLM/VLM placement** | Explicitly decide local / local_shared / remote. Cross-reference available GPUs against the chosen profile's **Minimum GPU count** table. If endpoint env vars are present but the user did not request remote, ask whether to use or ignore them. |
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
 | **`HOST_IP`** | `hostname -I \| awk '{print $1}'` — the host's primary internal IP |
 | **`EXTERNAL_IP`** | Browser-reachable host/IP. On Brev, use the secure-link domain (see [`references/brev.md`](references/brev.md)). |
@@ -170,7 +193,14 @@ sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=7777-${brev_env_id}.brevlab.com|" "$ENV_GE
 
 ### Step 2 — Build env_overrides
 
-Produce an `env_overrides` dict from the user request and the gathered context: choose remote/local LLM/VLM, set credentials, point at endpoints, set platform-specific flags. The full mapping (every override key, when it applies, defaults, profile-specific differences) lives in [`references/env-overrides.md`](references/env-overrides.md). Each profile reference has worked examples for that profile's common scenarios.
+Produce an `env_overrides` dict from the user request and the gathered
+context: explicitly choose remote/local LLM/VLM, set credentials, point at
+endpoints, set platform-specific flags. Do not let existing shell env vars
+silently pick placement; write the selected `LLM_MODE` / `VLM_MODE` and
+matching endpoint/model fields into `generated.env`. The full mapping (every
+override key, when it applies, defaults, profile-specific differences) lives
+in [`references/env-overrides.md`](references/env-overrides.md). Each profile
+reference has worked examples for that profile's common scenarios.
 
 ### Step 3 — Apply overrides + dry-run
 
@@ -244,7 +274,14 @@ docker compose --env-file $ENV_GEN -f resolved.yml up -d
 
 > **`--env-file` is mandatory.** Without the same `generated.env` used in Step 3, `COMPOSE_PROFILES` may be unset and `up -d` can exit 0 with zero selected services.
 
-> **Do NOT use `--force-recreate` on retries.** It destroys already-warm NIM containers, forcing another 3–5 min torch.compile + CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix the root cause (usually perms or an env typo) and just re-run `up -d` — Docker will re-create only the containers whose config changed or that are down.
+> **Avoid broad `--force-recreate` on ordinary retries.** It destroys
+> already-warm NIM containers, forcing another 3–5 min torch.compile +
+> CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix
+> the root cause (usually perms or an env typo) and just re-run `up -d` —
+> Docker will re-create only containers whose config changed or that are
+> down. Use targeted `--force-recreate --no-deps <service...>` only when a
+> profile reference documents it as the recovery path for a specific stale
+> service/config issue.
 
 `docker compose up -d` only creates containers; it does not wait for internal services to finish warming. Never declare deploy success until the readiness gates pass.
 
@@ -312,4 +349,3 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 ## Troubleshooting
 
 Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
-

@@ -7,6 +7,9 @@ Run this before mutating `generated.env` or starting any image pull. Validate cr
 - `NGC_CLI_API_KEY`: required for any local NIM image pull (`LLM_MODE` or `VLM_MODE` set to `local` / `local_shared`).
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
 - `HF_TOKEN`: required on edge targets that use the gated Edge 4B model.
+- Customer LLM/VLM endpoint URL + model name: required for any selected
+  remote endpoint. This includes build.nvidia.com / NVIDIA API catalog
+  endpoints because their `/v1/models` response can list many models.
 
 ## Discovery
 
@@ -51,8 +54,67 @@ else
 fi
 ```
 
+## Remote Endpoint Probes
+
+For every selected remote LLM/VLM endpoint, probe the endpoint before writing
+it into `generated.env`. Do this even when the endpoint is on localhost; it
+catches wrong ports, stale tunnels, missing auth, and model-name mismatches
+before the deploy flow spends time generating compose or warming containers.
+
+Use the base URL without a trailing `/v1`; if the user supplied `/v1`, strip it
+first. If the endpoint requires auth, set `REMOTE_API_KEY` to the key that the
+agent will use for that endpoint.
+
+Aggregate endpoints such as `https://integrate.api.nvidia.com` can advertise
+many LLM and VLM models. Do not auto-select the first returned model from such
+endpoints. If the endpoint lists multiple models and the user has not selected
+an exact model id, stop and ask which model to use.
+
+```bash
+probe_remote_models() {
+  base_url="${1%/}"
+  base_url="${base_url%/v1}"
+  expected_model="${2:-}"
+  model_count=""
+  auth_header=()
+  if [ -n "${REMOTE_API_KEY:-}" ]; then
+    auth_header=(-H "Authorization: Bearer ${REMOTE_API_KEY}")
+  fi
+
+  models_json="$(curl -sf "${auth_header[@]}" "${base_url}/v1/models")" \
+    || { echo "remote endpoint failed: ${base_url}/v1/models"; return 1; }
+
+  model_count="$(echo "$models_json" | jq -r \
+    'if (.data? | type) == "array" then (.data | length) elif (.id? != null) then 1 else 0 end')"
+
+  if [ -z "$expected_model" ] && [ "${model_count:-0}" -gt 1 ]; then
+    echo "remote endpoint advertises multiple models; ask the user to choose one:" >&2
+    echo "$models_json" | jq -r '.data[]?.id' | sed 's/^/  /' >&2
+    return 1
+  fi
+
+  if [ -n "$expected_model" ]; then
+    echo "$models_json" | jq -e --arg model "$expected_model" \
+      '(.id == $model) or any(.data[]?; .id == $model)' >/dev/null \
+      || { echo "remote endpoint does not advertise model: $expected_model"; return 1; }
+  fi
+
+  echo "remote endpoint OK: ${base_url}"
+}
+
+# Examples:
+# REMOTE_API_KEY="$NVIDIA_API_KEY" probe_remote_models "$LLM_BASE_URL" "$LLM_NAME"
+# probe_remote_models "http://localhost:30081" "nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark"
+```
+
+If `/v1/models` fails or does not advertise the selected model, stop and ask
+the user for the correct endpoint/model before mutating `generated.env`.
+
 ## Decision Rule
 
-A key reported `invalid` that the chosen mode needs, or a `skip` for a key the mode requires, is a blocker. Prompt the user, re-probe, and do not proceed to env mutation until it resolves.
+A key reported `invalid` that the chosen mode needs, a `skip` for a key the
+mode requires, or a selected remote endpoint that fails `/v1/models` is a
+blocker. Prompt the user, re-probe, and do not proceed to env mutation until it
+resolves.
 
 A `skip` for a key the mode does not use is fine.
