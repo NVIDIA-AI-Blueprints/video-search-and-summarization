@@ -272,7 +272,7 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT
       value: "0"
     - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
-      value: "true"
+      value: "false"
     - name: NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT
       value: "false"
     - name: NEXT_PUBLIC_APP_TITLE
