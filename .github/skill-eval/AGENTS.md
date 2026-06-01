@@ -680,11 +680,18 @@ to pick up a trial, its directory must live under
 `/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>/` as a
 **real dir (not a symlink)**, flattened — no nested `<date>/` level.
 The `<leg-slug>` keeps concurrent legs from colliding on one viewer
-entry. Migrate from this leg's scoped results root:
+entry. **Copy** (don't move) from this leg's scoped results root:
 
 ```bash
-mv "$RES/<date>" "/tmp/skill-eval/results/_viewer/${LEG}__${GITHUB_RUN_ID}__<date>"
+cp -a "$RES/<date>" "/tmp/skill-eval/results/_viewer/${LEG}__${GITHUB_RUN_ID}__<date>"
 ```
+
+`cp -a`, **not `mv`** — the workflow's "Collect results" step runs
+*after* this agent and scans + tars `$RES` for the artifact. A `mv`
+would leave `$RES` empty and the uploaded artifact would have no
+`result.json` or traces. Copying keeps `$RES` intact for the collector
+(which excludes `agent/` from the public tarball) while the `_viewer`
+copy keeps `agent/` for the live Harbor Trace tab.
 
 Do this between trials so each new trial's traces are reachable
 via the SPA URL:

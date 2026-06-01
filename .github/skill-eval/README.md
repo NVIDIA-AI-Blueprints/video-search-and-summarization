@@ -76,14 +76,14 @@ Runtime state (not checked in):
 
 ```
 /tmp/skill-eval/
-├── datasets/<skill>/<profile>/<platform>-<mode>/
+├── datasets/<leg-slug>/<run_id>/…        (this leg's dataset; slug = <skill>__<spec_stem>__<platform>)
 │   ├── environment/Dockerfile            (placeholder; Brev env pre-exists)
 │   ├── skills/<skill>/                   (copy of the skill the trial uses)
 │   ├── solution/solve.sh                 (gold solution, for oracle agent)
 │   └── tests/{instruction.md, task.toml, test.sh, <spec>.json}
 └── results/
-    ├── <run_id>/<date>/<trial>/…         (raw harbor output)
-    └── _viewer/<run_id>__<date>/<trial>/ (flattened for `harbor view`)
+    ├── <leg-slug>/<run_id>/<date>/<trial>/…          (raw harbor output; collector tars this)
+    └── _viewer/<leg-slug>__<run_id>__<date>/<trial>/ (cp -a copy, flattened for `harbor view`)
 ```
 
 Each generated task contains:
@@ -204,15 +204,16 @@ uvx harbor run \
     └── claude-code.txt   ← agent trace
 ```
 
-To view in the browser, flatten into the viewer dir:
+To view in the browser, **copy** (not move — the workflow's collector
+still tars the leg's results root after the agent) into the viewer dir,
+flattened with the leg slug:
 
 ```bash
-cd /tmp/skill-eval/results
-mv "<run_id>/<date>" "_viewer/<run_id>__<date>"
-rmdir "<run_id>" 2>/dev/null || true
+cp -a "<leg-slug>/<run_id>/<date>" \
+  "/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>"
 ```
 
-Then open `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<run_id>__<date>`.
+Then open `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>`.
 
 `harbor view` runs persistently on the CI runner host. If it's down:
 
