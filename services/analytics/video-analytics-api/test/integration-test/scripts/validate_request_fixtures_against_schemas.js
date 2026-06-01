@@ -20,8 +20,8 @@
 /*
  * Validates integration-test request payloads (fixtures) against AJV schemas from web-api-core/schemas/ajv.
  * Ensures the data we send in POST /config/upload-file/* conforms to the schema before upload.
- * Usage: node validate_request_fixtures_against_schemas.js <FIXTURES_DIR> [WEB_APIS_ROOT]
- * Example: node validate_request_fixtures_against_schemas.js /path/to/test/integration-test/fixtures /path/to/web-apis
+ * Usage: node validate_request_fixtures_against_schemas.js <FIXTURES_DIR> [VIDEO_ANALYTICS_API_ROOT]
+ * Example: node validate_request_fixtures_against_schemas.js /path/to/test/integration-test/fixtures /path/to/video-analytics-api
  */
 
 'use strict';
@@ -31,7 +31,7 @@ const fs = require('fs');
 
 const SCRIPT_DIR = __dirname;
 const TEST_DIR = path.join(SCRIPT_DIR, '..', '..');
-const DEFAULT_WEB_APIS_ROOT = path.join(TEST_DIR, '..');
+const DEFAULT_VIDEO_ANALYTICS_API_ROOT = path.join(TEST_DIR, '..');
 
 // Fixture file (upload request body) -> schema file
 const FIXTURES = [
@@ -56,7 +56,7 @@ function loadAjv() {
 
 function main() {
     const fixturesDir = process.argv[2];
-    const webApisRoot = process.argv[3] || DEFAULT_WEB_APIS_ROOT;
+    const webApisRoot = process.argv[3] || DEFAULT_VIDEO_ANALYTICS_API_ROOT;
     const schemasDir = path.join(webApisRoot, 'src', 'web-api-core', 'schemas', 'ajv');
 
     if (!fixturesDir || !fs.existsSync(fixturesDir)) {

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://nvidia.com/mdx/schemas/calibration.schema.json",
-  "$comment": "Vendored from web-apis/web-api-core/schemas/ajv/calibration.json. AJV-specific 'errorMessage' keywords have been stripped so Python jsonschema (Draft7Validator) accepts the file. Keep in sync with the upstream when the web-api schema changes. Top-level additionalProperties relaxed to true so unknown extra fields (e.g. forward-compatible additions from web-api) are accepted; nested additionalProperties remain strict.",
+  "$comment": "Vendored from video-analytics-api/src/web-api-core/schemas/ajv/calibration.json. AJV-specific 'errorMessage' keywords have been stripped so Python jsonschema (Draft7Validator) accepts the file. Keep in sync with the upstream when the video-analytics-api schema changes. Top-level additionalProperties relaxed to true so unknown extra fields (e.g. forward-compatible additions from video-analytics-api) are accepted; nested additionalProperties remain strict.",
   "type": "object",
   "additionalProperties": true,
   "properties": {
