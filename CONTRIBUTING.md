@@ -39,12 +39,15 @@ If your contribution adds or modifies a source file, please:
   use the SPDX identifier `Apache-2.0` and add the appropriate copyright
   notice.
 - For changes to files derived from third-party sources, preserve the existing
-  third-party copyright and license notices. For example: in Spatial AI Data
-  Utils, the nuScenes dev-kit-derived files and TrackEval-derived files are
-  listed in
+  third-party copyright and license notices, list the file(s) you modified in
+  your change description, and keep each file's existing SPDX identifier. The
+  third-party-derived files in Spatial AI Data Utils are listed in
   [`libs/analytics/spatialai-data-utils/NOTICE`](libs/analytics/spatialai-data-utils/NOTICE).
-  List the file(s) you modified in your change description, and keep the
-  existing dual-license SPDX identifier (e.g. `MIT AND Apache-2.0`).
+  For example:
+  - nuScenes dev-kit-derived files (Copyright 2021 Motional) keep the SPDX
+    identifier `Apache-2.0`.
+  - TrackEval-derived files (Copyright (c) 2020 Jonathon Luiten) keep the
+    dual-license SPDX identifier `MIT AND Apache-2.0`.
 - Do not introduce code under licenses that are incompatible with Apache-2.0
   distribution. For example: if you need to vendor third-party code for Spatial
   AI Data Utils, including code derived from the nuScenes dev-kit and TrackEval,
