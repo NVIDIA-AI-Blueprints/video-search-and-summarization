@@ -61,7 +61,7 @@
     "scss": "^0.2.4",
     "store2": "^2.14.4",
     "uuid": "^11.0.5",
-    "vst-streaming-lib": "file://../vst-web-streamer",
+    "vst-streaming-lib": "file:../streaming-lib",
     "zustand": "^4.5.5"
   },
   "devDependencies": {

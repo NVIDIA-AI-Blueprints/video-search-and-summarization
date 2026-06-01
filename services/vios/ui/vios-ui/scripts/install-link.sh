@@ -14,21 +14,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-REPO_DIR="../vst-web-streamer"
+# The streaming library lives in this repo as the sibling directory "streaming-lib".
+REPO_DIR="../streaming-lib"
 
-# Check if the repository exists
+# Check that the streaming library directory exists
 if [ ! -d "$REPO_DIR" ]; then
-	echo "Cloning repository..."
-	git clone https://gitlab-master.nvidia.com/L4TMM/vst-web-streamer.git $REPO_DIR
-else
-	echo "Repository already exists, updating..."
-	cd $REPO_DIR
-	git pull
-	cd -
+	echo "Error: streaming library directory '$REPO_DIR' not found." >&2
+	exit 1
 fi
 
-# Go to the repository directory
-cd $REPO_DIR
+# Go to the streaming library directory
+cd "$REPO_DIR"
 
 # Install dependencies and build
 npm install
