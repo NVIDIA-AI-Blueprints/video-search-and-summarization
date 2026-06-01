@@ -21,7 +21,7 @@
  * Validates integration-test request payloads (fixtures) against AJV schemas from web-api-core/schemas/ajv.
  * Ensures the data we send in POST /config/upload-file/* conforms to the schema before upload.
  * Usage: node validate_request_fixtures_against_schemas.js <FIXTURES_DIR> [WEB_APIS_ROOT]
- * Example: node validate_request_fixtures_against_schemas.js /path/to/test/integration-test/fixtures /path/to/web-apis
+ * Example: node validate_request_fixtures_against_schemas.js /path/to/test/integration-test/fixtures /path/to/video-analytics-api
  */
 
 'use strict';

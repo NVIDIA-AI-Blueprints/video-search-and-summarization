@@ -249,7 +249,7 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
     """
     Video analytics function group with ES integration.
 
-    Mirrors the web-apis pattern where ES client is initialized once
+    Mirrors the video-analytics-api pattern where ES client is initialized once
     and shared across all tool functions.
     """
 
@@ -645,7 +645,7 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
             start_time=input.start_time, end_time=input.end_time, bucket_count=input.bucket_count
         )
 
-        # Build query using FramesQueryBuilder (matches web-apis pattern)
+        # Build query using FramesQueryBuilder (matches video-analytics-api pattern)
         query = FramesQueryBuilder.build_query(
             sensor_id=input.source, start_time=input.start_time, end_time=input.end_time
         )
@@ -681,7 +681,7 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
                 bucket_data: dict[str, Any] = {"start": start_str, "end": end_str, "objects": objects_data}
 
                 # Navigate nested aggregation structure: fov.searchAggFilter.objectType.buckets
-                # This matches the web-apis nested aggregation on fov field
+                # This matches the video-analytics-api nested aggregation on fov field
                 fov_agg = time_bucket.get("fov", {})
                 search_filter = fov_agg.get("searchAggFilter", {})
                 object_type_buckets = search_filter.get("objectType", {}).get("buckets", [])
@@ -741,7 +741,7 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
                     ]
                 }
         """
-        # Build query exactly matching web-apis (lines 109-126 in Behavior.js)
+        # Build query exactly matching video-analytics-api (lines 109-126 in Behavior.js)
         query = BehaviorQueryBuilder.build_average_speed_query(
             source=input.source, source_type=input.source_type, start_time=input.start_time, end_time=input.end_time
         )
@@ -752,15 +752,15 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
         # Execute aggregation
         results = await es_client.aggregate(index_key="behavior", query_body=query, aggs=aggs)
 
-        # Format results matching web-apis output (lines 130-143 in Behavior.js)
+        # Format results matching video-analytics-api output (lines 130-143 in Behavior.js)
         metrics = []
         if results and "directions" in results:
             for direction_bucket in results["directions"].get("buckets", []):
                 direction = direction_bucket["key"]
                 avg_speed_value = direction_bucket.get("averageSpeed", {}).get("value")
 
-                # Format speed with unit (web-apis uses mph for cartesian, assuming mph here)
-                # In web-apis line 290: result.averageSpeed = `${Math.floor(result.avgSpeedDetails.averageSpeed)} ${averageSpeedUnit}`;
+                # Format speed with unit (video-analytics-api uses mph for cartesian, assuming mph here)
+                # In video-analytics-api line 290: result.averageSpeed = `${Math.floor(result.avgSpeedDetails.averageSpeed)} ${averageSpeedUnit}`;
                 if avg_speed_value is not None:
                     speed_str = f"{int(avg_speed_value)} mph"
                 else:
