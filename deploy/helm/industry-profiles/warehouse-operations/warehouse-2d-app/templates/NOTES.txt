@@ -5,4 +5,4 @@ Main workload:
   StatefulSet: {{ include "vss-rtvi-cv.fullname" $rtviCv }}
   Profile: standalone-2d
 
-Set rtvi.vss-rtvi-cv.ngcAppDataResourceVersion to the target NGC warehouse app-data resource before installing.
+Override rtvi.vss-rtvi-cv.ngcAppDataResourceVersion and vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion when using a different NGC warehouse app-data resource.

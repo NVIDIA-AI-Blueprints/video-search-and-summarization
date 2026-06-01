@@ -35,7 +35,7 @@ bp-configurator:
     - name: ENABLE_REDIS_DUPLICATOR_THREAD
       value: "false"
     - name: CALL_SENSOR_ADD_API
-      value: "true"
+      value: "false"
     - name: NUM_STREAMS
       value: "4"
     - name: MODE
@@ -341,7 +341,7 @@ rtvi:
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcAppDataOrg: nvstaging
-    ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
+    ngcAppDataResourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-05212026
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:

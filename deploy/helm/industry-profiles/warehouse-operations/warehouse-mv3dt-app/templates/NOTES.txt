@@ -14,4 +14,4 @@ Main workloads:
   Mosquitto Deployment/Service: {{ $mqttHost }}
   Profile: standalone-mv3dt
 
-Set rtvi.vss-rtvi-cv.ngcAppDataResourceVersion to the target NGC warehouse app-data resource before installing.
+Override rtvi.vss-rtvi-cv.ngcAppDataResourceVersion and vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion when using a different NGC warehouse app-data resource.

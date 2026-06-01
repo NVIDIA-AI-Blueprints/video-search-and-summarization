@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Warehouse 2D standalone: metropolis_perception_app + bundled configs + NGC file sources.
+# Warehouse 2D standalone: metropolis_perception_app + bundled configs + SDRC-provisioned live sources.
 
 {{- if and .Values.enabled (eq .Values.profileMode "standalone-2d") }}
 apiVersion: apps/v1

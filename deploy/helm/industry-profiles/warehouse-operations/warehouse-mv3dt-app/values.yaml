@@ -35,7 +35,7 @@ bp-configurator:
     - name: ENABLE_REDIS_DUPLICATOR_THREAD
       value: "false"
     - name: CALL_SENSOR_ADD_API
-      value: "true"
+      value: "false"
     - name: NUM_STREAMS
       value: "4"
     - name: MODE

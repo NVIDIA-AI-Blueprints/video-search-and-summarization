@@ -35,9 +35,9 @@ bp-configurator:
     - name: SEND_CONFIG_TO_SDR
       value: "false"
     - name: CALL_SENSOR_ADD_API
-      value: "true"
+      value: "false"
     - name: NUM_STREAMS
-      value: "4"
+      value: "3"
     - name: MODE
       value: 2d
     - name: LOG_LEVEL
@@ -312,7 +312,7 @@ rtvi:
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcAppDataOrg: nvstaging
-    ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
+    ngcAppDataResourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-05212026
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:

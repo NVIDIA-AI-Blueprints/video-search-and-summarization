@@ -31,30 +31,28 @@ square-seq-grid=0
 
 #Note: [source-list] now support REST Server with use-nvmultiurisrcbin=1
 
-# Sources — file playback from NGC vss-warehouse-app-data bundle (standalone-3d profile)
+# Sources
 [source-list]
-num-source-bins=4
-list=file:///opt/storage/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/Camera.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/Camera_01.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/Camera_02.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/Camera_03.mp4
-sensor-id-list=Camera;Camera_01;Camera_02;Camera_03
-sensor-name-list=Camera;Camera_01;Camera_02;Camera_03
+num-source-bins=0
+list=
+sensor-id-list=
+sensor-name-list=
 # Set use-nvmultiurisrcbin to 1 to enable sensor provisioning/update feature
 use-nvmultiurisrcbin=1
-# Loop file sources so streams are not removed at EOS (standalone file playback).
-file-loop=1
 stream-name-display=1
 max-batch-size=4
 http-ip=localhost
 http-port=9000
-# Recorded file sources: keep decoder default (low-latency is for live IPPP streams).
-low-latency-mode=0
-# SEI disabled for standalone 3D (no custom SEI metadata path).
-extract-sei-type5-data=0
+#Set low latency mode for bitstreams having I and IPPP frames on decoder
+low-latency-mode=1
+extract-sei-type5-data=1
+sei-uuid=NVDS_CUSTOMMETA
 dummy-payload=0
-custom-ts-to-rfc=0
+custom-ts-to-rfc=1
 
 [source-attr-all]
 enable=1
-type=2
+type=3
 num-sources=1
 gpu-id=0
 cudadec-memtype=0
@@ -89,16 +87,17 @@ nvbuf-memory-type=0
 ## If set to TRUE, system timestamp will be attached as ntp timestamp
 ## If set to FALSE, ntp timestamp from rtspsrc, if available, will be attached
 attach-sys-ts-as-ntp=0
-## nvmultiurisrcbin: preferred default per DS docs (pipeline stays alive; file-loop prevents per-source EOS).
 drop-pipeline-eos=1
-## Recorded file sources: live-source=0 + sink sync=1 → PTS-paced (wall-clock) throughput.
-live-source=0
+##Boolean property to inform muxer that sources are live
+##When using nvmultiurisrcbin live-source=1 is preferred default
+##to allow batching of available buffers when number of sources is < max-batch-size configuration
+live-source=1
 sort-batch=1
-extract-sei-sim-time=0
-align-first-buffer=0
+extract-sei-sim-time=1
+align-first-buffer=1
 sync-inputs=0
-sync-inputs-ntp=0
-drop-backward-sei=0
+sync-inputs-ntp=33333333
+drop-backward-sei=1
 
 [sink0]
 enable=0

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Warehouse 3D standalone: sparse4d + metropolis_perception_app + bundled configs + NGC file sources.
+# Warehouse 3D standalone: sparse4d + metropolis_perception_app + bundled configs + SDRC-provisioned live sources.
 
 {{- if and .Values.enabled (eq .Values.profileMode "standalone-3d") }}
 {{- $sw := .Values.standaloneWarehouse }}

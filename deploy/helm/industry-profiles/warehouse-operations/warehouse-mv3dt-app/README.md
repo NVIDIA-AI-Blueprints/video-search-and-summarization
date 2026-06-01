@@ -8,4 +8,4 @@ helm lint deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app
 helm template warehouse-mv3dt deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app
 ```
 
-Set `rtvi.vss-rtvi-cv.ngcAppDataResourceVersion` to the NGC warehouse app-data resource before installing.
+Override `rtvi.vss-rtvi-cv.ngcAppDataResourceVersion` and `vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion` when using a different NGC warehouse app-data resource.

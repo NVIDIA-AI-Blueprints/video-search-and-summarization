@@ -26,24 +26,20 @@ height=720
 gpu-id=0
 nvbuf-memory-type=0
 
-# Sources — file playback from NGC vss-warehouse-app-data bundle (standalone Helm)
+# Sources
 [source-list]
-num-source-bins=3
-list=file:///opt/storage/vss-warehouse-app-data/videos/warehouse-loading-dock-3cams-synthetic/Camera.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-loading-dock-3cams-synthetic/Camera_01.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-loading-dock-3cams-synthetic/Camera_02.mp4
-sensor-id-list=Camera;Camera_01;Camera_02
-sensor-name-list=Camera;Camera_01;Camera_02
+num-source-bins=0
 #list=rtsp://localhost:8555/live/Nth_Street_Cafe_Entrance;rtsp://localhost:8555/live/Endeavor_Cafeteria
+#sensor-id-list=Nth_Street_Cafe_Entrance;Endeavor_Cafeteria
+#sensor-name-list=Nth_Street_Cafe_Entrance;Endeavor_Cafeteria
 # Set use-nvmultiurisrcbin to 1 to enable sensor provisioning/update feature
 use-nvmultiurisrcbin=1
-# nvurisrcbin (via parent): loop file:/// after EOS — keep in sync with [source-attr-all] file-loop.
-file-loop=1
 stream-name-display=1
 max-batch-size=3
 http-ip=localhost
-# Recorded file sources: keep decoder default (low-latency is for live IPPP streams).
-low-latency-mode=0
+low-latency-mode=1
 http-port=9000
-extract-sei-type5-data=0
+extract-sei-type5-data=1
 sei-uuid=NVDS_CUSTOMMETA
 #sgie batch size is number of sources * fair fraction of number of objects detected per frame per source
 #the fair fraction of number of object detected is assumed to be 4
@@ -51,12 +47,11 @@ sgie-batch-size=4
 
 [source-attr-all]
 enable=1
-type=2
-# nvurisrcbin: loop file:/// URIs after EOS (required here for looping; [tests] alone is not enough).
-file-loop=1
+type=3
 num-sources=1
 gpu-id=0
 cudadec-memtype=0
+drop-on-latency=1
 latency=100
 rtsp-reconnect-interval-sec=10
 rtsp-reconnect-attempts=-1
@@ -159,9 +154,8 @@ nvbuf-memory-type=0
 
 [streammux]
 gpu-id=0
-## Recorded file sources: live-source=0 so muxer follows source PTS (wall-clock-ish FPS in PERF).
-## live-source=1 is for live RTSP; with files it pushes as fast as decode (~100+ FPS).
-live-source=0
+##Boolean property to inform muxer that sources are live
+live-source=1
 batch-size=3
 ##time out in usec, to wait after the first buffer is available
 ##to push the batch even if the complete batch is not formed
@@ -176,10 +170,9 @@ nvbuf-memory-type=0
 ## If set to TRUE, system timestamp will be attached as ntp timestamp
 ## If set to FALSE, ntp timestamp from rtspsrc, if available, will be attached
 attach-sys-ts-as-ntp=0
-## nvmultiurisrcbin: preferred default per DS docs (pipeline stays alive; file-loop prevents per-source EOS).
 drop-pipeline-eos=1
-extract-sei-sim-time=0
-drop-backward-sei=0
+extract-sei-sim-time=1
+drop-backward-sei=1
 
 # config-file property is mandatory for any gie section.
 # Other properties are optional and if set will override the properties set in
