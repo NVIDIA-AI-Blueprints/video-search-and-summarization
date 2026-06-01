@@ -38,6 +38,7 @@ from vss_agents.tools.vst.utils import VSTError
 from vss_agents.tools.vst.utils import delete_vst_sensor
 from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_sensor_id_from_stream_id
+from vss_agents.utils.sanitize import scrub_log
 from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,7 @@ async def _remove_from_rtvi_cv(
     try:
         response = await client.post(url, json=payload)
         if response.status_code in (200, 201, 204):
-            logger.info(f"RTVI-CV stream removed: {sensor_id}")
+            logger.info("RTVI-CV stream removed: %s", scrub_log(sensor_id))
             return True, "OK"
         return False, f"RTVI-CV returned {response.status_code}: {response.text}"
     except Exception as e:
@@ -170,7 +171,13 @@ async def _delete_es_documents(es_endpoint: str, index_pattern: str, id_value: s
             conflicts="proceed",  # Don't fail on version conflicts
         )
         deleted = result.get("deleted", 0)
-        logger.info(f"Deleted {deleted} docs from ES index '{index_pattern}' (field={id_field}, value={id_value})")
+        logger.info(
+            "Deleted %s docs from ES index '%s' (field=%s, value=%s)",
+            deleted,
+            index_pattern,
+            id_field,
+            scrub_log(id_value),
+        )
         return True, f"Deleted {deleted} documents"
     except Exception as e:
         logger.error(f"ES delete_by_query failed for index '{index_pattern}': {e}", exc_info=True)
@@ -249,7 +256,7 @@ def create_video_delete_router(
         results: list[bool] = []
         sensor_name = ""
 
-        logger.info(f"Deleting video '{video_id}'")
+        logger.info("Deleting video '%s'", scrub_log(video_id))
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             # --- Step 0: Look up sensorName from VST (only when ES cleanup will run) ---
@@ -261,8 +268,8 @@ def create_video_delete_router(
                 except VSTError as e:
                     logger.warning(
                         "Could not look up sensorName for '%s': %s. ES cleanup for behavior/raw may not work.",
-                        video_id,
-                        e,
+                        scrub_log(video_id),
+                        scrub_log(e),
                     )
                     sensor_name = ""
 
@@ -279,7 +286,7 @@ def create_video_delete_router(
                 ]
                 for index_name, field_name, id_value in es_index_configs:
                     if not id_value:
-                        logger.warning(f"Skipping ES delete for '{index_name}': no identifier available")
+                        logger.warning("Skipping ES delete for '%s': no identifier available", index_name)
                         continue
                     with TimeMeasure(f"video_delete: ES delete from {index_name}"):
                         success, msg = await _delete_es_documents(es_config.url, index_name, id_value, field_name)
@@ -322,7 +329,7 @@ def create_video_delete_router(
             status = "failure"
             message = f"Failed to delete video '{video_id}'"
 
-        logger.info(f"Delete video '{video_id}' completed with status: {status}")
+        logger.info("Delete video '%s' completed with status: %s", scrub_log(video_id), status)
 
         return DeleteVideoResponse(
             status=status,
