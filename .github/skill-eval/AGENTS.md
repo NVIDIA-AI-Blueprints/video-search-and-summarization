@@ -527,10 +527,17 @@ export BREV_INSTANCE="$INSTANCE_NAME"
 # level deeper than the collector's `find` looks and silently dropped
 # the artifact.
 
+# Harbor names each task by its path RELATIVE to -p (the dir that holds
+# task.toml), NOT the task.toml `[task] name`. Point -p at the task dir's
+# immediate PARENT so the name collapses to the leaf basename. A single-step
+# spec emits ONE task at $DS/<profile>/<platform>/task.toml; the <profile>
+# middle dir varies per spec, so discover it — never hardcode -p "$DS".
+TASK_DIR=$(dirname "$(find "$DS" -name task.toml -print -quit)")
+
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
-  -p "$DS" \
-  --include-task-name "<platform>" \
+  -p "$(dirname "$TASK_DIR")" \
+  --include-task-name "$(basename "$TASK_DIR")" \
   -a claude-code \
   --model "$ANTHROPIC_MODEL" \
   --ak api_base="$ANTHROPIC_BASE_URL/v1" \
@@ -547,20 +554,21 @@ isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
 path; concurrent legs share the host.)
 
 Notes that have burned prior runs:
-- `--include-task-name` is an **fnmatch glob** against the full task
-  name. Adapters emit task names of the form
-  `nvidia-vss/<skill>-<spec>-<platform>[-step-<N>]`, so the
-  templates above (`<platform>` for single-step, `<platform>-step-${STEP}`
-  for multi-step) work as **suffix matches** — `l40s` matches
-  `nvidia-vss/vss-generate-video-report-base-l40s`, and
-  `l40s-step-1` matches
-  `nvidia-vss/vss-generate-video-report-base-l40s-step-1`. Do **not**
-  paste the full task name into this flag and do **not** prefix it
-  with `*` — the suffix template is sufficient. Observed failure
-  mode (PR #532): an agent unfamiliar with the glob semantics treats
-  `<platform>` as a placeholder for the full name, gets stuck
-  spelunking the codebase, and exhausts its turn budget before
-  dispatching the first trial.
+- `--include-task-name` matches a task by its path **relative to `-p`**,
+  NOT the `task.toml` `[task] name` (`nvidia-vss/...`) field. Harbor treats
+  every dir containing a `task.toml` as a task and names it by that dir's
+  path beneath `-p`, so point `-p` at the task dir's **immediate parent**
+  and the name collapses to the leaf basename:
+    - single-step → `-p $DS/<profile>`; task name = `<platform>` lowercased
+      (e.g. `rtxpro6000bw`) — the platform dir *is* the task.
+    - multi-step → `-p $DS/<profile>/<platform>`; task names = `step-1`,
+      `step-2`, … — the step dirs are the tasks.
+  Discover parent + leaf with the `find … task.toml` snippets here (the
+  `<profile>` middle dir varies per spec); never hardcode `-p "$DS"`, and
+  never paste the `nvidia-vss/...` name into the flag. Observed failure
+  mode (PR #532): an agent that believes the filter matches the full
+  `nvidia-vss/...` name burns its turn budget spelunking before the first
+  trial dispatches.
 - `-i` / `--include` is a different flag and will silently match
   nothing or everything.
 - **Multi-step specs MUST be dispatched one step at a time, in
@@ -594,7 +602,7 @@ Notes that have burned prior runs:
     uvx harbor run \
       --environment-import-path "envs.brev_env:BrevEnvironment" \
       -p "$PLATFORM_DIR" \
-      --include-task-name "<platform>-step-${STEP}" \
+      --include-task-name "step-${STEP}" \
       -a claude-code \
       --model "$ANTHROPIC_MODEL" \
       --ak api_base="$ANTHROPIC_BASE_URL/v1" \
@@ -625,10 +633,10 @@ Notes that have burned prior runs:
   done
   ```
 
-  Single-step specs (most `vss-deploy-profile/*` specs) skip this loop entirely
-  and use the simpler one-shot invocation pattern. Detect by
-  reading `step_count` from `task.toml`: if 1, dispatch once
-  with `--include-task-name "<platform>"`; if N, use the loop.
+  Single-step specs (most `vss-deploy-profile/*` specs) skip this loop and use
+  the one-shot pattern above (`-p "$(dirname "$TASK_DIR")"`,
+  `--include-task-name "$(basename "$TASK_DIR")"`). Detect by reading
+  `step_count` from `task.toml`: if 1, dispatch once; if N, use the loop.
 - `--environment-import-path` is a **Python module spec**
   (`envs.brev_env:BrevEnvironment`), not a filesystem path. Do not
   prepend `.github.skill-eval.` — `.github` isn't a valid Python
