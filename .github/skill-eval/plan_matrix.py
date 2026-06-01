@@ -215,6 +215,24 @@ def emit(include: list[dict]) -> None:
                 f"the offending spec file or resources.platforms key."
             )
 
+    # Fail fast on a duplicate slug. Two legs sharing a slug would clobber
+    # each other's /tmp/skill-eval/results/<slug>/ dir and collide on the
+    # upload-artifact name (v4 rejects duplicate names in one run). The slug
+    # omits the eval dir, so the same stem in both `evals/` and the legacy
+    # `eval/` of one skill collides; surface it here so the author drops the
+    # stale spec rather than silently losing a leg's results.
+    seen: dict[str, str] = {}
+    for leg in include:
+        prev = seen.get(leg["slug"])
+        if prev is not None:
+            raise ValueError(
+                f"duplicate leg slug {leg['slug']!r}: {prev!r} and "
+                f"{leg['spec_path']!r} resolve to the same slug (artifact "
+                f"name + scratch path). Likely the same stem in both `evals/` "
+                f"and the legacy `eval/` of one skill — remove the stale one."
+            )
+        seen[leg["slug"]] = leg["spec_path"]
+
     matrix = json.dumps({"include": include}, separators=(",", ":"))
     has_targets = "true" if include else "false"
 

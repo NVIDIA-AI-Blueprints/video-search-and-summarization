@@ -190,6 +190,21 @@ class EmitSlugSafety(unittest.TestCase):
         with self.assertRaises(ValueError):
             plan_matrix.emit(bad)
 
+    def test_emit_rejects_duplicate_slug(self):
+        """Two specs resolving to the same slug (e.g. the same stem in both
+        `evals/` and the legacy `eval/` of one skill) would clobber each
+        other's results dir + artifact name — must fail the plan."""
+        dup = [
+            {"skill": "x", "spec_path": "skills/x/evals/foo.json",
+             "spec_stem": "foo", "platform": "L40S", "kind": "eval",
+             "slug": "x__foo__L40S", "name": "x · foo · L40S"},
+            {"skill": "x", "spec_path": "skills/x/eval/foo.json",
+             "spec_stem": "foo", "platform": "L40S", "kind": "eval",
+             "slug": "x__foo__L40S", "name": "x · foo · L40S"},
+        ]
+        with self.assertRaises(ValueError):
+            plan_matrix.emit(dup)
+
     def test_emit_accepts_safe_slug(self):
         ok = [{
             "skill": "x", "spec_path": "skills/x/evals/a.json",
