@@ -3,7 +3,6 @@ name: vss-generate-video-calibration
 description: Use to run AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, and to deploy vss-auto-calibration when needed. Not for non-AMC calibration or runtime analytics.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
