@@ -121,6 +121,28 @@ def _disable_server_thinking() -> None:
         os.environ["CLAUDE_CODE_DISABLE_THINKING"] = "1"
 
 
+def _set_bash_timeouts() -> None:
+    """Raise the Bash tool's timeout cap above the worst-case single
+    `uvx harbor run` so the runtime never auto-backgrounds the foreground
+    trial call.
+
+    Claude Code moves a foreground Bash command to a background task once it
+    crosses the Bash *max* timeout (default 600000 ms = 10 min), then
+    surfaces it as pollable task output. That silently defeats AGENTS.md's
+    "block on harbor — no polling" contract for any trial longer than 10 min
+    (most real deploys: env-build 1800s + agent 3600s + verify 1800s ≈ 2h).
+    Past the cap the foreground call is backgrounded and the agent falls into
+    polling its task .output files. The
+    `_block_bash_background` hook can't prevent it: the runtime sets
+    run_in_background *after* the timeout, not in the call input the hook
+    inspects. Raising the cap is the only structural fix. The CI workflow
+    exports these too; set them here defensively so local smoke-tests and any
+    non-CI caller get the same guarantee. Both stay under the workflow's
+    timeout-minutes so a genuinely hung call is still reaped by the job."""
+    os.environ.setdefault("BASH_DEFAULT_TIMEOUT_MS", "7200000")   # 2h
+    os.environ.setdefault("BASH_MAX_TIMEOUT_MS", "10800000")      # 3h
+
+
 # ---------------------------------------------------------------------------
 # Benchmark report
 # ---------------------------------------------------------------------------
@@ -525,6 +547,7 @@ End with `DONE: <reward summary>` after posting the comment, or
 
 def main() -> int:
     _disable_server_thinking()
+    _set_bash_timeouts()
     _ensure_sdk()
     try:
         rc = asyncio.run(run_agent())

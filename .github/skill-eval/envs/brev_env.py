@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import shlex
+import signal
 import subprocess
 import tempfile
 import uuid
@@ -45,6 +46,12 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 
 # Timeout for brev copy commands.
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
+
+# Artifact-collection (download_*) resilience. A stalled transfer that is
+# killed can orphan its ssh child and wedge the box for the next step;
+# retrying a transient stall on a fresh connection recovers it. Tunable.
+BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
+BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
 
 
 class BrevEnvironmentType(str, Enum):
@@ -461,13 +468,46 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
         assert self._instance_name
-        result = await _run_brev_copy(
-            f"{self._instance_name}:{source_path}", str(target_path),
+        last_err = ""
+        for attempt in range(BREV_DOWNLOAD_RETRIES):
+            result = await _run_brev_copy(
+                f"{self._instance_name}:{source_path}", str(target_path),
+            )
+            if result.return_code == 0:
+                return
+            last_err = result.stderr or ""
+            if attempt + 1 < BREV_DOWNLOAD_RETRIES:
+                logger.warning(
+                    "download_file attempt %d/%d failed (%s) — retrying",
+                    attempt + 1, BREV_DOWNLOAD_RETRIES, last_err,
+                )
+                await asyncio.sleep(BREV_DOWNLOAD_BACKOFF_SEC * (attempt + 1))
+        raise RuntimeError(
+            f"Download failed after {BREV_DOWNLOAD_RETRIES} attempts: {last_err}"
         )
-        if result.return_code != 0:
-            raise RuntimeError(f"Download failed: {result.stderr}")
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
+        # Retry the pull: a transient stall — or a prior attempt whose ssh
+        # child was killed (now reaped via _run_brev_exec's process-group
+        # kill, so it can't wedge the box) — usually clears on a fresh
+        # connection. Raise loud only after exhausting retries.
+        last: Exception | None = None
+        for attempt in range(BREV_DOWNLOAD_RETRIES):
+            try:
+                await self._download_dir_once(source_dir, target_dir)
+                return
+            except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                last = exc
+                if attempt + 1 < BREV_DOWNLOAD_RETRIES:
+                    logger.warning(
+                        "download_dir attempt %d/%d failed (%s) — retrying",
+                        attempt + 1, BREV_DOWNLOAD_RETRIES, exc,
+                    )
+                    await asyncio.sleep(BREV_DOWNLOAD_BACKOFF_SEC * (attempt + 1))
+        assert last is not None
+        raise last
+
+    async def _download_dir_once(self, source_dir: str, target_dir: Path | str) -> None:
         assert self._instance_name
         # brev copy has broken directory nesting.  Use tar piped over
         # brev exec: tar on remote, base64-encode with markers, capture
@@ -565,6 +605,28 @@ def _which(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:
+    """SIGKILL the child's whole process group.
+
+    `proc.kill()` signals only the immediate child (the `brev`/`ssh`/`scp`
+    CLI). On a stalled transfer that leaves the underlying ssh data channel
+    orphaned — holding the secure-link/session open and wedging the box for
+    the next step (a killed large artifact pull can otherwise leave the
+    following trial's ports unreachable). Killing
+    the whole group reaps the orphan. Requires the child to have been
+    started with `start_new_session=True` so it leads its own group; falls
+    back to a plain kill if the group lookup fails."""
+    if proc.returncode is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+
 # Registered external nodes (BYOH / DGX-Spark / IGX-Thor) can't use
 # `brev exec` — they require a direct SSH session via the alias that
 # `brev shell` writes into ~/.brev/ssh_config.  We cache the list on
@@ -625,6 +687,7 @@ async def _run_ssh_exec(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         stdout, stderr = await asyncio.wait_for(
@@ -632,7 +695,7 @@ async def _run_ssh_exec(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
@@ -667,6 +730,7 @@ async def _run_scp(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         stdout, stderr = await asyncio.wait_for(
@@ -674,7 +738,7 @@ async def _run_scp(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
@@ -713,6 +777,7 @@ async def _run_brev_exec(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
 
     try:
@@ -721,7 +786,7 @@ async def _run_brev_exec(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
@@ -765,6 +830,7 @@ async def _run_brev_copy(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
 
     try:
@@ -773,7 +839,7 @@ async def _run_brev_copy(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
@@ -802,6 +868,7 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         stdout, stderr = await asyncio.wait_for(
@@ -809,7 +876,7 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         if stdout and stdout.strip():
             return ExecResult(

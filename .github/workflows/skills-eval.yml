@@ -159,6 +159,16 @@ jobs:
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
+          # Raise the Bash-tool timeout cap above the worst-case single
+          # `uvx harbor run` (~2h: env-build 1800s + agent 3600s + verify
+          # 1800s). Without this the runtime auto-backgrounds the foreground
+          # harbor call at the 10-min default cap and the agent falls into
+          # polling its task output — silently defeating the "block on
+          # harbor" wait contract (the PreToolUse hook can't catch a
+          # runtime-initiated background; it only inspects call input). Both
+          # stay under the job's timeout-minutes so the call can't outlive it.
+          BASH_DEFAULT_TIMEOUT_MS: "7200000"
+          BASH_MAX_TIMEOUT_MS: "10800000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           set -a
@@ -262,6 +272,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
           INPUT_SKILLS: ${{ inputs.skills }}
+          # See the single-spec step for the rationale — keep the foreground
+          # `uvx harbor run` from being auto-backgrounded at the 10-min cap.
+          BASH_DEFAULT_TIMEOUT_MS: "7200000"
+          BASH_MAX_TIMEOUT_MS: "10800000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           set -a
