@@ -661,19 +661,11 @@ poll burns a tool turn and a trial that out-runs the budget exits with
 no comment (a real failure: the wrapper exits 4, see § Output
 requirements).
 
-Two guards keep the call in the foreground. The `_block_bash_background`
-PreToolUse hook rejects an agent-supplied `run_in_background` (and shell
-`&`/`nohup`/`disown`), and `BASH_MAX_TIMEOUT_MS` is raised to 3 h in the
-workflow so the runtime can't **auto**-background the call when it
-crosses the old 10-min Bash cap — that runtime-initiated background (set
-*after* the timeout, not by you) is the one the hook alone can't catch,
-and it's what drops you into polling. Do not defeat it by hand. As a hard
-backstop, wrap each run in a shell `timeout` set just **above** harbor's
-own ~2 h budget (env-build 1800s + agent 3600s + verify 1800s) but
-**below** the 3 h Bash cap — `timeout 7800 uvx harbor run …` — so a
-wedged trial is killed loud (and well before it could reach the cap and
-be auto-backgrounded) instead of hanging. To peek at a stuck trial, do
-it ONCE between trials, never in a loop.
+Don't background the trial (`run_in_background`, `&`/`nohup`/`disown`):
+the harness blocks those and raises the Bash timeout cap so a long
+foreground run isn't auto-backgrounded into a pollable task. Wrap each
+run as `timeout 7800 uvx harbor run …` (hard backstop, under the cap).
+To peek at a stuck trial, do it ONCE between trials, never in a loop.
 
 If a trial errors out, read `$RES/<date>/<trial>/trial.log` —
 it has the harness + adapter traceback. Fix the adapter
