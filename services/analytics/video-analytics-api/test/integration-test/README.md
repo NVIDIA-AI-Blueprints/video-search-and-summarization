@@ -65,7 +65,7 @@ docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-ap
 Generated in `docker_compose/infra/.env` by `generate_env.sh`:
 
 - `INTEGRATION_TEST_DIR` – path to the integration-test directory
-- `WEB_APIS_ROOT` – path to video-analytics-api repo root (where the Dockerfile is)
+- `VIDEO_ANALYTICS_API_ROOT` – path to video-analytics-api repo root (where the Dockerfile is)
 - `DATA_DIR` – `docker_compose/apps_data`
 - `COMPOSE_PROJECT_NAME` – `video-analytics-api-integration`
 
