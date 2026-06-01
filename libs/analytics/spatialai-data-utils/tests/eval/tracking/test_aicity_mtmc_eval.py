@@ -392,6 +392,27 @@ class TestSplitAicityMtmcFrameStart:
         )
         assert counts == {"Warehouse_017": {"Person": 4}}
 
+    def test_invalid_frame_start_raises(self, tmp_path):
+        """An empty (``frame_start >= num_frames_to_eval``) or negative
+        window is rejected at the API boundary instead of silently
+        producing empty results."""
+        gt_path = tmp_path / "gt.txt"
+        out_root = tmp_path / "split"
+        out_root.mkdir()
+        _write_text(gt_path, self._rows_for_frames(range(10)))
+        with pytest.raises(ValueError):
+            split_aicity_mtmc_per_scene_per_class(
+                str(gt_path), str(out_root), "gt.txt",
+                SCENE_MAP, num_frames_to_eval=5, is_pred=False,
+                frame_start=5,
+            )
+        with pytest.raises(ValueError):
+            split_aicity_mtmc_per_scene_per_class(
+                str(gt_path), str(out_root), "gt.txt",
+                SCENE_MAP, num_frames_to_eval=5, is_pred=False,
+                frame_start=-1,
+            )
+
 
 class TestSplitAicityMtmcWithExplicitClassTable:
     """``class_id_to_name`` keyword switches the active spec table.

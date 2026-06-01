@@ -234,9 +234,9 @@ def split_aicity_mtmc_per_scene_per_class(
         Combined with *num_frames_to_eval* this defines an arbitrary
         half-open window ``[frame_start, num_frames_to_eval)`` per
         scene — e.g. ``frame_start=4500, num_frames_to_eval=9000``
-        evaluates the second half of a 9000-frame scene.  Must be
-        ``< num_frames_to_eval``; otherwise the window is empty and
-        the function returns ``{}`` for every (scene, class) pair.
+        evaluates the second half of a 9000-frame scene.  Must be in
+        ``[0, num_frames_to_eval)`` — an out-of-range value raises
+        ``ValueError``.
     :param is_pred: Controls error semantics — ``True`` raises on any
         malformed / out-of-spec row (submission must be valid),
         ``False`` warns and skips (GT can have extra scenes the user
@@ -254,7 +254,17 @@ def split_aicity_mtmc_per_scene_per_class(
         as the per-class output directory names.
     :return: ``{scene_name: {class_name: number_of_rows_written}}``
         — used both for the per-scene weight and as a sanity log.
+    :raises ValueError: If ``frame_start`` is negative or not strictly
+        less than ``num_frames_to_eval`` (an empty window is rejected
+        rather than silently producing no results).
     """
+    if frame_start < 0:
+        raise ValueError(f"frame_start must be >= 0, got {frame_start}.")
+    if frame_start >= num_frames_to_eval:
+        raise ValueError(
+            f"frame_start ({frame_start}) must be < num_frames_to_eval "
+            f"({num_frames_to_eval}); window would be empty."
+        )
     if class_id_to_name is None:
         class_id_to_name = _DEFAULT_CLASS_ID_TO_NAME_AICITY26
     scenes_str_to_name = {str(k): v for k, v in scene_id_to_name.items()}
@@ -550,7 +560,9 @@ def run_aicity_mtmc_evaluation(
         server's behaviour).  Set this together with
         ``num_frames_to_eval`` to evaluate a non-prefix slice — e.g.
         ``frame_start=4500, num_frames_to_eval=9000`` runs HOTA on
-        the second half of a 9000-frame scene.
+        the second half of a 9000-frame scene.  Must be in
+        ``[0, num_frames_to_eval)``; an out-of-range value raises
+        ``ValueError``.
     :return: A nested dict with keys ``"eval_type"``,
         ``"num_frames_to_eval"``, ``"scene_id_to_name"``,
         ``"per_scene_object_counts"``, ``"per_scene_per_class"``,
