@@ -237,13 +237,24 @@ LOG=${LOG:-/tmp/warehouse-blueprint.log}
 
 ### Lifecycle: Tear down
 
+Hard teardown — removes all containers, the project network, and all volume belonging to this stack.
+
 ```bash
 cd <repo>/deploy/docker
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
+
+# Hard teardown — `-v` ensures named volumes are also removed.
+# Containers + network + project's named volumes all go.
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+
+# Sweep any leftover anonymous/dangling volumes from prior partial runs.
 docker volume prune -f
+
+# Reclaim disk: stopped containers, dangling images, unused networks.
 docker system prune -f
 
-# Pass the SAME env file you used with `docker compose --env-file ...`
+# Wipe bind-mounted state under $VSS_DATA_DIR/data_log/* AND revert
+# blueprint-configurator backups. Resolves VSS_DATA_DIR from the env file,
+# so pass the SAME env you used with `docker compose --env-file ...`.
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
 ```
 
@@ -326,18 +337,9 @@ Both set → skip to Phase 2.
 
 #### 1.2 Install (NGC CLI 4.10.0+)
 
-**AMD64:**
-```bash
-curl -sLo /tmp/ngccli.zip \
-  https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/4.10.0/files/ngccli_linux.zip
-sudo mkdir -p /usr/local/lib
-sudo unzip -qo /tmp/ngccli.zip -d /usr/local/lib
-sudo chmod +x /usr/local/lib/ngc-cli/ngc
-sudo ln -sfn /usr/local/lib/ngc-cli/ngc /usr/local/bin/ngc
-ngc --version
-```
-
-**ARM64 (DGX-SPARK, IGX-THOR):** use `ngccli_arm64.zip`, then same install steps.
+See [`ngc.md` § Install NGC CLI](ngc.md#install-ngc-cli-if-missing) for the
+AMD64 / ARM64 install commands. They are kept in `ngc.md` as the single
+canonical reference.
 
 #### 1.3 Configure API Key
 
@@ -381,6 +383,7 @@ Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
+| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + FP8 VLM model overrides |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -559,21 +562,7 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 
 #### 2.3 NVIDIA Container Toolkit
 
-```bash
-docker run --rm --gpus all ubuntu:24.04 nvidia-smi 2>&1 | head -8
-```
-
-If it fails:
-```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
+Canonical install + verify lives in [`prerequisites.md` § 3 NVIDIA Container Toolkit](prerequisites.md#3-nvidia-container-toolkit). Run that block and re-verify with `docker run --rm --gpus all ubuntu:24.04 nvidia-smi` before continuing.
 
 #### 2.4 Linux Kernel Settings
 
@@ -597,28 +586,7 @@ sudo bash -c "printf '%s\n' \
 sudo sysctl --system
 ```
 
-**DGX-SPARK / IGX-THOR only** — cache cleaner:
-```bash
-sudo tee /usr/local/bin/sys-cache-cleaner.sh << 'EOF'
-#!/bin/bash
-set -e
-echo 0 | tee /proc/sys/vm/nr_hugepages
-echo "Starting cache cleaner"
-while true; do
-  sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
-  sleep 3
-done
-EOF
-sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
-sudo -b /usr/local/bin/sys-cache-cleaner.sh
-```
-
-**IGX-THOR only** — boost VIC clocks:
-```bash
-sudo nvpmodel -m 0
-sudo jetson_clocks
-sudo su -c 'echo performance > /sys/class/devfreq/8188050000.vic/governor'
-```
+**DGX-SPARK / IGX-THOR / AGX-THOR only** — system cache cleaner and (IGX-Thor) VIC clock boost. These are platform prerequisites that apply to every profile on edge hardware, not just warehouse. Canonical install + verify block lives in [`edge.md` § Cache cleaner (every edge deploy)](edge.md#cache-cleaner-every-edge-deploy).
 
 #### 2.5 IPv6 Localhost Entry
 
@@ -663,15 +631,9 @@ df -h /  # 500 GB+ SSD
 
 #### Q2 — Blueprint Profile
 
-**MODE=2d:**
-> - **2D Vision AI** — CV-only, no LLM and no VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
-> - **2D Vision AI with Agents** — LLM NIM (local/local_shared/remote) + RTVI VLM (always local). Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
-
-**MODE=3d:**
-> - **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
-
-**MODE=mv3dt:**
-> - **MV3DT Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams). No agents profile (`bp_wh`) available.
+Refer to the [Profile Variants table](#profile-variants) above for the
+profile / mode / dataset matrix instead of restating it here. The question is
+just "which profile from that table?".
 
 #### Q3 — Stream Type
 
@@ -679,33 +641,23 @@ Skip for `bp_wh` and `bp_wh_auto_calib`. For `bp_wh_kafka` / `bp_wh_redis`:
 
 > "Which broker — **kafka** or **redis**?"
 
-Variable combinations:
+Variable combinations — pick one row matching the user's Vision-AI variant
+and stream type:
 
-```bash
-# 2D Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"; NUM_STREAMS=3
+| Vision AI | Stream type | `BP_PROFILE` | `STREAM_TYPE` | `SAMPLE_VIDEO_DATASET` | `NUM_STREAMS` |
+|---|---|---|---|---|---|
+| 2D Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-loading-dock-3cams-synthetic` | 3 |
+| 2D Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-loading-dock-3cams-synthetic` | 3 |
+| 2D Vision AI with Agents | n/a | `bp_wh` | — | `nv-warehouse-4cams` | 4 (also set `LLM_MODE=local`; RTVI VLM is always local) |
+| 3D Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| 3D Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| MV3DT Vision AI | kafka | `bp_wh_kafka` | `kafka` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| MV3DT Vision AI | redis | `bp_wh_redis` | `redis` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+| Warehouse Auto-Calibration | n/a | `bp_wh_auto_calib` | — | mode-specific default | mode-specific default (also set `LLM_MODE=none`) |
 
-# 2D Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"; NUM_STREAMS=3
-
-# 2D Vision AI with Agents (RTVI VLM is always local; only LLM_MODE is selectable):
-BP_PROFILE=bp_wh; SAMPLE_VIDEO_DATASET="nv-warehouse-4cams"; NUM_STREAMS=4; LLM_MODE=local
-
-# 3D Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# 3D Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# MV3DT Vision AI — kafka:
-BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# MV3DT Vision AI — redis:
-BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
-
-# Warehouse Auto-Calibration (mode-specific — dataset/streams match the mode default):
-BP_PROFILE=bp_wh_auto_calib; LLM_MODE=none
-```
+`3D Vision AI` and `MV3DT Vision AI` intentionally share the same dataset and
+stream counts — they differ only at the perception layer (`Sparse4D` vs
+per-camera DeepStream + BEV Fusion).
 
 #### Q4 — Deployment Profile
 
@@ -803,8 +755,8 @@ LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
 
 # --- RTVI VLM (bp_wh; always local — these are image/model selectors, not a mode toggle) ---
 # vss-rtvi-vlm is always deployed for bp_wh (hardcoded in compose profile bp_wh_2d).
-VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
 
 # --- MQTT (mv3dt only — cross-camera messaging for BEV Fusion) ---

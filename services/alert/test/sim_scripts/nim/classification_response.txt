@@ -1,0 +1,8 @@
+```json
+{
+  "label": "no-spotter",
+  "severity": "high",
+  "confidence": 0.95,
+  "reasoning": "The absence of a safety spotter near the pedestrian walkway while operating a forklift poses a significant risk of collision or injury to pedestrians."
+}
+```

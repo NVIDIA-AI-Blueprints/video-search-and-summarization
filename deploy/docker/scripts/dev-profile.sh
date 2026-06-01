@@ -86,6 +86,7 @@ function get_detected_hardware_profile() {
   case "${_gpu_lower}" in
     *h100*) echo "H100" ;;
     *l40s*) echo "L40S" ;;
+    *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
     *gb10*) echo "DGX-SPARK" ;;
     *thor*) echo "THOR" ;;
@@ -130,6 +131,7 @@ function get_vlm_slug() {
   case "${_name}" in
     nvidia/cosmos-reason1-7b) echo "cosmos-reason1-7b" ;;
     nvidia/cosmos-reason2-8b) echo "cosmos-reason2-8b" ;;
+    nvidia/cosmos3-reasoner) echo "cosmos3-reasoner" ;;
     Qwen/Qwen3-VL-8B-Instruct) echo "qwen3-vl-8b-instruct" ;;
     *) echo "" ;;
   esac
@@ -307,15 +309,23 @@ function get_rtvi_vllm_gpu_memory_utilization() {
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
       DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
-      L40S) echo "0.8" ;;
+      L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
     return
   fi
 
   case "${_hardware_profile}" in
-    L40S) echo "0.8" ;;
+    L40S|RTXPRO4500BW) echo "0.8" ;;
     *) echo "0.7" ;;
+  esac
+}
+
+function get_rtvi_vlm_max_model_len() {
+  local _hardware_profile="${1}"
+  case "${_hardware_profile}" in
+    RTXPRO4500BW) echo "20480" ;;
+    *) echo "" ;;
   esac
 }
 
@@ -366,6 +376,7 @@ function usage() {
   echo "                                   • One of:"
   echo "                                     - H100"
   echo "                                     - L40S"
+  echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
   echo "                                     - DGX-SPARK"
   echo "                                     - IGX-THOR"
@@ -402,6 +413,7 @@ function usage() {
   echo "                                   • One of (local):"
   echo "                                     - nvidia/cosmos-reason1-7b"
   echo "                                     - nvidia/cosmos-reason2-8b"
+  echo "                                     - nvidia/cosmos3-reasoner          (set NIM_MODEL_SIZE=nano|super)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -661,9 +673,9 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
+      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
 
@@ -937,7 +949,7 @@ function process_args() {
         fi
         if contains_element "vlm" "${options_provided[@]}"; then
           if [[ -z "$(get_vlm_slug "${vlm}")" ]]; then
-            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, Qwen/Qwen3-VL-8B-Instruct"
+            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, Qwen/Qwen3-VL-8B-Instruct"
             ((_all_good++))
           fi
         fi
@@ -1140,6 +1152,8 @@ function state_up() {
   # 77770-<id>.brevlab.com; that form is legacy. Point HAProxy and browser-facing compose vars at the
   # current-form host with https/wss; keep URL templates in profile .env
   # (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
+  # VST_INGRESS_ENDPOINT intentionally omits the scheme because the VST stream-processing service
+  # prepends http:// when generating /picture/url and clip URLs.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
     echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port})..."
@@ -1148,6 +1162,7 @@ function state_up() {
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
     set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
     set_env_var "VSS_PUBLIC_PORT" "443"
+    # set_env_var "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
   fi
 
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
@@ -1302,9 +1317,9 @@ function state_up() {
   # Alerts or base profile on IGX-THOR or AGX-THOR: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "base" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
-    set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
+    set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
     set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
-    set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+    set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2"
     set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
   fi
@@ -1321,6 +1336,11 @@ function state_up() {
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
       set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      local _rtvi_vlm_max_model_len
+      _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+      if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
+        set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_rtvi_vlm_max_model_len}"
+      fi
     fi
     # RT_VLM_DEVICE_ID: mirrors NIM compose device_ids pattern.
     # local → VLM_DEVICE_ID; local_shared → SHARED_LLM_VLM_DEVICE_ID (fall back to vlm_device_id).
@@ -1340,8 +1360,13 @@ function state_up() {
       set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
+    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
+      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+    fi
   fi
-  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi (alerts does not use rtvi)
+  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
+  # (alerts defaults to VLM_MODEL_TYPE=rtvi via its source .env, so it does not need this override)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
   fi

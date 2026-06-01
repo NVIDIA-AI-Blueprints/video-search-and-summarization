@@ -437,6 +437,14 @@ echo "NVIDIA H100 80GB HBM3"
 EOF
 chmod +x "${_mock_nvidia_smi_dir}/nvidia-smi"
 PATH="${_mock_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "OTHER accepted when detected GPU is supported" up -p base -i 127.0.0.1 -H OTHER -d
+_mock_rtx4500_nvidia_smi_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_rtx4500_nvidia_smi_dir}")
+cat > "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+echo "NVIDIA RTX PRO 4500 Blackwell"
+EOF
+chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
+PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
@@ -466,10 +474,10 @@ LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 ru
 LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 run_negative_test "base on AGX-THOR rejects --use-remote-vlm" 1 up -p base -i 127.0.0.1 -H AGX-THOR --use-remote-llm --llm x --use-remote-vlm --vlm y -d
 run_dry_run_up_and_check_generated_env "generated.env base IGX-THOR VLM and RTVI vars and device IDs" "base" \
  -i 127.0.0.1 -H IGX-THOR -d -- \
-  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://127.0.0.1:8018" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
+  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8" "VLM_BASE_URL" "http://127.0.0.1:8018" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
 run_dry_run_up_and_check_generated_env "generated.env base AGX-THOR VLM and RTVI vars (same as IGX-THOR)" "base" \
  -i 127.0.0.1 -H AGX-THOR -d -- \
-  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://127.0.0.1:8018" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
+  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8" "VLM_BASE_URL" "http://127.0.0.1:8018" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
 run_negative_test "base on IGX-THOR rejects --vlm" 1 up -p base -i 127.0.0.1 -H IGX-THOR --vlm nvidia/cosmos-reason2-8b -d
 run_negative_test "base on AGX-THOR rejects --vlm" 1 up -p base -i 127.0.0.1 -H AGX-THOR --vlm nvidia/cosmos-reason2-8b -d
 run_negative_test "base on IGX-THOR rejects --vlm-env-file" 1 up -p base -i 127.0.0.1 -H IGX-THOR --vlm-env-file /some/vlm.env -d
@@ -523,10 +531,10 @@ run_dry_run_test "edge (AGX-THOR) alerts real-time uses device ID 0 (no VLM over
 # Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION is an option (mirrors NIM hw-H100.env pattern: ${VLM_NIM_KVCACHE_PERCENT}), flows through from env (unset → empty).
 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://127.0.0.1:8018" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8" "VLM_BASE_URL" "http://127.0.0.1:8018" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RT_VLM_DEVICE_ID" "0"
 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://127.0.0.1:8018" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8" "VLM_BASE_URL" "http://127.0.0.1:8018" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RT_VLM_DEVICE_ID" "0"
 # Alerts on IGX-THOR/AGX-THOR: RTVI_VLLM_GPU_MEMORY_UTILIZATION env var flows through to generated.env (option pattern, like ${VLM_NIM_KVCACHE_PERCENT} in NIM hw-H100.env).
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
@@ -553,6 +561,12 @@ run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW local 
 run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8" "alerts" \
   -i 127.0.0.1 -m verification -H L40S --llm-device-id 2 --vlm-device-id 1 -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
+run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
+  -i 127.0.0.1 -m verification -H RTXPRO4500BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+run_dry_run_up_and_check_generated_env "generated.env lvs RTXPRO4500BW RTVI tuning" "lvs" \
+  -i 127.0.0.1 -H RTXPRO4500BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
 run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
@@ -646,6 +660,7 @@ run_dry_run_test "up base dry-run" up -p base -i 127.0.0.1 -d
 run_dry_run_test "up search dry-run" up -p search -i 127.0.0.1 --dry-run
 run_dry_run_test "up lvs dry-run" up -p lvs -i 127.0.0.1 -d
 run_dry_run_test "up alerts dry-run with mode verification" up -p alerts -i 127.0.0.1 -m verification -d
+run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
 run_dry_run_test "up base with llm/vlm" up -p base -i 127.0.0.1 --llm nvidia/nemotron-3-nano --vlm nvidia/cosmos-reason1-7b -d
@@ -776,6 +791,9 @@ rm -f "${_out_search}"
 run_dry_run_up_and_check_generated_env "generated.env HOST_IP and HARDWARE_PROFILE from options" "base" \
  -i 127.0.0.1 -H RTXPRO6000BW -d -- \
   "HOST_IP" "127.0.0.1" "HARDWARE_PROFILE" "RTXPRO6000BW"
+run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE RTXPRO4500BW" "base" \
+ -i 127.0.0.1 -H RTXPRO4500BW -d -- \
+  "HARDWARE_PROFILE" "RTXPRO4500BW"
 run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "base" \
  -i 127.0.0.1 -H OTHER -d -- \
   "HARDWARE_PROFILE" "OTHER"
@@ -993,10 +1011,10 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
 # LVS with local/local_shared VLM: route LVS through RT-VLM and let RT-VLM load the integrated Cosmos checkpoint.
 run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM integrated checkpoint" "lvs" \
  -i 127.0.0.1 -H OTHER -d -- \
-  "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_NAME_SLUG" "none" \
+  "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://127.0.0.1:8018" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" \
-  "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'" \
+  "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8'" \
   "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}'
 
 # LVS with remote VLM: keep RT-VLM in the stack and point only RT-VLM at the remote OpenAI-compatible endpoint.

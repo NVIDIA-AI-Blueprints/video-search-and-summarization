@@ -24,14 +24,6 @@ dependencies:
     version: 26.04.2
     repository: "file://./charts/vios-postgres"
     condition: vss-vios-postgres.enabled
-  - name: vss-vios-envoy-proxy
-    version: 26.04.2
-    repository: "file://./charts/vios-envoy-proxy"
-    condition: vss-vios-envoy-proxy.enabled
-  - name: vss-vios-sdr
-    version: 26.04.2
-    repository: "file://./charts/vios-sdr"
-    condition: vss-vios-sdr.enabled
   - name: vss-vios-sensor
     version: 26.04.2
     repository: "file://./charts/vios-sensor"

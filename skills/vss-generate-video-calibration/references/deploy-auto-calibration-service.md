@@ -1,6 +1,6 @@
 # Deploy auto-calibration service
 
-Use this reference when the user wants to deploy AMC (launch the microservice + UI). The parent skill ([`../SKILL.md`](../SKILL.md)) routes here on triggers like "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib".
+Use this reference when the user wants to deploy AMC (launch the microservice + UI). The parent skill (``../SKILL.md`` (see `../SKILL.md`)) routes here on triggers like "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib".
 
 Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC is enabled only by `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`. AMC is a service inside the `warehouse-operations` industry profile — env vars live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env).
 
@@ -14,10 +14,12 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 
 ## What gets deployed
 
-| Service | Container | Port | Image |
-|---|---|---|---|
-| AMC MS | `vss-auto-calibration` | `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`, host network) | `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-2` |
-| AMC UI | `vss-auto-calibration-ui` | `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`) | `nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.2.0-2` |
+| Service | Container | Port | Image (sample — see compose for the authoritative path) | Compose source |
+|---|---|---|---|---|
+| AMC MS | `vss-auto-calibration` | `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`, host network) | `nvcr.io/nvidia/vss-core/vss-auto-calibration:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
+| AMC UI | `vss-auto-calibration-ui` | `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
+
+> **Image references are illustrative.** The compose files above are the source of truth for the exact image repo and tag — they may differ by release. Don't pull a hand-typed path; read the resolved path from `docker compose config` / `resolved.yml` (Step 3) and let `docker compose up` pull it.
 
 ## Env recipe
 
@@ -29,10 +31,10 @@ Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../de
 | `VSS_AUTO_CALIBRATION_UI_PORT` | UI host port (UI publishes `:5000` inside the container) | `5000` |
 | `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the **browser** uses to call the MS (the UI runs in the user's browser, not inside the UI container). Defaults to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1`. Override if MS and UI run on different hosts, **or** if `${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}` isn't routable from the browser (firewalled port, SSH-tunnel-only access, different network). | computed |
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
-| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see [`rtsp.md`](rtsp.md)). Auto-set to `${VST_INTERNAL_URL}` when a warehouse profile with VST is running; for calibration-only RTSP use `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`. | `${VST_INTERNAL_URL}` |
+| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see `rtsp.md`). Auto-set to `${VST_INTERNAL_URL}` when a warehouse profile with VST is running; for calibration-only RTSP use `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`. | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
 | `VSS_APPS_DIR` | **Absolute path to your repo's `deploy/docker/` directory** (compose-tree root) — NOT an arbitrary data dir. Compose uses it both for `env_file:` lookups (e.g. `${VSS_APPS_DIR}/services/vios/vst.env`) and for bind-mounts of in-repo configs + project state (AMC mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` here). The `.env` ships with a placeholder `/path/to/deploy/docker` — **you MUST replace it with the absolute path to your checkout's `deploy/docker`**, otherwise the dry-run fails with `couldn't find env file: …/services/vios/vst.env`. | (no default — must be set) |
-| `VSS_DATA_DIR` | Runtime data root (separate from `VSS_APPS_DIR`). MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model. See [`../../deploy/references/data-directory.md`](../../deploy/references/data-directory.md) for the full per-container layout + permission setup. | (no default — must be set) |
+| `VSS_DATA_DIR` | Runtime data root (separate from `VSS_APPS_DIR`). MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model. | (no default — must be set) |
 
 ## Deployment flow
 
@@ -40,11 +42,16 @@ Standard compose-centric workflow: env overrides → `docker compose --env-file 
 
 ### Step 1 — NGC login
 
-AMC pulls from `nvcr.io/nvstaging/vss-core/`. The user must have access to the `vss-core` namespace.
+AMC pulls its images from the `vss-core` namespace on `nvcr.io` (the exact org — e.g. `nvidia` for published releases — is whatever the compose files in the table above reference). The user's NGC key must have access to that namespace.
+
+The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell/env file. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
 
 ```bash
+echo "NGC_CLI_API_KEY: $([ -n "${NGC_CLI_API_KEY}" ] && echo SET || echo 'NOT SET')"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
+
+> **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key (`--password-stdin` keeps it out of argv and shell history; keep it out of any file you write).
 
 ### Step 2 — (Optional) Stage the VGGT model
 
@@ -165,7 +172,7 @@ echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 
 | Issue | Symptoms | Solution |
 |---|---|---|
-| NGC pull fails (401 Unauthorized) | `docker compose up` returns 401 on `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-2` | Re-run NGC login: `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`. Confirm the user has access to the `vss-core` namespace. |
+| NGC pull fails (401 Unauthorized) | `docker compose up` returns 401 pulling the `vss-core` AMC image | The current `NGC_CLI_API_KEY` is invalid or lacks `vss-core` access. Stop and ask the user for a valid NGC key (do not silently reuse a key from earlier in the conversation — see Step 1 § Credential handling), then re-run `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`. Confirm the user has access to the `vss-core` namespace. |
 | `vss-auto-calibration` stays `(starting)` for >10 min | Healthcheck not green; MS not responding on `/v1/ready` | Check logs: `docker logs vss-auto-calibration`. Common cause: missing GPU access. Verify `runtime: nvidia` works: `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` |
 | UI loads but shows **"Failed to connect to the server"** | Browser dev-tools → Network tab shows the UI fetching `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1/...` and failing (ERR_CONNECTION_REFUSED / timeout / CORS) | (a) `HOST_IP` unset or `localhost`: `grep ^HOST_IP industry-profiles/warehouse-operations/.env` and set to the host's reachable IP. (b) `HOST_IP` is correct but `${VSS_AUTO_CALIBRATION_PORT}` isn't reachable from the browser (corp firewall blocks the port, the browser is on a different network, etc.): the UI on `:5000` still loads because that port is allowed, but the AJAX call to the MS port fails. Fix by either: (i) moving the MS to a port the browser can reach — set `VSS_AUTO_CALIBRATION_PORT=8080` (or another allowed port) in the env, regenerate `resolved.yml`, and `up -d`; (ii) SSH-tunnelling and overriding `VSS_AUTO_CALIBRATION_MS_API_URL=http://localhost:${VSS_AUTO_CALIBRATION_PORT}/v1`; or (iii) fronting the MS with a reverse proxy on an allowed port and pointing `VSS_AUTO_CALIBRATION_MS_API_URL` at it. |
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different port: edit `VSS_AUTO_CALIBRATION_PORT` or `VSS_AUTO_CALIBRATION_UI_PORT` in `industry-profiles/warehouse-operations/.env`, re-run dry-run + up. |
@@ -188,8 +195,8 @@ COMPOSE_PROFILES=bp_wh_auto_calib_2d docker compose --env-file industry-profiles
 
 Once the AMC stack is up and healthy, the parent skill picks one of three calibration modes based on what the user has:
 
-- [`sample-dataset.md`](sample-dataset.md) — bundled sample (recommended first run; sanity-checks the install).
-- [`videos.md`](videos.md) — pre-recorded MP4s.
-- [`rtsp.md`](rtsp.md) — live RTSP streams (requires VIOS).
+- `sample-dataset.md` — bundled sample (recommended first run; sanity-checks the install).
+- `videos.md` — pre-recorded MP4s.
+- `rtsp.md` — live RTSP streams (requires VIOS).
 
 **Agent behavior**: if the user's original prompt asked to both deploy AND calibrate (e.g. *"launch AMC and test the sample dataset"*, *"set up auto-magic-calib and calibrate my videos at /data/videos/"*), proceed immediately to one of the calibration-mode references once the readiness probe passes — don't stop at "deploy succeeded" and wait for re-prompt. If the user only asked to deploy, surface the URLs (MS + UI) and the three calibration options above so they can pick.

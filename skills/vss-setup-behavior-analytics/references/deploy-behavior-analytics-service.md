@@ -90,7 +90,7 @@ Top-level shape (every config has all of these):
 
 Higher-level docs:
 
-- [`configuration.md`](configuration.md) — config field guide.
+- `configuration.md` — config field guide.
 
 ---
 
@@ -148,12 +148,12 @@ The schema for the calibration JSON is vendored from `vss-analytics-api/web-api-
 `vss-behavior-analytics` does **not** require a broker to be present at start time:
 
 - The container starts fine without Kafka/Redis/MQTT reachable.
-- The Kafka client retries the broker connection a bounded number of times (with backoff). You'll see repeated `Connect to ipv4#…:9092 failed: Connection refused` warnings in `docker logs vss-behavior-analytics-base` while it tries.
+- The Kafka client retries the broker connection a bounded number of times (with backoff). You'll see repeated `Connect to ipv4#…:9092 failed: Connection refused` warnings in `docker logs behavior-analytics-vss-behavior-analytics-base-1` while it tries. (The auto-generated container name comes from Compose's default `<project>-<service>-<index>` pattern; project name defaults to the compose file's parent directory, `behavior-analytics`.)
 - Once retries are exhausted, the app process exits and the container's `restart: always` policy brings it back up. The new container starts a fresh retry cycle. This restart loop continues — visible in `docker ps` as the `Status` column counting `Restarting (N)` — until the broker becomes reachable, at which point the consumer thread connects on the next attempt and drains messages normally.
 
 Practical implication: a broker-less analytics container is **not** sitting idle in-process — it's cycling. Fine for "bring up analytics first, broker later" workflows, but expect periodic restarts in the meantime. If you want it to fail-fast instead (e.g. in CI), override `restart:` to `on-failure` or `no`, or wrap with your own healthcheck.
 
-> When a broker **is** reachable, you also get two runtime-update flows — dynamic config and dynamic calibration — that don't require redeploying the container. Those are post-deployment operations and live in the `SKILL.md`'s **Dynamic updates** section, plus [`dynamic-config.md`](dynamic-config.md) and [`dynamic-calibration.md`](dynamic-calibration.md) for full wire contracts.
+> When a broker **is** reachable, you also get two runtime-update flows — dynamic config and dynamic calibration — that don't require redeploying the container. Those are post-deployment operations and live in the `SKILL.md`'s **Dynamic updates** section, plus `dynamic-config.md` and `dynamic-calibration.md` for full wire contracts.
 
 ---
 
@@ -171,7 +171,9 @@ export VSS_APPS_DIR=$(pwd)
 docker compose -f services/analytics/behavior-analytics/compose.yml up -d vss-behavior-analytics-base
 
 docker ps --filter "name=vss-behavior-analytics" --format '{{.Names}}\t{{.Status}}'
-docker logs -f vss-behavior-analytics-base
+# Compose auto-names the container <project>-<service>-<index>; project defaults to
+# the compose file's parent dir, so the full name is:
+docker logs -f behavior-analytics-vss-behavior-analytics-base-1
 ```
 
 Healthy log lines include:

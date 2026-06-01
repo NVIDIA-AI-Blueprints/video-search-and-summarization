@@ -1032,8 +1032,9 @@ async def execute_core_search(
                 seen[key] = r
         attr_results = sorted(seen.values(), key=lambda r: r.metadata.behavior_score, reverse=True)[:top_k]
 
-        vst_url = getattr(config, "vst_internal_url", None)
-        await enrich_attribute_results(attr_results, vst_url)
+        vst_internal_url = getattr(config, "vst_internal_url", None)
+        vst_external_url = getattr(config, "vst_external_url", None)
+        await enrich_attribute_results(attr_results, vst_internal_url, vst_external_url)
 
         search_results = [attribute_result_to_search_result(r) for r in attr_results]
         result_count = len(search_results)
@@ -1490,6 +1491,13 @@ class SearchConfig(FunctionBaseConfig, name="search"):
     vst_internal_url: str = Field(
         ...,
         description="The internal VST URL for stream_id to sensor_id conversion in fusion reranking.",
+    )
+
+    vst_external_url: str | None = Field(
+        default=None,
+        description=(
+            "The external VST URL for client-facing screenshot URLs. Falls back to vst_internal_url when unset."
+        ),
     )
 
     critic_agent: FunctionRef | None = Field(

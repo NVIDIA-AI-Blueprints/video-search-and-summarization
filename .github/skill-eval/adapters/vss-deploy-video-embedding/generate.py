@@ -20,7 +20,7 @@ budget without exercising new code paths.
 
 ## Spec shape
 
-`skills/vss-deploy-video-embedding/eval/standalone_deploy.json` has a
+`skills/vss-deploy-video-embedding/evals/standalone_deploy.json` has a
 single `expects` entry (one bring-up query + 9 checks). The adapter
 therefore emits a flat `base/<platform_short>/` task directory rather
 than a step-chain.
@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -70,6 +71,41 @@ PREAMBLE = (
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
     "setup action the trial requires."
 )
+
+
+# ---------------------------------------------------------------------------
+# Spec rendering
+# ---------------------------------------------------------------------------
+
+def _render_spec(spec: dict, platform: str) -> dict:
+    """Substitute `{{platform}}` and `{{repo_root}}` into every string field.
+
+    Mirrors sibling deploy adapters (vss-deploy-detection-tracking-2d,
+    vss-setup-behavior-analytics, etc.). Without this, raw placeholders leak
+    into instruction.md and the verifier's tests/ spec copy.
+    """
+    substitutions = {
+        "platform": platform,
+        "repo_root": "$HOME/video-search-and-summarization",
+    }
+    pattern = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+    _LEGACY_REPO = "/home/ubuntu/video-search-and-summarization"
+    _PORTABLE_REPO = "$HOME/video-search-and-summarization"
+
+    def _sub(value):
+        if isinstance(value, str):
+            rendered = pattern.sub(
+                lambda m: str(substitutions.get(m.group(1), m.group(0))),
+                value,
+            )
+            return rendered.replace(_LEGACY_REPO, _PORTABLE_REPO)
+        if isinstance(value, list):
+            return [_sub(v) for v in value]
+        if isinstance(value, dict):
+            return {k: _sub(v) for k, v in value.items()}
+        return value
+
+    return _sub(spec)
 
 
 # ---------------------------------------------------------------------------
@@ -198,8 +234,9 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     `base/<platform_short>/` (no step-<k>/ subdirs)."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
-    expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "standalone_deploy.json")).name or "standalone_deploy.json"
+    spec = _render_spec(spec, platform)
+    expects = spec.get("expects") or []
 
     if len(expects) != 1:
         print(
@@ -283,11 +320,8 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     (tests_dir / "test.sh").write_text(generate_test_script(1, spec_name))
     if GENERIC_JUDGE.exists():
         shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-    spec_src = skill_dir / "eval" / spec_name
-    if spec_src.exists():
-        shutil.copy(spec_src, tests_dir / spec_name)
-    else:
-        (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+    rendered_for_tests = {k: v for k, v in spec.items() if k != "_source_path"}
+    (tests_dir / spec_name).write_text(json.dumps(rendered_for_tests, indent=2))
 
     # solution/
     solution_dir = step_dir / "solution"
@@ -317,7 +351,7 @@ def main() -> None:
                         help="Path to skills/vss-deploy-video-embedding")
     parser.add_argument("--spec", default=None,
                         help="Path to standalone_deploy.json "
-                             "(default: <skill-dir>/eval/standalone_deploy.json)")
+                             "(default: <skill-dir>/evals/standalone_deploy.json)")
     parser.add_argument("--platform", default=None,
                         choices=list(PLATFORMS.keys()),
                         help=f"Generate for this platform only "
@@ -326,7 +360,7 @@ def main() -> None:
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / "standalone_deploy.json")
+    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / "standalone_deploy.json")
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

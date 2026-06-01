@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Request Schema - Field mappings for incoming messages
+# This file defines how to extract fields from incoming JSON messages
+
+version: "1.0"
+description: "Schema definition for incoming alert messages"
+
+# Core field mappings - update these paths when JSON schema evolves
+fields:
+  message_id: "eventId"
+  timestamp: "timestamp"
+  sensor_id: "sensor.id"
+  vehicle_id: "object.id"
+  anomaly_type: "analyticsModule.id"
+  stream_id: "streamId"
+  alert_type: "alertType"
+  media_file_path: "mediaFilePath"
+  start_time: "start_time"
+  end_time: "end_time"
+
+# Required fields that must be present
+required_fields:
+  - "eventId"
+  - "timestamp"
+  - "sensor.id"
+  - "object.id"
+
+# Default values for missing optional fields
+defaults:
+  anomaly_type: "unknown"
+  stream_id: "default_stream"
+  alert_type: "general"
+
+# Field validation rules
+validation:
+  message_id:
+    type: "string"
+    required: true
+  timestamp:
+    type: "string"
+    format: "iso8601"
+    required: true
+  sensor_id:
+    type: "string"
+    required: true
+  vehicle_id:
+    type: "string"
+    required: true
+  start_time:
+    type: "number"
+    minimum: 0
+    required: false
+  end_time:
+    type: "number"
+    minimum: 0
+    required: false
+
+# Cross-field validation semantics (documented for validator implementation):
+# - start_time and end_time are optional; either or both may be present
+# - If both are present, enforce end_time > start_time (zero-length is invalid)
