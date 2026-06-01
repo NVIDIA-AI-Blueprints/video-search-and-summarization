@@ -3,7 +3,7 @@ name: vss-deploy-detection-tracking-3d
 description: >
   Deploy and operate the RTVI-CV-3D stack (also known as MV3DT, Multi-View 3D
   Tracking, or RTVI-CV-MV3DT) — per-camera DeepStream perception plus BEV
-  Fusion over multiple calibrated cameras. Use when the user says
+  Fusion over multiple calibrated cameras. Applies to requests such as
   "deploy RTVI-CV-3D", "deploy rtvi-cv-3d", "deploy MV3DT", "deploy multi-view
   3D tracking", "deploy rtvi-cv-mv3dt", "enable multi-camera tracking",
   "enable multi camera tracking", "set up multi-camera tracking", "multi-camera
@@ -11,13 +11,27 @@ description: >
   RTVI-CV-3D / MV3DT on RTSP", "run on the sample dataset", "set up 3D
   tracking", or provides a 4-camera warehouse video/RTSP set. Routes between
   sample-data, custom-videos, and custom-RTSP flows; auto-chains to
-  `vss-generate-video-calibration` when calibration data is missing.
+  `vss-generate-video-calibration` when calibration data is missing. Not for
+  the full warehouse blueprint with agents / LLM / VLM (use `vss-deploy-profile`)
+  or 2D single-camera detection (use `vss-deploy-detection-tracking-2d`).
 license: Apache-2.0
 metadata:
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint mv3dt detection tracking 3d warehouse"
 ---
+
+## Purpose
+
+Deploy and operate the RTVI-CV-3D / MV3DT stack — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on the bundled sample dataset, custom videos, or live RTSP, without the full warehouse agent / LLM / VLM stack.
+
+## Instructions
+
+Work top-to-bottom: answer the routing questions (Q0–Q3) under [Routing](#routing), then follow the reference for the chosen path. Detailed step-by-step procedures live in `references/` (deploy, calibration chain, camera configuration, verification, teardown, troubleshooting).
+
+## Examples
+
+Worked end-to-end scenarios are kept under `evals/` (each `*.json` is a runnable spec). Inline `docker compose` / `curl` examples appear in the per-reference steps.
 
 # VSS Deploy Detection & Tracking — 3D (RTVI-CV-3D)
 
