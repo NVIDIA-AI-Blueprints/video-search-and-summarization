@@ -134,24 +134,14 @@ jobs:
         with:
           python-version: ${{ matrix.python_version }}
 
-      - name: Install agent system dependencies
-        if: matrix.name == 'agent'
-        run: |
-          if [ "$(id -u)" -eq 0 ]; then
-            apt-get update
-            apt-get install -y libcairo2-dev pkg-config
-          elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y libcairo2-dev pkg-config
-          else
-            echo "No passwordless sudo available; assuming Sonar runner already has libcairo2-dev and pkg-config."
-          fi
-
       - name: Generate agent coverage
         if: matrix.name == 'agent'
         working-directory: services/agent
         run: |
-          uv sync --group dev --frozen
+          # The Sonar self-hosted runner cannot install system packages.
+          # Coverage does not exercise PDF rendering, so skip pycairo/rlpycairo
+          # instead of requiring cairo headers and pkg-config on the runner.
+          uv sync --group dev --frozen --no-install-package pycairo --no-install-package rlpycairo
           uv run pytest \
             --cov=src/vss_agents \
             --cov-report=xml:coverage.xml \

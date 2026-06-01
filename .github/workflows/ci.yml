@@ -634,7 +634,10 @@ jobs:
           python-version: "3.13"
 
       - name: Install Grype
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sudo sh -s -- -b /usr/local/bin -v v0.104.3
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$RUNNER_TEMP/bin" v0.104.3
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Scan Python runtime dependencies
         run: bash .github/scripts/check_agent_vulnerabilities.sh vulnerability-reports/vss-agent
@@ -670,7 +673,10 @@ jobs:
           rm -rf .source-artifact
 
       - name: Install Grype
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sudo sh -s -- -b /usr/local/bin -v v0.104.3
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$RUNNER_TEMP/bin" v0.104.3
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Scan UI runtime dependencies
         run: bash .github/scripts/check_ui_vulnerabilities.sh vulnerability-reports/vss-agent-ui
