@@ -1,0 +1,25 @@
+{
+	"kafka": {},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "tripwire_min_points",
+					"value": "5"
+				}
+			]
+		},
+        {
+			"id": "Camera D1",
+			"configs": [
+				{
+					"name": "tripwire_min_points",
+					"value": "2"
+				}
+			]
+		}
+		
+	],
+	"app": []
+}

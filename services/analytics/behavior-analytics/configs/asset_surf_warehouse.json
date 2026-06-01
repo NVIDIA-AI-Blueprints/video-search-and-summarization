@@ -1,0 +1,572 @@
+{
+    "sceneUrl": "s3://surf-uds-aws-cns/warehouse_20x20_layout_02_all_objects_labeled.usd",
+    "assets": [
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        },
+        {
+            "usdPath": "/World/Pallets/Zone3/Cardbox_B2_Pallet_B1_03/Pallet_B1_physics/Geometry/Pallet_B1",
+            "primType": "Mesh",
+            "properties": [
+                {
+                    "name": "class",
+                    "value": "pallet"
+                },
+                {
+                    "name": "type",
+                    "value": "pallet_b1"
+                }
+            ],
+            "bbox": {
+                "dimension": {
+                    "x": 1.2740948041198994,
+                    "y": 1.0803328320062207,
+                    "z": 0.20864566336619106
+                }
+            }
+        }
+    ]
+}

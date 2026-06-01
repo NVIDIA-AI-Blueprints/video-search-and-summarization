@@ -249,7 +249,7 @@ def apply_patch() -> None:
 
     _original_run_workflow_local = EvaluationRun.run_workflow_local
 
-    async def patched_run_workflow_local(self: Any, session_manager: Any) -> None:
+    async def patched_run_workflow_local(self: Any, session_manager: Any, http_connection: Any = None) -> None:
         """Expand multi-turn items, then run turns sequentially within each conversation."""
         from nat.builder.context import ContextState
 
@@ -319,7 +319,7 @@ def apply_patch() -> None:
                 logger.info(f"[Multi-turn] Set conversation_id={conv_id} for {item.id}")
 
                 self.eval_input.eval_input_items = [item]
-                await _original_run_workflow_local(self, session_manager)
+                await _original_run_workflow_local(self, session_manager, http_connection=http_connection)
                 pbar.update(1)
 
                 turn_id = item.full_dataset_entry.get("turn_id", f"turn_{len(conversation_history) + 1}")
@@ -338,7 +338,7 @@ def apply_patch() -> None:
         async def run_non_multi_turn() -> None:
             """Run non-multi-turn items."""
             self.eval_input.eval_input_items = non_multi_turn_items
-            await _original_run_workflow_local(self, session_manager)
+            await _original_run_workflow_local(self, session_manager, http_connection=http_connection)
             pbar.update(len(non_multi_turn_items))
 
         try:
@@ -360,12 +360,12 @@ def apply_patch() -> None:
             # Restore all items for result collection
             self.eval_input.eval_input_items = expanded_items
 
-    # Patch publish_output to also write latency_summary.json alongside other output files
-    _original_publish_output = EvaluationRun.publish_output
+    # Patch _on_eval_complete to also write latency_summary.json alongside other output files
+    _original_on_eval_complete = EvaluationRun._on_eval_complete
 
-    def patched_publish_output(self: Any, *args: Any, **kwargs: Any) -> None:
+    def patched_on_eval_complete(self: Any, *args: Any, **kwargs: Any) -> None:
         global _last_avg_latency
-        _original_publish_output(self, *args, **kwargs)
+        _original_on_eval_complete(self, *args, **kwargs)
         _last_avg_latency = _write_latency_summary(self, self.eval_input.eval_input_items)
 
     # Patch write_tabular_output to print average latency
@@ -381,7 +381,7 @@ def apply_patch() -> None:
             click.echo(f"Average Latency: {_last_avg_latency:.2f}s")
 
     EvaluationRun.run_workflow_local = patched_run_workflow_local
-    EvaluationRun.publish_output = patched_publish_output
+    EvaluationRun._on_eval_complete = patched_on_eval_complete
     _nat_cli_eval.write_tabular_output = patched_write_tabular_output
     _patched = True
     logger.info("Evaluation patch applied")

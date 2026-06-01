@@ -5,7 +5,7 @@
 
 The vss-manage-video-io-storage skill exercises VIOS (VST) API calls — upload video, extract
 snapshot URL, extract clip URL, etc. The current spec
-([`skills/vss-manage-video-io-storage/eval/vios_ops.json`]) **omits the `profile` field
+([`skills/vss-manage-video-io-storage/evals/vios_ops.json`]) **omits the `profile` field
 by design** — the agent is expected to stand VIOS up standalone via the
 skill's bundled `references/deploy-vios-service.md` runbook before
 exercising the API. Per `.github/skill-eval/AGENTS.md` § 2, an absent
@@ -282,7 +282,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "eval" / spec_name
+        spec_src = skill_dir / "evals" / spec_name
         if spec_src.exists():
             shutil.copy(spec_src, tests_dir / spec_name)
         else:
@@ -321,7 +321,7 @@ def main() -> None:
                         help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
     parser.add_argument("--spec", default=None,
                         help="Path to vios_ops.json "
-                             "(default: <skill-dir>/eval/vios_ops.json)")
+                             "(default: <skill-dir>/evals/vios_ops.json)")
     parser.add_argument("--platform", default=None,
                         choices=list(PLATFORMS.keys()),
                         help=f"Generate for this platform only "
@@ -341,7 +341,7 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / "vios_ops.json")
+    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / "vios_ops.json")
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

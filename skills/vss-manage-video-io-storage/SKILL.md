@@ -1,12 +1,18 @@
 ---
 name: vss-manage-video-io-storage
-description: "Query VIOS REST APIs: sensor list, recording timelines, video clip extraction, snapshot capture, add/delete sensors and streams"
+description: Use to call the VIOS REST API (sensor list, timelines, clip extraction, snapshots, add/delete sensors and streams). Not for VLM inference or search.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+## Prerequisites
+
+- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
+- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
+- `curl`, `jq`, and Docker available on the caller.
 
 # VIOS Operations
 
@@ -14,11 +20,12 @@ You are a VIOS API assistant. Interact with the VIOS microservice to manage came
 
 ## Reference contracts shipped with this skill
 
-This skill bundles three reference files under `references/`. Read whichever applies to the task in front of you:
+This skill bundles four reference files under `references/`. Read whichever applies to the task in front of you:
 
 | File | Purpose | Audience |
 |---|---|---|
 | [`references/api-reference.md`](references/api-reference.md) | The full VIOS REST API reference (the runtime contract) — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, service discovery. **Read this when invoking any VIOS API operation.** | Operational users + this skill itself |
+| [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md) | The **NvStreamer REST API reference** — version, sensor list/info/status/streams, the three upload methods (PUT v2 / PUT v1 / POST multipart) with the `nvstreamer-*` custom headers, delete, snapshots (frame-indexed live, timestamp-indexed storage), storage info, filesystem scan. NvStreamer (`vss-vios-nvstreamer`, the streamer-adaptor variant of `launch_vst`) is **brought up by the same profiles that bring VIOS up** — `dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles. See `integrate-vios-service.md § Topology B` for the deployment side. **Read this when uploading test / sample videos to be served as synthetic RTSP, retrieving the RTSP URL NvStreamer generated for a file, or driving the canonical NvStreamer → VIOS handoff** (upload to NvStreamer → read RTSP URL → register that URL with VIOS via `/sensor/add`). | Operational users + skill authors composing the upload → RTSP URL → VIOS `/sensor/add` flow |
 | [`references/integrate-vios-service.md`](references/integrate-vios-service.md) | The **integration contract** — how VIOS plugs into other VSS microservices. Documents required peer services (RT-VLM, ELK, Kafka, Redis, `sdr-controller` / SDRC), the structured `component_services:` block consumed by the `vss-build-vision-agent` skill's Step 4, integration inputs/outputs (Kafka topics, REST endpoints, file paths), environment variables, network requirements, and known integration constraints (e.g. the `/url`-variant double-`http://` bug, the VIOS + SDRC patching requirement). **Read this when authoring a skill that talks to VIOS as a peer, when composing a new VSS deployment, or when debugging caption-pipeline wiring.** | Skill authors, deployment composers, pair-file maintainers |
 | [`references/deploy-vios-service.md`](references/deploy-vios-service.md) | The **deployment contract** — what it takes to bring VIOS up. Documents container images and tags (`nvcr.io/nvstaging/vss-core/vss-vios-*:2.1.0-26.05.2`), GPU / CPU / memory / storage requirements, startup behavior + healthcheck tuning, required environment variables (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true` for the libav apt-install step that gates uploads), known deployment issues (volume drift, libav missing, 502 from leftover containers), prerequisites, dry-run, verify-deployment, and tear-down commands. **Read this when VIOS isn't running and you (or your caller) need to deploy it standalone, when debugging container-startup failures, or when authoring a deploy skill that wraps VIOS.** | Operators, deploy-skill authors |
 
@@ -50,54 +57,17 @@ This skill is primarily an API client and assumes VIOS is already up and reachab
 
 ## Known limitation — leftover containers from prior deploys
 
-The following VIOS API paths can return **HTTP 502 Bad Gateway** or
-stale results when the host has leftover containers from an earlier
-deploy:
-
-- `GET /vst/api/v1/sensor/list`
-- `GET /vst/api/v1/sensor/<sensorId>/streams`
-
-Root cause: the alerts compose profile (`bp_developer_alerts_2d_cv` /
-`bp_developer_alerts_2d_vlm`) brings up the `*-smc` set of VST
-microservices alongside the `*-dev` set, both with `network_mode: host`
-binding the same host ports (30000 for `sensor-ms`, 30888 for
-`vst-ingress`). When a subsequent base/lvs/search deploy runs, those
-`*-smc` containers can survive past the `/vss-deploy-profile` skill's Step 0
-teardown if the teardown grep doesn't catch them — and one
-sensor-ms loses the port-bind race, returning 502 to anything that
-proxies through `vst-ingress`. See
-[issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151)
-and `references/deploy-vios-service.md § Known Deployment Issues` for the
-full failure-mode catalogue and remediation steps.
-
-The `/vss-deploy-profile` skill's Step 0 teardown grep was extended to cover the
-full set (`sensor-ms-*`, `vst-ingress-*`, `centralizedb-*`,
-`storage-ms-*`, `sdr-*`, `envoy-*`, `sdr-controller`, `sdrc-*`,
-`rtspserver-ms-*`, etc.), so
-fresh deploys via `/vss-deploy-profile` should not hit this. If you inherit a
-host without re-deploying and see 502s, re-run `/vss-deploy-profile` to clean.
-
-> **Note on the current deploy contract:** SDR (`vss-vios-sdr`) and Envoy
-> (`vss-vios-envoy`) have been replaced. The current deploy modes are:
->
-> - **Direct routing** (`base` profile): sensor → streamprocessing on `:30001`
->   via `nginx-vst-direct.conf` (`STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:30001`,
->   `VST_NGINX_MODE=vst-direct`). No SDR, no SDRC. See
->   [`dev-profile-base/.env:222-224`](../../deploy/docker/developer-profiles/dev-profile-base/.env)
->   and the `nginx-vst-direct.conf` template under `services/vios/configs/`.
-> - **SDRC routing** (`lvs`, `search`, `alerts_2d_cv`, `alerts_2d_vlm`, and all
->   warehouse profiles): sensor → `sdr-controller`'s Envoy listener on `:10000` →
->   streamprocessing on `:30001`. The combined WDM controller + Envoy router lives at
->   [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
->
-> The legacy `sdr-streamprocessing` + `envoy-streamprocessing` services still
-> exist in the tree (gated to the dead `bp_developer_sdr_envoy_disabled` profile)
-> but are not invoked by any active deploy. The `sdr-*` / `envoy-*` patterns in
-> the teardown grep above are retained to clean up stale hosts that ran an
-> older `develop`.
-
-Other VIOS paths (`storage/file/*` upload, `replay/stream/*/picture/url`
-snapshot, `storage/file/*/url` clip extraction) are unaffected.
+`GET /vst/api/v1/sensor/list` and `GET /vst/api/v1/sensor/<sensorId>/streams`
+can return **HTTP 502 Bad Gateway** or stale results when leftover `*-smc`
+VST containers from an earlier deploy survive teardown and win the
+`network_mode: host` port-bind race on `:30000` / `:30888`. **Remediation:
+re-run `/vss-deploy-profile`** — its Step 0 teardown grep clears the full
+`sensor-ms-*` / `vst-ingress-*` / `sdr-*` / `sdrc-*` / `rtspserver-ms-*` set.
+Other paths (`storage/file/*` upload, `*/picture/url` snapshot, `*/url` clip
+extraction) are unaffected. Full failure-mode catalogue, remediation, and the
+current routing contract (direct vs SDRC; SDR/Envoy removed in PR #711) live in
+`references/deploy-vios-service.md § Known Deployment Issues` and
+[issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151).
 
 ---
 
@@ -152,12 +122,15 @@ If a sensor has only one stream, `sensorId` and `streamId` are equal and can be 
 | File upload / delete | `/vst/api/v1/storage/` | `references/api-reference.md` (PUT v2 + legacy v1 endpoints) + `references/deploy-vios-service.md § Known Deployment Issues` (Finding 9: libav-missing failure mode) |
 | Live streams / snapshot (picture) | `/vst/api/v1/live/` | `references/api-reference.md` |
 | Replay streams / historical snapshot | `/vst/api/v1/replay/` | `references/api-reference.md` (operations) + `references/integrate-vios-service.md § Known Integration Constraints` (Finding 8) |
+| **NvStreamer**: file-to-RTSP republisher (upload, retrieve generated RTSP URL, filesystem scan, frame snapshots) | `http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}/vst/api/v1/` | `references/nvstreamer-api-reference.md` (the streamer endpoint is **separate** from the VIOS gateway — different port, `type: "streamer"` on `/version`) |
 
 ---
 
 ## Operations
 
 The full VIOS REST API reference — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, and service discovery — lives in [`references/api-reference.md`](references/api-reference.md). Read that file when invoking any operation.
+
+When a request involves serving an on-disk video file as a synthetic RTSP camera (upload a sample, retrieve the auto-generated RTSP URL, register that URL with VIOS), point at the NvStreamer endpoint and follow [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md) for the surface. NvStreamer comes up automatically with any VIOS-using profile that ships it; do not deploy it separately.
 
 For integration- and deployment-time questions about how VIOS interacts with other microservices or how it's brought up, defer to [`references/integrate-vios-service.md`](references/integrate-vios-service.md) and [`references/deploy-vios-service.md`](references/deploy-vios-service.md) respectively (see the **Reference contracts** table above for what each covers).
 

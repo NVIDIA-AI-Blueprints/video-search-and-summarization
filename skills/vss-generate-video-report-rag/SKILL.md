@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-report-rag
-description: "Generate video summary reports with Enterprise RAG using the VSS video_search_frag extension with Long Video Summarization (LVS), knowledge retrieval, and human-in-the-loop parameter collection. Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline."
+description: "Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline."
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -234,12 +234,6 @@ Present the report content to the user in a readable format.
 
 ## Quick Commands
 
-### Health check
-
-```bash
-curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health"
-```
-
 ### Simple chat query (non-report)
 
 For simple questions that do NOT involve report generation:
@@ -259,3 +253,5 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
 - `enable_interactive_extensions: true` must be set in the frag config for HTTP HITL to work
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
+
+

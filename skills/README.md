@@ -26,6 +26,8 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
 | [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Skill for deploying and calling the RT-VLM dense captioning microservice API. |
+| [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Skill for deploying and operating the RT-Embed video embedding microservice API. |
+| [vss-deploy-detection-tracking-2d](vss-deploy-detection-tracking-2d/SKILL.md) | Skill for deploying, operating, and calling the RTVI-CV perception microservice for 2D detection and tracking (warehouse 2d/3d, sparse4d, smartcity rtdetr/gdino). |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
 | [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Skill to generate video summary reports with Enterprise RAG using the VSS frag/RAG pipeline. |
 | [vss-query-analytics](vss-query-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
@@ -33,6 +35,9 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | [vss-summarize-video](vss-summarize-video/SKILL.md) | Skill for summarizing a video through chunking, dense captioning, and aggregation functions using the Long Video Summarization (LVS) microservice. |
 | [vss-ask-video](vss-ask-video/SKILL.md) | Skill for using video understanding tool to answer text questions about video content using a VLM. |
 | [vss-manage-video-io-storage](vss-manage-video-io-storage/SKILL.md) | Skill for video and stream management, recording timelines, clip extraction, snapshots (and more) using the Video IO and Storage microservices. |
+| [vss-generate-video-calibration](vss-generate-video-calibration/SKILL.md) | Skill to run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset, and to deploy the vss-auto-calibration microservice when needed. |
+| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Skill to deploy and operate the RTVI-CV-3D stack (a.k.a. MV3DT / Multi-View 3D Tracking / RTVI-CV-MV3DT) on sample, custom video, or RTSP inputs — auto-chains to vss-generate-video-calibration when calibration is missing. |
+
 
 Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 

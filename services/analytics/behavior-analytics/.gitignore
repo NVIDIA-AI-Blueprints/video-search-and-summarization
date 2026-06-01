@@ -1,0 +1,30 @@
+.DS_Store
+__py_cache__
+__pycache__
+.pytest_cache
+.coverage
+.python-version
+
+# Local IDE settings
+/.idea/
+/.vscode/
+
+# Build stuff
+build/
+*.egg-info/
+
+# For local test use
+/data/
+testscripts/
+
+# docs html
+public/
+/cache/
+/.project
+/.pydevproject
+.venv
+
+# Ignore apps not relevant to the current release
+apps/people_tracking/
+apps/retail/
+apps/playback/retail/

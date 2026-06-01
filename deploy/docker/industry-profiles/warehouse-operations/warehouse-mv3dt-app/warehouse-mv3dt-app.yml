@@ -120,7 +120,7 @@ services:
         fi
 
   bp-configurator-mv3dt:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.04
+    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
     container_name: vss-configurator-mv3dt
     network_mode: "host"
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]

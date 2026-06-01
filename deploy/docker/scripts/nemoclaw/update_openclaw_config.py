@@ -33,13 +33,16 @@ def sandbox_exec(
         "--",
         *remote_args,
     ]
-    return subprocess.run(
-        cmd,
-        check=True,
-        text=True,
-        capture_output=capture_output,
-        input=input_text,
-    )
+    run_kwargs = {
+        "check": True,
+        "text": True,
+        "capture_output": capture_output,
+    }
+    if input_text is None:
+        run_kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        run_kwargs["input"] = input_text
+    return subprocess.run(cmd, **run_kwargs)
 
 
 def read_etc_environment() -> dict[str, str]:
@@ -158,6 +161,7 @@ def get_dashboard_token(
             check=True,
             text=True,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
         )
         token = result.stdout.strip()
         if token:
