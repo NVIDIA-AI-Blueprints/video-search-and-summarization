@@ -2,6 +2,15 @@
 
 nv protobuf schema
 
+## protoc version
+
+Use protobuf compiler `libprotoc 27.3` when regenerating nvschema outputs. Verify the local compiler version before running the generation commands below, because different `protoc` versions can produce incompatible or noisy generated-code diffs.
+
+```bash
+$ protoc --version
+libprotoc 27.3
+```
+
 ## generate c++
 
 cd src/main
@@ -33,5 +42,13 @@ protoc -I=./protobuf/ --python_out=. --mypy_out=. protobuf/schema.proto
 protoc -I=./protobuf/ --python_out=. --mypy_out=. protobuf/ext.proto
 
 ## generate ruby
+
+Note: generating Ruby code requires protobuf compiler `libprotoc 3.20.3`.
+
+```bash
+$ protoc --version
+libprotoc 3.20.3
+```
+
 cd src/main/
 protoc --proto_path=protobuf/ --ruby_out=. protobuf/schema.proto protobuf/ext.proto
