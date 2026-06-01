@@ -150,12 +150,7 @@ If **`local-path`** is listed but is **not** the default (no **`(default)`** mar
 
 ## Step 2: Install Ingress Controller (HAProxy)
 
-This profile uses the HAProxy Kubernetes Ingress controller for two distinct paths:
-
-1. **External traffic** (browser → VSS UI / agent / Kibana / Phoenix) — uses the controller's host ports `80`/`443` exposed by a DaemonSet.
-2. **In-cluster RTVI affinity** (vss-agent → rtvi-cv / rtvi-embed, when `global.rtviInternalIngress.enabled=true`) — uses the controller's **ClusterIP Service** at `haproxy-kubernetes-ingress.haproxy-controller:80`.
-
-Both paths share the same controller install. Keep the Service enabled (`controller.service.type=ClusterIP`) so the in-cluster path works:
+This profile uses the HAProxy Kubernetes Ingress controller for **external traffic** (browser → VSS UI / agent / Kibana / Phoenix) via the controller's host ports `80`/`443` exposed by a DaemonSet. Install it once as a cluster prerequisite:
 
 ```bash
 helm repo add haproxytech https://haproxytech.github.io/helm-charts
@@ -167,19 +162,25 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
   --set controller.kind=DaemonSet \
   --set controller.daemonset.useHostPort=true \
   --set controller.daemonset.hostPorts.http=80 \
-  --set controller.daemonset.hostPorts.https=443 \
-  --set controller.service.type=ClusterIP
+  --set controller.daemonset.hostPorts.https=443
 ```
 
-Verify the controller is running and the in-cluster Service is created:
+> **In-cluster RTVI affinity (optional).** Only needed when you deploy the Search profile with `global.rtviInternalIngress.enabled=true` (default `false`). That path routes vss-agent → rtvi-cv / rtvi-embed through the controller's **ClusterIP Service** at `haproxy-kubernetes-ingress.haproxy-controller:80`. To enable it, append `--set controller.service.type=ClusterIP` to the install command above. If you only need external traffic, leave it off.
+
+Verify the controller is running:
 
 ```bash
 kubectl get pods -n haproxy-controller
 kubectl get ingressclass
+```
+
+You should see an IngressClass named `haproxy`. If you enabled the ClusterIP Service for RTVI affinity, also confirm it exists:
+
+```bash
 kubectl get svc -n haproxy-controller haproxy-kubernetes-ingress
 ```
 
-You should see an IngressClass named `haproxy` and a ClusterIP Service `haproxy-kubernetes-ingress` in namespace `haproxy-controller`. The `global.rtviInternalIngress.controllerService` default (`haproxy-kubernetes-ingress.haproxy-controller`) and `controllerPort` default (`80`) match this install; override only if you used a different release name or namespace.
+The `global.rtviInternalIngress.controllerService` default (`haproxy-kubernetes-ingress.haproxy-controller`) and `controllerPort` default (`80`) match this install; override only if you used a different release name or namespace.
 
 ## Step 3: Deploy the Search Profile
 
