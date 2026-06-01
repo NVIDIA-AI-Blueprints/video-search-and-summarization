@@ -109,7 +109,6 @@ edition (default `2026`):
 
 ```bash
 # 2026 (default)
-cd /path/to/spatialai_data_utils
 python tools/evaluation/evaluate_aicity_mtmc.py \
     --ground_truth_file  data/aicity26/ground_truth/ground_truth.txt \
     --input_file         /path/to/your_2026_submission.txt \

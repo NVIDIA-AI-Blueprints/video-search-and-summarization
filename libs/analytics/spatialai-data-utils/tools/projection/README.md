@@ -45,8 +45,6 @@ The tool is a streaming I/O wrapper around
 ### Quick Start
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Project every input line onto Camera_01
 python tools/projection/project_bbox3d_to_2d.py \
     --sensor_id     Camera_01 \

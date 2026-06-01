@@ -24,8 +24,6 @@ below.
 ## `video2frame.py` — decode a video → frame directory
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Default: every frame as 9-digit zero-padded JPG
 python tools/video_utils/video2frame.py video.mp4 output/frames/
 
@@ -96,8 +94,6 @@ This matches the canonical `data/mtmc/synthetic/<scene>/` layout
 ```
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Default invocation (matches data/mtmc/synthetic/scene_001/, etc.)
 python tools/video_utils/video2frame_scene.py \
     data/mtmc/synthetic/scene_001/
@@ -178,8 +174,6 @@ other than `completed` / `skipped`.
 ## `frame2video.py` — encode a frame directory → video
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Default: all JPG/PNG frames at the package default fps
 python tools/video_utils/frame2video.py output/frames/ output.mp4
 
@@ -254,8 +248,6 @@ layout (Isaac-mirror convention):
 ```
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Default: <scene>/Camera_*/rgb/rgb_<NNNNN>.jpg → 1080p grid video
 # (auto-threads the per-cam decode work)
 python tools/video_utils/frame2video_scene.py \

@@ -34,8 +34,6 @@ The `calculate_origin.py` tool calculates Bird's Eye View (BEV) group origins an
 ## Quick Start
 
 ```bash
-cd spatialai_data_utils
-
 # With existing groups - calculate origins
 python tools/camera_grouping/calculate_origin.py data/scene/calibration_grouped.json
 
@@ -58,15 +56,6 @@ You have a raw calibration file without groups. The tool will automatically:
 
 ### Scenario 3: Frustum-Based FOV
 Your calibration file doesn't have `fieldOfViewPolygon` attributes. The tool will calculate FOV from camera intrinsic/extrinsic matrices.
-
-## Installation
-
-```bash
-cd spatialai_data_utils
-
-# Ensure dependencies are installed
-pip install -e .
-```
 
 ## Command-Line Arguments
 
@@ -522,8 +511,6 @@ Dimensions: [-2.0, -18.0, 12.0, -2.0]
 ### Synthetic Warehouse Scene
 
 ```bash
-cd spatialai_data_utils
-
 # Process the scene calibration
 python tools/camera_grouping/calculate_origin.py \
     data/mtmc/scene_001/calibration_buffer_zone_c4.json \
@@ -841,8 +828,6 @@ After Refinement (swaps to minimize scatter):
 ## Quick Start
 
 ```bash
-cd spatialai_data_utils
-
 # Pass a calibration.json file directly (outputs are written next to it)
 python tools/camera_grouping/create_camera_clusters.py data/scene/calibration.json --max_camera_per_group 10
 
@@ -1264,8 +1249,6 @@ Result: 6 cameras × 3 groups × 3 per group = 9 slots
 ## Quick Start
 
 ```bash
-cd spatialai_data_utils
-
 # Input can be a calibration.json file directly, or a directory containing one
 python tools/camera_grouping/create_camera_groups.py data/scene/calibration.json --auto
 
