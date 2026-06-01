@@ -73,7 +73,7 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "uuid": "^11.1.1"
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@mozilla/readability": "^0.6.0",

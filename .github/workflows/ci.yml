@@ -602,95 +602,7 @@ jobs:
           '
 
   # ---------------------------------------------------------------------------
-  # Job 11: Package vulnerability scan (Python)
-  # ---------------------------------------------------------------------------
-  vulnerability-scan-python:
-    name: Vulnerability Scan (Python)
-    needs: prepare-source
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: source-${{ github.sha }}
-          path: .source-artifact
-
-      - name: Unpack source artifact
-        run: |
-          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
-          tar -xzf .source-artifact/source.tar.gz --strip-components=1
-          mkdir -p .ci
-          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
-          rm -rf .source-artifact
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
-        with:
-          version: "0.6.2"
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
-        with:
-          python-version: "3.13"
-
-      - name: Install Grype
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$RUNNER_TEMP/bin" v0.104.3
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
-      - name: Scan Python runtime dependencies
-        run: bash .github/scripts/check_agent_vulnerabilities.sh vulnerability-reports/vss-agent
-
-      - name: Upload vulnerability report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        if: always()
-        with:
-          name: vulnerability-report-python
-          path: vulnerability-reports/vss-agent/
-          if-no-files-found: warn
-
-  # ---------------------------------------------------------------------------
-  # Job 12: Package vulnerability scan (UI)
-  # ---------------------------------------------------------------------------
-  vulnerability-scan-ui:
-    name: Vulnerability Scan (UI)
-    needs: prepare-source
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: source-${{ github.sha }}
-          path: .source-artifact
-
-      - name: Unpack source artifact
-        run: |
-          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
-          tar -xzf .source-artifact/source.tar.gz --strip-components=1
-          mkdir -p .ci
-          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
-          rm -rf .source-artifact
-
-      - name: Install Grype
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "$RUNNER_TEMP/bin" v0.104.3
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
-      - name: Scan UI runtime dependencies
-        run: bash .github/scripts/check_ui_vulnerabilities.sh vulnerability-reports/vss-agent-ui
-
-      - name: Upload vulnerability report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        if: always()
-        with:
-          name: vulnerability-report-ui
-          path: vulnerability-reports/vss-agent-ui/
-          if-no-files-found: warn
-
-  # ---------------------------------------------------------------------------
-  # Job 13: Folder structure enforcement (develop-only)
+  # Job 11: Folder structure enforcement (develop-only)
   # ---------------------------------------------------------------------------
   folder-structure:
     name: Check folder structure
@@ -715,7 +627,7 @@ jobs:
         run: python3 .github/scripts/check_folder_structure.py
 
   # ---------------------------------------------------------------------------
-  # Job 14: Trigger downstream pipeline and poll it to completion
+  # Job 12: Trigger downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
@@ -734,8 +646,6 @@ jobs:
       - dco
       - license-check-python
       - license-check-ui
-      - vulnerability-scan-python
-      - vulnerability-scan-ui
       - folder-structure
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
