@@ -70,7 +70,7 @@ KAFKA_ENABLED=true
 #ERROR_MESSAGE_TOPIC=vision-embed-errors
 ```
 
-Replace `<tag>` with the NGC image tag for your platform (for example `3.2.0-26.05.4` on x86, or `3.2.0-26.05.4-sbsa` on SBSA). **`RTVI_IMAGE` is required in `docker/.env`** — if omitted, Compose uses its built-in fallback tag, which may not match the release you intend.
+Replace `<tag>` with the NGC image tag for your platform (for example `3.2.0-26.05.4` on x86, or `3.2.0-26.05.4-sbsa` on SBSA). **`RTVI_IMAGE` is required in `docker/.env`**.
 
 `compose.yaml` provides defaults for every other variable — see [Complete Environment Variable Reference](#complete-environment-variable-reference) below for the full list.
 
@@ -394,16 +394,16 @@ Configuration is managed through environment variables, typically stored in a `.
 ### Minimal Configuration
 
 ```bash
-# Required in docker/.env
+# Required
 BACKEND_PORT=<port>
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>
+RTVI_IMAGE=<rtvi_embed_container_image>
 ```
 
 ### Recommended Configuration
 
 ```bash
 # Ports
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>  # Update <tag> to your NGC release
+RTVI_IMAGE=<rtvi_embed_container_image>     # RTVI Embed Microservice container image
 BACKEND_PORT=<port>                         # Host port on which the service will be available
 
 # Storage
