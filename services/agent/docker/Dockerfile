@@ -40,6 +40,7 @@ WORKDIR /vss-agent
 # runtime user can read/execute but not own or modify the copied resources.
 COPY --chown=root:root --chmod=0444 agent/pyproject.toml /vss-agent
 COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
+COPY --chown=root:root --chmod=0444 agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
 COPY --chown=root:root --chmod=0555 agent/src/vss_agents /vss-agent/src/vss_agents
 # `lib/` is a sibling top-level package shipped in the same wheel
@@ -136,6 +137,7 @@ COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/lib
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/third_party/ffmpeg /vss-agent/third_party/ffmpeg
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
+COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 
 # NAT writes transient workflow state here at startup. Keep app resources
 # immutable, but provide a narrowly scoped writable scratch directory.
