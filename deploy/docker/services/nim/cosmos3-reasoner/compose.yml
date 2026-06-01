@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# RC NIM: Cosmos3 Reasoner staging image. Opt in via
+# Cosmos3 Reasoner NIM image. Opt in via
 #   VLM_NAME=nvidia/cosmos3-reasoner
 #   VLM_NAME_SLUG=cosmos3-reasoner
 # in dev-profile-base/.env. NIM_MODEL_SIZE selects nano (default) or super.
 
 services:
   cosmos3-reasoner:
-    image: nvcr.io/nvstaging/nim/cosmos3-reasoner:1.7.1.rc0-51870194
+    image: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
     container_name: nvidia-cosmos3-reasoner
     profiles:
     - vlm_local_cosmos3-reasoner
@@ -61,7 +61,7 @@ services:
       retries: 2
 
   cosmos3-reasoner-shared-gpu:
-    image: nvcr.io/nvstaging/nim/cosmos3-reasoner:1.7.1.rc0-51870194
+    image: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
     container_name: nvidia-cosmos3-reasoner
     profiles:
     - vlm_local_shared_cosmos3-reasoner
