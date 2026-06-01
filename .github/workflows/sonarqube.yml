@@ -137,8 +137,15 @@ jobs:
       - name: Install agent system dependencies
         if: matrix.name == 'agent'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libcairo2-dev pkg-config
+          if [ "$(id -u)" -eq 0 ]; then
+            apt-get update
+            apt-get install -y libcairo2-dev pkg-config
+          elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y libcairo2-dev pkg-config
+          else
+            echo "No passwordless sudo available; assuming Sonar runner already has libcairo2-dev and pkg-config."
+          fi
 
       - name: Generate agent coverage
         if: matrix.name == 'agent'
