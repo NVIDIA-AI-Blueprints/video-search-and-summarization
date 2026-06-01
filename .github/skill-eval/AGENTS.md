@@ -41,11 +41,21 @@ results, or viewer entries. The `leg-slug` is the unique trial identity
 LEG="${EVAL_SLUG:-${skill}__${spec_stem}__${platform}}"
 DS="/tmp/skill-eval/datasets/${LEG}/${GITHUB_RUN_ID}"    # this leg's datasets
 RES="/tmp/skill-eval/results/${LEG}/${GITHUB_RUN_ID}"    # this leg's harbor -o
+# Run-level scratch for the per-spec comment bodies + bot-PR body. This is
+# RUN-scoped (NOT leg-scoped) and MUST match skills_eval_agent.py's
+# `_SCRATCH = /tmp/skill-eval/<run_id>`, because that module globs
+# `$SCRATCH/pr-*.md` to assemble benchmark.md. Writing the pr-*.md files
+# anywhere else means the benchmark step finds nothing.
+SCRATCH="/tmp/skill-eval/${GITHUB_RUN_ID}"
 ```
 
 Slug-first ordering groups every run of one trial under one `<slug>/`
 dir (handy for history); `<run_id>` underneath isolates this run. The
-brev snapshot is per-leg too (`brev-snapshot-${LEG}.json`).
+brev snapshot is per-leg too (`brev-snapshot-${LEG}.json`). `$SCRATCH`
+is shared by all legs of one run (they coexist on the host) — only the
+`pr-<spec>.md` / `bot-pr-body.md` / `skipped-*.txt` files live there,
+each already keyed by `<spec>`/`<spec_stem>-<platform>` so legs don't
+collide.
 
 ## Startup hygiene (do this first, before step 1)
 
@@ -53,7 +63,7 @@ Clean only **your own** leg's scratch (idempotent across retries) — never
 a global wipe, which would delete a concurrent sibling's live dataset:
 
 ```bash
-rm -rf "$DS" "$RES" && mkdir -p "$DS" "$RES"
+rm -rf "$DS" "$RES" && mkdir -p "$DS" "$RES" "$SCRATCH"
 
 # GC scratch from OTHER runs (different run_id under any slug), but never
 # this run's dirs or the shared viewer. Depth 2 = the <slug>/<run_id>
@@ -504,8 +514,14 @@ export BREV_INSTANCE="$INSTANCE_NAME"
 # retries, stale dirs left by a failed attempt, and concurrent
 # fan-out (§ Wait contract #4) all collision-proof. NEVER point two
 # harbor runs at the same -o.
-RESULTS="/tmp/skill-eval/results/$GITHUB_RUN_ID"
-TRIAL_OUT="$RESULTS/<spec_stem>-<platform>"   # e.g. $RESULTS/base-rtxpro6000bw
+# `$RES` (this leg's per-leg results root, set in § "Per-leg scratch
+# isolation") IS the harbor -o for a single-step spec — a single-step
+# leg owns its whole `$RES` root, so trials land at `$RES/<date>/<trial>`
+# and the workflow's collector finds them directly. Do NOT prepend an
+# extra `<spec_stem>-<platform>` subdir (a vestige of the retired
+# unscoped `results/<run_id>/` layout): that pushed result.json one
+# level deeper than the collector's `find` looks and silently dropped
+# the artifact.
 
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
@@ -553,17 +569,27 @@ Notes that have burned prior runs:
   of a single `harbor run -p <platform_dir>` invocation:
 
   ```bash
-  # Pre-condition: the spec lays out step_count subdirs under
-  # $DS/<platform>/ named step-1, step-2, ..., step-<step_count>.
+  # Discover the platform dir that holds the step-*/ subdirs. The adapter
+  # nests them under a middle dir that is NOT the platform — it's the
+  # spec's deploy-profile (e.g. summarize emits $DS/lvs/l40s/step-1, whose
+  # stem is `lvs_api_ops`), so never hardcode `$DS/<platform>`. Find it.
+  STEP1_TOML=$(find "$DS" -path '*/step-1/task.toml' -print -quit)
+  PLATFORM_DIR=$(dirname "$(dirname "$STEP1_TOML")")   # the .../<platform> dir
   # Read step_count from any step's task.toml [metadata] (same on each).
-  STEP_COUNT=$(grep -oP '^step_count\s*=\s*\K\d+' \
-    "$DS/<platform>/step-1/task.toml")
-  RESULTS="$RES"
+  STEP_COUNT=$(grep -oP '^step_count\s*=\s*\K\d+' "$STEP1_TOML")
 
   for STEP in $(seq 1 "$STEP_COUNT"); do
+    # All steps share the per-leg root `-o "$RES"`, same as a single-step
+    # spec — so trials land at `$RES/<date>/<trial>` (depth the collector +
+    # the viewer-migration below both expect). Sharing one -o is safe HERE
+    # because the steps run strictly sequentially, minutes apart (each is a
+    # full deploy+trial), so harbor always writes a distinct `<date>` dir —
+    # the same-second `-o` collision warned about above only happens with
+    # PARALLEL spec fan-out, never sequential steps. `--include-task-name`
+    # pins this invocation to exactly step N's task.
     uvx harbor run \
       --environment-import-path "envs.brev_env:BrevEnvironment" \
-      -p "$DS/<platform>" \
+      -p "$PLATFORM_DIR" \
       --include-task-name "<platform>-step-${STEP}" \
       -a claude-code \
       --model "$ANTHROPIC_MODEL" \
@@ -573,11 +599,11 @@ Notes that have burned prior runs:
       --agent-timeout-multiplier 6.0 \
       --verifier-timeout-multiplier 3.0 \
       --max-retries 0 -n 1 --yes \
-      -o "$TRIAL_OUT"
+      -o "$RES"
 
-    # Read the just-completed step's reward. Layout under $TRIAL_OUT is
-    # <date>/<trial>, and the trial dir is named step-<N>__<rand6>.
-    REWARD=$(cat "$TRIAL_OUT"/*/step-${STEP}__*/verifier/reward.txt \
+    # Read the just-completed step's reward. Trial dirs are named
+    # step-<N>__<rand6> under $RES/<date>/, so glob on the step prefix.
+    REWARD=$(cat "$RES"/*/step-${STEP}__*/verifier/reward.txt \
       2>/dev/null | tail -n 1)
     REWARD="${REWARD:-0}"
 

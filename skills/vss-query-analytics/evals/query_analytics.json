@@ -1,9 +1,8 @@
 {
   "skills": [
-    "vss-query-analytics"
+    "vss-query-analytics",
+    "vss-deploy-profile"
   ],
-  "profile": "alerts",
-  "deploy_mode": "real-time",
   "resources": {
     "platforms": {
       "L40S": {
@@ -11,8 +10,17 @@
       }
     }
   },
-  "env": "VSS **alerts** profile already deployed (either `verification` or `real-time` mode) on the target host so the VA-MCP server is reachable at `http://localhost:9901/mcp` and backed by Elasticsearch. At least one sensor registered in VIOS (e.g. `warehouse_sample` onboarded through NVStreamer) and at least a few incidents already written to Elasticsearch so analytics tools return non-empty results. `curl` + `jq` available on the caller. The skill is read-only over VA-MCP — it must NOT trigger deploys or call live VLM/report endpoints. See `skills/vss-query-analytics/SKILL.md`.",
+  "env": "The first step deploys the VSS **alerts** profile in `real-time` mode; the remaining steps query analytics read-only over the VA-MCP server it brings up at `http://localhost:9901/mcp` (backed by Elasticsearch). After deploy, at least one sensor should be registered in VIOS (e.g. `warehouse_sample` onboarded through NVStreamer) and a few incidents written to Elasticsearch so analytics tools return non-empty results. `curl` + `jq` available on the caller. `/vss-query-analytics` itself is read-only over VA-MCP — it must NOT trigger deploys or call live VLM/report endpoints. See `skills/vss-query-analytics/SKILL.md`.",
   "expects": [
+    {
+      "query": "Deploy the VSS **alerts** profile in `real-time` mode on `{{platform}}` via `/vss-deploy-profile -p alerts -m real-time`. Run autonomously.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (real-time VLM processor)"
+      ]
+    },
     {
       "query": "Verify the VA-MCP analytics endpoint is reachable and ready to answer queries.",
       "checks": [
