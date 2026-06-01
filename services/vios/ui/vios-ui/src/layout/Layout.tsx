@@ -156,7 +156,8 @@ export default function UILayout() {
                                 letterSpacing: '0.5px',
                             }}
                         >
-                            {adaptorType ? adaptorType.toUpperCase() : ''} <sup style={{ opacity: 0.8, fontSize: '0.7em' }}>{version}</sup>
+                            {adaptorType === VST_ADAPTOR ? 'VSS VIOS' : adaptorType ? adaptorType.toUpperCase() : ''}{' '}
+                            <sup style={{ opacity: 0.8, fontSize: '0.7em' }}>{version}</sup>
                         </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

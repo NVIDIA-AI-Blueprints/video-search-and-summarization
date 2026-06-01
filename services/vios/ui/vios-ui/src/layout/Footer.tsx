@@ -39,7 +39,7 @@ const Footer = () => {
             }}
         >
             <Typography variant='body2' color='text.secondary' sx={{ fontWeight: 400 }}>
-                VST UI v{uiVersion}
+                VSS VIOS UI v{uiVersion}
             </Typography>
         </Box>
     );
