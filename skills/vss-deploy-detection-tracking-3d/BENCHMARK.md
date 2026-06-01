@@ -13,7 +13,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 - Dataset: 6 evaluation tasks
 - Attempts per task: 2
 - Pass threshold: 50%
-- Overall verdict: PASS
+- Overall verdict: FAIL
 
 ## Agents Used
 
@@ -54,35 +54,37 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 100% (+8%) |
-| Correctness | 8 | 84% (-9%) | 90% (+28%) |
-| Discoverability | 8 | 47% (-19%) | 68% (+11%) |
-| Effectiveness | 8 | 81% (-4%) | 79% (+33%) |
-| Efficiency | 8 | 38% (-11%) | 53% (+9%) |
+| Security | 8 | 92% (+0%) | 100% (+0%) |
+| Correctness | 8 | 87% (-2%) | 84% (+16%) |
+| Discoverability | 8 | 55% (-5%) | 72% (+13%) |
+| Effectiveness | 8 | 81% (-5%) | 64% (+18%) |
+| Efficiency | 8 | 37% (-8%) | 60% (+13%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 10 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 16 total findings.
 
 Top findings:
 
 - MEDIUM PII/gps_coordinates: GPS coordinates (location information) (`references/calibration-workflow.md:220`)
 - MEDIUM PII/gps_coordinates: GPS coordinates (location information) (`references/calibration-workflow.md:225`)
+- MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM QUALITY/quality_discoverability: Description uses first/second person (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Instructions lack clear action verbs (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in teardown.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in troubleshooting.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
+Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 1 total findings.
 
-Notable observations:
+Top findings:
 
-- Context Deduplication: Collected 7 file(s)
-- Inter-Skill Deduplication: Parsed skill 'vss-deploy-detection-tracking-3d': 952 char description
+- HIGH DUPLICATE/duplicate: Duplicate content found across SKILL.md and references/configure-cameras.md and references/deploy-rtvi-cv-3d-stack.md:
+  "### Q2 — Calibration coverage (skip for `sample`)" in SKILL.md (lines 39-46)
+  vs "## Step 1 — Count cameras from `calibration.json`" in references/configure-cameras.md (lines 103-108)
+  vs "# 3. Calibration mount" in references/deploy-rtvi-cv-3d-stack.md (lines 65-70) (`SKILL.md:39`)
 
 ## Publication Recommendation
 
-The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.
+The skill should be reviewed before NVSkills-Eval publication. Skill owners should address the findings above and rerun NVSkills-Eval to refresh this benchmark.
