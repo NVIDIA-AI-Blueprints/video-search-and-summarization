@@ -86,14 +86,18 @@ A prior deploy leaves two kinds of stale state that get silently reused and brea
 ```bash
 CUR="${VSS_DATA_DIR%/}"
 STALE_VOL=0
-for v in $(docker volume ls -q | grep -E '^mdx_'); do
-  dev=$(docker volume inspect "$v" --format '{{.Options.device}}' 2>/dev/null)
-  case "$dev" in
-    "${CUR}"/*|"") ;;                                 # current path or non-bind — fine
-    *) echo "STALE volume ${v} -> ${dev}"; STALE_VOL=1 ;;
-  esac
-done
-[ "$STALE_VOL" = 1 ] && echo "Stale mdx_* volumes point outside VSS_DATA_DIR=${CUR} — reset with 'down -v' below."
+if [ -z "${CUR}" ]; then
+  echo "VSS_DATA_DIR is not set — source the .env (Step 0) before running this check."
+else
+  for v in $(docker volume ls -q | grep -E '^mdx_'); do
+    dev=$(docker volume inspect "$v" --format '{{.Options.device}}' 2>/dev/null)
+    case "$dev" in
+      "${CUR}"/*|"") ;;                               # current path or non-bind — fine
+      *) echo "STALE volume ${v} -> ${dev}"; STALE_VOL=1 ;;
+    esac
+  done
+  [ "$STALE_VOL" = 1 ] && echo "Stale mdx_* volumes point outside VSS_DATA_DIR=${CUR} — reset with 'down -v' below."
+fi
 ```
 
 **(ii) Stale VST sensor records.** A prior deploy's VST Postgres DB and configurator state survive a plain `docker compose down`, so old sensor records (a different dataset, a removed camera, or empty/offline entries) get reused and perception stalls at `Active sources : 0` while containers still look healthy. Only checkable when VST is already up:

@@ -163,10 +163,15 @@ else
     || echo "  some expected sensors are NOT online"
 fi
 
-# 3. Broker offsets must grow across two samples (kafka shown; redis: XLEN mdx-raw / mdx-bev)
-off() { docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic "$1" 2>/dev/null | awk -F: '{s+=$3} END{print s+0}'; }
+# 3. Broker offsets must grow across two samples. Use whichever broker is up
+#    (STREAM_TYPE / BP_PROFILE selects kafka or redis).
+if docker ps --format '{{.Names}}' | grep -qx kafka; then
+  off() { docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic "$1" 2>/dev/null | awk -F: '{s+=$3} END{print s+0}'; }
+else
+  off() { docker exec redis redis-cli XLEN "$1" 2>/dev/null | tr -dc '0-9'; }
+fi
 r1=$(off mdx-raw); b1=$(off mdx-bev); sleep 15; r2=$(off mdx-raw); b2=$(off mdx-bev)
-echo "mdx-raw: ${r1} -> ${r2}    mdx-bev: ${b1} -> ${b2}"
+echo "mdx-raw: ${r1:-0} -> ${r2:-0}    mdx-bev: ${b1:-0} -> ${b2:-0}"
 { [ "${r2:-0}" -gt "${r1:-0}" ] && [ "${b2:-0}" -gt "${b1:-0}" ]; } \
   && echo "  offsets growing on both topics" \
   || echo "  offsets NOT growing on one or both topics"
