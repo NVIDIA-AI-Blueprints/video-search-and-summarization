@@ -145,17 +145,23 @@ ACTIVE=$(docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -oE 'Active sources : [0-9]+'
 echo "Active sources: ${ACTIVE:-0} (expect ${NUM_STREAMS})"
 
 # 2. VST sensor set must EXACTLY match the calibration cameras, all online
-EXPECTED=$(jq -r '.sensors[].id' "${CAL_DIR}/calibration.json" | sort)
+EXPECTED=$(jq -r '.sensors[].id' "${CAL_DIR}/calibration.json" 2>/dev/null | sort)
 SENSORS=$(curl -sf "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/list" | jq -r '.[] | "\(.name)\t\(.state)"')
 echo "VST sensors (name/state):"; printf '%s\n' "${SENSORS}" | sed 's/^/  /'
 ALL_NAMES=$(printf '%s\n' "${SENSORS}"    | awk -F'\t' 'NF{print $1}' | sort)
 ONLINE_NAMES=$(printf '%s\n' "${SENSORS}" | awk -F'\t' 'tolower($2) == "online"{print $1}' | sort)
-[ "${ALL_NAMES}" = "${EXPECTED}" ] \
-  && echo "  sensor set matches calibration exactly" \
-  || echo "  MISMATCH — extra / missing / empty sensor records present"
-[ "${ONLINE_NAMES}" = "${EXPECTED}" ] \
-  && echo "  all expected sensors online" \
-  || echo "  some expected sensors are NOT online"
+if [ -z "${EXPECTED}" ]; then
+  # No baseline to compare against — don't report a false MISMATCH. Fix CAL_DIR /
+  # SAMPLE_VIDEO_DATASET so calibration.json is readable, then re-run this check.
+  echo "  could not read expected sensors from ${CAL_DIR}/calibration.json — skipping sensor-set comparison (check CAL_DIR / SAMPLE_VIDEO_DATASET)"
+else
+  [ "${ALL_NAMES}" = "${EXPECTED}" ] \
+    && echo "  sensor set matches calibration exactly" \
+    || echo "  MISMATCH — extra / missing / empty sensor records present"
+  [ "${ONLINE_NAMES}" = "${EXPECTED}" ] \
+    && echo "  all expected sensors online" \
+    || echo "  some expected sensors are NOT online"
+fi
 
 # 3. Broker offsets must grow across two samples (kafka shown; redis: XLEN mdx-raw / mdx-bev)
 off() { docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic "$1" 2>/dev/null | awk -F: '{s+=$3} END{print s+0}'; }
