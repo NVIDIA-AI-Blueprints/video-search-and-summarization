@@ -34,7 +34,7 @@ The `calculate_origin.py` tool calculates Bird's Eye View (BEV) group origins an
 ## Quick Start
 
 ```bash
-cd /workspace/yizwang/spatialai_data_utils
+cd spatialai_data_utils
 
 # With existing groups - calculate origins
 python tools/camera_grouping/calculate_origin.py data/scene/calibration_grouped.json
@@ -62,7 +62,7 @@ Your calibration file doesn't have `fieldOfViewPolygon` attributes. The tool wil
 ## Installation
 
 ```bash
-cd /workspace/yizwang/spatialai_data_utils
+cd spatialai_data_utils
 
 # Ensure dependencies are installed
 pip install -e .
@@ -522,7 +522,7 @@ Dimensions: [-2.0, -18.0, 12.0, -2.0]
 ### SURF Booth Dataset
 
 ```bash
-cd /workspace/yizwang/spatialai_data_utils
+cd spatialai_data_utils
 
 # Process SURF Booth calibration
 python tools/camera_grouping/calculate_origin.py \
@@ -839,7 +839,7 @@ After Refinement (swaps to minimize scatter):
 ## Quick Start
 
 ```bash
-cd /workspace/yizwang/spatialai_data_utils
+cd spatialai_data_utils
 
 # Basic usage: Specify max cameras per cluster (required)
 python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_per_group 10
@@ -1259,7 +1259,7 @@ Result: 6 cameras × 3 groups × 3 per group = 9 slots
 ## Quick Start
 
 ```bash
-cd /workspace/yizwang/spatialai_data_utils
+cd spatialai_data_utils
 
 # Auto mode: create groups with sizes 1, 2, ..., min(n_sensors, 18)
 python tools/camera_grouping/create_camera_groups.py data/scene --auto

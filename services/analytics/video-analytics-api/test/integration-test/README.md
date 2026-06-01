@@ -21,10 +21,10 @@ Integration tests for video-analytics-api using Docker Compose. The stack runs *
 
 ## Usage
 
-From the **web-apis** repo, run from the integration-test directory:
+From the **video-analytics-api** repo, run from the integration-test directory:
 
 ```bash
-cd web-apis/test/integration-test
+cd video-analytics-api/test/integration-test
 chmod +x test.sh test_all.sh cleanup.sh generate_env.sh scripts/run_integration_tests.sh
 ./test.sh [mode]
 ```
@@ -51,7 +51,7 @@ docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-ap
 
 ## What the test does
 
-1. **Build** – `docker build -t video-analytics-api:integration-test -f docker/Dockerfile .` from web-apis root, using `docker/Dockerfile.dockerignore`.
+1. **Build** – `docker build -t video-analytics-api:integration-test -f docker/Dockerfile .` from video-analytics-api root, using `docker/Dockerfile.dockerignore`.
 2. **Compose up** – Starts Elasticsearch (host network), then video-analytics-api (host network, config with ES and empty Kafka).
 3. **Wait** – Waits for ES health and for `GET /livez` to return 200.
 4. **Assert** – Runs `scripts/run_integration_tests.sh`:
@@ -65,7 +65,7 @@ docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-ap
 Generated in `docker_compose/infra/.env` by `generate_env.sh`:
 
 - `INTEGRATION_TEST_DIR` – path to the integration-test directory
-- `WEB_APIS_ROOT` – path to web-apis repo root (where the Dockerfile is)
+- `VIDEO_ANALYTICS_API_ROOT` – path to video-analytics-api repo root (where the Dockerfile is)
 - `DATA_DIR` – `docker_compose/apps_data`
 - `COMPOSE_PROJECT_NAME` – `video-analytics-api-integration`
 

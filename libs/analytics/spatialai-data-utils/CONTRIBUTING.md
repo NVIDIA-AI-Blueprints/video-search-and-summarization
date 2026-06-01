@@ -17,15 +17,16 @@ If your contribution adds or modifies a source file, please:
 - For new files authored by you (or your employer) on behalf of this project,
   use the SPDX identifier `Apache-2.0` and add the appropriate copyright
   notice.
-- For changes to files derived from third-party sources (for example, the
-  TrackEval-derived files listed in [`NOTICE`](NOTICE)), preserve the existing
-  third-party copyright and license notices, list the file(s) you modified in
-  your change description, and keep the existing dual-license SPDX identifier
-  (e.g. `MIT AND Apache-2.0`).
+- For changes to files derived from third-party sources, preserve the existing
+  third-party copyright and license notices. The nuScenes dev-kit-derived files
+  and TrackEval-derived files are listed in [`NOTICE`](NOTICE). List the file(s)
+  you modified in your change description, and keep the existing dual-license
+  SPDX identifier (e.g. `MIT AND Apache-2.0`).
 - Do not introduce code under licenses that are incompatible with Apache-2.0
-  distribution. If you need to vendor third-party code, raise it in your
-  change description so the appropriate notice can be added to
-  [`NOTICE`](NOTICE) and [`3rdParty_Licenses.md`](3rdParty_Licenses.md).
+  distribution. If you need to vendor third-party code, including code derived
+  from the nuScenes dev-kit or TrackEval, raise it in your change description
+  so the appropriate notice can be added to [`NOTICE`](NOTICE) and
+  [`3rdParty_Licenses.md`](3rdParty_Licenses.md).
 
 ## Sign your work
 
@@ -60,9 +61,6 @@ Developer Certificate of Origin
 Version 1.1
 
 Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
-1 Letterman Drive
-Suite D4700
-San Francisco, CA, 94129
 
 Everyone is permitted to copy and distribute verbatim copies of this
 license document, but changing it is not allowed.
