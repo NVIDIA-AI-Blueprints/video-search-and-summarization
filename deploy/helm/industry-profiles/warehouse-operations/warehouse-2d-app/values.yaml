@@ -86,10 +86,14 @@ bp-configurator:
       value: "false"
 
 calibration-import:
+  enabled: true
   name: import-calibration-output-2d
-  existingClaim: ""
   apiUrl: http://vss-video-analytics-api:8081
-  mountPath: /opt/vss
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/wh-helm-charts-1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/wh-helm-charts-1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/wh-helm-charts-1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images
+  requireCalibration: true
+  requireImages: true
 
 warehouse:
   mode: 2d

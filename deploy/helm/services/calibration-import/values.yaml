@@ -18,13 +18,40 @@ image:
   pullPolicy: IfNotPresent
 
 apiUrl: http://vss-video-analytics-api:8081
-calibrationFile: /opt/vss/calibration.json
-imagesDir: /opt/vss/images
+calibrationFile: /tmp/calibration-import/calibration.json
+calibrationSourceType: ""
+calibrationFileSource: ""
+imagesDir: /tmp/calibration-import/images
+imageSourceType: ""
+imageMetadataFileSource: ""
+imageBaseSource: ""
+appDataMarkerFile: ""
 maxRetries: 120
 sleepSeconds: 2
+requireCalibration: false
+requireImages: false
 
-existingClaim: ""
-mountPath: /opt/vss
+scripts:
+  existingConfigMap: ""
+  mountPath: /opt/scripts
+
+dataPvcClaimName: ""
+dataMountPath: /opt/vss
+
+ngcOrg: ""
+ngcTeam: ""
+ngcApiKeySecretName: ""
+ngcApiKeySecretKey: NGC_CLI_API_KEY
+
+awsAccessKeyID: ""
+awsSecretAccessKey: ""
+awsRegion: ""
+awsEndpointUrl: ""
+
+storageRestUrl: ""
+storageAuthorization: ""
+
+extraEnv: []
 
 ttlSecondsAfterFinished: null
 backoffLimit: 5

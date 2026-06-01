@@ -46,54 +46,83 @@ spec:
           command:
             - /bin/sh
             - -c
-            - |
-              set -eu
-              apk add --no-cache bash curl jq >/dev/null
-              api_url={{ .Values.apiUrl | default "http://vss-video-analytics-api:8081" | quote }}
-              calibration_file={{ .Values.calibrationFile | default "/opt/vss/calibration.json" | quote }}
-              images_dir={{ .Values.imagesDir | default "/opt/vss/images" | quote }}
-              max_retries={{ .Values.maxRetries | default 120 }}
-              sleep_seconds={{ .Values.sleepSeconds | default 2 }}
-              i=0
-              until [ "$(curl -o /dev/null --silent --head --write-out '%{http_code}' "${api_url}/livez" || true)" = "200" ]; do
-                i=$((i + 1))
-                if [ "${i}" -ge "${max_retries}" ]; then
-                  echo "Timed out waiting for ${api_url}/livez"
-                  exit 1
-                fi
-                sleep "${sleep_seconds}"
-              done
-              if [ -f "${calibration_file}" ]; then
-                curl --fail --show-error -X POST "${api_url}/config/upload-file/calibration" --form configFiles=@"${calibration_file}"
-              else
-                echo "Skipping calibration JSON import; ${calibration_file} not found"
-              fi
-              metadata_file="${images_dir}/imageMetadata.json"
-              if [ -f "${metadata_file}" ]; then
-                form_args=""
-                for file_name in $(jq -r '.images[].fileName' "${metadata_file}"); do
-                  if [ -f "${images_dir}/${file_name}" ]; then
-                    form_args="${form_args} --form images=@${images_dir}/${file_name}"
-                  fi
-                done
-                if [ -n "${form_args}" ]; then
-                  sh -c "curl --fail --show-error -X POST ${api_url}/config/calibration/images ${form_args} --form imageMetadata=@${metadata_file}"
-                fi
-              else
-                echo "Skipping calibration image import; ${metadata_file} not found"
-              fi
+            - sh {{ .Values.scripts.mountPath | default "/opt/scripts" }}/import-resources.sh
+          env:
+            - name: API_URL
+              value: {{ .Values.apiUrl | default "http://vss-video-analytics-api:8081" | quote }}
+            - name: CALIBRATION_FILE
+              value: {{ .Values.calibrationFile | default "/opt/vss/calibration.json" | quote }}
+            - name: CALIBRATION_SOURCE_TYPE
+              value: {{ .Values.calibrationSourceType | default "local" | quote }}
+            - name: CALIBRATION_FILE_SOURCE
+              value: {{ .Values.calibrationFileSource | default "" | quote }}
+            - name: IMAGES_DIR
+              value: {{ .Values.imagesDir | default "/opt/vss/images" | quote }}
+            - name: IMAGE_SOURCE_TYPE
+              value: {{ .Values.imageSourceType | default "local" | quote }}
+            - name: IMAGE_METADATA_FILE_SOURCE
+              value: {{ .Values.imageMetadataFileSource | default "" | quote }}
+            - name: IMAGE_BASE_SOURCE
+              value: {{ .Values.imageBaseSource | default "" | quote }}
+            - name: APP_DATA_MARKER_FILE
+              value: {{ .Values.appDataMarkerFile | default "" | quote }}
+            - name: MAX_RETRIES
+              value: {{ .Values.maxRetries | default 120 | quote }}
+            - name: SLEEP_SECONDS
+              value: {{ .Values.sleepSeconds | default 2 | quote }}
+            - name: REQUIRE_CALIBRATION
+              value: {{ .Values.requireCalibration | default false | quote }}
+            - name: REQUIRE_IMAGES
+              value: {{ .Values.requireImages | default false | quote }}
+            - name: NGC_ORG
+              value: {{ .Values.ngcOrg | default "" | quote }}
+            - name: NGC_TEAM
+              value: {{ .Values.ngcTeam | default "" | quote }}
+            {{- if .Values.ngcApiKeySecretName }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName }}
+                  key: {{ .Values.ngcApiKeySecretKey | default "NGC_CLI_API_KEY" }}
+            {{- end }}
+            - name: AWS_ACCESS_KEY_ID
+              value: {{ .Values.awsAccessKeyID | default "" | quote }}
+            - name: AWS_SECRET_ACCESS_KEY
+              value: {{ .Values.awsSecretAccessKey | default "" | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.awsRegion | default "" | quote }}
+            - name: AWS_ENDPOINT_URL
+              value: {{ .Values.awsEndpointUrl | default "" | quote }}
+            - name: STORAGE_REST_URL
+              value: {{ .Values.storageRestUrl | default "" | quote }}
+            - name: STORAGE_AUTHORIZATION
+              value: {{ .Values.storageAuthorization | default "" | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            - name: calibration-data
-              mountPath: {{ .Values.mountPath | default "/opt/vss" }}
+            - name: scripts
+              mountPath: {{ .Values.scripts.mountPath | default "/opt/scripts" }}
               readOnly: true
+            {{- if .Values.dataPvcClaimName }}
+            - name: calibration-data
+              mountPath: {{ .Values.dataMountPath | default "/opt/vss" }}
+              readOnly: true
+            {{- end }}
       volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "calibration-import.scriptsConfigMapName" . }}
+            defaultMode: 493
+        {{- if .Values.dataPvcClaimName }}
         - name: calibration-data
           persistentVolumeClaim:
-            claimName: {{ required "calibration-import.existingClaim is required when enabled" .Values.existingClaim }}
+            claimName: {{ .Values.dataPvcClaimName }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

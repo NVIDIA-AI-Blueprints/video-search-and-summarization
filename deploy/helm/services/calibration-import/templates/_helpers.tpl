@@ -32,3 +32,11 @@ app.kubernetes.io/name: {{ include "calibration-import.fullname" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: calibration-import
 {{- end }}
+
+{{- define "calibration-import.scriptsConfigMapName" -}}
+{{- if .Values.scripts.existingConfigMap }}
+{{- .Values.scripts.existingConfigMap }}
+{{- else }}
+{{- printf "%s-scripts" (include "calibration-import.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
