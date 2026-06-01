@@ -356,6 +356,31 @@ cd "${VSS_APPS_DIR}"
 # NGC login (first time on this host)
 docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
 
+# Fail fast: confirm the key can access the gated vss-core images BEFORE the long background up.
+# Refs come from the resolved compose, so this tracks PERCEPTION_TAG / BEV_FUSION_MV3DT_TAG
+# (the -sbsa swap, and any PERCEPTION_IMAGE / BEV_FUSION_MV3DT_IMAGE org override) automatically.
+# manifest inspect checks registry access only — no layer download — so it stays fast even though
+# the perception image is multi-GB (the real pull happens in the backgrounded `up --pull always`).
+VSS_CORE_IMAGES=$(docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env config --images \
+  | grep -E 'nvcr\.io/.*/vss-core/' | sort -u)
+if [ -z "$VSS_CORE_IMAGES" ]; then
+  echo "No vss-core images in the resolved compose — confirm MODE=mv3dt and COMPOSE_PROFILES resolved to bp_wh_kafka_mv3dt before continuing."
+  exit 1
+fi
+for img in $VSS_CORE_IMAGES; do
+  echo "Checking access: $img"
+  if ! docker manifest inspect "$img" >/dev/null 2>&1; then
+    echo
+    echo "NGC login succeeded, but this key does not have access to the required MV3DT image:"
+    echo "  $img"
+    echo "vss-core is published under both nvidia/ and nvstaging/, and your key may only see one."
+    echo "Either point PERCEPTION_IMAGE / BEV_FUSION_MV3DT_IMAGE in .env at the org your key can pull,"
+    echo "or provide an NGC key with vss-core access, then retry."
+    exit 1
+  fi
+done
+
 # Bring up (~10–15 min first run — PERCEPTION image pull + BodyPose3DNet TRT engine build)
 LOG=${LOG:-/tmp/mv3dt-deploy.log}
 nohup docker compose -f compose.yml \
@@ -385,7 +410,7 @@ Once perception logs an FPS line and `/tmp/fusion_ready` exists (check via `dock
 
 ## When deploy fails
 
-- Image pull 401 / 403 → re-run `docker login nvcr.io`; verify `ngc registry image list "nvstaging/vss-core/*"` (or `nvidia/vss-core/*`) returns results.
+- Image pull 401 / 403 → the Step 3 access check should have caught this before bring-up; if it slips through, re-run `docker login nvcr.io` and verify `ngc registry image list "nvstaging/vss-core/*"` (or `nvidia/vss-core/*`) returns results. If only one org resolves, point `PERCEPTION_IMAGE` / `BEV_FUSION_MV3DT_IMAGE` in `.env` at that org.
 - `error from registry: Incorrect Repository Format` mid-pull → Docker/Compose version incompatibility with the bare-tag local-build services in `services/infra/compose.yml`. See [`troubleshooting.md`](troubleshooting.md) — "`error from registry: Incorrect Repository Format` during compose pull" for a version-independent pre-build workaround and the Docker-pin alternative.
 - `unknown or invalid runtime name: nvidia` → install NVIDIA Container Toolkit (`vss-deploy-profile/references/prerequisites.md` §2.3).
 - `redis ... Can't open the log file: Permission denied`, `kafka ... /tmp/kafka-data/cluster_id: Permission denied`, or elasticsearch `AccessDeniedException` → `$VSS_DATA_DIR/data_log` isn't writable by the container UIDs. Run the `mkdir -p` + scoped-ACL permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 and redeploy. Don't recursive-chown.
