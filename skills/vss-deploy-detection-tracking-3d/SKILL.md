@@ -16,7 +16,6 @@ description: >
   or 2D single-camera detection (use `vss-deploy-detection-tracking-2d`).
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint mv3dt detection tracking 3d warehouse"
@@ -29,10 +28,6 @@ Deploy and operate the RTVI-CV-3D / MV3DT stack — per-camera DeepStream percep
 ## Instructions
 
 Work top-to-bottom: answer the routing questions (Q0–Q3) under [Routing](#routing), then follow the reference for the chosen path. Detailed step-by-step procedures live in `references/` (deploy, calibration chain, camera configuration, verification, teardown, troubleshooting).
-
-## Examples
-
-Worked end-to-end scenarios are kept under `evals/` (each `*.json` is a runnable spec). Inline `docker compose` / `curl` examples appear in the per-reference steps.
 
 # VSS Deploy Detection & Tracking — 3D (RTVI-CV-3D)
 
