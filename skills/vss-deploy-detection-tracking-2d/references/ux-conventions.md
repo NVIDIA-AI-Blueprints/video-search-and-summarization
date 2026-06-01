@@ -181,18 +181,11 @@ The box is the receipt; the `→` line is the sign-post to the next step.
 > multi-box flows like Step 5 plan/result/summary or Step 6 per-
 > action boxes are legitimate).
 
-## Progress heartbeat — only for long waits
+## Progress heartbeat — when to stop
 
-Some waits can exceed a minute (TRT engine build, large NGC downloads, X11 probe retries). In those windows, print a heartbeat line every 15-20s so the user doesn't think the skill is stuck:
-
-```
-→ Build TensorRT engine (batch=4, ~3-5 min on RTX 3050)
-    … building — 45s elapsed
-    … building — 90s elapsed
-✔ Engine built: <model-basename>_b4.engine
-```
-
-Heartbeat is indented 4 spaces and uses `… <status> — <elapsed>`. Stop printing it the moment the step resolves (`✔` or `✖`).
+See [Heartbeats for long waits](#heartbeats-for-long-waits--keep-the-concrete-value-visible)
+above for the canonical heartbeat format with worked examples.
+**Stop printing the heartbeat the moment the step resolves (`✔` or `✖`).**
 
 ## Final deploy receipt — the "Perception Application — Results" box
 

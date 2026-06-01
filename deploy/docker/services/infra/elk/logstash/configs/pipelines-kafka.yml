@@ -1,3 +1,5 @@
+# This file is provided under Apache-2.0 License.
+
 # This file is where you define your pipelines. You can define multiple.
 # For more information on multiple pipelines, see the documentation:
 #   https://www.elastic.co/guide/en/logstash/current/multiple-pipelines.html

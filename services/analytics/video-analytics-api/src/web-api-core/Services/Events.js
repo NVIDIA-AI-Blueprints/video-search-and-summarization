@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -115,17 +115,17 @@ class Events {
      * returns an object containing an array of tripwire events.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
      * @param {string} [input.sensorId] - Either sensorId or place should be present.
      * @param {string} [input.place] - Either sensorId or place should be present.
-     * @param {?string} [input.tripwireId=null] - tripwireId can be present only if sensorId is present in the input.
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
-     * @param {number} [input.maxResultSize=25] - maxResultSize must be an integer.
-     * @param {string} [input.objectType=null]
+     * @param {?string} [input.tripwireId=null] - Tripwire ID can be present only if sensorId is present in the input.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {number} [input.maxResultSize=25] - Maximum number of tripwire events returned.
+     * @param {string} [input.objectType=null] - Object type to filter data.
      * @param {boolean} [input.effective=true] - If effective is true, then the result returned will contain only the latest tripwire events of each object.
-     * @returns {Promise<Object>} An object containing an array of tripwire events is returned
+     * @returns {Promise<Object>} An object containing an array of tripwire events is returned.
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
      * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
@@ -282,6 +282,25 @@ class Events {
         return results;
     }
 
+    /**
+     * Returns unique object types observed in matching tripwire events.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {string} [input.sensorId] - Either sensorId or place should be present.
+     * @param {string} [input.place] - Either sensorId or place should be present.
+     * @param {?string} [input.tripwireId=null] - tripwireId can be present only if sensorId is present in the input.
+     * @param {string} [input.fromTimestamp] - Optional start timestamp used with toTimestamp to filter tripwire events.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @returns {Promise<Set<string>>} Unique object types observed in matching tripwire events are returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {sensorId: "abc", toTimestamp: "2023-01-12T14:20:10.000Z"};
+     * let eventsObject = new mdx.Services.Events();
+     * let objectTypes = await eventsObject.getObjectTypesOfTripwireEvents(elastic,input);
+     */
     async getObjectTypesOfTripwireEvents(documentDb, input){
         const schema = {
             type: "object",
@@ -414,6 +433,27 @@ class Events {
         return roiEvents;
     }
 
+    /**
+     * Retrieves an object containing an array of ROI events.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {string} [input.sensorId] - Either sensorId or place should be present.
+     * @param {string} [input.place] - Either sensorId or place should be present.
+     * @param {?string} [input.roiId=null] - roiId can be present only if sensorId is present in the input.
+     * @param {string} input.fromTimestamp - Start timestamp in ISO 8601 format.
+     * @param {string} input.toTimestamp - End timestamp in ISO 8601 format.
+     * @param {number} [input.maxResultSize=25] - Maximum number of ROI events returned.
+     * @param {?string} [input.objectType=null] - Object type used to filter ROI events.
+     * @returns {Promise<Object>} An object containing an array of ROI events is returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {sensorId: "abc", fromTimestamp: "2023-01-12T11:20:10.000Z", toTimestamp: "2023-01-12T14:20:10.000Z"};
+     * let eventsObject = new mdx.Services.Events();
+     * let roiEvents = await eventsObject.getRoiEvents(elastic,input);
+     */
     async getRoiEvents(documentDb, input){
         const schema = {
             type: "object",

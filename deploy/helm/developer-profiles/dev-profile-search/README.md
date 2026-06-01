@@ -150,6 +150,8 @@ If **`local-path`** is listed but is **not** the default (no **`(default)`** mar
 
 ## Step 2: Install Ingress Controller (HAProxy)
 
+This profile uses the HAProxy Kubernetes Ingress controller for **external traffic** (browser → VSS UI / agent / Kibana / Phoenix) via the controller's host ports `80`/`443` exposed by a DaemonSet. Install it once as a cluster prerequisite:
+
 ```bash
 helm repo add haproxytech https://haproxytech.github.io/helm-charts
 helm repo update
@@ -158,11 +160,12 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
   --version 1.49.0 \
   -n haproxy-controller --create-namespace \
   --set controller.kind=DaemonSet \
-  --set controller.service.enabled=false \
   --set controller.daemonset.useHostPort=true \
   --set controller.daemonset.hostPorts.http=80 \
   --set controller.daemonset.hostPorts.https=443
 ```
+
+> **In-cluster RTVI affinity (optional).** Only needed when you deploy the Search profile with `global.rtviInternalIngress.enabled=true` (default `false`). That path routes vss-agent → rtvi-cv / rtvi-embed through the controller's **ClusterIP Service** at `haproxy-kubernetes-ingress.haproxy-controller:80`. To enable it, append `--set controller.service.type=ClusterIP` to the install command above. If you only need external traffic, leave it off.
 
 Verify the controller is running:
 
@@ -171,7 +174,13 @@ kubectl get pods -n haproxy-controller
 kubectl get ingressclass
 ```
 
-You should see an IngressClass named `haproxy`.
+You should see an IngressClass named `haproxy`. If you enabled the ClusterIP Service for RTVI affinity, also confirm it exists:
+
+```bash
+kubectl get svc -n haproxy-controller haproxy-kubernetes-ingress
+```
+
+The `global.rtviInternalIngress.controllerService` default (`haproxy-kubernetes-ingress.haproxy-controller`) and `controllerPort` default (`80`) match this install; override only if you used a different release name or namespace.
 
 ## Step 3: Deploy the Search Profile
 
@@ -231,8 +240,6 @@ helm upgrade --install vss-search ./dev-profile-search \
   --wait=false
 ```
 
-
-
 ### Option B: Deploy with Local NIMs
 
 Runs all LLM/VLM NIMs on-cluster via the NIM Operator. Requires additional GPUs for Nemotron and Cosmos (unless `ENABLE_CRITIC` is `false`). See [GPU Requirements](#with-local-nims-option-b).
@@ -283,7 +290,6 @@ This single chart deploys all application components:
 ### Disabling the Critic Agent
 
 The critic agent (VLM-based verification of search results) is **enabled by default**. With NVIDIA Build Endpoint (Option A), it uses the hosted VLM endpoint and local Cosmos NIM is not deployed. With Local NIMs (Option B), its backing **Cosmos Reason2 8B** NIM is enabled by default.
-
 For NVIDIA Build Endpoint or another remote VLM endpoint, disable critic verification with:
 
 ```bash

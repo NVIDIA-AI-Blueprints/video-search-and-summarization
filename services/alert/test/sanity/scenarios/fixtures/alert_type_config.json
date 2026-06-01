@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "alerts": [
+    {
+      "alert_type": "FOV Count Violation",
+      "output_category": "Ladder PPE Violation",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "Is anyone on the ladder without a hardhat and safety vest? \nAnswer yes or no."
+      }
+    }
+  ]
+}

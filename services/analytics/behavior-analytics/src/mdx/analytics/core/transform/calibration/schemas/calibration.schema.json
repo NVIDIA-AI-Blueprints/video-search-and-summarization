@@ -1,0 +1,823 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nvidia.com/mdx/schemas/calibration.schema.json",
+  "$comment": "Vendored from web-apis/web-api-core/schemas/ajv/calibration.json. AJV-specific 'errorMessage' keywords have been stripped so Python jsonschema (Draft7Validator) accepts the file. Keep in sync with the upstream when the web-api schema changes. Top-level additionalProperties relaxed to true so unknown extra fields (e.g. forward-compatible additions from web-api) are accepted; nested additionalProperties remain strict.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000
+    },
+    "osmURL": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 10000
+    },
+    "calibrationType": {
+      "type": "string",
+      "enum": [
+        "geo",
+        "cartesian",
+        "image"
+      ]
+    },
+    "sensors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "origin": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "lat": {
+                "type": "number",
+                "minimum": -90,
+                "maximum": 90
+              },
+              "lng": {
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180
+              }
+            },
+            "required": [
+              "lat",
+              "lng"
+            ]
+          },
+          "geoLocation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "lat": {
+                "type": "number",
+                "minimum": -90,
+                "maximum": 90
+              },
+              "lng": {
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180
+              }
+            },
+            "required": [
+              "lat",
+              "lng"
+            ]
+          },
+          "coordinates": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              },
+              "y": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              },
+              "z": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          },
+          "translationToGlobalCoordinates": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              },
+              "y": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              },
+              "z": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          },
+          "scaleFactor": {
+            "type": "number"
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 10000
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 999999999
+                }
+              },
+              "required": [
+                "name",
+                "value"
+              ]
+            }
+          },
+          "group": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              },
+              "origin": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                }
+              },
+              "dimensions": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "items": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                }
+              },
+              "alias": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              }
+            },
+            "required": [
+              "name",
+              "type",
+              "origin",
+              "dimensions"
+            ]
+          },
+          "region": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "placeLevel": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 10000
+              },
+              "origin": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                }
+              },
+              "dimensions": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "length": {
+                    "type": "number",
+                    "minimum": -999999,
+                    "maximum": 999999
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": -999999,
+                    "maximum": 999999
+                  }
+                },
+                "required": [
+                  "length",
+                  "width"
+                ]
+              }
+            },
+            "required": [
+              "placeLevel",
+              "origin",
+              "dimensions"
+            ]
+          },
+          "place": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 10000
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 10000
+                }
+              },
+              "required": [
+                "name",
+                "value"
+              ]
+            }
+          },
+          "imageCoordinates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            }
+          },
+          "globalCoordinates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                },
+                "z": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            }
+          },
+          "intrinsicMatrix": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              }
+            }
+          },
+          "extrinsicMatrix": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              }
+            }
+          },
+          "cameraMatrix": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              }
+            }
+          },
+          "homography": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number",
+                "minimum": -999999,
+                "maximum": 999999
+              }
+            }
+          },
+          "rois": {
+            "type": "array",
+            "minItems": 0,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 10000
+                },
+                "type": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 10000
+                },
+                "roiCoordinates": {
+                  "type": "array",
+                  "minItems": 3,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": -999999,
+                        "maximum": 999999
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": -999999,
+                        "maximum": 999999
+                      },
+                      "z": {
+                        "type": "number",
+                        "minimum": -999999,
+                        "maximum": 999999
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                },
+                "restrictedObjectTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10000
+                  }
+                },
+                "confinedObjectTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10000
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "roiCoordinates"
+              ]
+            }
+          },
+          "tripwires": {
+            "type": "array",
+            "minItems": 0,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 10000
+                },
+                "wire": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "patternProperties": {
+                    "^p\\d+$": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "x": {
+                          "type": "number",
+                          "minimum": -999999,
+                          "maximum": 999999
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": -999999,
+                          "maximum": 999999
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ]
+                    }
+                  },
+                  "minProperties": 2
+                },
+                "direction": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "p1": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "x": {
+                          "type": "number",
+                          "minimum": -999999,
+                          "maximum": 999999
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": -999999,
+                          "maximum": 999999
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ]
+                    },
+                    "p2": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "x": {
+                          "type": "number",
+                          "minimum": -999999,
+                          "maximum": 999999
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": -999999,
+                          "maximum": 999999
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "p1",
+                    "p2"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "wire",
+                "direction"
+              ]
+            }
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "origin",
+          "geoLocation",
+          "coordinates",
+          "scaleFactor",
+          "attributes",
+          "place",
+          "imageCoordinates",
+          "globalCoordinates"
+        ]
+      }
+    },
+    "rois": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "type": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 10000
+          },
+          "roiCoordinates": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                },
+                "z": {
+                  "type": "number",
+                  "minimum": -999999,
+                  "maximum": 999999
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            }
+          },
+          "sensors": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            }
+          },
+          "groups": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            }
+          },
+          "restrictedObjectTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            }
+          },
+          "confinedObjectTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            }
+          }
+        },
+        "required": [
+          "id",
+          "roiCoordinates",
+          "sensors",
+          "groups"
+        ]
+      }
+    },
+    "tripwires": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "wire": {
+            "type": "object",
+            "additionalProperties": false,
+            "patternProperties": {
+              "^p\\d+$": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": -999999,
+                    "maximum": 999999
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": -999999,
+                    "maximum": 999999
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            "minProperties": 2
+          },
+          "direction": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "p1": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": -999999,
+                    "maximum": 999999
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": -999999,
+                    "maximum": 999999
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              },
+              "p2": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": -999999,
+                    "maximum": 999999
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": -999999,
+                    "maximum": 999999
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              }
+            },
+            "required": [
+              "p1",
+              "p2"
+            ]
+          },
+          "sensors": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            }
+          },
+          "groups": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            }
+          }
+        },
+        "required": [
+          "id",
+          "wire",
+          "direction",
+          "sensors",
+          "groups"
+        ]
+      }
+    },
+    "corridors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "sensors": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            }
+          },
+          "directions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            }
+          },
+          "length": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 99999999
+          }
+        },
+        "required": [
+          "name",
+          "sensors",
+          "directions",
+          "length"
+        ]
+      }
+    }
+  },
+  "required": [
+    "version",
+    "osmURL",
+    "calibrationType",
+    "sensors"
+  ]
+}

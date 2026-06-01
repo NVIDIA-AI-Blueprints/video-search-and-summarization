@@ -13,17 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""OpenClaw Dashboard notification backend.
-
-Formats incidents as markdown and injects them directly into a dedicated
-``alerts`` session via the gateway WebSocket RPC (``chat.inject``).  This
-bypasses the ``/hooks/agent`` endpoint entirely, so the main session stays
-clean -- no fallback "Hook alerts (error)" messages.
-
-The approach requires connecting from **localhost** (loopback) with the
-gateway admin token.  Under these conditions the gateway grants full operator
-scopes without requiring device identity or Ed25519 signing.
-"""
+"""OpenClaw Dashboard notification backend. See :class:`DashboardNotifier` for
+connection requirements and behavior."""
 
 from __future__ import annotations
 

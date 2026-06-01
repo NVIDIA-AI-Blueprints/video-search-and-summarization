@@ -18,7 +18,7 @@
 services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.3}
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.4}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
@@ -64,7 +64,7 @@ services:
       VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-1}"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${RTVI_VLM_GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
       VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-openai-compat}"
-      MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos-reason2-8b:hf-1208}"
+      MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8}"
       MODEL_IMPLEMENTATION_PATH: "${RTVI_VLM_MODEL_IMPLEMENTATION_PATH:-}"
       NUM_VLM_PROCS: "${RTVI_VLM_NUM_VLM_PROCS:-}"
       NUM_GPUS: "${RTVI_VLM_NUM_GPUS:-}"
@@ -180,6 +180,12 @@ services:
         condition: service_healthy
         required: false
       cosmos-reason2-8b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner-shared-gpu:
         condition: service_healthy
         required: false
       qwen3-vl-8b-instruct:

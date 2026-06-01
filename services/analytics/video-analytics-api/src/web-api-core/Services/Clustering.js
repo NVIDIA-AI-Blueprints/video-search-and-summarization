@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -122,11 +122,11 @@ class Clustering {
      * returns a map containing clusterIndex and the latest cluster label associated to it.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.modelVersion
-     * @param {?string} [input.clusterIndex=null]
+     * @param {string} input.sensorId - Sensor ID used to query cluster labels.
+     * @param {string} input.modelVersion - Model version used to query cluster labels.
+     * @param {?string} [input.clusterIndex=null] - Cluster index used to query a specific cluster label.
      * @returns {Promise<Map<string,string>>} A map containing clusterIndex and the latest cluster label associated to it is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -234,14 +234,14 @@ class Clustering {
      * returns sampled behaviors for each cluster.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
-     * @param {?string} [input.clusterIndex=null]
-     * @param {number} [input.maxClusterSampleSize=100] - maxClusterSampleSize must be an integer.
-     * @param {number} [input.minBehaviorDistance=30]
+     * @param {string} input.sensorId - Sensor ID used to filter sampled behavior clusters.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {?string} [input.clusterIndex=null] - Cluster index used to filter sampled behavior clusters.
+     * @param {number} [input.maxClusterSampleSize=100] - Maximum number of sampled behaviors returned for each cluster.
+     * @param {number} [input.minBehaviorDistance=30] - Minimum behavior distance used to filter sampled behavior clusters.
      * @returns {Promise<Object>} An object containing sampled behaviors for each cluster is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -379,11 +379,11 @@ class Clustering {
      * returns if a cluster is valid.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.modelVersion
-     * @param {string} input.clusterIndex
+     * @param {string} input.sensorId - Sensor ID associated with the cluster.
+     * @param {string} input.modelVersion - Model version associated with the cluster.
+     * @param {string} input.clusterIndex - Cluster index to validate.
      * @returns {Promise<boolean>} Validity of the cluster is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -458,11 +458,11 @@ class Clustering {
      * returns if a cluster label already exists.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.modelVersion
-     * @param {string} input.label
+     * @param {string} input.sensorId - Sensor ID associated with the cluster label.
+     * @param {string} input.modelVersion - Model version associated with the cluster label.
+     * @param {string} input.label - Cluster label to check.
      * @returns {Promise<boolean>} A boolean is returned which signifies whether the cluster label already exists
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -558,12 +558,12 @@ class Clustering {
      * returns a success message if the cluster label was inserted successfully.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.modelVersion
-     * @param {string} input.clusterIndex
-     * @param {string} input.label
+     * @param {string} input.sensorId - Sensor ID associated with the cluster.
+     * @param {string} input.modelVersion - Model version associated with the cluster.
+     * @param {string} input.clusterIndex - Cluster index to label.
+     * @param {string} input.label - Cluster label to add.
      * @returns {Promise<Object>} A success message is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -571,7 +571,7 @@ class Clustering {
      * let input = {sensorId: "abc", modelVersion: "2", clusterIndex: "1", label: "left"};
      * let clusteringObject = new mdx.Services.Clustering();
      * let result = await clusteringObject.addClusterLabel(elastic,input);
-     */ 
+     */
     async addClusterLabel(documentDb, input){
         const schema = {
             type: "object",

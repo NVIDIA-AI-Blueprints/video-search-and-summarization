@@ -1,0 +1,144 @@
+{
+	"mqtt": {
+		"host": "localhost",
+		"port": 1883,
+		"clientId": "mdx-spatial-analytics-2d-app",
+		"keepAliveSec": 60,
+		"consumer": {
+			"qos": 1,
+			"maxPollCount": 1000,
+			"pollTimeoutSec": 0.01
+		},
+		"producer": {
+			"qos": 1,
+			"retain": true
+		},
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		]
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "proximityDetectionEnable",
+					"value": "true"
+				},
+				{
+					"name": "proximityDetectionThreshold",
+					"value": "1.8"
+				},
+				{
+					"name": "proximityDetectionCenterClasses",
+					"value": "[\"Forklift\"]"
+				},
+				{
+					"name": "proximityDetectionSurroundingClasses",
+					"value": "[\"Person\"]"
+				},
+				{
+					"name": "tripwireMinPoints",
+					"value": "4"
+				}
+			]
+		}
+	],
+	"app": [
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorStateTimeout",
+			"value": "10"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "200"
+		},
+		{
+			"name": "playbackLoop",
+			"value": "1"
+		},
+		{
+			"name": "playbackFilterEmptyObjects",
+			"value": "true"
+		},
+		{
+			"name": "playbackStartUpDelaySec",
+			"value": "90"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "euclidean"
+		},
+		{
+			"name": "sourceType",
+			"value": "mqtt"
+		},
+		{
+			"name": "sinkType",
+			"value": "mqtt"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "1"
+		},
+		{
+			"name": "numWorkersForFrameEnhancement",
+			"value": "1"
+		},
+		{
+			"name": "stateManagementFilter",
+			"value": "[\"Person\",\"Forklift\"]"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "confinedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "proximityViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentThreshold",
+			"value": "2"
+		},
+		{
+			"name": "confinedAreaViolationIncidentThreshold",
+			"value": "2"
+		},
+		{
+			"name": "proximityViolationIncidentThreshold",
+			"value": "2"
+		}
+	]
+}

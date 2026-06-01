@@ -28,6 +28,43 @@ global:
     enabled: true
     mainHost: ''
     streamerHost: ''
+  # rtviInternalIngress lives under `global` so the agent sub-chart's env-var
+  # templates (rendered via `tpl` in the agent context) can read it — only
+  # `global.*` propagates across sub-charts. When enabled, this drives:
+  # (a) templates/rtvi-internal-ingress.yaml renders the Ingress object;
+  # (b) RTVI_*_BASE_URL / COSMOS_EMBED_ENDPOINT env vars below get rewritten
+  # to go through the controller Service instead of the rtvi ClusterIPs.
+  #
+  # PREREQUISITE — the HAProxy Technologies kubernetes-ingress controller
+  # must already be installed in the cluster. The IngressClass `haproxy` is
+  # a cluster-scoped resource, so VSS does NOT bundle the controller —
+  # bundling collides with any existing HAProxy install (Nam Nguyen hit
+  # this when the controller was already installed via a separate release).
+  #
+  # Install command is in this profile's README ("Step 2: Install Ingress
+  # Controller (HAProxy)"). It uses DaemonSet + hostPort for external
+  # traffic; enabling THIS option additionally requires the controller's
+  # ClusterIP Service (`--set controller.service.type=ClusterIP`), which is
+  # what makes `controllerService` below addressable. With rtviInternalIngress
+  # disabled (the default) the ClusterIP Service is not needed.
+  #
+  # The defaults `haproxy-kubernetes-ingress.haproxy-controller:80` match
+  # the README's install. Override only if you used a different release
+  # name or namespace.
+  rtviInternalIngress:
+    enabled: false
+    className: haproxy
+    host: ''
+    hashHeader: x-stream-id
+    rtviCvPath: /rtvi-cv
+    rtviEmbedPath: /rtvi-embed
+    # In-cluster DNS short name of the HAProxy ingress controller Service:
+    # `<svc-name>.<namespace>` — resolved to the FQDN via the pod search
+    # domain (haproxy-kubernetes-ingress.haproxy-controller.svc.cluster.local).
+    controllerService: "haproxy-kubernetes-ingress.haproxy-controller"
+    controllerPort: 80
+    annotations: {}
+    tls: []
 ingress:
   enabled: true
   className: haproxy
@@ -42,6 +79,7 @@ ingress:
     kibana: ''
     phoenix: ''
   tls: []
+
 sharedStorage:
   streamerVideos:
     # Disabled: same role as vios.vstStorage + streamprocessing persistence.streamerVideos (matches dev-profile-alerts; avoids a second PVC).
@@ -67,17 +105,9 @@ vios:
   vss-vios-postgres:
     enabled: true
 
-  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-alerts.
-  vss-vios-envoy-proxy:
-    enabled: false
-
-  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-alerts.
-  vss-vios-sdr:
-    enabled: false
-
   vss-vios-sensor:
     enabled: true
-    # Sensor talks to SDRC (replaces vss-vios-envoy-proxy) — same pattern as dev-profile-alerts.
+    # Sensor talks to SDRC — same pattern as dev-profile-alerts.
     streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -114,8 +144,7 @@ infra:
       limits:
         memory: 512Mi
         cpu: 500m
-  # SDRC workload controller — replaces vss-vios-sdr + vss-vios-envoy-proxy from the vios umbrella.
-  # Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
+  #SDRC Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
   sdrc:
     enabled: true
     configFilePath: configs/sdrc/config-search.yml
@@ -265,6 +294,9 @@ rtvi:
     port: 8000
     service:
       type: ClusterIP
+    # Pin a specific GPU device id (e.g. "1") to set NVIDIA_VISIBLE_DEVICES on
+    # the container. Leave empty to let the container see whatever GPUs the
+    # pod's resource request exposed (runtime default).
     gpuDeviceId: ''
     dshm:
       enabled: true
@@ -450,7 +482,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.2-b0ba77ae135d
+    vssAgentVersion: 3.2.0-26.05.5-8ad30888571b
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -484,7 +516,7 @@ agent:
       - name: LLM_MODE
         value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $llm }}remote{{- else }}local{{- end }}'
       - name: VLM_MODE
-        value: remote
+        value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $vlm }}remote{{- else }}local{{- end }}'
       - name: LLM_MODEL_TYPE
         value: nim
       - name: VLM_MODEL_TYPE
@@ -502,7 +534,7 @@ agent:
       - name: LVS_BACKEND_URL
         value: ''
       - name: RTVI_CV_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $cvPort := (.Values.rtviCvPort | default "9000") | toString }}{{- $cvHost := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx }}{{- printf "http://%s:%s" $cvHost $cvPort -}}'
+        value: '{{- $g := .Values.global | default dict -}}{{- $rii := (index $g "rtviInternalIngress") | default dict -}}{{- if $rii.enabled -}}{{- $svc := default "haproxy-kubernetes-ingress.haproxy-controller" $rii.controllerService -}}{{- $port := $rii.controllerPort | default 80 -}}{{- $path := default "/rtvi-cv" $rii.rtviCvPath -}}{{- printf "http://%s:%v%s" $svc $port $path -}}{{- else -}}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) -}}{{- $cvPort := (.Values.rtviCvPort | default "9000") | toString -}}{{- $cvHost := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx -}}{{- printf "http://%s:%s" $cvHost $cvPort -}}{{- end -}}'
       - name: VSS_ES_PORT
         value: ''
       - name: VST_BASE_URL
@@ -514,9 +546,9 @@ agent:
       - name: OPENAI_API_KEY
         value: ''
       - name: RTVI_EMBED_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString }}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}{{- $def := printf "http://%s:%s" $embedHost $embedPort }}{{ coalesce .Values.rtviEmbedBaseUrl $def }}'
+        value: '{{- $g := .Values.global | default dict -}}{{- $rii := (index $g "rtviInternalIngress") | default dict -}}{{- if $rii.enabled -}}{{- $svc := default "haproxy-kubernetes-ingress.haproxy-controller" $rii.controllerService -}}{{- $port := $rii.controllerPort | default 80 -}}{{- $path := default "/rtvi-embed" $rii.rtviEmbedPath -}}{{- printf "http://%s:%v%s" $svc $port $path -}}{{- else -}}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) -}}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString -}}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx -}}{{- $def := printf "http://%s:%s" $embedHost $embedPort -}}{{ coalesce .Values.rtviEmbedBaseUrl $def }}{{- end -}}'
       - name: COSMOS_EMBED_ENDPOINT
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString }}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}{{- $def := printf "http://%s:%s" $embedHost $embedPort }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
+        value: '{{- $g := .Values.global | default dict -}}{{- $rii := (index $g "rtviInternalIngress") | default dict -}}{{- if $rii.enabled -}}{{- $svc := default "haproxy-kubernetes-ingress.haproxy-controller" $rii.controllerService -}}{{- $port := $rii.controllerPort | default 80 -}}{{- $path := default "/rtvi-embed" $rii.rtviEmbedPath -}}{{- printf "http://%s:%v%s" $svc $port $path -}}{{- else -}}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) -}}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString -}}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx -}}{{- $def := printf "http://%s:%s" $embedHost $embedPort -}}{{ coalesce .Values.cosmosEmbedEndpoint $def }}{{- end -}}'
       - name: ELASTIC_SEARCH_ENDPOINT
         value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
       - name: ELASTIC_SEARCH_INDEX
@@ -550,7 +582,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-b0ba77ae135d" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.5-8ad30888571b" }}'
 
 vss-agent-ui:
   enabled: true
@@ -562,7 +594,7 @@ vss-agent-ui:
     imagePullPolicy: IfNotPresent
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.05.2-17f2f0415839"
+    tag: "3.2.0-26.05.2-794e57d82d0e"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
@@ -577,11 +609,11 @@ vss-agent-ui:
     - name: ngc-docker-reg-secret
   resources:
     requests:
-      memory: 512Mi
-      cpu: 250m
+      memory: 4Gi
+      cpu: 2
     limits:
-      memory: 1Gi
-      cpu: 500m
+      memory: 4Gi
+      cpu: 2
   envOverrides:
     - name: NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE
       value: 'Generate a report for incident {incidentId} with sensor id {sensorId}.'
@@ -613,11 +645,6 @@ vss-agent-ui:
       value: "false"
     - name: NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED
       value: "false"
-    - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON
-      # TODO: This is used by the Video Management Tab. Change to have its own env var.
-      value: '{"fields":[{"field-name":"embedding","field-type":"boolean","field-default-value":true,"changeable":false,"tooltip-info":""}]}'
-    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON
-      value: '{"fields":[{"field-name":"embedding","field-type":"boolean","field-default-value":true,"changeable":false,"tooltip-info":""}]}'
     - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE
       value: "true"
     - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE

@@ -24,7 +24,7 @@ Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-2d/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-detection-tracking-2d \\
         --skill-dir skills/vss-deploy-detection-tracking-2d \\
-        --spec skills/vss-deploy-detection-tracking-2d/eval/deploy-evals.json
+        --spec skills/vss-deploy-detection-tracking-2d/evals/deploy-evals.json
 """
 from __future__ import annotations
 
@@ -316,14 +316,14 @@ def main() -> None:
     parser.add_argument(
         "--spec",
         default=None,
-        help=f"Path to spec file (default: <skill-dir>/eval/{DEFAULT_SPEC})",
+        help=f"Path to spec file (default: <skill-dir>/evals/{DEFAULT_SPEC})",
     )
     parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()))
     args = parser.parse_args()
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / DEFAULT_SPEC)
+    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / DEFAULT_SPEC)
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

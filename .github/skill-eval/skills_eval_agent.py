@@ -47,7 +47,10 @@ Exit codes:
 from __future__ import annotations
 
 import asyncio
+import datetime
+import glob
 import os
+import re
 import subprocess
 import sys
 import time
@@ -114,6 +117,104 @@ def _disable_server_thinking() -> None:
     NVIDIA proxy too."""
     if "CLAUDE_CODE_DISABLE_THINKING" not in os.environ:
         os.environ["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+
+
+# ---------------------------------------------------------------------------
+# Benchmark report
+# ---------------------------------------------------------------------------
+
+# Per-run scratch root. AGENTS.md § "Startup hygiene" mandates that
+# every piece of state this run owns lives under $SCRATCH so that
+# parallel workflow_dispatch sweeps don't trample each other's
+# in-flight files. The agent writes per-spec result comments to
+# `$SCRATCH/pr-<spec>.md` before posting via `gh pr comment` (per
+# § "Result comment format"); we read them back from the same place
+# rather than re-fetching from the PR — that path also works in
+# manual-sweep mode, where there's no PR to read.
+_RUN_ID = os.environ.get("GITHUB_RUN_ID", "local")
+_SCRATCH = Path(f"/tmp/skill-eval/{_RUN_ID}")
+BENCHMARK_INPUT_GLOB = str(_SCRATCH / "pr-*.md")
+BENCHMARK_OUT_PATH = _SCRATCH / "benchmark.md"
+
+_MD_LINK_RE = re.compile(r"\[([^\]\n]+)\]\([^)\n]*\)")
+_BARE_URL_RE = re.compile(r"https?://\S+")
+
+
+def _sanitize_public(text: str) -> str:
+    """Scrub a per-spec result body for public consumption.
+
+    The benchmark.md is published as a workflow artifact downloadable
+    by anyone with read access to the Actions run, so we strip:
+      - internal tool names ("Harbor" → "Skill") — Harbor is an
+        internal-only product name and shouldn't appear in published
+        artifacts.
+      - markdown links `[text](url)` → keep `text`, drop `url`. Trace
+        URLs point at internal viewer endpoints; PR/run links leak
+        org-internal routing that's already evident from the artifact's
+        provenance.
+      - bare http(s) URLs anywhere in prose.
+    """
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _BARE_URL_RE.sub("", text)
+    text = re.sub(r"\bHarbor\b", "Skill", text)
+    return text
+
+
+def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
+    """Concatenate per-spec result comments into one benchmark report.
+
+    Reads every `$SCRATCH/pr-*.md` the agent produced (one per (PR,
+    spec) batch per AGENTS.md § "Result comment format") and writes a
+    single `benchmark.md` with a run-level header followed by each spec
+    body in deterministic order. Output is sanitized for public
+    consumption via `_sanitize_public` — see that docstring for what's
+    stripped. The glob is run-scoped so a parallel workflow_dispatch
+    peer's per-spec comments never leak into this run's benchmark.
+
+    Returns the output path on success, or `None` if no per-spec
+    comments were found — that's a valid outcome (blocker before any
+    trial ran) and shouldn't fail the workflow.
+    """
+    sources = sorted(glob.glob(BENCHMARK_INPUT_GLOB))
+    if not sources:
+        print(f"[benchmark] no per-spec comments at {BENCHMARK_INPUT_GLOB} — "
+              "skipping benchmark.md (agent likely blocked before running trials)",
+              flush=True)
+        return None
+
+    manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
+    generated = datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%d %H:%M:%S UTC")
+
+    title = ("Skills Eval Benchmark — Manual full-sweep" if manual_sweep
+             else "Skills Eval Benchmark")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w") as fp:
+        fp.write(f"# {title}\n\n")
+        fp.write(f"Generated: {generated}  \n")
+        fp.write(f"Specs: {len(sources)}\n\n")
+        fp.write("---\n\n")
+        for src in sources:
+            try:
+                body = Path(src).read_text()
+            except OSError as exc:
+                print(f"[benchmark] skip {src}: {exc!r}", flush=True)
+                continue
+            # Demote any top-level `# heading` inside the per-spec body
+            # to `##` so the benchmark TOC stays single-rooted at the
+            # `# ` title above. AGENTS.md § Result comment format starts
+            # spec bodies with `## ...` so this is usually a no-op, but
+            # be defensive against future format drift.
+            body = "\n".join(
+                ("#" + line) if line.startswith("# ") else line
+                for line in body.splitlines()
+            )
+            fp.write(_sanitize_public(body).rstrip() + "\n\n---\n\n")
+
+    print(f"[benchmark] wrote {out_path} ({len(sources)} spec comments)",
+          flush=True)
+    return out_path
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +323,10 @@ The coordinator host is vss-skill-validator; Brev CLI is authenticated, Docker i
 
 Process this PR per AGENTS.md: diff → detect changed skills → update or create the
 adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset → acquire
-a Brev lock for the target platform(s) → run harbor trials → gather results →
-post ONE comment per (PR, spec) batch → release the lock → stop/delete any Brev
-instance you brought online.
+a per-box flock on a `vss-eval-*` pool member matching the target platform(s) →
+run harbor trials → gather results → post ONE comment per (PR, spec) batch →
+reset deployment state on each locked box per § 7 → release the flock. Never
+`brev stop` / `brev delete` any pool member — pool lifecycle is operator-managed.
 
 When done, emit a one-line final summary starting with `DONE:` so the workflow
 can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
@@ -309,12 +411,18 @@ line starting with `BLOCKED:` followed by the reason.
 
 
 # ---------------------------------------------------------------------------
-# Cleanup
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+#
+# No process-side cleanup here by design — the box's deployment state is
+# reset on the NEXT run's lock acquisition, not on this run's exit. See
+# `envs/brev_env.py::_ensure_prerequisite_deployed`: the active-deploy
+# marker carries `<profile_tag>|<run_id>`, and a run id mismatch always
+# triggers tear-down + redeploy. That makes every exit path equivalent
+# from the next run's perspective — happy path, max-turns, cancel-in-
+# progress SIGTERM, agent crash, SIGKILL, host reboot — so we don't need
+# atexit / signal handlers / a touched-boxes ledger to chase the cases
+# where end-of-run cleanup might be skipped.
 
 def main() -> int:
     _disable_server_thinking()
@@ -328,6 +436,15 @@ def main() -> int:
         print(f"[agent] crashed: {exc!r}", file=sys.stderr)
         import traceback; traceback.print_exc()
         rc = 2
+    # Always try to assemble benchmark.md — even on crash/max-turns, any
+    # specs the agent did finish have their per-spec markdown on disk and
+    # are worth publishing. Errors here are non-fatal: the agent's verdict
+    # (rc) is what gates the workflow, not the report builder.
+    try:
+        build_benchmark_md()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[benchmark] failed to build benchmark.md: {exc!r}",
+              file=sys.stderr)
     return rc
 
 

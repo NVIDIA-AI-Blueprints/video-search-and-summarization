@@ -1,0 +1,38 @@
+{
+  "sensorId": "INTERSECTION_CAM_HWY20_MAIN",
+  "timestamp": "2025-01-09T14:30:15.500Z",
+  "end": "2025-01-09T14:30:25.500Z",
+  "objectIds": [
+    "vehicle_8842",
+    "vehicle_8856",
+    "vehicle_8901"
+  ],
+  "place": {
+    "name": "city=Metro_City/intersection=HWY20_AND_MAIN_ST",
+    "id": "intersection_hwy20_main",
+    "type": "urban_intersection",
+    "info": {
+      "city": "Metro City",
+      "intersection_type": "signalized"
+    }
+  },
+  "analyticsModule": {
+    "id": "Collision Detection Module",
+    "description": "Potential collision detected between 3 vehicles at intersection",
+    "info": {
+      "triggerModules": "Sudden Stop, Trajectory Intersection"
+    },
+    "source": "traffic_analytics_v3",
+    "version": "3.2.1"
+  },
+  "category": "collision",
+  "isAnomaly": true,
+  "info": {
+    "location": "40.7128,-74.0060,0.0",
+    "primaryObjectId": "vehicle_8856",
+    "collision_probability": "0.85",
+    "estimated_impact_time_ms": "2500"
+  },
+  "frameIds": [],
+  "embeddings": []
+}
