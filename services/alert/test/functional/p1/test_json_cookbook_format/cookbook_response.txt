@@ -1,0 +1,1 @@
+{"prediction_class_id": 0, "prediction_label": "Walking Outside Designated Path", "video_description": "A worker is seen walking outside the green safety path on a warehouse floor.", "hazard_detection": {"is_hazardous": true, "temporal_segment": null}}
