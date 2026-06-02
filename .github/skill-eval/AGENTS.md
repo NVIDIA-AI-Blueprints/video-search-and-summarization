@@ -425,9 +425,19 @@ The canonical harbor command is in § Harbor invocation.
    `start()` is what cleans up, on every exit path (happy, `BLOCKED`, cancel,
    max-turns, crash, SIGKILL, reboot). One consequence: wiping all volumes
    drops the `rtvi-hf-cache` / `rtvi-ngc-model-cache` model-weight volumes, so
-   a spec's first deploy is cold (~20 min weight download vs ~55 s warm) — the
-   per-trial harbor timeout already budgets for it. The deploy runbook may
-   still `docker compose down` defensively, but it no longer has to.
+   a spec's first deploy is cold (~20 min weight download vs ~55 s warm) under
+   the canonical `-n 1 --max-retries 0` invocation — paid once per spec; an
+   `-n>1` rollout or a harbor retry re-wipes the caches and re-pays it. The
+   per-trial harbor timeout already budgets for a cold deploy. The deploy
+   runbook may still `docker compose down` defensively, but it no longer has to.
+
+   ⚠️ **`start()` is now destructive on a spec's first trial — never run
+   `harbor` manually against a box another run currently holds.** The wipe is
+   not structurally gated by the per-box flock (that's orchestrator discipline,
+   § 5b); a manual `uvx harbor run` with `BREV_INSTANCE` set (README "Run one
+   trial by hand") will `docker rm -f` the holder's containers and volumes
+   mid-trial. Acquire the flock — or pick a demonstrably idle box — before any
+   manual run.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec

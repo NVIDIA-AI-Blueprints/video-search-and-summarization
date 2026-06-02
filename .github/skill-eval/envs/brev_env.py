@@ -334,6 +334,10 @@ class BrevEnvironment(BaseEnvironment):
         # would destroy the very state under test. step-1 gets the clean box;
         # later steps build on it. (`environment_dir.parent` is the task dir —
         # named `step-N` for multi-step, the platform for single-step.)
+        # Caveat: a manual `harbor run` targeting only `step-2+` in isolation
+        # skips the reset and inherits whatever is on the box — run `step-1`
+        # first, or reset by hand. Normal CI always runs `step-1` first on a
+        # freshly reset box, so the gate is correct there.
         task_dir_name = self.environment_dir.parent.name
         if task_dir_name.startswith("step-") and task_dir_name != "step-1":
             logger.info(
@@ -380,22 +384,31 @@ class BrevEnvironment(BaseEnvironment):
         (`rtvi-hf-cache`, `rtvi-ngc-model-cache`), so the next deploy pays the
         full cold model-weight download (~20 min vs ~55 s warm). The caller
         gates this to a spec's first trial only (single-step, or step-1 of a
-        multi-step spec — later steps reuse step-1's deployment), so that cost
-        is paid once per spec, not once per step; the per-trial harbor timeout
-        already budgets for a cold deploy.
+        multi-step spec — later steps reuse step-1's deployment), so under the
+        canonical `-n 1 --max-retries 0` invocation (one trial per spec) the
+        cost is paid once per spec, not once per step. An `-n>1` rollout, a
+        harbor retry, or a repeated manual run on the same warm box each
+        re-wipes the caches and re-pays the cold start. The per-trial harbor
+        timeout already budgets for a cold deploy.
 
         Runs as the normal (docker-group) user — the same identity the
         trial's deploy uses; no sudo. `network prune` leaves the built-in
         bridge/host/none networks, which is correct. Fails loud (`set -u`,
-        explicit `exit 1`) if the daemon is unreachable or any container /
-        volume, or user-defined network survives, so a half-reset box surfaces
-        as a trial error rather than silent cross-trial contamination.
+        explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
+        if any container, volume, or user-defined network survives, so a
+        half-reset box surfaces as a trial error rather than silent cross-trial
+        contamination.
         """
         cmd = r"""set -uo pipefail
 docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
 cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
 vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
 docker network prune -f >/dev/null 2>&1 || true
+# Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
+# died mid-script would make the count commands below print nothing and the
+# guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
+# this check, so the remaining TOCTOU window is negligible.
+docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
 rc=$(docker ps -aq | wc -l | tr -d ' ')
 rv=$(docker volume ls -q | wc -l | tr -d ' ')
 # Only user-defined networks should be gone; the built-in bridge/host/none
