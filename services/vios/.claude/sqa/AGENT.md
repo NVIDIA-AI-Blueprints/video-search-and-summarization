@@ -140,7 +140,6 @@ test/bdd_tests/
     test_results.csv
     unit_tests/*.csv
 
-tools/data/                           # sample video files (see below)
 webroot/index.html                    # UI entry point
 ```
 
@@ -155,19 +154,6 @@ webroot/index.html                    # UI entry point
 | NVStreamer (0–4) | `http://<HOST>:31000–31004/#/dashboard` |
 | Grafana (if enabled) | `http://<HOST>:3000` |
 | MinIO Console (if enabled) | `http://<HOST>:9001` |
-
----
-
-## Sample Video Files
-
-Pre-built test videos live in `tools/data/`. Use these wherever a deployment or test requires a video source.
-
-| File | Format | Resolution | Duration | Notes |
-|---|---|---|---|---|
-| `tools/data/sample_10sec_h264.mp4` | H.264/MP4 | 1920x1080 | 10s | Standard H.264 MP4 test clip |
-| `tools/data/sample_10sec_h264.mkv` | H.264/MKV | 1920x1080 | 10s | Standard H.264 MKV test clip |
-| `tools/data/sample_10sec_h265.mp4` | H.265/MP4 | 1920x1080 | 10s | H.265 MP4 test clip |
-| `tools/data/sample_10sec_h265.mkv` | H.265/MKV | 1920x1080 | 10s | H.265 MKV test clip |
 
 ---
 

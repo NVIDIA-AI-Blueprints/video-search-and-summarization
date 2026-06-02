@@ -364,6 +364,31 @@ build_base_image() {
     cd - || exit 1
 }
 
+# Function to build the vios-ui and stage its dist output into the webroot dir
+# (used when building the nvstreamer container; webroot is packaged into the image).
+build_vios_ui_webroot() {
+    local build_root
+    build_root=$(pwd)
+    local ui_dir="$build_root/ui/vios-ui"
+    local webroot_dir="$build_root/webroot"
+
+    echo "Building vios-ui in $ui_dir ..."
+    cd "$ui_dir" || { echo "[ERROR] Cannot find vios-ui directory: $ui_dir"; exit 1; }
+    npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
+    npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
+
+    if [[ ! -d "dist" ]]; then
+        echo "[ERROR] vios-ui dist directory not found after build"
+        exit 1
+    fi
+
+    echo "Staging vios-ui dist into $webroot_dir ..."
+    # Remove only the VST UI static files; leave other webroot files intact.
+    rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html"
+    cp -rf dist/. "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
+    cd "$build_root" || exit 1
+}
+
 # Function to build a module
 build_module() {
     local module=$1
@@ -846,9 +871,34 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
                 TAG=${DEFAULT_TAGS[ingress]:-"latest"}
                 imagename="$VST_ORG/vst-ingress:${TAG}"
             fi
+
+            # Build the vios-ui and stage its dist output into the ingress vst-ui dir
+            INGRESS_BUILD_ROOT=$(pwd)
+            UI_DIR="$INGRESS_BUILD_ROOT/ui/vios-ui"
+            VST_UI_DIR="$INGRESS_BUILD_ROOT/deployment/scaling/ingress/vst-ui"
+
+            echo "Building vios-ui in $UI_DIR ..."
+            cd "$UI_DIR" || { echo "[ERROR] Cannot find vios-ui directory: $UI_DIR"; exit 1; }
+            npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
+            npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
+
+            if [[ ! -d "dist" ]]; then
+                echo "[ERROR] vios-ui dist directory not found after build"
+                exit 1
+            fi
+
+            echo "Staging vios-ui dist into $VST_UI_DIR ..."
+            find "$VST_UI_DIR" -mindepth 1 -not -name '.gitkeep' -delete
+            cp -rf dist/. "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
+            cd "$INGRESS_BUILD_ROOT" || exit 1
+
             cd deployment/scaling/ingress/ || exit 1
             echo "Building Docker image: $imagename"
-            docker buildx build --platform linux/amd64,linux/arm64 -t $imagename --push .
+            if [[ $PUSH -eq 1 ]]; then
+                docker buildx build --platform linux/amd64,linux/arm64 -t $imagename --push .
+            else
+                docker buildx build -t $imagename --load .
+            fi
             cd - || exit 1
             exit 0
         fi
@@ -866,6 +916,12 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
             docker buildx build --platform linux/amd64,linux/arm64 -t $imagename --push .
             cd - || exit 1
             exit 0
+        fi
+
+        # For the nvstreamer container, build the vios-ui and stage its dist
+        # into webroot before packaging so it is baked into the image.
+        if [[ $NVSTREAMER -eq 1 ]]; then
+            build_vios_ui_webroot
         fi
 
         echo "Building and containerizing all modules"

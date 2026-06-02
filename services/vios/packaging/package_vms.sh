@@ -226,10 +226,6 @@ add_common_files() {
 		mappings+=("prebuilts/${ARCH}/deepstream/gst-plugins/libgstnvvideo4linux2.so=${PACKAGE_DIR}/prebuilts/${ARCH}/deepstream/gst-plugins/libgstnvvideo4linux2.so")
 		mappings+=("prebuilts/${ARCH}/deepstream/gst-plugins/libgstnvvidconv.so=${PACKAGE_DIR}/prebuilts/${ARCH}/deepstream/gst-plugins/libgstnvvidconv.so")
 		mappings+=("prebuilts/${ARCH}/gst-plugins/libgstapp-1.0.so.0.1603.0=${PACKAGE_DIR}/prebuilts/${ARCH}/gst-plugins/libgstapp-1.0.so.0.1603.0")
-		mappings+=("tools/data/sample_10sec_h264.mp4=${PACKAGE_DIR}/tools/data/sample_10sec_h264.mp4")
-		mappings+=("tools/data/sample_10sec_h264.mkv=${PACKAGE_DIR}/tools/data/sample_10sec_h264.mkv")
-		mappings+=("tools/data/sample_10sec_h265.mp4=${PACKAGE_DIR}/tools/data/sample_10sec_h265.mp4")
-		mappings+=("tools/data/sample_10sec_h265.mkv=${PACKAGE_DIR}/tools/data/sample_10sec_h265.mkv")
 		mappings+=("prebuilts/${ARCH}/libnvds_kafka_proto.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvds_kafka_proto.so")
 		mappings+=("prebuilts/${ARCH}/libnvds_schema_3d.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvds_schema_3d.so")
 		mappings+=("prebuilts/${ARCH}/libnvds_schema_2d.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvds_schema_2d.so")
@@ -292,7 +288,7 @@ create_rel_package() {
 	mappings=()
 	PACKAGE_DIR="vst_${RELEASE_VERSION}_${ARCH}"
 	mappings+=("tools/deploy_vst.sh=${PACKAGE_DIR}/deploy_vst.sh")
-	mappings+=("oss_license.txt=${PACKAGE_DIR}/oss_license.txt")
+	mappings+=("LICENSE.3rdparty=${PACKAGE_DIR}/LICENSE.3rdparty")
 	mappings+=("LICENSE_libnvjpeg=${PACKAGE_DIR}/LICENSE_libnvjpeg")
 	echo "vst_package: ${vst_package}"
 	mappings+=("${OUT_REL}/${vst_package}"=${PACKAGE_DIR}/${vst_package})
@@ -303,7 +299,7 @@ create_dev_package() {
 	mappings=()
 	PACKAGE_DIR="vst_release"
 	mappings+=("launch_vst=${PACKAGE_DIR}/launch_vst")
-	mappings+=("oss_license.txt=${PACKAGE_DIR}/oss_license.txt")
+	mappings+=("LICENSE.3rdparty=${PACKAGE_DIR}/LICENSE.3rdparty")
 	vst_package="${PACKAGE_DIR}.tbz2"
 	add_common_files
 	create_package "${vst_package}"

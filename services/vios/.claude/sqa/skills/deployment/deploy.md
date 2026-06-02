@@ -190,19 +190,6 @@ Report to the user:
 
 ---
 
-## Sample Video Files
-
-If the deployment config requires a video source path (e.g. for a simulated RTSP sensor or NVStreamer input), use the pre-built files in `tools/data/`:
-
-| File | Format | Resolution | Duration | Use case |
-|---|---|---|---|---|
-| `tools/data/sample_10sec_h264.mp4` | H.264/MP4 | 1920x1080 | 10s | Standard H.264 MP4 sensor simulation |
-| `tools/data/sample_10sec_h264.mkv` | H.264/MKV | 1920x1080 | 10s | H.264 MKV sensor simulation |
-| `tools/data/sample_10sec_h265.mp4` | H.265/MP4 | 1920x1080 | 10s | H.265 MP4 sensor simulation |
-| `tools/data/sample_10sec_h265.mkv` | H.265/MKV | 1920x1080 | 10s | H.265 MKV sensor simulation |
-
----
-
 ## Image Tag Flags Reference
 
 | Flag | Controls |

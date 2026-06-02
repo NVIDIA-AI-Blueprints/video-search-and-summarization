@@ -141,19 +141,6 @@ Reports are always written to `test/bdd_tests/reports/`. Proceed to `skills/test
 
 ---
 
-## Sample Video Files
-
-When tests require a video source (file upload, RTSP simulation, recording tests), use the files in `tools/data/`:
-
-| File | Format | Resolution | Duration | Best for |
-|---|---|---|---|---|
-| `tools/data/sample_10sec_h264.mp4` | H.264/MP4 | 1920x1080 | 10s | Standard H.264 MP4 tests |
-| `tools/data/sample_10sec_h264.mkv` | H.264/MKV | 1920x1080 | 10s | H.264 MKV tests |
-| `tools/data/sample_10sec_h265.mp4` | H.265/MP4 | 1920x1080 | 10s | H.265 MP4 tests |
-| `tools/data/sample_10sec_h265.mkv` | H.265/MKV | 1920x1080 | 10s | H.265 MKV tests |
-
----
-
 ## Environment Setup (first-time only)
 
 ```bash

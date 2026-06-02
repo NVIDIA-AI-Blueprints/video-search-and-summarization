@@ -164,7 +164,7 @@ Then restart sensor-ms so it reloads: `docker restart sensor-ms`.
 
 **Option B — stage a backing file so the stream resolves:**
 ```bash
-cp /tmp/nvstreamer_auto_deploy/nvstreamer-1/sample_10sec_h264.mp4 \
+cp /tmp/nvstreamer_auto_deploy/nvstreamer-1/<existing_file>.mp4 \
    /tmp/nvstreamer_auto_deploy/nvstreamer-1/<missing_file>.mp4
 ```
 NVStreamer picks up new files without a restart.
