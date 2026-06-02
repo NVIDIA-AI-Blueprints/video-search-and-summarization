@@ -5,11 +5,8 @@
   "profile": "in-1",
   "resources": {
     "platforms": {
-      "2xRTXPro": {
-        "gpu_count": 2,
-        "modes": [
-          "dev-profile"
-        ]
+      "RTXPRO6000BW": {
+        "gpu_count": 2
       }
     }
   },
