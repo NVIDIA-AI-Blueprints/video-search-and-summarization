@@ -825,11 +825,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 "GITHUB_STEP_SUMMARY": os.environ.get("GITHUB_STEP_SUMMARY"),
                 "GITHUB_RUN_ID": os.environ.get("GITHUB_RUN_ID"),
                 "PR_HEAD_SHA": os.environ.get("PR_HEAD_SHA"),
+                "PR_REPO": os.environ.get("PR_REPO"),
                 "BREV_ENV_ID": os.environ.get("BREV_ENV_ID"),
             }
             os.environ["GITHUB_STEP_SUMMARY"] = str(summary)
             os.environ["GITHUB_RUN_ID"] = run_id
             os.environ["PR_HEAD_SHA"] = "abcdef0123456789"
+            os.environ["PR_REPO"] = "NVIDIA-AI-Blueprints/video-search-and-summarization"
             os.environ["BREV_ENV_ID"] = "abc123"
             old_scratch = smoke_runner.SCRATCH_ROOT
             smoke_runner.SCRATCH_ROOT = root / "scratch"
@@ -861,6 +863,76 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("MCP docker_status reached terminal state", report)
         self.assertIn("[trace](https://harbor-abc123.brevlab.com/jobs/", report)
         self.assertIn("Skills Eval Benchmark - NemoClaw smoke", benchmark)
+
+    def test_nemoclaw_report_prefers_leaf_trial_and_links_run_when_viewer_unavailable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            results_root = root / "results"
+            run_id = "999"
+            job_dir = results_root / run_id / "2026-06-02__08-00-00"
+            trial_dir = job_dir / "rtxpro6000bw__abc"
+            trial_dir.mkdir(parents=True)
+            (job_dir / "result.json").write_text(
+                json.dumps({"started_at": "2026-06-02T08:00:00Z", "finished_at": "2026-06-02T09:00:00Z"}),
+                encoding="utf-8",
+            )
+            (trial_dir / "verifier").mkdir()
+            (trial_dir / "result.json").write_text(
+                json.dumps(
+                    {
+                        "started_at": "2026-06-02T08:10:00Z",
+                        "finished_at": "2026-06-02T08:20:00Z",
+                        "agent_result": {
+                            "n_input_tokens": None,
+                            "n_cache_tokens": None,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (trial_dir / "verifier" / "reward.txt").write_text("1.0", encoding="utf-8")
+            (trial_dir / "verifier" / "judge.json").write_text(
+                json.dumps({"total": 7, "passed": 7, "checks": [{"pass": True, "check": "ok"}]}),
+                encoding="utf-8",
+            )
+            summary = root / "summary.md"
+            previous = {
+                "GITHUB_STEP_SUMMARY": os.environ.get("GITHUB_STEP_SUMMARY"),
+                "GITHUB_RUN_ID": os.environ.get("GITHUB_RUN_ID"),
+                "PR_REPO": os.environ.get("PR_REPO"),
+                "BREV_ENV_ID": os.environ.get("BREV_ENV_ID"),
+            }
+            os.environ["GITHUB_STEP_SUMMARY"] = str(summary)
+            os.environ["GITHUB_RUN_ID"] = run_id
+            os.environ["PR_REPO"] = "NVIDIA-AI-Blueprints/video-search-and-summarization"
+            os.environ.pop("BREV_ENV_ID", None)
+            old_scratch = smoke_runner.SCRATCH_ROOT
+            smoke_runner.SCRATCH_ROOT = root / "scratch"
+            try:
+                smoke_runner._append_harbor_report(
+                    profile="base",
+                    platform="RTXPRO6000BW",
+                    instance="vss-eval-rtx-2g-4",
+                    results_root=results_root,
+                    run_id=run_id,
+                    reward=1.0,
+                    harbor_rc=0,
+                    log_path=root / "harbor.log",
+                )
+            finally:
+                smoke_runner.SCRATCH_ROOT = old_scratch
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+            report = summary.read_text(encoding="utf-8")
+
+        self.assertIn("PASS 1 (7/7)", report)
+        self.assertIn("Total: `10m 0s`", report)
+        self.assertIn("| RTXPRO6000BW | PASS 1 (7/7) | 1 | 10m 0s | n/a | n/a | n/a |", report)
+        self.assertIn("[artifacts](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/actions/runs/999)", report)
 
 
 class OpenClawStreamPatchTest(unittest.TestCase):
