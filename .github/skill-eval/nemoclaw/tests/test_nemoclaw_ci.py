@@ -95,6 +95,33 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertTrue(all(isinstance(cell["source"], str) for cell in built["cells"]))
         self.assertEqual(built["cells"][0]["source"], "A=1\n")
 
+    def test_ci_notebook_makes_optional_9090_forward_best_effort(self):
+        source = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
+            "cells": [
+                {
+                    "id": "run-code",
+                    "cell_type": "code",
+                    "metadata": {},
+                    "source": [
+                        "print('setup')\n",
+                        "ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)\n",
+                    ],
+                    "outputs": [],
+                }
+            ],
+        }
+        manifest = {"cells": ["run-code"], "insert_parameters_before": "run-code"}
+
+        built = notebook_adapter.build_notebook(source, manifest)
+        run_cell = next(cell for cell in built["cells"] if cell.get("id") == "run-code")
+
+        self.assertIn("try:", run_cell["source"])
+        self.assertIn("optional OpenShell forward 9090 skipped in CI", run_cell["source"])
+        self.assertIn("ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)", run_cell["source"])
+
     def test_redacts_configured_secret_values(self):
         os.environ["NVIDIA_API_KEY"] = "nvapi-secret"
         try:
