@@ -180,7 +180,7 @@ Test files live under `video-search-and-summarization/services/analytics/behavio
 | Listener | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_listener.py` | Test new notification shapes, atomic-write behavior, pruning. |
 | Watcher | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_base.py` (`CalibrationFileMonitor`) | Test new event-handling paths in `on_moved`. |
 | Base reload | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_base.py` | Test new `update_calibration_info` branches, `_load_sensors` extraction. |
-| Typed subclasses | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration.py` / `test_calibration_e.py` / `test_calibration_i.py` | Test sensor-type-specific logic. |
+| Typed subclasses | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration.py`, `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_e.py`, `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_i.py` | Test sensor-type-specific logic. |
 | DynamicCalibration | `tests/unit/mdx/analytics/core/transform/calibration/test_calibration_dynamic.py` | Test the one-time switch and `reload_data` override. |
 | End-to-end | `tests/integration/dynamic_calibration/dynamic_calibration_e2e.py` | Add a scenario for new wire-level behavior. See its README. |
 
