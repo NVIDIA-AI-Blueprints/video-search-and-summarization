@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Decide whether a PR touches only non-build files under a service folder.
+"""Decide whether the container-source SHA check is relevant to this PR.
 
 The ``Check {Agent,UI} Container Source`` gates compare the git tree SHA of
 ``services/agent`` / ``services/ui`` against the ``com.nvidia.vss.source_tree_sha``
-baked into the deployed image. That tree SHA covers the *whole* folder, so a
-docs- or tests-only change (which never enters the image — the Dockerfiles use
-selective ``COPY`` / a ``.dockerignore``) still trips the gate and forces a
-needless container re-spin or manifest re-stamp.
+baked into the deployed image. Because that tree SHA covers the *whole* folder,
+once an allowed docs change merges to ``develop`` the folder drifts from the
+promoted image — and then the check fails on **every** later PR, even ones that
+touch neither the service nor the image tag (it re-evaluates HEAD's drifted
+folder). The gate is also a required status check, so it must always run and
+report a conclusion; we can't skip it at the workflow trigger or the PR hangs.
 
-This helper is the stop-gap: it prints ``true`` when **every** file the PR
-changed under the service folder is one the image build provably does not
-consume, so the caller can skip the SHA comparison for that run. It prints
-``false`` (run the real check) whenever it is unsure — unknown base, an
-integration-branch push, or any build-relevant file in the diff.
+So the gate runs the SHA comparison only when the PR could actually affect the
+match, i.e. it changed either:
 
-The durable fix is to make the source_tree_sha cover only build inputs (honor
-the ``.dockerignore`` / COPY set) on both the build-stamp and check sides; once
-that lands this helper can be removed.
+  * a **build-relevant** file under the service folder (anything the image
+    build consumes — i.e. not the allowlisted docs/tests/metadata below), or
+  * the service's **resolved deployable image tag** (a tag bump in
+    ``deploy/docker`` compose/.env).
+
+Otherwise it prints ``true`` (skip — this PR can't have broken the match), so a
+predecessor's docs-drift doesn't red-flag unrelated PRs. It prints ``false``
+(run the real check) whenever a build-relevant file or this service's tag
+changed, on integration-branch pushes, or whenever it is unsure.
+
+The tag comparison is per-service and value-based (resolve the image ref at
+HEAD vs the merge-base), so a UI tag bump in a shared ``.env`` does not trip the
+agent gate and vice-versa.
 
 Output: a single ``true``/``false`` token on stdout. Diagnostics go to stderr.
 """
@@ -27,9 +36,15 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+# Sibling module in .github/scripts/ (sys.path[0] when run as a script). We
+# reuse its compose/.env discovery + variable resolution so the gate's notion
+# of "the service's image tag" is identical to the check's.
+import check_container_tag_source as chk
 
 
 # Image name -> source folder (must match check_container_tag_source.py).
@@ -105,6 +120,103 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+# --- resolved image-tag comparison (per service, value-based) ---------------
+#
+# Mirror check_container_tag_source's compose/.env resolution but read file
+# contents through a pluggable reader so we can resolve at HEAD (working tree)
+# and at the merge-base (git show) and compare the resolved ref sets.
+
+def _image_refs_in_compose(text: str, expected_name: str) -> list[str]:
+    refs: list[str] = []
+    for line in text.splitlines():
+        m = chk.IMAGE_LINE_RE.match(line)
+        if not m:
+            continue
+        ref = chk.strip_quotes(m.group("ref"))
+        if chk.image_name(ref) == expected_name and ref not in refs:
+            refs.append(ref)
+    return refs
+
+
+def _env_from_text(text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            values[key] = chk.strip_quotes(value)
+    return values
+
+
+def resolve_service_refs(repo: Path, read_text, image_name: str) -> set[str]:
+    """Set of fully-resolved deployable image refs for ``image_name``.
+
+    ``read_text(relpath)`` returns the file's content (or None if absent) at the
+    revision being inspected. Returns an empty set if nothing resolves.
+    """
+    config = chk.IMAGE_CONFIGS[image_name]
+    compose_files = chk.discover_compose_files(repo)
+    env_files = chk.discover_env_files(repo)
+
+    env_caches: dict[Path, dict[str, str]] = {}
+    for ef in env_files:
+        env_caches[ef] = _env_from_text(read_text(str(ef.relative_to(repo))) or "")
+
+    refs: set[str] = set()
+    for cf in compose_files:
+        text = read_text(str(cf.relative_to(repo)))
+        if not text:
+            continue
+        for raw in _image_refs_in_compose(text, config.image_name):
+            _, needed = chk.resolve_compose_vars(raw, {})
+            if not needed:
+                resolved, _ = chk.resolve_compose_vars(raw, dict(os.environ))
+                refs.add(resolved)
+                continue
+            for ef in env_files:
+                env_values = env_caches[ef]
+                if all(name in env_values for name in needed):
+                    resolved, missing = chk.resolve_compose_vars(
+                        raw, {**env_values, **os.environ}
+                    )
+                    if not missing:
+                        refs.add(resolved)
+    return refs
+
+
+def service_tag_changed(repo: Path, base: str, image_name: str) -> bool:
+    """True if the service's resolved image ref(s) differ between base and HEAD."""
+    def head_reader(rel: str):
+        path = repo / rel
+        return path.read_text() if path.exists() else None
+
+    def base_reader(rel: str):
+        result = git(repo, "show", f"{base}:{rel}")
+        return result.stdout if result.returncode == 0 else None
+
+    head_refs = resolve_service_refs(repo, head_reader, image_name)
+    if not head_refs:
+        # Couldn't resolve anything at HEAD — be conservative and run the check.
+        log("could not resolve any image refs at HEAD; running full source check.")
+        return True
+    base_refs = resolve_service_refs(repo, base_reader, image_name)
+    if head_refs != base_refs:
+        log(f"image tag changed vs {base[:12]}:")
+        for r in sorted(head_refs - base_refs):
+            log(f"  + {r}")
+        for r in sorted(base_refs - head_refs):
+            log(f"  - {r}")
+        return True
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-name", choices=sorted(SOURCE_PATHS), required=True)
@@ -134,27 +246,25 @@ def main() -> int:
         return 0
     base = mb.stdout.strip()
 
+    # (1) Did the PR change a build-relevant file under the service folder?
     diff = git(repo, "diff", "--name-only", base, "HEAD", "--", f"{source_path}/")
     if diff.returncode != 0:
         log(f"git diff failed ({diff.stderr.strip()}); running full source check.")
         print("false")
         return 0
-
     changed = [line for line in diff.stdout.splitlines() if line.strip()]
-    if not changed:
-        log(f"no changes under {source_path}/ vs {base[:12]}; running full source check.")
-        print("false")
-        return 0
-
-    log(f"changed files under {source_path}/ (vs {base[:12]}):")
     build_relevant = []
-    for path in changed:
-        rel = path[len(source_path) + 1 :]
-        if is_nonbuild(rel, patterns):
-            log(f"  non-build : {path}")
-        else:
-            log(f"  BUILD-REL : {path}")
-            build_relevant.append(path)
+    if changed:
+        log(f"changed files under {source_path}/ (vs {base[:12]}):")
+        for path in changed:
+            rel = path[len(source_path) + 1 :]
+            if is_nonbuild(rel, patterns):
+                log(f"  non-build : {path}")
+            else:
+                log(f"  BUILD-REL : {path}")
+                build_relevant.append(path)
+    else:
+        log(f"no changes under {source_path}/ vs {base[:12]}.")
 
     if build_relevant:
         log(
@@ -164,9 +274,15 @@ def main() -> int:
         print("false")
         return 0
 
+    # (2) Did the PR bump this service's deployable image tag?
+    if service_tag_changed(repo, base, args.image_name):
+        log("image tag changed; running full source check.")
+        print("false")
+        return 0
+
     log(
-        f"only non-build files changed under {source_path}/; "
-        "skipping the container-source SHA check for this run."
+        f"neither build-relevant source nor the {args.image_name} image tag "
+        "changed; skipping the container-source SHA check for this run."
     )
     print("true")
     return 0
