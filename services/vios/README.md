@@ -24,7 +24,7 @@ export NVSTREAMER_ORG=my-registry.example.com/nvstreamer
 `build.sh` compiles every module inside a toolchain container. Build it once from the in-repo recipe and tag it to the name `build.sh` expects by default:
 
 ```bash
-docker build -t vios-cicd:x86-24.04-cuda13.0.0 \
+docker build -t vios-build:x86-24.04-cuda13.0.0 \
   -f cicd_files/x86_64/devel/Dockerfile.devel cicd_files/x86_64/devel
 ```
 
