@@ -24,7 +24,7 @@
   ConfigMap names produced (respects fullnameOverride):
     <nemotron-fullname>-nim-env  ← read by nemotron NIMService
     <cosmos-fullname>-nim-env    ← read by cosmos NIMService
-    <cosmos3-fullname>-nim-env   ← read by cosmos3 (staging RC) NIMService
+    <cosmos3-fullname>-nim-env   ← read by cosmos3 NIMService
 */}}
 
 {{- $gpuType  := .Values.gpuType | default "H100" }}

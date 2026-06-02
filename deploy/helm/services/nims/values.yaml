@@ -209,9 +209,9 @@ cosmos:
     - NIM_DISABLE_MM_PREPROCESSOR_CACHE
 
 # ---------------------------------------------------------------------------
-# Cosmos3 Reasoner – VLM NIM staging RC (alias: cosmos3)
+# Cosmos3 Reasoner – VLM NIM (alias: cosmos3)
 # Opt-in alternative to cosmos (Cosmos Reason2 8B). NIM_MODEL_SIZE picks the
-# nano (default) or super variant baked into the staging container.
+# nano (default) or super variant baked into the container.
 # Deploys NIMCache + NIMService via NVIDIA NIM Operator CRDs.
 # ---------------------------------------------------------------------------
 cosmos3:
@@ -220,8 +220,8 @@ cosmos3:
   fullnameOverride: ""
 
   image:
-    repository: nvcr.io/nvstaging/nim/cosmos3-reasoner
-    tag: "1.7.1.rc0-51870194"
+    repository: nvcr.io/nim/nvidia/cosmos3-reasoner
+    tag: "1.7"
     pullPolicy: IfNotPresent
 
   replicas: 1
@@ -250,7 +250,7 @@ cosmos3:
       operator: "Exists"
       effect: "NoSchedule"
 
-  # Selects the staging RC variant: nano (default) or super.
+  # Selects the model variant: nano (default) or super.
   nimModelSize: "nano"
 
   # Imported from <cosmos3-fullname>-nim-env ConfigMap into NIMService.spec.env.

@@ -16,8 +16,8 @@
 apiVersion: v2
 name: cosmos3-reasoner
 description: >
-  NVIDIA Cosmos3 Reasoner VLM NIM (staging RC) deployed via NIMCache + NIMService CRDs.
+  NVIDIA Cosmos3 Reasoner VLM NIM deployed via NIMCache + NIMService CRDs.
   Requires NVIDIA NIM Operator (apps.nvidia.com/v1alpha1).
 type: application
 version: 26.04.2
-appVersion: "1.7.1.rc0-51870194"
+appVersion: "1.7"
