@@ -58,9 +58,45 @@ The source `.env` is treated as **read-only defaults** committed to the repo. Th
 
 ## Prerequisites
 
-1. **Repo path** — find `video-search-and-summarization/` on disk.
+1. **Repo path** — auto-detect `video-search-and-summarization/` before
+   asking the user. Use the detected path as `$REPO` for all subsequent
+   commands.
 2. **Credential gates** — see [`references/credentials.md`](references/credentials.md): `NGC_CLI_API_KEY` for local/local_shared NIM pulls, `NVIDIA_API_KEY` for remote NIM endpoints, and `HF_TOKEN` for edge recipes that use gated HF models.
 3. **System prerequisites (GPU driver, Docker, NVIDIA Container Toolkit, kernel sysctls)** — full checks in [`references/prerequisites.md`](references/prerequisites.md). Canonical hardware/driver matrix is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html).
+
+```bash
+REPO="${REPO:-}"
+if [ -z "$REPO" ]; then
+  git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  candidates=()
+  [ -n "$git_root" ] && candidates+=("$git_root")
+  candidates+=(
+    "$PWD"
+    "$PWD/.."
+    "$PWD/../.."
+    "$HOME/video-search-and-summarization"
+    "$HOME/VSS/vss-oss/video-search-and-summarization"
+    "$HOME/VSS/video-search-and-summarization"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    candidate="$(cd "$candidate" 2>/dev/null && pwd -P || true)"
+    if [ -n "$candidate" ] \
+      && [ -f "$candidate/deploy/docker/compose.yml" ] \
+      && [ -x "$candidate/deploy/docker/scripts/dev-profile.sh" ] \
+      && [ -d "$candidate/skills/vss-deploy-profile" ]; then
+      REPO="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -z "$REPO" ]; then
+  echo "Could not auto-detect video-search-and-summarization; ask the user for the checkout path."
+else
+  echo "REPO=$REPO"
+fi
+```
 
 ### Pre-flight check
 
@@ -153,7 +189,7 @@ Before building env overrides, confirm:
 | Value | How to determine |
 |---|---|
 | **Profile** | Match user intent to the routing table above. Default: `base` |
-| **Repo path** | Find `video-search-and-summarization/` on disk |
+| **Repo path** | Use the `$REPO` value auto-detected in prerequisites. If auto-detect failed, ask the user for the checkout path before continuing. |
 | **Hardware** | `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` |
 | **LLM/VLM placement** | Explicitly decide local / local_shared / remote. Cross-reference available GPUs against the chosen profile's **Minimum GPU count** table. If endpoint env vars are present but the user did not request remote, ask whether to use or ignore them. |
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
@@ -326,11 +362,36 @@ docker ps --format 'table {{.Names}}\t{{.Status}}'
 curl -sf http://localhost:8000/docs >/dev/null && echo "agent OK"
 curl -sf http://localhost:3000/ >/dev/null && echo "ui OK"
 
+if [ -n "${ENV_GEN:-}" ] && [ -f "$ENV_GEN" ]; then
+  LLM_MODE="${LLM_MODE:-$(awk -F= '$1=="LLM_MODE"{print $2}' "$ENV_GEN" | tail -1)}"
+  VLM_MODE="${VLM_MODE:-$(awk -F= '$1=="VLM_MODE"{print $2}' "$ENV_GEN" | tail -1)}"
+  LLM_BASE_URL="${LLM_BASE_URL:-$(awk -F= '$1=="LLM_BASE_URL"{print $2}' "$ENV_GEN" | tail -1)}"
+  VLM_BASE_URL="${VLM_BASE_URL:-$(awk -F= '$1=="VLM_BASE_URL"{print $2}' "$ENV_GEN" | tail -1)}"
+  LLM_NAME="${LLM_NAME:-$(awk -F= '$1=="LLM_NAME"{print $2}' "$ENV_GEN" | tail -1)}"
+  VLM_NAME="${VLM_NAME:-$(awk -F= '$1=="VLM_NAME"{print $2}' "$ENV_GEN" | tail -1)}"
+fi
+
 # 3. VLM NIM responding (base/lvs profiles)
-curl -sf http://localhost:30082/v1/models | python3 -m json.tool
+# Skip localhost:30082 when VLM_MODE=remote; HTTP 000/connection refused is expected.
+# Probe the selected VLM_BASE_URL /v1/models endpoint instead.
+if [ "${VLM_MODE:-}" = "remote" ]; then
+  echo "VLM_MODE=remote — skip localhost:30082; probing ${VLM_BASE_URL:-<remote-vlm-base-url>}/v1/models"
+  REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
+    "$REPO/skills/vss-deploy-profile/scripts/probe_remote_models.sh" "$VLM_BASE_URL" "${VLM_NAME:-}"
+else
+  curl -sf http://localhost:30082/v1/models | python3 -m json.tool
+fi
 
 # 4. LLM NIM responding
-curl -sf http://localhost:30081/v1/models | python3 -m json.tool
+# Skip localhost:30081 when LLM_MODE=remote; HTTP 000/connection refused is expected.
+# Probe the selected LLM_BASE_URL /v1/models endpoint instead.
+if [ "${LLM_MODE:-}" = "remote" ]; then
+  echo "LLM_MODE=remote — skip localhost:30081; probing ${LLM_BASE_URL:-<remote-llm-base-url>}/v1/models"
+  REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
+    "$REPO/skills/vss-deploy-profile/scripts/probe_remote_models.sh" "$LLM_BASE_URL" "${LLM_NAME:-}"
+else
+  curl -sf http://localhost:30081/v1/models | python3 -m json.tool
+fi
 ```
 
 ### End-to-end video sanity check
