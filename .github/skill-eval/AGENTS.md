@@ -399,23 +399,48 @@ The canonical harbor command is in § Harbor invocation.
 
 7. **Release all locks. DO NOT tear down any Brev instance.** The
    `vss-eval-*` boxes are a long-running pool managed by the
-   operator; instances stay up across runs, and so do the slow
-   caches (docker image layers, repo clone, sample-data extract).
+   operator; instances stay up across runs, and so do the slow caches
+   that survive a volume wipe (docker **image** layers, the repo clone, the
+   `data/` sample-data extract — but NOT the model-weight *volumes*, which
+   the per-trial reset drops; see § 7).
    Close each lock FD (`exec {LFD}>&-`) so the next worker can
    grab the box. You never `brev stop` / `brev delete`. Pool
    lifecycle is strictly an operator concern.
 
-   **You do NOT reset deployment state on exit.** Each box's
-   running containers and named volumes stay as you left them;
-   cleanup is the *next* trial's first agent
-   turn — each spec's leading `expects[]` query invokes
-   `/vss-deploy-profile` (or a standalone deploy runbook), which is
-   responsible for `docker compose down` of any leftover containers
-   before bringing its own stack up. No `atexit`, no signal handler,
-   no harness-side reconcile — every exit path (happy, `BLOCKED`,
-   cancel-in-progress, max-turns, agent crash, SIGKILL, host reboot)
-   leaves the same possibly-dirty box, and the next trial's deploy
-   step handles it the same way.
+   **The box's docker runtime is reset for you at the *start* of each spec,
+   not on exit.** On a spec's first trial — a single-step spec, or `step-1`
+   of a multi-step one — `BrevEnvironment.start()` (the env provider, before
+   the agent runs) wipes the docker runtime to a clean slate: it force-removes
+   **all** containers, **all** user-defined networks, and **all** volumes
+   (images are preserved — re-pulling them is slow). So a spec always begins
+   from a deterministic, leak-free runtime regardless of what the previous
+   spec left — a leftover container from a *different* compose project used to
+   port-conflict the new deploy (observed: a stuck `phoenix` + missing init
+   containers because a prior base-profile deploy still held the ports).
+   **Multi-step step-2+ deliberately skip the reset** — their checks build on
+   the deployment step N-1 established, so wiping it would destroy the state
+   under test. Separately, *every* trial (each step included) clears the stale
+   `/logs/artifacts` + `/logs/verifier` working dirs, so a prior run's
+   arbitrarily-named files are never re-collected as this trial's output
+   (observed: 3-day-old `nemoclaw/` artifacts surfacing in an unrelated trial).
+   You still do **not** tear anything down on *exit* — no `atexit`, no signal
+   handler — and you never `brev stop` / `brev delete`; the *next* spec's
+   `start()` is what cleans up, on every exit path (happy, `BLOCKED`, cancel,
+   max-turns, crash, SIGKILL, reboot). One consequence: wiping all volumes
+   drops the `rtvi-hf-cache` / `rtvi-ngc-model-cache` model-weight volumes, so
+   a spec's first deploy is cold (~20 min weight download vs ~55 s warm) under
+   the canonical `-n 1 --max-retries 0` invocation — paid once per spec; an
+   `-n>1` rollout or a harbor retry re-wipes the caches and re-pays it. The
+   per-trial harbor timeout already budgets for a cold deploy. The deploy
+   runbook may still `docker compose down` defensively, but it no longer has to.
+
+   ⚠️ **`start()` is now destructive on a spec's first trial — never run
+   `harbor` manually against a box another run currently holds.** The wipe is
+   not structurally gated by the per-box flock (that's orchestrator discipline,
+   § 5b); a manual `uvx harbor run` with `BREV_INSTANCE` set (README "Run one
+   trial by hand") will `docker rm -f` the holder's containers and volumes
+   mid-trial. Acquire the flock — or pick a demonstrably idle box — before any
+   manual run.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
