@@ -8,15 +8,14 @@ The vss-query-analytics skill answers **read-only** analytics questions
 (port 9901), backed by Elasticsearch. It must NOT trigger deploys, call
 live VLM endpoints, or POST to ``/generate``.
 
-The spec (``skills/vss-query-analytics/evals/query_analytics.json``)
-declares ``profile: "alerts"`` and ``deploy_mode: "real-time"``. Because
-the skill reads from an already-running alerts stack, the trial assumes a
-**pre-deployed VSS alerts profile** in the requested mode. The coordinator
-chains a ``/vss-deploy-profile -p alerts -m real-time`` prerequisite ahead
-of these checks (see ``.github/skill-eval/AGENTS.md`` § 2 / § 4), and the
-``prerequisite_deploy_mode`` metadata line below carries the mode so the
-consumer (``envs/brev_env.py::_ensure_prerequisite_deployed``) matches the
-``alerts-real-time`` deploy marker rather than bare ``alerts``.
+The spec (``skills/vss-query-analytics/evals/query_analytics.json``)'s
+**first** ``expects[]`` query deploys the VSS alerts profile in real-time
+mode via ``/vss-deploy-profile`` in the trial's own first turn; the
+remaining queries then read analytics over the VA-MCP server it brings
+up. The harness no longer pre-deploys anything (the
+``_ensure_prerequisite_deployed`` hook + ``active-deploy`` marker were
+removed), so no ``profile`` / ``requires_deployed_vss`` /
+``prerequisite_deploy_mode`` metadata is emitted.
 
 Because VA-MCP queries are HTTP/JSON-RPC against a running stack —
 GPU-independent at the skill level — the spec targets **ONE platform**
@@ -157,12 +156,6 @@ def generate_task(
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
 
-    # deploy_mode is the spec-level key (mirrors /vss-deploy-profile -m <mode>);
-    # carry it into the alerts-only prerequisite_deploy_mode metadata field
-    # so the consumer matches the `<profile>-<mode>` deploy marker. Honour an
-    # explicit prerequisite_deploy_mode if a future spec sets it directly.
-    deploy_mode = spec.get("prerequisite_deploy_mode") or spec.get("deploy_mode")
-
     for idx, expect in enumerate(expects, 1):
         step_dir = output_root / profile / platform_short
         if len(expects) > 1:
@@ -173,24 +166,19 @@ def generate_task(
         # Never leak the verifier's checks[] into the instruction so the
         # agent can't write to the test rather than do the actual work.
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
-        mode_phrase = f" ({deploy_mode} mode)" if deploy_mode else ""
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-query-analytics` skill against the VSS **{profile}** profile"
-            f"{mode_phrase} already running on this `{platform}` host. The VA-MCP "
-            "server must be reachable at `http://${HOST_IP:-localhost}:9901/mcp`.",
-            "",
-            "This skill is **read-only** over VA-MCP — it must not trigger "
-            "deploys or call live VLM / report endpoints.",
+            f"Use the `/vss-query-analytics` skill on this `{platform}` host to "
+            "answer analytics questions over VA-MCP "
+            "(`http://${HOST_IP:-localhost}:9901/mcp`). If a step's query asks you "
+            "to deploy first, use `/vss-deploy-profile`; the analytics queries "
+            "themselves are **read-only** over VA-MCP and must not trigger deploys "
+            "or call live VLM / report endpoints.",
             "",
             f"## Query {idx} of {len(expects)}",
             "",
             expect.get("query", ""),
-            "",
-            "## Environment notes",
-            "",
-            spec.get("env", ""),
             "",
             "Run autonomously without prompting for confirmation.",
             "",
@@ -218,20 +206,14 @@ def generate_task(
             "",
             "[metadata]",
             'skill = "vss-query-analytics"',
-            f'profile = "{spec.get("profile", "alerts")}"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            # The skill reads from an already-running alerts stack, so the
-            # coordinator must deploy VSS before dispatching this trial.
-            "requires_deployed_vss = true",
-            # prerequisite_deploy_mode carries the alerts sub-mode
-            # (verification vs real-time). The consumer matches the
-            # `<profile>-<mode>` deploy marker when this is set; here the
-            # spec's deploy_mode = "real-time" makes the marker
-            # `alerts-real-time`. Emitted only when a mode is declared.
-            *([f'prerequisite_deploy_mode = "{deploy_mode}"'] if deploy_mode else []),
+            # No profile / requires_deployed_vss / prerequisite_deploy_mode:
+            # nothing in the harness reads them (the _ensure_prerequisite_deployed
+            # pre-deploy hook is gone). The spec's first expects[] query deploys
+            # the alerts profile via /vss-deploy-profile in the trial's first turn.
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -327,8 +309,7 @@ def main() -> None:
     print(f"  output_dir   : {output_root}")
     print(f"  skill_dir    : {skill_dir}")
     print(f"  spec         : {spec_path}")
-    print(f"  profile      : {profile}")
-    print(f"  deploy_mode  : {spec.get('deploy_mode') or spec.get('prerequisite_deploy_mode')}")
+    print(f"  profile      : {profile}  (dataset-path hint only; not emitted to task.toml)")
     print(f"  platforms    : {platforms}")
     print(f"  queries      : {len(spec.get('expects', []))}")
     print(f"  total checks : {sum(len(q.get('checks', [])) for q in spec.get('expects', []))}")
@@ -342,11 +323,9 @@ def main() -> None:
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
     print()
-    print("Note: this spec declares `profile: alerts` — the coordinator (see")
-    print(".github/skill-eval/AGENTS.md § 2 / § 4) injects a matching")
-    print("/vss-deploy-profile -p alerts -m <deploy_mode> prerequisite ahead of")
-    print("each vss-query-analytics task. The skill itself is read-only over")
-    print("VA-MCP and must not deploy.")
+    print("Note: step-1's query deploys the alerts profile via /vss-deploy-profile")
+    print("in the trial's first turn; steps 2+ query VA-MCP read-only. The harness")
+    print("does not pre-deploy (the _ensure_prerequisite_deployed hook is gone).")
 
 
 if __name__ == "__main__":

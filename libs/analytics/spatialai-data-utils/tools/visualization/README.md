@@ -49,8 +49,6 @@ scene-aware 3D view angle unless `--elev` / `--azim` are specified.
 ### Quick Start
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 python tools/visualization/draw_camera_placement.py \
     --calib_path data/mtmc/Scene/calibration.json \
     --output_path output/camera_placement_seq
@@ -156,8 +154,6 @@ counted as `skipped_sensor_not_in_calib` in the end-of-run report.
 ### Quick Start
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Bare minimum
 python tools/visualization/draw_3dbbox.py \
     --input_data_path  results/scene_001.jsonl \
@@ -277,8 +273,6 @@ Exactly one of the three source arguments must be provided.
 ### Quick Start
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # NVSchema model results with a calibration JSON
 python tools/visualization/draw_3dbbox_batch.py \
     --nvschema_path results/scene_001.json \

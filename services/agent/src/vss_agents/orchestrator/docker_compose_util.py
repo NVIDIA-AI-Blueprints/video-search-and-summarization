@@ -734,11 +734,17 @@ def sanitize_resolved_compose(compose_text: str) -> str:
 
 def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[dict[str, str], Path, Path]:
     resolved_env = build_resolved_env(config)
-    config.output_env_file.parent.mkdir(parents=True, exist_ok=True)
-    config.output_env_file.write_text(render_generated_env(config.source_env_file, resolved_env))
-    config.output_compose_file.parent.mkdir(parents=True, exist_ok=True)
-    config.output_compose_file.write_text(resolve_compose(config))
-    return resolved_env, config.output_env_file, config.output_compose_file
+    env_file = config.output_env_file
+    compose_file = config.output_compose_file
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text(  # NOSONAR S2083: --output-env-file is an intentional CLI destination
+        render_generated_env(config.source_env_file, resolved_env)
+    )
+    compose_file.parent.mkdir(parents=True, exist_ok=True)
+    compose_file.write_text(  # NOSONAR S2083: --output-compose-file is an intentional CLI destination
+        resolve_compose(config)
+    )
+    return resolved_env, env_file, compose_file
 
 
 def print_configuration_summary(config: DryRunRecipe, resolved_env: dict[str, str]) -> None:

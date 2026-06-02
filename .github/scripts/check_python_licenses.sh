@@ -31,8 +31,13 @@ set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "${GITHUB_WORKSPACE:-$PWD}")
 cd "$repo_root/services/agent"
 
+uv_env=$(mktemp -d "$PWD/.uv-license-venv.XXXXXX")
+rm -rf "$uv_env"
+trap 'rm -rf "$uv_env"' EXIT
+export UV_PROJECT_ENVIRONMENT="$uv_env"
+
 uv sync --frozen --no-default-groups --quiet
-uv pip install --quiet pip-licenses
+uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --quiet pip-licenses
 
 # Both halves of the pipe run inside the agent's uv venv: pip-licenses needs
 # the venv to enumerate installed packages, and check_python_licenses.py needs

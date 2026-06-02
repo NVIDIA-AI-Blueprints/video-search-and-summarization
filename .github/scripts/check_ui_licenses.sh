@@ -8,13 +8,21 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)/services/ui"
+repo_root=$(git rev-parse --show-toplevel)
+ui_worktree=$(mktemp -d)
+trap 'rm -rf "$ui_worktree"' EXIT
+
+tar --exclude=node_modules --exclude=.next --exclude=dist --exclude=build \
+  -cf - -C "$repo_root/services/ui" . \
+  | tar -xf - -C "$ui_worktree"
+
+cd "$ui_worktree"
 
 npm ci --silent
-npx --yes license-checker --json --excludePrivatePackages > /tmp/_ui_licenses.json
+npx --yes license-checker --json --excludePrivatePackages > "$ui_worktree/licenses.json"
 
 node <<'EOF'
-const licenses = require("/tmp/_ui_licenses.json");
+const licenses = require(process.cwd() + "/licenses.json");
 const allowed = new Set([
   "MIT","MIT-0","Apache-2.0","BSD-2-Clause","BSD-3-Clause","ISC","0BSD",
   "Unlicense","CC0-1.0","CC-BY-4.0","CC-BY-3.0","Python-2.0",

@@ -22,6 +22,8 @@ import urllib.parse
 import aiohttp
 
 from vss_agents.utils.retry import create_retry_strategy
+from vss_agents.utils.sanitize import quote_path_segment
+from vss_agents.utils.sanitize import scrub_log
 
 logger = logging.getLogger(__name__)
 
@@ -238,15 +240,15 @@ async def delete_vst_sensor(vst_url: str, sensor_id: str) -> tuple[bool, str]:
     Returns:
         (success, message) tuple
     """
-    url = f"{vst_url.rstrip('/')}/vst/api/v1/sensor/{sensor_id}"
-    logger.info("Deleting VST sensor: DELETE %s", url)
+    url = f"{vst_url.rstrip('/')}/vst/api/v1/sensor/{quote_path_segment(sensor_id)}"
+    logger.info("Deleting VST sensor: DELETE %s", scrub_log(url))
     try:
         async with (
             aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session,
             session.delete(url) as response,
         ):
             if response.status in (200, 204):
-                logger.info("VST sensor deleted: %s", sensor_id)
+                logger.info("VST sensor deleted: %s", scrub_log(sensor_id))
                 return True, "OK"
             text = await response.text()
             return False, f"VST returned {response.status}: {text}"
@@ -284,7 +286,7 @@ async def delete_vst_storage(vst_url: str, sensor_id: str) -> tuple[bool, str]:
                 stream_timeline = timelines.get(sensor_id)
 
                 if not stream_timeline or len(stream_timeline) == 0:
-                    logger.info("No timeline found for %s, nothing to delete", sensor_id)
+                    logger.info("No timeline found for %s, nothing to delete", scrub_log(sensor_id))
                     return True, "No storage to delete"
 
                 start_times = [t.get("startTime") for t in stream_timeline if t.get("startTime")]
@@ -295,16 +297,16 @@ async def delete_vst_storage(vst_url: str, sensor_id: str) -> tuple[bool, str]:
                 start_time = min(start_times)
                 end_time = max(end_times)
 
-            storage_url = f"{vst_url}/vst/api/v1/storage/file/{sensor_id}"
+            storage_url = f"{vst_url}/vst/api/v1/storage/file/{quote_path_segment(sensor_id)}"
             params = {"startTime": start_time, "endTime": end_time}
-            logger.info("Deleting VST storage: DELETE %s params=%s", storage_url, params)
+            logger.info("Deleting VST storage: DELETE %s params=%s", scrub_log(storage_url), params)
 
             async with (
                 aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session,
                 session.delete(storage_url, params=params) as del_response,
             ):
                 if del_response.status in (200, 204):
-                    logger.info("VST storage deleted: %s", sensor_id)
+                    logger.info("VST storage deleted: %s", scrub_log(sensor_id))
                     return True, "OK"
                 text = await del_response.text()
                 return False, f"VST storage returned {del_response.status}: {text}"

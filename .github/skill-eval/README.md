@@ -4,7 +4,7 @@ Evaluate VSS skills (vss-deploy-profile, vss-deploy-dense-captioning, vss-manage
 
 Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) fires on every push to a `pull-request/<N>` mirror branch whose diff touches `skills/` or `.github/skill-eval/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
 
-1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` or legacy `skills/<skill>/eval/<name>.json`.
+1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
 3. Acquires a per-instance `flock` on an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
 4. Runs `uvx harbor run` against each dataset, one trial at a time, with the canonical invocation captured in [`AGENTS.md § Harbor invocation`](AGENTS.md).
@@ -34,7 +34,7 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 | `rtx` | `vss-eval-rtx-1g`, `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g` | AWS `g7e.4xlarge` / `g7e.12xlarge` (RTX PRO Server 6000) |
 | `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
-Per-CI-run hygiene is pull-side: the active-deploy marker on each box carries `<profile_tag>|<run_id>`, and each new run's `BrevEnvironment._ensure_prerequisite_deployed` reconciles by tearing down + redeploying whenever the marker's run id doesn't match its own — so a prior run's leftover state (containers, named volumes, marker) is wiped on the next run's lock acquisition, not on the prior run's exit. That handles every exit path uniformly (happy path, cancel-in-progress, max-turns, SIGKILL, host reboot). Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
+Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-deploy-profile` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 
@@ -76,14 +76,14 @@ Runtime state (not checked in):
 
 ```
 /tmp/skill-eval/
-├── datasets/<skill>/<profile>/<platform>-<mode>/
+├── datasets/<leg-slug>/<run_id>/…        (this leg's dataset; slug = <skill>__<spec_stem>__<platform>)
 │   ├── environment/Dockerfile            (placeholder; Brev env pre-exists)
 │   ├── skills/<skill>/                   (copy of the skill the trial uses)
 │   ├── solution/solve.sh                 (gold solution, for oracle agent)
 │   └── tests/{instruction.md, task.toml, test.sh, <spec>.json}
 └── results/
-    ├── <run_id>/<date>/<trial>/…         (raw harbor output)
-    └── _viewer/<run_id>__<date>/<trial>/ (flattened for `harbor view`)
+    ├── <leg-slug>/<run_id>/<date>/<trial>/…          (raw harbor output; collector tars this)
+    └── _viewer/<leg-slug>__<run_id>__<date>/<trial>/ (cp -a copy, flattened for `harbor view`)
 ```
 
 Each generated task contains:
@@ -97,7 +97,7 @@ Each generated task contains:
 
 ## Eval spec format
 
-Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
+Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` (singular) specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
 
 The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. This keeps PR authors in control of which `(platform, mode)` combos actually run.
 
@@ -107,9 +107,8 @@ Schema:
 |---|---|---|
 | `skills` | `string[]` | Skill names this spec exercises (usually just one). |
 | `resources.platforms` | `object` | `{<platform>: {"modes": [...]}}` — the Cartesian matrix the adapter fans out. E.g. `{"L40S": {"modes": ["remote-all"]}}` produces exactly one dataset. Platforms: `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`. **Required** — the agent files a `missing_platforms_declaration` blocker comment and skips any spec without it. |
-| `env` | `string` | Prose describing prerequisites: target platform(s), deployed VSS profile (if any), required env vars, Brev secure-link assumptions, etc. |
-| `expects` | `array` | Ordered list — **each entry becomes one Harbor task**, chained to the previous via `requires_previous_passed`. |
-| `expects[].query` | `string` | What the agent is asked to do at this step, in plain English. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
+| `expects` | `array` | Ordered list — **each entry becomes one Harbor task**, chained to the previous via `requires_previous_passed`. There is no separate `env` field: every prerequisite (deployed profile, required env vars, ports, sample-data ingest, platform notes) goes **inside the relevant `expects[].query`** — usually the first/setup query, often a `/vss-deploy-profile …` deploy step. |
+| `expects[].query` | `string` | What the agent is asked to do at this step, in plain English — including any prerequisites/environment the step needs. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
 | `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl` / `docker` / `grep` commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
 
 ### Eval-profile vs deploy-profile (vss-deploy-profile adapter only)
@@ -128,18 +127,17 @@ PROFILES = {
 
 An empty or absent `profile` means the dict key *is* the deploy profile (the `base` case). When `profile` is set, the agent is told to invoke `/vss-deploy-profile -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`. This is how one skill profile (`alerts`) produces multiple eval variants (`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct container-check sets while still deploying a shared compose stack.
 
-### Worked example — `skills/vss-manage-video-io-storage/eval/vios_ops.json`
+### Worked example — `skills/vss-manage-video-io-storage/evals/vios_ops.json`
 
-13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. The spec **omits the `profile` field** so the agent stands VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook — there is no `/vss-deploy-profile` prerequisite. Produces 13 chained tasks on the targeted platform.
+13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. There is no `/vss-deploy-profile` prerequisite — the **first query** tells the agent to stand VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook, and folds the environment prerequisites (required env vars, ports) into that same query. Produces 13 chained tasks on the targeted platform.
 
 ```json
 {
   "skills": ["vss-manage-video-io-storage"],
   "resources": {"platforms": {"L40S": {"gpu_count": 1}}},
-  "env": "**No VSS profile is pre-deployed.** VIOS may or may not be running on the host; the agent must probe http://localhost:30888/vst/api/v1/sensor/version first and, if it fails, stand VIOS up standalone via this skill's bundled references/deploy-vios-service.md runbook (the deploy is pre-authorized via SKILL.md § Pre-authorized autonomous mode). Required env vars: NGC_CLI_API_KEY, HOST_IP, VSS_DATA_DIR, VSS_APPS_DIR, plus the Brev secure-link env vars.",
   "expects": [
     {
-      "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
+      "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.\n\n**Environment & prerequisites:** No VSS profile is pre-deployed. Probe http://localhost:30888/vst/api/v1/sensor/version first; if it fails, stand VIOS up standalone via this skill's bundled references/deploy-vios-service.md runbook (pre-authorized via SKILL.md § Pre-authorized autonomous mode). Required env vars: NGC_CLI_API_KEY, HOST_IP, VSS_DATA_DIR, VSS_APPS_DIR, plus the Brev secure-link env vars.",
       "checks": [
         "The upload PUT to /vst/api/v1/storage/file/<filename>?timestamp=... either returns HTTP 2xx OR returns the VST sensor-cap error",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem"
@@ -150,7 +148,7 @@ An empty or absent `profile` means the dict key *is* the deploy profile (the `ba
 }
 ```
 
-Source: [`skills/vss-manage-video-io-storage/eval/vios_ops.json`](../../skills/vss-manage-video-io-storage/eval/vios_ops.json)
+Source: [`skills/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/vss-manage-video-io-storage/evals/vios_ops.json)
 
 What the agent derives from this spec:
 - `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
@@ -196,7 +194,7 @@ uvx harbor run \
 ### Inspect a result
 
 ```
-/tmp/skill-eval/results/<run_id>/<date>/<trial>/
+/tmp/skill-eval/results/<leg-slug>/<run_id>/<date>/<trial>/
 ├── config.json
 ├── trial.log
 ├── verifier/
@@ -206,15 +204,17 @@ uvx harbor run \
     └── claude-code.txt   ← agent trace
 ```
 
-To view in the browser, flatten into the viewer dir:
+To view in the browser, **copy** (not move — the workflow's collector
+still tars the leg's results root after the agent) into the viewer dir,
+flattened with the leg slug:
 
 ```bash
-cd /tmp/skill-eval/results
-mv "<run_id>/<date>" "_viewer/<run_id>__<date>"
-rmdir "<run_id>" 2>/dev/null || true
+VIEWER_JOB="/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>"
+mkdir -p "$VIEWER_JOB"
+cp -a "<leg-slug>/<run_id>/<date>/." "$VIEWER_JOB/"   # contents into a pre-made dir — idempotent
 ```
 
-Then open `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<run_id>__<date>`.
+Then open `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>`.
 
 `harbor view` runs persistently on the CI runner host. If it's down:
 

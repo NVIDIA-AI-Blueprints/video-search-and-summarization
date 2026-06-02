@@ -126,22 +126,12 @@ def generate_instruction(spec: dict, spec_stem: str, platform: str) -> str:
     expects = spec.get("expects") or []
     query = expects[0].get("query", "Deploy vss-behavior-analytics standalone.") if expects else \
         "Deploy vss-behavior-analytics standalone."
-    env_context = spec.get("env", "")
 
     lines = [
         PREAMBLE,
         "",
         query,
         "",
-    ]
-    if env_context:
-        lines += [
-            "## Environment notes",
-            "",
-            env_context,
-            "",
-        ]
-    lines += [
         "Use the `/vss-setup-behavior-analytics` skill.",
         "Run autonomously without prompting for confirmation.",
         "",

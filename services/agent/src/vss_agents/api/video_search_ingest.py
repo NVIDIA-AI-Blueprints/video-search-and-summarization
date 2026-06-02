@@ -47,6 +47,8 @@ from vss_agents.api.video_ingest import DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS
 from vss_agents.api.video_ingest import VideoIngestResponse
 from vss_agents.api.video_ingest import _resolve_video_upload_config
 from vss_agents.api.video_ingest import _run_post_upload_processing
+from vss_agents.utils.sanitize import quote_path_segment
+from vss_agents.utils.sanitize import scrub_log
 from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
@@ -103,7 +105,9 @@ def create_video_search_ingest_router(
         camera_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
         vst_url = vst_internal_url.rstrip("/")
-        vst_upload_url = f"{vst_url}/vst/api/v1/storage/file/{camera_name}/{start_timestamp}"
+        # Percent-encode the user-derived camera name so it can't alter the
+        # URL path structure (e.g. traversal or extra segments).
+        vst_upload_url = f"{vst_url}/vst/api/v1/storage/file/{quote_path_segment(camera_name)}/{start_timestamp}"
 
         content_type = request.headers.get("content-type")
         content_length = request.headers.get("content-length")
@@ -131,7 +135,7 @@ def create_video_search_ingest_router(
 
         try:
             async with httpx.AsyncClient(timeout=vst_upload_timeout_seconds) as client:
-                logger.info("Streaming PUT upload to VST at %s", vst_upload_url)
+                logger.info("Streaming PUT upload to VST at %s", scrub_log(vst_upload_url))
                 with TimeMeasure("video_search_ingest: stream upload to VST"):
                     vst_response = await client.put(
                         vst_upload_url,
@@ -178,7 +182,7 @@ def create_video_search_ingest_router(
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("Error in legacy PUT upload for %s: %s", filename, exc, exc_info=True)
+            logger.error("Error in legacy PUT upload for %s: %s", scrub_log(filename), scrub_log(exc), exc_info=True)
             raise HTTPException(status_code=500, detail=f"Internal server error: {exc!s}") from exc
 
     return router
