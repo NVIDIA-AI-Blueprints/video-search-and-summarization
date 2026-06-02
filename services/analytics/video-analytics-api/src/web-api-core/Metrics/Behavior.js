@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -52,11 +52,6 @@ let cache = new NodeCache();
  * */
 
 class Behavior {
-
-    /** 
-      * @static 
-      * @private
-    */
     static #stationaryObjectDefaultTimeIntervalThresholdInSec = 300;
     static #stationaryObjectMaxTimeIntervalThresholdInSec = 900
     static #speedOverTimeStationaryObjectMaxTimeIntervalThresholdInSec = 500;
@@ -82,7 +77,7 @@ class Behavior {
       * Returns unit of AverageSpeed.
       * @public
       * @static
-      * @param {string} calibrationType Type of calibration used by the application
+      * @param {string} calibrationType - Type of calibration used by the application.
       * @returns {string} Unit of Average Speed is returned
       * @example
       * let calibrationType = "image";
@@ -96,23 +91,6 @@ class Behavior {
         }
     }
 
-    /**
-     * Queries elasticsearch and returns the average speed of each direction from ElasticSearch
-     * 
-     * @private
-     * @async
-     * @param {Object} elasticDb - The Elasticsearch database instance.
-     * @param {Object} params - params object containing query parameters.
-     * @param {number} params.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {number} params.toTimestamp - To timestamp for the query in ISO 8601 format.
-     * @param {string} params.sensorId - SensorID for filtering data. Required if `place` is not provided.
-     * @param {string} params.place - Place for filtering data. Required if `sensorId` is not provided.
-     * @param {Array<string>} params.sensorList - List of sensor IDs for filtering data.
-     * @param {number} params.stationaryObjectMaxTimeIntervalThresholdInSec - Maximum time interval threshold for stationary objects (in seconds).
-     * @param {number} params.stationaryObjectMinDistanceThresholdInMeters - Minimum distance threshold for stationary objects (in meters).
-     * @param {number} params.shortLivedBehaviorMinTimeIntervalInSec - Minimum time interval for short-lived behavior (in seconds).
-     * @returns {Promise<Array<{ direction: string, avgSpeedDetails: { averageSpeed: number, objectCount: number } }>>} - Array of objects containing direction, average speed details, and object count.
-    */
     async #getAverageSpeedOfEachDirectionFromEs(elasticDb, { fromTimestamp, toTimestamp, sensorId, place, sensorList, stationaryObjectMaxTimeIntervalThresholdInSec, stationaryObjectMinDistanceThresholdInMeters, shortLivedBehaviorMinTimeIntervalInSec }) {
         const indexPrefix = elasticDb.getConfigs().get("indexPrefix");
         const index = `${indexPrefix}${Elasticsearch.getIndex("behavior")}`;
@@ -156,45 +134,24 @@ class Behavior {
 
     /**
      * Retrieves the average speed metrics per direction.
-     * 
      * @public
      * @async
-     * @param {Object} documentDb - The Elasticsearch database instance.
-     * @param {Object} input - Input object containing query parameters.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
-     * @param {string} [input.sensorId] - SensorID for filtering data. Required if `place` is not provided.
-     * @param {string} [input.place] - Place for filtering data. Required if `sensorId` is not provided.
-     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec] - Maximum time interval threshold for stationary objects (in seconds). Must be a finite integer.
-     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters] - Minimum distance threshold for stationary objects (in meters). Must be a finite integer.
-     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec] - Minimum time interval for short-lived behavior (in seconds). Must be a finite integer.
-     * @returns {Promise<{metrics: Array<{direction: string, averageSpeed: string}>}>} 
-     *          An object containing an array of metrics, where each metric includes:
-     *          - `direction` (string): The direction of movement.
-     *          - `averageSpeed` : The average speed with its unit.
-     * @throws {BadRequestError} - If the input validation fails.
-     * @throws {InvalidInputError} - If any time range or numeric thresholds are invalid.
-     * @throws {InternalServerError} - If the specified database is invalid.
-     * 
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input parameters for the query.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {string} [input.sensorId] - Either sensorId or place should be present.
+     * @param {string} [input.place] - Either sensorId or place should be present.
+     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec=300] - Maximum time interval threshold for stationary objects (in seconds).
+     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters=5] - Minimum distance threshold for stationary objects (in meters).
+     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec=3] - Minimum time interval for short-lived behavior (in seconds).
+     * @returns {Promise<Object>} Average speed metrics per direction are returned.
      * @example
-     * const documentDb = {
-     *     getName: () => "Elasticsearch",
-     *     getConfigs: () => new Map([["indexPrefix", "behavior"]]),
-     *     getClient: () => esClient
-     * };
-     * 
-     * const input = {
-     *     fromTimestamp: "2025-01-10T11:05:10.000Z",
-     *     toTimestamp: "2025-01-10T11:10:10.000Z",
-     *     place: "city=abc/intersection=xyz",
-     *     stationaryObjectMaxTimeIntervalThresholdInSec: 500,
-     *     stationaryObjectMinDistanceThresholdInMeters: 5,
-     *     shortLivedBehaviorMinTimeIntervalInSec: 3
-     * };
-     * 
-     * getAverageSpeedPerDirection(documentDb, input)
-     *     .then(result => console.log(result))
-     *     .catch(error => console.error(error));
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {place: "city=abc/intersection=xyz", fromTimestamp: "2025-01-10T11:05:10.000Z", toTimestamp: "2025-01-10T11:10:10.000Z"};
+     * let behaviorMetrics = new mdx.Metrics.Behavior();
+     * let result = await behaviorMetrics.getAverageSpeedPerDirection(elastic,input);
      */
     async getAverageSpeedPerDirection(documentDb, input) {
         const schema = {
@@ -308,27 +265,6 @@ class Behavior {
         }
     }
 
-    /**
-     * Queries elasticsearch and returns the flowrate of objects per direction from ElasticSearch
-     * 
-     * @private
-     * @async
-     * @param {Object} elasticDb - The Elasticsearch database instance.
-     * @param {Object} params - params object containing query parameters.
-     * @param {string} params.toTimestamp - To timestamp for the query in ISO 8601 format.
-     * @param {string} [params.sensorId] - SensorID for filtering data. Required if `place` is not provided.
-     * @param {string} [params.place] - Place for filtering data. Required if `sensorId` is not provided.
-     * @param {number} params.timeWindowSizeInSec - The size of the time window (in seconds) for calculating flowrate.
-     * @param {string} params.flowrateUnit - The unit of the flowrate, e.g., "/sec", "/min", "/hr".
-     * @param {number} params.stationaryObjectMaxTimeIntervalThresholdInSec - Maximum time interval threshold for stationary objects (in seconds).
-     * @param {number} params.stationaryObjectMinDistanceThresholdInMeters - Minimum distance threshold for stationary objects (in meters).
-     * @param {number} params.shortLivedBehaviorMinTimeIntervalInSec - Minimum time interval for short-lived behavior (in seconds).
-     * @returns {Promise<Array<{direction: string, flowrate: number}>>} 
-     *          An array of objects, where each object includes:
-     *          - `direction` (string): Direction of movement.
-     *          - `flowrate` (number): The calculated flowrate for the direction.
-     * @throws {Error} - If there are issues fetching data from Elasticsearch.
-     **/
     async #getFlowrateOfEachDirectionFromEs(elasticDb, { toTimestamp, sensorId, place, timeWindowSizeInSec, flowrateUnit, stationaryObjectMaxTimeIntervalThresholdInSec, stationaryObjectMinDistanceThresholdInMeters, shortLivedBehaviorMinTimeIntervalInSec }) {
         const indexPrefix = elasticDb.getConfigs().get("indexPrefix");
         const index = `${indexPrefix}${Elasticsearch.getIndex("behavior")}`;
@@ -386,47 +322,25 @@ class Behavior {
 
     /**
      * Retrieves the flowrate metrics per direction.
-     *
      * @public
      * @async
-     * @param {Object} documentDb - The Elasticsearch database instance.
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input parameters for the query.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
      * @param {string} [input.sensorId] - SensorID for filtering data. Required if `place` is not provided.
      * @param {string} [input.place] - Place for filtering data. Required if `sensorId` is not provided.
-     * @param {number} [input.timeWindowSizeInSec] - The size of the time window (in seconds) for calculating flowrate.
-     * @param {string} [input.flowrateUnit] - The unit of flowrate, e.g., "/sec", "/min", or "/hr".
-     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec] - Maximum time interval threshold for stationary objects (in seconds).
-     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters] - Minimum distance threshold for stationary objects (in meters).
-     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec] - Minimum time interval for short-lived behavior (in seconds).
-     * @returns {Promise<Object>} - Returns an object containing:
-     *   - `metrics` (Array): An array of objects, where each object includes:
-     *     - `direction` (string): The direction of movement.
-     *     - `flowrate` (string): The calculated flowrate for the direction (with unit).
-     * @throws {BadRequestError} - If the input validation fails.
-     * @throws {InvalidInputError} - If the timestamp or other numeric inputs are invalid.
-     * @throws {InternalServerError} - If the database type is invalid.
-     *
+     * @param {number} [input.timeWindowSizeInSec=5] - The size of the time window (in seconds) for calculating flowrate.
+     * @param {string} [input.flowrateUnit="/min"] - flowrateUnit should be one of '/sec', '/min' or '/hr'.
+     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec=300] - Maximum time interval threshold for stationary objects (in seconds).
+     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters=5] - Minimum distance threshold for stationary objects (in meters).
+     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec=3] - Minimum time interval for short-lived behavior (in seconds).
+     * @returns {Promise<Object>} Flowrate metrics per direction are returned.
      * @example
-     * const documentDb = {
-     *     getName: () => "Elasticsearch",
-     *     getConfigs: () => new Map([["indexPrefix", "behavior"]]),
-     *     getClient: () => esClient
-     * };
-     *
-     * const input = {
-     *     toTimestamp: "2025-01-10T11:10:05.000Z",
-     *     place: "city=abc/intersection=xyz",
-     *     timeWindowSizeInSec: 300,
-     *     flowrateUnit: "/min",
-     *     stationaryObjectMaxTimeIntervalThresholdInSec: 500,
-     *     stationaryObjectMinDistanceThresholdInMeters: 5,
-     *     shortLivedBehaviorMinTimeIntervalInSec: 3
-     * };
-     *
-     * getFlowratePerDirection(documentDb, input)
-     *     .then(result => console.log(result))
-     *     .catch(error => console.error(error));
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {place: "city=abc/intersection=xyz", toTimestamp: "2025-01-10T11:10:05.000Z"};
+     * let behaviorMetrics = new mdx.Metrics.Behavior();
+     * let result = await behaviorMetrics.getFlowratePerDirection(elastic,input);
      */
     async getFlowratePerDirection(documentDb, input) {
         const schema = {
@@ -558,50 +472,27 @@ class Behavior {
     }
 
     /**
-     * Retrieves combined average speed and flowrate metrics per direction.
-     *
+     * Retrieves the combined average speed and flowrate metrics per direction.
      * @public
      * @async
-     * @param {Object} documentDb - The Elasticsearch database instance.
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input parameters for the query.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
-     * @param {string} [input.sensorId] - The sensorID for filtering data. Required if `place` is not provided.
-     * @param {string} [input.place] - The place for filtering data. Required if `sensorId` is not provided.
-     * @param {number} [input.timeWindowSizeInSec] - The size of the time window (in seconds) for calculating flowrate.
-     * @param {string} [input.flowrateUnit] - The unit of flowrate, e.g., "/sec", "/min", or "/hr".
-     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec] - Maximum time interval threshold for stationary objects (in seconds).
-     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters] - Minimum distance threshold for stationary objects (in meters).
-     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec] - Minimum time interval for short-lived behavior (in seconds).
-     * @returns {Promise<Object>} - Returns an object containing:
-     *   - `metrics` (Array): An array of objects, where each object includes:
-     *     - `direction` (string): The direction of movement.
-     *     - `averageSpeed` (string): The average speed for the direction (with unit).
-     *     - `flowrate` (string): The calculated flowrate for the direction (with unit).
-     * @throws {BadRequestError} - If the input validation fails.
-     * @throws {InvalidInputError} - If the timestamps or other numeric inputs are invalid.
-     * @throws {InternalServerError} - If the database type is invalid.
-     *
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {string} [input.sensorId] - SensorID for filtering data. Required if `place` is not provided.
+     * @param {string} [input.place] - Place for filtering data. Required if `sensorId` is not provided.
+     * @param {number} [input.timeWindowSizeInSec=5] - The size of the time window (in seconds) for calculating flowrate.
+     * @param {string} [input.flowrateUnit="/min"] - The unit of the flowrate, e.g., "/sec", "/min", "/hr".
+     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec=300] - Maximum time interval threshold for stationary objects (in seconds).
+     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters=5] - Minimum distance threshold for stationary objects (in meters).
+     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec=3] - Minimum time interval for short-lived behavior (in seconds).
+     * @returns {Promise<Object>} Combined average speed and flowrate metrics per direction are returned.
      * @example
-     * const documentDb = {
-     *     getName: () => "Elasticsearch",
-     *     getConfigs: () => new Map([["indexPrefix", "behavior"]]),
-     *     getClient: () => esClient
-     * };
-     *
-     * const input = {
-     *     fromTimestamp: "2025-01-10T10:00:00.000Z",
-     *     toTimestamp: "2025-01-10T11:10:05.000Z",
-     *     place: "city=abc/intersection=xyz",
-     *     timeWindowSizeInSec: 300,
-     *     stationaryObjectMaxTimeIntervalThresholdInSec: 500,
-     *     stationaryObjectMinDistanceThresholdInMeters: 5,
-     *     shortLivedBehaviorMinTimeIntervalInSec: 3
-     * 
-     *
-     * getAverageSpeedWithFlowrate(documentDb, input)
-     *     .then(result => console.log(result))
-     *     .catch(error => console.error(error));
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {place: "city=abc/intersection=xyz", fromTimestamp: "2025-01-10T10:00:00.000Z", toTimestamp: "2025-01-10T11:10:05.000Z"};
+     * let behaviorMetrics = new mdx.Metrics.Behavior();
+     * let result = await behaviorMetrics.getAverageSpeedWithFlowrate(elastic,input);
      */
     async getAverageSpeedWithFlowrate(documentDb, input) {
         const schema = {
@@ -777,48 +668,26 @@ class Behavior {
     }
     
     /**
-     * Retrieves combined average speed and travel time metrics for specified corridor directions.
-     *
+     * Retrieves the combined average speed and travel time metrics for corridor directions.
      * @public
      * @async
-     * @param {Object} documentDb - The Elasticsearch database instance.
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input parameters for the query.
-     * @param {string} input.fromTimestamp - From timestamp for the query in ISO 8601 format.
-     * @param {string} input.toTimestamp - To timestamp for the query in ISO 8601 format.
-     * @param {string} input.place - The place identifier, formatted as "city/corridor".
-     * @param {string} [input.corridorTravelTimeUnit] - The desired unit for travel time. One of "sec", "min", or "hr".
-     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec] - Maximum time interval threshold for stationary objects (in seconds).
-     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters] - Minimum distance threshold for stationary objects (in meters).
-     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec] - Minimum time interval for short-lived behavior (in seconds).
-     * @returns {Promise<Object>} - Returns an object containing:
-     *   - `metrics` (Array): An array of objects, where each object includes:
-     *     - `direction` (string): The direction of movement.
-     *     - `averageSpeed` (string): The average speed for the direction (with unit).
-     *     - `corridorTravelTime` (string): The calculated travel time across the corridor (with unit).
-     * @throws {BadRequestError} - If the input validation fails.
-     * @throws {InvalidInputError} - If the timestamps, place hierarchy, or other numeric inputs are invalid.
-     *
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {string} input.place - Place used to filter corridor metrics. Supported hierarchy is city/corridor.
+     * @param {string} [input.corridorTravelTimeUnit="min"] - The unit of the travel time, e.g., "sec", "min", "hr".
+     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec=300] - Maximum time interval threshold for stationary objects (in seconds).
+     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters=5] - Minimum distance threshold for stationary objects (in meters).
+     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec=3] - Minimum time interval for short-lived behavior (in seconds).
+     * @returns {Promise<Object>} Combined average speed and travel time metrics for corridor directions are returned.
      * @example
-     * const documentDb = {
-     *     getName: () => "Elasticsearch",
-     *     getConfigs: () => new Map([["indexPrefix", "behavior"]]),
-     *     getClient: () => esClient
-     * };
-     *
-     * const input = {
-     *     fromTimestamp: "2023-01-10T12:00:00.000Z",
-     *     toTimestamp: "2023-01-10T12:30:00.000Z",
-     *     place: "city=abc/corridor=xyz",
-     *     corridorTravelTimeUnit: "min",
-     *     stationaryObjectMaxTimeIntervalThresholdInSec: 500,
-     *     stationaryObjectMinDistanceThresholdInMeters: 5,
-     *     shortLivedBehaviorMinTimeIntervalInSec: 3
-     * };
-     *
-     * getAverageSpeedWithTravelTime(documentDb, input)
-     *     .then(result => console.log(result))
-     *     .catch(error => console.error(error));
-     */ 
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {place: "city=abc/corridor=xyz", fromTimestamp: "2023-01-10T12:00:00.000Z", toTimestamp: "2023-01-10T12:30:00.000Z"};
+     * let behaviorMetrics = new mdx.Metrics.Behavior();
+     * let result = await behaviorMetrics.getAverageSpeedWithTravelTime(elastic,input);
+     */
     async getAverageSpeedWithTravelTime(documentDb, input) {
         const schema = {
             type: "object",
@@ -1015,6 +884,30 @@ class Behavior {
         return results;
     }
 
+    /**
+     * Retrieves the behaviors with current average speed.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input parameters for the query.
+     * @param {string} input.place - Place for filtering data.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {Array<string>} [input.objectTypes=["Vehicle"]] - Object types to filter data.
+     * @param {boolean} [input.requireBehaviorsToHaveEdges=false] - Whether to require behaviors to have edges.
+     * @param {number} [input.expectedAvgSpeedOfObjects=45] - Expected average speed of objects.
+     * @param {number} [input.stationaryObjectMaxTimeIntervalThresholdInSec=500] - Maximum time interval threshold for stationary objects (in seconds).
+     * @param {number} [input.stationaryObjectMinDistanceThresholdInMeters=5] - Minimum distance threshold for stationary objects (in meters).
+     * @param {number} [input.shortLivedBehaviorMinTimeIntervalInSec=3] - Minimum time interval for short-lived behavior (in seconds).
+     * @param {number} [input.maxResultSize=10000] - Maximum number of behaviors returned.
+     * @returns {Promise<Object>} Behaviors with current average speed are returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {place: "city=abc/intersection=xyz", fromTimestamp: "2025-01-10T11:05:10.000Z", toTimestamp: "2025-01-10T11:10:10.000Z"};
+     * let behaviorMetrics = new mdx.Metrics.Behavior();
+     * let result = await behaviorMetrics.getCurrentBehaviorSpeed(elastic,input);
+     */
     async getCurrentBehaviorSpeed(documentDb, input){
         const schema = {
             type: "object",
@@ -1170,6 +1063,25 @@ class Behavior {
         }
     }
 
+    /**
+     * Returns road segment speeds for a city or intersection place.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input parameters for the query.
+     * @param {string} input.place - Supported hierarchies are city and city/intersection.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {Array<string>} [input.objectTypes=["Vehicle"]] - Object types to filter data.
+     * @param {boolean} [input.segmentInfo=false] - Whether to return segment information.
+     * @returns {Promise<Object>} Road segment speeds are returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {place: "city=abc/intersection=xyz", fromTimestamp: "2025-01-10T11:05:10.000Z", toTimestamp: "2025-01-10T11:10:10.000Z"};
+     * let behaviorMetrics = new mdx.Metrics.Behavior();
+     * let result = await behaviorMetrics.getRoadSegmentSpeed(elastic,input);
+     */
     async getRoadSegmentSpeed(documentDb, input){
         const schema = {
             type: "object",

@@ -12,12 +12,13 @@ Modifications vs upstream
 -------------------------
 - STR-004 (references/README.md required) removed — not part of the
   agentskills.io spec and not used by Anthropic's reference skills.
-- STR-003 softened to WARN: "eval/ directory not found" only.
+- STR-003 softened to WARN: "evals/ directory not found" only.
   No filename restriction (upstream required `evals/evals.json`, which
   is one community runner's convention, not a standard). This repo's
-  skills ship eval specs at `skills/<skill>/eval/<spec>.json` (singular
+  skills ship eval specs at `skills/<skill>/evals/<spec>.json` (plural
   directory name — matches the skill-eval workflow + skills_eval_agent.py
-  conventions).
+  conventions). The legacy singular `eval/` path is still accepted to
+  keep older skills passing during migration.
 - EVAL-001..005 family removed entirely. The repo's existing
   `skills-eval` workflow is the source of truth for actual eval
   execution; this script stays Tier-1 schema/static only.
@@ -564,24 +565,25 @@ def check_structure(skill_path: Path, result: SkillResult) -> None:
             "Move domain detail into references/ and link to it from SKILL.md.",
         ))
 
-    # STR-003: nudge — `eval/` directory present. No filename or format
+    # STR-003: nudge — `evals/` directory present. No filename or format
     # restriction; the actual eval runner (skills-eval workflow) owns shape.
-    # This repo's convention is `eval/` (singular) — matches the path
-    # skills_eval_agent.py walks (`skills/<skill>/eval/*.json`) and the
-    # skill-eval adapter layout. Earlier versions of this rule checked for
-    # `evals/` (plural, an upstream playbook convention) and false-flagged
-    # every skill in this repo.
-    eval_dir = skill_path / "eval"
-    if not eval_dir.is_dir():
+    # Repo convention is `evals/` (plural) — matches the path
+    # skills_eval_agent.py walks (`skills/<skill>/evals/*.json`) and the
+    # skill-eval adapter layout. The legacy singular `eval/` path is also
+    # accepted to keep older skills passing during migration.
+    evals_dir = skill_path / "evals"
+    legacy_eval_dir = skill_path / "eval"
+    target = evals_dir if evals_dir.is_dir() else legacy_eval_dir
+    if not target.is_dir():
         result.findings.append(Finding(
             WARNING, "STR-003",
-            "eval/ directory not found. Ship at least one eval scenario "
+            "evals/ directory not found. Ship at least one eval scenario "
             "(any filename / format) so the skill can be regression-tested.",
         ))
-    elif not any(eval_dir.iterdir()):
+    elif not any(target.iterdir()):
         result.findings.append(Finding(
             WARNING, "STR-003",
-            "eval/ directory exists but is empty.",
+            f"{target.name}/ directory exists but is empty.",
         ))
 
 

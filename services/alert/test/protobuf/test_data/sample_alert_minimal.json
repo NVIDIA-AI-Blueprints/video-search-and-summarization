@@ -1,0 +1,10 @@
+{
+  "id": "alert-min-001",
+  "timestamp": "2025-10-12T19:38:44.565Z",
+  "end": "2025-10-12T19:39:05.463Z",
+  "sensor": { "id": "SENSOR_MIN_1" },
+  "analyticsModule": { "id": "Movement Anomaly Module" },
+  "object": { "id": "obj-1", "type": "Vehicle" }
+}
+
+

@@ -1,0 +1,104 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Sample configuration for the POST /api/v1/realtime/always-on endpoint.
+#
+# How it's used:
+#   - Each camera event delivered to /always-on triggers ONE RTVI alert per
+#     rule in `always_on_rules` below (N rules -> N RTVI calls).
+#   - `live_stream_url` is populated automatically from the incoming event's
+#     `camera_url` field — do NOT set it here.
+#
+# Resolution order for this file (first match wins):
+#   1. $ALWAYS_ON_RULES_CONFIG             (env var, explicit path)
+#   2. ./realtime-config.yaml              (project root, recommended)
+#   3. ./realtime-config-sample.yaml       (this file, for dev only)
+#
+# Required vs optional fields in always_on_params:
+#   REQUIRED (missing → CONFIG_ERROR at startup):
+#     prompt, system_prompt, model
+#   DERIVED (do NOT set — value is populated from the camera event or internally):
+#     live_stream_url, alert_type, sensor_name
+#   OPTIONAL (omit to let RTVI use its server-side default for that field):
+#     everything else below
+
+always_on_rules:
+  # ── Rule 1 — full example (all supported params shown) ──────────────────────
+  - rule_id: ppe_violation_warehouse_01        # Required. Free-form label used in logs + response.
+    description: "Worker PPE compliance — hard hat and vest detection"  # Optional human-readable notes.
+    alert_type: "Worker PPE Violation"         # Required. Forwarded to RTVI as `alert_category`.
+    always_on_params:
+      # ── Required ──────────────────────────────────────────────────────────────
+      prompt: "Write a concise and clear dense caption for the provided warehouse video"
+      system_prompt: "You are a helpful assistant. Answer the user's question."
+      model: "cosmos-reason1"
+
+      # ── Chunking controls ──────────────────────────────────────────────────────
+      chunk_duration: 60                        # default: 30  — seconds of video per VLM chunk
+      chunk_overlap_duration: 10                # default: 5   — seconds of overlap between chunks
+      num_frames_per_second_or_fixed_frames_chunk: 10  # default: 10 — FPS or fixed frames (see use_fps_for_chunking)
+      use_fps_for_chunking: true                # default: true — if false, the value above is a fixed frame count
+
+      # ── Frame size ────────────────────────────────────────────────────────────
+      vlm_input_width: 256                      # default: 256 — input frame width (pixels)
+      vlm_input_height: 256                     # default: 256 — input frame height (pixels)
+
+      # ── Reasoning / audio ─────────────────────────────────────────────────────
+      enable_reasoning: true                    # default: true — ask VLM to emit reasoning alongside the caption
+      enable_audio: true                        # default: omitted — include audio track in VLM analysis
+
+      # ── API type ──────────────────────────────────────────────────────────────
+      api_type: "internal"                      # optional — forwarded verbatim to RTVI (e.g. "internal")
+
+      # ── Response format ───────────────────────────────────────────────────────
+      response_format:
+        type: "text"                            # optional — "text" | "json_object" | other RTVI types
+
+      # ── Streaming options ─────────────────────────────────────────────────────
+      stream_options:
+        include_usage: true                     # optional — append usage summary chunk at stream end
+
+      # ── Sampling controls ─────────────────────────────────────────────────────
+      max_tokens: 512                           # optional — max tokens the VLM may generate per chunk
+      temperature: 0.2                          # optional — sampling temperature
+      top_p: 1                                  # optional — nucleus sampling probability mass
+      top_k: 100                                # optional — top-k token sampling
+      ignore_eos: true                          # optional — if true, generation continues past EOS token
+      seed: 10                                  # optional — random seed for reproducibility
+
+      # ── Media window ──────────────────────────────────────────────────────────
+      # Selects which portion of the live stream to analyse.
+      # Omit entirely to use RTVI's own default window.
+      media_info:
+        type: "offset"                          # "offset" = byte-range window
+        start_offset: 0                         # bytes from buffer head (start of window)
+        end_offset: 4000000000                  # bytes from buffer head (end of window)
+
+      # ── Multimodal processor kwargs ───────────────────────────────────────────
+      # Passed verbatim to the underlying multimodal frame processor.
+      # Use for model-specific tuning knobs not exposed by the fields above.
+      # mm_processor_kwargs:
+      #   additionalProp1: {}
+
+  # ── Rule 2 — minimal (only required fields) ─────────────────────────────────
+  # Omitting any optional field lets RTVI apply its own server-side default.
+  # prompt, system_prompt, and model are always required.
+  - rule_id: collision_traffic_cam_01
+    description: "Vehicle collision verification on main approach"
+    alert_type: "collision"
+    always_on_params:
+      prompt: "Detect any vehicle collisions"
+      system_prompt: "You are a traffic safety monitoring assistant"
+      model: "nvidia/cosmos-reason2-8b"

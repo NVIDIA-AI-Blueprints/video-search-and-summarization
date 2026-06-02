@@ -1,3 +1,5 @@
+# This file is provided under Apache-2.0 License.
+
 pipeline.workers: 1
 pipeline.ordered: true
 pipeline.ecs_compatibility: disabled

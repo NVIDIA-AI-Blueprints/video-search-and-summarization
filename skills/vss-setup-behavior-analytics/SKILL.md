@@ -14,7 +14,7 @@ Deploy the behavior-analytics service standalone with the user's chosen entrypoi
 
 ## Instructions
 
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`.
 
 ## Examples
 
@@ -29,8 +29,8 @@ A minimal standalone bring-up looks like:
 
 ```bash
 cd $REPO/deploy/docker
-docker compose -f services/perception/behavior-analytics/compose.yml \
-  --env-file dev-profile-warehouse/.env up -d vss-behavior-analytics
+export VSS_APPS_DIR=$(pwd)
+docker compose -f services/analytics/behavior-analytics/compose.yml up -d vss-behavior-analytics-base
 ```
 
 Follow `references/deploy-behavior-analytics-service.md` for the full
@@ -75,7 +75,7 @@ If any required prerequisite fails, surface the gap before going further.
 
 ## Workflow
 
-Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its four steps in order:
+Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its steps in order:
 
 1. Pick an entrypoint (analytics 2D / 3D / mv3dt, dev_example, fusion_search).
 2. Choose a config — profile-shipped or custom.

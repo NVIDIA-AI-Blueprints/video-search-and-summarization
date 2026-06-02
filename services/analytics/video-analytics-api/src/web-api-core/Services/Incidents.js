@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -101,6 +101,30 @@ class Incident {
         return searchResults;
     }
 
+    /** 
+     * returns incident records that match the supplied filters.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {?string} [input.sensorId=null] - Sensor ID used to filter incidents. sensorId and place are mutually exclusive.
+     * @param {?string} [input.place=null] - Place used to filter incidents. sensorId and place are mutually exclusive.
+     * @param {?string} [input.objectId=null] - Object ID used to filter incidents. objectId requires sensorId, fromTimestamp and toTimestamp.
+     * @param {?string} [input.category=null] - Incident category used to filter incidents.
+     * @param {string} [input.fromTimestamp] - Either fromTimestamp and toTimestamp should be present together or neither should be present.
+     * @param {string} [input.toTimestamp] - Either fromTimestamp and toTimestamp should be present together or neither should be present.
+     * @param {?string} [input.queryString=null] - Query string used to filter incidents. queryString and objectId are mutually exclusive.
+     * @param {boolean} [input.vlmVerified=false] - Whether to query VLM-verified incidents.
+     * @param {string} [input.vlmVerdict] - VLM verdict filter. vlmVerdict can only be provided when vlmVerified is true and should be one of 'all', 'confirmed', 'rejected', 'verification-failed' or 'not-confirmed'.
+     * @param {number} [input.maxResultSize=25] - Maximum number of incidents returned.
+     * @returns {Promise<Object>} An object containing an array of incidents is returned
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"}, databaseConfigMap);
+     * let input = {sensorId: "sensor-1", fromTimestamp: "2023-01-12T11:20:10.000Z", toTimestamp: "2023-01-12T14:20:10.000Z"};
+     * let incidentObject = new mdx.Services.Incidents();
+     * let incidents = await incidentObject.getIncidents(elastic, input);
+     */
     async getIncidents(documentDb, input) {
         const schema = {
             type: "object",
@@ -431,6 +455,27 @@ class Incident {
         }        
     }
 
+    /** 
+     * returns severe-incident coverage for a sensor or place over a time range.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {?string} [input.sensorId=null] - Sensor ID used to check severe incidents. Exactly one of sensorId or place should be present.
+     * @param {?string} [input.place=null] - Place used to check severe incidents. Exactly one of sensorId or place should be present.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {Array<string>} [input.severeIncidentTypes=["Collision Detection"]] - Severe incident types used to filter incidents.
+     * @param {boolean} [input.vlmVerified=false] - Whether to query VLM-verified incidents.
+     * @param {string} [input.vlmVerdict] - VLM verdict filter. vlmVerdict can only be provided when vlmVerified is true and should be one of 'all', 'confirmed', 'rejected', 'verification-failed' or 'not-confirmed'.
+     * @returns {Promise<Object>} Severe-incident matches grouped by sensors and/or places are returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"}, databaseConfigMap);
+     * let input = {place: "building=abc/room=xyz", fromTimestamp: "2023-01-12T11:20:10.000Z", toTimestamp: "2023-01-12T14:20:10.000Z"};
+     * let incidentObject = new mdx.Services.Incidents();
+     * let severeIncidents = await incidentObject.getSevereIncidentsResult(elastic, input);
+     */
     async getSevereIncidentsResult(documentDb, input){
         const schema = {
             type: "object",

@@ -1376,8 +1376,8 @@ function state_up() {
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
     if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
-      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
-      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
     fi
   fi
   # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi

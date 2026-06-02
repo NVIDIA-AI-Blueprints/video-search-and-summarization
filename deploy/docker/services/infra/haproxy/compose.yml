@@ -43,6 +43,10 @@ services:
     container_name: vss-haproxy-ingress
     network_mode: host
     restart: always
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 262144
     environment:
       HAPROXY_PORT: ${HAPROXY_PORT:-7777}
       HAPROXY_BIND_ADDR: ${HAPROXY_BIND_ADDR:-*}

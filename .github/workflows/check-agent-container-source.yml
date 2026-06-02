@@ -33,12 +33,30 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Docs/tests-only PRs never change what enters the agent image — the
+      # Dockerfile uses selective COPY — yet they change the services/agent
+      # tree SHA and would trip the gate below. Detect that case and skip the
+      # SHA comparison. The job still runs and reports success, so the required
+      # status stays green. Durable fix: scope source_tree_sha to build inputs.
+      - name: Detect docs/tests-only change
+        id: filter
+        continue-on-error: true  # fail safe: a helper error must not block PRs
+        run: |
+          # Any failure or non-"true" result falls through to the full check.
+          if ! skip=$(python3 .github/scripts/source_check_only_nonbuild.py --image-name vss-agent); then
+            echo "filter helper failed; running the full source check." >&2
+            skip=false
+          fi
+          [ "$skip" = "true" ] || skip=false
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
       # Primary path reads com.nvidia.vss.source_tree_sha from the image's
       # OCI manifest annotations (stamped by ci-vss-oss at build time) via the
       # OCI Distribution HTTP API. NGC_CLI_API_KEY is needed to pull the
       # manifest from nvcr.io/nvstaging; without it the registry returns 401
       # and the script falls back to git-SHA resolution.
       - name: Check vss-agent tag matches services/agent
+        if: steps.filter.outputs.skip != 'true'
         env:
           NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
         run: python3 .github/scripts/check_container_tag_source.py --image-name vss-agent

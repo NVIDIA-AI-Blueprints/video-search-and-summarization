@@ -1,0 +1,22 @@
+{
+    "sensorId": "490f8f47-3c2d-4952-932c-62bafde6d83e",
+    "timestamp": "2025-09-25T23:05:00.000Z",
+    "end": "2025-09-25T23:05:05.000Z",
+    "objectIds": ["4374", "4382", "4391", "4405"],
+    "place": {
+      "name": "HWY_20_AND_BRYANT__WB"
+    },
+    "analyticsModule": {
+      "id": "Collision Detection Module",
+      "description": "Potential collision detected between 4 vehicles",
+      "info": {
+        "triggerModules": "Abnormal Movement"
+      }
+    },
+    "category": "collision",
+    "isAnomaly": true,
+    "info": {
+      "location": "42.48837572978232,-90.73894264480816,0.0",
+      "primaryObjectId": "4374"
+    }
+  }

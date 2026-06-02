@@ -1,0 +1,12 @@
+# Default: let Git detect text vs. binary and normalise text in the repo
+# to LF on commit and to the platform's native line ending on checkout.
+* text=auto
+
+# Windows batch scripts must be checked out with CRLF line endings, otherwise
+# CMD's GOTO/CALL parser misreads label lines (`:help`, `:end`) and inline
+# `set VAR=...` assignments. Force CRLF on every platform.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts must stay LF even on Windows checkouts.
+*.sh text eol=lf

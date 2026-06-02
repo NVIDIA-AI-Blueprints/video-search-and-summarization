@@ -3,12 +3,13 @@ Use to deploy the vss-behavior-analytics service standalone (entrypoint, config-
 
 This skill is ready for commercial/non-commercial use. <br>
 
-## Owner: NVIDIA <br>
+## Owner
+NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to deploy the behavior-analytics service as a standalone container, selecting the appropriate entrypoint, configuration source, and optional calibration without needing to bring up the full warehouse blueprint stack. <br>
+Developers and engineers deploying the VSS behavior-analytics container as a standalone service for spatial-AI video analytics pipelines. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -18,11 +19,12 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [Deploy Behavior Analytics — Standalone Service](references/deploy-behavior-analytics-service.md) <br>
 - [Configuration Guide](references/configuration.md) <br>
-- [Deploy Behavior Analytics Service](references/deploy-behavior-analytics-service.md) <br>
+- [Dynamic Config](references/dynamic-config.md) <br>
 - [Dynamic Calibration](references/dynamic-calibration.md) <br>
-- [Dynamic Configuration](references/dynamic-config.md) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -30,6 +32,16 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Metrics Used: <br>
+Reported benchmark dimensions: <br>
+- Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
+- Correctness: Checks whether the agent follows the expected workflow and produces the correct final output. <br>
+- Discoverability: Checks whether the agent loads the skill when relevant and avoids using it when irrelevant. <br>
+- Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
+- Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
+
+
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

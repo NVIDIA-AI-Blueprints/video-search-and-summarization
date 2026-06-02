@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -115,7 +115,22 @@ class RoadNetwork {
         await esClient.indices.refresh({index});
         return result;
     }
-    
+
+    /**
+     * Validates and uploads a road-network configuration document.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} [options={}] - Uploaded file metadata and field information.
+     * @param {Object|null} [options.fileDetails=null] - Uploaded files grouped by field name.
+     * @param {string|null} [options.fieldName=null] - Form field name containing the road-network file.
+     * @returns {Promise<Object>} Success status after persisting the road-network document.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let roadNetworkObject = new mdx.Services.RoadNetwork();
+     * let result = await roadNetworkObject.upload(elastic,{fileDetails:req.files, fieldName:"configFiles"});
+     */
     async upload(documentDb, {fileDetails=null, fieldName=null}={}){
         if(fieldName == null){
             throw (new BadRequestError("fieldName is required to access the uploaded files."));
@@ -159,6 +174,19 @@ class RoadNetwork {
         return result;
     }
 
+    /**
+     * Retrieves the stored road-network configuration document.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {boolean} [configMissingErr=true] - Whether to throw when the config is absent.
+     * @returns {Promise<Object>} Road-network payload with its timestamp, or an empty default when allowed.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let roadNetworkObject = new mdx.Services.RoadNetwork();
+     * let result = await roadNetworkObject.getRoadNetwork(elastic);
+     */
     async getRoadNetwork(documentDb, configMissingErr = true){
         let roadNetworkResult = {roadNetwork:{}, timestamp: null};
         switch (documentDb.getName()) {
@@ -184,6 +212,12 @@ class RoadNetwork {
         }
     }
 
+    /**
+     * Builds a lookup map of intersections keyed by their fully qualified place path.
+     * @public
+     * @param {Object} roadNetwork - Road network document containing city and intersections.
+     * @returns {Map<string, Object>} Intersection metadata keyed by `city=.../intersection=...`.
+     */
     getIntersectionInfoMap(roadNetwork) {
         let intersectionInfoMap = new Map();
         for (let intersection of roadNetwork.intersections) {
@@ -195,6 +229,12 @@ class RoadNetwork {
         return intersectionInfoMap;
     }
 
+    /**
+     * Builds a mutable segment map from a list of intersections.
+     * @public
+     * @param {Array<Object>} intersectionList - Intersections whose segments should be indexed.
+     * @returns {Map<string, Object>} Segment metadata keyed by segment ID.
+     */
     getSegmentMap(intersectionList) {
         let segmentMap = new Map();
         for (let intersection of intersectionList) {
@@ -212,6 +252,12 @@ class RoadNetwork {
         return segmentMap;
     }
 
+    /**
+     * Reduces a segment map to only the speed and object-count fields needed for responses.
+     * @public
+     * @param {Map<string, Object>} segmentMap - Segment metadata keyed by segment ID.
+     * @returns {Map<string, Object>} Minimal segment statistics keyed by segment ID.
+     */
     getMinimalSegmentMap(segmentMap) {
         let minimalSegmentMap = new Map();
         for (let [segmentId, segmentDetails] of segmentMap) {

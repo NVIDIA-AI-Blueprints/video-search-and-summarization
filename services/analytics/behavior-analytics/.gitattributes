@@ -1,0 +1,2 @@
+tests/integration/expected_output/*/*.json filter=lfs diff=lfs merge=lfs -text
+tests/integration/docker_compose/apps_data/playback/*.txt filter=lfs diff=lfs merge=lfs -text

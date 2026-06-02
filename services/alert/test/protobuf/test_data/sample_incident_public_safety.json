@@ -1,0 +1,38 @@
+{
+  "sensorId": "SECURITY_CAM_ENTRANCE_A",
+  "timestamp": "2025-01-09T22:45:10.000Z",
+  "end": "2025-01-09T22:45:18.000Z",
+  "objectIds": [
+    "person_authorized_101",
+    "person_unauthorized_205"
+  ],
+  "place": {
+    "name": "building=Corporate_HQ/entrance=Main_Lobby_A",
+    "id": "entrance_main_lobby_a",
+    "type": "secure_access_point",
+    "info": {
+      "building": "Corporate Headquarters",
+      "access_level": "restricted"
+    }
+  },
+  "analyticsModule": {
+    "id": "Unauthorized Entry Detection Module",
+    "description": "Potential tailgating detected at secure entrance",
+    "info": {
+      "triggerModules": "Tailgating Detection, Badge Verification"
+    },
+    "source": "security_analytics_v2",
+    "version": "2.0.5"
+  },
+  "category": "unauthorized_entry",
+  "isAnomaly": true,
+  "info": {
+    "location": "34.0522,-118.2437,0.0",
+    "primaryObjectId": "person_unauthorized_205",
+    "authorized_person_id": "person_authorized_101",
+    "badge_swipe_detected": "true",
+    "multiple_persons_entered": "true"
+  },
+  "frameIds": [],
+  "embeddings": []
+}

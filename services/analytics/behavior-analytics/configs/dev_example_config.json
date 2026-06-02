@@ -1,0 +1,87 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"consumer": {
+			"autoOffsetReset": "latest",
+			"enableAutoCommit": false,
+			"maxPollIntervalMs": 900000,
+			"maxPartitionFetchBytes": 10485760,
+			"fetchMaxBytes": 104857600,
+			"maxPollRecords": 10000,
+			"timeout": 0.01
+		},
+		"producer": {
+			"lingerMs": 0
+		},
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			},
+            {
+                "name": "notification",
+                "value": "mdx-notification"
+            }
+		],
+		"group": "mdx-dev-example-app"
+	},
+	"sensors": [],
+	"app": [
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		},
+		{
+			"name": "numWorkersForIncidentGeneration",
+			"value": "2"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentThreshold",
+			"value": "1"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "fovCountViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "fovCountViolationIncidentObjectThreshold",
+			"value": "1"
+		},
+		{
+			"name": "fovCountViolationIncidentThreshold",
+			"value": "1"
+		},
+		{
+			"name": "fovCountViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "fovCountViolationIncidentObjectType",
+			"value": "Person"
+		},
+		{
+			"name": "proximityViolationIncidentEnable",
+			"value": "false"
+		},
+		{
+			"name": "confinedAreaViolationIncidentEnable",
+			"value": "false"
+		}
+	]
+}

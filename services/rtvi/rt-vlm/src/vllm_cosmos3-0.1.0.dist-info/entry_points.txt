@@ -1,0 +1,2 @@
+[vllm.general_plugins]
+register_cosmos3 = vllm_cosmos3:register

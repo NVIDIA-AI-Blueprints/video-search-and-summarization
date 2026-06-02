@@ -26,10 +26,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INTEGRATION_TEST_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 FIXTURES_DIR="${INTEGRATION_TEST_DIR}/fixtures"
 
-WEB_APIS_ROOT="${WEB_APIS_ROOT:-}"
-if [ -z "$WEB_APIS_ROOT" ]; then
-    WEB_APIS_ROOT="$(cd "$INTEGRATION_TEST_DIR/.." && pwd)"
-    [ ! -f "$WEB_APIS_ROOT/docker/Dockerfile" ] && WEB_APIS_ROOT="$(cd "$INTEGRATION_TEST_DIR/../.." && pwd)"
+VIDEO_ANALYTICS_API_ROOT="${VIDEO_ANALYTICS_API_ROOT:-}"
+if [ -z "$VIDEO_ANALYTICS_API_ROOT" ]; then
+    VIDEO_ANALYTICS_API_ROOT="$(cd "$INTEGRATION_TEST_DIR/.." && pwd)"
+    [ ! -f "$VIDEO_ANALYTICS_API_ROOT/docker/Dockerfile" ] && VIDEO_ANALYTICS_API_ROOT="$(cd "$INTEGRATION_TEST_DIR/../.." && pwd)"
 fi
 
 if ! command -v node >/dev/null 2>&1; then
@@ -37,10 +37,10 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-node "$SCRIPT_DIR/run_integration_tests.js" "$BASE_URL" "$FIXTURES_DIR" "$WEB_APIS_ROOT"
+node "$SCRIPT_DIR/run_integration_tests.js" "$BASE_URL" "$FIXTURES_DIR" "$VIDEO_ANALYTICS_API_ROOT"
 
 echo "Running warehouse_2d_app tests..."
-node "$SCRIPT_DIR/run_warehouse_2d_app_tests.js" "$BASE_URL" "$WEB_APIS_ROOT" "$FIXTURES_DIR"
+node "$SCRIPT_DIR/run_warehouse_2d_app_tests.js" "$BASE_URL" "$VIDEO_ANALYTICS_API_ROOT" "$FIXTURES_DIR"
 
 echo "Running warehouse_3d_app tests..."
-node "$SCRIPT_DIR/run_warehouse_3d_app_tests.js" "$BASE_URL" "$WEB_APIS_ROOT" "$FIXTURES_DIR"
+node "$SCRIPT_DIR/run_warehouse_3d_app_tests.js" "$BASE_URL" "$VIDEO_ANALYTICS_API_ROOT" "$FIXTURES_DIR"

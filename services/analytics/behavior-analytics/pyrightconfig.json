@@ -1,0 +1,9 @@
+{
+    "extraPaths": [
+        "./src/mdx/analytics/core/typings"
+    ],
+    "typeCheckingMode": "basic",
+    "reportMissingImports": true,
+    "reportMissingTypeStubs": true,
+    "pythonVersion": "3.13"
+}

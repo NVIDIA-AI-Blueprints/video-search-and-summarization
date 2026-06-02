@@ -1,0 +1,17 @@
+# Sanity Drop 03 — Document Parity (sensor-id pass-through)
+#
+# Mirrors test/functional/p1/test_document_parity/run.sh. Injects one incident
+# via Kafka with a synthetic sensorId, then asserts the resulting ES doc has
+# the same sensorId (pass-through). Validates field plumbing + index routing.
+
+PROBE="probes/assert_es_field_value.sh"
+PROBE_ENV_FIELD="sensorId"
+PROBE_ENV_LOOKBACK_MINUTES=5
+WAIT_TRAFFIC_SECONDS=5
+
+apply() {
+    SENSOR_ID=$(inject_rest_incident "parity" "1") || return 1
+    PROBE_ENV_SENSOR_ID="$SENSOR_ID"
+    PROBE_ENV_EXPECTED_VALUE="$SENSOR_ID"
+    log_info "injected sensorId=$SENSOR_ID; expecting same value back from ES"
+}

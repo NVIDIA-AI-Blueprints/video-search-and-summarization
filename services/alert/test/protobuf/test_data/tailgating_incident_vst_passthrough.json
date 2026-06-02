@@ -1,0 +1,34 @@
+{
+  "sensorId": "WAREHOUSE_DOCK_CAM_01",
+  "timestamp": "2025-10-05T12:00:00Z",
+  "end": "2025-10-05T12:00:10Z",
+  "objectIds": [
+    "forklift_12",
+    "worker_04"
+  ],
+  "place": {
+    "name": "warehouse=MainDistribution/dock=North",
+    "id": "",
+    "type": "",
+    "info": {}
+  },
+  "analyticsModule": {
+    "id": "Material Handling Monitor",
+    "description": "Worker carrying box detected near forklift",
+    "info": {
+      "triggerModules": "Proximity Alert"
+    },
+    "source": "",
+    "version": ""
+  },
+  "category": "unauthorized_entry",
+  "isAnomaly": true,
+  "info": {
+    "location": "37.7749,-122.4194,0.0",
+    "primaryObjectId": "worker_04",
+    "video_path": "/home/user/public_safety_7_11_2025_10_39_43_AM_UTC-07_00.mp4"
+  },
+  "frameIds": [],
+  "embeddings": []
+}
+

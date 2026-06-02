@@ -1,6 +1,6 @@
 ---
 name: vss-query-analytics
-description: Use to read video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901). Not for live VLM or incident-range narrative reports.
+description: Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901). Not for live VLM or incident-range narrative reports.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"

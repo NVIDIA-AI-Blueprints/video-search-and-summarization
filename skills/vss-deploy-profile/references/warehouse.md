@@ -383,7 +383,7 @@ Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
-| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + FP8 VLM model overrides |
+| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + RT-VLM sizing overrides |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -562,21 +562,7 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 
 #### 2.3 NVIDIA Container Toolkit
 
-```bash
-docker run --rm --gpus all ubuntu:24.04 nvidia-smi 2>&1 | head -8
-```
-
-If it fails:
-```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
+Canonical install + verify lives in [`prerequisites.md` § 3 NVIDIA Container Toolkit](prerequisites.md#3-nvidia-container-toolkit). Run that block and re-verify with `docker run --rm --gpus all ubuntu:24.04 nvidia-smi` before continuing.
 
 #### 2.4 Linux Kernel Settings
 
@@ -706,7 +692,7 @@ MINIMAL_PROFILE=""       # extended
 
   Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`).
 
-  > **Note:** For 3D / MV3DT with own data, calibration files additionally require BEV clustering — see [Calibration Generation](#calibration-generation).
+  > **Note:** Post-calibration cleanup depends on mode. In 2D, Auto-Calibration adds blank `group` and `region` fields to `calibration.json`; they are not required for 2D and should be removed. For 3D / MV3DT, calibration files require camera clustering to populate `sensors[].group` — see [Calibration Generation](#calibration-generation).
 
   Once the calibration file is ready, redeploy with the full warehouse profile.
 
@@ -853,9 +839,38 @@ Two paths are available to generate calibration files depending on your video so
 
 Both paths deploy `vss-auto-calibration` + `vss-auto-calibration-ui` and produce calibration JSON files consumable by behavior-analytics.
 
+### 2D calibration cleanup
+
+In 2D, Auto-Calibration adds blank `group` and `region` fields to the generated `calibration.json`. These fields are not required for 2D calibration and should be removed before redeploying the full warehouse profile.
+
 ### Camera Clustering (3D / MV3DT only)
 
-Use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. Use `--n_clusters 1` for a single group. Docs: https://docs.nvidia.com/vss/3.1.0/warehouse-docs/3D-profile.html#camera-clustering
+After calibration is generated via Auto-Calibration, run camera clustering before redeploying the full warehouse profile. For 3D/MV3DT, the required field lives directly on each camera sensor as `sensors[].group`. The warehouse blueprint docker compose setup uses one BEV group, so run the clustering tool with `--n_clusters 1` and then verify the group field is present.
+
+```bash
+CALIBRATION_JSON=/path/to/calibration.json
+REPO_ROOT=/path/to/video-search-and-summarization
+SDU_DIR="${REPO_ROOT}/libs/analytics/spatialai-data-utils"
+SENSOR_COUNT=$(jq '.sensors | length' "${CALIBRATION_JSON}")
+
+PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
+  "${SDU_DIR}/tools/camera_grouping/create_camera_clusters.py" \
+  "${CALIBRATION_JSON}" \
+  --max_camera_per_group "${SENSOR_COUNT}" \
+  --n_clusters 1 \
+  --disable_param_tuning \
+  --overwrite
+```
+
+Docs: 3D https://docs.nvidia.com/vss/3.2.0/warehouse-docs/3D-profile.html#camera-clustering and for mv3dt, https://docs.nvidia.com/vss/3.2.0/warehouse-docs/mv3dt-profile.html#camera-clustering
+
+### MV3DT-specific configuration updates
+
+When adding new cameras to the MV3DT profile, run the MV3DT utility scripts under `tools/rtvi-cv-mv3dt-utils` after calibration and camera clustering are complete, and before redeploying the full warehouse profile. These scripts generate the MV3DT-specific files consumed by the per-camera tracker and MQTT communication layer:
+
+1. **Camera information files** (`camInfo/<sensor_id>.yml`) — each camera requires a `camInfo` file containing the 3x4 projection matrix and per-class object model dimensions, generated from `calibration.json`.
+2. **MQTT publish/subscribe configuration** (`pub_sub_info_config.yml`) — defines the inter-camera communication graph for MV3DT by generating a vision-neighbor graph from camera calibration data.
+3. **Tracker configuration** (`ds-mv3dt-tracker-config.yml`) — ensure the `ObjectModelProjection.cameraModelFilepath` section maps each sensor ID to its corresponding `camInfo` file.
 
 ---
 

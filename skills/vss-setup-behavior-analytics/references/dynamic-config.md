@@ -1,17 +1,17 @@
-> Part of behavior-analytics docs. See `../README.md` for the project overview.
+> See [`../SKILL.md`](../SKILL.md) for the project overview.
 
 # Dynamic Configuration
 
-py-analytics supports updating `AppConfig.app[*]` and `AppConfig.sensors[*]` at runtime via messages on the `mdx-notification` Kafka topic. This document is the **contract for component authors** — anything you add to the codebase that consumes config has to play by these rules or dynamic updates will silently no-op against it.
+behavior-analytics supports updating `AppConfig.app[*]` and `AppConfig.sensors[*]` at runtime via messages on the `mdx-notification` Kafka topic. This document is the **contract for component authors** — anything you add to the codebase that consumes config has to play by these rules or dynamic updates will silently no-op against it.
 
-For end-user docs (HTTP API, video-analytics-api integration, message envelopes from the operator side), see the video-analytics-api repo. This file is about the py-analytics-side mechanics.
+For end-user docs (HTTP API, video-analytics-api integration, message envelopes from the operator side), see the video-analytics-api repo. This file is about the behavior-analytics-side mechanics.
 
 ---
 
 ## Quick mental model
 
 ```
-video analytics api  -- upsert -->  mdx-notification  -- broadcast -->  py-analytics replicas
+video analytics api  -- upsert -->  mdx-notification  -- broadcast -->  behavior-analytics replicas
                                                                               |
                                                                               v
                                                                 ConfigListener (main process)
@@ -31,7 +31,7 @@ video analytics api  -- upsert -->  mdx-notification  -- broadcast -->  py-analy
 Two flows:
 
 - **Flow A** (`upsert`): operator updates config via the video analytics api → broadcast to all replicas → each applies, publishes `ack`.
-- **Flow B** (`request-config` → `upsert-all`): py-analytics asks the video analytics api for the latest verified config at startup → it replies with a payload tagged for that specific replica.
+- **Flow B** (`request-config` → `upsert-all`): behavior-analytics asks the video analytics api for the latest verified config at startup → it replies with a payload tagged for that specific replica.
 
 ---
 
@@ -127,7 +127,7 @@ headers:
   event.type:    upsert | upsert-all | ack | request-config
   reference-id:  <uuid>                          # correlates request and reply
                                                  # video analytics api -> "video-analytics-api-<uuid>"
-                                                 # py-analytics -> "behavior-analytics-<uuid>"
+                                                 # behavior-analytics -> "behavior-analytics-<uuid>"
 value (JSON):
   {
     "status":       null | "success" | "partial-success" | "failure",
@@ -143,7 +143,7 @@ Read-only sections (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`,
 ## Flow A — operator update
 
 ```
- user        video analytics api      mdx-notification         py-analytics (×N)
+ user        video analytics api      mdx-notification         behavior-analytics (×N)
   │ POST /config   │                       │                         │
   ├───────────────▶│                       │                         │
   │                │ publish upsert        │                         │
@@ -159,16 +159,16 @@ Read-only sections (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`,
 | Phase | `event.type` | `value` |
 |---|---|---|
 | video analytics api → topic | `upsert` | `{ status: null, config: <patch>, error: null }` |
-| py-analytics → topic (success) | `ack` | `{ status: "success", config: <full merged: app+sensors only>, error: null }` |
-| py-analytics → topic (partial) | `ack` | `{ status: "partial-success", config: <merged with applied parts only>, error: "<which succeeded / failed>" }` |
-| py-analytics → topic (failure) | `ack` | `{ status: "failure", config: null, error: "<reason>" }` |
+| behavior-analytics → topic (success) | `ack` | `{ status: "success", config: <full merged: app+sensors only>, error: null }` |
+| behavior-analytics → topic (partial) | `ack` | `{ status: "partial-success", config: <merged with applied parts only>, error: "<which succeeded / failed>" }` |
+| behavior-analytics → topic (failure) | `ack` | `{ status: "failure", config: null, error: "<reason>" }` |
 
 ---
 
 ## Flow B — replica bootstrap
 
 ```
- py-analytics            mdx-notification         video analytics api    DB
+ behavior-analytics            mdx-notification         video analytics api    DB
       │ start, load disk baseline   │                  │                  │
       │ publish request-config      │                  │                  │
       ├────────────────────────────▶│                  │                  │
@@ -186,7 +186,7 @@ Read-only sections (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`,
 
 | Phase | `event.type` | `value` |
 |---|---|---|
-| py-analytics → topic | `request-config` | `{ status: null, config: null, error: null }` |
+| behavior-analytics → topic | `request-config` | `{ status: null, config: null, error: null }` |
 | video analytics api → topic (DB has) | `upsert-all` | `{ status: "success", config: <full latest>, error: null }` |
 | video analytics api → topic (DB empty) | `upsert-all` | `{ status: "failure", config: null, error: "no config in DB" }` |
 
@@ -195,6 +195,8 @@ Read-only sections (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`,
 ---
 
 ## Component map
+
+Under `video-search-and-summarization/services/analytics/behavior-analytics/`:
 
 ```
 src/mdx/analytics/core/transform/config/
@@ -206,7 +208,7 @@ src/mdx/analytics/core/transform/config/
 └── config_monitor.py          # Per-worker watchdog: pick up files written by the listener
 ```
 
-Wired up in `src/mdx/analytics/core/app/app_runner.py` (one `ConfigListener` per main process) and `src/mdx/analytics/core/app/app_base.py` (one `ConfigFileMonitor` per worker). The listener writes a JSON file into `CONFIG_DIR` (default `/tmp/checkpoint/config`) on every successful apply; each worker's `ConfigFileMonitor` picks up the file via watchdog `on_moved` and applies through its own local `ConfigApplier`.
+Wired up in `video-search-and-summarization/services/analytics/behavior-analytics/src/mdx/analytics/core/app/app_runner.py` (one `ConfigListener` per main process) and `video-search-and-summarization/services/analytics/behavior-analytics/src/mdx/analytics/core/app/app_base.py` (one `ConfigFileMonitor` per worker). The listener writes a JSON file into `CONFIG_DIR` (default `/tmp/checkpoint/config`) on every successful apply; each worker's `ConfigFileMonitor` picks up the file via watchdog `on_moved` and applies through its own local `ConfigApplier`.
 
 ### Why per-worker monitor, not per-process
 
@@ -258,6 +260,8 @@ Note the deliberate split between "zero items in input" (success no-op) and "ite
 
 ## Testing approach
 
+Test files live under `video-search-and-summarization/services/analytics/behavior-analytics/`:
+
 | Layer | Test file | What to add |
 |---|---|---|
 | Cache invalidation | `tests/unit/mdx/analytics/core/schema/test_config.py::TestAppConfig` | Test that mutating + `invalidate_caches()` flips a cached property's value. |
@@ -269,11 +273,13 @@ Note the deliberate split between "zero items in input" (success no-op) and "ite
 | Worker file monitor | `tests/unit/mdx/analytics/core/transform/config/test_config_monitor.py` | Test new file-handling paths. |
 | End-to-end | `tests/integration/dynamic_config/dynamic_config_e2e.py` | Add a scenario for new wire-level behavior. See its README. |
 
-Aim for 100% line + branch coverage on new code under `transform/config/`. The six modules there are at 100% today — keep that bar.
+Aim for 100% line + branch coverage on new code under `src/mdx/analytics/core/transform/config/`. The six modules there are at 100% today — keep that bar.
 
 ---
 
 ## Where to find canonical examples
+
+All paths below are under `video-search-and-summarization/services/analytics/behavior-analytics/`:
 
 - Read-at-use consumer: `src/mdx/analytics/core/stream/state/behavior/state_management_base.py` (just stores the `AppConfig` reference; reads at use-time).
 - Per-call value-capture: `src/mdx/analytics/core/stream/state/behavior/state_management_e.py::_create_trajectory` (passes values into a per-call sub-object).

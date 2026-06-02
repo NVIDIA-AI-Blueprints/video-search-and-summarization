@@ -23,21 +23,23 @@ Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_c
 
 ## What gets deployed
 
+Container names below are the actual `container_name:` keys from `deploy/docker/services/**/compose.yml`. LLM/VLM NIM containers are named after the selected model (default shown; varies with `LLM_NAME_SLUG`).
+
 | Service | Container | Port | Purpose | Mode |
 |---|---|---|---|---|
-| RT-CV (DeepStream perception) | vss-rtvi-cv | — (host net) | Object detection (Grounding DINO via `MODEL_NAME_2D=GDINO`) | **2d_cv only** |
-| Behavior analytics | vss-behavior-analytics | — | Rule-based alerts from RT-CV metadata | **2d_cv only** |
-| RT-VLM | vss-rtvi-vlm | 8018 | VLM runner (Cosmos Reason 2 by default) | both |
-| Alert-bridge | (alert-bridge) | 9080 | Realtime alerting API; drives `POST/DELETE /api/v1/realtime` on the agent | both |
-| LLM NIM | mdx-nim-llm-1 | 30081 | Same options as `base` (Nano 9B v2 default) | both |
-| nvstreamer-alerts | vss-vios-nvstreamer | 31000 | Plays back dataset video to simulate live cameras | both |
-| VST | mdx-vst-1 | 30888 | Video storage + ingest | both |
-| VSS Agent | mdx-vss-agent-1 | 8000 | Orchestrates alert verification and incident reports | both |
-| VSS UI | mdx-vss-ui-1 | 3000 | Alerts tab | both |
-| Video-Analytics MCP | vss-va-mcp | 9901 | Analytics API for the agent | both |
-| Elasticsearch + Kibana | mdx-elasticsearch-1, kibana | 9200, 5601 | Alert/event storage | both |
-| Kafka | mdx-kafka-1 | 9092 | Message bus | both |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability | both |
+| RT-CV (DeepStream perception) | `vss-rtvi-cv` | — (host net) | Object detection (Grounding DINO via `MODEL_NAME_2D=GDINO`) | **2d_cv only** |
+| Behavior analytics | `vss-behavior-analytics` | — | Rule-based alerts from RT-CV metadata | **2d_cv only** |
+| RT-VLM | `vss-rtvi-vlm` | 8018 | VLM runner (Cosmos Reason 2 by default) | both |
+| Alert-bridge | `vss-alert-bridge` | 9080 | Realtime alerting API; drives `POST/DELETE /api/v1/realtime` on the agent | both |
+| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. | both |
+| nvstreamer-alerts | `vss-vios-nvstreamer` | 31000 | Plays back dataset video to simulate live cameras | both |
+| VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest | both |
+| VSS Agent | `vss-agent` | 8000 | Orchestrates alert verification and incident reports | both |
+| VSS Agent UI | `vss-agent-ui` | 3000 | Alerts tab | both |
+| Video-Analytics MCP | `vss-va-mcp` | 9901 | Analytics API for the agent | both |
+| Elasticsearch + Kibana | `elasticsearch`, `kibana` | 9200, 5601 | Alert/event storage | both |
+| Kafka | `kafka` | 9092 | Message bus | both |
+| Phoenix | `phoenix` | 6006 | Observability | both |
 
 ## Default models
 
@@ -129,7 +131,7 @@ The skill writes these env vars to `dev-profile-alerts/generated.env` itself; th
 |---|---|---|
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | any | **0.35** |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | DGX-SPARK or L40S | **0.8** |
-| RT-VLM on its own GPU (`VLM_MODE=local`) | RTX 4500 (32 GB) — `HARDWARE_PROFILE=RTX4500` | **0.8** with `RTVI_VLM_MAX_MODEL_LEN=20480`; also swap `RTVI_VLM_MODEL_PATH` to the `0303-fp8-dynamic-kv8` build to fit the smaller VRAM (see [§ RTX 4500](#rtx-4500-32-gb)) |
+| RT-VLM on its own GPU (`VLM_MODE=local`) | RTX 4500 (32 GB) — `HARDWARE_PROFILE=RTX4500` | **0.8** with `RTVI_VLM_MAX_MODEL_LEN=20480` for the smaller VRAM target (see [§ RTX 4500](#rtx-4500-32-gb)) |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | H100 / RTXPRO6000BW | leave blank → RT-VLM's hardcoded 0.7 fallback applies |
 | RT-VLM on its own GPU on edge | OTHER / IGX-THOR / AGX-THOR | leave blank |
 
@@ -182,7 +184,7 @@ With RT-VLM at 0.35 and a 15% framework reservation, the LLM gets:
 
 ### RTX 4500 (32 GB)
 
-32 GB VRAM is too little to host the default Cosmos-Reason2-8B `hf-1208` RT-VLM checkpoint **and** a local Nano 9B LLM together. The supported layout is RT-VLM local with the smaller FP8 KV-cache checkpoint, LLM remote. Full env block for `dev-profile-alerts/generated.env`:
+32 GB VRAM is too little to host RT-VLM **and** a local Nano 9B LLM together. The supported layout is the default `hf-1208` RT-VLM checkpoint with the LLM remote. Full env block for `dev-profile-alerts/generated.env`:
 
 ```env
 HARDWARE_PROFILE=RTX4500
@@ -191,21 +193,21 @@ VLM_MODE=local
 # RT-VLM sizing: cap context + lift utilization to fit on 32 GB.
 RTVI_VLM_MAX_MODEL_LEN=20480
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
-# Swap the RT-VLM checkpoint to the FP8 KV-cache build that fits on 32 GB.
+# Keep the default source-backed Cosmos Reason 2 checkpoint.
 # VLM_NAME must match the basename rtvi-vlm advertises at /v1/models, or
 # alert-bridge / agent get HTTP 400 "No such model" (see § VLM serving paths).
-VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
+VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
 ```
 
-The `0303-fp8-dynamic-kv8` Cosmos-Reason2 build trims weights and KV cache enough to leave room for the 20 K context window at 0.8 utilization — the default `hf-1208` build doesn't fit even with the model-len cap.
+The `hf-1208` Cosmos Reason 2 build is the source-backed default. The model length cap and utilization setting are the documented sizing knobs for this 32 GB target.
 
 Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GPUs because the script's RT-VLM util is fixed at 0.35 in shared mode.
 
 ### Hard rules
 
 - **L40S is the floor for shared mode.** 24 GB for the LLM barely fits Nano 9B FP16 (23.4 GB total). Switch to FP8 (`nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, 11.7 GB total) for any breathing room, or move to dedicated mode (LLM on its own GPU, RT-VLM on its own GPU at 0.8 util).
-- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason 2 must serve via RT-VLM, not a standalone NIM.** Thor (`AGX-THOR` / `IGX-THOR`) cannot host the standalone `cosmos-reason2-8b` NIM service; the alerts compose graph routes through RT-VLM only, and the source `.env` already pairs `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` with `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` so RT-VLM loads the checkpoint in-process. Don't introduce a remote-VLM override or a different VLM name on Thor — `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and `RT_VLM_DEVICE_ID=0` (unified memory) are also part of the Thor shape. For the LLM side, follow `edge.md` (Edge 4B mandatory for shared mode on edge).
+- **DGX-Spark / IGX-Thor / AGX-Thor — Cosmos Reason 2 must serve via RT-VLM, not a standalone NIM.** Thor (`AGX-THOR` / `IGX-THOR`) cannot host the standalone `cosmos-reason2-8b` NIM service; the alerts compose graph routes through RT-VLM only, and the source `.env` already pairs `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` with `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` so RT-VLM loads the checkpoint in-process. Don't introduce a remote-VLM override or a different VLM name on Thor — `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` and `RT_VLM_DEVICE_ID=0` (unified memory) are also part of the Thor shape. For the LLM side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
 - **Don't co-deploy a standalone Cosmos NIM with alerts.** `COMPOSE_PROFILES` for alerts has no `vlm_*_<slug>` segment by design. Verify by checking `resolved.yml` doesn't have `cosmos-reason2-8b` / `cosmos-reason2-8b-shared-gpu` services alongside `rtvi-vlm`.
 - **`VLM_NAME` mismatch ⇒ HTTP 400.** dev-profile.sh sets `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` for the default Cosmos2 path. If you change `RTVI_VLM_MODEL_PATH` you must update `VLM_NAME` to match the new model basename — otherwise alert-bridge / agent get "No such model" from `/v1/models`.
 - **`VLM_NAME_SLUG=none` is required.** The alerts compose graph has no `vlm_local_*_<slug>` profiles. Setting a real slug doesn't bring up a VLM service — it just makes the COMPOSE_PROFILES reference dead.
@@ -230,6 +232,43 @@ Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GP
 | Kibana | `http://<HOST_IP>:5601/` |
 | nvstreamer | `http://<HOST_IP>:31000/` |
 | Phoenix | `http://<HOST_IP>:6006/` |
+
+## Readiness checks (per mode)
+
+The two modes deploy **different service sets**, so the readiness checks differ. Run the generic compose-ps gate from [`readiness.md`](readiness.md) first, then the per-mode checks below. Follow [`SKILL.md`](../SKILL.md) Step 5b — `up -d` returning is not readiness.
+
+> **Expected container count differs by mode.** `2d_vlm` does **not** start `vss-rtvi-cv` or `vss-behavior-analytics` (both are `bp_developer_alerts_2d_cv`-only — see [What gets deployed](#what-gets-deployed)), so `docker compose -f resolved.yml config --services` yields a smaller set than `2d_cv`. A smaller container count in real-time mode is correct, not a partial deploy — the Gate 0 check in [`SKILL.md`](../SKILL.md) Step 5b derives `expected` from the resolved compose, so it self-adjusts.
+
+**Both modes — these must be reachable:**
+
+```bash
+curl -sf http://${HOST_IP}:8000/health            && echo "agent ok"      # VSS Agent
+curl -sf http://${HOST_IP}:8018/v1/models         && echo "rt-vlm ok"     # RT-VLM (skip if VLM_MODE=remote; probe the remote /v1/models instead)
+curl -sf http://${HOST_IP}:9901/                  && echo "va-mcp ok"     # Video-Analytics MCP
+curl -sf http://${HOST_IP}:3000/                  && echo "ui ok"         # Agent UI
+```
+
+**`MODE=2d_cv` (verification) — also check the perception path:**
+
+```bash
+docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv            && echo "rt-cv up"
+docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "behavior-analytics up"
+curl -sf http://${HOST_IP}:9000/v1/health                        && echo "rt-cv health ok"
+```
+
+RT-CV builds TensorRT engines on first start (3–5 min) — `:9000/v1/health` won't answer until that finishes. See [Stage perception models](#stage-perception-models-rtdetr-its--gdino); if the ONNX files weren't staged, RT-CV never becomes healthy.
+
+**`MODE=2d_vlm` (real-time) — RT-CV / behavior-analytics are intentionally absent:**
+
+```bash
+# Confirm the 2d_cv-only services are NOT running (their absence is expected):
+docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv && echo "UNEXPECTED: rt-cv running in 2d_vlm" || echo "rt-cv absent (correct)"
+# Confirm RT-VLM is processing the live stream and emitting to the alert-bridge:
+docker logs vss-rtvi-vlm  2>&1 | tail -20   # expect continuous VLM inference over the nvstreamer feed
+docker logs vss-alert-bridge 2>&1 | tail -20 # expect realtime session active, no HTTP 400 "No such model"
+```
+
+In real-time mode the readiness signal is **RT-VLM continuously inspecting the live feed**, not a per-alert verification trigger — there is no RT-CV health endpoint to gate on. Confirm `MODE=2d_vlm` in `resolved.yml` and that `vss-vios-nvstreamer` (`:31000`) is publishing streams.
 
 ## Env file location
 

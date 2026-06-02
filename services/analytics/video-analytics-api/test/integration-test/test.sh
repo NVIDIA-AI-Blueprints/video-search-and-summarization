@@ -35,7 +35,7 @@ source "$SCRIPT_DIR/generate_env.sh"
 source "$SCRIPT_DIR/cleanup.sh"
 
 # Build Docker image
-cd "$WEB_APIS_ROOT"
+cd "$VIDEO_ANALYTICS_API_ROOT"
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-600}"
 echo "Building Docker image (timeout ${BUILD_TIMEOUT}s)..."
 if ! timeout "$BUILD_TIMEOUT" docker build -t video-analytics-api:integration-test -f docker/Dockerfile . ; then

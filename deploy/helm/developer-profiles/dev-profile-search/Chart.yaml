@@ -120,16 +120,3 @@ dependencies:
     version: 26.04.2
     repository: "file://../../services/nims"
     condition: nims.enabled
-
-  # ---------------------------------------------------------------------------
-  # HAProxy Kubernetes Ingress controller (optional, in-cluster RTVI affinity)
-  # Pulled in only when rtviInternalIngress.enabled=true so a fresh single-node
-  # cluster gets the controller automatically. Assumes no other ingress
-  # controller is already running in the cluster — if there is one, leave
-  # rtviInternalIngress.enabled=false and use the existing controller.
-  # ---------------------------------------------------------------------------
-  - name: kubernetes-ingress
-    alias: haproxy-ingress
-    version: "1.44.1"
-    repository: "https://haproxytech.github.io/helm-charts"
-    condition: global.rtviInternalIngress.enabled
