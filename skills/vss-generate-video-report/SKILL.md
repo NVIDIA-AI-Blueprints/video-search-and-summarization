@@ -145,12 +145,24 @@ Write your final answer immediately after the </think> tag."
 fi
 
 # Multimodal settings — mirror the base-profile video_understanding config (config.yml).
-# num_frames = min(clip_seconds * max_fps, max_frames); clip_seconds = Step 1 endTime - startTime.
 MAX_FPS=2; MAX_FRAMES=30; MIN_PIXELS=3136; MAX_PIXELS=8388608
-CLIP_SECONDS=${CLIP_SECONDS:-15}   # from the Step 1 clip range; a >=15s clip caps at MAX_FRAMES anyway
+
+# num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
+# clip_seconds (Step 1 endTime-startTime) may be fractional; truncate to integer seconds — bash $((...))
+# is integer-only and errors on "15.0"/"1.5". Default 15s -> caps at MAX_FRAMES.
+CLIP_SECONDS=$(awk -v s="${CLIP_SECONDS:-15}" 'BEGIN{printf "%d", s}')
 NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 [ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
 [ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
+
+# mm kwargs are Cosmos-only and the shape differs by model (matches video_understanding.py bind()):
+#   cosmos-reason2 -> size:{shortest_edge,longest_edge}; other cosmos (e.g. reason1) -> videos_kwargs:{min_pixels,max_pixels}.
+# Non-Cosmos VLMs get no extra kwargs. Build the trailing JSON fragment for the live ${VLM_MODEL}.
+case "$VLM_MODEL" in
+  *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+  *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+  *)                MM_KWARGS="" ;;
+esac
 
 curl -s -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
@@ -167,14 +179,12 @@ curl -s -X POST "${VLM_ENDPOINT}/chat/completions" \
     }
   ],
   "max_tokens": 1024,
-  "temperature": 0.0,
-  "mm_processor_kwargs": {"size": {"shortest_edge": ${MIN_PIXELS}, "longest_edge": ${MAX_PIXELS}}},
-  "media_io_kwargs": {"video": {"num_frames": ${NUM_FRAMES}}}
+  "temperature": 0.0${MM_KWARGS}
 }
 EOF
 ```
 
-> **`mm_processor_kwargs` shape is model-specific** (matches `video_understanding.py`): Cosmos Reason 2 uses `{"size": {"shortest_edge": <min_pixels>, "longest_edge": <max_pixels>}}` (above); Cosmos Reason 1 and other Cosmos VLMs use `{"videos_kwargs": {"min_pixels": <min_pixels>, "max_pixels": <max_pixels>}}`. Use the form that matches the live `${VLM_MODEL}`.
+> The `case "$VLM_MODEL"` block above sends the **model-specific** `mm_processor_kwargs` shape (matches `video_understanding.py`): `size:{shortest_edge,longest_edge}` for Cosmos Reason 2, `videos_kwargs:{min_pixels,max_pixels}` for Cosmos Reason 1 / other Cosmos, and **no** extra kwargs for non-Cosmos VLMs.
 
 If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), keep only the text after `</think>` as the report body.
 
