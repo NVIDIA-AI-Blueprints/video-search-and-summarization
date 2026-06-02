@@ -145,18 +145,10 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-summarize-video` skill against the VSS **{profile}** "
-            f"profile already running on this `{platform}` host "
-            "(`http://localhost:38111/v1/ready` must respond, and a sample "
-            "warehouse video must already be uploaded per the env notes below).",
             "",
             f"## Query {idx} of {len(expects)}",
             "",
             expect.get("query", ""),
-            "",
-            "## Environment notes",
-            "",
-            spec.get("env", ""),
             "",
             "Run autonomously without prompting for confirmation.",
             "",
@@ -190,20 +182,11 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             "",
             "[metadata]",
             'skill = "vss-summarize-video"',
-            f'profile = "{profile}"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             f'gpu_count = {gpu_count}',
-            "requires_deployed_vss = true",
-            # prerequisite_deploy_mode is alerts-only — the deploy marker
-            # is profile-name only for base/lvs/search; the consumer
-            # (envs/brev_env.py::_ensure_prerequisite_deployed) matches
-            # on profile alone when this field is absent. Set it only if
-            # this spec needs a specific alerts stack (verification vs
-            # real-time).
-            *([f'prerequisite_deploy_mode = "{spec["prerequisite_deploy_mode"]}"'] if spec.get("prerequisite_deploy_mode") else []),
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -221,6 +204,10 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
         spec_src = skill_dir / "evals" / spec_name
+        if not spec_src.exists():
+            legacy = skill_dir / "eval" / spec_name
+            if legacy.exists():
+                spec_src = legacy
         if spec_src.exists():
             shutil.copy(spec_src, tests_dir / spec_name)
         else:
@@ -283,7 +270,14 @@ def main() -> None:
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     video_io_skill_dir = Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / "lvs_profile_summarize.json")
+    if args.spec:
+        spec_path = Path(args.spec)
+    else:
+        spec_path = skill_dir / "evals" / "lvs_profile_summarize.json"
+        if not spec_path.exists():
+            legacy = skill_dir / "eval" / "lvs_profile_summarize.json"
+            if legacy.exists():
+                spec_path = legacy
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

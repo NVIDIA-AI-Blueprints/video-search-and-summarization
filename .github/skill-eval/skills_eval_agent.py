@@ -3,34 +3,36 @@
 # SPDX-License-Identifier: Apache-2.0
 """Skills eval agent — single-shot CI-driven runner.
 
-Called by .github/workflows/skills-eval.yml on push to `pull-request/<N>`
-when files under `skills/` (or the harness itself) change. Spawns one
-`claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md` as its
-system prompt and lets it drive the eval end-to-end: diff →
-adapter/dataset → Brev lock → harbor run → results comment → cleanup.
+Spawns one `claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md`
+as its system prompt and lets it drive an eval end-to-end:
+adapter/dataset → Brev lock → harbor run → results comment. Two modes:
 
-The agent gets Bash/Read/Edit/Write/Glob/Grep. It is explicitly told
-(in AGENTS.md) that it must NOT modify anything under `skills/`.
+  - Single-spec (push): the `plan` job in skills-eval.yml resolves the PR
+    diff into a matrix of one leg per (spec, platform); each leg invokes
+    this script with EVAL_* set and evaluates exactly that one trial.
+  - Manual full-sweep (workflow_dispatch): no diff; enumerate every spec
+    on the picked skill(s) and write tables to $GITHUB_STEP_SUMMARY.
+
+The agent gets Bash/Read/Edit/Write/Glob/Grep, and is explicitly told (in
+AGENTS.md) it must NOT modify anything under `skills/`. Background/task
+tools are disabled (see ClaudeAgentOptions below) so it drives harbor
+synchronously.
 
 Env (set by the workflow step):
-    PR_NUMBER             PR being evaluated, e.g. "100" (push mode; blank on workflow_dispatch)
-    PR_BASE               Base branch, e.g. "develop" (push mode; blank on workflow_dispatch)
+    PR_NUMBER             PR being evaluated, e.g. "100" (blank on workflow_dispatch)
+    PR_BASE               Base branch, e.g. "develop" (blank on workflow_dispatch)
     PR_HEAD_SHA           Mirror or main-branch head SHA (full)
     PR_REPO               "owner/repo"
-    GITHUB_RUN_ID         CI run id (for lock + instance-started tracking)
-    GITHUB_STEP_SUMMARY   Path to a markdown file appended to the Actions run summary
-                          page. The agent writes per-spec results tables here in
-                          manual-sweep mode (no PR to comment on).
-    MANUAL_FULL_SWEEP     "1" when workflow_dispatch fired. Swaps user prompt:
-                          enumerate every skills/<skill>/eval/*.json for the
-                          skill named in MANUAL_SKILLS_FILTER (or all skills when
-                          `*`), write results to $GITHUB_STEP_SUMMARY, never
-                          post `gh pr comment`, never raise bot PRs (missing
-                          adapter is a BLOCKED outcome). Every spec on the
-                          chosen skill(s) runs — no spec-level filter knob.
-    MANUAL_SKILLS_FILTER  Single skill name from the dispatch dropdown, or "*"
-                          for all (default "*"). Validated server-side by GH
-                          Actions against the type:choice enum.
+    GITHUB_RUN_ID         CI run id (lock + results dir scoping)
+    GITHUB_STEP_SUMMARY   Markdown file appended to the Actions run summary;
+                          manual-sweep writes per-spec tables here.
+    EVAL_KIND             Single-spec mode: "eval" or "missing_adapter".
+    EVAL_SKILL            Single-spec mode: the skill dir name.
+    EVAL_SPEC_PATH        Single-spec mode: skills/<skill>/evals/<spec>.json.
+    EVAL_SPEC_STEM        Single-spec mode: the spec filename without .json.
+    EVAL_PLATFORM         Single-spec mode: the one platform this leg runs.
+    MANUAL_FULL_SWEEP     "1" on workflow_dispatch: full-sweep mode (see above).
+    MANUAL_SKILLS_FILTER  Skill name from the dispatch input, or "*" for all.
     ANTHROPIC_*           Agent SDK credentials (sourced from coordinator .env)
     GH_TOKEN              PR comment posting (push mode only)
     NGC_CLI_API_KEY       Local NIM pulls in trials
@@ -117,6 +119,28 @@ def _disable_server_thinking() -> None:
     NVIDIA proxy too."""
     if "CLAUDE_CODE_DISABLE_THINKING" not in os.environ:
         os.environ["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+
+
+def _set_bash_timeouts() -> None:
+    """Raise the Bash tool's timeout cap above the worst-case single
+    `uvx harbor run` so the runtime never auto-backgrounds the foreground
+    trial call.
+
+    Claude Code moves a foreground Bash command to a background task once it
+    crosses the Bash *max* timeout (default 600000 ms = 10 min), then
+    surfaces it as pollable task output. That silently defeats AGENTS.md's
+    "block on harbor — no polling" contract for any trial longer than 10 min
+    (most real deploys: env-build 1800s + agent 3600s + verify 1800s ≈ 2h).
+    Past the cap the foreground call is backgrounded and the agent falls into
+    polling its task .output files. The
+    `_block_bash_background` hook can't prevent it: the runtime sets
+    run_in_background *after* the timeout, not in the call input the hook
+    inspects. Raising the cap is the only structural fix. The CI workflow
+    exports these too; set them here defensively so local smoke-tests and any
+    non-CI caller get the same guarantee. Both stay under the workflow's
+    timeout-minutes so a genuinely hung call is still reaped by the job."""
+    os.environ.setdefault("BASH_DEFAULT_TIMEOUT_MS", "7200000")   # 2h
+    os.environ.setdefault("BASH_MAX_TIMEOUT_MS", "10800000")      # 3h
 
 
 # ---------------------------------------------------------------------------
@@ -221,10 +245,50 @@ def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
 # Agent loop
 # ---------------------------------------------------------------------------
 
+async def _block_bash_background(input_data, tool_use_id, context):
+    """PreToolUse hook: deny any Bash call that backgrounds work.
+
+    AGENTS.md § "No polling — block on harbor" requires `uvx harbor run`
+    to be invoked synchronously so the orchestrating agent blocks on
+    stdout instead of polling an output file. Enforcing that in prose
+    alone is fragile — a drifting agent can still set
+    `run_in_background=True` or append `&`/`nohup`/`disown` to the
+    command. This hook makes the rule structural at the SDK boundary.
+    """
+    tool_name = input_data.get("tool_name", "")
+    tool_input = input_data.get("tool_input", {}) or {}
+    if tool_name != "Bash":
+        return {}
+    if tool_input.get("run_in_background"):
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "Backgrounding forbidden — run harbor synchronously "
+                    "(AGENTS.md § No polling — block on harbor)."
+                ),
+            }
+        }
+    cmd = (tool_input.get("command") or "").strip()
+    if cmd.endswith("&") or " nohup " in cmd or cmd.startswith("nohup ") or " disown" in cmd:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "No shell-level backgrounding (`&` / `nohup` / `disown`). "
+                    "Run the command synchronously and block on it."
+                ),
+            }
+        }
+    return {}
+
+
 async def run_agent() -> int:
     from claude_agent_sdk import (  # type: ignore
         AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient,
-        ResultMessage, TextBlock, ToolUseBlock,
+        HookMatcher, ResultMessage, TextBlock, ToolUseBlock,
     )
 
     manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
@@ -246,10 +310,18 @@ async def run_agent() -> int:
         skills_filter = os.environ.get("MANUAL_SKILLS_FILTER", "*").strip().splitlines()[0] if os.environ.get("MANUAL_SKILLS_FILTER", "").strip() else "*"
         step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
     else:
+        # Single-spec mode (push path): the `plan` job already resolved the
+        # diff into one matrix leg, so this run evaluates exactly one
+        # (skill, spec) — no diff, no looping. EVAL_KIND distinguishes a
+        # normal eval leg from a missing-adapter leg (which only raises the
+        # bot-PR). The legacy whole-PR-diff loop is gone; the matrix owns
+        # fan-out now.
         pr_number = _require("PR_NUMBER")
         pr_base = _require("PR_BASE")
-        skills_filter = "*"
-        step_summary = ""
+        eval_kind = os.environ.get("EVAL_KIND", "eval")
+        eval_skill = _require("EVAL_SKILL")
+        eval_spec_path = os.environ.get("EVAL_SPEC_PATH", "")
+        eval_platform = os.environ.get("EVAL_PLATFORM", "")
 
     if not AGENTS_MD.exists():
         print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
@@ -271,7 +343,7 @@ Context:
 
 Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
 
-  Step 1 (override): skip the diff entirely. Enumerate `skills/*/eval/*.json`
+  Step 1 (override): skip the diff entirely. Enumerate `skills/*/evals/*.json`
     on the checked-out workspace. Keep only the skill named in `skills filter`
     (the dispatch dropdown is single-select; `*` matches all). All specs on the
     chosen skill(s) run — there is no spec-level filter. Skills with no eval/
@@ -289,7 +361,7 @@ Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
     posted via `gh pr comment` to the path in `$GITHUB_STEP_SUMMARY`. Use:
 
       cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
-      ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+      ## Harbor Eval — `skills/<skill>/evals/<spec>.json`
       ... (table + failing checks + suggestions, identical to § Result comment format) ...
       MD
 
@@ -306,31 +378,60 @@ When done, emit `DONE: <n>/<total> specs passed; <m> blockers` on the final
 line. If the sweep couldn't proceed at all (e.g. pool exhausted before the
 first trial), emit `BLOCKED: <reason>` instead.
 """
-    else:
+    elif eval_kind == "missing_adapter":
         user_prompt = f"""
-PR #{pr_number} just pushed new commits touching `skills/` (or eval harness code).
+PR #{pr_number}: skill `{eval_skill}` ships eval specs but has NO adapter at
+`.github/skill-eval/adapters/{eval_skill}/generate.py`. The `plan` job
+collapsed every spec on this skill into this one leg so the bot-PR is
+raised exactly once.
 
 Context:
-  repo          = {pr_repo}
-  PR number     = {pr_number}
-  base branch   = {pr_base}
-  mirror head   = {pr_head}
-  workflow run  = {run_id}
-  working dir   = {REPO_ROOT}
+  repo         = {pr_repo}
+  PR number    = {pr_number}
+  base branch  = {pr_base}
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
 
-Your workspace is the repo at `{REPO_ROOT}` (already checked out to the mirror head).
-The coordinator host is vss-skill-validator; Brev CLI is authenticated, Docker is running.
+Per AGENTS.md § "Single-spec mode" (missing-adapter case): generate the
+adapter and raise ONE bot-PR per §§ 3c/3d targeting the source PR's
+`headRefName` (NOT the mirror). Do NOT run any trial — there is no adapter
+on the mirror head to run, and the hard rule forbids running a
+locally-fabricated adapter. Do NOT post a results comment.
 
-Process this PR per AGENTS.md: diff → detect changed skills → update or create the
-adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset → acquire
-a per-box flock on a `vss-eval-*` pool member matching the target platform(s) →
-run harbor trials → gather results → post ONE comment per (PR, spec) batch →
-reset deployment state on each locked box per § 7 → release the flock. Never
-`brev stop` / `brev delete` any pool member — pool lifecycle is operator-managed.
+End with `BLOCKED: missing adapter for {eval_skill} (bot-PR <url>)` once the
+bot-PR is open, or `BLOCKED: <reason>` if you could not raise it
+(e.g. external-fork PR).
+"""
+    else:
+        user_prompt = f"""
+PR #{pr_number}: evaluate exactly ONE spec on ONE platform —
+`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
 
-When done, emit a one-line final summary starting with `DONE:` so the workflow
-can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
-line starting with `BLOCKED:` followed by the reason.
+Context:
+  repo         = {pr_repo}
+  PR number    = {pr_number}
+  base branch  = {pr_base}
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
+  spec         = {eval_spec_path}
+  platform     = {eval_platform or "(read from spec)"}
+  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
+
+Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
+already selected this (spec, platform). Run steps 2–7 for it only:
+ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
+(raise a bot-PR per §§ 3a/3c if stale, then exit BLOCKED — never run a
+locally-patched adapter) → generate the dataset → acquire a per-box flock
+on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run harbor synchronously for this platform (§ Harbor invocation; never
+background it) → gather results →
+post ONE PR comment for this spec (§ Result comment format). Do NOT touch
+any other spec or skill.
+
+End with `DONE: <reward summary>` after posting the comment, or
+`BLOCKED: <reason>` (e.g. stale adapter bot-PR raised, pool exhausted).
 """
 
     model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
@@ -340,6 +441,24 @@ line starting with `BLOCKED:` followed by the reason.
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         allowed_tools=["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
+        # `allowed_tools` is an allowlist for primary tool calls, but the
+        # SDK's background-shell and task-tracking affordances pass through
+        # it because they're treated as runtime/harness features. List them
+        # here explicitly so the agent can't create background tasks or
+        # read backgrounded-shell output, which is how the polling
+        # anti-pattern reaches into the trial wall-clock.
+        disallowed_tools=[
+            "BashOutput", "KillShell",
+            "TaskCreate", "TaskUpdate", "TaskGet",
+            "TaskList", "TaskOutput", "TaskStop",
+        ],
+        # Closes the `Bash(run_in_background=True)` / shell-`&` loophole that
+        # `disallowed_tools` alone can't catch — see _block_bash_background.
+        hooks={
+            "PreToolUse": [
+                HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
+            ],
+        },
         model=model,
         max_turns=MAX_TURNS,
         permission_mode="bypassPermissions",
@@ -414,18 +533,21 @@ line starting with `BLOCKED:` followed by the reason.
 # Main
 # ---------------------------------------------------------------------------
 #
-# No process-side cleanup here by design — the box's deployment state is
-# reset on the NEXT run's lock acquisition, not on this run's exit. See
-# `envs/brev_env.py::_ensure_prerequisite_deployed`: the active-deploy
-# marker carries `<profile_tag>|<run_id>`, and a run id mismatch always
-# triggers tear-down + redeploy. That makes every exit path equivalent
-# from the next run's perspective — happy path, max-turns, cancel-in-
-# progress SIGTERM, agent crash, SIGKILL, host reboot — so we don't need
-# atexit / signal handlers / a touched-boxes ledger to chase the cases
-# where end-of-run cleanup might be skipped.
+# No process-side cleanup here by design — each trial deploys whatever
+# VSS profile it needs as part of its own first agent turn (the harness
+# no longer pre-deploys or maintains an active-deploy marker). A
+# previous-run leftover container on the box is the next trial's deploy-
+# step problem, not the harness's, and tools like
+# `docker compose down` invoked by the agent reconcile cleanly. That
+# makes every exit path equivalent from the next run's perspective —
+# happy path, max-turns, cancel-in-progress SIGTERM, agent crash,
+# SIGKILL, host reboot — so we don't need atexit / signal handlers / a
+# touched-boxes ledger to chase the cases where end-of-run cleanup
+# might be skipped.
 
 def main() -> int:
     _disable_server_thinking()
+    _set_bash_timeouts()
     _ensure_sdk()
     try:
         rc = asyncio.run(run_agent())

@@ -1,10 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Runs the skills eval agent (.github/skill-eval/skills_eval_agent.py) on
-# every push to a pull-request/<N> mirror branch that touches anything
-# under skills/ or the eval harness. See .github/skill-eval/AGENTS.md
-# for the agent's system prompt and behaviour.
+# Skills eval — matrix dispatch. See .github/skill-eval/docs/matrix-dispatch-design.md.
+#
+# push to pull-request/<N>:
+#   plan  -> computes the (skill, spec) matrix from the PR diff
+#   eval  -> one leg per (spec, platform), each leg runs skills_eval_agent.py
+#            in single-spec mode (foreground agent, one synchronous harbor
+#            run), posts its own PR comment per AGENTS.md.
+# workflow_dispatch:
+#   manual-sweep -> the legacy single-agent full sweep (no matrix),
+#                   writing per-spec tables to $GITHUB_STEP_SUMMARY.
 
 name: Skills Eval
 
@@ -12,88 +18,43 @@ on:
   # No top-level `paths:` filter: GitHub evaluates `paths:` against the
   # diff of the *pushed commits*, not the cumulative PR diff against
   # base. That silently skipped the workflow when CPR-bot updated a
-  # mirror branch with a merge commit that didn't itself touch
-  # skills/** (observed on PR #188: 16 skills/ files in the PR, but
-  # the latest mirror push was a develop-merge carrying only 2 RTVI
-  # files). The path gate is now done inside the job by
-  # `dorny/paths-filter`, which diffs the cumulative head...base range.
-  #
-  # The `on: create:` trigger that previously worked around the
-  # initial-mirror all-zero-`before`-SHA case is no longer needed:
-  # `dorny/paths-filter` computes its diff from the PR base regardless
-  # of how the branch came to exist, so the very first push (whether
-  # branch-create or normal push) gets the same correct answer.
+  # mirror branch with a merge commit that didn't itself touch skills/**
+  # (observed on PR #188). The diff gate is done inside the `plan` job by
+  # plan_matrix.py, which compares the cumulative head...base range.
   push:
     branches:
       - "pull-request/[0-9]+"
-  # Manual full-sweep trigger. Runs every eval spec on every changed-and-
-  # unchanged skill, regardless of diff. There's no PR to comment on, so
-  # the agent writes its per-spec results table to $GITHUB_STEP_SUMMARY
-  # (rendered on the Actions run page) instead of `gh pr comment`. See
-  # .github/skill-eval/AGENTS.md § "Manual full-sweep mode".
+  # Manual full-sweep trigger. Runs every eval spec on the picked skill
+  # (or all skills) regardless of diff. No PR to comment on, so the agent
+  # writes per-spec tables to $GITHUB_STEP_SUMMARY. See AGENTS.md
+  # § "Manual full-sweep mode".
   workflow_dispatch:
     inputs:
       skills:
         # `type: string` rather than `type: choice` because the skills/
-        # tree has more than 10 entries — GitHub caps `choice` options
-        # at 10. The scope-resolution step below sanity-checks the value
-        # before passing it to the agent.
-        #
-        # Valid values (skills/<name>/ on develop):
-        #   *  (sweep every skill)
-        #   vss-ask-video
-        #   vss-deploy-dense-captioning
-        #   vss-deploy-detection-tracking-2d
-        #   vss-deploy-profile
-        #   vss-deploy-video-embedding
-        #   vss-generate-video-calibration
-        #   vss-generate-video-report
-        #   vss-generate-video-report-rag
-        #   vss-manage-alerts
-        #   vss-manage-video-io-storage
-        #   vss-query-analytics
-        #   vss-search-archive
-        #   vss-setup-behavior-analytics
-        #   vss-setup-video-analytics-api
-        #   vss-summarize-video
-        description: "Which skill to eval (single-select). `*` sweeps every skill. Otherwise type the bare skill dir name (e.g. `vss-deploy-profile`). Keep aligned with .github/skill-eval/adapters/."
+        # tree has more than 10 entries — GitHub caps `choice` at 10. The
+        # manual-sweep job sanity-checks the value before use.
+        description: "Which skill to eval. `*` sweeps all. Otherwise a bare skill-dir name (e.g. `vss-deploy-profile`)."
         required: false
         default: "*"
         type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
-# comment, gh pr create, git push of eval-bot/* branches). The agent
-# inherits this via env.GH_TOKEN on the run step below. Mirrors how
-# helm-sync.yml does it — no PAT, no rotation, no personal-account
-# binding. The skill-eval bot PRs hit the source PR's headRefName branch
-# in this same repo, so contents:write is enough; pull-requests:write
-# covers gh pr comment + gh pr create.
+# comment, gh pr create, git push of eval-bot/* branches). Mirrors
+# helm-sync.yml — no PAT, no rotation. contents:write covers the bot-PR
+# branch push; pull-requests:write covers comment + create.
 permissions:
   contents: write
   pull-requests: write
 
-# Push-mode (PR mirror branches): one eval per PR at a time. A fresh
-# push cancels the in-flight run — the previous head's results are
-# stale the moment a new commit lands. The per-box flocks
-# (/tmp/brev/<INSTANCE_NAME>.lock) release automatically when the
-# agent process dies (POSIX flock(2) semantics — no userspace trap
-# needed). Any stale containers / volumes / marker that the cancelled
-# run left on a box are reconciled by the NEXT run's
-# `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy
-# marker carries `<profile_tag>|<run_id>`, so a marker from this run
-# never matches the next run's desired marker and the next run always
-# tears down + redeploys. Same path handles SIGKILL (the 12h
-# timeout-minutes terminator) and host reboots — there's no exit-side
-# cleanup machinery to bypass.
-#
-# Manual dispatch: each `workflow_dispatch` gets a unique group
-# (keyed on run_id) so two operators dispatching sweeps in parallel
-# don't cancel each other. Contention is handled per-box by the
-# flocks above: a second run picks an idle `vss-eval-*` box, or
-# waits at `flock -w` for one to free up. The validator host runs
-# multiple GH Actions worker processes labeled
-# `vss-skill-eval-runner`, so concurrent jobs actually start in
-# parallel rather than queueing at the runner level.
+# One eval generation per PR (or manual sweep) at a time. A fresh push
+# cancels every in-flight matrix leg of the prior push for this ref; the
+# per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock) release automatically
+# when each agent process dies (POSIX flock(2) — no userspace trap).
+# Stale containers/volumes a cancelled leg left on a box are reconciled by
+# the next trial's own deploy step (the harness no longer pre-deploys or
+# tracks an active-deploy marker). Same path handles SIGKILL (the
+# timeout-minutes terminator) and host reboots.
 concurrency:
   group: >-
     ${{ github.event_name == 'workflow_dispatch'
@@ -106,220 +67,274 @@ defaults:
     shell: bash
 
 jobs:
-  eval:
-    name: Eval changed skills against PR
+  # ---------------------------------------------------------------------
+  # plan — compute the dispatch matrix from the PR diff (push only).
+  # Lightweight: gh + python3, no GPU, no brev, no flock.
+  # ---------------------------------------------------------------------
+  plan:
+    name: Plan eval matrix
+    if: startsWith(github.ref, 'refs/heads/pull-request/')
     runs-on: [self-hosted, vss-skill-eval-runner]
-
-    # 12-hour hard cap on the whole job. A full PR touching every currently
-    # evaluable skill queues ~14 trials (5 vss-deploy-profile +
-    # 3 vss-manage-video-io-storage + 4 vss-search-archive +
-    # 2 vss-deploy-dense-captioning). Observed avg trial wall-clock is
-    # ~30m once /vss-deploy-profile + ingest + judge per-check gather
-    # complete; 14 × 30m = 420m typical. The per-trial agent-exec
-    # ceiling is now 1h (AGENTS.md `--agent-timeout-multiplier 6.0`,
-    # raised from 30m), so a run with several cold-box trials hitting
-    # the ceiling can push past the prior 480m cap. 720m absorbs that
-    # without uncapping retries: e.g. (4 × 60m at ceiling) + (10 × 30m
-    # typical) = 540m, comfortably inside. No teardown cooldown — the
-    # vss-eval-* pool is operator-managed and stays warm across runs.
-    # The lock-hold timeout in AGENTS.md (flock -w) is set in lockstep
-    # below.
-    timeout-minutes: 720
-
-    # Allow mirror-branch pushes OR manual full-sweep dispatch. Never run
-    # on develop/main pushes — those aren't covered by either trigger.
-    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
-
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_targets: ${{ steps.plan.outputs.has_targets }}
+      pr_number: ${{ steps.pr.outputs.number }}
+      pr_base: ${{ steps.pr.outputs.base }}
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # agent needs full history to diff against base (push mode)
+          fetch-depth: 0   # plan diffs the cumulative head...base range
 
       - name: Extract PR number + base
         id: pr
-        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          REF="${{ github.ref_name }}"         # "pull-request/100"
+          REF="${{ github.ref_name }}"          # "pull-request/100"
           PR="${REF##pull-request/}"
           echo "number=$PR" >> "$GITHUB_OUTPUT"
           # Query the source PR for its base branch (never hardcode develop).
           BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "PR #$PR, base=$BASE"
-        env:
-          # Repo-scoped token from the workflow context is fine for `gh pr view`.
-          GH_TOKEN: ${{ github.token }}
 
-      - name: Detect relevant changes vs PR base
-        id: changes
-        if: github.event_name == 'push'
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+      - name: Compute matrix
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_REPO: ${{ github.repository }}
+          PR_BASE: ${{ steps.pr.outputs.base }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: python3 .github/skill-eval/plan_matrix.py
+
+  # ---------------------------------------------------------------------
+  # eval — one leg per (spec, platform). Each leg runs the agent once.
+  # ---------------------------------------------------------------------
+  eval:
+    name: ${{ matrix.name }}
+    needs: plan
+    if: needs.plan.outputs.has_targets == 'true'
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    strategy:
+      # One slow/failed spec must not cancel its siblings.
+      fail-fast: false
+      # Cap concurrent legs near the vss-eval-* box count so legs don't
+      # all grab a runner slot only to block on flock. Excess legs queue.
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
+    # sequential harbor invocations, each up to the 1 h agent ceiling
+    # (AGENTS.md `--agent-timeout-multiplier 6.0`). 360m covers a ~4-step
+    # cold-box spec plus deploy/dataset/comment overhead without the
+    # whole-sweep 12 h cap the single-job design needed. AGENTS.md's
+    # box-lock wait (flock -w 21000 ≈ 5.8 h) is kept strictly under this
+    # 360 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
+    # before the job-killer fires (a 43200 s / 12 h wait would be
+    # silently killed mid-flock with no verdict — the exit-4 trap).
+    timeout-minutes: 360
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
         with:
-          base: ${{ steps.pr.outputs.base }}
-          filters: |
-            relevant:
-              - 'skills/**'
-              - '.github/skill-eval/**'
-              - '.github/workflows/skills-eval.yml'
+          fetch-depth: 0   # agent needs full history for the bot-PR flow
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
-        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true'
         run: |
-          # The runner lives on vss-skill-validator-v2; the coordinator keeps
-          # its secrets in a single .env file there. Don't echo contents.
+          # The runner host (vss-skill-validator-v2) keeps coordinator
+          # secrets in a single .env. Don't echo contents.
           set -a
           source /home/ubuntu/eval-coordinator/.env
           set +a
           printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
-          # Safety: Anthropic path for claude-agent-sdk in the trial + judge.
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
 
-      - name: Run skills eval agent
+      - name: Run skills eval agent (single spec)
         id: agent
-        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true'
         env:
-          # Auto-injected workflow token, authenticates as
-          # github-actions[bot]. Scoped by the permissions: block at
-          # workflow level (contents:write + pull-requests:write). All
-          # gh / git operations the agent runs (pr comment, pr create,
-          # push eval-bot/* branches) use this — no PAT in the
-          # coordinator .env, no personal-account auth.
+          # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
-          # gh CLI checks `~/.config/gh/hosts.yml` BEFORE GH_TOKEN; if
-          # the self-hosted runner host has a stored OAuth from a prior
-          # `gh auth login` (e.g. migrated from the operator's
-          # vss-skill-validator coordinator setup), that token wins
-          # over the env GH_TOKEN and bot-PR comments end up authored
-          # by the personal account. Same gotcha helm-sync.yml solved
-          # by pointing gh at a per-run scratch dir with no hosts.yml.
-          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
-          # Route the workflow_dispatch input through env: instead of
-          # ${{ inputs.skills }} inline in the run: script. The input is
-          # now `type: string` (free-form) so this matters more — the
-          # run: body sanity-checks INPUT_SKILLS below before passing it
-          # to the agent, keeping any user-controllable string out of the
-          # templated shell context.
-          INPUT_SKILLS: ${{ inputs.skills }}
+          # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
+          # per-leg scratch dir with no hosts.yml so a stored OAuth on the
+          # host can't reauthor bot comments. Same fix helm-sync.yml uses.
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
+          # Raise the Bash-tool timeout cap above the worst-case single
+          # `uvx harbor run` (~2h: env-build 1800s + agent 3600s + verify
+          # 1800s). Without this the runtime auto-backgrounds the foreground
+          # harbor call at the 10-min default cap and the agent falls into
+          # polling its task output — silently defeating the "block on
+          # harbor" wait contract (the PreToolUse hook can't catch a
+          # runtime-initiated background; it only inspects call input). Both
+          # stay under the job's timeout-minutes so the call can't outlive it.
+          BASH_DEFAULT_TIMEOUT_MS: "7200000"
+          BASH_MAX_TIMEOUT_MS: "10800000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           set -a
-          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev secrets only
+          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
-          # PR_NUMBER/PR_BASE are blank for workflow_dispatch — the agent
-          # script detects MANUAL_FULL_SWEEP and skips the diff path.
-          export PR_NUMBER="${{ steps.pr.outputs.number }}"
-          export PR_BASE="${{ steps.pr.outputs.base }}"
+          export PR_NUMBER="${{ needs.plan.outputs.pr_number }}"
+          export PR_BASE="${{ needs.plan.outputs.pr_base }}"
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
-          # Manual sweep passthrough. Agent reads MANUAL_FULL_SWEEP +
-          # MANUAL_SKILLS_FILTER and swaps its user prompt: no diff,
-          # enumerate skills/<skill>/eval/*.json under the picked skill
-          # (or every skill when `*`), write results to
-          # $GITHUB_STEP_SUMMARY instead of `gh pr comment`. All specs on
-          # the chosen skill(s) run — no spec-level filter knob.
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Sanity-check INPUT_SKILLS now that the input is `type: string`
-            # (free-form). Either `*`, blank, or a bare skill-dir name
-            # — reject anything with slashes / dots that could escape the
-            # skills/ scope.
-            if [ "${INPUT_SKILLS}" != "*" ] && [ -n "${INPUT_SKILLS}" ]; then
-              if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
-                echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-deploy-profile' or '*' to sweep all."
-                exit 1
-              fi
-              if [ ! -d "skills/${INPUT_SKILLS}" ]; then
-                echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref."
-                exit 1
-              fi
-            fi
-            export MANUAL_FULL_SWEEP=1
-            export MANUAL_SKILLS_FILTER="${INPUT_SKILLS}"
-          fi
-          # `.github` isn't a valid Python package prefix, so we expose the
-          # harness via PYTHONPATH. `envs.brev_env:BrevEnvironment` is what
-          # `uvx harbor run --environment-import-path` expects.
+          # Single-spec mode — plan already decided this leg's target, so
+          # the agent skips the diff and processes exactly one (skill, spec).
+          export EVAL_KIND="${{ matrix.kind }}"
+          export EVAL_SKILL="${{ matrix.skill }}"
+          export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
+          export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
+          export EVAL_PLATFORM="${{ matrix.platform }}"
+          # Per-leg scratch scope. Every leg keys its datasets/results/
+          # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
+          # so concurrent legs — and concurrent PR runs on the same host —
+          # never collide (AGENTS.md § "Per-leg scratch isolation").
+          export EVAL_SLUG="${{ matrix.slug }}"
+          # `.github` isn't a valid Python package prefix; expose the
+          # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
           python3 .github/skill-eval/skills_eval_agent.py
 
       - name: Collect results for workflow artifact
-        if: always() && (github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true')
+        if: always()
         env:
-          # Scope the tar + find to THIS run's subtree. Parallel
-          # workflow_dispatch sweeps share /tmp/skill-eval/results/ and
-          # archiving the parent dir would splice peer runs' trial
-          # outputs into this run's artifact (and vice versa). The
-          # harbor convention is /tmp/skill-eval/results/<run_id>/ so
-          # the per-run subdir name == github.run_id.
-          RUN_RESULTS: /tmp/skill-eval/results/${{ github.run_id }}
+          EVAL_SLUG: ${{ matrix.slug }}
         run: |
-          # Agent writes harbor output to $RUN_RESULTS (runtime-only;
-          # not tracked under the repo). Blocker paths
-          # (missing_platforms_declaration, missing_probe, etc.) finish
-          # without producing a results dir — that's a success, not a failure.
-          if [ ! -d "$RUN_RESULTS" ]; then
-            echo "no results dir for this run — agent blocked before running trials (expected for blocker outcomes)"
+          # This leg's harbor output lives under its own scratch scope,
+          # /tmp/skill-eval/results/<slug>/<run_id>/, so the artifact
+          # carries only this (spec,platform)'s trials. missing_adapter /
+          # blocker legs finish without a results dir — a valid outcome.
+          LEG_RESULTS="/tmp/skill-eval/results/${EVAL_SLUG}/${GITHUB_RUN_ID}"
+          if [ ! -d "$LEG_RESULTS" ]; then
+            echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
             exit 0
           fi
-          # Exclude per-trial agent/ subdirs from the artifact tarball
-          # (NOT from the runner-local tree). The trajectory files
-          # inside (claude-code.txt, trajectory.json, sessions/) capture
-          # every tool_use → tool_result pair verbatim — so when the
-          # agent reads a `.env` file, runs `docker compose config`, or
-          # cats a resolved compose YAML, the secret env values land in
-          # the trajectory and then ride along into the public artifact.
-          # PR #516's artifact carried NGC_CLI_API_KEY for ~2 days
-          # before deletion + rotation; this exclusion prevents the next
-          # occurrence regardless of whether downstream agents / skills
-          # tighten their own logging.
-          #
-          # `tar --exclude='agent'` removes those subdirs from the
-          # archive only — the on-disk `/tmp/skill-eval/results/` tree
-          # is left intact, so the harbor-view systemd unit serving
-          # `/tmp/skill-eval/results/_viewer/` keeps rendering the full
-          # trajectory (`Trace` tab) for operators who hit
-          # `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/...`.
-          # Reward, judge, and result.json — which the report builder
-          # actually consumes — stay in the artifact.
-          RESULTS=$(find "$RUN_RESULTS" -maxdepth 2 -name "result.json" 2>/dev/null | head -50 || true)
+          # Exclude per-trial agent/ trajectory subdirs from the tarball
+          # (NOT from the on-disk tree the Harbor viewer serves). Those
+          # files capture every tool_use/tool_result verbatim, so a `.env`
+          # read or `docker compose config` dump would otherwise carry
+          # secret values into the public artifact (PR #516 leaked
+          # NGC_CLI_API_KEY this way). Reward / judge / result.json — what
+          # the report consumes — stay in.
+          # Per-leg tarball path scoped by slug + run_id. `max-parallel`
+          # places multiple legs on one runner host, so a fixed
+          # /tmp/skills-eval-results.tar.gz would let overlapping legs
+          # overwrite each other's archive before upload — each leg then
+          # uploads whichever sibling wrote last. The slug makes the path
+          # unique per (skill,spec,platform).
+          LEG_TARBALL="/tmp/skills-eval-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
+          RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
-            tar czf /tmp/skills-eval-results.tar.gz \
-              -C /tmp/skill-eval/results --exclude='agent' "${{ github.run_id }}"
-            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded; on-disk tree preserved for harbor view)"
+            tar czf "$LEG_TARBALL" \
+              -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
           else
             echo "results dir exists but empty — nothing to archive"
           fi
 
       - name: Upload results artifact
-        if: always() && (github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true')
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          # `pr-<N>-<run>` for push, `manual-<run>` for workflow_dispatch.
-          # Folded scalar to stay under yamllint's 200-char line cap.
-          name: >-
-            ${{ github.event_name == 'workflow_dispatch'
-              && format('skills-eval-results-manual-{0}', github.run_id)
-              || format('skills-eval-results-pr-{0}-{1}', steps.pr.outputs.number, github.run_id) }}
-          path: /tmp/skills-eval-results.tar.gz
+          name: skills-eval-results-pr-${{ needs.plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Upload benchmark report artifact
-        # Built by skills_eval_agent.py::build_benchmark_md — concatenates
-        # the per-spec result comments the agent posted to the PR (or to
-        # $GITHUB_STEP_SUMMARY in manual mode) into a single sanitized
-        # markdown report. Published as its own artifact so reviewers can
-        # download just the report without unpacking the full results
-        # tarball.
-        if: always() && (github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true')
+  # ---------------------------------------------------------------------
+  # manual-sweep — legacy single-agent full sweep (workflow_dispatch).
+  # No matrix: one agent enumerates every spec on the picked skill and
+  # writes per-spec tables to the Actions run summary.
+  # ---------------------------------------------------------------------
+  manual-sweep:
+    name: Manual full sweep
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 720
+    steps:
+      - name: Checkout head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Load coordinator env
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run skills eval agent (full sweep)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
+          INPUT_SKILLS: ${{ inputs.skills }}
+          # See the single-spec step for the rationale — keep the foreground
+          # `uvx harbor run` from being auto-backgrounded at the 10-min cap.
+          BASH_DEFAULT_TIMEOUT_MS: "7200000"
+          BASH_MAX_TIMEOUT_MS: "10800000"
+        run: |
+          mkdir -p "$GH_CONFIG_DIR"
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          export PR_HEAD_SHA="${{ github.sha }}"
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          # Sanity-check the free-form skill filter: `*`, blank, or a bare
+          # skill-dir name — reject anything with slashes/dots that could
+          # escape skills/.
+          if [ "${INPUT_SKILLS}" != "*" ] && [ -n "${INPUT_SKILLS}" ]; then
+            if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
+              echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name."
+              exit 1
+            fi
+            if [ ! -d "skills/${INPUT_SKILLS}" ]; then
+              echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref."
+              exit 1
+            fi
+          fi
+          export MANUAL_FULL_SWEEP=1
+          export MANUAL_SKILLS_FILTER="${INPUT_SKILLS}"
+          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+          mkdir -p /tmp/brev /tmp/skill-eval
+          python3 .github/skill-eval/skills_eval_agent.py
+
+      - name: Collect sweep results for workflow artifact
+        if: always()
+        run: |
+          # A sweep runs many (skill,spec,platform) legs, each writing
+          # /tmp/skill-eval/results/<slug>/<run_id>/, plus the assembled
+          # /tmp/skill-eval/<run_id>/benchmark.md. Bundle every result tree
+          # for this run + the benchmark into one artifact so a sweep is as
+          # debuggable as a per-leg push run. Exclude per-trial agent/
+          # trajectories — same secret hygiene as the eval job (they can
+          # carry .env / NGC key values).
+          RUN="${{ github.run_id }}"
+          OUT="/tmp/skills-eval-sweep-${RUN}.tar.gz"
+          MEMBERS=()
+          while IFS= read -r d; do
+            MEMBERS+=("${d#/}")          # tar relative to / (no leading-/ warning)
+          done < <(find /tmp/skill-eval/results -mindepth 2 -maxdepth 2 \
+                     -type d -name "$RUN" 2>/dev/null)
+          if [ -f "/tmp/skill-eval/${RUN}/benchmark.md" ]; then
+            MEMBERS+=("tmp/skill-eval/${RUN}/benchmark.md")
+          fi
+          if [ ${#MEMBERS[@]} -eq 0 ]; then
+            echo "no sweep results or benchmark for run ${RUN} — nothing to archive"
+            exit 0
+          fi
+          tar czf "$OUT" -C / --exclude='agent' "${MEMBERS[@]}"
+          echo "archived ${#MEMBERS[@]} member(s) into $OUT (agent/ trajectories excluded)"
+
+      - name: Upload sweep results artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: >-
-            ${{ github.event_name == 'workflow_dispatch'
-              && format('skills-eval-benchmark-manual-{0}', github.run_id)
-              || format('skills-eval-benchmark-pr-{0}-{1}', steps.pr.outputs.number, github.run_id) }}
-          path: /tmp/skill-eval/${{ github.run_id }}/benchmark.md
+          name: skills-eval-sweep-${{ github.run_id }}
+          path: /tmp/skills-eval-sweep-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 7

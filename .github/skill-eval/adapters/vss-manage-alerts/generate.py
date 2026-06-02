@@ -169,7 +169,6 @@ def _task_toml(
     pspec: dict,
     spec_stem: str,
     step_suffix: str,
-    prerequisite_deploy_mode: str,
 ) -> str:
     short = pspec["short_name"]
     lines = [
@@ -188,7 +187,6 @@ def _task_toml(
         "",
         "[metadata]",
         'skill = "vss-manage-alerts"',
-        f'profile = "{profile}"',
         f'platform = "{platform}"',
         f'mode = "{mode}"',
         f'gpu_type = "{pspec["gpu_type"]}"',
@@ -198,8 +196,6 @@ def _task_toml(
         "gpu_count = 1",
         f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
         "min_root_disk_gb = 200",
-        "requires_deployed_vss = true",
-        f'prerequisite_deploy_mode = "{prerequisite_deploy_mode}"',
         f"step_index = {step_idx}",
         f"step_count = {step_count}",
         f"check_count = {check_count}",
@@ -223,11 +219,6 @@ def generate_platform_mode(
     short = pspec["short_name"]
     expects = rendered_spec.get("expects") or []
     profile: str = str(spec.get("profile", "alerts"))
-    # prerequisite_deploy_mode drives the /vss-deploy-profile -m flag the coordinator
-    # injects before this task. Read from spec, fall back to `real-time`.
-    prerequisite_deploy_mode: str = str(
-        spec.get("deploy_mode") or spec.get("prerequisite_deploy_mode") or "real-time"
-    )
 
     platform_dir = output_root / spec_stem / f"{short}-{mode}"
     platform_dir.mkdir(parents=True, exist_ok=True)
@@ -291,7 +282,6 @@ def generate_platform_mode(
             pspec=pspec,
             spec_stem=spec_stem,
             step_suffix=step_suffix,
-            prerequisite_deploy_mode=prerequisite_deploy_mode,
         )
         (step_dir / "task.toml").write_text(toml_content)
 

@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import shlex
+import signal
 import subprocess
 import tempfile
 import uuid
@@ -45,6 +46,12 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 
 # Timeout for brev copy commands.
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
+
+# Artifact-collection (download_*) resilience. A stalled transfer that is
+# killed can orphan its ssh child and wedge the box for the next step;
+# retrying a transient stall on a fresh connection recovers it. Tunable.
+BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
+BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
 
 
 class BrevEnvironmentType(str, Enum):
@@ -245,12 +252,11 @@ class BrevEnvironment(BaseEnvironment):
             # the renamed release/3.2.0 container names while the eval
             # deployed feat/skills's old names).
             "PR_HEAD_SHA", "PR_REPO",
-            # Tag the active-deploy marker with the run id so the next
-            # run's `_ensure_prerequisite_deployed` always reconciles
-            # against a prior run's leftover state, regardless of how
-            # the prior run ended. Consumed by the vss-deploy-profile
-            # adapter's test.sh when it writes the marker on
-            # reward=1.0.
+            # Identifies this CI run inside the trial environment for
+            # logs and any future per-run scratch dirs the agent may
+            # create. No longer load-bearing now that the harness
+            # doesn't pre-deploy profiles or maintain an active-deploy
+            # marker.
             "GITHUB_RUN_ID",
         ):
             val = os.environ.get(key)
@@ -294,206 +300,16 @@ class BrevEnvironment(BaseEnvironment):
         # PR_HEAD_SHA forwarded above never actually lands on disk.
         await self._sync_repo_to_pr_head()
 
-        # Pre-deploy any prerequisite profile declared in task.toml [metadata].
-        # Idempotent via marker file on the box, so dependent trials reuse the
-        # deployment without re-running it.
-        await self._ensure_prerequisite_deployed(meta)
+        # The harness intentionally does NOT pre-deploy any VSS profile
+        # here. Each eval spec's first `expects[]` query is responsible
+        # for invoking `/vss-deploy-profile` (or the appropriate
+        # standalone-deploy runbook) — making the deploy step visible
+        # in the trial's reward + trajectory rather than hidden in the
+        # env provider. The previous `_ensure_prerequisite_deployed`
+        # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
-
-    async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
-        """Reconcile the Brev box's deployment state with what this
-        trial's task.toml [metadata] declares. Reads a single canonical
-        marker that records what is currently RUNNING on the box AND
-        which CI run owns it — not a deploy log. See
-        specs/stale-marker.spec.
-
-        Marker format is `<profile_tag>|<run_id>`:
-          - `<profile_tag>` is `<profile>` or `<profile>-<deploy_mode>`
-            (only alerts splits this way: `alerts-verification`,
-            `alerts-real-time`).
-          - `<run_id>` is `$GITHUB_RUN_ID` (or `local-<pid>` outside CI).
-
-        Tagging the marker with the run id makes "fresh between runs"
-        a pull-side reconcile rather than a push-side cleanup: a
-        marker from a prior run NEVER matches the current run's
-        desired marker, so the next worker always reconciles
-        (tear-down + redeploy from its own `PR_HEAD_SHA`) regardless
-        of how the prior run ended — happy path, cancel-in-progress,
-        max-turns, SIGKILL, host reboot. Within a single run, multiple
-        trials with the same profile still hot-skip because both
-        profile and run id match.
-
-        Three regimes, derived from `profile` + `prerequisite_deploy_mode`:
-
-        1. `profile` set (downstream needs a deployed VSS stack):
-            desired = `<profile_tag>|<run_id>`.
-            If marker == desired → hot, no-op (same profile, same run).
-            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]`
-                  via `claude --print`. On success OVERWRITE marker
-                  with the new `<profile_tag>|<run_id>`.
-
-        2. `profile` absent (trial needs a clean box, no VSS running):
-            desired = `""` (empty marker).
-            Always tear down all containers (`docker rm -f $(docker
-                  ps -aq)`) + prune networks + prune volumes;
-                  OVERWRITE marker to empty. An empty marker does not
-                  prove a prior standalone profile-less trial cleaned
-                  up every container it started. Preserves anything
-                  `docker rm -f` doesn't touch: docker image cache,
-                  repo clone, and sample-data extract — the slow
-                  caches that make warm reuse valuable for the next
-                  deploy trial. Cleanup failures fail loud: if any
-                  docker command exits non-zero the marker is NOT
-                  overwritten, so the next trial re-attempts the
-                  reconcile instead of running against a partially-
-                  dirty box that pretends to be clean.
-
-        vss-deploy-profile/* trials don't set `profile` in their task.toml
-        [metadata], so they fall into the `desired=""` box-clean branch
-        above — wipes containers/networks/volumes and clears the marker
-        before the trial deploys from scratch. Their test.sh writes the
-        marker (tagged with the trial's `$GITHUB_RUN_ID`) on reward=1.0
-        for downstream warm-reuse within the same run.
-
-        claude-code is expected on the box from a prior vss-deploy-profile/* trial's
-        harbor agent setup; persists across trials on the reused
-        vss-eval-* instance. Override the wall clock via
-        PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
-        profile = meta.get("profile")
-        deploy_mode = meta.get("prerequisite_deploy_mode")
-        if profile and deploy_mode:
-            profile_tag = f"{profile}-{deploy_mode}"
-        elif profile:
-            profile_tag = profile
-        else:
-            profile_tag = ""
-
-        run_id = os.environ.get("GITHUB_RUN_ID") or f"local-{os.getpid()}"
-        desired = f"{profile_tag}|{run_id}" if profile_tag else ""
-
-        marker_path = "/tmp/skill-eval/active-deploy.txt"
-        probe = await _run_brev_exec(
-            self._instance_name,
-            f"cat {shlex.quote(marker_path)} 2>/dev/null || true",
-            timeout=30,
-        )
-        current = (probe.stdout or "").strip()
-        if current == desired and desired:
-            logger.info(
-                "prerequisite %s already current on %s (run %s); skipping reconcile",
-                profile_tag, self._instance_name, run_id,
-            )
-            return
-        logger.info(
-            "prerequisite mismatch on %s (active=%r, desired=%r); reconciling",
-            self._instance_name, current or "<empty>", desired or "<clean>",
-        )
-
-        if not desired:
-            # Profile-less trial wants a clean box. Tear down all
-            # containers, networks, AND volumes so the deploy starts
-            # against a guaranteed-empty state — postgres / ES / kafka /
-            # agent-eval volumes from a prior profile's run would
-            # otherwise be reused and could leak schema or stale rows
-            # into the next deploy. Keeps the docker image cache, repo
-            # clone, and sample-data extract (~/data) warm; those are
-            # profile-agnostic and slow to re-pull from NGC.
-            #
-            # `docker volume prune -af` removes all unused volumes
-            # (including named ones like `agent-eval`); becomes safe to
-            # run only after `docker rm -f` releases the references.
-            # For volumes whose `driver_opts` bind a host path (e.g.
-            # `agent-eval` → `$VSS_DATA_DIR/agent_eval`), prune
-            # unregisters the docker volume but does NOT wipe the bind
-            # directory contents — that's an operator-managed dir and
-            # the next deploy re-binds to it.
-            #
-            # No `|| true` on the docker commands by design — if any
-            # step exits non-zero (stuck container, daemon transient
-            # error) the `&&` chain short-circuits and the marker is
-            # left as it was, so the next trial re-runs the reconcile
-            # rather than silently treating a partially-dirty box as
-            # clean. `xargs -r` already handles the "no containers to
-            # remove" case (skips invoking docker rm at all, exit 0).
-            cmd = (
-                "mkdir -p /tmp/skill-eval && "
-                "docker ps -aq | xargs -r docker rm -f >/dev/null && "
-                "docker network prune -f >/dev/null && "
-                "docker volume prune -af >/dev/null && "
-                f"printf '' > {shlex.quote(marker_path)}"
-            )
-            logger.info(
-                "Cleaning box %s (no profile required)", self._instance_name,
-            )
-            result = await _run_brev_exec(self._instance_name, cmd, timeout=120)
-            if result.return_code != 0:
-                tail = (result.stderr or result.stdout or "")[-500:]
-                raise RuntimeError(
-                    f"box-clean failed on {self._instance_name}: "
-                    f"exit {result.return_code}; tail:\n{tail}"
-                )
-            return
-
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-        model = (
-            os.environ.get("ANTHROPIC_MODEL")
-            or "claude-sonnet-4-6"
-        )
-        if not api_key:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY must be set on the coordinator to "
-                "pre-deploy a prerequisite profile via claude --print."
-            )
-
-        env_prefix_parts = [
-            f"ANTHROPIC_API_KEY={shlex.quote(api_key)}",
-            f"ANTHROPIC_MODEL={shlex.quote(model)}",
-            "CLAUDE_CODE_DISABLE_THINKING=1",
-        ]
-        if base_url:
-            env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
-        env_prefix = " ".join(env_prefix_parts)
-
-        prompt = f"/vss-deploy-profile -p {profile}"
-        if deploy_mode:
-            prompt += f" -m {deploy_mode}"
-        # Overwrite (>) the canonical marker on /vss-deploy-profile success — the
-        # marker reflects what is currently running, not a deploy log.
-        # PATH prepend: brev exec runs a non-interactive shell that does
-        # not source ~/.bashrc, where harbor writes
-        # `export PATH="$HOME/.local/bin:$PATH"`. claude-code installs
-        # to ~/.local/bin via its curl installer, so a bare `claude`
-        # invocation here resolves "command not found" without this.
-        cmd = (
-            f'export PATH="$HOME/.local/bin:$PATH" && '
-            f"mkdir -p /tmp/skill-eval && "
-            f"{env_prefix} claude --print --dangerously-skip-permissions "
-            f"{shlex.quote(prompt)} "
-            f"&& printf '%s\\n' {shlex.quote(desired)} > {shlex.quote(marker_path)}"
-        )
-
-        timeout_sec = int(os.environ.get("PRE_DEPLOY_TIMEOUT_SEC", "1800"))
-        logger.info(
-            "Pre-deploying %s on %s (timeout=%ds)",
-            desired, self._instance_name, timeout_sec,
-        )
-        result = await _run_brev_exec(
-            self._instance_name, cmd, timeout=timeout_sec,
-        )
-        if result.return_code != 0:
-            tail = (result.stderr or result.stdout or "")[-500:]
-            raise RuntimeError(
-                f"pre-deploy /vss-deploy-profile -p {profile} -m {deploy_mode} failed "
-                f"on {self._instance_name}: exit {result.return_code}; "
-                f"output tail: {tail!r}"
-            )
-        logger.info(
-            "Pre-deploy %s succeeded on %s; active marker overwritten",
-            desired, self._instance_name,
-        )
 
     async def _sync_repo_to_pr_head(self) -> None:
         """Reset `~/video-search-and-summarization` on the Brev box to the
@@ -652,13 +468,46 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
         assert self._instance_name
-        result = await _run_brev_copy(
-            f"{self._instance_name}:{source_path}", str(target_path),
+        last_err = ""
+        for attempt in range(BREV_DOWNLOAD_RETRIES):
+            result = await _run_brev_copy(
+                f"{self._instance_name}:{source_path}", str(target_path),
+            )
+            if result.return_code == 0:
+                return
+            last_err = result.stderr or ""
+            if attempt + 1 < BREV_DOWNLOAD_RETRIES:
+                logger.warning(
+                    "download_file attempt %d/%d failed (%s) — retrying",
+                    attempt + 1, BREV_DOWNLOAD_RETRIES, last_err,
+                )
+                await asyncio.sleep(BREV_DOWNLOAD_BACKOFF_SEC * (attempt + 1))
+        raise RuntimeError(
+            f"Download failed after {BREV_DOWNLOAD_RETRIES} attempts: {last_err}"
         )
-        if result.return_code != 0:
-            raise RuntimeError(f"Download failed: {result.stderr}")
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
+        # Retry the pull: a transient stall — or a prior attempt whose ssh
+        # child was killed (now reaped via _run_brev_exec's process-group
+        # kill, so it can't wedge the box) — usually clears on a fresh
+        # connection. Raise loud only after exhausting retries.
+        last: Exception | None = None
+        for attempt in range(BREV_DOWNLOAD_RETRIES):
+            try:
+                await self._download_dir_once(source_dir, target_dir)
+                return
+            except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                last = exc
+                if attempt + 1 < BREV_DOWNLOAD_RETRIES:
+                    logger.warning(
+                        "download_dir attempt %d/%d failed (%s) — retrying",
+                        attempt + 1, BREV_DOWNLOAD_RETRIES, exc,
+                    )
+                    await asyncio.sleep(BREV_DOWNLOAD_BACKOFF_SEC * (attempt + 1))
+        assert last is not None
+        raise last
+
+    async def _download_dir_once(self, source_dir: str, target_dir: Path | str) -> None:
         assert self._instance_name
         # brev copy has broken directory nesting.  Use tar piped over
         # brev exec: tar on remote, base64-encode with markers, capture
@@ -756,6 +605,28 @@ def _which(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:
+    """SIGKILL the child's whole process group.
+
+    `proc.kill()` signals only the immediate child (the `brev`/`ssh`/`scp`
+    CLI). On a stalled transfer that leaves the underlying ssh data channel
+    orphaned — holding the secure-link/session open and wedging the box for
+    the next step (a killed large artifact pull can otherwise leave the
+    following trial's ports unreachable). Killing
+    the whole group reaps the orphan. Requires the child to have been
+    started with `start_new_session=True` so it leads its own group; falls
+    back to a plain kill if the group lookup fails."""
+    if proc.returncode is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+
 # Registered external nodes (BYOH / DGX-Spark / IGX-Thor) can't use
 # `brev exec` — they require a direct SSH session via the alias that
 # `brev shell` writes into ~/.brev/ssh_config.  We cache the list on
@@ -816,6 +687,7 @@ async def _run_ssh_exec(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         stdout, stderr = await asyncio.wait_for(
@@ -823,7 +695,7 @@ async def _run_ssh_exec(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
@@ -858,6 +730,7 @@ async def _run_scp(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         stdout, stderr = await asyncio.wait_for(
@@ -865,7 +738,7 @@ async def _run_scp(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
@@ -904,6 +777,7 @@ async def _run_brev_exec(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
 
     try:
@@ -912,7 +786,7 @@ async def _run_brev_exec(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
@@ -956,6 +830,7 @@ async def _run_brev_copy(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
 
     try:
@@ -964,7 +839,7 @@ async def _run_brev_copy(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
@@ -993,6 +868,7 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         stdout, stderr = await asyncio.wait_for(
@@ -1000,7 +876,7 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_proc_group(proc)
         stdout, stderr = await proc.communicate()
         if stdout and stdout.strip():
             return ExecResult(
