@@ -141,6 +141,10 @@ prompt to OpenClaw hooks. The NemoClaw/OpenClaw agent then uses the same
 repository `skills/` content installed by the OpenClaw plugin and the VSS
 Orchestrator MCP server exposed by the notebook setup.
 
+The NemoClaw smoke runner publishes the same high-level `Harbor Eval` Markdown
+shape as the Claude Code path, with NemoClaw runtime details, failing checks,
+trace links, and a benchmark artifact under `/tmp/skill-eval/<run_id>/`.
+
 ### Eval-profile vs deploy-profile (vss-deploy-profile adapter only)
 
 The `vss-deploy-profile` adapter exposes a small `PROFILES` dict that maps **eval-profile names** to the underlying `/vss-deploy-profile` invocation:
