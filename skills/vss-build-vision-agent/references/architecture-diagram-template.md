@@ -17,7 +17,7 @@ The diagram MUST include:
 - **One box per logical layer** (ingestion / inference / storage / search / infra). Use the double-line frame (`╔═╗ ║ ╚═╝`) for layers and the single-line frame (`┌─┐ │ └─┘`) for external actors so they read as visually distinct at a glance.
 - **Layer header line** carries the layer name (em-dash separated from a one-line role) and a right-aligned **network mode + GPU annotation** in square brackets: `[network_mode: host]`, `[bridge · GPU 0]`, `[bridge]`.
 - **Service list inside the box.** One service per line where possible, named by its `container_name` (or service-key when no container_name is set). Append `:PORT` for any host-exposed port. Use `·` (or `-` in `--ascii` mode) as the inline separator when two short services share a line.
-- **External actors** (`operator`, `external RTSP source`, `agent UI`, `sample mediamtx`) as small single-line-frame boxes above the layered stack. Edges enter the stack from the top.
+- **External actors** (`operator`, `external RTSP source`, `agent UI`) as small single-line-frame boxes above the layered stack. Edges enter the stack from the top. When the **NvStreamer validation harness** is included (sidecar `validation_harness:` key — see `references/validation-harness.md`), render it as a single-line-frame **validation-source** box labeled `NvStreamer (validation source)` with its ports (`:31000` HTTP, `:315xx` RTSP) in place of the real external-camera box; its edge enters the ingestion (VIOS) layer labeled with the registration call `POST /sensor/add (sensorUrl=rtsp://…315xx)`.
 - **One labeled arrow per inter-layer connection** declared in the integrate refs' `§ Integration Interfaces`. Label format:
   - REST calls: `POST /vst/api/v1/sensor/add` (path only, drop the host)
   - Kafka: two-line label — `Kafka topic: mdx-vlm-captions` on line 1, `schema: nv.VisionLLM (proto)` on line 2
@@ -45,13 +45,14 @@ Use as a template for the shape; swap layers and labels per the actual allow-lis
 # deployment_shape: streaming-and-uploaded-dense-captioning
 # flag: bp_developer_in_1
 
-  ┌──────────────┐                ┌──────────────────────────┐
-  │   operator   │                │   external RTSP source   │
-  └──────┬───────┘                │   (camera │ mediamtx)    │
-         │                        └────────────┬─────────────┘
-         │ PUT /storage/file?ts                │ RTSP push
-         │ POST /sensor/add                    │
-         ▼                                     ▼
+  ┌──────────────┐                ┌──────────────────────────────┐
+  │   operator   │                │  NvStreamer (validation src) │
+  └──────┬───────┘                │  vss-vios-nvstreamer          │
+         │                        │  :31000 HTTP · :315xx RTSP    │
+         │                        └──────────────┬───────────────┘
+         │ PUT /storage/file?ts                  │ POST /sensor/add
+         │ POST /sensor/add                      │ (sensorUrl=rtsp://…315xx)
+         ▼                                       ▼
   ╔═══════════════════════════════════════════════════════════╗
   ║  VIOS — ingestion + storage         [network_mode: host]  ║
   ║  ───────────────────────────────────────────────────────  ║
@@ -80,6 +81,8 @@ Use as a template for the shape; swap layers and labels per the actual allow-lis
   ║  ES index: default_<collection_id>                        ║
   ╚═══════════════════════════════════════════════════════════╝
 ```
+
+In this IN-1 example the streaming input is the **NvStreamer validation harness** (no real camera was supplied), so the top-right external actor is the NvStreamer validation source rather than a physical camera. It registers its auto-discovered sample with VIOS via `POST /sensor/add` (field `sensorUrl`); VIOS then re-publishes the stream on `rtsp://<host>:30554/live/<id>`, which RT-VLM consumes (the VIOS → RT-VLM edge already shown). If the operator HAD supplied a real RTSP camera, swap the validation-source box for an `external RTSP source` box and drop the `validation_harness:` key. The `operator` box's `POST /sensor/add` edge is the manual/VOD path and is independent of the harness.
 
 ## What Step 6 must do
 

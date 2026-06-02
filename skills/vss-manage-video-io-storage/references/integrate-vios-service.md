@@ -24,7 +24,7 @@ VIOS supports **two distinct video-ingestion patterns** that the build-vision-ag
 ### Topology A — External RTSP camera (the canonical IN-1 path)
 
 ```
-External RTSP camera (or test mediamtx+ffmpeg)
+External RTSP camera (or NvStreamer synthetic RTSP source — the validation harness)
   │
   └─→ POST /vst/api/v1/sensor/add  ───▶ vss-vios-sensor (30000) ──┐
                                                                    │ HTTP via SDRC-rendered Envoy listener
@@ -244,6 +244,13 @@ component_services:
   **Endpoint:** `rtsp://<host>:30554/live/<sensorId>` (port = `${RTSP_SERVER_PORT}`, default 30554)
   Re-publishes the registered upstream camera RTSP stream under a stable VIOS-managed URL. Available within 1–2 seconds of `POST /sensor/add` once the sensor transitions to `state=online`. Verified 2026-05-23 with `ffprobe -rtsp_transport tcp rtsp://<host>:30554/live/<id>` returning H.264 metadata. Source: `vios-microservices.rst` § Key Features bullet 4 + § RTSP Server Service + verified live.
 
+- **Method:** NvStreamer → VIOS handoff (validation-harness live source)
+  **Producer:** `vss-vios-nvstreamer` (NvStreamer, `ADAPTOR=streamer`, HTTP `:31000`, RTSP pool `:31554–31561`)
+  **Endpoint (consumed downstream):** `rtsp://${HOST_IP}:30554/live/<sensorId>` — the VIOS live proxy of the registered NvStreamer stream.
+  **Sequence:** stage a sample video into `${VSS_DATA_DIR}/videos/<build-name>/` → NvStreamer auto-discovers it (`sensorId == streamId == name == filename-stem`) → `GET http://${HOST_IP}:31000/vst/api/v1/sensor/<stem>/streams` returns `.[0].url` = `rtsp://${HOST_IP}:315xx/nvstream/…` (read the port from the API — do NOT construct it) → `POST http://${HOST_IP}:30888/vst/api/v1/sensor/add` with `{"sensorUrl":"<that-url>"}` (field is `sensorUrl`, NOT `url`) → VIOS re-publishes at `rtsp://${HOST_IP}:30554/live/<sensorId>` → feed THAT (using `${HOST_IP}`, not `localhost` — Finding 12) to RT-VLM `POST :8018/v1/streams/add`.
+  **Trigger:** validation-harness only — the build-vision-agent skill emits NvStreamer when the capability has a live/streaming path and no real camera/RTSP URL was supplied. NvStreamer is NOT a `sensor_topology` variant and NOT in this doc's `component_services:` block. Allow ~5 s after staging for the streams list to populate; retry with backoff.
+  Source: `vss-build-vision-agent/references/validation-harness.md § 4` + `references/nvstreamer-api-reference.md § Canonical workflow: NvStreamer → VIOS handoff` + `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml § nvstreamer-alerts`.
+
 - **Method:** RTSP recorded-replay playback (VOD)
   **Endpoint:** `rtsp://<host>:30564/vod/<sensorId>`
   Serves recorded segments back to the client. Returns 404 until at least one recording segment has rolled over to disk (typically 1–5 min after `POST /record/<id>/start`, governed by VIOS's segment-rotation policy). Source: VIOS `camera_streaming` event payload `camera_vod_url` field, verified 2026-05-23.
@@ -449,8 +456,8 @@ Both topologies emit the same `camera_streaming` Kafka/Redis event downstream.
 - **Upload smoke test (v2):** `PUT` an MP4 to `/vst/api/v1/storage/file/<filename>?timestamp=2025-01-01T00:00:00.000Z` with `Content-Type: application/octet-stream` + `Content-Length`; confirm 200 + `{sensorId, streamId, filePath}` in the response and the file present at `${VSS_DATA_DIR}/data_log/vst/clip_storage/...`. Then verify the timeline honors the requested timestamp: `curl http://localhost:30888/vst/api/v1/storage/<streamId>/timelines` should show a `{startTime, endTime}` range anchored at `2025-01-01T00:00:00.000Z`.
 - **DB liveness:** `docker exec vss-vios-postgres pg_isready -U ${CENTRALIZE_DB_USERNAME}`.
 - **End-to-end live ingestion + playback (Topology A, verified 2026-05-23):**
-  1. Bring up an RTSP source (e.g., `mediamtx` + `ffmpeg` pushing `warehouse_safety_0001.mp4` on `rtsp://127.0.0.1:8554/warehouse`).
-  2. `POST /vst/api/v1/sensor/add` with `{"sensorUrl":"rtsp://127.0.0.1:8554/warehouse","name":"warehouse-cam","username":"admin","password":"admin"}` — expect 200 + `{"sensorId":"<uuid>"}`.
+  1. Bring up a synthetic RTSP source via the **NvStreamer validation harness** (`vss-vios-nvstreamer`, `ADAPTOR=streamer`) — stage a sample MP4 into `${VSS_DATA_DIR}/videos/<build-name>/`, let NvStreamer auto-discover it, and read the RTSP URL from `GET http://${HOST_IP}:31000/vst/api/v1/sensor/<stem>/streams` (NEVER construct the 315xx port — read it from the API). See `vss-build-vision-agent/references/validation-harness.md` for the full harness contract and `references/nvstreamer-api-reference.md § Canonical workflow: NvStreamer → VIOS handoff` for the API detail. (Legacy: earlier runs used a `mediamtx` + `ffmpeg` sidecar pushing `rtsp://127.0.0.1:8554/warehouse`; NvStreamer replaces it.)
+  2. `POST /vst/api/v1/sensor/add` with `{"sensorUrl":"<rtsp-url-from-step-1>","name":"nvstream-<stem>","username":"","password":""}` — expect 200 + `{"sensorId":"<uuid>"}`. Field is `sensorUrl` (NOT `url`).
   3. `GET /vst/api/v1/sensor/<sensorId>/status` — expect `state: online`.
   4. `ffprobe -rtsp_transport tcp rtsp://<host>:30554/live/<sensorId>` — expect H.264 stream metadata (live playback works).
   5. `POST /vst/api/v1/record/<sensorId>/start` — start recording.
