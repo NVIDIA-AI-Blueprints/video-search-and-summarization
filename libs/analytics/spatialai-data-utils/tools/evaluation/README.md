@@ -109,7 +109,6 @@ edition (default `2026`):
 
 ```bash
 # 2026 (default)
-cd /path/to/spatialai_data_utils
 python tools/evaluation/evaluate_aicity_mtmc.py \
     --ground_truth_file  data/aicity26/ground_truth/ground_truth.txt \
     --input_file         /path/to/your_2026_submission.txt \
@@ -149,6 +148,7 @@ because each warehouse has more frames with PalletTruck instances.
 | `--scene_id_2_scene_name_file` | No       | (packaged for `--edition`) | JSON `{scene_id_str: scene_name}` mapping. When omitted, the tool uses the bundled default mapping for the chosen `--edition`; pass this explicitly for a custom scene subset. |
 | `--output_dir`                 | No       | (tempdir) | Where the split files, TrackEval scratch artefacts, and the final `aicity_mtmc_hota_summary.json` are written. Omit to use a tempdir and discard intermediates at exit. |
 | `--num_cores`                  | No       | `1`       | Forwarded to TrackEval's `NUM_PARALLEL_CORES`. Has near-zero impact here because we run TrackEval once per `(scene, class)` pair with a single sequence. |
+| `--frame_start`                | No       | `0`       | 0-indexed inclusive lower bound for `frame_id` (per scene). Combined with `--num_frames_to_eval` defines an arbitrary half-open window `[frame_start, num_frames_to_eval)` -- e.g. `--frame_start 4500 --num_frames_to_eval 9000` evaluates the second half of a 9000-frame scene; `--frame_start 0 --num_frames_to_eval 4500` evaluates the first half. Defaults to 0 (the official validation server's behaviour). |
 | `--num_frames_to_eval`         | No       | `9000`    | Frame-count truncation per scene (0-indexed exclusive upper bound). Matches the official validation server default. |
 | `--eval_type`                  | No       | `bbox`    | HOTA matching function: `bbox` (3D-IoU — the official AICity MTMC metric) or `location` (centre distance — useful for ablation only). |
 | `--fps`                        | No       | `30.0`    | FPS written into TrackEval's per-sequence `seqinfo.ini` (cosmetic for single-sequence runs). |

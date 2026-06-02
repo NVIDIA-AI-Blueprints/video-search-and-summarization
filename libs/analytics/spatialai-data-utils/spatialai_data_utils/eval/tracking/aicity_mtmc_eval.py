@@ -198,6 +198,7 @@ def split_aicity_mtmc_per_scene_per_class(
     num_frames_to_eval: int,
     is_pred: bool,
     class_id_to_name: Optional[Dict[int, str]] = None,
+    frame_start: int = 0,
 ) -> Dict[str, Dict[str, int]]:
     """Stream-split an AICity MTMC file into per-(scene, class) MOT files.
 
@@ -205,12 +206,14 @@ def split_aicity_mtmc_per_scene_per_class(
 
         <output_root>/<scene_name>/<class_name>/<file_basename>
 
-    Lines whose 0-indexed ``frame_id`` is ``>= num_frames_to_eval`` are
-    dropped (matches the official validation server's
-    ``num_frames_to_eval=9000`` truncation).  Lines whose scene id is
-    not in *scene_id_to_name* are dropped silently for GT and raise for
-    predictions — the prediction file must declare which scenes it
-    intends to compete on.
+    Lines whose 0-indexed ``frame_id`` is outside
+    ``[frame_start, num_frames_to_eval)`` are dropped (the default
+    ``[0, 9000)`` window matches the official validation server's
+    truncation; pass a non-zero ``frame_start`` to evaluate a
+    later-frame slice, e.g. the second half of the test set).  Lines
+    whose scene id is not in *scene_id_to_name* are dropped silently
+    for GT and raise for predictions — the prediction file must
+    declare which scenes it intends to compete on.
 
     :param input_path: Path to the AICity MTMC text file (GT or
         submission).  Each row must have exactly 11 space-separated
@@ -226,6 +229,14 @@ def split_aicity_mtmc_per_scene_per_class(
         mapping are dropped (GT) or rejected (predictions).
     :param num_frames_to_eval: Frame-count truncation per scene
         (0-indexed exclusive upper bound).
+    :param frame_start: 0-indexed inclusive lower bound for ``frame_id``.
+        Defaults to ``0`` (the official validation server's behaviour).
+        Combined with *num_frames_to_eval* this defines an arbitrary
+        half-open window ``[frame_start, num_frames_to_eval)`` per
+        scene — e.g. ``frame_start=4500, num_frames_to_eval=9000``
+        evaluates the second half of a 9000-frame scene.  Must be in
+        ``[0, num_frames_to_eval)`` — an out-of-range value raises
+        ``ValueError``.
     :param is_pred: Controls error semantics — ``True`` raises on any
         malformed / out-of-spec row (submission must be valid),
         ``False`` warns and skips (GT can have extra scenes the user
@@ -243,7 +254,17 @@ def split_aicity_mtmc_per_scene_per_class(
         as the per-class output directory names.
     :return: ``{scene_name: {class_name: number_of_rows_written}}``
         — used both for the per-scene weight and as a sanity log.
+    :raises ValueError: If ``frame_start`` is negative or not strictly
+        less than ``num_frames_to_eval`` (an empty window is rejected
+        rather than silently producing no results).
     """
+    if frame_start < 0:
+        raise ValueError(f"frame_start must be >= 0, got {frame_start}.")
+    if frame_start >= num_frames_to_eval:
+        raise ValueError(
+            f"frame_start ({frame_start}) must be < num_frames_to_eval "
+            f"({num_frames_to_eval}); window would be empty."
+        )
     if class_id_to_name is None:
         class_id_to_name = _DEFAULT_CLASS_ID_TO_NAME_AICITY26
     scenes_str_to_name = {str(k): v for k, v in scene_id_to_name.items()}
@@ -329,7 +350,7 @@ def split_aicity_mtmc_per_scene_per_class(
                     )
                     continue
 
-                if frame_id_0based < 0 or frame_id_0based >= num_frames_to_eval:
+                if frame_id_0based < frame_start or frame_id_0based >= num_frames_to_eval:
                     continue
 
                 scene_name = scenes_str_to_name[scene_id_str]
@@ -480,6 +501,7 @@ def run_aicity_mtmc_evaluation(
     fps: float = 30.0,
     quiet: bool = True,
     class_id_to_name: Optional[Dict[int, str]] = None,
+    frame_start: int = 0,
 ) -> Dict[str, Any]:
     """End-to-end orchestrator for one (gt, pred) AICity MTMC evaluation.
 
@@ -516,7 +538,9 @@ def run_aicity_mtmc_evaluation(
         sequence.
     :param num_frames_to_eval: Frame-count truncation per scene
         (0-indexed exclusive upper bound).  Defaults to the official
-        validation server's ``9000``.
+        validation server's ``9000``.  Combined with ``frame_start``
+        this defines an arbitrary half-open window
+        ``[frame_start, num_frames_to_eval)`` per scene.
     :param eval_type: ``"bbox"`` for 3D-IoU matching (the official
         AICity MTMC metric) or ``"location"`` for centre-distance
         matching.
@@ -531,6 +555,14 @@ def run_aicity_mtmc_evaluation(
         spec (six classes, IDs 0-5).  Pass the AICity'26 spec table
         (which adds ``PalletTruck`` at ID 6) to evaluate 2026
         submissions without dropping the new class.
+    :param frame_start: 0-indexed inclusive lower bound for
+        ``frame_id``.  Defaults to ``0`` (the official validation
+        server's behaviour).  Set this together with
+        ``num_frames_to_eval`` to evaluate a non-prefix slice — e.g.
+        ``frame_start=4500, num_frames_to_eval=9000`` runs HOTA on
+        the second half of a 9000-frame scene.  Must be in
+        ``[0, num_frames_to_eval)``; an out-of-range value raises
+        ``ValueError``.
     :return: A nested dict with keys ``"eval_type"``,
         ``"num_frames_to_eval"``, ``"scene_id_to_name"``,
         ``"per_scene_object_counts"``, ``"per_scene_per_class"``,
@@ -564,11 +596,13 @@ def run_aicity_mtmc_evaluation(
             ground_truth_file, split_root, "gt.txt",
             scene_id_to_name, num_frames_to_eval, is_pred=False,
             class_id_to_name=class_id_to_name,
+            frame_start=frame_start,
         )
         pred_counts = split_aicity_mtmc_per_scene_per_class(
             prediction_file, split_root, "pred.txt",
             scene_id_to_name, num_frames_to_eval, is_pred=True,
             class_id_to_name=class_id_to_name,
+            frame_start=frame_start,
         )
 
         scene_object_counts: Dict[str, int] = {

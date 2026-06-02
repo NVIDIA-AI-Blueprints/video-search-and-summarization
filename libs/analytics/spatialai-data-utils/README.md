@@ -76,7 +76,7 @@ index:
 pip install 'torch>=2.10.0' --index-url https://download.pytorch.org/whl/cpu   # or CUDA build
 pip install 'pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git@33824be' \
     --no-build-isolation
-pip install spatialai_data_utils==2.0.0 \
+pip install spatialai-data-utils==2.0.0 \
     --extra-index-url=https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple
 ```
 

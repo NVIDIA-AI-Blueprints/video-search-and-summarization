@@ -1,5 +1,4 @@
-# spatialai_data_utils
-
+spatialai_data_utils
 Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 This product includes software developed by NVIDIA CORPORATION
@@ -10,18 +9,18 @@ This product also includes software developed by third parties, as
 described below. The full terms of each upstream license apply to the
 corresponding portions of the work.
 
------------------------------------------------------------------------
+================================================================================
 Third-party software notices
------------------------------------------------------------------------
+================================================================================
 
 This project will download and install additional third-party open source
 software projects. Review the license terms of these open source projects
 before use. A consolidated dependency license table is in
 `3rdParty_Licenses.md`.
 
------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 nuScenes dev-kit attribution
------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 Parts of this repository are adapted from the nuScenes dev-kit
 (https://github.com/nutonomy/nuscenes-devkit/tree/1.2.0). Upstream states
