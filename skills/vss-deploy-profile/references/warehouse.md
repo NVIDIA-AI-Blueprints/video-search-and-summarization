@@ -862,7 +862,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
   --overwrite
 ```
 
-If you have a plan-view image, include it when running clustering so region metadata is derived in the same pass. For multiple independent BEV groups, tune `--n_clusters` and `--max_camera_per_group`; otherwise keep `--n_clusters 1`. Docs: https://docs.nvidia.com/vss/3.1.0/warehouse-docs/3D-profile.html#camera-clustering
+Docs: 3D https://docs.nvidia.com/vss/3.2.0/warehouse-docs/3D-profile.html#camera-clustering and for mv3dt, https://docs.nvidia.com/vss/3.2.0/warehouse-docs/mv3dt-profile.html#camera-clustering
 
 ### MV3DT-specific configuration updates
 
