@@ -359,7 +359,7 @@ Each profile reference has a **Debugging** section listing the exact commands an
 docker ps --format 'table {{.Names}}\t{{.Status}}'
 
 # 2. Agent API + UI responding
-curl -sf http://localhost:8000/docs >/dev/null && echo "agent OK"
+curl -sf http://localhost:8000/health >/dev/null && echo "agent OK"
 curl -sf http://localhost:3000/ >/dev/null && echo "ui OK"
 
 if [ -n "${ENV_GEN:-}" ] && [ -f "$ENV_GEN" ]; then
