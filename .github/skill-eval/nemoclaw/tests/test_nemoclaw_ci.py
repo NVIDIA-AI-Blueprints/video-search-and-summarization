@@ -749,6 +749,119 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertFalse(reachable)
 
+    def test_nemoclaw_report_uses_harbor_eval_format(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            results_root = root / "results"
+            run_id = "123456"
+            trial_dir = (
+                results_root
+                / run_id
+                / "2026-06-02__08-00-00"
+                / "nvidia-vss-vss-deploy-profile-base-rtxpro6000bw"
+            )
+            (trial_dir / "verifier").mkdir(parents=True)
+            (trial_dir / "agent").mkdir()
+            (trial_dir / "result.json").write_text(
+                json.dumps(
+                    {
+                        "trial_started_at": "2026-06-02T08:00:00Z",
+                        "trial_finished_at": "2026-06-02T08:26:57Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (trial_dir / "verifier" / "reward.txt").write_text("0.5", encoding="utf-8")
+            (trial_dir / "verifier" / "judge.json").write_text(
+                json.dumps(
+                    {
+                        "total": 2,
+                        "passed": 1,
+                        "checks": [
+                            {"pass": True, "check": "docs endpoint responds"},
+                            {
+                                "pass": False,
+                                "check": "MCP docker_status reached terminal state",
+                                "rationale": "docker_status was not observed",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (trial_dir / "agent" / "trajectory.json").write_text(
+                json.dumps(
+                    {
+                        "steps": [
+                            {
+                                "message": json.dumps(
+                                    {
+                                        "type": "assistant",
+                                        "message": {
+                                            "usage": {
+                                                "input_tokens": 100,
+                                                "cache_read_input_tokens": 10,
+                                            }
+                                        },
+                                    }
+                                )
+                            }
+                        ],
+                        "final_metrics": {
+                            "modelUsage": {
+                                "claude": {
+                                    "inputTokens": 8400,
+                                    "cacheReadInputTokens": 100,
+                                    "cacheCreationInputTokens": 50,
+                                }
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            summary = root / "summary.md"
+            previous = {
+                "GITHUB_STEP_SUMMARY": os.environ.get("GITHUB_STEP_SUMMARY"),
+                "GITHUB_RUN_ID": os.environ.get("GITHUB_RUN_ID"),
+                "PR_HEAD_SHA": os.environ.get("PR_HEAD_SHA"),
+                "BREV_ENV_ID": os.environ.get("BREV_ENV_ID"),
+            }
+            os.environ["GITHUB_STEP_SUMMARY"] = str(summary)
+            os.environ["GITHUB_RUN_ID"] = run_id
+            os.environ["PR_HEAD_SHA"] = "abcdef0123456789"
+            os.environ["BREV_ENV_ID"] = "abc123"
+            old_scratch = smoke_runner.SCRATCH_ROOT
+            smoke_runner.SCRATCH_ROOT = root / "scratch"
+            try:
+                smoke_runner._append_harbor_report(
+                    profile="base",
+                    platform="RTXPRO6000BW",
+                    instance="vss-eval-rtx-1g-2",
+                    results_root=results_root,
+                    run_id=run_id,
+                    reward=0.5,
+                    harbor_rc=1,
+                    log_path=root / "harbor.log",
+                )
+            finally:
+                smoke_runner.SCRATCH_ROOT = old_scratch
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+            report = summary.read_text(encoding="utf-8")
+            benchmark = (root / "scratch" / run_id / "benchmark.md").read_text(encoding="utf-8")
+
+        self.assertIn("## Harbor Eval - `skills/vss-deploy-profile/evals/base.json`", report)
+        self.assertIn("runtime `NemoClaw/OpenClaw`", report)
+        self.assertIn("| RTXPRO6000BW | FAIL 0.5 (1/2) | 0.5 | 26m 57s | 1 | 8.4k | 150 |", report)
+        self.assertIn("MCP docker_status reached terminal state", report)
+        self.assertIn("[trace](https://harbor-abc123.brevlab.com/jobs/", report)
+        self.assertIn("Skills Eval Benchmark - NemoClaw smoke", benchmark)
+
 
 class OpenClawStreamPatchTest(unittest.TestCase):
     def test_patch_openai_chat_completions_disables_streaming_tools(self):
