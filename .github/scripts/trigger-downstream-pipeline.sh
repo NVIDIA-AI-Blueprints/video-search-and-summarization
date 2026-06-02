@@ -17,6 +17,7 @@ from urllib.request import urlopen
 
 LAUNCHABLE_NOTEBOOK_PATH = "deploy/docker/scripts/deploy_vss_launchable.ipynb"
 LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE = "BREV_LAUNCHABLE_NOTEBOOK_TESTS"
+CHANGED_FILE_FIELDS = ("added", "modified")
 
 
 def emit_error(message: str) -> None:
@@ -243,6 +244,8 @@ def fetch_pr_changed_files(repo: str, pr_number: int, token: str) -> set[str]:
         for item in data:
             if not isinstance(item, dict):
                 continue
+            if item.get("status") == "removed":
+                continue
             filename = item.get("filename")
             if isinstance(filename, str):
                 filenames.add(filename)
@@ -270,14 +273,14 @@ def push_event_changed_files() -> set[str]:
         for commit in commits:
             if not isinstance(commit, dict):
                 continue
-            for field in ("added", "modified", "removed"):
+            for field in CHANGED_FILE_FIELDS:
                 values = commit.get(field)
                 if isinstance(values, list):
                     filenames.update(item for item in values if isinstance(item, str))
 
     head_commit = event.get("head_commit")
-    if isinstance(head_commit, dict):
-        for field in ("added", "modified", "removed"):
+    if not filenames and isinstance(head_commit, dict):
+        for field in CHANGED_FILE_FIELDS:
             values = head_commit.get(field)
             if isinstance(values, list):
                 filenames.update(item for item in values if isinstance(item, str))
