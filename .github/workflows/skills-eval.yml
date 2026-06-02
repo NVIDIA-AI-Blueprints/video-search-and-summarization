@@ -367,7 +367,7 @@ jobs:
 
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
-        timeout-minutes: 190
+        timeout-minutes: 240
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
