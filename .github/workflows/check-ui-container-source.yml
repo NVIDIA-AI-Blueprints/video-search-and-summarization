@@ -33,6 +33,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Validate the gate helper itself — a regression here would silently
+      # block every PR or skip a genuinely-drifted container, so fail loudly.
+      - name: Unit-test the gate helper
+        run: python3 .github/scripts/test_source_check_only_nonbuild.py
+
       # Docs/tests-only PRs never change what enters the UI image — the build
       # context honors services/ui/.dockerignore, which excludes **/*.md and
       # test/spec files — yet they change the services/ui tree SHA and would
