@@ -51,8 +51,17 @@ fi
 models_json="$(curl "${curl_args[@]}" "${base_url}/v1/models")" \
   || { echo "ERROR: remote endpoint failed: ${base_url}/v1/models" >&2; exit 1; }
 
-model_count="$(echo "$models_json" | jq -r \
-  'if (.data? | type) == "array" then (.data | length) elif (.id? != null) then 1 else 0 end')"
+model_count="$(printf '%s\n' "$models_json" | jq -r \
+  'if type == "object" and ((.data? | type) == "array") then ([.data[]? | select(.id? != null)] | length) elif type == "object" and (.id? != null) then 1 else 0 end' 2>/dev/null)" \
+  || {
+    echo "ERROR: remote endpoint did not return JSON from: ${base_url}/v1/models" >&2
+    exit 1
+  }
+
+if [[ ! "$model_count" =~ ^[0-9]+$ || "$model_count" -lt 1 ]]; then
+  echo "ERROR: remote endpoint did not advertise any models: ${base_url}/v1/models" >&2
+  exit 1
+fi
 
 if [[ -z "$expected_model" && "${model_count:-0}" -gt 1 ]]; then
   echo "ERROR: remote endpoint advertises multiple models; ask the user to choose one:" >&2
