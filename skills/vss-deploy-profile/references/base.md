@@ -170,6 +170,7 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 
 - **L40S (48 GB) cannot host the default LLM + VLM shared.** 23.4 + 20.8 = 44.2 GB > 0.85 × 48 = 40.8 GB. Use a 2-GPU L40S host (one model per GPU), or escalate to the user per Trigger 2.
 - **DGX Spark shared mode must use the DGX Spark Nano 9B NIM path in `edge.md`.** Run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and set `LLM_MODE=remote`, `LLM_BASE_URL=http://localhost:30081`, and `LLM_NAME_SLUG=none`. The image is not wired into compose yet. Do not use the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image on DGX Spark.
+- **DGX Spark VLM is served by `rtvi-vlm`, not the standalone `cosmos-reason2-8b` NIM.** The standalone Cosmos Reason 2 NIM is unreliable on Spark (garbled output), so base-on-Spark serves the VLM via `rtvi-vlm` with the integrated `hf-1208` checkpoint — same as `alerts`/`lvs`/Thor-base. Set `VLM_MODEL_TYPE=rtvi`, `VLM_NAME_SLUG=none`, `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208`, and the `-sbsa` RT-VLM image; full env block in [`edge.md`](edge.md). `rtvi-vlm` starts for base on Spark because `bp_developer_base_2d_DGX-SPARK` is in its compose `profiles:`.
 - **AGX/IGX Thor shared mode still uses the Edge 4B fallback in `edge.md`.** This skill does not have a verified Thor-supported Nano 9B NIM path. Keep the standalone Edge 4B vLLM recipe and `HF_TOKEN` verification for Thor unless the user provides a verified remote endpoint.
 - **Llama 3.3 49B FP16 doesn't fit on a single 80 GB GPU.** 49 × 16 / 8 × 1.3 = 127 GB > 68 GB usable. Either run dedicated with tensor parallelism (`tp=2` on two H100s → 63.7 GB/GPU) or use H200 (141 GB) / B200 (192 GB) — or escalate per Trigger 2.
 - **`HARDWARE_PROFILE` is just an env-file label, not a sizing oracle.** It selects the path `nim/<slug>/hw-<HARDWARE_PROFILE>(-shared).env` — that's all. Pre-tuned env files exist for known platforms as a convenience, but missing != unsupported. Compute the right `NIM_KVCACHE_PERCENT` (or `--gpu-memory-utilization`) from the [Sizing math](#sizing-math) and write it into a fresh `hw-<HARDWARE_PROFILE>(-shared).env` (or set `HARDWARE_PROFILE=OTHER` and edit `hw-OTHER(-shared).env`). The agent's correctness check is the **resolved compose**: does it include the right LLM/VLM service for the chosen `LLM_NAME_SLUG` / `VLM_NAME_SLUG`, and does that service's env carry the computed sizing values? If yes, the deploy will work regardless of which `HARDWARE_PROFILE` label is used.
@@ -299,7 +300,7 @@ For shared mode, compute it via the formula. As sanity-check defaults / in-tree 
 | Co-residency | LLM `--gpu-memory-utilization` | VLM `NIM_KVCACHE_PERCENT` | Source |
 |---|---|---|---|
 | Nano 9B v2 FP8 + Cosmos Reason2 8B (shared) | 0.40 | 0.40 | FP8 + Cosmos2 `*-shared.env` |
-| DGX Spark Nano 9B NIM + Cosmos Reason2 8B on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
+| DGX Spark Nano 9B NIM + RT-VLM Cosmos Reason 2 on DGX Spark | 0.40 | RT-VLM 0.35 | `edge.md` DGX Spark recipe |
 | Edge 4B + RT-VLM on Thor | 0.25 | RT-VLM default 0.35 | `edge.md` Thor fallback |
 | Qwen3-VL 8B + Nano 9B (shared) | 0.40 | 0.40 | Qwen3 `*-shared.env` |
 
@@ -417,7 +418,7 @@ COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE}
 
 Example resolved value:
 ```
-bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,bp_developer_base_2d_no_proxy,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
+bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,bp_developer_base_2d_no_proxy,llm_remote_none,vlm_local_shared_none
 ```
 
 The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automatically.

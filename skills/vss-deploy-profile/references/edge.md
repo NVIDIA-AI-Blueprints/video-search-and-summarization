@@ -95,7 +95,15 @@ SKILL.md pre-flight smoke test does not install it.
 > sudo su -c 'echo performance > <VIC_DEVFREQ_PATH>/governor'
 > ```
 
-## DGX Spark - Nano 9B v2 DGX Spark NIM + local Cosmos Reason2 VLM
+## DGX Spark — Nano 9B v2 DGX Spark NIM (LLM) + rtvi-vlm Cosmos Reason 2 (VLM)
+
+On DGX Spark the **VLM is served by `rtvi-vlm`** with the integrated Cosmos Reason 2
+`hf-1208` checkpoint — the same path `alerts`, `lvs`, and Thor-base use. The standalone
+`cosmos-reason2-8b` NIM is **not** used on Spark: it is unreliable there (repeated / garbled
+tokens, stray characters, off-topic answers). `rtvi-vlm` loads the checkpoint in-process and
+serves it at `http://${HOST_IP}:8018/v1`; it starts for base on Spark because
+`bp_developer_base_2d_DGX-SPARK` is in its compose `profiles:`. The **LLM** still runs as the
+standalone Nano 9B DGX Spark NIM below.
 
 Start the LLM as a standalone local NIM on port `30081`:
 
@@ -148,10 +156,16 @@ Then apply env overrides to `dev-profile-base/generated.env`:
 | `LLM_BASE_URL` | `http://localhost:30081` | The local NIM started above |
 | `LLM_NAME` | `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` | Expected served model ID; verify with `/v1/models` |
 | `LLM_NAME_SLUG` | `none` | Remote mode skips local LLM compose services |
-| `HARDWARE_PROFILE` | `DGX-SPARK` | Selects the DGX Spark VLM env file |
+| `HARDWARE_PROFILE` | `DGX-SPARK` | Edge platform; selects SBSA images and the RT-VLM VLM path |
 | `VLM_MODE` | `local_shared` | VLM stays local on the shared edge GPU |
-| `VLM_NAME` | `nvidia/cosmos-reason2-8b` | Default local VLM |
-| `VLM_NAME_SLUG` | `cosmos-reason2-8b` | Compose-managed VLM service |
+| `VLM_MODEL_TYPE` | `rtvi` | Agent's `video_understanding` points at `rtvi-vlm` (`${RTVI_VLM_BASE_URL}/v1`), not a standalone NIM |
+| `VLM_NAME` | `nim_nvidia_cosmos-reason2-8b_hf-1208` | Must match RT-VLM's `/v1/models` basename, or the agent gets HTTP 400 "No such model" |
+| `VLM_NAME_SLUG` | `none` | No standalone Cosmos NIM compose service — `rtvi-vlm` serves the VLM |
+| `VLM_BASE_URL` | `http://${HOST_IP}:8018` | RT-VLM endpoint (no trailing `/v1`) |
+| `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Checkpoint `rtvi-vlm` loads in-process |
+| `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason2` | Integrated mode (not the `openai-compat` proxy the x86 base default uses) |
+| `RTVI_VLM_IMAGE_TAG` | `3.2.0-26.05.4-sbsa` | DGX Spark is SBSA — must use the `-sbsa` RT-VLM image |
+| `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.35` | Conservative shared-GPU budget (same default as Thor base) |
 | `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 | `VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 
@@ -162,9 +176,11 @@ Edge 4B-specific prompt:
 VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml
 ```
 
-Then follow `SKILL.md` Steps 3-5 (resolve compose, normalize, `up -d`). The
-`cosmos-reason2-8b` NIM compose automatically loads
-`hw-DGX-SPARK-shared.env`, which caps the VLM side for shared edge memory.
+Then follow `SKILL.md` Steps 3-5 (resolve compose, normalize, `up -d`). Verify the resolved
+compose includes `vss-rtvi-vlm` and **not** `nvidia-cosmos-reason2-8b`. On first start
+`rtvi-vlm` downloads `cosmos-reason2-8b:hf-1208` from NGC (~10-20 min). If you deploy with
+`dev-profile.sh` instead of writing `generated.env` directly, the script applies these RT-VLM
+values and swaps in the `-sbsa` image tag automatically for `HARDWARE_PROFILE=DGX-SPARK`.
 
 ## Future compose-supported DGX Spark path
 
@@ -178,8 +194,9 @@ run the standalone NIM. Instead use the compose-managed local-shared path:
 | `LLM_NAME` | `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` |
 | `LLM_NAME_SLUG` | `nvidia-nemotron-nano-9b-v2-dgx-spark` |
 | `LLM_MODE` | `local_shared` |
-| `VLM_NAME` | `nvidia/cosmos-reason2-8b` |
-| `VLM_NAME_SLUG` | `cosmos-reason2-8b` |
+| `VLM_MODEL_TYPE` | `rtvi` |
+| `VLM_NAME` | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
+| `VLM_NAME_SLUG` | `none` |
 | `VLM_MODE` | `local_shared` |
 | `LLM_DEVICE_ID` | `0` |
 | `VLM_DEVICE_ID` | `0` |
