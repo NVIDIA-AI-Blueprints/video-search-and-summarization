@@ -194,6 +194,28 @@ def _normalize_cell_source(cell: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
+def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
+    if cell_id != "run-code" or not isinstance(cell.get("source"), str):
+        return cell
+    source = cell["source"]
+    optional_forward = "ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)"
+    if optional_forward not in source:
+        return cell
+    patched = deepcopy(cell)
+    patched["source"] = source.replace(
+        optional_forward,
+        "\n".join(
+            [
+                "try:",
+                "    ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)",
+                "except RuntimeError as exc:",
+                "    print(f\"WARNING: optional OpenShell forward 9090 skipped in CI: {exc}\", flush=True)",
+            ]
+        ),
+    )
+    return patched
+
+
 def build_notebook(source_nb: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
     """Return a setup-only notebook assembled from stable cell ids."""
     cells_by_id = {cell.get("id"): cell for cell in source_nb.get("cells", [])}
@@ -211,7 +233,7 @@ def build_notebook(source_nb: dict[str, Any], manifest: dict[str, Any]) -> dict[
         if cell_id == insert_before and not inserted:
             output["cells"].append(_code_cell(nbformat, PARAMETER_SOURCE, "ci-parameters"))
             inserted = True
-        output["cells"].append(_normalize_cell_source(cells_by_id[cell_id]))
+        output["cells"].append(_patch_ci_cell(cell_id, _normalize_cell_source(cells_by_id[cell_id])))
 
     if not inserted:
         output["cells"].append(_code_cell(nbformat, PARAMETER_SOURCE, "ci-parameters"))
