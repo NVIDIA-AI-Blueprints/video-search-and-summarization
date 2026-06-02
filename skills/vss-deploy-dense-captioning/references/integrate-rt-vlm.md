@@ -134,7 +134,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
-| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.2.0-26.04.1` for x86/Tegra; `3.2.0-26.04.1-sbsa` for SBSA Grace/Spark) | `3.2.0-26.04.1` | optional |
+| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.2.0-26.05.4` for x86/Tegra; `3.2.0-26.05.4-sbsa` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.2.0-26.05.4` as of 2026-06-02).** | `3.2.0-26.05.4` (per `dev-profile-base/.env`) | optional |
 
 ## Network Requirements
 
@@ -152,7 +152,7 @@ The host-side variable names that the compose interpolates differ from the canon
 
 - **Endpoint rename (3.2.0 breaking change).** `/v1/generate_captions_alerts` was renamed to `/v1/generate_captions`. 3.1.0-era clients break — update before deployment. Source: `real-time-vlm.rst` § Breaking Changes.
 - **Duplicate stream/camera IDs now 409.** Re-adding a stream with the same ID returns HTTP 409 (`DuplicateStreamId` / `DuplicateCameraId`) instead of silently overwriting. Idempotent registration code must remove first or handle 409. Source: `real-time-vlm.rst` § Breaking Changes (lines 99–102).
-- **`depends_on.required: false` is NOT enough on recent Docker Compose.** The compose declares `depends_on: cosmos-reason1-7b / cosmos-reason2-8b / qwen3-vl-8b-instruct` all with `required: false`, but recent Compose still validates these refs at project-load time and rejects standalone deploys with `invalid compose project`. Build-vision-agent's Step 6.5 strips the `depends_on` block from the patched copy under `build-output/patched/`. Source: `deploy-rt-vlm-service.md` §20 + §4 + `kafka-workflows.md` not applicable here.
+- **`depends_on.required: false` is NOT enough on recent Docker Compose.** The live compose declares **8** sibling-NIM `depends_on` peers, all `required: false`: `cosmos-reason1-7b`, `cosmos-reason1-7b-shared-gpu`, `cosmos-reason2-8b`, `cosmos-reason2-8b-shared-gpu`, `cosmos3-reasoner`, `cosmos3-reasoner-shared-gpu`, `qwen3-vl-8b-instruct`, `qwen3-vl-8b-instruct-shared-gpu` (plus `broker-health-check`, which IS defined when ELK is present and is kept). (Verified live 2026-06-02 — earlier revisions of this doc listed only the cosmos-reason1/2 + qwen3 trio and omitted `cosmos3-reasoner` ± `-shared-gpu`; the upstream peer set has grown.) Recent Compose still validates these refs at project-load time and rejects standalone deploys with `invalid compose project`. Build-vision-agent's Step 6.5 Patch 2 strips whichever NIM peers are undefined in the patched include graph (all 8 for an in-process IN-1) — the generalized rule is robust to the peer set changing, so this doc need not enumerate the exact set for the patch to work; it is listed here only for auditing. Source: `deploy-rt-vlm-service.md` §20 + §4.
 - **Profiles are mandatory.** The upstream rtvi-vlm compose declares 6 compose profiles (`bp_wh_2d`, `bp_developer_alerts_2d_vlm`, `bp_developer_alerts_2d_cv`, `bp_developer_base_2d_IGX-THOR`, `bp_developer_base_2d_AGX-THOR`, `bp_developer_lvs_2d`). `docker compose up` without `--profile` starts **nothing**. IN-1 invents a new flag (`bp_developer_in_1`) and patches it into the `profiles:` list of the build-output copy.
 - **Single-instance.** `container_name: vss-rtvi-vlm` is hardcoded in the upstream compose. A second instance on the same host fails with `Conflict. The container name "/vss-rtvi-vlm" is already in use`. Source: `deploy-rt-vlm-service.md` §20.
 - **NvSchema protobuf must align with Logstash descriptors.** The producer (RT-VLM) and the consumer (Logstash) must agree on the `nv.VisionLLM` and `nv.Incident` proto schema. The shared source-of-truth is the descriptor pair at `deploy/docker/services/infra/elk/pb_definitions/descriptors/{schema.desc, ext.desc}`. Schema drift on one side without the other causes Logstash to write empty/default-valued documents to ES without raising. Source: `integrate-elk.md` § Known Integration Constraints.
@@ -170,7 +170,7 @@ Minimal IN-1-relevant block. Full upstream compose is at `deploy/docker/services
 ```yaml
 services:
   rtvi-vlm:
-    image: nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.04.1}
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.4}   # resolve tag from dev-profile-base/.env; registry is nvstaging in 3.2.0
     container_name: vss-rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
