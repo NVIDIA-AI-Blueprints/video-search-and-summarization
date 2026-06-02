@@ -92,9 +92,32 @@ SPDX-License-Identifier: Apache-2.0
 
 <h2>Build and Launch Media Service</h2>
 
-### A) Build the compilation base container (x86_64)
+Built images are named from two environment variables, so no registry is hardcoded in the source tree:
 
-The base image carries the system packages and toolchain used to compile every module. Build it once, then reuse it for all subsequent module/container builds.
+- `VST_ORG` — registry/org prefix for all VST images (default `vios`, e.g. `vios/vst-sensor:latest`)
+- `NVSTREAMER_ORG` — full repository for the NVStreamer image (default `nvstreamer`, e.g. `nvstreamer:latest`)
+
+The defaults build images locally with no registry. To publish to your own registry, export these before building:
+
+```bash
+export VST_ORG=my-registry.example.com/vios
+export NVSTREAMER_ORG=my-registry.example.com/nvstreamer
+```
+
+### A) Build the compile toolchain image (x86_64)
+
+`build.sh` compiles every module inside a toolchain container. Build it once from the in-repo recipe and tag it to the name `build.sh` expects by default:
+
+```bash
+docker build -t vios-cicd:x86-24.04-cuda13.0.0 \
+  -f cicd_files/x86_64/devel/Dockerfile.devel cicd_files/x86_64/devel
+```
+
+To use a prebuilt toolchain image instead, export `X86_BUILD_IMAGE` (or `AARCH64_CC_IMAGE` for Jetson cross-compile) to point at it.
+
+### B) Build the runtime base container (x86_64)
+
+The base image carries the system packages shared by every service image. Build it once, then reuse it for all subsequent module/container builds.
 
 ```bash
 ./build.sh base-container
@@ -106,7 +129,7 @@ Optional: tag and push the base image to the registry.
 ./build.sh base-container base-tag=<base-tag> push=1
 ```
 
-### B) Build module containers
+### C) Build module containers
 
 Build the `sensor` and `streamprocessing` module containers:
 
@@ -114,15 +137,24 @@ Build the `sensor` and `streamprocessing` module containers:
 ./build.sh container module=streamprocessing,sensor
 ```
 
-### C) Build the NVStreamer container
+### D) Build the NVStreamer container
 
 ```bash
 ./build.sh nvstreamer container
 ```
 
-### D) Run Media Service
+### E) Run Media Service
 
-The compiled images are deployed via docker-compose. See `deployment/1click_README.md` and `deployment/oneclick_dc_deployment_for_dev.py` for the one-click deployment flow.
+The compiled images are deployed via docker-compose. If you built with the default `vios` / `nvstreamer` names, point the one-click deployment at them — local builds are tagged `latest`, so line the tags up too:
+
+```bash
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy \
+  --vst-org vios --all-tag latest \
+  --nvstreamer-org nvstreamer --nvstreamer-tag latest \
+  --auto --force
+```
+
+See `deployment/1click_README.md` and `deployment/oneclick_dc_deployment_for_dev.py` for the full one-click deployment flow.
 
 For all build options, run `./build.sh help`.
 

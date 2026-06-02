@@ -118,6 +118,8 @@ class DeploymentConfig:
         self.existing_vst_deployment = False
         self.existing_nvstreamer_deployment = False
         self.tag_overrides = {}
+        self.vst_org = ""
+        self.nvstreamer_org = ""
     
     @property
     def vst_compose_dir(self) -> Path:
@@ -443,6 +445,36 @@ class ConfigurationManager:
             pass
         return ""
     
+    @staticmethod
+    def _retarget_image(current_image: str, org: str = "", tag: str = "",
+                        org_is_prefix: bool = True) -> str:
+        """Rebuild a Docker image reference with a new registry/org and/or tag.
+
+        org_is_prefix=True  -> "<org>/<basename>:<tag>"  (VST service images)
+        org_is_prefix=False -> "<org>:<tag>"             (NVStreamer; org is the full repo)
+
+        An empty org or tag leaves that component unchanged. Returns "" when
+        current_image is empty.
+        """
+        if not current_image:
+            return ""
+        # Split off the tag only when the last ':' is in the final path component,
+        # so a registry port (e.g. host:5000/img) is not mistaken for a tag.
+        last_slash = current_image.rfind('/')
+        last_colon = current_image.rfind(':')
+        if last_colon > last_slash:
+            repo, current_tag = current_image[:last_colon], current_image[last_colon + 1:]
+        else:
+            repo, current_tag = current_image, ""
+        new_tag = tag or current_tag
+        if org:
+            if org_is_prefix:
+                basename = repo.rsplit('/', 1)[-1]
+                repo = f"{org}/{basename}"
+            else:
+                repo = org
+        return f"{repo}:{new_tag}" if new_tag else repo
+
     def update_main_compose_env(self):
         """Update main compose.env file"""
         Logger.info("Updating main compose.env file...")
@@ -453,27 +485,23 @@ class ConfigurationManager:
             'VST_VOLUME': f"{self.config.vst_volume} ### change me"
         }
         
-        # Apply tag overrides for VST services
+        # Apply registry/org and tag overrides for VST services
         vst_image_vars = ['VST_STREAM_PROCESSOR_IMAGE', 'VST_SENSOR_IMAGE', 'VST_RTSPSERVER_IMAGE',
                           'VST_RECORDER_IMAGE', 'VST_STORAGE_IMAGE', 'VST_REPLAYSTREAM_IMAGE',
                           'VST_LIVESTREAM_IMAGE', 'VST_MCP_IMAGE']
         
         for image_var in vst_image_vars:
-            if image_var in self.config.tag_overrides:
-                # Read current image and replace only the tag
-                current_image = self._read_env_value(self.config.main_compose_env, image_var)
-                if current_image and ':' in current_image:
-                    base_image = current_image.rsplit(':', 1)[0]
-                    new_image = f"{base_image}:{self.config.tag_overrides[image_var]}"
-                    updates[image_var] = new_image
-                    Logger.info(f"Applying tag override: {image_var} = {new_image}")
-                elif current_image:
-                    # No tag in current image, just append the new tag
-                    new_image = f"{current_image}:{self.config.tag_overrides[image_var]}"
-                    updates[image_var] = new_image
-                    Logger.info(f"Applying tag override: {image_var} = {new_image}")
-                else:
-                    Logger.warning(f"Could not apply tag override for {image_var} - current image not found")
+            org = self.config.vst_org
+            tag = self.config.tag_overrides.get(image_var, "")
+            if not org and not tag:
+                continue
+            current_image = self._read_env_value(self.config.main_compose_env, image_var)
+            new_image = self._retarget_image(current_image, org=org, tag=tag, org_is_prefix=True)
+            if new_image:
+                updates[image_var] = new_image
+                Logger.info(f"Applying image override: {image_var} = {new_image}")
+            else:
+                Logger.warning(f"Could not apply image override for {image_var} - current image not found")
         
         self._update_env_file(self.config.main_compose_env, updates)
         
@@ -496,22 +524,18 @@ class ConfigurationManager:
             if i in self.config.nvstreamer_videos:
                 updates[f'NVSTREAMER_VIDEO_{i}'] = f"{self.config.nvstreamer_videos[i]} #change me"
         
-        # Apply NVStreamer tag override if provided
-        if 'NVSTREAMER_IMAGE' in self.config.tag_overrides:
-            # Read current image and replace only the tag
+        # Apply NVStreamer registry/org and tag overrides if provided
+        nvstreamer_org = self.config.nvstreamer_org
+        nvstreamer_tag = self.config.tag_overrides.get('NVSTREAMER_IMAGE', "")
+        if nvstreamer_org or nvstreamer_tag:
             current_image = self._read_env_value(self.config.nvstreamer_compose_env, 'NVSTREAMER_IMAGE')
-            if current_image and ':' in current_image:
-                base_image = current_image.rsplit(':', 1)[0]
-                new_image = f"{base_image}:{self.config.tag_overrides['NVSTREAMER_IMAGE']}"
+            new_image = self._retarget_image(current_image, org=nvstreamer_org,
+                                             tag=nvstreamer_tag, org_is_prefix=False)
+            if new_image:
                 updates['NVSTREAMER_IMAGE'] = new_image
-                Logger.info(f"Applying NVStreamer tag override: {new_image}")
-            elif current_image:
-                # No tag in current image, just append the new tag
-                new_image = f"{current_image}:{self.config.tag_overrides['NVSTREAMER_IMAGE']}"
-                updates['NVSTREAMER_IMAGE'] = new_image
-                Logger.info(f"Applying NVStreamer tag override: {new_image}")
+                Logger.info(f"Applying NVStreamer image override: {new_image}")
             else:
-                Logger.warning("Could not apply NVStreamer tag override - current image not found")
+                Logger.warning("Could not apply NVStreamer image override - current image not found")
         
         self._update_env_file(self.config.nvstreamer_compose_env, updates)
         Logger.success("NVStreamer compose.env updated")
@@ -2230,6 +2254,10 @@ IMAGE TAG OVERRIDES:
     --mcp-tag TAG           Override MCP service image tag
     --nvstreamer-tag TAG    Override NVStreamer service image tag
 
+IMAGE REGISTRY / ORG OVERRIDES:
+    --vst-org ORG           Override the registry/org prefix for all VST service images including MCP (keeps name and tag), e.g. vios -> vios/vst-sensor:<tag>
+    --nvstreamer-org REPO   Override the NVStreamer image repository (keeps tag), e.g. nvstreamer or my-registry/nvstreamer
+
 EXAMPLES:
     # Deploy VIOS stream-processor (default target)
     python3 oneclick_dc_deployment_for_dev.py --auto --force
@@ -2247,6 +2275,9 @@ EXAMPLES:
     # Deploy with extras
     python3 oneclick_dc_deployment_for_dev.py --auto --force --with-minio --with-monitoring
     python3 oneclick_dc_deployment_for_dev.py --auto --force --pull-always
+
+    # Deploy locally built images (built with VST_ORG=vios, NVSTREAMER_ORG=nvstreamer)
+    python3 oneclick_dc_deployment_for_dev.py --auto --force --vst-org vios --nvstreamer-org nvstreamer
 
     # Fresh start (removes existing data)
     python3 oneclick_dc_deployment_for_dev.py --fresh-start --auto --force
@@ -2314,6 +2345,14 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
     
     # Image tag overrides - store in config for later application
     config.tag_overrides = {}
+
+    # Registry/org overrides - applied to the base image, tag preserved
+    config.vst_org = args.vst_org or ""
+    config.nvstreamer_org = args.nvstreamer_org or ""
+    if config.vst_org:
+        Logger.info(f"Using command line VST org override: {config.vst_org}")
+    if config.nvstreamer_org:
+        Logger.info(f"Using command line NVStreamer org override: {config.nvstreamer_org}")
     
     if args.all_tag:
         # Apply to all VST service images except MCP and NVStreamer.
@@ -2405,6 +2444,10 @@ def main():
     parser.add_argument('--replay-tag', type=str, help='Override replay stream service image tag')
     parser.add_argument('--mcp-tag', type=str, help='Override MCP service image tag')
     parser.add_argument('--nvstreamer-tag', type=str, help='Override NVStreamer service image tag')
+
+    # Image registry/org overrides
+    parser.add_argument('--vst-org', type=str, help='Override registry/org prefix for all VST service images, keeping name and tag (e.g. vios -> vios/vst-sensor:<tag>)')
+    parser.add_argument('--nvstreamer-org', type=str, help='Override the NVStreamer image repository, keeping the tag (e.g. nvstreamer or my-registry/nvstreamer)')
 
     parser.add_argument('--help', action='store_true', help='Show this help message')
 

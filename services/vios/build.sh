@@ -31,13 +31,16 @@ NVSTREAMER_INGRESS=0
 NVSTREAMER=0
 VSTMONOLITH=0
 MCP=0
-GITLAB=0
 NO_CACHE=0
 BASE_IMAGE=0
 BASE_TAG=""
 MODULES=()  # Array to hold the modules
-VST_ORG="nvcr.io/rxczgrvsg8nx/vst-dev"
-NVSTREAMER_ORG="nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer"
+# Registry and org for built images. Defaults to a bare local namespace so
+# local builds work out of the box (e.g. vios/vst:latest, nvstreamer:latest);
+# no registry is hardcoded in the public tree. Override to push elsewhere:
+#   export VST_ORG=my-registry.example.com/vios
+VST_ORG="${VST_ORG:-vios}"
+NVSTREAMER_ORG="${NVSTREAMER_ORG:-nvstreamer}"
 
 # Define valid module names
 declare -A VALID_MODULES=(
@@ -75,7 +78,6 @@ show_help() {
     echo "  nvstreamer         Build nvstreamer"
     echo "  vst-monolith       Build vst-monolith"
     echo "  no-cache           Build Docker images without using cache"
-    echo "  gitlab             Use GitLab registry instead of NVCR"
     echo "  base-container     Build only the base image with system packages (for optimization)"
     echo "  help               Show this help message."
     echo
@@ -224,7 +226,6 @@ while [[ "$#" -gt 0 ]]; do
         ingress) INGRESS=1;;
         nvstreamer-ingress) NVSTREAMER_INGRESS=1;;
         mcp) MCP=1;;
-        gitlab) GITLAB=1;;
         clean) CLEAN=1;;
         debug) DEBUG=1;;
         tests) TESTS=1;;
@@ -237,11 +238,6 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
-
-# Update VST_ORG if gitlab flag is set
-if [[ $GITLAB -eq 1 ]]; then
-    VST_ORG="gitlab-master.nvidia.com:5005/l4tmm/vms_shim"
-fi
 
 # Print all variables
 echo "ARCH=$ARCH"
@@ -260,7 +256,6 @@ echo "NVSTREAMER-APP=$NVSTREAMERAPP"
 echo "NVSTREAMER-INGRESS=$NVSTREAMER_INGRESS"
 echo "NVSTREAMER=$NVSTREAMER"
 echo "MCP=$MCP"
-echo "GITLAB=$GITLAB"
 echo "VSTMONOLITH=$VSTMONOLITH"
 echo "NO_CACHE=$NO_CACHE"
 echo "BASE_IMAGE=$BASE_IMAGE"
