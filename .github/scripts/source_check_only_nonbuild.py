@@ -36,7 +36,6 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -47,10 +46,10 @@ from pathlib import Path
 import check_container_tag_source as chk
 
 
-# Image name -> source folder (must match check_container_tag_source.py).
+# Image name -> source folder, derived from the check's own config so the two
+# can't drift.
 SOURCE_PATHS = {
-    "vss-agent": "services/agent",
-    "vss-agent-ui": "services/ui",
+    name: cfg.source_path.as_posix() for name, cfg in chk.IMAGE_CONFIGS.items()
 }
 
 # Paths (relative to the service folder) the image build does NOT consume.
@@ -122,44 +121,19 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 # --- resolved image-tag comparison (per service, value-based) ---------------
 #
-# Mirror check_container_tag_source's compose/.env resolution but read file
-# contents through a pluggable reader so we can resolve at HEAD (working tree)
-# and at the merge-base (git show) and compare the resolved ref sets.
+# Reuse check_container_tag_source's compose/.env discovery + variable
+# expansion, but feed file contents through a pluggable reader so we can
+# resolve at HEAD (working tree) and at the merge-base (git show) and compare
+# the resolved ref sets. We reuse chk.parse_env_text / chk.image_refs_in_text
+# so the gate resolves identically to the check (no parallel parsers to drift).
 
-def _image_refs_in_compose(text: str, expected_name: str) -> list[str]:
-    refs: list[str] = []
-    for line in text.splitlines():
-        m = chk.IMAGE_LINE_RE.match(line)
-        if not m:
-            continue
-        ref = chk.strip_quotes(m.group("ref"))
-        if chk.image_name(ref) == expected_name and ref not in refs:
-            refs.append(ref)
-    return refs
-
-
-def _env_from_text(text: str) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            values[key] = chk.strip_quotes(value)
-    return values
-
-
-def resolve_service_refs(repo: Path, read_text, image_name: str) -> set[str]:
-    """Set of fully-resolved deployable image refs for ``image_name``.
+def resolve_service_refs(repo: Path, read_text, image_name: str) -> tuple[set[str], set[str]]:
+    """Return ``(resolved, unresolved)`` deployable image refs for ``image_name``.
 
     ``read_text(relpath)`` returns the file's content (or None if absent) at the
-    revision being inspected. Returns an empty set if nothing resolves.
+    revision being inspected. ``unresolved`` holds raw refs that match the
+    image name but that no ``.env`` could fully expand — the check treats those
+    as a hard failure, so the gate must run when one is newly introduced.
     """
     config = chk.IMAGE_CONFIGS[image_name]
     compose_files = chk.discover_compose_files(repo)
@@ -167,32 +141,40 @@ def resolve_service_refs(repo: Path, read_text, image_name: str) -> set[str]:
 
     env_caches: dict[Path, dict[str, str]] = {}
     for ef in env_files:
-        env_caches[ef] = _env_from_text(read_text(str(ef.relative_to(repo))) or "")
+        env_caches[ef] = chk.parse_env_text(read_text(str(ef.relative_to(repo))) or "")
 
-    refs: set[str] = set()
+    resolved: set[str] = set()
+    unresolved: set[str] = set()
     for cf in compose_files:
         text = read_text(str(cf.relative_to(repo)))
         if not text:
             continue
-        for raw in _image_refs_in_compose(text, config.image_name):
+        for raw in chk.image_refs_in_text(text, config.image_name):
             _, needed = chk.resolve_compose_vars(raw, {})
             if not needed:
-                resolved, _ = chk.resolve_compose_vars(raw, dict(os.environ))
-                refs.add(resolved)
+                expanded, _ = chk.resolve_compose_vars(raw, dict(os.environ))
+                resolved.add(expanded)
                 continue
+            applied = False
             for ef in env_files:
                 env_values = env_caches[ef]
                 if all(name in env_values for name in needed):
-                    resolved, missing = chk.resolve_compose_vars(
+                    expanded, missing = chk.resolve_compose_vars(
                         raw, {**env_values, **os.environ}
                     )
                     if not missing:
-                        refs.add(resolved)
-    return refs
+                        resolved.add(expanded)
+                        applied = True
+            if not applied:
+                # No env file supplies the needed vars — the check would record
+                # this as an unresolved image and fail.
+                unresolved.add(raw)
+    return resolved, unresolved
 
 
 def service_tag_changed(repo: Path, base: str, image_name: str) -> bool:
-    """True if the service's resolved image ref(s) differ between base and HEAD."""
+    """True if the service's image ref(s) differ between base and HEAD, or HEAD
+    introduces a ref the check would treat as unresolved."""
     def head_reader(rel: str):
         path = repo / rel
         return path.read_text() if path.exists() else None
@@ -201,19 +183,31 @@ def service_tag_changed(repo: Path, base: str, image_name: str) -> bool:
         result = git(repo, "show", f"{base}:{rel}")
         return result.stdout if result.returncode == 0 else None
 
-    head_refs = resolve_service_refs(repo, head_reader, image_name)
-    if not head_refs:
-        # Couldn't resolve anything at HEAD — be conservative and run the check.
-        log("could not resolve any image refs at HEAD; running full source check.")
+    head_resolved, head_unresolved = resolve_service_refs(repo, head_reader, image_name)
+    if not head_resolved and not head_unresolved:
+        # No deployable ref for this service at HEAD — be conservative and run.
+        log("found no image refs at HEAD; running full source check.")
         return True
-    base_refs = resolve_service_refs(repo, base_reader, image_name)
-    if head_refs != base_refs:
+
+    base_resolved, base_unresolved = resolve_service_refs(repo, base_reader, image_name)
+
+    if head_resolved != base_resolved:
         log(f"image tag changed vs {base[:12]}:")
-        for r in sorted(head_refs - base_refs):
+        for r in sorted(head_resolved - base_resolved):
             log(f"  + {r}")
-        for r in sorted(base_refs - head_refs):
+        for r in sorted(base_resolved - head_resolved):
             log(f"  - {r}")
         return True
+
+    # A ref that resolves at HEAD nowhere it didn't at base would make the real
+    # check fail (unresolved image); don't let the gate mask that.
+    new_unresolved = head_unresolved - base_unresolved
+    if new_unresolved:
+        log("PR introduces image ref(s) that no .env resolves; running full source check:")
+        for r in sorted(new_unresolved):
+            log(f"  ? {r}")
+        return True
+
     return False
 
 

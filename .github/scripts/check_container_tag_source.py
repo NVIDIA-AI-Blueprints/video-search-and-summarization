@@ -76,12 +76,12 @@ def strip_quotes(value: str) -> str:
     return value
 
 
-def read_env_file(path: Path) -> dict[str, str]:
+def parse_env_text(text: str) -> dict[str, str]:
+    """Parse ``KEY=value`` lines from .env content. Shared with the gate helper
+    so both resolve the same way regardless of which revision the text is read
+    from (working tree vs ``git show``)."""
     values: dict[str, str] = {}
-    if not path.exists():
-        return values
-
-    for raw_line in path.read_text().splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -94,6 +94,12 @@ def read_env_file(path: Path) -> dict[str, str]:
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
             values[key] = strip_quotes(value)
     return values
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    return parse_env_text(path.read_text())
 
 
 def image_name(ref: str) -> str:
@@ -120,9 +126,11 @@ def commit_prefix_from_tag(tag: str | None) -> str | None:
     return matches[-1].group("sha").lower()
 
 
-def find_image_refs(compose_file: Path, expected_image_name: str) -> list[str]:
+def image_refs_in_text(text: str, expected_image_name: str) -> list[str]:
+    """Extract ``image:`` refs matching ``expected_image_name`` from compose
+    content. Shared with the gate helper (see ``parse_env_text``)."""
     refs: list[str] = []
-    for line in compose_file.read_text().splitlines():
+    for line in text.splitlines():
         match = IMAGE_LINE_RE.match(line)
         if not match:
             continue
@@ -130,6 +138,10 @@ def find_image_refs(compose_file: Path, expected_image_name: str) -> list[str]:
         if image_name(ref) == expected_image_name and ref not in refs:
             refs.append(ref)
     return refs
+
+
+def find_image_refs(compose_file: Path, expected_image_name: str) -> list[str]:
+    return image_refs_in_text(compose_file.read_text(), expected_image_name)
 
 
 def resolve_compose_vars(text: str, env: dict[str, str]) -> tuple[str, tuple[str, ...]]:
