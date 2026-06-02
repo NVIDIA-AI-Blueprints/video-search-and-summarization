@@ -57,6 +57,11 @@ def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[st
 def _sandbox_exec(sandbox_name: str, script: str, *, timeout: int) -> subprocess.CompletedProcess[str]:
     encoded_script = base64.b64encode(script.encode("utf-8")).decode("ascii")
     wrapper = f"printf %s {shlex.quote(encoded_script)} | base64 -d | sh"
+    if shutil_which("openshell"):
+        return _run(
+            ["openshell", "sandbox", "exec", "-n", sandbox_name, "--", "sh", "-lc", wrapper],
+            timeout=timeout,
+        )
     return _run(
         ["nemoclaw", sandbox_name, "exec", "--no-tty", "--", "sh", "-lc", wrapper],
         timeout=timeout,
@@ -141,18 +146,27 @@ def post_hook(url: str, token: str, payload: dict[str, Any], timeout: int) -> di
 def _gateway_reachable(sandbox_name: str) -> bool:
     result = _sandbox_exec(
         sandbox_name,
-        "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18789/ --max-time 5",
+        "curl -fsS http://127.0.0.1:18789/health >/dev/null",
         timeout=20,
     )
-    status = (result.stdout or "").strip()
-    return result.returncode == 0 and status.isdigit()
+    return result.returncode == 0
 
 
 def ensure_openclaw_gateway(sandbox_name: str, log_dir: Path) -> None:
     if _gateway_reachable(sandbox_name):
         return
-    recover = _run(["nemoclaw", sandbox_name, "recover"], timeout=180)
-    (log_dir / "nemoclaw_recover.log").write_text(
+    recover_script = """
+rm -f /tmp/openclaw-dashboard.log /tmp/openclaw-gateway-restart.log
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --user daemon-reload >>/tmp/openclaw-gateway-restart.log 2>&1 || true
+  systemctl --user restart openclaw-gateway >>/tmp/openclaw-gateway-restart.log 2>&1 || true
+fi
+if command -v openclaw >/dev/null 2>&1; then
+  nohup openclaw dashboard >/tmp/openclaw-dashboard.log 2>&1 &
+fi
+"""
+    recover = _sandbox_exec(sandbox_name, recover_script, timeout=60)
+    (log_dir / "openclaw_gateway_recover.log").write_text(
         f"returncode={recover.returncode}\nstdout:\n{recover.stdout}\nstderr:\n{recover.stderr}\n",
         encoding="utf-8",
     )
