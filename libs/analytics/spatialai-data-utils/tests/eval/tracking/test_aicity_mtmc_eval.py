@@ -303,6 +303,117 @@ class TestSplitAicity25PerScenePerClass:
 _AICITY26_SCENE_MAP = {"23": "Warehouse_023"}
 
 
+class TestSplitAicityMtmcFrameStart:
+    """``frame_start`` kwarg lets callers evaluate non-prefix frame windows.
+
+    The default (``frame_start=0``) reproduces the official validation
+    server's ``[0, num_frames_to_eval)`` left-anchored window.  Passing
+    a positive ``frame_start`` shifts the window's lower bound so
+    callers can evaluate e.g. the second half of the test set
+    (``frame_start=4500, num_frames_to_eval=9000``) without writing
+    their own GT/pred subset.
+    """
+
+    def _rows_for_frames(self, frames):
+        return [f"17 0 1 {f} 0 0 0 1 1 1 0" for f in frames]
+
+    def test_default_frame_start_zero_keeps_legacy_behavior(self, tmp_path):
+        """No ``frame_start`` arg -> identical to pre-flag behaviour."""
+        gt_path = tmp_path / "gt.txt"
+        out_root = tmp_path / "split"
+        out_root.mkdir()
+        _write_text(gt_path, self._rows_for_frames([0, 4, 5, 99]))
+        counts = split_aicity_mtmc_per_scene_per_class(
+            str(gt_path), str(out_root), "gt.txt",
+            SCENE_MAP, num_frames_to_eval=5, is_pred=False,
+        )
+        # frames 5 and 99 dropped (>= upper), 0 and 4 kept.
+        assert counts == {"Warehouse_017": {"Person": 2}}
+
+    def test_frame_start_drops_rows_below_lower_bound(self, tmp_path):
+        """``frame_start=2`` rejects frame_id 0 and 1."""
+        gt_path = tmp_path / "gt.txt"
+        out_root = tmp_path / "split"
+        out_root.mkdir()
+        _write_text(gt_path, self._rows_for_frames([0, 1, 2, 3, 4]))
+        counts = split_aicity_mtmc_per_scene_per_class(
+            str(gt_path), str(out_root), "gt.txt",
+            SCENE_MAP, num_frames_to_eval=5, is_pred=False,
+            frame_start=2,
+        )
+        # Only frames 2, 3, 4 survive [2, 5).
+        assert counts == {"Warehouse_017": {"Person": 3}}
+
+    def test_second_half_window(self, tmp_path):
+        """Mimic 'second half of 10 frames': frame_start=5, num=10."""
+        gt_path = tmp_path / "gt.txt"
+        out_root = tmp_path / "split"
+        out_root.mkdir()
+        _write_text(gt_path, self._rows_for_frames(range(10)))
+        counts = split_aicity_mtmc_per_scene_per_class(
+            str(gt_path), str(out_root), "gt.txt",
+            SCENE_MAP, num_frames_to_eval=10, is_pred=False,
+            frame_start=5,
+        )
+        # frames 0..4 dropped, 5..9 kept -> exactly 5 rows.
+        assert counts == {"Warehouse_017": {"Person": 5}}
+
+    def test_first_and_second_half_partition_the_full_window(self, tmp_path):
+        """First half + second half row counts must sum to full-window count."""
+        gt_path = tmp_path / "gt.txt"
+        out_root = tmp_path / "split"
+        out_root.mkdir()
+        _write_text(gt_path, self._rows_for_frames(range(10)))
+
+        def _count(start, end):
+            sub = tmp_path / f"split_{start}_{end}"
+            sub.mkdir()
+            return split_aicity_mtmc_per_scene_per_class(
+                str(gt_path), str(sub), "gt.txt",
+                SCENE_MAP, num_frames_to_eval=end, is_pred=False,
+                frame_start=start,
+            )["Warehouse_017"]["Person"]
+
+        first = _count(0, 5)
+        second = _count(5, 10)
+        full = _count(0, 10)
+        assert first + second == full == 10
+
+    def test_mid_slice_window(self, tmp_path):
+        """Non-half slice: [3, 7) keeps exactly frames 3, 4, 5, 6."""
+        gt_path = tmp_path / "gt.txt"
+        out_root = tmp_path / "split"
+        out_root.mkdir()
+        _write_text(gt_path, self._rows_for_frames(range(10)))
+        counts = split_aicity_mtmc_per_scene_per_class(
+            str(gt_path), str(out_root), "gt.txt",
+            SCENE_MAP, num_frames_to_eval=7, is_pred=False,
+            frame_start=3,
+        )
+        assert counts == {"Warehouse_017": {"Person": 4}}
+
+    def test_invalid_frame_start_raises(self, tmp_path):
+        """An empty (``frame_start >= num_frames_to_eval``) or negative
+        window is rejected at the API boundary instead of silently
+        producing empty results."""
+        gt_path = tmp_path / "gt.txt"
+        out_root = tmp_path / "split"
+        out_root.mkdir()
+        _write_text(gt_path, self._rows_for_frames(range(10)))
+        with pytest.raises(ValueError):
+            split_aicity_mtmc_per_scene_per_class(
+                str(gt_path), str(out_root), "gt.txt",
+                SCENE_MAP, num_frames_to_eval=5, is_pred=False,
+                frame_start=5,
+            )
+        with pytest.raises(ValueError):
+            split_aicity_mtmc_per_scene_per_class(
+                str(gt_path), str(out_root), "gt.txt",
+                SCENE_MAP, num_frames_to_eval=5, is_pred=False,
+                frame_start=-1,
+            )
+
+
 class TestSplitAicityMtmcWithExplicitClassTable:
     """``class_id_to_name`` keyword switches the active spec table.
 

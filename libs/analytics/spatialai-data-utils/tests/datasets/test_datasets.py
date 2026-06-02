@@ -26,9 +26,8 @@ Covers three layers:
   ``get_available_scenes``, ``get_scene_names_splits``).
 * :mod:`spatialai_data_utils.datasets.aicity25` — the
   ``load_class_config_from_file`` re-export, parsing tests against
-  the shipped ``splits/split_default.yaml`` and
-  ``scenes/scene_id_to_name.json``, plus the AICity'25 spec metadata
-  (``CLASS_ID_TO_NAME`` and ``NUM_FIELDS``) in
+  the shipped ``scenes/scene_id_to_name.json``, plus the AICity'25
+  spec metadata (``CLASS_ID_TO_NAME`` and ``NUM_FIELDS``) in
   :mod:`spatialai_data_utils.datasets.aicity25.spec`.
 """
 
@@ -388,13 +387,12 @@ class TestGetSceneInfoFromName:
     def test_non_int_trailing_segments_raise(self):
         """A scene name whose trailing segments aren't ints fails loudly.
 
-        Pins the documented limitation: AICity'25 names like
-        ``"Warehouse_Synthetic_021525"`` won't parse with this helper —
-        the trailing ``021525`` would be coerced to int but ``Synthetic``
-        would not.
+        Pins the documented limitation: a name like ``"scene_001_extra"``
+        won't parse with this helper — the trailing ``extra`` can't be
+        coerced to ``int``.
         """
         with pytest.raises(ValueError):
-            get_scene_info_from_name("Warehouse_Synthetic_021525_extra")
+            get_scene_info_from_name("scene_001_extra")
 
 
 class TestGetSceneNamesSplits:
@@ -418,40 +416,6 @@ class TestGetSceneNamesSplits:
 # ---------------------------------------------------------------------------
 # AICity'25 — packaged data + object-class re-export
 # ---------------------------------------------------------------------------
-
-
-class TestPackagedSplitDefaultYaml:
-    """The shipped ``split_default.yaml`` ships intact and parses with the loader."""
-
-    def _packaged_yaml_path(self):
-        import spatialai_data_utils.datasets.aicity25 as pkg
-        return osp.join(osp.dirname(pkg.__file__), "splits", "split_default.yaml")
-
-    def test_packaged_file_exists(self):
-        assert osp.exists(self._packaged_yaml_path()), (
-            "split_default.yaml was not packaged with the install — "
-            "check release/MANIFEST.in."
-        )
-
-    def test_loader_parses_packaged_split(self):
-        """Pin the published split sizes (21 train / 4 val / 4 test).
-
-        Updated in commit ``b5a42d3`` ("Add AICity Challenge 2026 dataset
-        utilities and update manifest"), which dropped
-        ``SURF_Booth_031325`` and ``Warehouse_Synthetic_050825`` from
-        both val and test (6 -> 4 each); the anchor below is bumped from
-        ``Warehouse_Synthetic_050825`` to ``Warehouse_Synthetic_050925``
-        (the first remaining val scene) to keep the per-split anchor
-        distinct from the test anchor.
-        """
-        train, val, test = load_split_from_yaml(self._packaged_yaml_path())
-        assert len(train) == 21
-        assert len(val) == 4
-        assert len(test) == 4
-        # Anchor a couple of representative scene names so silent edits get caught.
-        assert "SURF_Booth_020325" in train
-        assert "Warehouse_Synthetic_050925" in val
-        assert "Warehouse_Synthetic_051325" in test
 
 
 class TestPackagedSceneIdToNameJson:
@@ -719,13 +683,13 @@ class TestParseSceneAndGroup:
     """``parse_scene_and_group`` splits ``"<scene>+<group>"`` on its first ``+``."""
 
     def test_no_plus_returns_none_group(self):
-        scene, group = parse_scene_and_group("Warehouse_050925")
-        assert scene == "Warehouse_050925"
+        scene, group = parse_scene_and_group("scene_001")
+        assert scene == "scene_001"
         assert group is None
 
     def test_simple_plus_separator(self):
-        scene, group = parse_scene_and_group("Warehouse_050925+clustered-bev-sensor-1")
-        assert scene == "Warehouse_050925"
+        scene, group = parse_scene_and_group("scene_001+clustered-bev-sensor-1")
+        assert scene == "scene_001"
         assert group == "clustered-bev-sensor-1"
 
     def test_only_first_plus_is_used(self):

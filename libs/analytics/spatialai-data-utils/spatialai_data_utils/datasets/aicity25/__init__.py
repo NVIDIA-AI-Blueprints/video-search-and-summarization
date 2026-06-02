@@ -19,9 +19,8 @@ AICity Challenge 2025 dataset utilities.
 Generic split loaders (``load_split_from_yaml`` / ``_json`` / ``_py``)
 live in :mod:`spatialai_data_utils.datasets.splits`; this package only
 hosts AICity'25-specific data (e.g. the packaged
-``splits/split_default.yaml`` and ``scenes/scene_id_to_name.json``)
-together with the object-class config re-export and the scene-id /
-scene-name lookup helpers.
+``scenes/scene_id_to_name.json``) together with the object-class
+config re-export and the scene-id / scene-name lookup helpers.
 """
 
 from .object_class_utils import load_class_config_from_file
