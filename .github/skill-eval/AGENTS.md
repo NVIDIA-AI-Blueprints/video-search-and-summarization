@@ -164,6 +164,9 @@ The canonical harbor command is in § Harbor invocation.
        it, and the commit + the re-run's per-spec result comments (with
        trace/artifact links) are the review trail. **Fork PRs are the one
        exception**: the bot can't push to a fork, so it comments + BLOCKs.
+       (On a **manual sweep**, `PR_NUMBER` is empty — there is no PR/branch
+       to commit to either; record the adapter trouble in
+       `$GITHUB_STEP_SUMMARY` and `BLOCKED:`, per § "Manual full-sweep mode".)
 
        ```bash
        # Resolve the PR head repo + branch. A fork = head-repo owner differs
@@ -801,6 +804,11 @@ wait for or aggregate the spec's other platforms: those run as separate
 parallel legs this job cannot see. A two-platform spec therefore yields
 two independent comments, one per platform.
 
+**Where the comment goes:** on a PR run (`PR_NUMBER` set) post it with
+`gh pr comment`. On a **manual sweep** (`PR_NUMBER` empty —
+`workflow_dispatch`) there is no PR: append the exact same markdown to
+`$GITHUB_STEP_SUMMARY` instead (see § "Manual full-sweep mode").
+
 ```markdown
 ## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
 
@@ -967,55 +975,28 @@ harbor invocation, result format, failure modes, the DONE/BLOCKED marker
 
 ## Manual full-sweep mode
 
-The workflow also exposes a `workflow_dispatch` trigger that fires this
-agent against the **current head of whatever branch the operator dispatched
-from** (typically `develop`), with no diff and no PR. The wrapper sets
-`MANUAL_FULL_SWEEP=1`, blanks `PR_NUMBER`/`PR_BASE`, and passes a single
-skill filter:
+The `workflow_dispatch` trigger runs the **same matrix as a push** — the
+`plan` job enumerates the picked skill's specs (`MANUAL_SKILLS_FILTER`, a
+skill-dir name or `*` for every skill) instead of diffing, and the `eval`
+job fans them per `(spec, platform)`. So there is no separate sweep agent:
+each leg runs **Single-spec mode** exactly as on a push, with one
+difference — there is no PR (`PR_NUMBER` is empty). That means:
 
-  - `MANUAL_SKILLS_FILTER` — one skill name from the `type: choice`
-    dispatch dropdown, or `*` for every skill. There is intentionally no
-    spec-level filter — once a skill is picked, every spec under
-    `skills/<skill>/evals/*.json` runs.
-
-When you see `MANUAL_FULL_SWEEP=1` in the env (the user prompt also says so
-explicitly), apply these step overrides — everything else in this file
-applies unchanged:
-
-- **Step 1 (override):** skip the diff. Enumerate `skills/*/evals/*.json` on
-  the checked-out workspace, then drop any skill not matching the filter
-  (`*` keeps all). Skills with no `eval/` dir remain runtime libraries and
-  are skipped as in the normal path. Every spec on the kept skill(s) runs.
-
-- **Step 3 (override):** the adapter auto-commit flow in §§ 3c/3d is **off**
-  — there is no contributor branch to target. If an adapter is missing or stale for a
-  given spec, record that spec as `BLOCKED:<reason>` in the results table
-  and move on. Do NOT push branches, do NOT open PRs. (The hard rule
-  against `skills/` writes still applies in full.)
-
-- **Step 6 (override):** there is no PR to comment on. For each completed
-  `(skill, spec)` batch, append the same markdown you would have posted
-  via `gh pr comment` (per § Result comment format) to the file at
-  `$GITHUB_STEP_SUMMARY`:
-
-  ```bash
-  cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
-  ## Harbor Eval — `skills/<skill>/evals/<spec>.json`
-  ... table + failing checks + suggestions, exactly as in PR-comment mode ...
-  MD
-  ```
-
-  Append per-spec — don't buffer everything for the end. If
-  `$GITHUB_STEP_SUMMARY` is empty/unset (running locally for a smoke
-  test), print the same markdown to stdout and note the fallback. The
-  rendered Actions run summary is the operator's primary view; the Harbor
-  viewer URLs in each row are still per-trial trace links.
+- **Output → job summary, not a PR comment.** Append your result table
+  (the same § Result comment format markdown) to `$GITHUB_STEP_SUMMARY`
+  instead of `gh pr comment`. Each leg is its own job, so its summary is
+  that leg's view; the run page aggregates them and the per-leg artifact +
+  Harbor trace links carry the rest. (If `$GITHUB_STEP_SUMMARY` is unset —
+  a local smoke test — print the markdown to stdout and note the fallback.)
+- **No adapter auto-commit.** § 3c needs a contributor branch; a manual
+  sweep has none. A missing/stale adapter → record it in
+  `$GITHUB_STEP_SUMMARY` and `BLOCKED:` (never push; the hard rule against
+  `skills/` writes still applies in full).
 
 Everything else — startup hygiene, fleet selection (§ 5a), per-box flock
-(§ 5b), canonical harbor invocation (§ Harbor invocation), no
-trial-supervision polling, the artifact-tarball collection step in the
-workflow — is identical to the PR-driven path. The DONE/BLOCKED final
-marker (§ Output requirements) is also unchanged.
+(§ 5b), canonical harbor invocation, no trial-supervision polling, the
+artifact collection step, the DONE/BLOCKED final marker — is identical to
+the PR-driven path.
 
 ## Output requirements
 
@@ -1031,9 +1012,11 @@ marker (§ Output requirements) is also unchanged.
     - `DONE: 2/3 specs passed; 1 spec failed (vss-deploy-dense-captioning/step-2 reward=0.83)`
     - `BLOCKED: anthropic rate limit after 3 retries`
     - `BLOCKED: lock timeout on vss-eval-l40s`
-  If you ran trials, you MUST also have called `gh pr comment
-  $PR_NUMBER` with the per-batch results before printing
-  `DONE:` — otherwise the contributor sees no signal on their PR.
+  If you ran trials, you MUST also have posted the per-spec result before
+  printing `DONE:` — via `gh pr comment $PR_NUMBER` on a PR run, or, on a
+  manual sweep (`PR_NUMBER` empty), appended to `$GITHUB_STEP_SUMMARY`
+  (§ "Result comment format" / "Manual full-sweep mode") — otherwise the
+  result is invisible.
 - Don't tear down or `brev stop` / `brev delete` any instance. The
   `vss-eval-*` pool is operator-managed and stays warm across runs.
 

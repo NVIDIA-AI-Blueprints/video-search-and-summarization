@@ -9,8 +9,9 @@
 #            in single-spec mode (foreground agent, one synchronous harbor
 #            run), posts its own PR comment per AGENTS.md.
 # workflow_dispatch:
-#   manual-sweep -> the legacy single-agent full sweep (no matrix),
-#                   writing per-spec tables to $GITHUB_STEP_SUMMARY.
+#   plan + eval -> manual full sweep, fanned per (spec, platform) just like
+#                  a push; each leg writes its result to its job summary
+#                  (no PR to comment on). Scoped by the `skills` input.
 
 name: Skills Eval
 
@@ -24,16 +25,16 @@ on:
   push:
     branches:
       - "pull-request/[0-9]+"
-  # Manual full-sweep trigger. Runs every eval spec on the picked skill
-  # (or all skills) regardless of diff. No PR to comment on, so the agent
-  # writes per-spec tables to $GITHUB_STEP_SUMMARY. See AGENTS.md
-  # § "Manual full-sweep mode".
+  # Manual full-sweep trigger. The `plan` job enumerates the picked skill's
+  # specs (or all skills) instead of diffing, and the `eval` matrix fans them
+  # per (spec, platform) like a push. No PR to comment on, so each leg writes
+  # its result to its own job summary.
   workflow_dispatch:
     inputs:
       skills:
         # `type: string` rather than `type: choice` because the skills/
-        # tree has more than 10 entries — GitHub caps `choice` at 10. The
-        # manual-sweep job sanity-checks the value before use.
+        # tree has more than 10 entries — GitHub caps `choice` at 10.
+        # plan_matrix.py validates the value (skill-dir name or `*`).
         description: "Which skill to eval. `*` sweeps all. Otherwise a bare skill-dir name (e.g. `vss-deploy-profile`)."
         required: false
         default: "*"
@@ -73,7 +74,7 @@ jobs:
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
-    if: startsWith(github.ref, 'refs/heads/pull-request/')
+    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
@@ -92,13 +93,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          REF="${{ github.ref_name }}"          # "pull-request/100"
-          PR="${REF##pull-request/}"
-          echo "number=$PR" >> "$GITHUB_OUTPUT"
-          # Query the source PR for its base branch (never hardcode develop).
-          BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
-          echo "base=$BASE" >> "$GITHUB_OUTPUT"
-          echo "PR #$PR, base=$BASE"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual sweep: no PR. Leave number empty — the eval legs detect
+            # "manual" and write results to their job summary instead of a PR
+            # comment; base is just this ref, for logging.
+            echo "number=" >> "$GITHUB_OUTPUT"
+            echo "base=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "manual sweep on ${{ github.ref_name }}"
+          else
+            REF="${{ github.ref_name }}"          # "pull-request/100"
+            PR="${REF##pull-request/}"
+            echo "number=$PR" >> "$GITHUB_OUTPUT"
+            # Query the source PR for its base branch (never hardcode develop).
+            BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+            echo "base=$BASE" >> "$GITHUB_OUTPUT"
+            echo "PR #$PR, base=$BASE"
+          fi
 
       - name: Compute matrix
         id: plan
@@ -107,6 +117,13 @@ jobs:
           PR_REPO: ${{ github.repository }}
           PR_BASE: ${{ steps.pr.outputs.base }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
+          # Manual sweep (workflow_dispatch): enumerate the picked skill('s)
+          # specs instead of diffing (plan_matrix validates the value).
+          # Empty on push, so plan diffs as usual.
+          # Blank input → `*` (sweep all), matching the dropdown default and
+          # the old behavior — never blank, which would fall through to the
+          # diff path and silently produce an empty matrix.
+          MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
@@ -240,101 +257,5 @@ jobs:
         with:
           name: skills-eval-results-pr-${{ needs.plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
           path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # ---------------------------------------------------------------------
-  # manual-sweep — legacy single-agent full sweep (workflow_dispatch).
-  # No matrix: one agent enumerates every spec on the picked skill and
-  # writes per-spec tables to the Actions run summary.
-  # ---------------------------------------------------------------------
-  manual-sweep:
-    name: Manual full sweep
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, vss-skill-eval-runner]
-    timeout-minutes: 720
-    steps:
-      - name: Checkout head
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Load coordinator env
-        run: |
-          set -a
-          source /home/ubuntu/eval-coordinator/.env
-          set +a
-          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
-          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
-
-      - name: Run skills eval agent (full sweep)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
-          INPUT_SKILLS: ${{ inputs.skills }}
-          # See the single-spec step for the rationale — keep the foreground
-          # `uvx harbor run` from being auto-backgrounded at the 10-min cap.
-          BASH_DEFAULT_TIMEOUT_MS: "7200000"
-          BASH_MAX_TIMEOUT_MS: "10800000"
-        run: |
-          mkdir -p "$GH_CONFIG_DIR"
-          set -a
-          source /home/ubuntu/eval-coordinator/.env
-          set +a
-          export PR_HEAD_SHA="${{ github.sha }}"
-          export PR_REPO="${{ github.repository }}"
-          export GITHUB_RUN_ID="${{ github.run_id }}"
-          # Sanity-check the free-form skill filter: `*`, blank, or a bare
-          # skill-dir name — reject anything with slashes/dots that could
-          # escape skills/.
-          if [ "${INPUT_SKILLS}" != "*" ] && [ -n "${INPUT_SKILLS}" ]; then
-            if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
-              echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name."
-              exit 1
-            fi
-            if [ ! -d "skills/${INPUT_SKILLS}" ]; then
-              echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref."
-              exit 1
-            fi
-          fi
-          export MANUAL_FULL_SWEEP=1
-          export MANUAL_SKILLS_FILTER="${INPUT_SKILLS}"
-          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
-          mkdir -p /tmp/brev /tmp/skill-eval
-          python3 .github/skill-eval/skills_eval_agent.py
-
-      - name: Collect sweep results for workflow artifact
-        if: always()
-        run: |
-          # A sweep runs many (skill,spec,platform) legs, each writing
-          # /tmp/skill-eval/results/<slug>/<run_id>/, plus the assembled
-          # /tmp/skill-eval/<run_id>/benchmark.md. Bundle every result tree
-          # for this run + the benchmark into one artifact so a sweep is as
-          # debuggable as a per-leg push run. Exclude per-trial agent/
-          # trajectories — same secret hygiene as the eval job (they can
-          # carry .env / NGC key values).
-          RUN="${{ github.run_id }}"
-          OUT="/tmp/skills-eval-sweep-${RUN}.tar.gz"
-          MEMBERS=()
-          while IFS= read -r d; do
-            MEMBERS+=("${d#/}")          # tar relative to / (no leading-/ warning)
-          done < <(find /tmp/skill-eval/results -mindepth 2 -maxdepth 2 \
-                     -type d -name "$RUN" 2>/dev/null)
-          if [ -f "/tmp/skill-eval/${RUN}/benchmark.md" ]; then
-            MEMBERS+=("tmp/skill-eval/${RUN}/benchmark.md")
-          fi
-          if [ ${#MEMBERS[@]} -eq 0 ]; then
-            echo "no sweep results or benchmark for run ${RUN} — nothing to archive"
-            exit 0
-          fi
-          tar czf "$OUT" -C / --exclude='agent' "${MEMBERS[@]}"
-          echo "archived ${#MEMBERS[@]} member(s) into $OUT (agent/ trajectories excluded)"
-
-      - name: Upload sweep results artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: skills-eval-sweep-${{ github.run_id }}
-          path: /tmp/skills-eval-sweep-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 7
