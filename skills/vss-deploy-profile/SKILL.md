@@ -99,7 +99,7 @@ for the remediation tree.
 
 ## Model Selection
 
-- `$LLM_REMOTE_URL` / `$VLM_REMOTE_URL` if the user asks for remote
+- `$LLM_ENDPOINT_URL` / `$VLM_ENDPOINT_URL` if the user asks for remote
 - `$NGC_CLI_API_KEY` (local NIMs) or `$NVIDIA_API_KEY` (remote)
 
 If no combination on this host satisfies the profile's sizing requirements, **stop and report the blocker** — don't silently pick another shape.
@@ -115,10 +115,6 @@ Always follow this sequence. Never skip the dry-run.
 If a deployment already exists, tear it down AND clear stale data volumes before redeploying. 
 
 Full procedure lives in [`references/teardown.md`](references/teardown.md).
-
-### Step 0a — Credentials gate (run before any env mutation)
-
-Validate every credential the chosen profile needs **before** Step 1c copies `.env` to `generated.env`. A 401 here is a 30-second failure; the same 401 inside a NIM cold-start is a 10–20 min failure. Run the discovery and probe flow in [`references/credentials.md`](references/credentials.md), then map the result against the chosen mode: missing or invalid required credentials are blockers, optional credentials are not.
 
 ### Step 1 — Gather context
 
@@ -137,7 +133,33 @@ Before building env overrides, confirm:
 
 Before `docker compose up`, verify `EXTERNAL_IP`, `HAPROXY_PORT`, `VSS_PUBLIC_HOST`, and `VSS_PUBLIC_PORT` are populated with browser-reachable values. Otherwise the stack may appear healthy while UI/API/VST links 404 or loop through Cloudflare Access.
 
-### Step 1b — Prepare the data directory
+### Step 1a — Choose LLM/VLM placement
+
+Before validating credentials or mutating env files, explicitly choose LLM and
+VLM placement from `local`, `local_shared`, `remote`, or `none`.
+
+Use the user's prompt, the chosen profile's sizing rules, and the hardware
+check to decide.
+
+In non-autonomous mode, always confirm explicitly with the user if they choose:
+- local LLM endpoint vs remote with what `LLM_ENDPOINT_URL`
+- local VLM endpoint vs remote with what `VLM_ENDPOINT_URL`
+
+In autonomous mode, look if `LLM_ENDPOINT_URL`, `VLM_ENDPOINT_URL` are defined in the environment.
+If they are present, then user prompt must explicitly call out if the LLM/VLM are local/remote and this intent must align with the `LLM_ENDPOINT_URL`, `VLM_ENDPOINT_URL` defined in the user.
+If they align, then consider them automatically remote LLM/VLM using these endpoints without requesting user confirmation.
+If they do not align, user does not call it out explicitly in the prompt, or if there is any ambiguity, fail fast and ask for user confirmation.
+
+### Step 1b — Credentials gate (after placement)
+
+Validate only the credentials required by the placement chosen in Step 1a,
+before Step 1d copies `.env` to `generated.env`. A 401 here is a 30-second
+failure; the same 401 inside a NIM cold-start is a 10-20 min failure. Run the
+discovery and probe flow in [`references/credentials.md`](references/credentials.md),
+then map the result against the chosen placement: missing or invalid required
+credentials are blockers, optional credentials are not.
+
+### Step 1c — Prepare the data directory
 
 Layout (asset paths, ownership, mount points, profile-specific subdirs) is documented in [`references/data-directory.md`](references/data-directory.md). Read that file before deploying for the first time on a host or when changing profiles.
 
@@ -145,7 +167,7 @@ Layout (asset paths, ownership, mount points, profile-specific subdirs) is docum
 >
 > This is "good housekeeping" to a shell-admin instinct but is **the** deploy-breaking command in this stack. You will observe a "healthy" deploy (containers Up, endpoints 200) while the video pipeline is silently broken. Use `chmod -R 777` on the specific subdirs documented in `data-directory.md` — nothing else.
 
-### Step 1c — Initialize `generated.env`
+### Step 1d — Initialize `generated.env`
 
 The skill's per-deploy working copy. Always start from a fresh copy of the source `.env` — never mutate the source.
 
@@ -159,7 +181,7 @@ cp "$ENV_SRC" "$ENV_GEN"
 
 All subsequent writes (Brev `EXTERNAL_IP`, the env_overrides dict from Step 2) go to `$ENV_GEN`. `$ENV_SRC` is read-only from here on.
 
-### Step 1d — If deploying on Brev, set `EXTERNAL_IP` to the secure-link domain
+### Step 1e — If deploying on Brev, set `EXTERNAL_IP` to the secure-link domain
 
 Read `BREV_ENV_ID` from `/etc/environment` and write `EXTERNAL_IP` into `generated.env` (NOT `.env`). Full secure-link behavior and troubleshooting are in [`references/brev.md`](references/brev.md).
 
@@ -170,20 +192,25 @@ sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=7777-${brev_env_id}.brevlab.com|" "$ENV_GE
 
 ### Step 2 — Build env_overrides
 
-Produce an `env_overrides` dict from the user request and the gathered context: choose remote/local LLM/VLM, set credentials, point at endpoints, set platform-specific flags. The full mapping (every override key, when it applies, defaults, profile-specific differences) lives in [`references/env-overrides.md`](references/env-overrides.md). Each profile reference has worked examples for that profile's common scenarios.
+Produce an `env_overrides` dict from the user request, the placement chosen in
+Step 1a, and the gathered context: set credentials, point at endpoints, set
+platform-specific flags. The full mapping (every override key, when it applies,
+defaults, profile-specific differences) lives in
+[`references/env-overrides.md`](references/env-overrides.md). Each profile
+reference has worked examples for that profile's common scenarios.
 
 ### Step 3 — Apply overrides + dry-run
 
-**Working env file:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1c).
+**Working env file:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1d).
 
 > **Two env files, distinct roles.**
 > - `.env` — **read-only defaults**, checked in. Don't mutate it from the skill.
-> - `generated.env` — **the skill's per-deploy working copy**. All overrides (the dict from Step 2, plus the Brev `EXTERNAL_IP` from Step 1d) land here. `--env-file` always points at this file. Post-deploy verifiers should also read from `generated.env` for the actually-deployed values — see [Debugging a Deployment](#debugging-a-deployment).
+> - `generated.env` — **the skill's per-deploy working copy**. All overrides (the dict from Step 2, plus the Brev `EXTERNAL_IP` from Step 1e) land here. `--env-file` always points at this file. Post-deploy verifiers should also read from `generated.env` for the actually-deployed values — see [Debugging a Deployment](#debugging-a-deployment).
 >
 > `generated.env` matches the convention `dev-profile.sh` uses internally — it's a per-invocation scratchpad regenerated by `cp .env generated.env` each run.
 
 ```bash
-# (Step 1c already ran: cp $ENV_SRC $ENV_GEN)
+# (Step 1d already ran: cp $ENV_SRC $ENV_GEN)
 
 # Apply the env_overrides dict from Step 2 to generated.env
 # (read lines, update matching keys, append new keys, write)
@@ -312,4 +339,3 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 ## Troubleshooting
 
 Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
-

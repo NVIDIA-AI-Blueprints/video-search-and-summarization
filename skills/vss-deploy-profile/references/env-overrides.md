@@ -45,7 +45,7 @@ all of the following before `docker compose up`:
    `LLM_NAME=<model>` into
    `deploy/docker/developer-profiles/dev-profile-<profile>/generated.env`
    (the skill's per-deploy working copy — see ``SKILL.md`` (see `../SKILL.md`)
-   Step 1c). Do the same set for VLM if the user said remote VLM. Use
+   Step 1d). Do the same set for VLM if the user said remote VLM. Use
    `sed -i "s|^KEY=.*|KEY=VALUE|"` — the source `.env` template ships
    with placeholder rows for these keys, which `cp` to `generated.env`
    so the same `sed` patterns work.
