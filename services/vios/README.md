@@ -9,14 +9,14 @@ SPDX-License-Identifier: Apache-2.0
 
 Built images are named from two environment variables, so no registry is hardcoded in the source tree:
 
-- `VST_ORG` — registry/org prefix for all VST images (default `vios`, e.g. `vios/vst-sensor:latest`)
-- `NVSTREAMER_ORG` — full repository for the NVStreamer image (default `nvstreamer`, e.g. `nvstreamer:latest`)
+- `IMAGE_REGISTRY` — registry/org prefix for all VST images (default `vios`, e.g. `vios/vst-sensor:latest`)
+- `NVSTREAMER_IMAGE` — full repository for the NVStreamer image (default `nvstreamer`, e.g. `nvstreamer:latest`)
 
 The defaults build images locally with no registry. To publish to your own registry, export these before building:
 
 ```bash
-export VST_ORG=my-registry.example.com/vios
-export NVSTREAMER_ORG=my-registry.example.com/nvstreamer
+export IMAGE_REGISTRY=my-registry.example.com/vios
+export NVSTREAMER_IMAGE=my-registry.example.com/nvstreamer
 ```
 
 ### A) Build the compile toolchain image (x86_64)
@@ -64,8 +64,8 @@ The compiled images are deployed via docker-compose. If you built with the defau
 
 ```bash
 python3 deployment/oneclick_dc_deployment_for_dev.py deploy \
-  --vst-org vios --all-tag latest \
-  --nvstreamer-org nvstreamer --nvstreamer-tag latest \
+  --image-registry vios --all-tag latest \
+  --nvstreamer-image nvstreamer --nvstreamer-tag latest \
   --auto --force
 ```
 

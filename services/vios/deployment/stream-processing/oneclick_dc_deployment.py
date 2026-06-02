@@ -161,8 +161,8 @@ class DeploymentConfig:
         self.existing_vst_deployment = False
         self.existing_nvstreamer_deployment = False
         self.tag_overrides: Dict[str, str] = {}
-        self.vst_org: str = ""
-        self.nvstreamer_org: str = ""
+        self.image_registry: str = ""
+        self.nvstreamer_image: str = ""
 
     @property
     def vst_compose_dir(self) -> Path:
@@ -596,7 +596,7 @@ class ConfigurationManager:
         # Apply registry/org and tag overrides for stream-processing service images
         vst_image_vars = ['VST_STREAM_PROCESSOR_IMAGE', 'VST_SENSOR_IMAGE']
         for image_var in vst_image_vars:
-            org = self.config.vst_org
+            org = self.config.image_registry
             tag = self.config.tag_overrides.get(image_var, "")
             if not org and not tag:
                 continue
@@ -640,13 +640,13 @@ class ConfigurationManager:
             updates['COMPOSE_PROFILES'] = profiles_value
             Logger.info(f"Setting COMPOSE_PROFILES = {profiles_value}")
 
-        nvstreamer_org = self.config.nvstreamer_org
+        nvstreamer_image = self.config.nvstreamer_image
         nvstreamer_tag = self.config.tag_overrides.get('NVSTREAMER_IMAGE', "")
-        if nvstreamer_org or nvstreamer_tag:
+        if nvstreamer_image or nvstreamer_tag:
             current_image = self._read_env_value(
                 self.config.nvstreamer_compose_env, 'NVSTREAMER_IMAGE',
             )
-            new_image = self._retarget_image(current_image, org=nvstreamer_org,
+            new_image = self._retarget_image(current_image, org=nvstreamer_image,
                                              tag=nvstreamer_tag, org_is_prefix=False)
             if new_image:
                 updates['NVSTREAMER_IMAGE'] = new_image
@@ -2094,9 +2094,9 @@ IMAGE TAG OVERRIDES:
     --sensor-tag TAG         Override sensor service image tag
     --nvstreamer-tag TAG     Override NVStreamer service image tag
 
-IMAGE REGISTRY / ORG OVERRIDES:
-    --vst-org ORG            Override the registry/org prefix for VST service images (keeps name and tag), e.g. vios -> vios/vst-sensor:<tag>
-    --nvstreamer-org REPO    Override the NVStreamer image repository (keeps tag), e.g. nvstreamer or my-registry/nvstreamer
+IMAGE REGISTRY / REPOSITORY OVERRIDES:
+    --image-registry REGISTRY   Override the registry/org prefix for VST service images (keeps name and tag), e.g. vios -> vios/vst-sensor:<tag>
+    --nvstreamer-image REPO     Override the NVStreamer image repository (keeps tag), e.g. nvstreamer or my-registry/nvstreamer
 
 EXAMPLES:
     # Deploy stream-processing stack only (default target).
@@ -2107,8 +2107,8 @@ EXAMPLES:
     # Deploy NVStreamer only (1 instance, the default)
     python3 oneclick_dc_deployment.py deploy nvstreamer --force
 
-    # Deploy locally built images (built with VST_ORG=vios, NVSTREAMER_ORG=nvstreamer)
-    python3 oneclick_dc_deployment.py --force --vst-org vios --nvstreamer-org nvstreamer
+    # Deploy locally built images (built with IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE=nvstreamer)
+    python3 oneclick_dc_deployment.py --force --image-registry vios --nvstreamer-image nvstreamer
 
     # Deploy 5 NVStreamer instances
     python3 oneclick_dc_deployment.py deploy nvstreamer --instances 5 --force
@@ -2175,12 +2175,12 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
 
     config.tag_overrides = {}
 
-    config.vst_org = args.vst_org or ""
-    config.nvstreamer_org = args.nvstreamer_org or ""
-    if config.vst_org:
-        Logger.info(f"Using command line VST org override: {config.vst_org}")
-    if config.nvstreamer_org:
-        Logger.info(f"Using command line NVStreamer org override: {config.nvstreamer_org}")
+    config.image_registry = args.image_registry or ""
+    config.nvstreamer_image = args.nvstreamer_image or ""
+    if config.image_registry:
+        Logger.info(f"Using command line image registry override: {config.image_registry}")
+    if config.nvstreamer_image:
+        Logger.info(f"Using command line NVStreamer image override: {config.nvstreamer_image}")
 
     if args.all_tag:
         for img in ['VST_STREAM_PROCESSOR_IMAGE', 'VST_SENSOR_IMAGE']:
@@ -2394,10 +2394,10 @@ def main():
     parser.add_argument('--nvstreamer-tag', type=str,
                         help='Override NVStreamer service image tag')
 
-    # Image registry/org overrides
-    parser.add_argument('--vst-org', type=str,
+    # Image registry / repository overrides
+    parser.add_argument('--image-registry', type=str,
                         help='Override registry/org prefix for VST service images, keeping name and tag (e.g. vios -> vios/vst-sensor:<tag>)')
-    parser.add_argument('--nvstreamer-org', type=str,
+    parser.add_argument('--nvstreamer-image', type=str,
                         help='Override the NVStreamer image repository, keeping the tag (e.g. nvstreamer or my-registry/nvstreamer)')
 
     parser.add_argument('--help', action='store_true', help='Show this help message')

@@ -38,9 +38,9 @@ MODULES=()  # Array to hold the modules
 # Registry and org for built images. Defaults to a bare local namespace so
 # local builds work out of the box (e.g. vios/vst:latest, nvstreamer:latest);
 # no registry is hardcoded in the public tree. Override to push elsewhere:
-#   export VST_ORG=my-registry.example.com/vios
-VST_ORG="${VST_ORG:-vios}"
-NVSTREAMER_ORG="${NVSTREAMER_ORG:-nvstreamer}"
+#   export IMAGE_REGISTRY=my-registry.example.com/vios
+IMAGE_REGISTRY="${IMAGE_REGISTRY:-vios}"
+NVSTREAMER_IMAGE="${NVSTREAMER_IMAGE:-nvstreamer}"
 
 # Define valid module names
 declare -A VALID_MODULES=(
@@ -260,7 +260,7 @@ echo "VSTMONOLITH=$VSTMONOLITH"
 echo "NO_CACHE=$NO_CACHE"
 echo "BASE_IMAGE=$BASE_IMAGE"
 echo "MODULES=${MODULES[@]}"
-echo "VST_ORG=$VST_ORG"
+echo "IMAGE_REGISTRY=$IMAGE_REGISTRY"
 
 # Default tags for each module
 declare -A DEFAULT_TAGS=(
@@ -292,9 +292,9 @@ build_base_image() {
 
     # Determine the base image name and tag
     if [[ -n "$BASE_TAG" ]]; then
-        BASE_IMAGE_NAME="$VST_ORG/vst-base:${BASE_TAG}"
+        BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:${BASE_TAG}"
     else
-        BASE_IMAGE_NAME="$VST_ORG/vst-base:latest"
+        BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:latest"
     fi
 
     echo "Building base image: $BASE_IMAGE_NAME"
@@ -491,7 +491,7 @@ build_all() {
                 TAG=${DEFAULT_TAGS["nvstreamer"]:-"latest"}
                 TAG="${TAG}"
             fi
-            IMAGE_NAME=$NVSTREAMER_ORG:$TAG
+            IMAGE_NAME=$NVSTREAMER_IMAGE:$TAG
         elif [[ $VSTMONOLITH -eq 1 ]]; then
             if [[ -n "$TAG" ]]; then
                 TAG="${TAG}"
@@ -499,14 +499,14 @@ build_all() {
                 TAG=${DEFAULT_TAGS["vst"]:-"latest"}
                 TAG="${TAG}"
             fi
-            IMAGE_NAME=$VST_ORG/vst:$TAG
+            IMAGE_NAME=$IMAGE_REGISTRY/vst:$TAG
         else
             if [[ -n "$TAG" ]]; then
                 TAG="${TAG}"
             else
                 TAG="latest"
             fi
-            IMAGE_NAME=$VST_ORG/vst:$TAG
+            IMAGE_NAME=$IMAGE_REGISTRY/vst:$TAG
         fi
 
         echo "Building Docker image: $IMAGE_NAME"
@@ -527,7 +527,7 @@ build_all() {
         else
             BASE_IMAGE_TAG=${DEFAULT_TAGS["vst-base"]:-"latest"}
         fi
-        BASE_IMAGE_NAME="$VST_ORG/vst-base:$BASE_IMAGE_TAG"
+        BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:$BASE_IMAGE_TAG"
 
         if [[ ! -f "../../cicd_files/$ARCH/Dockerfile.app" ]]; then
             echo "[ERROR] Dockerfile.app not found in cicd_files/$ARCH/"
@@ -846,10 +846,10 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
         if [[ $NVSTREAMER_INGRESS -eq 1 ]]; then
             echo "Build nvstreamer ingress container"
             if [[ -n "$TAG" ]]; then
-                imagename="$VST_ORG/nvstreamer-ingress:${TAG}"
+                imagename="$IMAGE_REGISTRY/nvstreamer-ingress:${TAG}"
             else
                 TAG=${DEFAULT_TAGS[nvstreamer-ingress]:-"latest"}
-                imagename="$VST_ORG/nvstreamer-ingress:${TAG}"
+                imagename="$IMAGE_REGISTRY/nvstreamer-ingress:${TAG}"
             fi
             cd deployment/scaling/ucf/nvstreamer-app/ingress/ || exit 1
             echo "Building Docker image: $imagename"
@@ -861,10 +861,10 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
         if [[ $INGRESS -eq 1 ]]; then
             echo "Build ingress container"
             if [[ -n "$TAG" ]]; then
-                imagename="$VST_ORG/vst-ingress:${TAG}"
+                imagename="$IMAGE_REGISTRY/vst-ingress:${TAG}"
             else
                 TAG=${DEFAULT_TAGS[ingress]:-"latest"}
-                imagename="$VST_ORG/vst-ingress:${TAG}"
+                imagename="$IMAGE_REGISTRY/vst-ingress:${TAG}"
             fi
 
             # Build the vios-ui and stage its dist output into the ingress vst-ui dir
@@ -901,10 +901,10 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
         if [[ $MCP -eq 1 ]]; then
             echo "Build MCP container"
             if [[ -n "$TAG" ]]; then
-                imagename="$VST_ORG/vst-mcp:${TAG}"
+                imagename="$IMAGE_REGISTRY/vst-mcp:${TAG}"
             else
                 TAG=${DEFAULT_TAGS[mcp]:-"latest"}
-                imagename="$VST_ORG/vst-mcp:${TAG}"
+                imagename="$IMAGE_REGISTRY/vst-mcp:${TAG}"
             fi
             cd mcp/ || exit 1
             echo "Building Docker image: $imagename"
@@ -1042,10 +1042,10 @@ else
         for module in "${MODULES[@]}"; do
             # Use the specified TAG if available, otherwise use the default tag
             if [[ -n "$TAG" ]]; then
-                imagename="$VST_ORG/vst-${module}:${TAG}"
+                imagename="$IMAGE_REGISTRY/vst-${module}:${TAG}"
             else
                 TAG=${DEFAULT_TAGS[$module]:-"latest"}
-                imagename="$VST_ORG/vst-${module}:${TAG}"
+                imagename="$IMAGE_REGISTRY/vst-${module}:${TAG}"
             fi
             echo "Setting image name for module $module: $imagename"
 
@@ -1093,7 +1093,7 @@ else
             else
                 BASE_IMAGE_TAG=${DEFAULT_TAGS["vst-base"]:-"latest"}
             fi
-            BASE_IMAGE_NAME="$VST_ORG/vst-base:$BASE_IMAGE_TAG"
+            BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:$BASE_IMAGE_TAG"
 
             if [[ ! -f "../../cicd_files/$ARCH/Dockerfile.app" ]]; then
                 echo "[ERROR] Dockerfile.app not found in cicd_files/$ARCH/"
