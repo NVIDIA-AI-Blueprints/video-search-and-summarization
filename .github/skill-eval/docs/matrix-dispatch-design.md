@@ -91,14 +91,15 @@ After collecting the target `(skill, spec)` set:
   check `.github/skill-eval/adapters/<skill>/generate.py` exists (cheap
   file stat, no execution). If it's **missing**, drop that skill's spec
   legs and emit a single `kind: missing_adapter` leg for the skill. That
-  one leg's agent runs the existing bot-PR flow (§ 3c/3d) — so N specs of
-  an adapterless skill don't race to open N duplicate bot-PRs.
+  one leg's agent generates + commits the adapter directly to the
+  contributor's PR branch (§ 3c) — so N specs of an adapterless skill
+  don't race to commit it N times.
 - **Stale-but-present adapters** are still detected **per-leg** by the
   agent (staleness can only be known by running the adapter), which then
-  raises the bot-PR for its own skill. Two legs of the same skill both
-  finding the adapter stale is possible but rare; the deterministic
-  bot-branch name `eval-bot/pr-<N>/adapter-<skill>` + `gh pr create`
-  failing-if-exists makes the second attempt a no-op.
+  regenerates + commits the adapter for its own skill. Two legs of the
+  same skill both finding it stale is possible but rare; the § 3c
+  diff-guard (commit only when the staged adapter differs) + a
+  re-fetch-and-retry on non-fast-forward push make the losing leg a no-op.
 
 If the target set is empty (`has_targets=false`), the `eval` job is
 skipped and the workflow is a green no-op (same as today's
@@ -133,7 +134,7 @@ harbor synchronously.
 
 ## Unchanged on purpose
 
-- Per-leg agent logic: adapter autogeneration, bot-PR flow, harbor flags
+- Per-leg agent logic: adapter autogeneration, adapter auto-commit flow, harbor flags
   (incl. `--agent-timeout-multiplier 6.0` = 1 h), result-comment format,
   per-trial metric extraction, failure-mode handling, no `skills/` writes,
   no instance lifecycle calls.
