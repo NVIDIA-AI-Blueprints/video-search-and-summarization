@@ -16,9 +16,12 @@ Before `docker compose up -d` is invoked, the generated deploy skill must run a 
   - `${VSS_DATA_DIR}/data_log/elastic/data`
   - `${VSS_DATA_DIR}/data_log/elastic/logs`
   - `${VSS_DATA_DIR}/data_log/kafka`
+  - `${VSS_DATA_DIR}/data_log/redis/data`
+  - `${VSS_DATA_DIR}/data_log/redis/log` (Redis bind-mounts `$VSS_DATA_DIR/data_log/redis/log:/log` and its `redis.conf` writes there; if the host dir does not pre-exist, Docker auto-creates it `root:root 0755` and Redis fails fatally with `Can't open the log file: Permission denied`, crash-looping. A crash-looping Redis cascades: `sdr-controller` cannot create its Redis consumer group and the VIOS storage/cluster path returns `upstream-cluster required` while the live RTSP proxy on :30554 silently does not serve. Surfaced live 2026-06-02, IN-1 expanded eval.)
   - `${MDX_DATA_DIR}/data_log/vst/clip_storage` (for VIOS / RT-VLM shared video)
+  - `${VSS_DATA_DIR}/videos/<build-name>` and `${VSS_DATA_DIR}/data_log/nvstreamer/vst_data` (when the NvStreamer validation harness is included — see `references/validation-harness.md § 3`)
 - **Clear conflicting named volumes when driver_opts have drifted.** If `mdx_mdx-elastic-data` / `mdx_mdx-elastic-logs` / `mdx_mdx-kafka` exist with bind paths different from the current `.env`, Compose prompts interactively and unattended deploys hang. Either `docker volume rm` them or pass `--yes` to `docker compose up`. The deploy skill should detect drift and surface the choice to the user before bring-up, not at it.
-- **Clean up orphan containers from prior generations of the same project.** `docker compose down` only stops services in the *current* project graph — containers spawned by an earlier generation whose service set has since changed survive past teardown and continue to hold host ports / `network_mode: host` bindings. Two real failure modes seen 2026-05-26 during the SDRC rebase: (1) a legacy `vss-vios-sdr` container from a pre-rebase generation stayed `Up (healthy)` after teardown because the new IN-1 generation's allow-list no longer contains `sdr-streamprocessing`, so `down` skipped it; (2) `vss-vios-streamprocessing` from a prior generation held host port 10000, conflicting with the new `sdr-controller`'s Envoy listener and causing the new deploy to fail with `bind: address already in use`. Run `docker ps --filter "label=com.docker.compose.project=<project-name>" --format '{{.Names}}\t{{.Image}}\t{{.Status}}'` (or grep by VSS-specific container_name patterns: `vss-vios-*`, `sdr-*`, `sdrc-*`, `envoy-*`, `mdx-*`, `vss-rtvi-*`, `vss-broker-*`, `vss-elasticsearch-*`, `vss-kafka-*`, `mediamtx`, `ffmpeg-push`) before `up -d`. If any are present and are NOT in the current allow-list's expected container_name set, surface the list to the user and offer to `docker rm -f` them. Do not silently proceed — the deploy will fail with cryptic port-conflict errors otherwise.
+- **Clean up orphan containers from prior generations of the same project.** `docker compose down` only stops services in the *current* project graph — containers spawned by an earlier generation whose service set has since changed survive past teardown and continue to hold host ports / `network_mode: host` bindings. Two real failure modes seen 2026-05-26 during the SDRC rebase: (1) a legacy `vss-vios-sdr` container from a pre-rebase generation stayed `Up (healthy)` after teardown because the new IN-1 generation's allow-list no longer contains `sdr-streamprocessing`, so `down` skipped it; (2) `vss-vios-streamprocessing` from a prior generation held host port 10000, conflicting with the new `sdr-controller`'s Envoy listener and causing the new deploy to fail with `bind: address already in use`. Run `docker ps --filter "label=com.docker.compose.project=<project-name>" --format '{{.Names}}\t{{.Image}}\t{{.Status}}'` (or grep by VSS-specific container_name patterns: `vss-vios-*`, `sdr-*`, `sdrc-*`, `envoy-*`, `mdx-*`, `vss-rtvi-*`, `vss-broker-*`, `vss-elasticsearch-*`, `vss-kafka-*`, `vss-vios-nvstreamer`, `mediamtx`, `ffmpeg-push`) before `up -d`. (`vss-vios-nvstreamer` is the validation-harness synthetic RTSP source — see `references/validation-harness.md`; a stale instance from a prior generation holds host port 31000 + the 31554–31561 RTSP pool under `network_mode: host` and will collide. `mediamtx` / `ffmpeg-push` are the legacy dummy-stream sidecar names, kept here for back-compat orphan cleanup even though the skill no longer emits them.) If any are present and are NOT in the current allow-list's expected container_name set, surface the list to the user and offer to `docker rm -f` them. Do not silently proceed — the deploy will fail with cryptic port-conflict errors otherwise.
 - **NGC login to `/root/.docker/config.json`.** `echo "$NGC_CLI_API_KEY" | sudo docker login nvcr.io -u '$oauthtoken' --password-stdin` — write to root's docker config (the agent learned this; `sudo --preserve-env=DOCKER_CONFIG` deadlocks on futex).
 - **Verify the chosen profile flag isn't already in use** by any project on the host (`docker compose ls`). If `mdx` (or whichever project name) is already deployed, surface the conflict; teardown requires explicit user authorization.
 
@@ -152,4 +155,57 @@ These templates model the **single-workload SDRC form** (one `streamprocessing-m
 
 Without this materialization, `sdrc-render-config` exits with `render-config: no *.tmpl files found in /tmpl`, the whole SDRC chain stalls, `sdr-controller` never boots, and `POST /sensor/add` fails with `InvalidParameterError: Invalid Parameters` because the SDRC-rendered Envoy listener on `localhost:10000` is absent. Source: live verification, IN-1 SDRC rebase 2026-05-26.
 
+### Patch 3 sub-case — NvStreamer validation-harness config files
+
+When the build includes the NvStreamer validation harness (the sidecar carries a `validation_harness: { rtsp_source: nvstreamer }` key — see `references/validation-harness.md`), the emitted `nvstreamer-validation` service bind-mounts two config JSONs from a build-output-local path:
+
+- `<BUILD_DIR>/patched/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json`
+- `<BUILD_DIR>/patched/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json`
+
+These point into the patched tree, which is freshly created and otherwise empty, so Step 6.5 must materialize them. Copy the two upstream NvStreamer config files in place:
+
+- `deploy/docker/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json` → `<BUILD_DIR>/patched/nvstreamer/configs/vst-config.json`
+- `deploy/docker/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json` → `<BUILD_DIR>/patched/nvstreamer/configs/vst-storage.json`
+
+They are upstream-byte-identical — do NOT hand-edit. Without this materialization, Docker silently creates `vst-config.json` / `vst-storage.json` as empty directories and NvStreamer fails to read its config (the streamer either crashes on boot or comes up with no RTSP server pool). The sample-video staging into `${VSS_DATA_DIR}/videos/<build-name>/` is handled by Step 6 (not a relative bind source, so the general Patch 3 walk does not cover it) — see `references/validation-harness.md § 3`.
+
 Add a row to `PATCHES.md` for every file/directory materialized, citing the upstream source path and the patched destination, so the operator can audit.
+
+
+## Patch 4 — Neutralize nested `include:` directives in copied composes
+
+Some upstream service composes carry their **own** top-level `include:` block. The canonical case is `services/infra/compose.yml`, which begins:
+
+```yaml
+include:
+  - path: ./haproxy/compose.yml
+  - path: ./sdrc/docker-compose.yaml
+services:
+  ...
+```
+
+When that file is copied verbatim into `<BUILD_DIR>/patched/services/infra/compose.yml`, its **relative** include paths now resolve against the patched directory — `./haproxy/compose.yml` does not exist there, so `docker compose config` fails immediately with `open <BUILD_DIR>/patched/services/infra/haproxy/compose.yml: no such file or directory`. Worse, `./sdrc/docker-compose.yaml` would be **double-included** because the build's own top-level `compose.yml` already lists the SDRC compose in its include set.
+
+**Fix.** The build's top-level `<BUILD_DIR>/compose.yml` is the *single* include orchestrator. After copying each upstream compose into `patched/`, strip any top-level `include:` block from the copy. Every file that the build genuinely needs is already an explicit entry in the build `compose.yml`'s include list (e.g. `sdrc/docker-compose.yaml`); any included file that is NOT needed (e.g. `haproxy/compose.yml` — not allow-listed, and nothing in the allow-list `depends_on` it) is correctly dropped.
+
+```python
+# pseudocode — run once per copied compose, after the copy and before Patch 1
+def strip_nested_includes(patched_path):
+    lines = open(patched_path).read().splitlines()
+    out, i, dropped = [], 0, []
+    while i < len(lines):
+        if re.match(r'^include:\s*$', lines[i]):
+            i += 1
+            while i < len(lines) and (lines[i].startswith("  ") or lines[i].strip() == ""):
+                m = re.search(r'path:\s*(\S+)', lines[i])
+                if m: dropped.append(m.group(1))
+                if lines[i].strip() == "" and i+1 < len(lines) and re.match(r'^[A-Za-z]', lines[i+1]):
+                    i += 1; break
+                i += 1
+            continue
+        out.append(lines[i]); i += 1
+    open(patched_path, "w").write("\n".join(out) + "\n")
+    return dropped   # record each dropped include in PATCHES.md
+```
+
+Record every dropped `include:` path in `PATCHES.md`. **Audit rule:** before dropping, confirm each dropped include is either (a) already present as an explicit entry in the build `compose.yml` include list, or (b) not allow-listed AND not the target of any allow-listed service's `depends_on`. If a dropped include is the only definition site of an allow-listed service or a kept `depends_on` peer, that is a generation bug — error and stop instead of dropping. Surfaced live 2026-06-02 (IN-1 expanded eval — `services/infra/compose.yml` includes `haproxy` + `sdrc`).
