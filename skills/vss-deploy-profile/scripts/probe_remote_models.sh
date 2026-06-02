@@ -19,6 +19,8 @@ Examples:
   probe_remote_models.sh \
     http://localhost:30081 nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark
 EOF
+
+  return 0
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
