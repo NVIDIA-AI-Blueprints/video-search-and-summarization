@@ -516,25 +516,68 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(calls, ["collect", "stop"])
 
-    def test_sandbox_exec_wraps_multiline_scripts_for_nemoclaw(self):
+    def test_sandbox_exec_wraps_multiline_scripts_for_openshell(self):
         calls: list[tuple[str, ...]] = []
-        previous = headless_runner._run
+        previous = {
+            "_run": headless_runner._run,
+            "shutil_which": headless_runner.shutil_which,
+        }
 
         def fake_run(cmd, *, timeout=30):
             calls.append(tuple(cmd))
             return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
 
         headless_runner._run = fake_run
+        headless_runner.shutil_which = lambda name: "/usr/bin/openshell" if name == "openshell" else None
         try:
             result = headless_runner._sandbox_exec("demo", "echo one\necho two", timeout=30)
         finally:
-            headless_runner._run = previous
+            headless_runner._run = previous["_run"]
+            headless_runner.shutil_which = previous["shutil_which"]
 
         self.assertEqual(result.returncode, 0)
         self.assertEqual(len(calls), 1)
         command = calls[0]
+        self.assertEqual(command[:5], ("openshell", "sandbox", "exec", "-n", "demo"))
         self.assertTrue(all("\n" not in arg and "\r" not in arg for arg in command))
         self.assertIn("base64 -d", " ".join(command))
+
+    def test_gateway_recovery_uses_openshell_not_nemoclaw_recover(self):
+        calls: list[tuple[str, ...]] = []
+        gateway_checks = iter([False, True])
+        previous = {
+            "_run": headless_runner._run,
+            "_gateway_reachable": headless_runner._gateway_reachable,
+            "shutil_which": headless_runner.shutil_which,
+        }
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner._run = fake_run
+            headless_runner._gateway_reachable = lambda sandbox: next(gateway_checks)
+            headless_runner.shutil_which = lambda name: "/usr/bin/openshell" if name == "openshell" else None
+            try:
+                headless_runner.ensure_openclaw_gateway("demo", log_dir)
+            finally:
+                headless_runner._run = previous["_run"]
+                headless_runner._gateway_reachable = previous["_gateway_reachable"]
+                headless_runner.shutil_which = previous["shutil_which"]
+
+            recover_log = (log_dir / "openclaw_gateway_recover.log").read_text(encoding="utf-8")
+
+        self.assertIn("returncode=0", recover_log)
+        command_text = "\n".join(" ".join(call) for call in calls)
+        self.assertIn("openshell sandbox exec -n demo", command_text)
+        self.assertNotIn("nemoclaw demo recover", command_text)
+        wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
+        encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
+        script = base64.b64decode(encoded).decode("utf-8")
+        self.assertIn("openclaw dashboard", script)
+        self.assertIn("systemctl --user restart openclaw-gateway", script)
 
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
