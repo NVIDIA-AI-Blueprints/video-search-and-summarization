@@ -405,7 +405,13 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _latest_trial(results_root: Path, run_id: str) -> tuple[Path | None, dict[str, Any]]:
     run_root = results_root / run_id
-    results = sorted(run_root.rglob("result.json"), key=lambda p: p.stat().st_mtime)
+    results = [
+        path
+        for path in run_root.rglob("result.json")
+        if (path.parent / "verifier" / "reward.txt").exists()
+        or (path.parent / "trial.log").exists()
+    ]
+    results = sorted(results, key=lambda p: p.stat().st_mtime)
     if not results:
         return None, {}
     result_path = results[-1]
@@ -477,13 +483,20 @@ def _format_number(value: int | float | None) -> str:
     return f"{number:.1f}"
 
 
-def _load_trajectory_metrics(trial_dir: Path | None) -> tuple[str, str, str]:
+def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> tuple[str, str, str]:
+    agent_result = result.get("agent_result") if isinstance(result, dict) else None
+    if isinstance(agent_result, dict):
+        prompt = agent_result.get("n_input_tokens")
+        cached = agent_result.get("n_cache_tokens")
+        if prompt is not None or cached is not None:
+            return "n/a", _format_number(prompt), _format_number(cached)
+
     if trial_dir is None:
-        return "-", "-", "-"
+        return "n/a", "n/a", "n/a"
     trajectory = trial_dir / "agent" / "trajectory.json"
     data = _read_json(trajectory)
     if not data:
-        return "-", "-", "-"
+        return "n/a", "n/a", "n/a"
 
     steps = data.get("steps")
     turns = 0
@@ -521,9 +534,9 @@ def _load_trajectory_metrics(trial_dir: Path | None) -> tuple[str, str, str]:
             cached_tokens += int(usage.get("cacheCreationInputTokens") or 0)
 
     return (
-        str(turns) if turns else "-",
-        _format_number(prompt_tokens) if prompt_tokens else "-",
-        _format_number(cached_tokens) if cached_tokens else "-",
+        str(turns) if turns else "n/a",
+        _format_number(prompt_tokens) if prompt_tokens else "n/a",
+        _format_number(cached_tokens) if cached_tokens else "n/a",
     )
 
 
@@ -568,7 +581,7 @@ def _copy_viewer_snapshot(
     platform: str,
     trial_dir: Path | None,
 ) -> str | None:
-    brev_env_id = os.environ.get("BREV_ENV_ID", "").strip()
+    brev_env_id = _coordinator_brev_env_id()
     if not brev_env_id or trial_dir is None:
         return None
     run_root = results_root / run_id
@@ -583,6 +596,27 @@ def _copy_viewer_snapshot(
     shutil.rmtree(viewer_dir, ignore_errors=True)
     shutil.copytree(source, viewer_dir)
     return f"https://harbor-{brev_env_id}.brevlab.com/jobs/{quote(viewer_name, safe='')}"
+
+
+def _coordinator_brev_env_id() -> str:
+    value = os.environ.get("BREV_ENV_ID", "").strip()
+    if value:
+        return value
+    try:
+        for line in Path("/etc/environment").read_text(encoding="utf-8").splitlines():
+            if not line.startswith("BREV_ENV_ID="):
+                continue
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        return ""
+    return ""
+
+
+def _github_run_url(run_id: str) -> str | None:
+    repo = os.environ.get("PR_REPO") or os.environ.get("GITHUB_REPOSITORY")
+    if not repo:
+        return None
+    return f"https://github.com/{repo}/actions/runs/{run_id}"
 
 
 def _write_benchmark_input(run_id: str, profile: str, body: str) -> None:
@@ -616,7 +650,7 @@ def _append_harbor_report(
         started = dt.datetime.fromtimestamp(trial_dir.stat().st_mtime, dt.timezone.utc).isoformat()
     if finished == "-" and trial_dir is not None:
         finished = dt.datetime.fromtimestamp(trial_dir.stat().st_mtime, dt.timezone.utc).isoformat()
-    turns, prompt_tokens, cached_tokens = _load_trajectory_metrics(trial_dir)
+    turns, prompt_tokens, cached_tokens = _load_trajectory_metrics(trial_dir, result)
     passed, total, failures = _judge_details(trial_dir, reward)
     trace_url = _copy_viewer_snapshot(
         results_root=results_root,
@@ -625,7 +659,12 @@ def _append_harbor_report(
         platform=platform,
         trial_dir=trial_dir,
     )
-    trace_cell = f"[trace]({trace_url})" if trace_url else "-"
+    if trace_url:
+        trace_cell = f"[trace]({trace_url})"
+    elif run_url := _github_run_url(run_id):
+        trace_cell = f"[artifacts]({run_url})"
+    else:
+        trace_cell = "n/a"
     status_ok = reward is not None and reward >= 1.0 and harbor_rc == 0
     result_prefix = "PASS" if status_ok else "FAIL"
     reward_text = f"{reward:.3g}" if reward is not None else "missing"
