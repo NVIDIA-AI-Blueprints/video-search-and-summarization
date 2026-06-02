@@ -40,8 +40,14 @@ jobs:
       # status stays green. Durable fix: scope source_tree_sha to build inputs.
       - name: Detect docs/tests-only change
         id: filter
+        continue-on-error: true  # fail safe: a helper error must not block PRs
         run: |
-          skip=$(python3 .github/scripts/source_check_only_nonbuild.py --image-name vss-agent)
+          # Any failure or non-"true" result falls through to the full check.
+          if ! skip=$(python3 .github/scripts/source_check_only_nonbuild.py --image-name vss-agent); then
+            echo "filter helper failed; running the full source check." >&2
+            skip=false
+          fi
+          [ "$skip" = "true" ] || skip=false
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
       # Primary path reads com.nvidia.vss.source_tree_sha from the image's

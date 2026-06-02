@@ -46,8 +46,9 @@ SOURCE_PATHS = {
 #   below never enter the build context. Note the patterns are anchored to the
 #   service root: src/vss_agents/**/README.md IS copied and must NOT be ignored.
 #
-# vss-agent-ui: services/ui/.dockerignore excludes **/*.md and *.test.*/*.spec.*
-#   from the build context, so markdown and test/spec files never ship.
+# vss-agent-ui: services/ui/.dockerignore excludes **/*.md and the
+#   *.test.{js,ts,tsx} / *.spec.{js,ts,tsx} files from the build context, so
+#   markdown and those test/spec files never ship.
 NONBUILD_PATTERNS = {
     "vss-agent": [
         "AGENTS.md",
@@ -61,12 +62,16 @@ NONBUILD_PATTERNS = {
         "gitleaks-baseline.json",
     ],
     "vss-agent-ui": [
+        # Strict subset of services/ui/.dockerignore's tracked-file exclusions,
+        # so this never skips a file that could ship. (.dockerignore only drops
+        # the .js/.ts/.tsx test/spec variants — not e.g. *.test.py.)
         "**/*.md",
-        "*.md",
-        "**/*.test.*",
-        "**/*.spec.*",
-        "*.test.*",
-        "*.spec.*",
+        "**/*.test.js",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.js",
+        "**/*.spec.ts",
+        "**/*.spec.tsx",
     ],
 }
 
