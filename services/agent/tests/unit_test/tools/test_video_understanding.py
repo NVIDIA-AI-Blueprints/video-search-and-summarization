@@ -237,6 +237,16 @@ class TestAudioErrorClassification:
     def test_non_audio_error_returns_none(self):
         assert _classify_audio_error(RuntimeError("timeout talking to backend")) is None
 
+    def test_video_codec_error_is_not_classified_as_audio(self):
+        assert _classify_audio_error(RuntimeError("video codec not supported")) is None
+        assert _classify_audio_error(RuntimeError("unsupported codec: h265")) is None
+
+    def test_generic_codec_patterns_require_audio_context(self):
+        assert (
+            _classify_audio_error(RuntimeError("unsupported codec in audio track"))
+            == "audio_decode_or_unsupported_codec"
+        )
+
 
 class TestBuildVlmMessages:
     """Test VLM media message construction."""

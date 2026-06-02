@@ -82,6 +82,8 @@ _AUDIO_CODEC_PATTERNS = (
     "audio decode",
     "decode audio",
     "audio codec",
+)
+_AUDIO_CODEC_GENERIC_PATTERNS = (
     "codec not supported",
     "unsupported codec",
 )
@@ -121,6 +123,8 @@ def _classify_audio_error(error: Exception) -> str | None:
     if any(p in text for p in _AUDIO_NO_STREAM_PATTERNS):
         return "no_audio_stream"
     if any(p in text for p in _AUDIO_CODEC_PATTERNS):
+        return "audio_decode_or_unsupported_codec"
+    if "audio" in text and any(p in text for p in _AUDIO_CODEC_GENERIC_PATTERNS):
         return "audio_decode_or_unsupported_codec"
     if any(p in text for p in _AUDIO_INVALID_PATTERNS):
         return "invalid_or_unsupported_audio_file"
@@ -748,7 +752,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                 "Write your final answer immediately after the </think> tag."
             )
 
-        async def _invoke_video_understanding_call(enable_audio: bool, allow_transient_retries: bool):
+        async def _invoke_video_understanding_call(enable_audio: bool, transient_retries: int = 1):
             use_base64 = _should_use_video_base64(
                 use_base64=config.use_base64,
                 vlm_mode=config.vlm_mode,
@@ -771,10 +775,10 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             )
             chain = prompt_template | _build_vlm(enable_audio=enable_audio)
 
-            if not allow_transient_retries:
+            if transient_retries <= 1:
                 return await chain.ainvoke({"messages": messages})
 
-            async for retry in create_retry_strategy(retries=3, exceptions=_VLM_RETRYABLE_ERRORS):
+            async for retry in create_retry_strategy(retries=transient_retries, exceptions=_VLM_RETRYABLE_ERRORS):
                 with retry:
                     try:
                         return await chain.ainvoke({"messages": messages})
@@ -790,10 +794,9 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                                 raise AudioProcessingError(audio_error, e) from e
                         logger.error(f"Error understanding video {video_understanding_input.sensor_id}: {e}")
                         raise
-            raise RuntimeError("Video understanding failed without a response.")
 
         try:
-            response = await _invoke_video_understanding_call(enable_audio=config.enable_audio, allow_transient_retries=True)
+            response = await _invoke_video_understanding_call(enable_audio=config.enable_audio, transient_retries=3)
         except AudioProcessingError as e:
             if config.enable_audio and config.enable_audio_fallback:
                 logger.warning(
@@ -801,7 +804,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                     video_understanding_input.sensor_id,
                     e.category,
                 )
-                response = await _invoke_video_understanding_call(enable_audio=False, allow_transient_retries=False)
+                response = await _invoke_video_understanding_call(enable_audio=False, transient_retries=2)
             else:
                 friendly = _audio_error_message(e.category)
                 raise ValueError(

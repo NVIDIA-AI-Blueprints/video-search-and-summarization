@@ -185,6 +185,9 @@ agent:
       # Nemotron Nano Omni: set to "true" with Omni model + HF_TOKEN.
       - name: ENABLE_AUDIO
         value: '{{ .Values.enableAudio | default "false" }}'
+      # Fallback to sending no-audio video if audio is not available.
+      - name: ENABLE_AUDIO_FALLBACK
+        value: '{{ .Values.enableAudioFallback | default "true" }}'
       - name: LLM_MODE
         value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $llm }}remote{{- else }}local{{- end }}'
       - name: VLM_MODE
