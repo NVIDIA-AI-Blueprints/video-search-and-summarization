@@ -161,7 +161,7 @@ def parse_scene_and_group(scene_name_full):
     """Split a scene name into the base scene name and an optional group name.
 
     Scene names may carry a camera-group suffix separated by ``+``, e.g.
-    ``"Warehouse_050925+clustered-bev-sensor-1"``.  Only the first ``+``
+    ``"scene_001+clustered-bev-sensor-1"``.  Only the first ``+``
     is used as the separator so that group names containing ``+`` are
     preserved.
 

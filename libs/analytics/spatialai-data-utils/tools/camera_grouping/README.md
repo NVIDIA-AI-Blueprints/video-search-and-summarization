@@ -34,8 +34,6 @@ The `calculate_origin.py` tool calculates Bird's Eye View (BEV) group origins an
 ## Quick Start
 
 ```bash
-cd spatialai_data_utils
-
 # With existing groups - calculate origins
 python tools/camera_grouping/calculate_origin.py data/scene/calibration_grouped.json
 
@@ -58,15 +56,6 @@ You have a raw calibration file without groups. The tool will automatically:
 
 ### Scenario 3: Frustum-Based FOV
 Your calibration file doesn't have `fieldOfViewPolygon` attributes. The tool will calculate FOV from camera intrinsic/extrinsic matrices.
-
-## Installation
-
-```bash
-cd spatialai_data_utils
-
-# Ensure dependencies are installed
-pip install -e .
-```
 
 ## Command-Line Arguments
 
@@ -111,7 +100,7 @@ pip install -e .
 # Output: calibration_grouped_with_origins.json
 
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json
+    data/mtmc/scene_001/calibration_grouped.json
 ```
 
 **What happens:**
@@ -126,8 +115,8 @@ python tools/camera_grouping/calculate_origin.py \
 # Output: calibration_with_origins.json (WITH groups and origins!)
 
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration.json \
-    --map_file data/mtmc/SURF_Booth_031325/Top.png
+    data/mtmc/scene_001/calibration.json \
+    --map_file data/mtmc/scene_001/Top.png
 ```
 
 **What happens:**
@@ -141,7 +130,7 @@ python tools/camera_grouping/calculate_origin.py \
 ```bash
 # Prefer FOV polygons from calibration attributes
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json \
+    data/mtmc/scene_001/calibration_grouped.json \
     --prefer-existing-fov
 ```
 
@@ -150,7 +139,7 @@ python tools/camera_grouping/calculate_origin.py \
 ```bash
 # Use different height range for ground plane intersection
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json \
+    data/mtmc/scene_001/calibration_grouped.json \
     --height-range 0.5 2.5
 ```
 
@@ -159,7 +148,7 @@ python tools/camera_grouping/calculate_origin.py \
 ```bash
 # Calculate origins for only Camera_01, Camera_02, Camera_03
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json \
+    data/mtmc/scene_001/calibration_grouped.json \
     --sensor-names Camera_01,Camera_02,Camera_03
 ```
 
@@ -168,8 +157,8 @@ python tools/camera_grouping/calculate_origin.py \
 ```bash
 # Specify exact output path
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json \
-    --output data/mtmc/SURF_Booth_031325/calibration_final.json
+    data/mtmc/scene_001/calibration_grouped.json \
+    --output data/mtmc/scene_001/calibration_final.json
 ```
 
 ### Example 7: Overwrite Original
@@ -177,7 +166,7 @@ python tools/camera_grouping/calculate_origin.py \
 ```bash
 # Update the input file in-place
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json \
+    data/mtmc/scene_001/calibration_grouped.json \
     --overwrite
 ```
 
@@ -186,8 +175,8 @@ python tools/camera_grouping/calculate_origin.py \
 ```bash
 # Generate visual map showing camera groups
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json \
-    --map_file data/mtmc/SURF_Booth_031325/Top.png \
+    data/mtmc/scene_001/calibration_grouped.json \
+    --map_file data/mtmc/scene_001/Top.png \
     --visualize
 ```
 
@@ -200,7 +189,7 @@ python tools/camera_grouping/calculate_origin.py \
 ```bash
 # Clip frustum polygons to a specific region
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json \
+    data/mtmc/scene_001/calibration_grouped.json \
     --scene-bounds -30 -40 30 40 \
     --max-camera-distance 25.0
 ```
@@ -226,13 +215,13 @@ python tools/camera_grouping/calculate_origin.py \
 ```bash
 # Combine multiple options for production use
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_grouped.json \
-    --output data/mtmc/SURF_Booth_031325/calibration_final.json \
+    data/mtmc/scene_001/calibration_grouped.json \
+    --output data/mtmc/scene_001/calibration_final.json \
     --dilation 1.5 \
     --height-range 1.0 3.0 \
     --scene-bounds -50 -50 50 50 \
     --max-camera-distance 30.0 \
-    --map_file data/mtmc/SURF_Booth_031325/Top.png \
+    --map_file data/mtmc/scene_001/Top.png \
     --visualize
 ```
 
@@ -519,18 +508,16 @@ Dimensions: [-2.0, -18.0, 12.0, -2.0]
 
 ## Real-World Example
 
-### SURF Booth Dataset
+### Synthetic Warehouse Scene
 
 ```bash
-cd spatialai_data_utils
-
-# Process SURF Booth calibration
+# Process the scene calibration
 python tools/camera_grouping/calculate_origin.py \
-    data/mtmc/SURF_Booth_031325/calibration_buffer_zone_c4.json \
-    --output data/mtmc/SURF_Booth_031325/calibration_with_origins.json \
+    data/mtmc/scene_001/calibration_buffer_zone_c4.json \
+    --output data/mtmc/scene_001/calibration_with_origins.json \
     --dilation 1.0 \
     --prefer-existing-fov \
-    --map_file data/mtmc/SURF_Booth_031325/Top.png \
+    --map_file data/mtmc/scene_001/Top.png \
     --visualize
 ```
 
@@ -755,6 +742,8 @@ See `spatialai_data_utils/core/cameras/bev.py` for programmatic usage.
 
 The `create_camera_clusters.py` tool partitions ALL cameras into exactly N spatially compact clusters based on FOV coverage and spatial proximity. Unlike grouping (which finds overlapping camera sets), clustering assigns every camera to exactly one cluster with minimal spatial scatter.
 
+The positional `input_calibration` argument accepts either a `calibration.json` file path or a directory that contains one, so you can point it straight at a calibration file. When a file is given, outputs are written next to it and a sibling `Top.png` is auto-discovered for visualization.
+
 ## Key Features
 
 ✅ **Complete Coverage**: Every camera is assigned to exactly one cluster  
@@ -839,16 +828,17 @@ After Refinement (swaps to minimize scatter):
 ## Quick Start
 
 ```bash
-cd spatialai_data_utils
+# Pass a calibration.json file directly (outputs are written next to it)
+python tools/camera_grouping/create_camera_clusters.py data/scene/calibration.json --max_camera_per_group 10
 
-# Basic usage: Specify max cameras per cluster (required)
+# Or pass a directory that contains calibration.json (and optionally Top.png)
 python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_per_group 10
 
-# With visualization
-python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_per_group 10 --visualize
+# Any calibration file name also works (e.g. a raw, ungrouped calibration)
+python tools/camera_grouping/create_camera_clusters.py data/scene/calibration_raw.json --max_camera_per_group 10
 
 # Override auto-calculated cluster count
-python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_per_group 10 --n_clusters 5
+python tools/camera_grouping/create_camera_clusters.py data/scene/calibration.json --max_camera_per_group 10 --n_clusters 5
 ```
 
 ## Command-Line Arguments
@@ -857,7 +847,7 @@ python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_p
 
 | Argument | Description |
 |----------|-------------|
-| `base_dir` | Path to dataset folder containing `calibration.json` and `Top.png` |
+| `input_calibration` | Path to a `calibration.json` file **or** a directory containing `calibration.json` (and optionally `Top.png`). When a file is given, outputs are written next to it and a sibling `Top.png` is auto-discovered for visualization. |
 | `--max_camera_per_group` | Maximum cameras per cluster; auto-calculates `n_clusters` |
 
 ### Clustering Parameters
@@ -1084,7 +1074,7 @@ This tool is a command-line wrapper around:
 from spatialai_data_utils.core.cameras.bev import create_camera_clusters_from_calibration
 
 output_path = create_camera_clusters_from_calibration(
-    calibration_assets_dir="data/scene",      # dir containing calibration.json (Top.png optional)
+    input_calibration="data/scene/calibration.json",  # calibration.json file or a directory containing it
     max_camera_per_group=10,                  # required
     output="data/scene/calibration_clustered.json",  # optional
     output_suffix="clustered",                # optional, default "clustered"
@@ -1259,7 +1249,8 @@ Result: 6 cameras × 3 groups × 3 per group = 9 slots
 ## Quick Start
 
 ```bash
-cd spatialai_data_utils
+# Input can be a calibration.json file directly, or a directory containing one
+python tools/camera_grouping/create_camera_groups.py data/scene/calibration.json --auto
 
 # Auto mode: create groups with sizes 1, 2, ..., min(n_sensors, 18)
 python tools/camera_grouping/create_camera_groups.py data/scene --auto
@@ -1307,7 +1298,7 @@ python tools/camera_grouping/create_camera_groups.py data/scene \
 
 | Argument | Description |
 |----------|-------------|
-| `input_calibration` | Path to calibration.json or directory containing calibration.json |
+| `input_calibration` | Path to a `calibration.json` file **or** a directory containing `calibration.json`. When a file is given, outputs are written next to it. |
 
 ### Mode Selection (Choose One)
 
@@ -1363,7 +1354,7 @@ python tools/camera_grouping/create_camera_groups.py data/scene \
 # Auto mode: create groups with sizes 1, 2, ..., min(n_sensors, 18)
 # For a scene with 25 cameras, creates groups of sizes 1-18 (18 is default max)
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --auto
 ```
 
@@ -1377,7 +1368,7 @@ python tools/camera_grouping/create_camera_groups.py \
 # Auto mode with custom max sensors per group (e.g., 12)
 # For a scene with 25 cameras, creates groups of sizes 1-12
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --auto \
     --max_sensors_per_group 12
 ```
@@ -1388,7 +1379,7 @@ python tools/camera_grouping/create_camera_groups.py \
 # Auto mode with 2 groups per size
 # Creates 2 groups each of sizes 1, 2, ..., min(n_sensors, 18)
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --auto \
     --n_groups 2
 ```
@@ -1402,13 +1393,13 @@ python tools/camera_grouping/create_camera_groups.py \
 ```bash
 # Create 3 groups with 10 cameras each
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --n_groups 3 \
     --cameras_per_group 10
 ```
 
 **Output:**
-- `data/mtmc/Hospital_021425/calibration_grouped.json`
+- `data/mtmc/scene_002/calibration_grouped.json`
 
 ### Example 5: Multiple Size Types
 
@@ -1416,7 +1407,7 @@ python tools/camera_grouping/create_camera_groups.py \
 # Create 2 groups × 3 sizes = 6 total groups
 # (2 groups with 5 cameras, 2 with 8, 2 with 6)
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --n_groups 2 \
     --cameras_per_group 5 8 6
 ```
@@ -1432,7 +1423,7 @@ python tools/camera_grouping/create_camera_groups.py \
 ```bash
 # Generate separate visualization for each group (default for grouping)
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --n_groups 3 \
     --cameras_per_group 10 \
     --visualize
@@ -1449,7 +1440,7 @@ python tools/camera_grouping/create_camera_groups.py \
 ```bash
 # Generate single combined image with all groups
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --n_groups 3 \
     --cameras_per_group 10 \
     --visualize --vis_combined
@@ -1464,7 +1455,7 @@ python tools/camera_grouping/create_camera_groups.py \
 ```bash
 # Require higher FOV overlap for group membership
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --n_groups 3 \
     --cameras_per_group 8 \
     --min_overlap_threshold 0.4 \
@@ -1476,7 +1467,7 @@ python tools/camera_grouping/create_camera_groups.py \
 ```bash
 # Use pre-computed FOV polygons from calibration attributes
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --n_groups 4 \
     --cameras_per_group 6 \
     --prefer_existing_fov
@@ -1500,7 +1491,7 @@ python tools/camera_grouping/create_camera_groups.py \
 ```bash
 # Use random seed for reproducible results (recommended)
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --n_groups 3 \
     --cameras_per_group 10 \
     --random_seed 42
@@ -1513,7 +1504,7 @@ python tools/camera_grouping/create_camera_groups.py \
 ```bash
 # Disable randomization entirely for fully deterministic results
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --n_groups 3 \
     --cameras_per_group 10 \
     --no_randomize
@@ -1526,10 +1517,10 @@ python tools/camera_grouping/create_camera_groups.py \
 ```bash
 # Full configuration for production use
 python tools/camera_grouping/create_camera_groups.py \
-    data/mtmc/Hospital_021425 \
+    data/mtmc/scene_002 \
     --auto \
     --max_sensors_per_group 15 \
-    --output data/mtmc/Hospital_021425/calibration_production.json \
+    --output data/mtmc/scene_002/calibration_production.json \
     --min_overlap_threshold 0.2 \
     --max_distance_threshold 30.0 \
     --dilation 10.0 \
@@ -1877,7 +1868,7 @@ python tools/camera_grouping/calculate_origin.py --help | grep -A 20 "Examples:"
 
 ---
 
-**Last Updated**: 2026-04-02  
+**Last Updated**: 2026-06-01  
 **Tools Location**: `tools/camera_grouping/`  
 **Core Module**: `spatialai_data_utils.core.cameras.bev`  
 **Status**: ✅ Production Ready (all tools)

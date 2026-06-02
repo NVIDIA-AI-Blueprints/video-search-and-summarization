@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-summarization"
-version = "3.2.0rc11"
+version = "3.2.0"
 description = "Video Summarization"
 readme = "README.md"
 requires-python = ">=3.10"
