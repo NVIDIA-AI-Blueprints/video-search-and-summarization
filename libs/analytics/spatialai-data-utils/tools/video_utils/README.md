@@ -24,8 +24,6 @@ below.
 ## `video2frame.py` — decode a video → frame directory
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Default: every frame as 9-digit zero-padded JPG
 python tools/video_utils/video2frame.py video.mp4 output/frames/
 
@@ -96,19 +94,17 @@ This matches the canonical `data/mtmc/synthetic/<scene>/` layout
 ```
 
 ```bash
-cd /path/to/spatialai_data_utils
-
-# Default invocation (matches data/mtmc/synthetic/SURF_Booth_031325/, etc.)
+# Default invocation (matches data/mtmc/synthetic/scene_001/, etc.)
 python tools/video_utils/video2frame_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/
+    data/mtmc/synthetic/scene_001/
 
 # Same scene, 8 workers
 python tools/video_utils/video2frame_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ --workers 8
+    data/mtmc/synthetic/scene_001/ --workers 8
 
 # Keep every 5th frame, capped at the first 200 source frames per camera
 python tools/video_utils/video2frame_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ --frame_skip 5 --end_frame 200
+    data/mtmc/synthetic/scene_001/ --frame_skip 5 --end_frame 200
 ```
 
 Cameras are discovered from filenames inside `<scene_dir>/<videos_dir>/`.
@@ -178,8 +174,6 @@ other than `completed` / `skipped`.
 ## `frame2video.py` — encode a frame directory → video
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Default: all JPG/PNG frames at the package default fps
 python tools/video_utils/frame2video.py output/frames/ output.mp4
 
@@ -254,25 +248,23 @@ layout (Isaac-mirror convention):
 ```
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Default: <scene>/Camera_*/rgb/rgb_<NNNNN>.jpg → 1080p grid video
 # (auto-threads the per-cam decode work)
 python tools/video_utils/frame2video_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ \
-    output/SURF_Booth_grid.mp4
+    data/mtmc/synthetic/scene_001/ \
+    output/scene_001_grid.mp4
 
 # Force 6 columns, 720p output, 12 worker threads
 python tools/video_utils/frame2video_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ \
-    output/SURF_Booth_grid.mp4 \
+    data/mtmc/synthetic/scene_001/ \
+    output/scene_001_grid.mp4 \
     --cols 6 --target_height 720 --workers 12
 
 # First 200 frames at 60 fps with a fixed run-label overlay
 python tools/video_utils/frame2video_scene.py \
-    data/mtmc/synthetic/SURF_Booth_031325/ \
+    data/mtmc/synthetic/scene_001/ \
     output/preview.mp4 \
-    --end_frame 200 --fps 60 --label 'SURF_Booth preview'
+    --end_frame 200 --fps 60 --label 'scene_001 preview'
 ```
 
 ### Threading speedup

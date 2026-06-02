@@ -23,6 +23,8 @@ import pytest
 
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.tools.vst.utils import delete_vst_sensor
+from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.tools.vst.utils import validate_video_url
 
@@ -323,6 +325,77 @@ class TestGetTimeline:
             start_time, _end_time = await get_timeline("24c5a7d6-39ce-442e-abf0-430f036b7a3d")
 
         assert start_time == "2025-12-18T07:19:59.332Z"
+
+
+class TestDeleteVSTResources:
+    """Test VST sensor and storage deletion helpers."""
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_sensor_quotes_sensor_id(self):
+        """Sensor IDs are encoded as one URL path segment."""
+        mock_delete_response = create_mock_response(204, "")
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_sensor("http://localhost:30888/", "../../camera 1")
+
+        assert success is True
+        assert message == "OK"
+        assert mock_session.delete.call_args.args[0] == (
+            "http://localhost:30888/vst/api/v1/sensor/..%2F..%2Fcamera%201"
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_storage_quotes_sensor_id_and_passes_timeline_params(self):
+        """Storage deletion uses the encoded sensor ID plus computed time range."""
+        sensor_id = "../../camera 1"
+        mock_timeline_response = create_mock_response(
+            200,
+            json.dumps(
+                {
+                    sensor_id: [
+                        {"startTime": "2025-01-01T00:00:10Z", "endTime": "2025-01-01T00:00:20Z"},
+                        {"startTime": "2025-01-01T00:00:00Z", "endTime": "2025-01-01T00:00:30Z"},
+                    ]
+                }
+            ),
+        )
+        mock_delete_response = create_mock_response(200, "")
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_timeline_response)
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_storage("http://localhost:30888/", sensor_id)
+
+        assert success is True
+        assert message == "OK"
+        assert mock_session.delete.call_args.args[0] == (
+            "http://localhost:30888/vst/api/v1/storage/file/..%2F..%2Fcamera%201"
+        )
+        assert mock_session.delete.call_args.kwargs["params"] == {
+            "startTime": "2025-01-01T00:00:00Z",
+            "endTime": "2025-01-01T00:00:30Z",
+        }
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_storage_without_timeline_is_successful_noop(self):
+        """Missing timelines are not deletion failures."""
+        mock_timeline_response = create_mock_response(200, json.dumps({"stream-1": []}))
+        mock_session = create_mock_session(mock_timeline_response)
+        mock_session.delete = MagicMock()
+
+        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_storage("http://localhost:30888", "stream-1")
+
+        assert success is True
+        assert message == "No storage to delete"
+        mock_session.delete.assert_not_called()
 
 
 class TestValidateVideoUrl:

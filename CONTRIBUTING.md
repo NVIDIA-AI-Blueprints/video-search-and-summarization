@@ -38,20 +38,16 @@ If your contribution adds or modifies a source file, please:
 - For new files authored by you (or your employer) on behalf of this project,
   use the SPDX identifier `Apache-2.0` and add the appropriate copyright
   notice.
-- For changes to files derived from third-party sources, preserve the existing
-  third-party copyright and license notices. For example: in Spatial AI Data
-  Utils, the nuScenes dev-kit-derived files and TrackEval-derived files are
-  listed in
-  [`libs/analytics/spatialai-data-utils/NOTICE`](libs/analytics/spatialai-data-utils/NOTICE).
-  List the file(s) you modified in your change description, and keep the
-  existing dual-license SPDX identifier (e.g. `MIT AND Apache-2.0`).
-- Do not introduce code under licenses that are incompatible with Apache-2.0
-  distribution. For example: if you need to vendor third-party code for Spatial
-  AI Data Utils, including code derived from the nuScenes dev-kit and TrackEval,
-  raise it in your change description so the appropriate notice can be added to
-  [`libs/analytics/spatialai-data-utils/NOTICE`](libs/analytics/spatialai-data-utils/NOTICE)
-  and
-  [`libs/analytics/spatialai-data-utils/3rdParty_Licenses.md`](libs/analytics/spatialai-data-utils/3rdParty_Licenses.md).
+- For changes to files derived from third-party sources:
+  - Preserve the existing third-party copyright and license notices. 
+  - List the file(s) you modified in your change description.
+  - Keep the existing SPDX identifier as a file's SPDX identifier should follow its upstream license.
+  - Each component records its derived files and their upstreams in its own `NOTICE` and `3rdParty_Licenses.md`. If you need to vendor new third-party code, note it in your change description so that the appropriate notice can be added to `NOTICE` and `3rdParty_Licenses.md`.
+  - For example, in Spatial AI Data Utils:
+    - nuScenes dev-kit-derived files and TrackEval-derived files are listed in [`NOTICE`](libs/analytics/spatialai-data-utils/NOTICE).
+    - nuScenes dev-kit-derived files (upstream Apache-2.0, Copyright 2021 Motional) stay `Apache-2.0`.
+    - TrackEval-derived files (upstream MIT, Copyright (c) 2020 Jonathon Luiten) are dual-licensed `MIT AND Apache-2.0`.
+- Do not introduce code under licenses that are incompatible with Apache-2.0 distribution.
 
 ### Signing Your Work — Developer Certificate of Origin (DCO)
 

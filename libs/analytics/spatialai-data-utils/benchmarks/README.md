@@ -12,7 +12,7 @@ Benchmarks the camera frustum calculation algorithm (`calculate_camera_frustum_p
 - Single camera frustum calculation performance
 - Multiple camera scaling tests
 - Scene bounds clipping overhead analysis
-- Uses real calibration data from `data/mtmc/SURF_Booth_031325/calibration.json`
+- Uses real calibration data from `data/mtmc/scene_001/calibration.json`
 
 **Usage:**
 ```bash
@@ -27,7 +27,7 @@ python benchmarks/benchmark_frustum.py
 
 **Requirements:**
 - NumPy
-- Real calibration data at `data/mtmc/SURF_Booth_031325/calibration.json`
+- Real calibration data at `data/mtmc/scene_001/calibration.json`
 
 ## Running Benchmarks
 

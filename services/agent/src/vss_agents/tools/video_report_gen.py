@@ -70,6 +70,7 @@ from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.tools.vst.video_clip import get_video_url
 from vss_agents.utils.hitl import format_hitl_popup_header
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
+from vss_agents.utils.sanitize import safe_basename
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
 
@@ -646,8 +647,10 @@ async def _save_pdf_to_object_store(
     pdf_url = None
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        temp_md_path = os.path.join(temp_dir, filename)
-        temp_pdf_path = os.path.join(temp_dir, pdf_filename)
+        # Confine the user-derived names to a single component inside temp_dir
+        # so a crafted filename (e.g. containing "../") cannot escape it.
+        temp_md_path = os.path.join(temp_dir, safe_basename(filename))
+        temp_pdf_path = os.path.join(temp_dir, safe_basename(pdf_filename))
 
         # Replace public URLs with private IPs for image URLs before PDF generation
         pdf_markdown_content = _replace_public_urls_with_private(

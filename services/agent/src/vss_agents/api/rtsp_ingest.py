@@ -43,6 +43,7 @@ from vss_agents.tools.vst.utils import delete_storage as vst_delete_storage
 from vss_agents.tools.vst.utils import get_rtsp_url as vst_get_rtsp_url
 from vss_agents.tools.vst.utils import get_stream_info_by_name as vst_get_stream_info_by_name
 from vss_agents.utils.retry import create_retry_strategy
+from vss_agents.utils.sanitize import scrub_log
 from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
@@ -352,8 +353,13 @@ async def add_to_rtvi_vlm(
         ],
     }
 
-    logger.info(f"Adding stream to RTVI-VLM (name={name!r}, sensor_id={sensor_id}): POST {url}")
-    logger.debug(f"Payload: {payload}")
+    logger.info(
+        "Adding stream to RTVI-VLM (name=%r, sensor_id=%s): POST %s",
+        scrub_log(name),
+        scrub_log(sensor_id),
+        scrub_log(url),
+    )
+    logger.debug("Payload: %s", scrub_log(payload))
 
     # SDR routing key — RTVI-VLM is also fronted by the same SDR proxy.
     headers = {"x-stream-id": sensor_id}
@@ -589,7 +595,7 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
         rtvi_cv_added = False
         rtvi_embed_added = False
 
-        logger.info(f"Adding stream '{request.name}'")
+        logger.info("Adding stream '%s'", scrub_log(request.name))
 
         # Step 1: Add to VST and get RTSP URL (uses shared utils)
         with TimeMeasure("rtsp_stream: add to VST"):

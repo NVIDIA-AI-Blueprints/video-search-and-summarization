@@ -383,7 +383,7 @@ Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
-| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + FP8 VLM model overrides |
+| RTX 4500 Blackwell | `RTX4500` — 32 GB; see [alerts.md § RTX 4500](alerts.md#rtx-4500-32-gb) for the required `LLM_MODE=remote` + RT-VLM sizing overrides |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -755,8 +755,8 @@ LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
 
 # --- RTVI VLM (bp_wh; always local — these are image/model selectors, not a mode toggle) ---
 # vss-rtvi-vlm is always deployed for bp_wh (hardcoded in compose profile bp_wh_2d).
-VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
+VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
 
 # --- MQTT (mv3dt only — cross-camera messaging for BEV Fusion) ---
@@ -847,7 +847,22 @@ In 2D, Auto-Calibration adds blank `group` and `region` fields to the generated 
 
 After calibration is generated via Auto-Calibration, run camera clustering before redeploying the full warehouse profile. For 3D/MV3DT, the required field lives directly on each camera sensor as `sensors[].group`. The warehouse blueprint docker compose setup uses one BEV group, so run the clustering tool with `--n_clusters 1` and then verify the group field is present.
 
-If you have a plan-view image, include it when running clustering so region metadata is derived in the same pass. For multiple independent BEV groups, tune `--n_clusters` and `--max_camera_per_group`; otherwise keep `--n_clusters 1`. Docs: https://docs.nvidia.com/vss/3.1.0/warehouse-docs/3D-profile.html#camera-clustering
+```bash
+CALIBRATION_JSON=/path/to/calibration.json
+REPO_ROOT=/path/to/video-search-and-summarization
+SDU_DIR="${REPO_ROOT}/libs/analytics/spatialai-data-utils"
+SENSOR_COUNT=$(jq '.sensors | length' "${CALIBRATION_JSON}")
+
+PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
+  "${SDU_DIR}/tools/camera_grouping/create_camera_clusters.py" \
+  "${CALIBRATION_JSON}" \
+  --max_camera_per_group "${SENSOR_COUNT}" \
+  --n_clusters 1 \
+  --disable_param_tuning \
+  --overwrite
+```
+
+Docs: 3D https://docs.nvidia.com/vss/3.2.0/warehouse-docs/3D-profile.html#camera-clustering and for mv3dt, https://docs.nvidia.com/vss/3.2.0/warehouse-docs/mv3dt-profile.html#camera-clustering
 
 ### MV3DT-specific configuration updates
 

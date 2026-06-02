@@ -265,17 +265,11 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         "",
         expect.get("query", ""),
         "",
-        "## Environment notes",
-        "",
-        spec.get("env", ""),
-        "",
         "Run autonomously without prompting for confirmation.",
         "",
     ]
     (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
 
-    # task.toml — no profile / no prerequisite_deploy_mode: this trial
-    # IS the deploy, and the spec has no profile field.
     meta_lines = [
         "[task]",
         f'name = "nvidia-vss/vss-deploy-video-embedding-standalone-{platform_short}"',
@@ -297,7 +291,6 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         "",
         "[metadata]",
         'skill = "vss-deploy-video-embedding"',
-        # No profile / no requires_deployed_vss / no prerequisite_deploy_mode.
         # The trial IS the deploy; it brings up rtvi-embed standalone
         # from a bare instance, not against an existing VSS profile.
         f'platform = "{platform}"',
@@ -320,8 +313,15 @@ def generate_task(platform: str, spec: dict, output_root: Path,
     (tests_dir / "test.sh").write_text(generate_test_script(1, spec_name))
     if GENERIC_JUDGE.exists():
         shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-    rendered_for_tests = {k: v for k, v in spec.items() if k != "_source_path"}
-    (tests_dir / spec_name).write_text(json.dumps(rendered_for_tests, indent=2))
+    spec_src = skill_dir / "evals" / spec_name
+    if not spec_src.exists():
+        legacy = skill_dir / "eval" / spec_name
+        if legacy.exists():
+            spec_src = legacy
+    if spec_src.exists():
+        shutil.copy(spec_src, tests_dir / spec_name)
+    else:
+        (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
 
     # solution/
     solution_dir = step_dir / "solution"
@@ -360,7 +360,14 @@ def main() -> None:
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / "standalone_deploy.json")
+    if args.spec:
+        spec_path = Path(args.spec)
+    else:
+        spec_path = skill_dir / "evals" / "standalone_deploy.json"
+        if not spec_path.exists():
+            legacy = skill_dir / "eval" / "standalone_deploy.json"
+            if legacy.exists():
+                spec_path = legacy
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

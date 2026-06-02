@@ -73,11 +73,11 @@ Examples::
 
     # Default (Layout B): <scene>/videos/Camera_*.mp4 → <scene>/Camera_*/rgb/
     python tools/video_utils/video2frame_scene.py \\
-        data/mtmc/synthetic/SURF_Booth_031325/
+        data/mtmc/synthetic/scene_001/
 
     # Same scene, 8 workers
     python tools/video_utils/video2frame_scene.py \\
-        data/mtmc/synthetic/SURF_Booth_031325/ --workers 8
+        data/mtmc/synthetic/scene_001/ --workers 8
 
     # Layout A: <scene>/Camera_*/video.mp4 → <scene>/Camera_*/images/
     python tools/video_utils/video2frame_scene.py data/scene/ \\
@@ -86,7 +86,7 @@ Examples::
 
     # Keep every 5th frame, capped at the first 200 source frames
     python tools/video_utils/video2frame_scene.py \\
-        data/mtmc/synthetic/SURF_Booth_031325/ \\
+        data/mtmc/synthetic/scene_001/ \\
         --frame_skip 5 --end_frame 200
 """
 
@@ -240,7 +240,7 @@ VIDEO_EXTENSIONS: Tuple[str, ...] = (
 )
 
 # Defaults aligned with the canonical data/mtmc/synthetic/<scene>/
-# layout (e.g. SURF_Booth_031325): videos under <scene>/videos/, frames
+# layout (e.g. scene_001): videos under <scene>/videos/, frames
 # under <scene>/<cam>/rgb/ following the Isaac-mirror naming convention
 # (``rgb_<NNNNN>.jpg``).  These match the ``isaac_jpg`` entry in the
 # library's FRAME_NAME_PATTERN_PRESETS, so frames extracted with the

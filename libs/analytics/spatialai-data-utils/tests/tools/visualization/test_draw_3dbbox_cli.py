@@ -404,7 +404,7 @@ class TestResolveCamFramePath:
         to canonical patterns even when ``info[cam]`` is published.
 
         Critical for backward compatibility: pre-existing scenes like
-        SURF Booth use ``rgb/rgb_NNNNN.jpg`` filenames that carry no
+        scene_001 uses ``rgb/rgb_NNNNN.jpg`` filenames that carry no
         embedded ISO timestamps.  An ``info`` row published for such
         a scene must not strict-skip every camera — the camera
         folder's emptiness of timestamp-encoded files signals
