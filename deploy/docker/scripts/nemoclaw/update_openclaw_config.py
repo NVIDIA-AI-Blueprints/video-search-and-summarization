@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -103,15 +104,17 @@ def write_remote_file(
     config_path: str,
     content: str,
 ) -> None:
-    # The OpenShell exec API rejects newline characters inside argv. Stream
-    # file content over stdin, then validate and atomically swap it into place.
+    # The OpenShell exec API rejects newline characters inside argv. Streaming
+    # content over stdin is also fragile on some Docker-driver sandboxes and can
+    # fail with h2/broken-pipe errors, so send a base64 payload as an argv-safe
+    # string and decode it inside the sandbox before the atomic swap.
     tmp_path = f"{config_path}.tmp"
-    shell_cmd = f"cat > {shlex.quote(tmp_path)}"
-    sandbox_exec(
-        sandbox_name,
-        ["sh", "-c", shell_cmd],
-        input_text=content,
+    payload = base64.b64encode(content.encode("utf-8")).decode("ascii")
+    write_cmd = (
+        "import base64,sys;"
+        "open(sys.argv[1],'wb').write(base64.b64decode(sys.argv[2]))"
     )
+    sandbox_exec(sandbox_name, ["python3", "-c", write_cmd, tmp_path, payload])
     validate_and_move_cmd = (
         "python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "
         f"{shlex.quote(tmp_path)} && mv {shlex.quote(tmp_path)} {shlex.quote(config_path)}"
