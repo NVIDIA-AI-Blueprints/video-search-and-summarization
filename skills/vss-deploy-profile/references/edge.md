@@ -97,13 +97,7 @@ SKILL.md pre-flight smoke test does not install it.
 
 ## DGX Spark — Nano 9B v2 DGX Spark NIM (LLM) + rtvi-vlm Cosmos Reason 2 (VLM)
 
-On DGX Spark the **VLM is served by `rtvi-vlm`** with the integrated Cosmos Reason 2
-`hf-1208` checkpoint — the same path `alerts`, `lvs`, and Thor-base use. The standalone
-`cosmos-reason2-8b` NIM is **not** used on Spark: it is unreliable there (repeated / garbled
-tokens, stray characters, off-topic answers). `rtvi-vlm` loads the checkpoint in-process and
-serves it at `http://${HOST_IP}:8018/v1`; it starts for base on Spark because
-`bp_developer_base_2d_DGX-SPARK` is in its compose `profiles:`. The **LLM** still runs as the
-standalone Nano 9B DGX Spark NIM below.
+On DGX Spark the **VLM is served by `rtvi-vlm`** (Cosmos Reason 2 `hf-1208`, port 8018); the **LLM** runs as the standalone Nano 9B DGX Spark NIM below.
 
 Start the LLM as a standalone local NIM on port `30081`:
 

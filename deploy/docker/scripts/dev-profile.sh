@@ -1314,8 +1314,7 @@ function state_up() {
     set_env_var "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
   fi
 
-  # Base profile on IGX-THOR, AGX-THOR, or DGX-SPARK: set VLM name/slug, base URL, and RTVI-related env (fixed configuration).
-  # The standalone cosmos-reason2-8b NIM is unreliable on these edge platforms, so serve the VLM via rtvi-vlm (integrated hf-1208).
+  # Base profile on IGX-THOR, AGX-THOR, or DGX-SPARK: serve the VLM via rtvi-vlm (integrated hf-1208) — set VLM name/slug, base URL, and RTVI env.
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]] || [[ "${hardware_profile}" == "DGX-SPARK" ]]) && ([[ "${profile}" == "base" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
     set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
