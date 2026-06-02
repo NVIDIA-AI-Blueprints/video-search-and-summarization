@@ -121,7 +121,9 @@ If the probe fails or the listed ids don't include `${VLM_MODEL}`, fall back to 
 
 ### Step 3 — Call the VLM directly
 
-Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages`):
+Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
+
+The frame sampling and visual-token (pixel) budget below mirror the **base profile** `video_understanding` config (`deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml`): `max_fps=2`, `max_frames=30`, `min_pixels=3136`, `max_pixels=8388608`. **Always send `mm_processor_kwargs` and `media_io_kwargs`** — omitting them lets the VLM fall back to its own frame/pixel defaults, which on Cosmos Reason 2 (e.g. DGX Spark) yields garbage output (repeated tokens, stray characters, off-topic answers).
 
 ```bash
 PROMPT='Describe in detail what happens in the video, with timestamps (start–end in seconds from clip start) for each segment or event. Cover scenes, objects, people, vehicles, and notable actions.'
@@ -138,6 +140,14 @@ Your reasoning.
 
 Write your final answer immediately after the </think> tag."
 
+# Multimodal settings — mirror the base-profile video_understanding config (config.yml).
+# num_frames = min(clip_seconds * max_fps, max_frames); clip_seconds = Step 1 endTime - startTime.
+MAX_FPS=2; MAX_FRAMES=30; MIN_PIXELS=3136; MAX_PIXELS=8388608
+CLIP_SECONDS=${CLIP_SECONDS:-15}   # from the Step 1 clip range; a >=15s clip caps at MAX_FRAMES anyway
+NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
+[ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
+[ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
+
 curl -s -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
@@ -153,10 +163,14 @@ curl -s -X POST "${VLM_ENDPOINT}/chat/completions" \
     }
   ],
   "max_tokens": 1024,
-  "temperature": 0.0
+  "temperature": 0.0,
+  "mm_processor_kwargs": {"size": {"shortest_edge": ${MIN_PIXELS}, "longest_edge": ${MAX_PIXELS}}},
+  "media_io_kwargs": {"video": {"num_frames": ${NUM_FRAMES}}}
 }
 EOF
 ```
+
+> **`mm_processor_kwargs` shape is model-specific** (matches `video_understanding.py`): Cosmos Reason 2 uses `{"size": {"shortest_edge": <min_pixels>, "longest_edge": <max_pixels>}}` (above); Cosmos Reason 1 and other Cosmos VLMs use `{"videos_kwargs": {"min_pixels": <min_pixels>, "max_pixels": <max_pixels>}}`. Use the form that matches the live `${VLM_MODEL}`.
 
 If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), keep only the text after `</think>` as the report body.
 
