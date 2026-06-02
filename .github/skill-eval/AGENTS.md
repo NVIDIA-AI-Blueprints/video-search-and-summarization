@@ -1012,9 +1012,11 @@ the PR-driven path.
     - `DONE: 2/3 specs passed; 1 spec failed (vss-deploy-dense-captioning/step-2 reward=0.83)`
     - `BLOCKED: anthropic rate limit after 3 retries`
     - `BLOCKED: lock timeout on vss-eval-l40s`
-  If you ran trials, you MUST also have called `gh pr comment
-  $PR_NUMBER` with the per-batch results before printing
-  `DONE:` — otherwise the contributor sees no signal on their PR.
+  If you ran trials, you MUST also have posted the per-spec result before
+  printing `DONE:` — via `gh pr comment $PR_NUMBER` on a PR run, or, on a
+  manual sweep (`PR_NUMBER` empty), appended to `$GITHUB_STEP_SUMMARY`
+  (§ "Result comment format" / "Manual full-sweep mode") — otherwise the
+  result is invisible.
 - Don't tear down or `brev stop` / `brev delete` any instance. The
   `vss-eval-*` pool is operator-managed and stays warm across runs.
 

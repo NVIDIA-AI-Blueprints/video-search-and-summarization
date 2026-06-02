@@ -120,7 +120,10 @@ jobs:
           # Manual sweep (workflow_dispatch): enumerate the picked skill('s)
           # specs instead of diffing (plan_matrix validates the value).
           # Empty on push, so plan diffs as usual.
-          MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && inputs.skills || '' }}
+          # Blank input → `*` (sweep all), matching the dropdown default and
+          # the old behavior — never blank, which would fall through to the
+          # diff path and silently produce an empty matrix.
+          MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
