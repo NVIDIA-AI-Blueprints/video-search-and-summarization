@@ -611,6 +611,9 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             required_tools = [required_tools]
         required_tools_csv = ",".join(str(tool) for tool in required_tools)
 
+        remote_setup_timeout = int(os.environ.get("NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC", "3300"))
+        cell_timeout = int(os.environ.get("NEMOCLAW_SETUP_CELL_TIMEOUT", "2700"))
+
         cmd = rf"""set -eo pipefail
 set +u
 source ~/.profile 2>/dev/null || true
@@ -619,21 +622,56 @@ export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
 REPO="$HOME/video-search-and-summarization"
 cd "$REPO"
 rm -rf /tmp/skill-eval/nemoclaw /logs/artifacts/nemoclaw 2>/dev/null || true
-mkdir -p /tmp/skill-eval/nemoclaw
+mkdir -p /tmp/skill-eval/nemoclaw /logs/artifacts/nemoclaw
+SETUP_LOG=/tmp/skill-eval/nemoclaw/setup.log
+REMOTE_SETUP_TIMEOUT={remote_setup_timeout}
+cat > /tmp/skill-eval/nemoclaw/setup.sh <<'__NEMOCLAW_SETUP__'
+#!/usr/bin/env bash
+set -eo pipefail
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+REPO="$HOME/video-search-and-summarization"
+cd "$REPO"
+SETUP_LOG=/tmp/skill-eval/nemoclaw/setup.log
+exec > >(tee -a "$SETUP_LOG") 2>&1
+stage() {{
+  printf '[nemoclaw-setup] %s %s\n' "$(date -Is)" "$*"
+}}
+stage "begin setup on $(hostname)"
 python3 -m pip install --user --quiet nbformat nbclient ipykernel >/tmp/skill-eval/nemoclaw/pip-install.log 2>&1 || {{
   cat /tmp/skill-eval/nemoclaw/pip-install.log >&2
   exit 1
 }}
+stage "installed notebook dependencies"
 python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
   --execute \
   --output /tmp/skill-eval/nemoclaw/deploy_nemoclaw_vss.executed.ipynb \
-  --env-out /tmp/skill-eval/nemoclaw/nemoclaw.env
+  --env-out /tmp/skill-eval/nemoclaw/nemoclaw.env \
+  --timeout {cell_timeout}
+stage "notebook setup adapter completed"
 python3 .github/skill-eval/nemoclaw/readiness.py \
   --env-file /tmp/skill-eval/nemoclaw/nemoclaw.env \
   --required-tools {shlex.quote(required_tools_csv)} \
   --output /tmp/skill-eval/nemoclaw/readiness.json
+stage "readiness completed"
+__NEMOCLAW_SETUP__
+chmod +x /tmp/skill-eval/nemoclaw/setup.sh
+set +e
+timeout --kill-after=30s "$REMOTE_SETUP_TIMEOUT" /tmp/skill-eval/nemoclaw/setup.sh
+setup_rc=$?
+set -e
+cp -a /tmp/skill-eval/nemoclaw/. /logs/artifacts/nemoclaw/ 2>/dev/null || true
+if [ "$setup_rc" -ne 0 ]; then
+  echo "[nemoclaw-setup] setup failed with exit code $setup_rc"
+  echo "[nemoclaw-setup] artifact snapshot:"
+  find /tmp/skill-eval/nemoclaw -maxdepth 2 -type f -printf '%p\n' 2>/dev/null | sort || true
+  echo "[nemoclaw-setup] setup.log tail:"
+  tail -n 200 /tmp/skill-eval/nemoclaw/setup.log 2>/dev/null || true
+  echo "[nemoclaw-setup] pip-install.log tail:"
+  tail -n 80 /tmp/skill-eval/nemoclaw/pip-install.log 2>/dev/null || true
+  exit "$setup_rc"
+fi
 """
-        timeout_sec = int(os.environ.get("NEMOCLAW_SETUP_TIMEOUT_SEC", "5400"))
+        timeout_sec = int(os.environ.get("NEMOCLAW_SETUP_TIMEOUT_SEC", str(remote_setup_timeout + 120)))
         logger.info(
             "Preparing NemoClaw/OpenClaw on %s (timeout=%ds)",
             self._instance_name, timeout_sec,
