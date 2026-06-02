@@ -1031,6 +1031,17 @@ class InitNemoClawScriptTest(unittest.TestCase):
         self.assertIn("rerunning NemoClaw setup", source)
         self.assertIn("onboard_or_install_sandbox", source)
 
+    def test_gateway_restart_explicitly_starts_openclaw_dashboard(self):
+        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("NEMOCLAW_GATEWAY_READY_TIMEOUT", source)
+        self.assertIn("systemctl --user restart openclaw-gateway", source)
+        self.assertIn("nohup openclaw dashboard", source)
+        self.assertIn("/tmp/openclaw-dashboard.log", source)
+        self.assertIn("dump_openclaw_gateway_diagnostics", source)
+
 
 class UpdateOpenClawConfigTest(unittest.TestCase):
     def test_registers_sse_mcp_server(self):

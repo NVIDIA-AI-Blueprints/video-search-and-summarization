@@ -492,9 +492,25 @@ apply_vss_policy() {
   nemoclaw "$NEMOCLAW_SANDBOX_NAME" policy-add --from-file "$policy_file" --yes
 }
 
+dump_openclaw_gateway_diagnostics() {
+  local port="$1"
+
+  openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
+    "printf '%s\n' '--- processes ---'; \
+     ps -ef | grep -E '[o]penclaw|[g]ateway' || true; \
+     printf '%s\n' '--- health ---'; \
+     curl -sv http://127.0.0.1:${port}/health 2>&1 || true; \
+     printf '%s\n' '--- systemd restart log ---'; \
+     tail -n 80 /tmp/openclaw-gateway-restart.log 2>/dev/null || true; \
+     printf '%s\n' '--- dashboard log ---'; \
+     tail -n 120 /tmp/openclaw-dashboard.log 2>/dev/null || true" </dev/null 2>&1 \
+    | sed 's/^/[init_nemoclaw] gateway diag: /' >&2 || true
+}
+
 restart_vss_openclaw_gateway() {
-  local port attempt
+  local port attempt ready_timeout
   port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+  ready_timeout="${NEMOCLAW_GATEWAY_READY_TIMEOUT:-120}"
 
   if ! have openshell; then
     log "OpenShell is not available; cannot restart OpenClaw gateway"
@@ -503,18 +519,35 @@ restart_vss_openclaw_gateway() {
 
   log "Restarting OpenClaw gateway in sandbox ${NEMOCLAW_SANDBOX_NAME}"
   openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "pkill -TERM -f '[o]penclaw-gateway' || true" </dev/null || true
+    "pkill -TERM -f '[o]penclaw-gateway' || true; \
+     pkill -TERM -f '[o]penclaw dashboard' || true" </dev/null || true
+  sleep 2
 
-  for attempt in $(seq 1 30); do
+  log "Starting OpenClaw gateway in sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
+    "rm -f /tmp/openclaw-dashboard.log /tmp/openclaw-gateway-restart.log; \
+     if command -v systemctl >/dev/null 2>&1; then \
+       systemctl --user daemon-reload >>/tmp/openclaw-gateway-restart.log 2>&1 || true; \
+       systemctl --user restart openclaw-gateway >>/tmp/openclaw-gateway-restart.log 2>&1 || true; \
+     fi; \
+     if command -v openclaw >/dev/null 2>&1; then \
+       nohup openclaw dashboard >/tmp/openclaw-dashboard.log 2>&1 & \
+     fi" </dev/null || true
+
+  for attempt in $(seq 1 "$ready_timeout"); do
     if openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
         "curl -fsS http://127.0.0.1:${port}/health >/dev/null" </dev/null; then
       log "OpenClaw gateway is healthy after restart"
       return 0
     fi
+    if [ $((attempt % 15)) -eq 0 ]; then
+      log "OpenClaw gateway is not healthy yet; waiting (attempt=${attempt}/${ready_timeout})"
+    fi
     sleep 1
   done
 
-  log "WARN: OpenClaw gateway did not become healthy within 30 seconds after restart"
+  log "WARN: OpenClaw gateway did not become healthy within ${ready_timeout} seconds after restart"
+  dump_openclaw_gateway_diagnostics "$port"
   return 1
 }
 
