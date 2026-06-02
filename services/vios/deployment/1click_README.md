@@ -28,7 +28,7 @@ The one-click deployment script automates the complete setup of VIOS and NVStrea
 python3 oneclick_dc_deployment_for_dev.py [ACTION] [--target TARGET] [OPTIONS]
 
 Actions:  deploy (default) | stop | config-only
-Targets:  vios (default)   | scaled | nvstreamer | all
+Targets:  vios (default)   | nvstreamer | all
 ```
 
 ## 🛠️ Prerequisites
@@ -78,9 +78,6 @@ python3 oneclick_dc_deployment_for_dev.py deploy --auto --force
 ```bash
 # Deploy VIOS stream-processor (default)
 python3 oneclick_dc_deployment_for_dev.py deploy --auto --force
-
-# Deploy all microservices (scaled)
-python3 oneclick_dc_deployment_for_dev.py deploy --target scaled --auto --force
 
 # Deploy only NVStreamer services
 python3 oneclick_dc_deployment_for_dev.py deploy --target nvstreamer --auto --force
@@ -162,8 +159,7 @@ python3 oneclick_dc_deployment_for_dev.py deploy --mcp-tag latest --nvstreamer-t
 The script automatically configures these environment files depending on the target:
 
 - `stream-processing/docker-compose/compose.env` - VIOS config (target: vios)
-- `scaling/docker-compose/compose.env` - VIOS config (target: scaled)
-- `scaling/docker-compose/nvstreamer/compose.env` - NVStreamer configuration
+- `stream-processing/docker-compose/nvstreamer/compose.env` - NVStreamer configuration
 
 ### Key Configuration Parameters
 
@@ -187,18 +183,12 @@ The script automatically configures system network buffers for optimal performan
 deployment/
 ├── 1click_README.md                    # This file
 ├── oneclick_dc_deployment_for_dev.py   # Main deployment script
-├── stream-processing/                  # Stream-processor compose (--target vios)
-│   └── docker-compose/
-│       ├── compose.env
-│       ├── docker-compose.yaml
-│       └── configs/
-└── scaling/                            # All-microservices compose (--target scaled)
+└── stream-processing/                  # Stream-processor compose (--target vios)
     └── docker-compose/
         ├── compose.env
         ├── docker-compose.yaml
         ├── configs/
-        ├── vst_volume/
-        └── nvstreamer/
+        └── nvstreamer/                 # NVStreamer compose
             ├── compose.env
             └── docker-compose.yaml
 ```

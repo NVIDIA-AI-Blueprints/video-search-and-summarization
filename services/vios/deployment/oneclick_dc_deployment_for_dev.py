@@ -22,7 +22,7 @@ Usage:
     python3 oneclick_dc_deployment_for_dev.py [ACTION] [--target TARGET] [OPTIONS]
 
 Actions:  deploy (default) | stop | config-only
-Targets:  vios (default)   | scaled | nvstreamer | all
+Targets:  vios (default)   | nvstreamer | all
 
 Run with --help for full usage details.
 """
@@ -81,12 +81,11 @@ class DeploymentConfig:
         # Script configuration - use global constants that can be overridden
         self.script_dir = DEFAULT_SCRIPT_DIR
         
-        # When True, uses scaling/docker-compose (all microservices).
-        # When False (default), uses stream-processing/docker-compose.
+        # Stream-processing is the only supported deployment.
         self.scaled_services = False
         
-        self.nvstreamer_compose_env = self.script_dir / "scaling/docker-compose/nvstreamer/compose.env"
-        self.nvstreamer_compose_file = self.script_dir / "scaling/docker-compose/nvstreamer/docker-compose.yaml"
+        self.nvstreamer_compose_env = self.script_dir / "stream-processing/docker-compose/nvstreamer/compose.env"
+        self.nvstreamer_compose_file = self.script_dir / "stream-processing/docker-compose/nvstreamer/docker-compose.yaml"
         
         # Default path constants (can be overridden by user)
         self.default_nvstreamer_base_path = DEFAULT_NVSTREAMER_BASE_PATH
@@ -123,8 +122,6 @@ class DeploymentConfig:
     
     @property
     def vst_compose_dir(self) -> Path:
-        if self.scaled_services:
-            return self.script_dir / "scaling" / "docker-compose"
         return self.script_dir / "stream-processing" / "docker-compose"
     
     @property
@@ -2223,7 +2220,6 @@ ACTIONS (default: deploy):
 
 TARGETS (--target, default: vios):
     vios            Stream-processor stack  (stream-processing/docker-compose)
-    scaled          All microservices       (scaling/docker-compose)
     nvstreamer      NVStreamer only
     all             VIOS + NVStreamer together
 
@@ -2262,9 +2258,6 @@ EXAMPLES:
     # Deploy VIOS stream-processor (default target)
     python3 oneclick_dc_deployment_for_dev.py --auto --force
     python3 oneclick_dc_deployment_for_dev.py deploy --target vios --auto --force
-
-    # Deploy all microservices (scaled)
-    python3 oneclick_dc_deployment_for_dev.py deploy --target scaled --auto --force
 
     # Deploy NVStreamer only
     python3 oneclick_dc_deployment_for_dev.py deploy --target nvstreamer --auto --force
@@ -2415,7 +2408,7 @@ def main():
     )
     parser.add_argument(
         '--target', default='vios',
-        choices=['vios', 'scaled', 'nvstreamer', 'all'],
+        choices=['vios', 'scaled', 'nvstreamer', 'all'],  # 'scaled' kept as a back-compat alias for 'vios'
         help='Deployment target (default: vios)',
     )
 

@@ -1,6 +1,0 @@
-{
-  "replaystream-ms-1": {
-    "provisioning_address": "localhost:30012",
-    "process_type": "docker"
-  }
-}
