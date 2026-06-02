@@ -17,8 +17,8 @@
 # These are overridden by the parent nims chart via alias "cosmos3".
 
 image:
-  repository: nvcr.io/nvstaging/nim/cosmos3-reasoner
-  tag: "1.7.1.rc0-51870194"
+  repository: nvcr.io/nim/nvidia/cosmos3-reasoner
+  tag: "1.7"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -47,7 +47,7 @@ tolerations:
     operator: "Exists"
     effect: "NoSchedule"
 
-# Cosmos3 Reasoner only. Selects model size baked into the staging NIM:
+# Cosmos3 Reasoner only. Selects model size baked into the NIM:
 #   nano  — default; fits on shared GPU layouts
 #   super — needs a dedicated VLM GPU
 nimModelSize: "nano"

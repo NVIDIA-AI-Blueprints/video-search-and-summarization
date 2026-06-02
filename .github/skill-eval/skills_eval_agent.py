@@ -313,8 +313,8 @@ async def run_agent() -> int:
         # Single-spec mode (push path): the `plan` job already resolved the
         # diff into one matrix leg, so this run evaluates exactly one
         # (skill, spec) — no diff, no looping. EVAL_KIND distinguishes a
-        # normal eval leg from a missing-adapter leg (which only raises the
-        # bot-PR). The legacy whole-PR-diff loop is gone; the matrix owns
+        # normal eval leg from a missing-adapter leg (which only commits the
+        # adapter, no trial). The legacy whole-PR-diff loop is gone; the matrix owns
         # fan-out now.
         pr_number = _require("PR_NUMBER")
         pr_base = _require("PR_BASE")
@@ -349,11 +349,11 @@ Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
     chosen skill(s) run — there is no spec-level filter. Skills with no eval/
     dir are runtime libraries and are skipped as in the normal path.
 
-  Step 3 (override): the bot-PR flow is OFF in manual mode (there's no
-    contributor branch to target). If an adapter is missing or stale for a
-    spec, record that spec as BLOCKED with the trigger that fired
+  Step 3 (override): the adapter auto-commit flow is OFF in manual mode
+    (there's no contributor branch to target). If an adapter is missing or
+    stale for a spec, record that spec as BLOCKED with the trigger that fired
     (missing / stale / spec drift) and a one-line reason in the results
-    table — DO NOT push a branch, DO NOT create a PR. Keep processing the
+    table — DO NOT push anything. Keep processing the
     remaining (skill, spec) pairs.
 
   Step 6 (override): there is no PR to comment on. For each completed
@@ -382,8 +382,8 @@ first trial), emit `BLOCKED: <reason>` instead.
         user_prompt = f"""
 PR #{pr_number}: skill `{eval_skill}` ships eval specs but has NO adapter at
 `.github/skill-eval/adapters/{eval_skill}/generate.py`. The `plan` job
-collapsed every spec on this skill into this one leg so the bot-PR is
-raised exactly once.
+collapsed every spec on this skill into this one leg so the adapter is
+committed exactly once.
 
 Context:
   repo         = {pr_repo}
@@ -393,15 +393,16 @@ Context:
   workflow run = {run_id}
   working dir  = {REPO_ROOT}
 
-Per AGENTS.md § "Single-spec mode" (missing-adapter case): generate the
-adapter and raise ONE bot-PR per §§ 3c/3d targeting the source PR's
-`headRefName` (NOT the mirror). Do NOT run any trial — there is no adapter
-on the mirror head to run, and the hard rule forbids running a
-locally-fabricated adapter. Do NOT post a results comment.
+Per AGENTS.md § "Single-spec mode" (missing-adapter case) + § 3c: generate
+the adapter and COMMIT it directly to the source PR's `headRefName` (NOT the
+mirror) so the eval re-runs against it on the next sync. Do NOT run any trial
+in this leg (the re-run evaluates the committed adapter), and do NOT post a
+results comment. For an external-fork PR (the bot can't push to a fork),
+comment that the contributor must add the adapter and BLOCK instead.
 
-End with `BLOCKED: missing adapter for {eval_skill} (bot-PR <url>)` once the
-bot-PR is open, or `BLOCKED: <reason>` if you could not raise it
-(e.g. external-fork PR).
+End with `BLOCKED: missing adapter for {eval_skill} auto-committed (<sha>)`
+once pushed, `BLOCKED: fork PR — adapter must be added by the contributor`
+for a fork, or `BLOCKED: <reason>` if you could not commit.
 """
     else:
         user_prompt = f"""
@@ -422,8 +423,9 @@ Context:
 Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
 already selected this (spec, platform). Run steps 2–7 for it only:
 ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
-(raise a bot-PR per §§ 3a/3c if stale, then exit BLOCKED — never run a
-locally-patched adapter) → generate the dataset → acquire a per-box flock
+(missing/stale → commit it to the PR branch per § 3c, then exit BLOCKED;
+the eval re-runs on sync — never run a locally-patched adapter in this leg)
+→ generate the dataset → acquire a per-box flock
 on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
 run harbor synchronously for this platform (§ Harbor invocation; never
 background it) → gather results →
@@ -431,7 +433,7 @@ post ONE PR comment for this spec (§ Result comment format). Do NOT touch
 any other spec or skill.
 
 End with `DONE: <reward summary>` after posting the comment, or
-`BLOCKED: <reason>` (e.g. stale adapter bot-PR raised, pool exhausted).
+`BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
 """
 
     model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
