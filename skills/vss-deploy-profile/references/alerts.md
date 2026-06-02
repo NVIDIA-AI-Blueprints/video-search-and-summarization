@@ -279,7 +279,7 @@ deploy/docker/developer-profiles/dev-profile-alerts/generated.env   # skill's wo
 
 ## Stage perception models (RTDETR-ITS + GDINO)
 
-**MUST run before `docker compose -f resolved.yml up -d` for verification mode (`MODE=2d_cv`).** The alerts compose has no init container that downloads the perception detector models — `dev-profile.sh` stages them via NGC CLI, and since this skill doesn't run that script, the agent stages them directly.
+**MUST run before `docker compose --env-file <env> -f resolved.yml up -d` for verification mode (`MODE=2d_cv`).** The alerts compose has no init container that downloads the perception detector models — `dev-profile.sh` stages them via NGC CLI, and since this skill doesn't run that script, the agent stages them directly.
 
 Real-time mode (`MODE=2d_vlm`) doesn't deploy RT-CV and skips this entirely.
 
