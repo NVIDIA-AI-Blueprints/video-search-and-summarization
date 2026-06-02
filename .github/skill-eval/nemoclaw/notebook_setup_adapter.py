@@ -239,7 +239,29 @@ def _redact(obj: Any, values: dict[str, str]) -> Any:
     return obj
 
 
-def execute_notebook(notebook: dict[str, Any], *, cwd: Path, timeout: int) -> dict[str, Any]:
+def _write_notebook_snapshot(notebook: Any, output_path: Path) -> None:
+    try:
+        import nbformat
+    except ImportError:
+        output = notebook
+    else:
+        if not isinstance(notebook, dict):
+            output = json.loads(nbformat.writes(notebook))
+        else:
+            output = notebook
+    output_path.write_text(
+        json.dumps(_redact(output, _redaction_values()), indent=1),
+        encoding="utf-8",
+    )
+
+
+def execute_notebook(
+    notebook: dict[str, Any],
+    *,
+    cwd: Path,
+    timeout: int,
+    output_path: Path | None = None,
+) -> dict[str, Any]:
     try:
         import nbformat
         from nbclient import NotebookClient
@@ -257,7 +279,17 @@ def execute_notebook(notebook: dict[str, Any], *, cwd: Path, timeout: int) -> di
         allow_errors=False,
         resources={"metadata": {"path": str(cwd)}},
     )
-    client.execute()
+    try:
+        client.execute()
+    except Exception as exc:
+        if output_path is not None:
+            _write_notebook_snapshot(nb, output_path)
+            print(
+                f"Wrote partial setup notebook after {type(exc).__name__}: {output_path}",
+                file=sys.stderr,
+                flush=True,
+            )
+        raise
     return json.loads(nbformat.writes(nb))
 
 
@@ -285,9 +317,13 @@ def main(argv: list[str] | None = None) -> int:
     source_nb = _load_json(notebook_path)
     temp_nb = build_notebook(source_nb, manifest)
     if args.execute:
-        temp_nb = execute_notebook(temp_nb, cwd=root, timeout=args.timeout)
-    temp_nb = _redact(temp_nb, _redaction_values())
-    output_path.write_text(json.dumps(temp_nb, indent=1), encoding="utf-8")
+        temp_nb = execute_notebook(
+            temp_nb,
+            cwd=root,
+            timeout=args.timeout,
+            output_path=output_path,
+        )
+    _write_notebook_snapshot(temp_nb, output_path)
     print(f"Wrote setup notebook: {output_path}")
     return 0
 

@@ -742,6 +742,10 @@ def _harbor_command(dataset_root: Path, profile: str, task_name: str, results_ro
     uvx = _ensure_uvx()
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
+    env_build_timeout = os.environ.get(
+        "NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER",
+        "6.0",
+    )
     if not model:
         raise RuntimeError("ANTHROPIC_MODEL is required")
     if not base_url:
@@ -766,7 +770,7 @@ def _harbor_command(dataset_root: Path, profile: str, task_name: str, results_ro
         "--ae",
         "CLAUDE_CODE_DISABLE_THINKING=1",
         "--environment-build-timeout-multiplier",
-        "3.0",
+        env_build_timeout,
         "--agent-timeout-multiplier",
         "6.0",
         "--verifier-timeout-multiplier",
@@ -809,7 +813,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gpu-count", type=int, default=None)
     parser.add_argument("--instance", default=os.environ.get("NEMOCLAW_BREV_INSTANCE"))
     parser.add_argument("--lock-timeout", type=int, default=int(os.environ.get("NEMOCLAW_LOCK_TIMEOUT_SEC", "600")))
-    parser.add_argument("--harbor-timeout", type=int, default=int(os.environ.get("NEMOCLAW_HARBOR_TIMEOUT_SEC", "3300")))
+    parser.add_argument("--harbor-timeout", type=int, default=int(os.environ.get("NEMOCLAW_HARBOR_TIMEOUT_SEC", "4500")))
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("--results-root", default=str(DEFAULT_RESULTS_ROOT))
     args = parser.parse_args(argv)
