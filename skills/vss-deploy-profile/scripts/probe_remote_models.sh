@@ -21,12 +21,12 @@ Examples:
 EOF
 }
 
-if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
 fi
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+if [[ "$#" -lt 1 || "$#" -gt 2 ]]; then
   usage
   exit 1
 fi
@@ -44,7 +44,7 @@ base_url="${base_url%/v1}"
 expected_model="${2:-}"
 curl_args=(-sf)
 
-if [ -n "${REMOTE_API_KEY:-}" ]; then
+if [[ -n "${REMOTE_API_KEY:-}" ]]; then
   curl_args+=(-H "Authorization: Bearer ${REMOTE_API_KEY}")
 fi
 
@@ -54,7 +54,7 @@ models_json="$(curl "${curl_args[@]}" "${base_url}/v1/models")" \
 model_count="$(echo "$models_json" | jq -r \
   'if (.data? | type) == "array" then (.data | length) elif (.id? != null) then 1 else 0 end')"
 
-if [ -z "$expected_model" ] && [ "${model_count:-0}" -gt 1 ]; then
+if [[ -z "$expected_model" && "${model_count:-0}" -gt 1 ]]; then
   echo "ERROR: remote endpoint advertises multiple models; ask the user to choose one:" >&2
   echo "$models_json" | jq -r \
     'if (.data? | type) == "array" then .data[]?.id elif .id? != null then .id else empty end' \
@@ -62,7 +62,7 @@ if [ -z "$expected_model" ] && [ "${model_count:-0}" -gt 1 ]; then
   exit 2
 fi
 
-if [ -n "$expected_model" ]; then
+if [[ -n "$expected_model" ]]; then
   echo "$models_json" | jq -e --arg model "$expected_model" \
     '(.id == $model) or any(.data[]?; .id == $model)' >/dev/null \
     || {
