@@ -128,8 +128,11 @@ The frame sampling and visual-token (pixel) budget below mirror the **base profi
 ```bash
 PROMPT='Describe in detail what happens in the video, with timestamps (start–end in seconds from clip start) for each segment or event. Cover scenes, objects, people, vehicles, and notable actions.'
 
-# Cosmos Reason 2 reasoning prompt suffix — matches video_understanding.py for is_cosmos_reason2 + reasoning=true.
-# Drop this suffix for non-cosmos-reason2 VLMs.
+# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`).
+# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning.
+# Append the Cosmos Reason 2 reasoning suffix ONLY when the user explicitly asks for reasoning
+# (drop it for non-cosmos-reason2 VLMs). With reasoning off, the response has no <think> block.
+if [ "${REASONING:-false}" = "true" ]; then
 PROMPT="${PROMPT}
 
 Answer the question using the following format:
@@ -139,6 +142,7 @@ Your reasoning.
 </think>
 
 Write your final answer immediately after the </think> tag."
+fi
 
 # Multimodal settings — mirror the base-profile video_understanding config (config.yml).
 # num_frames = min(clip_seconds * max_fps, max_frames); clip_seconds = Step 1 endTime - startTime.
