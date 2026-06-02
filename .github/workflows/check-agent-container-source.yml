@@ -33,6 +33,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Validate the gate helper itself — a regression here would silently
+      # block every PR or skip a genuinely-drifted container, so fail loudly.
+      - name: Unit-test the gate helper
+        run: python3 .github/scripts/test_source_check_only_nonbuild.py
+
       # Docs/tests-only PRs never change what enters the agent image — the
       # Dockerfile uses selective COPY — yet they change the services/agent
       # tree SHA and would trip the gate below. Detect that case and skip the
