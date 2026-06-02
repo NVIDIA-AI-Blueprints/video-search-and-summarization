@@ -70,7 +70,7 @@ KAFKA_ENABLED=true
 #ERROR_MESSAGE_TOPIC=vision-embed-errors
 ```
 
-Replace `<tag>` with the NGC image tag for your platform (for example `3.2.0-26.05.4` on x86, or `3.2.0-26.05.4-sbsa` on SBSA). **`RTVI_IMAGE` is required in `docker/.env`**.
+Replace `<tag>` with the NGC image tag for your platform (for example `3.2.0-26.05.4` on x86, or `3.2.0-26.05.4-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
 
 `compose.yaml` provides defaults for every other variable — see [Complete Environment Variable Reference](#complete-environment-variable-reference) below for the full list.
 
@@ -97,7 +97,7 @@ Check readiness once startup finishes from another shell (`BACKEND_PORT` must ma
 
 ```bash
 export BACKEND_PORT=8017
-curl -sf "http://localhost:${BACKEND_PORT}/v1/ready"
+curl -fsS "http://localhost:${BACKEND_PORT}/v1/ready" && echo "Service is ready"
 ```
 
 **Troubleshooting:** If startup fails with an out-of-memory error, set `NVIDIA_VISIBLE_DEVICES=<gpuid>` to a free GPU.
