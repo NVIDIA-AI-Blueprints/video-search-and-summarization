@@ -1,0 +1,19 @@
+# Files under services/agent that the container build does not consume.
+#
+# docker/Dockerfile uses selective COPY (pyproject.toml, uv.lock, src/,
+# 3rdparty/, docker/*.py, license files), so none of the entries below ever
+# enter the image. Listing them here keeps the build context lean AND scopes
+# the container-source-SHA gate to real build inputs, so docs/tests-only edits
+# don't force a needless re-spin.
+#
+# Anchored to the service root on purpose: source under src/ — including its
+# README.md files — IS shipped and must NOT be ignored.
+/AGENTS.md
+/README.md
+/LICENSE.md
+/tests/
+/stubs/
+/.gitattributes
+/.gitleaks.toml
+/.secrets.baseline
+/gitleaks-baseline.json

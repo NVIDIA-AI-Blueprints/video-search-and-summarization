@@ -29,6 +29,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# Sibling module in .github/scripts/ (sys.path[0] when run as a script).
+from source_tree_hash import build_input_tree_sha
+
 
 SOURCE_TREE_SHA_LABEL = "com.nvidia.vss.source_tree_sha"
 SOURCE_PATH_LABEL = "com.nvidia.vss.source_path"
@@ -522,6 +525,7 @@ def check_resolved_image(
     item: ResolvedImage,
     current_commit: str,
     current_tree: str,
+    current_build_inputs: str,
     idx: int,
     total: int,
 ) -> bool:
@@ -556,16 +560,28 @@ def check_resolved_image(
             return False
         print(f"  manifest:      {SOURCE_TREE_SHA_LABEL}={labels.source_tree_sha}")
         print(f"  comparing {src}/:")
-        print(f"    at HEAD ({current_commit[:12]}):  {current_tree}")
-        print(f"    in image manifest:              {labels.source_tree_sha}")
+        print(f"    at HEAD ({current_commit[:12]}):")
+        print(f"      build-input hash:  {current_build_inputs}")
+        print(f"      full-tree   hash:  {current_tree}  (legacy)")
+        print(f"    in image manifest:   {labels.source_tree_sha}")
+        # Accept either hash: the build-input hash (new stamps, ignores
+        # non-shipped files like docs/tests) or the legacy full-tree SHA (images
+        # built before ci-vss-oss adopted build-input hashing). Both guarantee
+        # the shipped source matches; the build-input form additionally lets
+        # docs/tests-only changes pass without a re-spin.
+        if labels.source_tree_sha == current_build_inputs:
+            print("    → identical (build-input hash)")
+            print("  [PASS]")
+            return True
         if labels.source_tree_sha == current_tree:
-            print("    → identical")
+            print("    → identical (legacy full-tree hash)")
             print("  [PASS]")
             return True
         print("    → DIFFERENT")
         print(f"  [FAIL] {config.image_name} container does NOT match the current {src}/ source.")
         print(f"         Image's source tree SHA at build time: {labels.source_tree_sha}")
-        print(f"         Current {src}/ tree SHA:               {current_tree}")
+        print(f"         Current {src}/ build-input hash:        {current_build_inputs}")
+        print(f"         Current {src}/ full-tree hash:          {current_tree}")
         _print_fix_hint(config)
         return False
 
@@ -614,12 +630,19 @@ def check_resolved_image(
     if not tag_tree:
         print(f"  [FAIL] could not read {src}/ at commit {tag_commit[:12]}.")
         return False
+    tag_build_inputs = build_input_tree_sha(repo_root, tag_commit, src)
 
     print(f"  comparing {src}/:")
     print(f"    at HEAD              ({current_commit[:12]}):  {current_tree}")
     print(f"    at container commit  ({tag_commit[:12]}):  {tag_tree}")
+    # Identical full tree, or identical build inputs (docs/tests-only drift
+    # between the two commits) — either means the shipped source matches.
     if tag_tree == current_tree:
         print("    → identical")
+        print("  [PASS]")
+        return True
+    if tag_build_inputs == current_build_inputs:
+        print("    → build inputs identical (only non-shipped files differ)")
         print("  [PASS]")
         return True
     print("    → DIFFERENT")
@@ -656,11 +679,14 @@ def verify(repo_root: Path, config: ImageConfig) -> int:
     if not current_tree:
         print(f"ERROR: could not resolve HEAD:{src}", file=sys.stderr)
         return 1
+    current_build_inputs = build_input_tree_sha(repo_root, "HEAD", src)
 
     print("Current source (HEAD)")
     print(f"  branch:  {current_branch}")
     print(f"  commit:  {current_commit}")
-    print(f"  folder:  {src}/  (content hash: {current_tree})")
+    print(f"  folder:  {src}/")
+    print(f"    build-input hash:  {current_build_inputs}")
+    print(f"    full-tree   hash:  {current_tree}  (legacy)")
     print()
 
     compose_files = discover_compose_files(repo_root)
@@ -691,7 +717,7 @@ def verify(repo_root: Path, config: ImageConfig) -> int:
 
     failures = 0
     for idx, item in enumerate(images, start=1):
-        if not check_resolved_image(repo_root, config, item, current_commit, current_tree, idx, len(images)):
+        if not check_resolved_image(repo_root, config, item, current_commit, current_tree, current_build_inputs, idx, len(images)):
             failures += 1
         print()
 
