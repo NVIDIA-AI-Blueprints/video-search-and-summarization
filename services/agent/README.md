@@ -49,6 +49,12 @@ VSS Agent provides composable tools and agents for video understanding:
 
 ## Installation
 
+Commands in **Installation**, **Quick Start**, **Testing**, and **Contributing** assume your shell is in `services/agent/` (this directory). From the repository root:
+
+```bash
+cd services/agent
+```
+
 Install system libraries required for PDF generation:
 
 ```bash
@@ -70,6 +76,7 @@ source .venv/bin/activate
 ```bash
 cd .. # Be at services/ (Docker build context; Dockerfile COPY paths use agent/)
 docker buildx build --platform linux/amd64 -f agent/docker/Dockerfile -t vss-agent:latest --load .
+cd agent  # back to services/agent/ for Quick Start and local development below
 ```
 
 ## Quick Start
