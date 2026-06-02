@@ -191,13 +191,23 @@ class BrevEnvironment(BaseEnvironment):
         # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
         # left intact here — its prior-trial session JSONLs are handled by the
         # archive step just below (move-not-delete, for forensic SSH access).
-        await _run_brev_exec(
+        setup_dirs_result = await _run_brev_exec(
             self._instance_name,
             "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
             "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
+        # Fail loud: this is the load-bearing artifacts wipe. A silent failure
+        # would leave the prior trial's /logs/artifacts in place and re-collect
+        # it as this trial's output — the exact contamination being fixed —
+        # so it gets the same exit-code guard as the docker reset / repo sync.
+        if setup_dirs_result.return_code != 0:
+            tail = (setup_dirs_result.stderr or setup_dirs_result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"log-dir reset/setup failed on {self._instance_name}: "
+                f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
+            )
 
         # Archive any session JSONLs left by prior trials on this warm-pool
         # box. Without this, harbor's claude-code mapper merges every
@@ -378,8 +388,8 @@ class BrevEnvironment(BaseEnvironment):
         trial's deploy uses; no sudo. `network prune` leaves the built-in
         bridge/host/none networks, which is correct. Fails loud (`set -u`,
         explicit `exit 1`) if the daemon is unreachable or any container /
-        volume survives, so a half-reset box surfaces as a trial error rather
-        than silent cross-trial contamination.
+        volume, or user-defined network survives, so a half-reset box surfaces
+        as a trial error rather than silent cross-trial contamination.
         """
         cmd = r"""set -uo pipefail
 docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
@@ -388,8 +398,13 @@ vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/n
 docker network prune -f >/dev/null 2>&1 || true
 rc=$(docker ps -aq | wc -l | tr -d ' ')
 rv=$(docker volume ls -q | wc -l | tr -d ' ')
-if [ "$rc" != "0" ] || [ "$rv" != "0" ]; then
-  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes remain" >&2
+# Only user-defined networks should be gone; the built-in bridge/host/none
+# are never removable, so filter to type=custom. A surviving user network
+# would collide ("network already exists" / address-range clash) on the next
+# `compose up`, so it must fail the reset like a surviving container/volume.
+rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
+if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
+  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
   exit 1
 fi
 echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
