@@ -171,6 +171,12 @@ The canonical harbor command is in § Harbor invocation.
        read -r HEAD_OWNER SOURCE_BRANCH < <(gh pr view "$PR_NUMBER" \
          --repo "$PR_REPO" --json headRepositoryOwner,headRefName \
          -q '[.headRepositoryOwner.login, .headRefName] | @tsv')
+       # A failed `gh pr view` (auth / rate-limit / transient) leaves these
+       # empty — do NOT misread that as a fork. Surface it and stop.
+       if [ -z "$HEAD_OWNER" ] || [ -z "$SOURCE_BRANCH" ]; then
+         echo "BLOCKED: could not resolve PR head repo/branch (gh pr view failed) for ${SKILL} — re-run"
+         exit 1
+       fi
        if [ "$HEAD_OWNER" != "${PR_REPO%%/*}" ]; then
          # Fork: can't push to the contributor's fork. Ask them to add it.
          gh pr comment "$PR_NUMBER" --repo "$PR_REPO" \
@@ -180,39 +186,51 @@ The canonical harbor command is in § Harbor invocation.
        fi
 
        cd "$REPO_ROOT"
+       ADAPTER=".github/skill-eval/adapters/${SKILL}"
+       # Preserve the freshly-generated adapter across the branch switch.
+       # `git checkout -f -B … FETCH_HEAD` lands cleanly on the contributor's
+       # tip — a plain `checkout -B` can ABORT if a *tracked* adapter diverged
+       # upstream (the stale case). Copy the generated adapter to a temp dir
+       # first and restore it after, so the COMMITTED adapter is exactly what
+       # we generated regardless of what's on the tip.
+       ADAPTER_BAK=$(mktemp -d); cp -a "$ADAPTER/." "$ADAPTER_BAK/"
+       restore_adapter() { rm -rf "$ADAPTER"; mkdir -p "$ADAPTER"; cp -a "$ADAPTER_BAK/." "$ADAPTER/"; }
        # Commit as skills-eval-bot; the push lands as github-actions[bot] via
-       # the checkout extraheader (contents:write from the permissions block
-       # — no PAT). `-s` is mandatory: org DCO rejects commits without a
-       # Signed-off-by trailer matching the committer email. Work on the
-       # contributor's actual tip, not the (possibly-lagging) mirror.
+       # the checkout extraheader (contents:write — no PAT). `-s` is mandatory
+       # (org DCO). Work on the contributor's tip, not the (lagging) mirror.
        git config user.name  "skills-eval-bot"
        git config user.email "skills-eval-bot@users.noreply.github.com"
        git fetch origin "$SOURCE_BRANCH"
-       git checkout -B "$SOURCE_BRANCH" FETCH_HEAD   # generated adapter carries over
-       git add ".github/skill-eval/adapters/${SKILL}/"
-       # Diff-guard (loop + concurrency safety): if nothing is staged, the
-       # adapter already matches the branch — a sibling leg of this skill
-       # committed it, or a deterministic regen produced no change. Skip the
-       # commit so we never push an empty change or re-trigger a commit loop.
+       git checkout -f -B "$SOURCE_BRANCH" FETCH_HEAD
+       restore_adapter
+       git add "$ADAPTER"
+       # Diff-guard (loop + concurrency safety): nothing staged ⇒ the adapter
+       # already matches the branch (a sibling leg committed it, or a
+       # deterministic regen produced no change) ⇒ skip — never push an empty
+       # change or re-trigger a commit loop.
        if git diff --cached --quiet; then
          echo "BLOCKED: ${SKILL} adapter already current on ${SOURCE_BRANCH}; eval re-runs on sync"
          exit 0
        fi
        git commit -s -m "skill-eval: ${TRIGGER} adapter for ${SKILL} (PR #${PR_NUMBER})"
-       # Push to the contributor's branch. On non-fast-forward (a sibling
-       # leg pushed first) re-fetch and re-check the diff-guard: usually the
-       # adapter now matches → nothing staged → skip; else re-stage on the
-       # new tip and retry once.
        if ! git push origin "HEAD:${SOURCE_BRANCH}"; then
+         # Non-fast-forward (a sibling leg pushed first): re-land on the new
+         # tip, restore the generated adapter, re-check the diff-guard, retry
+         # the push ONCE — and if THAT also fails (a third racing leg), surface
+         # it as BLOCKED instead of reporting a phantom commit.
          git fetch origin "$SOURCE_BRANCH"
-         git reset --soft FETCH_HEAD
-         git add ".github/skill-eval/adapters/${SKILL}/"
+         git checkout -f -B "$SOURCE_BRANCH" FETCH_HEAD
+         restore_adapter
+         git add "$ADAPTER"
          if git diff --cached --quiet; then
            echo "BLOCKED: ${SKILL} adapter now current on ${SOURCE_BRANCH}; eval re-runs on sync"
            exit 0
          fi
          git commit -s -m "skill-eval: ${TRIGGER} adapter for ${SKILL} (PR #${PR_NUMBER})"
-         git push origin "HEAD:${SOURCE_BRANCH}"
+         git push origin "HEAD:${SOURCE_BRANCH}" || {
+           echo "BLOCKED: push to ${SOURCE_BRANCH} failed after retry for ${SKILL} — re-run or add the adapter manually"
+           exit 1
+         }
        fi
        COMMIT_SHA=$(git rev-parse --short HEAD)
 
