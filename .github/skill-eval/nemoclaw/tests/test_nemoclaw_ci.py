@@ -1049,6 +1049,38 @@ class UpdateOpenClawConfigTest(unittest.TestCase):
             {"type": "sse", "url": "http://host.openshell.internal:9989/sse"},
         )
 
+    def test_write_remote_file_avoids_stdin_streaming(self):
+        calls = []
+        previous = update_openclaw_config.sandbox_exec
+
+        def fake_sandbox_exec(sandbox_name, remote_args, capture_output=False, input_text=None):
+            calls.append(
+                {
+                    "sandbox_name": sandbox_name,
+                    "remote_args": remote_args,
+                    "capture_output": capture_output,
+                    "input_text": input_text,
+                }
+            )
+            return subprocess.CompletedProcess(remote_args, 0, stdout="", stderr="")
+
+        update_openclaw_config.sandbox_exec = fake_sandbox_exec
+        try:
+            update_openclaw_config.write_remote_file(
+                "demo",
+                "/sandbox/.openclaw/openclaw.json",
+                '{"mcp":{"servers":{}}}\n',
+            )
+        finally:
+            update_openclaw_config.sandbox_exec = previous
+
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertIsNone(calls[0]["input_text"])
+        self.assertEqual(calls[0]["remote_args"][0], "python3")
+        self.assertEqual(calls[0]["remote_args"][1], "-c")
+        self.assertEqual(calls[0]["remote_args"][3], "/sandbox/.openclaw/openclaw.json.tmp")
+        self.assertNotIn("\n", calls[0]["remote_args"][-1])
+
 
 class OrchestratorMcpHelperCompatTest(unittest.TestCase):
     def test_orchestrator_tool_is_string_enum_on_eval_workers(self):
