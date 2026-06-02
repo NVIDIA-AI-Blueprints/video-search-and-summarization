@@ -137,6 +137,21 @@ required SPDX license headers, and the DCO sign-off requirement.
 
 ## License
 
-The Alerts Microservice is licensed under the Apache License, Version 2.0 — see
-the repository root [`LICENSE`](../../LICENSE). Third-party dependency licenses
-are listed in [`LICENSE-3rd-party.txt`](LICENSE-3rd-party.txt).
+This module is governed by **two separate licenses**, depending on what you use:
+
+- **The source code in this directory and its subdirectories is licensed under the Apache License,
+  Version 2.0.** The full license text is at the repository root: [`LICENSE`](../../LICENSE). If you
+  clone, build, modify, or redistribute the source, Apache 2.0 terms apply.
+
+- **The pre-built VSS Alert container images distributed by NVIDIA via NGC**
+  (`nvcr.io/nvidia/blueprint/vss-alert-verification` and related tags) **are licensed under the
+  NVIDIA Software License Agreement.** The full agreement is included in this directory as
+  [`NVIDIA-Software-License-Agreement.pdf`](./NVIDIA-Software-License-Agreement.pdf). If you pull and
+  use NVIDIA's pre-built container images, the NVIDIA Software License Agreement governs your use.
+
+Third-party open-source components bundled in the container image are attributed in
+[`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
+
+The presence of `NVIDIA-Software-License-Agreement.pdf` in this directory does **not** modify the
+Apache 2.0 license that governs the source code in this repository. It is included here so that the
+pre-built container images carry the license they ship under.
