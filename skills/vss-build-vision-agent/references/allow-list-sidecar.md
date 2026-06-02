@@ -54,7 +54,27 @@ services:
     file: services/infra/sdrc/docker-compose.yaml
   - key: rtvi-vlm
     file: services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
+validation_harness:                                  # optional — present only when the NvStreamer harness is included (Step 4)
+  rtsp_source: nvstreamer
+  sample_video: its_dec_2pm_h264.mp4                 # staged into ${VSS_DATA_DIR}/videos/<build-name>/ by Step 6
 ```
+
+## Optional `validation_harness:` key
+
+The sidecar may carry an optional top-level `validation_harness:` key alongside `flag` / `deployment_shape` / `services`. It is written by Step 4 **only when the NvStreamer synthetic-RTSP harness is included** (capability has a live/streaming path AND the user did not supply a real external camera/RTSP URL — see `references/validation-harness.md § 1`). Shape:
+
+```yaml
+validation_harness:
+  rtsp_source: nvstreamer          # the only supported value today (replaces the legacy mediamtx+ffmpeg sidecar)
+  sample_video: <filename>         # the sample video staged into ${VSS_DATA_DIR}/videos/<build-name>/; no whitespace in the name
+```
+
+**Who reads what:**
+
+- **Step 6.5 reads ONLY `flag`, `deployment_shape`, and `services`.** It ignores any extra top-level keys, so `validation_harness:` does not affect Patch 1/2/3's allow-list-driven walk. NvStreamer is emitted by Step 6 directly (it is NOT an allow-list `services:` entry — see `references/validation-harness.md` scope note) and its `profiles:` flag is added by Patch 1 against the emitted service block, its config binds materialized by Patch 3, its orphan-container name covered by Patch 0.
+- **Step 6 reads `validation_harness:`** to decide whether to emit the `nvstreamer-validation` service, which `sample_video` to stage, and to wire the NvStreamer → VIOS → RT-VLM smoke sequence into the generated deploy skill.
+
+When the harness is not included, omit the key entirely.
 
 ## Union rules
 
