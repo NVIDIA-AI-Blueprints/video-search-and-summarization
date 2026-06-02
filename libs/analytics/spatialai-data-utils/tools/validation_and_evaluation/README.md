@@ -134,7 +134,7 @@ Incorrect:
 |---|---:|---|
 | `--calibration_url` | required | S3 or HTTPS URL for `calibration.json`. |
 | `--confidence_threshold` | `0.0` | Filters predictions below this score before evaluation. |
-| `--num_cores` | unset | Number of cores for parallel processing when supported. |
+| `--num_cores` | unset | Reserved for parallel processing; currently parsed but not used by this tool. |
 | `--num_frames_to_eval` | `200000` | Maximum frames to include during detection evaluation. |
 | `--ground_truth_frame_offset_secs` | `0.0` | Temporal offset applied to GT during detection evaluation. |
 | `--eval_options` | `location` | Detection-matching function. `location` uses centre-distance matching (`DET_CONFIG_CENTER_DISTANCE`, historical MTMC default); `bbox` uses 3D-IoU bounding-box matching (`DET_CONFIG_IOU3D`). |
@@ -172,10 +172,11 @@ when the spacing is outside the allowed range.
 
 Per-sensor detection outputs include:
 
-- `mAP`: mean Average Precision. Predictions are matched to ground truth by 2D
-  center distance on the ground plane instead of box IoU. AP is averaged across
-  matching thresholds of `0.5`, `1`, `2`, and `4` meters and then across object
-  classes.
+- `mAP`: mean Average Precision. With the default `--eval_options location`,
+  predictions are matched to ground truth by 2D center distance on the ground
+  plane; `--eval_options bbox` uses 3D-IoU matching instead. AP is computed at a
+  single matching threshold (`0.5` m center distance for `location`, `0.5` 3D
+  IoU for `bbox`) and then averaged across object classes.
 - `AP`: Average Precision for one object class.
 - `ATE`: Average Translation Error, the 2D center-distance error in meters.
 - `ASE`: Average Scale Error, computed as `1 - IoU` after aligning centers and
@@ -220,5 +221,5 @@ Useful focused test commands:
 
 ```bash
 python -m pytest tests/validation/test_bev_utils.py
-python -m pytest tests/eval/test_eval_combinations.py::TestSaveDetectionResults
+python -m pytest tests/eval/detection/test_evaluate.py::TestSaveDetectionResults
 ```
