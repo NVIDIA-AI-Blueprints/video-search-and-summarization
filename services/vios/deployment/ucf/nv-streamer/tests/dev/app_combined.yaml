@@ -37,10 +37,10 @@ components:
       vst_config.json:
         network:
           stunurl_list:
-            - stun.l.google.com:19302
+          - stun.l.google.com:19302
           # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
           static_turnurl_list:
-            - coturn-admin:Uq3CFRYKr6rFVFcc@15.206.12.240:3478
+          - coturn-admin:Uq3CFRYKr6rFVFcc@15.206.12.240:3478
           # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
           use_coturn_auth_secret: false
           coturn_turnurl_list_with_secret:
@@ -115,22 +115,22 @@ components:
           nv_streamer_seekable: false
           nv_streamer_max_upload_file_size_MB: 10000
           nv_streamer_media_container_supported:
-            - mp4
-            - mkv
+          - mp4
+          - mkv
           nv_streamer_metadata_container_supported:
-            - json
+          - json
           supported_video_codecs:
-            - h264
+          - h264
           supported_audio_codecs:
-            - pcmu
-            - mpeg4-generic
+          - pcmu
+          - mpeg4-generic
           use_software_path: false
           enable_rtsp_server_sei_metadata: false
         network:
           stunurl_list:
-            - stun.l.google.com:19302
+          - stun.l.google.com:19302
           static_turnurl_list:
-            - coturn-admin:Uq3CFRYKr6rFVFcc@15.206.12.240:3478
+          - coturn-admin:Uq3CFRYKr6rFVFcc@15.206.12.240:3478
           use_coturn_auth_secret: false
           coturn_turnurl_list_with_secret:
           use_twilio_stun_turn: false
@@ -148,4 +148,3 @@ components:
 connections:
   #some-app/vms-http: vms/vms
   #some-app/nvstreamer-http: nvstreamer/http-in
-

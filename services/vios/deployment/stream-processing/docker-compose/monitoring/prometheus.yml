@@ -30,9 +30,9 @@ scrape_configs:
   # Core VST Services (Critical - always available)
   - job_name: 'vst-core-services'
     static_configs:
-      - targets: 
-        - 'localhost:8080'  # sensor-ms
-        - 'localhost:8081'  # storage-ms
+      - targets:
+          - 'localhost:8080'  # sensor-ms
+          - 'localhost:8081'  # storage-ms
     scrape_interval: 15s
     scrape_timeout: 5s
     metrics_path: /metrics
@@ -43,11 +43,11 @@ scrape_configs:
   - job_name: 'vst-recorder-services'
     static_configs:
       - targets:
-        - 'localhost:8082'  # recorder-ms-1
-        - 'localhost:8083'  # recorder-ms-2
-        - 'localhost:8084'  # recorder-ms-3
-        - 'localhost:8085'  # recorder-ms-4
-        - 'localhost:8086'  # recorder-ms-5
+          - 'localhost:8082'  # recorder-ms-1
+          - 'localhost:8083'  # recorder-ms-2
+          - 'localhost:8084'  # recorder-ms-3
+          - 'localhost:8085'  # recorder-ms-4
+          - 'localhost:8086'  # recorder-ms-5
     scrape_interval: 30s
     scrape_timeout: 3s
     metrics_path: /metrics
@@ -59,11 +59,11 @@ scrape_configs:
   - job_name: 'vst-rtspserver-services'
     static_configs:
       - targets:
-        - 'localhost:8087'  # rtspserver-ms-1
-        - 'localhost:8088'  # rtspserver-ms-2
-        - 'localhost:8089'  # rtspserver-ms-3
-        - 'localhost:8090'  # rtspserver-ms-4
-        - 'localhost:8091'  # rtspserver-ms-5
+          - 'localhost:8087'  # rtspserver-ms-1
+          - 'localhost:8088'  # rtspserver-ms-2
+          - 'localhost:8089'  # rtspserver-ms-3
+          - 'localhost:8090'  # rtspserver-ms-4
+          - 'localhost:8091'  # rtspserver-ms-5
     scrape_interval: 30s
     scrape_timeout: 3s
     metrics_path: /metrics
@@ -75,8 +75,8 @@ scrape_configs:
   - job_name: 'vst-livestream-services'
     static_configs:
       - targets:
-        - 'localhost:8092'  # livestream-ms-1
-        - 'localhost:8093'  # livestream-ms-2
+          - 'localhost:8092'  # livestream-ms-1
+          - 'localhost:8093'  # livestream-ms-2
     scrape_interval: 30s
     scrape_timeout: 3s
     metrics_path: /metrics
@@ -88,11 +88,11 @@ scrape_configs:
   - job_name: 'vst-replaystream-services'
     static_configs:
       - targets:
-        - 'localhost:8094'  # replaystream-ms-1
-        - 'localhost:8095'  # replaystream-ms-2
+          - 'localhost:8094'  # replaystream-ms-1
+          - 'localhost:8095'  # replaystream-ms-2
     scrape_interval: 30s
     scrape_timeout: 3s
     metrics_path: /metrics
     scheme: http
     honor_labels: true
-    sample_limit: 10000 
+    sample_limit: 10000

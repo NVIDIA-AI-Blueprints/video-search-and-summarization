@@ -17,7 +17,7 @@ openapi: 3.0.3
 info:
   title: Sensor Management Service
   description: |
-    The Sensor Management Service is a comprehensive system designed to facilitate the administration and control of 
+    The Sensor Management Service is a comprehensive system designed to facilitate the administration and control of
       sensor-related functionalities. It streamlines sensor operations, enhances monitoring capabilities, and provides efficient management of sensors acorss the network. This service encompasses:
 
     - Configuration Management: Retrieval and modification of sensor image and encoding settings
@@ -676,7 +676,7 @@ paths:
       tags:
         - v1
       summary: Get system stats
-      description: Get system stats like CPU usage, GPU usage, encoder-decoder usage, memory usage and tegrastats if system is aarch64. 
+      description: Get system stats like CPU usage, GPU usage, encoder-decoder usage, memory usage and tegrastats if system is aarch64.
       operationId: getSystemStats
       responses:
         '200':
@@ -2129,4 +2129,4 @@ components:
           type: string
           maxLength: 512
           pattern: ".*"
-          example: VMS internal processing error
+          example: VMS internal processing error

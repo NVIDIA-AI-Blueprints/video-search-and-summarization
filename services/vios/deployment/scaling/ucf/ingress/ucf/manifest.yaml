@@ -94,8 +94,8 @@ spec:
       args:
         - cat /opt/configs/nginx.conf && exec nginx -c /opt/configs/nginx.conf -g 'daemon off;'
       ports:
-      - containerPort: 8000
-        name: ingress-http
+        - containerPort: 8000
+          name: ingress-http
 
       livenessProbe:
         httpGet:

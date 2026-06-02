@@ -29,4 +29,3 @@ local-path-provisioner:
     name: mdx-local-path
     reclaimPolicy: Retain
     defaultClass: true
-

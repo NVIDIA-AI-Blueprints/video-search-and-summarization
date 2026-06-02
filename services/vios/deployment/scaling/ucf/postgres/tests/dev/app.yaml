@@ -32,4 +32,3 @@ components:
     - name: ngc-docker-reg-secret
 
 connections:
-

@@ -15,7 +15,7 @@
 
 type: msapplication
 specVersion: 2.5.0
-name:  ucf.svc.nvstreamer-ingress-mgr
+name: ucf.svc.nvstreamer-ingress-mgr
 chartName: nvstreamer-ingress
 description: nvstreamer-ingress service
 version: 1.0.0
@@ -50,13 +50,13 @@ tests:
     gpuNodeLabels: ""
     watchAllPods: true
     watchPods:
-    - nvstreamer-ingress-mgr
+      - nvstreamer-ingress-mgr
     testerPods:
-    - name: nvstreamer-ingress-mgr
-      startSignature: "TBD"
-      endSignature: "TBD"
-      errorSignatures:
-      - "TBD"
+      - name: nvstreamer-ingress-mgr
+        startSignature: "TBD"
+        endSignature: "TBD"
+        errorSignatures:
+          - "TBD"
 
 
 ---
@@ -76,8 +76,8 @@ spec:
         pullPolicy: IfNotPresent
       #command: ["nginx", "-c", "/etc/nginx/conf.d/nginx.conf"]
       ports:
-      - containerPort: 8000
-        name: ingress-http
+        - containerPort: 8000
+          name: ingress-http
 
       livenessProbe:
         httpGet:

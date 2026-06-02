@@ -22,4 +22,4 @@ datasources:
     url: http://localhost:9090
     uid: prometheus
     isDefault: true
-    editable: true 
+    editable: true

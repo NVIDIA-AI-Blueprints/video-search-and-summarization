@@ -56,10 +56,10 @@ sensor:
         - until curl --connect-timeout 1 $REDIS_SERVER_ADDRESS:$REDIS_SERVER_PORT 2>&1 | grep 'Empty reply from server' >/dev/null; do echo "Waiting for redis $REDIS_SERVER_ADDRESS:6379"; sleep 0.5; done
         command: [sh, -c]
         env:
-          - name: REDIS_SERVER_ADDRESS
-            value: *messageBrokerAddress
-          - name: REDIS_SERVER_PORT
-            value: *messageBrokerPort
+        - name: REDIS_SERVER_ADDRESS
+          value: *messageBrokerAddress
+        - name: REDIS_SERVER_PORT
+          value: *messageBrokerPort
         image: docker.io/curlimages/curl:8.17.0
         imagePullPolicy: IfNotPresent
       - name: check-sdr-up
@@ -124,7 +124,7 @@ streamprocessing:
       network:
         http_port: 30001
         static_turnurl_list:
-          - *turnServerAddress
+        - *turnServerAddress
         use_twilio_stun_turn: false
         twilio_account_sid: ""
         twilio_auth_token: ""
@@ -208,13 +208,13 @@ sdr-streamprocessing:
             value: "/"
           - name: ENVOY_ROUTE_URL_PREFIX
             value: "/"
-          - name:  OTEL_SDK_DISABLED
+          - name: OTEL_SDK_DISABLED
             value: "true" # true/false to disable/enable OTEL trace generation
-          - name:  OTEL_SERVICE_NAME
+          - name: OTEL_SERVICE_NAME
             value: "SDR_AGENT"
-          - name:  WDM_CLEAR_DATA_WL
+          - name: WDM_CLEAR_DATA_WL
             value: "false"
-          - name:  WDM_RESET_ON_WLOBJ_CRASH
+          - name: WDM_RESET_ON_WLOBJ_CRASH
             value: "false"
           - name: ENVOY_REQUEST_TIMEOUT
             value: "30"
@@ -234,10 +234,10 @@ sdr-streamprocessing:
         - until curl --connect-timeout 1 $REDIS_SERVER_ADDRESS:$REDIS_SERVER_PORT 2>&1 | grep 'Empty reply from server' >/dev/null; do echo "Waiting for redis $REDIS_SERVER_ADDRESS:6379"; sleep 0.5; done
         command: [sh, -c]
         env:
-          - name: REDIS_SERVER_ADDRESS
-            value: *messageBrokerAddress
-          - name: REDIS_SERVER_PORT
-            value: *messageBrokerPort
+        - name: REDIS_SERVER_ADDRESS
+          value: *messageBrokerAddress
+        - name: REDIS_SERVER_PORT
+          value: *messageBrokerPort
         image: docker.io/curlimages/curl:8.17.0
         imagePullPolicy: IfNotPresent
       - name: check-streamprocessing-up
@@ -246,8 +246,7 @@ sdr-streamprocessing:
           >/dev/null; do echo "Waiting for streamprocessing"; sleep 0.5; done
         command: [sh, -c]
         env:
-          - name: NUM_STREAMPROCESSING_POD
-            value: *streamprocessingReplicaCount
+        - name: NUM_STREAMPROCESSING_POD
+          value: *streamprocessingReplicaCount
         image: docker.io/curlimages/curl:8.17.0
         imagePullPolicy: IfNotPresent
-

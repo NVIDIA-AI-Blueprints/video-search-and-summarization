@@ -246,7 +246,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      
+
   schemas:
     ProxyInfo:
       type: object

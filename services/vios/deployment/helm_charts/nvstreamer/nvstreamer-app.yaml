@@ -55,17 +55,17 @@ components:
           nv_streamer_max_upload_file_size_MB: 10000
           nv_streamer_rtsp_server_output_buffer_size_kb: 1000
           nv_streamer_media_container_supported:
-            - mp4
-            - mkv
+          - mp4
+          - mkv
           nv_streamer_metadata_container_supported:
-            - json
+          - json
           supported_video_codecs:
-            - h264
-            - h265
+          - h264
+          - h265
           supported_audio_codecs:
-            - pcmu
-            - pcma
-            - mpeg4-generic
+          - pcmu
+          - pcma
+          - mpeg4-generic
           use_software_path: false
           enable_rtsp_server_sei_metadata: false
           webrtc_out_enable_insert_sps_pps: true
@@ -74,7 +74,7 @@ components:
           use_webrtc_hw_dec: false
         network:
           stunurl_list:
-            - stun.l.google.com:19302
+          - stun.l.google.com:19302
           static_turnurl_list: []
           use_coturn_auth_secret: false
           coturn_turnurl_list_with_secret:
@@ -96,4 +96,3 @@ components:
           kafka_server_address: 10.0.0.1:9092
         debug:
           enable_latency_logging: false
-

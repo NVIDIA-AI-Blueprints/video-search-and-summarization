@@ -30,7 +30,7 @@ channels:
               type: string
               description: Message payload schema version
               enum:
-               - '4.0'
+                - '4.0'
             id:
               type: string
               description: Message identifier string
@@ -50,11 +50,10 @@ channels:
               type: string
               description: camera add/remove or streaming status
           required:
-          - version
-          - id
-          - camera_id
-          - camera_name
-          - created_at
-          - camera_url 
-          - change
-
+            - version
+            - id
+            - camera_id
+            - camera_name
+            - created_at
+            - camera_url
+            - change

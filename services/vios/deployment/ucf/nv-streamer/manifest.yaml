@@ -15,7 +15,7 @@
 
 type: msapplication
 specVersion: 2.5.0
-name:  ucf.svc.nvstreamer
+name: ucf.svc.nvstreamer
 chartName: nvstreamer
 description: media streaming service
 version: 0.0.20
@@ -55,13 +55,13 @@ tests:
     gpuNodeLabels: ""
     watchAllPods: false # OR set to false and set list of pods to watch below
     watchPods:
-    - vms-test
+      - vms-test
     testerPods:  # At least one tester pod is required
-    - name: vms-test  # Name of the test pod
-      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
-      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
-      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
-      - "test case failed"
+      - name: vms-test  # Name of the test pod
+        startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+        endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+        errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+          - "test case failed"
 
 params:
   rtspPortRange: 30
@@ -97,9 +97,9 @@ spec:
     type: ucf.k8s.container
     parameters:
       image:
-          repository: $params.image
-          tag: $params.tag
-          pullPolicy: IfNotPresent
+        repository: $params.image
+        tag: $params.tag
+        pullPolicy: IfNotPresent
       args: [--vstConfigFile, /opt/configs/vst_config.json, --adaptorConfigFile, /opt/configs/adaptor_config.json]
       volumeMounts:
         - name: data-storage
@@ -109,9 +109,9 @@ spec:
           mountPath: /opt/vmounts/streamer-videos
           subPath: streamer_videos
       ports:
-      - containerPort: 31000
-        protocol: TCP
-        name: http-in
+        - containerPort: 31000
+          protocol: TCP
+          name: http-in
       livenessProbe:
         failureThreshold: 3
         httpGet:
@@ -148,14 +148,14 @@ spec:
     type: ucf.k8s.service
     parameters:
       ports:
-      - port: 31000
-        protocol: TCP
-        name: http-in
-        nodePort: 31000
-      - port: 31554
-        protocol: TCP
-        name: rtsp
-        nodePort: 31554
+        - port: 31000
+          protocol: TCP
+          name: http-in
+          nodePort: 31000
+        - port: 31554
+          protocol: TCP
+          name: rtsp
+          nodePort: 31554
       type: NodePort
       externalTrafficPolicy: Local
 
@@ -176,4 +176,3 @@ spec:
         resources:
           requests:
             storage: 1000Gi
-

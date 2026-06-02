@@ -14,45 +14,45 @@
 # limitations under the License.
 
 image:
-    name: node:latest
-    pull_policy: always
+  name: node:latest
+  pull_policy: always
 
 stages:
-    - build
-    - lint
+  - build
+  - lint
 
 cache:
-    paths:
-        - node_modules/
+  paths:
+    - node_modules/
 
 build:
-    stage: build
-    tags:
-        - vst_streaming_lib
-    script:
-        - npm ci
-        - npm run build
-    artifacts:
-        paths:
-            - dist/
-        expire_in: 1 week
+  stage: build
+  tags:
+    - vst_streaming_lib
+  script:
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
 
 lint:
-    stage: lint
-    tags:
-        - vst_streaming_lib
-    script:
-        - npm ci
-        - npm run lint
-    dependencies:
-        - build
+  stage: lint
+  tags:
+    - vst_streaming_lib
+  script:
+    - npm ci
+    - npm run lint
+  dependencies:
+    - build
 
 format-check:
-    stage: lint
-    tags:
-        - vst_streaming_lib
-    script:
-        - npm ci
-        - npm run format:check
-    dependencies:
-        - build
+  stage: lint
+  tags:
+    - vst_streaming_lib
+  script:
+    - npm ci
+    - npm run format:check
+  dependencies:
+    - build

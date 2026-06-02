@@ -134,7 +134,7 @@ vst-storage:
 
   applicationSpecs:
     deployment:
-      volumes:  []
+      volumes: []
       containers:
         storage:
           volumeMounts: []

@@ -21,7 +21,7 @@
 
 type: msapplication
 specVersion: 2.5.0
-name:  ucf.svc.vst-streamprocessing
+name: ucf.svc.vst-streamprocessing
 chartName: streamprocessing
 description: vst streamprocessing service
 version: 1.0.0
@@ -48,13 +48,13 @@ tests:
     gpuNodeLabels: ""
     watchAllPods: false # OR set to false and set list of pods to watch below
     watchPods:
-    - streamprocessing-test
+      - streamprocessing-test
     testerPods:  # At least one tester pod is required
-    - name: streamprocessing-test  # Name of the test pod
-      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
-      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
-      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
-      - "test case failed"
+      - name: streamprocessing-test  # Name of the test pod
+        startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+        endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+        errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+          - "test case failed"
 
 params:
   image: nvcr.io/rxczgrvsg8nx/vst-dev/vst-streamprocessing
@@ -139,53 +139,53 @@ spec:
           protocol: TCP
           name: rtspserver-port
       env:
-      - name: ADAPTOR
-        value: "streamprocessing-ms"
-      - name: VST_INGRESS_ENDPOINT
-        value: 'vst-ingress-deployment-svc:8000/vst'
-      - name: REDIS_SERVER_ADDRESS
-        value: $params.messageBrokerServer
-      - name: REDIS_SERVER_PORT
-        value: $params.messageBrokerPort
-      - name: POD_NAMESPACE
-        valueFrom:
-          fieldRef:
-            fieldPath: metadata.namespace
-      - name: SERVICE_NAME
-        value: "streamprocessing-deployment-svc"
-      - name: POD_METADATA_NAME
-        valueFrom:
-          fieldRef:
-            fieldPath: metadata.name
-      - name: POD_NAME
-        value: "$(POD_METADATA_NAME).$(SERVICE_NAME).$(POD_NAMESPACE)"
-      - name: SENSOR_MODULE_ENDPOINT
-        value: sensor-sensor-svc:30000
-      - name: CENTRALIZE_DB_NAME
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_NAME
-      - name: CENTRALIZE_DB_USERNAME
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_USERNAME
-      - name: CENTRALIZE_DB_PASSWORD
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_PASSWORD
-      - name: CENTRALIZE_DB_HOSTADDR
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_HOSTADDR
-      - name: CENTRALIZE_DB_PORT
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_PORT
+        - name: ADAPTOR
+          value: "streamprocessing-ms"
+        - name: VST_INGRESS_ENDPOINT
+          value: 'vst-ingress-deployment-svc:8000/vst'
+        - name: REDIS_SERVER_ADDRESS
+          value: $params.messageBrokerServer
+        - name: REDIS_SERVER_PORT
+          value: $params.messageBrokerPort
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: SERVICE_NAME
+          value: "streamprocessing-deployment-svc"
+        - name: POD_METADATA_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAME
+          value: "$(POD_METADATA_NAME).$(SERVICE_NAME).$(POD_NAMESPACE)"
+        - name: SENSOR_MODULE_ENDPOINT
+          value: sensor-sensor-svc:30000
+        - name: CENTRALIZE_DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_NAME
+        - name: CENTRALIZE_DB_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_USERNAME
+        - name: CENTRALIZE_DB_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_PASSWORD
+        - name: CENTRALIZE_DB_HOSTADDR
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_HOSTADDR
+        - name: CENTRALIZE_DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_PORT
       livenessProbe:
         failureThreshold: 20
         httpGet:
@@ -218,13 +218,13 @@ spec:
     parameters:
       clusterIP: None
       ports:
-      - port: $params.httpPort
-        protocol: TCP
-        name: http-api
-      - port: $params.rtspServerPort
-        protocol: TCP
-        name: rtspserver-port
-        range: $params.rtspServerPortRange
+        - port: $params.httpPort
+          protocol: TCP
+          name: http-api
+        - port: $params.rtspServerPort
+          protocol: TCP
+          name: rtspserver-port
+          range: $params.rtspServerPortRange
 
   - name: data-storage
     type: ucf.k8s.volume

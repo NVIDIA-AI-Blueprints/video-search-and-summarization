@@ -15,7 +15,7 @@
 
 type: msapplication
 specVersion: 2.5.0
-name:  ucf.svc.vst-postgres
+name: ucf.svc.vst-postgres
 chartName: vst-postgres
 description: vst postgres service
 version: 1.0.0
@@ -46,13 +46,13 @@ tests:
     gpuNodeLabels: ""
     watchAllPods: false # OR set to false and set list of pods to watch below
     watchPods:
-    - vst-postgres-test
+      - vst-postgres-test
     testerPods:  # At least one tester pod is required
-    - name: vst-postgres-test  # Name of the test pod
-      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
-      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
-      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
-      - "test case failed"
+      - name: vst-postgres-test  # Name of the test pod
+        startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+        endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+        errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+          - "test case failed"
 
 params:
   postgres_user: "vst"
@@ -139,13 +139,13 @@ spec:
         failureThreshold: 30
         exec:
           command:
-          - pg_isready
-          - -h
-          - localhost
-          - -U
-          - $(POSTGRES_USER)
-          - -d
-          - $(POSTGRES_DB)
+            - pg_isready
+            - -h
+            - localhost
+            - -U
+            - $(POSTGRES_USER)
+            - -d
+            - $(POSTGRES_DB)
         initialDelaySeconds: 5
         periodSeconds: 5
         successThreshold: 1
@@ -154,11 +154,11 @@ spec:
         failureThreshold: 30
         exec:
           command:
-          - pg_isready
-          - -h
-          - localhost
-          - -U
-          - $(POSTGRES_USER)
+            - pg_isready
+            - -h
+            - localhost
+            - -U
+            - $(POSTGRES_USER)
         initialDelaySeconds: 30
         periodSeconds: 20
         successThreshold: 1
@@ -179,9 +179,9 @@ spec:
     type: ucf.k8s.service
     parameters:
       ports:
-      - port: $params.postgres_db_port
-        protocol: TCP
-        name: postgres-api
+        - port: $params.postgres_db_port
+          protocol: TCP
+          name: postgres-api
 
   - name: data-storage
     type: ucf.k8s.volume

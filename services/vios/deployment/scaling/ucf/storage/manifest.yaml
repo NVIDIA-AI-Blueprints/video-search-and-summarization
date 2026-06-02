@@ -15,7 +15,7 @@
 
 type: msapplication
 specVersion: 2.5.0
-name:  ucf.svc.vst-storage
+name: ucf.svc.vst-storage
 chartName: storage
 description: storage service
 version: 1.0.0
@@ -46,13 +46,13 @@ tests:
     gpuNodeLabels: ""
     watchAllPods: false # OR set to false and set list of pods to watch below
     watchPods:
-    - vms-test
+      - vms-test
     testerPods:  # At least one tester pod is required
-    - name: vms-test  # Name of the test pod
-      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
-      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
-      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
-      - "test case failed"
+      - name: vms-test  # Name of the test pod
+        startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+        endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+        errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+          - "test case failed"
 
 params:
   image: nvcr.io/rxczgrvsg8nx/vst-dev/vst-storage
@@ -87,41 +87,41 @@ spec:
         pullPolicy: IfNotPresent
       args: [--vstConfigFile, /opt/configs/vst_config.json]
       env:
-      - name: ADAPTOR
-        value: "storage"
-      - name: NEED_RECORDING
-        value: "false"
-      - name: NEED_RTSPSERVER
-        value: "false"
-      - name: NEED_STORAGE
-        value: "true"
-      - name: NEED_STREAM_MONITORING
-        value: "false"
-      - name: CENTRALIZE_DB_NAME
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_NAME
-      - name: CENTRALIZE_DB_USERNAME
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_USERNAME
-      - name: CENTRALIZE_DB_PASSWORD
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_PASSWORD
-      - name: CENTRALIZE_DB_HOSTADDR
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_HOSTADDR
-      - name: CENTRALIZE_DB_PORT
-        valueFrom:
-          configMapKeyRef:
-            name: postgres-cm
-            key: CENTRALIZE_DB_PORT
+        - name: ADAPTOR
+          value: "storage"
+        - name: NEED_RECORDING
+          value: "false"
+        - name: NEED_RTSPSERVER
+          value: "false"
+        - name: NEED_STORAGE
+          value: "true"
+        - name: NEED_STREAM_MONITORING
+          value: "false"
+        - name: CENTRALIZE_DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_NAME
+        - name: CENTRALIZE_DB_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_USERNAME
+        - name: CENTRALIZE_DB_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_PASSWORD
+        - name: CENTRALIZE_DB_HOSTADDR
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_HOSTADDR
+        - name: CENTRALIZE_DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-cm
+              key: CENTRALIZE_DB_PORT
       volumeMounts:
         - name: data-storage
           mountPath: /opt/vmounts/vst-data
@@ -169,9 +169,9 @@ spec:
     type: ucf.k8s.service
     parameters:
       ports:
-      - port: $params.httpPort
-        protocol: TCP
-        name: http-api
+        - port: $params.httpPort
+          protocol: TCP
+          name: http-api
 
   - name: data-storage
     type: ucf.k8s.volume

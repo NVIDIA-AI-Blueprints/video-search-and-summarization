@@ -28,7 +28,7 @@ static_resources:
   listeners:
   - name: svc_listener
     address:
-      socket_address: { address: 0.0.0.0, port_value: 10002 }
+      socket_address: {address: 0.0.0.0, port_value: 10002}
     filter_chains:
     - filters:
       - name: envoy.filters.network.http_connection_manager
@@ -97,10 +97,10 @@ static_resources:
                     local containerHost = nil
                     local id = nil
                     local headers = request_handle:headers()
-                    
+
                     -- Check for WebSocket connection
                     local isWebSocket = false
-                    if headers:get("Sec-WebSocket-Key") ~= nil or 
+                    if headers:get("Sec-WebSocket-Key") ~= nil or
                        (headers:get("Connection") ~= nil and headers:get("Connection"):lower():find("upgrade")) then
                       isWebSocket = true
                       request_handle:logInfo("WebSocket connection detected")
@@ -125,7 +125,7 @@ static_resources:
                     else
                       id = request_handle:headers():get(routeHeader)
                     end
-                    
+
                     if id ~= nil then
                       request_handle:logInfo("id not nil " ..id)
                       containerName = client:hget(wlObj, id )
@@ -200,9 +200,9 @@ static_resources:
     load_assignment:
       cluster_name: headerless_service
       endpoints:
-        - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: "127.0.0.1"
-                    port_value: "30012"
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: "127.0.0.1"
+                port_value: "30012"

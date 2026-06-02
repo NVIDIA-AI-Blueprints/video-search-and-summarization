@@ -121,7 +121,7 @@ vst-livestream:
       network:
         http_port: 34000
         max_webrtc_out_connections: 8
-        max_webrtc_in_connections: 8 
+        max_webrtc_in_connections: 8
       data:
         max_network_db_connections: 1
 

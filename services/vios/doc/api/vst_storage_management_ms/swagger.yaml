@@ -47,20 +47,20 @@ paths:
   /v1/storage/file/{streamId}:
     delete:
       tags:
-      - v1
+        - v1
       summary: Delete media file associated with the provided ID
       description: In NvStreamer, calling this API will delete the static media file identified by the streamId. This API is not applicable for VST use-case.
       operationId: deleteFile
       security:
         - bearerAuth: []
       parameters:
-      - name: streamId
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: "^[a-zA-Z0-9_-]+$"
-          maxLength: 100
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
       responses:
         '200':
           description: Success
@@ -528,10 +528,10 @@ paths:
 
     post:
       tags:
-      - v1
+        - v1
       summary: Upload or register media file
-      description: Upload a media file or register an existing file on the server. The media file can be uploaded as a single file with metadata, 
-        uploaded in chunks, or registered by providing file paths to existing files on the server. The media file should not have whitespaces in its file name. 
+      description: Upload a media file or register an existing file on the server. The media file can be uploaded as a single file with metadata,
+        uploaded in chunks, or registered by providing file paths to existing files on the server. The media file should not have whitespaces in its file name.
         For single file upload with metadata, use mediaFile, metadataFile, and metadata fields. For registering existing files, use mediaFilePath, metadataFilePath, and metadata fields.
       requestBody:
         required: true
@@ -723,7 +723,7 @@ paths:
   /v1/storage/file/{filename}/{timestamp}:
     put:
       tags:
-      - v1
+        - v1
       summary: Upload media file via PUT
       description: |
         Upload a media file using a PUT request. The media file is sent as the request body,
@@ -804,7 +804,7 @@ paths:
   /v1/storage/file/{filename}:
     put:
       tags:
-      - v1
+        - v1
       summary: Upload media file via PUT (New API)
       description: |
         Upload a media file using PUT request with query parameters.
@@ -1123,7 +1123,7 @@ paths:
       tags:
         - v1
       summary: Get media file paths by sensor ID
-      description: This API endpoint allows clients to retrieve media file path associated with a specific sensor within a defined time range. 
+      description: This API endpoint allows clients to retrieve media file path associated with a specific sensor within a defined time range.
         The API will return all the media file paths in case start and end time are not specified.
       operationId: getFilePathsBySensorId
       parameters:
@@ -1218,7 +1218,7 @@ paths:
       tags:
         - v1
       summary: Get configuration of storage management service
-      description: Get storage management service configuration. This includes 
+      description: Get storage management service configuration. This includes
         the information about the status of aging policy, max media file download size, total video storage size etc.
       operationId: getStorageConfiguration
       responses:
@@ -1695,7 +1695,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      
+
   schemas:
     FileConfig:
       type: object
@@ -1866,15 +1866,15 @@ components:
         - vstIp
         - webserviceAccessControlList
         - enableCloudStorage
-        
+
     TotalStorageSize:
-        type: object
-        additionalProperties:
-          $ref: '#/components/schemas/SensorStorage'
-        properties:
-          total:
-            $ref: '#/components/schemas/TotalStorage'
-  
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/SensorStorage'
+      properties:
+        total:
+          $ref: '#/components/schemas/TotalStorage'
+
     SensorStorage:
       type: object
       required:
@@ -1954,8 +1954,8 @@ components:
           type: boolean
           example: true
       required:
-      - filePath
-      - protect
+        - filePath
+        - protect
 
     StorageInfo:
       type: object
@@ -1992,7 +1992,7 @@ components:
             - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174587.mkv
             - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174545.mkv
       required:
-      - invalidFiles
+        - invalidFiles
 
     DeleteFiles:
       properties:
@@ -2021,9 +2021,9 @@ components:
           minimum: 0
           description: Total disk space reclaimed by the delete, in megabytes.
       required:
-      - invalidFiles
-      - protectedFiles
-      - spaceSaved
+        - invalidFiles
+        - protectedFiles
+        - spaceSaved
 
     MediaMetadata:
       type: object

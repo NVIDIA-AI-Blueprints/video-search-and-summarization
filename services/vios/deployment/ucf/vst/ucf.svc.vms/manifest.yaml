@@ -15,7 +15,7 @@
 
 type: msapplication
 specVersion: 2.5.0
-name:  ucf.svc.vms
+name: ucf.svc.vms
 chartName: vms
 description: vms media service
 version: 1.2.52
@@ -59,13 +59,13 @@ tests:
     gpuNodeLabels: ""
     watchAllPods: false # OR set to false and set list of pods to watch below
     watchPods:
-    - vms-test
+      - vms-test
     testerPods:  # At least one tester pod is required
-    - name: vms-test  # Name of the test pod
-      startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
-      endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
-      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
-      - "test case failed"
+      - name: vms-test  # Name of the test pod
+        startSignature: "Starting the api-test"  # Signature to look for in the logs indicating start of tests. Regex is accepted
+        endSignature: "Done with the api-test"  # Signature to look for in the logs indicating end of tests. Regex is accepted
+        errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+          - "test case failed"
 
 params:
   rtspPortRange: 30
@@ -120,10 +120,10 @@ spec:
         - containerPort: 50051
           name: vms-grpc
       env:
-      - name: REDIS_SVC_SERVICE_HOST
-        value: $egress.redis.address
-      - name: REDIS_SVC_SERVICE_PORT
-        value: $egress.redis.port
+        - name: REDIS_SVC_SERVICE_HOST
+          value: $egress.redis.address
+        - name: REDIS_SVC_SERVICE_PORT
+          value: $egress.redis.port
       livenessProbe:
         failureThreshold: 3
         httpGet:
@@ -155,22 +155,22 @@ spec:
     type: ucf.k8s.service
     parameters:
       ports:
-      - port: 30000
-        protocol: TCP
-        name: vms
-        nodePort: 30000
-      - port: 30554
-        protocol: TCP
-        name: rtsp
-        nodePort: 30554
-      - port: 50051
-        protocol: TCP
-        name: vms-grpc
-      - port: 30001
-        protocol: UDP
-        range: $params.rtspPortRange
-        name: rtsp-in
-        nodePort: 30001
+        - port: 30000
+          protocol: TCP
+          name: vms
+          nodePort: 30000
+        - port: 30554
+          protocol: TCP
+          name: rtsp
+          nodePort: 30554
+        - port: 50051
+          protocol: TCP
+          name: vms-grpc
+        - port: 30001
+          protocol: UDP
+          range: $params.rtspPortRange
+          name: rtsp-in
+          nodePort: 30001
       type: NodePort
       externalTrafficPolicy: Local
 
@@ -183,15 +183,15 @@ spec:
         nginx.ingress.kubernetes.io/rewrite-target: /$1
         nginx.ingress.kubernetes.io/proxy-body-size: "0"
       rules:
-      - http:
-          paths:
-            - path: /vms/(.*)
-              pathType: Prefix
-              backend:
-                service:
-                  name: vms-vms-svc
-                  port:
-                   number: 30000
+        - http:
+            paths:
+              - path: /vms/(.*)
+                pathType: Prefix
+                backend:
+                  service:
+                    name: vms-vms-svc
+                    port:
+                      number: 30000
 
   - name: data-storage
     type: ucf.k8s.volume

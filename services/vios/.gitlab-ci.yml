@@ -28,7 +28,7 @@ coverity_scan_x86:
   needs: []
   artifacts:
     paths:
-    - out/coverity_reports
+      - out/coverity_reports
     expire_in: 1 week
   only:
     variables:
@@ -42,7 +42,7 @@ coverity_scan_aarch64:
   needs: []
   artifacts:
     paths:
-    - out/coverity_reports
+      - out/coverity_reports
     expire_in: 1 week
   only:
     variables:

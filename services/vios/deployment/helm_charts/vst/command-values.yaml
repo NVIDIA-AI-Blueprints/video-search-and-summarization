@@ -33,7 +33,7 @@ vms:
       network:
         server_domain_name: ""
         stunurl_list:
-          - stun.l.google.com:19302
+        - stun.l.google.com:19302
         # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
         static_turnurl_list: ["admin:admin@10.24.218.113:3478"]
         # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
@@ -125,21 +125,21 @@ vms:
     # Known rtsp urls can be provided statically in below config
     rtsp_streams.json:
       streams:
-        - enabled: true
-          stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Endeavor_Cafeteria.mp4
-          name: Endeavor_Cafeteria
-        - enabled: true
-          stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam1.mp4
-          name: Building_K_Cam1
-        - enabled: false
-          stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam2.mp4
-          name: Building_K_Cam2
-        - enabled: false
-          stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam7.mp4
-          name: Building_K_Cam7
-        - enabled: false
-          stream_in: rtsp://vst-streamer-deployment-svc:8554/tokkio_sample_clip.mkv
-          name: Sample_input
+      - enabled: true
+        stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Endeavor_Cafeteria.mp4
+        name: Endeavor_Cafeteria
+      - enabled: true
+        stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam1.mp4
+        name: Building_K_Cam1
+      - enabled: false
+        stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam2.mp4
+        name: Building_K_Cam2
+      - enabled: false
+        stream_in: rtsp://nvstreamer-nvstreamer-svc:31554/nvstream/opt/vmounts/streamer-videos/Building_K_Cam7.mp4
+        name: Building_K_Cam7
+      - enabled: false
+        stream_in: rtsp://vst-streamer-deployment-svc:8554/tokkio_sample_clip.mkv
+        name: Sample_input
 
   ingress:
     annotations:
@@ -157,5 +157,3 @@ vms:
                 number: 30000
           path: /vms/(.*)
           pathType: Prefix
-
-

@@ -126,4 +126,3 @@ components:
   parameters:
     imagePullSecrets:
     - name: ngc-docker-reg-secret
-

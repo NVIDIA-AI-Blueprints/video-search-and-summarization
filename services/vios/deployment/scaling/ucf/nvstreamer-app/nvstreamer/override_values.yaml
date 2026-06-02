@@ -43,28 +43,28 @@ nvstreamer-instance:
             runAsUser: 0
             runAsGroup: 0
           env:
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: SERVICE_NAME
-              value: "nvstreamer-instance-deployment-svc"
-            - name: POD_METADATA_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: POD_NAME
-              value: "$(POD_METADATA_NAME).$(SERVICE_NAME).$(POD_NAMESPACE)"
-            - name: INSTALL_ADDITIONAL_PACKAGES
-              value: *installAdditionalPackages
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: SERVICE_NAME
+            value: "nvstreamer-instance-deployment-svc"
+          - name: POD_METADATA_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAME
+            value: "$(POD_METADATA_NAME).$(SERVICE_NAME).$(POD_NAMESPACE)"
+          - name: INSTALL_ADDITIONAL_PACKAGES
+            value: *installAdditionalPackages
           command:
-            - "/bin/bash"
-            - "-c"
-            - |
-              if [ "$INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
-                /home/vst/vst_release/tools/user_additional_install.sh
-              fi
-              exec /home/vst/vst_release/launch_vst --vstConfigFile /opt/configs/vst_config.json --adaptorConfigFile /opt/configs/adaptor_config.json
+          - "/bin/bash"
+          - "-c"
+          - |
+            if [ "$INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+              /home/vst/vst_release/tools/user_additional_install.sh
+            fi
+            exec /home/vst/vst_release/launch_vst --vstConfigFile /opt/configs/vst_config.json --adaptorConfigFile /opt/configs/adaptor_config.json
           args: []
 
   configs:
@@ -85,7 +85,7 @@ nvstreamer-instance:
         rtsp_server_port: *rtspServerPort
         rtsp_server_instances_count: 10
         stunurl_list:
-          - stun.l.google.com:19302
+        - stun.l.google.com:19302
         static_turnurl_list:
         use_coturn_auth_secret: false
         coturn_turnurl_list_with_secret:
@@ -116,7 +116,7 @@ nvstreamer-ingress:
         - until curl --connect-timeout 2 --silent --head nvstreamer-instance-deployment-$(($NUM_NVSTREAMER_POD - 1)).nvstreamer-instance-deployment-svc.default:31000/healthz>/dev/null; do echo "Waiting for nvstreamer"; sleep 0.2; done
         command: [sh, -c]
         env:
-          - name: NUM_NVSTREAMER_POD
-            value: *nvstreamerReplicaCount
+        - name: NUM_NVSTREAMER_POD
+          value: *nvstreamerReplicaCount
         image: docker.io/curlimages/curl:8.17.0
         imagePullPolicy: IfNotPresent

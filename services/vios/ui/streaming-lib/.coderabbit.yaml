@@ -26,7 +26,7 @@ reviews:
   high_level_summary: true
   poem: true
   review_status: true
-  
+
   # Auto review settings
   auto_review:
     enabled: true
@@ -121,5 +121,3 @@ reviews:
 knowledge_base:
   learnings:
     scope: global
-
- 

@@ -36,7 +36,7 @@ ingress-endpoints:
   - name: http-api
     description: Short description of http-api ingress endpoint
     scheme: http
-    data-flow : in-out
+    data-flow: in-out
 
 ---
 spec:
@@ -50,12 +50,12 @@ spec:
     parameters:
       image: curlimages/curl:7.83.1
       env:
-      - name: VMS_ADDRESS
-        value: $egress.vms-web-server.address
-      - name: VMS_PORT
-        value: $egress.vms-web-server.port
+        - name: VMS_ADDRESS
+          value: $egress.vms-web-server.address
+        - name: VMS_PORT
+          value: $egress.vms-web-server.port
       imagePullPolicy: IfNotPresent
-      command: [sh, -c ]
+      command: [sh, -c]
       args: [until curl --connect-timeout 5 http://$(VMS_ADDRESS):$(VMS_PORT)/api/v1/sensor/list | grep name; do echo "Waiting for VMS to start"; sleep 0.1; done]
 
   - name: "vms-test-container"
@@ -65,14 +65,14 @@ spec:
         repository: nvcr.io/rxczgrvsg8nx/vst-1-0/vst
         tag: "vst_tokkio_test_v0.0.4"
       env:
-      - name: VMS_ADDRESS
-        value: $egress.vms-web-server.address
-      - name: VMS_PORT
-        value: $egress.vms-web-server.port
+        - name: VMS_ADDRESS
+          value: $egress.vms-web-server.address
+        - name: VMS_PORT
+          value: $egress.vms-web-server.port
       ports:
-      - containerPort: 5081
-        protocol: TCP
-        name: vms-web-server
+        - containerPort: 5081
+          protocol: TCP
+          name: vms-web-server
 
 #  - name: securityContext
 #    type: ucf.k8s.podSecurityContext
@@ -88,9 +88,9 @@ spec:
     type: ucf.k8s.service
     parameters:
       ports:
-      - port: 5081
-        protocol: TCP
-        name: vms-web-server
+        - port: 5081
+          protocol: TCP
+          name: vms-web-server
       type: ClusterIP
 
   - name: vms-test-custom-data

@@ -39,11 +39,11 @@ components:
           udp_latency_ms: 200
           udp_drop_on_latency: false
           stunurl_list:
-            - stun.l.google.com:19302
-            - stun1.l.google.com:19302
+          - stun.l.google.com:19302
+          - stun1.l.google.com:19302
           # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
           static_turnurl_list:
-            - admin:admin@13.56.254.166:3478
+          - admin:admin@13.56.254.166:3478
           # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key
           use_coturn_auth_secret: false
           coturn_turnurl_list_with_secret:

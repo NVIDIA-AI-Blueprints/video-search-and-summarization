@@ -2559,9 +2559,9 @@ components:
         overlay:
           type: object
           required:
-            - enabled
-            - color
-            - thickness
+          - enabled
+          - color
+          - thickness
           properties:
             enabled:
               type: boolean

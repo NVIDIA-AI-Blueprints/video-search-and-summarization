@@ -62,4 +62,3 @@ components:
 
 #connections:
 #  testapp-wdm-envoy/testapp-wdm-envoy-endpoint-name: some-external-endpoint/endpoint
-

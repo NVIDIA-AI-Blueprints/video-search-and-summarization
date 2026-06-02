@@ -50,4 +50,4 @@ services:
     restart: unless-stopped
     depends_on:
       prometheus:
-        condition: service_started 
+        condition: service_started

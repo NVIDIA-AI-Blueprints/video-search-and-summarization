@@ -23,7 +23,7 @@ vms:
       network:
         server_domain_name: ""
         stunurl_list:
-          - stun.l.google.com:19302
+        - stun.l.google.com:19302
         # List of turnUrls with static credentials. Example - admin:admin@10.0.0.1:3478
         static_turnurl_list: []
         # List of coturn turnUrls with secret. Example - 10.0.0.1:3478:secret_key

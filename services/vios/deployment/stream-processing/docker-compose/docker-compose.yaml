@@ -111,18 +111,18 @@ services:
         condition: service_healthy
 
   redis:
-      image: ${REDIS_IMAGE}
-      user: "0:0"
-      restart: always
-      command: redis-server --save 60 1 --loglevel warning
-      network_mode: host
-      container_name: redis-server
-      healthcheck:
-        test: ["CMD", "redis-cli", "ping"]
-        interval: 5s
-        timeout: 3s
-        retries: 60
-        start_period: 2s
+    image: ${REDIS_IMAGE}
+    user: "0:0"
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    network_mode: host
+    container_name: redis-server
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 2s
 
 volumes:
   vst_pg_data:
