@@ -123,7 +123,7 @@ If the probe fails or the listed ids don't include `${VLM_MODEL}`, fall back to 
 
 Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
 
-The frame sampling and visual-token (pixel) budget below mirror the **base profile** `video_understanding` config (`deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml`): `max_fps=2`, `max_frames=30`, `min_pixels=3136`, `max_pixels=8388608`. **Always send `mm_processor_kwargs` and `media_io_kwargs`** — omitting them lets the VLM fall back to its own frame/pixel defaults, which on Cosmos Reason 2 (e.g. DGX Spark) yields garbage output (repeated tokens, stray characters, off-topic answers).
+The frame sampling and visual-token (pixel) budget below mirror the **base profile** `video_understanding` config (`deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml`): `max_fps=2`, `max_frames=30`, `min_pixels=3136`, `max_pixels=8388608`. **Send `mm_processor_kwargs` and `media_io_kwargs`** so the direct call uses the same frame sampling and pixel budget as the in-agent `video_understanding` tool — omitting them lets the VLM apply its own defaults, so the output diverges from the agent path.
 
 ```bash
 PROMPT='Describe in detail what happens in the video, with timestamps (start–end in seconds from clip start) for each segment or event. Cover scenes, objects, people, vehicles, and notable actions.'
