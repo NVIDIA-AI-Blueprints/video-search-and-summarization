@@ -14,23 +14,34 @@
 # limitations under the License.
 
 TOP := $(abspath $(lastword $(MAKEFILE_LIST))/..)
+
+# Build-toolchain images used by the cc=1 / cc=0 containerised build wrappers.
+# Build them locally from cicd_files/
+# (see cicd_files/x86_64/devel and cicd_files/aarch64/devel), then either tag
+# to the defaults below or override per build on the environment / command line:
+#   make cc=0 X86_BUILD_IMAGE=<image> <target>
+AARCH64_CC_IMAGE ?= vios-cicd:aarch64-cross-compiler
+X86_BUILD_IMAGE  ?= vios-cicd:x86-24.04-cuda13.0.0
+X86_U20_IMAGE    ?= vios-cicd:x86-20.04
+X86_U22_IMAGE    ?= vios-cicd:x86-22.04
+
 ifeq ($(cc),1)
 all:
 %:
-	docker run --rm -v $(TOP):/root gitlab-master.nvidia.com:5005/l4tmm/vms_shim/cicd_images:jetson_cross_compiler_dev-main bash -c "unset SBSA_PLATFORM && cd /root && PROJECT=$(PROJECT) MODULE=$(MODULE) make $(MAKECMDGOALS) -j12"
+	docker run --rm -v $(TOP):/root $(AARCH64_CC_IMAGE) bash -c "unset SBSA_PLATFORM && cd /root && PROJECT=$(PROJECT) MODULE=$(MODULE) make $(MAKECMDGOALS) -j12"
 else ifeq ($(cc),0)
 ifeq ($(build),U20)
 all:
 %:
-	docker run --rm -v $(TOP):/root gitlab-master.nvidia.com:5005/l4tmm/vms_shim/cicd_images:x86_20.04_base_image bash -c "cd /root && PROJECT=$(PROJECT) MODULE=$(MODULE) make $(MAKECMDGOALS) -j12"
+	docker run --rm -v $(TOP):/root $(X86_U20_IMAGE) bash -c "cd /root && PROJECT=$(PROJECT) MODULE=$(MODULE) make $(MAKECMDGOALS) -j12"
 else ifeq ($(build),U22)
 all:
 %:
-	docker run --rm -v $(TOP):/root gitlab-master.nvidia.com:5005/l4tmm/vms_shim/cicd_images:x86_22.04_base_image bash -c "cd /root && PROJECT=$(PROJECT) MODULE=$(MODULE) make $(MAKECMDGOALS) -j12"
+	docker run --rm -v $(TOP):/root $(X86_U22_IMAGE) bash -c "cd /root && PROJECT=$(PROJECT) MODULE=$(MODULE) make $(MAKECMDGOALS) -j12"
 else
 all:
 %:
-	docker run --rm -v $(TOP):/root gitlab-master.nvidia.com:5005/l4tmm/vms_shim/cicd_images:x86_24.04_build_cuda13.0.0 bash -c "cd /root && PROJECT=$(PROJECT) MODULE=$(MODULE) make $(MAKECMDGOALS) -j12"
+	docker run --rm -v $(TOP):/root $(X86_BUILD_IMAGE) bash -c "cd /root && PROJECT=$(PROJECT) MODULE=$(MODULE) make $(MAKECMDGOALS) -j12"
 endif
 else
 arch ?= $(shell uname -p)
