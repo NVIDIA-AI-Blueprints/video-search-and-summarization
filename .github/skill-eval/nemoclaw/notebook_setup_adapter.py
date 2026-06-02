@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -21,6 +22,12 @@ from typing import Any
 
 DEFAULT_ENV_OUT = Path("/tmp/skill-eval/nemoclaw/nemoclaw.env")
 DEFAULT_OUTPUT = Path("/tmp/skill-eval/nemoclaw/deploy_nemoclaw_vss.executed.ipynb")
+SECRET_TEXT_PATTERNS = (
+    (
+        re.compile(r"(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/=-]+"),
+        r"\1<redacted:OPENCLAW_HOOKS_TOKEN>",
+    ),
+)
 
 PARAMETER_SOURCE = r'''
 # Injected by .github/skill-eval/nemoclaw/notebook_setup_adapter.py.
@@ -231,6 +238,8 @@ def _redact(obj: Any, values: dict[str, str]) -> Any:
         for key, value in values.items():
             if value:
                 redacted = redacted.replace(value, f"<redacted:{key}>")
+        for pattern, replacement in SECRET_TEXT_PATTERNS:
+            redacted = pattern.sub(replacement, redacted)
         return redacted
     if isinstance(obj, list):
         return [_redact(item, values) for item in obj]
