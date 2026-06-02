@@ -174,9 +174,11 @@ Per-sensor detection outputs include:
 
 - `mAP`: mean Average Precision. With the default `--eval_options location`,
   predictions are matched to ground truth by 2D center distance on the ground
-  plane; `--eval_options bbox` uses 3D-IoU matching instead. AP is computed at a
-  single matching threshold (`0.5` m center distance for `location`, `0.5` 3D
-  IoU for `bbox`) and then averaged across object classes.
+  plane (`DET_CONFIG_CENTER_DISTANCE`); `--eval_options bbox` uses 3D-IoU
+  matching (`DET_CONFIG_IOU3D`). AP is computed at the config's single matching
+  threshold (currently `0.5`, defined in
+  [`configs/eval/detection.py`](../../spatialai_data_utils/configs/eval/detection.py))
+  and then averaged across object classes.
 - `AP`: Average Precision for one object class.
 - `ATE`: Average Translation Error, the 2D center-distance error in meters.
 - `ASE`: Average Scale Error, computed as `1 - IoU` after aligning centers and

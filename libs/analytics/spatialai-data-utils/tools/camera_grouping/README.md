@@ -306,7 +306,7 @@ python tools/camera_grouping/calculate_origin.py \
 
 ### Workflow 1: With Existing Groups
 
-```
+```text
 Input: calibration_grouped.json
   ↓
 [Load calibration]
@@ -322,7 +322,7 @@ Output: calibration_grouped_with_origins.json
 
 ### Workflow 2: Without Groups (Single-Group Fallback)
 
-```
+```text
 Input: calibration.json (no groups)
   ↓
 [Load calibration]
@@ -405,7 +405,7 @@ Constrains frustum polygon generation to a maximum distance from each camera cen
 - **Use case**: Match camera's effective detection range
 
 **Effect on FOV:**
-```
+```text
 Camera Position: (0, 0, 5m height)
 Without constraint: Frustum extends until scene bounds
 With --max-camera-distance 30.0: Frustum limited to 30m radius from camera
@@ -436,7 +436,7 @@ dimensions = [x_min, y_min, x_max, y_max]
 ```
 
 **Example:**
-```
+```text
 Group FOV Union (top-down view):
   ┌─────────────┐
   │             │
@@ -465,7 +465,7 @@ python tools/camera_grouping/calculate_origin.py \
 ```
 
 **Output:**
-```
+```text
 2025-11-17 10:30:15 - INFO - Loading calibration data from: calibration_buffer_zone_c4.json
 2025-11-17 10:30:15 - INFO - Loaded 4 sensors
 2025-11-17 10:30:15 - INFO - ================================================================================
@@ -484,7 +484,7 @@ python tools/camera_grouping/calculate_origin.py \
 
 ### Issue 1: Camera center very low warning
 
-```
+```text
 WARNING: Camera center is very low (z=-3.33m), frustum may not intersect ground planes
 ```
 
@@ -495,7 +495,7 @@ WARNING: Camera center is very low (z=-3.33m), frustum may not intersect ground 
 
 ### Issue 2: No groups found / input has no `group` field
 
-```
+```text
 WARNING: No valid groups found for any sensors in the group
 ```
 
@@ -510,7 +510,7 @@ sensors in `bev-sensor-1`).
 
 ### Issue 3: Invalid sensor names
 
-```
+```text
 ERROR: The following sensor names do not exist: ['InvalidCamera']
 ```
 
@@ -668,7 +668,7 @@ The clustering algorithm uses a **greedy initialization** followed by **unassign
 
 Builds clusters by iteratively adding cameras based on FOV overlap and spatial proximity:
 
-```
+```text
 1. Seed first cluster with the specified start camera
 2. For each remaining camera slot:
    a. If current cluster is not empty:
@@ -691,7 +691,7 @@ After greedy initialization, some cameras may remain unassigned (no cluster met
 the overlap/distance thresholds, or clusters reached capacity). The `--mode`
 flag controls how they are resolved:
 
-```
+```text
 densify (default):
   - Prioritize filling clusters to capacity
   - Reassign leftover cameras by cascading them into the nearest cluster
@@ -708,7 +708,7 @@ scatter(cluster) = mean([max_distance(camera, other_cameras) for camera in clust
 
 ### Algorithm Visualization
 
-```
+```text
 Initial State (12 cameras, 3 clusters):
 ┌─────────────────────────────────────────┐
 │  ○ ○    ○                               │
@@ -898,7 +898,7 @@ The `--max_camera_per_group` parameter is **required** and controls how cameras 
 
 The number of clusters (`n_clusters`) is determined by the following logic:
 
-```
+```text
 1. If --n_clusters is NOT provided:
    → n_clusters = ceil(num_sensors / max_camera_per_group)
    → Example: 45 sensors / 10 max = 5 clusters
@@ -1089,7 +1089,7 @@ The grouping algorithm uses **farthest-first seeding** combined with **greedy gr
 
 ### Phase 1: Group Seeding
 
-```
+```text
 1. First group: Seed with camera at start_camera_index
 2. Subsequent groups: 
    a. Prefer UNSELECTED cameras: Pick farthest unselected camera from all previous seeds
@@ -1102,7 +1102,7 @@ The grouping algorithm uses **farthest-first seeding** combined with **greedy gr
 
 For each group after seeding:
 
-```
+```text
 1. While group size < cameras_per_group:
    a. Try to add from UNSELECTED cameras (prefer cameras not yet in any group):
       - Find cameras with MAXIMUM FOV overlap with current group
@@ -1118,7 +1118,7 @@ For each group after seeding:
 
 ### Phase 3: Duplicate Detection
 
-```
+```text
 After building each group:
 1. Check if the new group is identical to any previously created group
 2. If duplicate detected:
@@ -1130,7 +1130,7 @@ After building each group:
 
 ### Phase 4: Coverage Verification
 
-```
+```text
 After all groups are built:
 1. Check for any cameras with assignment_count == 0
 2. If any camera is not covered → RAISE ERROR
@@ -1141,7 +1141,7 @@ After all groups are built:
 
 ### Algorithm Visualization
 
-```
+```text
 Initial State (6 cameras, 3 groups of 3):
 ┌─────────────────────────────────────────┐
 │  ○ ○    ○                               │
@@ -1461,7 +1461,7 @@ python tools/camera_grouping/create_camera_groups.py \
 
 The algorithm automatically calculates the minimum duplication required:
 
-```
+```text
 total_slots = n_groups × cameras_per_group
 min_duplication = (total_slots - num_cameras) / num_cameras
 
@@ -1472,7 +1472,7 @@ Example:
 ```
 
 **Important**: To ensure all cameras can be covered, make sure:
-```
+```text
 n_groups × cameras_per_group ≥ num_cameras
 ```
 
@@ -1484,7 +1484,7 @@ If total slots < num_cameras, some cameras may not be covered and an error will 
 
 If any camera cannot be assigned to any group, the algorithm raises a `RuntimeError`:
 
-```
+```text
 RuntimeError: Camera grouping failed: 2 camera(s) could not be assigned to any group: 
 ['Camera_15', 'Camera_16']. Consider adjusting n_groups, cameras_per_group, or threshold parameters.
 ```
