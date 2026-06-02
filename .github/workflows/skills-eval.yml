@@ -40,9 +40,9 @@ on:
         type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
-# comment, gh pr create, git push of eval-bot/* branches). Mirrors
-# helm-sync.yml — no PAT, no rotation. contents:write covers the bot-PR
-# branch push; pull-requests:write covers comment + create.
+# comment + git push of the adapter commit to the contributor's branch).
+# Mirrors helm-sync.yml — no PAT, no rotation. contents:write covers the
+# adapter push; pull-requests:write covers the PR comment.
 permissions:
   contents: write
   pull-requests: write
@@ -138,7 +138,7 @@ jobs:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # agent needs full history for the bot-PR flow
+          fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |

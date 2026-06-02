@@ -21,8 +21,8 @@ Rules (see docs/matrix-dispatch-design.md):
     those via the manual workflow_dispatch sweep.
 
 A skill whose adapter is missing collapses to a single `missing_adapter`
-leg (that leg's agent raises the one bot-PR), so N specs of an adapterless
-skill don't race to open N duplicate bot-PRs.
+leg (that leg's agent commits the one adapter to the PR branch), so N specs
+of an adapterless skill don't race to commit it N times.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
@@ -173,7 +173,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
     include: list[dict] = []
     for skill in sorted(by_skill):
         if not adapter_exists(skill):
-            # One leg raises the single bot-PR for the whole skill.
+            # One leg commits the single adapter for the whole skill.
             include.append({
                 "skill": skill,
                 "spec_path": "",

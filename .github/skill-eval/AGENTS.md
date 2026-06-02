@@ -42,7 +42,7 @@ results, or viewer entries. The `leg-slug` is the unique trial identity
 LEG="${EVAL_SLUG:-${skill}__${spec_stem}__${platform}}"
 DS="/tmp/skill-eval/datasets/${LEG}/${GITHUB_RUN_ID}"    # this leg's datasets
 RES="/tmp/skill-eval/results/${LEG}/${GITHUB_RUN_ID}"    # this leg's harbor -o
-# Run-level scratch for the per-spec comment bodies + bot-PR body. This is
+# Run-level scratch for the per-spec + adapter-commit comment bodies. This is
 # RUN-scoped (NOT leg-scoped) and MUST match skills_eval_agent.py's
 # `_SCRATCH = /tmp/skill-eval/<run_id>`, because that module globs
 # `$SCRATCH/pr-*.md` to assemble benchmark.md. Writing the pr-*.md files
@@ -54,9 +54,10 @@ Slug-first ordering groups every run of one trial under one `<slug>/`
 dir (handy for history); `<run_id>` underneath isolates this run. The
 brev snapshot is per-leg too (`brev-snapshot-${LEG}.json`). `$SCRATCH`
 is shared by all legs of one run (they coexist on the host) — only the
-`pr-<spec>.md` / `bot-pr-body-<slug>.md` / `skipped-*.txt` files live
-there, each keyed by `<spec>` or the leg `<slug>` so concurrent legs
-(including two skills both raising adapter bot-PRs) don't collide.
+`pr-<spec>.md` / `adapter-commit-body-<slug>.md` /
+`adapter-note-<slug>.md` / `skipped-*.txt` files live there, each keyed
+by `<spec>` or the leg `<slug>` so concurrent legs (including two skills
+both auto-committing adapters) don't collide.
 
 ## Startup hygiene (do this first, before step 1)
 
@@ -128,10 +129,12 @@ The canonical harbor command is in § Harbor invocation.
 3. **For each evaluable skill × spec, ensure an adapter exists under
    `.github/skill-eval/adapters/<skill>/generate.py`** AND that running
    it against the spec produces a complete dataset. Adapters are the
-   single source of truth for harness behaviour — **you do not run
-   trials against locally-synthesized or locally-edited adapters**. If
-   an adapter is missing or needs an update for this spec, follow the
-   **bot-PR flow** below (don't silently fabricate one and proceed):
+   single source of truth for harness behaviour — **you never run a
+   trial against a freshly-generated adapter in this leg**. If an adapter
+   is missing or needs an update for this spec, commit it to the
+   contributor's PR branch so the eval re-runs against the committed
+   adapter (§ 3c); fork PRs BLOCK instead. Don't silently fabricate an
+   adapter and run it here:
 
    3a. **Detect adapter trouble.** Three triggers, in order:
        - **Missing**: `.github/skill-eval/adapters/<skill>/generate.py`
@@ -152,79 +155,121 @@ The canonical harbor command is in § Harbor invocation.
        `.github/skill-eval/adapters/vss-deploy-profile/generate.py` (matrix). For
        updates, edit the existing file rather than rewriting it.
 
-   3c. **Raise a bot PR against the source PR's *original* branch and
-       STOP.** `pull-request/${PR_NUMBER}` is a throwaway CPR mirror —
-       merging into it gets overwritten on the next sync. The bot PR
-       must target `headRefName` (the contributor's actual branch on
-       the main repo). When the contributor merges, their branch
-       updates, CPR re-mirrors, and CI re-runs with the adapter in
-       place.
+   3c. **Same-repo PR → commit the adapter to the contributor's branch;
+       the eval re-runs automatically.** `pull-request/${PR_NUMBER}` is a
+       throwaway CPR mirror, so commit to `headRefName` (the contributor's
+       real branch). The push re-mirrors → CI re-runs → the now-present
+       adapter is evaluated per-spec on that run. **Do not run a trial in
+       this leg** — the adapter is freshly generated; the re-run evaluates
+       it, and the commit + the re-run's per-spec result comments (with
+       trace/artifact links) are the review trail. **Fork PRs are the one
+       exception**: the bot can't push to a fork, so it comments + BLOCKs.
 
        ```bash
-       # Target the contributor's real branch, NOT the throwaway mirror.
-       # External-fork PRs are out of scope (the bot can't push into a
-       # fork): if headRepositoryOwner != $PR_REPO's owner, comment that
-       # the contributor must port the adapter manually, emit BLOCKED:fork-pr.
-       SOURCE_BRANCH=$(gh pr view "$PR_NUMBER" --repo "$PR_REPO" \
-         --json headRefName -q .headRefName)
-       BOT_BRANCH="eval-bot/pr-${PR_NUMBER}/adapter-${SKILL}"
+       # Resolve the PR head repo + branch. A fork = head-repo owner differs
+       # from the source-repo owner ($PR_REPO is "owner/repo").
+       read -r HEAD_OWNER SOURCE_BRANCH < <(gh pr view "$PR_NUMBER" \
+         --repo "$PR_REPO" --json headRepositoryOwner,headRefName \
+         -q '[.headRepositoryOwner.login, .headRefName] | @tsv')
+       # A failed `gh pr view` (auth / rate-limit / transient) leaves these
+       # empty — do NOT misread that as a fork. Surface it and stop.
+       if [ -z "$HEAD_OWNER" ] || [ -z "$SOURCE_BRANCH" ]; then
+         echo "BLOCKED: could not resolve PR head repo/branch (gh pr view failed) for ${SKILL} — re-run"
+         exit 1
+       fi
+       if [ "$HEAD_OWNER" != "${PR_REPO%%/*}" ]; then
+         # Fork: can't push to the contributor's fork. Ask them to add it.
+         gh pr comment "$PR_NUMBER" --repo "$PR_REPO" \
+           --body-file "$SCRATCH/adapter-note-${EVAL_SLUG}.md"
+         echo "BLOCKED: fork PR — ${TRIGGER} adapter for ${SKILL} must be added by the contributor"
+         exit 0
+       fi
+
        cd "$REPO_ROOT"
-       # Commit as skills-eval-bot; push lands as github-actions[bot] via
-       # the checkout extraheader (contents:write from the permissions:
-       # block — no PAT). `-s` is mandatory: org DCO rejects PR commits
-       # without a Signed-off-by trailer matching the committer email.
+       ADAPTER=".github/skill-eval/adapters/${SKILL}"
+       # Preserve the freshly-generated adapter across the branch switch.
+       # `git checkout -f -B … FETCH_HEAD` lands cleanly on the contributor's
+       # tip — a plain `checkout -B` can ABORT if a *tracked* adapter diverged
+       # upstream (the stale case). Copy the generated adapter to a temp dir
+       # first and restore it after, so the COMMITTED adapter is exactly what
+       # we generated regardless of what's on the tip.
+       ADAPTER_BAK=$(mktemp -d); cp -a "$ADAPTER/." "$ADAPTER_BAK/"
+       restore_adapter() { rm -rf "$ADAPTER"; mkdir -p "$ADAPTER"; cp -a "$ADAPTER_BAK/." "$ADAPTER/"; }
+       # Commit as skills-eval-bot; the push lands as github-actions[bot] via
+       # the checkout extraheader (contents:write — no PAT). `-s` is mandatory
+       # (org DCO). Work on the contributor's tip, not the (lagging) mirror.
        git config user.name  "skills-eval-bot"
        git config user.email "skills-eval-bot@users.noreply.github.com"
-       # Branch off the contributor's tip, not the (possibly-lagging) mirror.
-       git fetch origin "$SOURCE_BRANCH":"refs/remotes/origin/$SOURCE_BRANCH"
-       git checkout -b "$BOT_BRANCH" "origin/$SOURCE_BRANCH"
-       git add .github/skill-eval/adapters/${SKILL}/
-       git commit -s -m "skill-eval: adapter for ${SKILL} (PR #${PR_NUMBER})"
-       git push -u origin "$BOT_BRANCH"
+       git fetch origin "$SOURCE_BRANCH"
+       git checkout -f -B "$SOURCE_BRANCH" FETCH_HEAD
+       restore_adapter
+       git add "$ADAPTER"
+       # Diff-guard (loop + concurrency safety): nothing staged ⇒ the adapter
+       # already matches the branch (a sibling leg committed it, or a
+       # deterministic regen produced no change) ⇒ skip — never push an empty
+       # change or re-trigger a commit loop.
+       if git diff --cached --quiet; then
+         echo "BLOCKED: ${SKILL} adapter already current on ${SOURCE_BRANCH}; eval re-runs on sync"
+         exit 0
+       fi
+       git commit -s -m "skill-eval: ${TRIGGER} adapter for ${SKILL} (PR #${PR_NUMBER})"
+       if ! git push origin "HEAD:${SOURCE_BRANCH}"; then
+         # Non-fast-forward (a sibling leg pushed first): re-land on the new
+         # tip, restore the generated adapter, re-check the diff-guard, retry
+         # the push ONCE — and if THAT also fails (a third racing leg), surface
+         # it as BLOCKED instead of reporting a phantom commit.
+         git fetch origin "$SOURCE_BRANCH"
+         git checkout -f -B "$SOURCE_BRANCH" FETCH_HEAD
+         restore_adapter
+         git add "$ADAPTER"
+         if git diff --cached --quiet; then
+           echo "BLOCKED: ${SKILL} adapter now current on ${SOURCE_BRANCH}; eval re-runs on sync"
+           exit 0
+         fi
+         git commit -s -m "skill-eval: ${TRIGGER} adapter for ${SKILL} (PR #${PR_NUMBER})"
+         git push origin "HEAD:${SOURCE_BRANCH}" || {
+           echo "BLOCKED: push to ${SOURCE_BRANCH} failed after retry for ${SKILL} — re-run or add the adapter manually"
+           exit 1
+         }
+       fi
+       COMMIT_SHA=$(git rev-parse --short HEAD)
 
-       BOT_PR_URL=$(gh pr create \
-         --repo "$PR_REPO" \
-         --base "$SOURCE_BRANCH" \
-         --head "$BOT_BRANCH" \
-         --title "[skill-eval] ${SKILL} adapter for PR #${PR_NUMBER}" \
-         --body-file "$SCRATCH/bot-pr-body-${EVAL_SLUG}.md")
-
-       gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "
-       The skills-eval bot generated/updated the adapter required to
-       run this PR's eval spec(s). Merge ${BOT_PR_URL} into
-       \`${SOURCE_BRANCH}\` — once that lands, your PR auto-updates
-       and the eval will re-run on the next mirror sync.
-
-       Reason: ${REASON}
-       "
-       echo "BLOCKED: missing/stale adapter for ${SKILL}; see ${BOT_PR_URL}"
+       gh pr comment "$PR_NUMBER" --repo "$PR_REPO" \
+         --body-file "$SCRATCH/adapter-commit-body-${EVAL_SLUG}.md"
+       echo "BLOCKED: ${TRIGGER} adapter for ${SKILL} auto-committed (${COMMIT_SHA}); eval re-runs on sync"
        exit 0
        ```
 
-       The PR body MUST: (a) link the source PR `#${PR_NUMBER}`, (b)
-       state which trigger fired (missing / stale / spec drift) with a
-       one-sentence diff summary, (c) explicitly say "no eval ran in
-       this CI invocation — merge into `${SOURCE_BRANCH}` and the
-       eval will re-run automatically on the next mirror sync." Skip
-       trials for this skill in the current run.
+       The same-repo comment (`adapter-commit-body-…md`) MUST: (a) link the
+       source PR, (b) name the trigger (missing / stale / spec drift) + a
+       one-line summary of what the adapter does, (c) give the commit SHA,
+       (d) say the eval re-runs automatically on the synced branch and posts
+       per-spec results + trace links there, and (e) flag that this is an
+       **auto-generated adapter for the reviewer to check**. The fork
+       comment (`adapter-note-…md`) instead says the bot can't push to a
+       fork and asks the contributor to add
+       `.github/skill-eval/adapters/${SKILL}/generate.py` themselves. Either
+       way, **run no trial for this skill in the current leg.** `${TRIGGER}`
+       is the 3a trigger word (`missing` / `stale` / `spec-drift`).
 
-   3d. **Skill-source updates use the same bot-PR flow.** If you can
-       only proceed by editing files under `skills/<skill>/` (e.g. a
-       reference doc has a stale URL the trial depends on), do NOT
-       edit-and-run; raise a bot PR exactly like 3c with branch
-       `eval-bot/pr-${PR_NUMBER}/skill-${SKILL}` and `BLOCKED:`. The
-       contributor merges, the mirror updates, eval re-runs. The hard
-       rule against `skills/` writes still applies in this very run —
-       you only push the suggestion as a PR for the contributor to
-       merge, you never run trials with locally-edited skill code.
+   3d. **Skill-source (`skills/<skill>/`) is NEVER auto-committed.** The
+       hard rule against writing under `skills/` holds in full — adapters
+       live under `.github/skill-eval/` (harness code we own) and are the
+       only thing 3c commits. If a spec can only pass by changing skill
+       source (e.g. a reference doc has a stale URL the trial needs),
+       comment on the PR describing the needed change and emit `BLOCKED:` —
+       the contributor makes that edit. Never run a trial against
+       locally-edited skill code.
 
-   3e. **Idempotency.** Before pushing in 3c/3d, check whether
-       `eval-bot/pr-${PR_NUMBER}/...` already exists on origin. If it
-       does, fetch it, diff it against your workspace changes, and:
-       - identical → reuse the existing PR; just re-comment with the
-         existing URL.
-       - different → push as a new commit on the same branch (PR auto-
-         updates). Don't open a duplicate PR.
+   3e. **Loop / concurrency safety.** The diff-guard in 3c (commit only
+       when the staged adapter actually differs from the contributor's
+       branch) is what keeps commit → re-run → commit from looping: on the
+       re-triggered run the adapter is present and matches, so the leg
+       evaluates it (not stale) — or, if still detected stale, regenerates
+       the SAME deterministic output, stages nothing, and exits without
+       re-committing. Adapters MUST generate deterministically for this to
+       hold; a non-deterministic adapter would re-commit (and re-trigger)
+       every run.
 
    When cloning the vss-manage-video-io-storage template for a new
    skill, the adapter should read the spec's `profile` field (when
@@ -377,19 +422,19 @@ The canonical harbor command is in § Harbor invocation.
 
 - **Never modify anything under `skills/`** *in the trials you run*.
   The mirror branch is the single source of truth for skill content.
-  If a spec is broken or a reference doc needs a fix, raise a bot PR
-  per § 3d — never edit-and-run with the local change.
+  If a spec is broken or a reference doc needs a fix, comment the needed
+  change per § 3d — never edit-and-run with the local change.
 - **Never force-push, never modify history, never merge PRs.**
-- **The only writes you may push are bot PRs from § 3c/3d.** They
-  target the source PR's `headRefName` (the contributor's branch on
-  the main repo, NOT the `pull-request/<N>` mirror), come from a
-  branch prefixed `eval-bot/pr-${PR_NUMBER}/`, and only ever touch
-  `.github/skill-eval/adapters/<skill>/` (or the skill files the
-  contributor needs to update). Trial datasets, results, and
-  `/tmp/skill-eval/` artefacts are NEVER pushed — they stay on the
-  runner and surface in the workflow artifact.
-- **Never run trials against a locally-fabricated or locally-patched
-  adapter.** If 3a fired, 3c is mandatory and the run exits BLOCKED.
+- **The only writes you may push are adapter commits from § 3c**, made
+  directly to the source PR's `headRefName` (the contributor's branch on
+  the main repo, NOT the `pull-request/<N>` mirror), and they only ever
+  touch `.github/skill-eval/adapters/<skill>/`. NEVER push under
+  `skills/` (§ 3d). Trial datasets, results, and `/tmp/skill-eval/`
+  artefacts are NEVER pushed — they stay on the runner and surface in
+  the workflow artifact.
+- **Never run a trial against a freshly-generated adapter in this leg.**
+  If 3a fired, 3c is mandatory (commit + BLOCKED for same-repo; comment
+  + BLOCKED for forks); the committed adapter is evaluated by the re-run.
   Trials only run against adapter code that is already on the mirror
   head — i.e., that the contributor has accepted into their PR.
 - **Never leak `ANTHROPIC_API_KEY`, `NGC_CLI_API_KEY`, `GH_TOKEN`,
@@ -901,8 +946,9 @@ loop. Two leg kinds:
 - **`EVAL_KIND=eval`** — `EVAL_SKILL` + `EVAL_SPEC_PATH` + `EVAL_PLATFORM`
   name the one `(spec, platform)` to evaluate. **Skip step 1** (the plan
   already selected it). Run steps 3–7 for this `(spec, platform)` only:
-  ensure/refresh its adapter (stale → bot-PR per §§ 3a/3c, then
-  `BLOCKED:` — never run a locally-patched adapter), generate the
+  ensure/refresh its adapter (missing/stale → commit it to the PR branch
+  per § 3c, then `BLOCKED:` — the eval re-runs on sync; never run a
+  locally-patched adapter in this leg), generate the
   dataset, lock a box matching `$EVAL_PLATFORM` (§ 5a), run harbor for
   that platform (§ Harbor invocation), and post the **one** comment for
   this spec (§ Result comment format). Never touch another spec, skill,
@@ -910,10 +956,10 @@ loop. Two leg kinds:
 
 - **`EVAL_KIND=missing_adapter`** — `EVAL_SKILL` has eval specs but no
   `adapters/<skill>/generate.py`. The plan collapsed the skill's specs
-  into this single leg so the bot-PR is raised once. Generate the
-  adapter and raise ONE bot-PR per §§ 3b/3c targeting the source PR's
-  `headRefName`. Run no trial, post no results comment. End
-  `BLOCKED: missing adapter for <skill> (bot-PR <url>)`.
+  into this single leg so the adapter is committed once. Generate the
+  adapter and commit it to the source PR's `headRefName` per §§ 3b/3c
+  (fork PR → comment + BLOCK). Run no trial, post no results comment.
+  End `BLOCKED: missing adapter for <skill> auto-committed (<sha>)`.
 
 Everything else — hard rules, fleet selection (§ 5a), flock (§ 5b),
 harbor invocation, result format, failure modes, the DONE/BLOCKED marker
@@ -941,8 +987,8 @@ applies unchanged:
   (`*` keeps all). Skills with no `eval/` dir remain runtime libraries and
   are skipped as in the normal path. Every spec on the kept skill(s) runs.
 
-- **Step 3 (override):** the bot-PR flow in §§ 3c/3d is **off** — there is
-  no contributor branch to target. If an adapter is missing or stale for a
+- **Step 3 (override):** the adapter auto-commit flow in §§ 3c/3d is **off**
+  — there is no contributor branch to target. If an adapter is missing or stale for a
   given spec, record that spec as `BLOCKED:<reason>` in the results table
   and move on. Do NOT push branches, do NOT open PRs. (The hard rule
   against `skills/` writes still applies in full.)
