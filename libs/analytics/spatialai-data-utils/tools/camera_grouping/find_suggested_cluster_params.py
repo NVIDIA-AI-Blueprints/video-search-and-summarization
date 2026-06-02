@@ -69,7 +69,7 @@ def main():
         "--height_range",
         type=float,
         nargs=2,
-        default=[1.0, 8.0],
+        default=[1.0, 3.0],
         metavar=("MIN", "MAX"),
         help="Height range (meters) for ground plane intersection.",
     )

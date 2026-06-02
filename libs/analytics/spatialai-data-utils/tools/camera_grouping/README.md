@@ -12,8 +12,13 @@ compatibility shim and emits a deprecation warning.
 | Tool | Status | Purpose |
 |------|--------|---------|
 | **`calculate_origin.py`** | ✅ Production Ready | Calculate/update group origins and dimensions |
-| **`create_camera_clusters.py`** | ✅ Production Ready | Partition cameras into spatially compact clusters |
-| **`create_camera_groups.py`** | ✅ Production Ready | Create camera groups with duplication support |
+| **`create_camera_clusters.py`** | ✅ Production Ready | Partition cameras into spatially compact clusters (deployment / inference) |
+| **`create_camera_groups.py`** | ✅ Production Ready | Create camera groups with duplication support (training / finetuning) |
+| **`reassign_camera_groups.py`** | ✅ Production Ready | Move specific cameras into existing BEV groups, then recompute origins |
+| **`find_suggested_cluster_params.py`** | ✅ Helper | Grid-search clustering thresholds / seed index (also auto-invoked by `create_camera_clusters.py`) |
+| **`batch_create_camera_groups.sh`** | ✅ Helper | Interactive batch wrapper that runs `create_camera_groups.py` across many scenes |
+
+The three primary tools each have a detailed section below; the helper tools are summarized in [Other Tools](#other-tools).
 
 ---
 
@@ -25,7 +30,7 @@ The `calculate_origin.py` tool calculates Bird's Eye View (BEV) group origins an
 
 ## Key Features
 
-✅ **Automatic Grouping**: If calibration lacks groups, automatically runs camera grouping algorithm  
+✅ **Single-Group Fallback**: If calibration lacks groups, assigns all sensors to one group (`bev-sensor-1`) via `--n-sensor-groups` — run a clustering/grouping tool first for real multi-group splits  
 ✅ **Flexible FOV Calculation**: Supports both attribute-based and frustum-based FOV generation  
 ✅ **Sensor Filtering**: Process only specific cameras  
 ✅ **Visualization**: Generate visual maps of camera groups  
@@ -48,11 +53,15 @@ python tools/camera_grouping/calculate_origin.py \
 ### Scenario 1: Calculate Origins for Existing Groups
 You have a calibration file that already contains camera groups, and you need to add/update origin and dimension metadata.
 
-### Scenario 2: Complete Pipeline (Automatic Grouping)
-You have a raw calibration file without groups. The tool will automatically:
-1. Run camera grouping algorithm
+### Scenario 2: Raw Calibration Without Groups
+You have a raw calibration file without groups. With `--n-sensor-groups 1`
+(the default) the tool will:
+1. Assign all sensors to a single group (`bev-sensor-1`)
 2. Calculate origins and dimensions
-3. Save complete calibration with groups and origins
+3. Save the complete calibration
+
+For real multi-group splits, run `create_camera_clusters.py` or
+`create_camera_groups.py` first.
 
 ### Scenario 3: Frustum-Based FOV
 Your calibration file doesn't have `fieldOfViewPolygon` attributes. The tool will calculate FOV from camera intrinsic/extrinsic matrices.
@@ -63,7 +72,7 @@ Your calibration file doesn't have `fieldOfViewPolygon` attributes. The tool wil
 
 | Argument | Description |
 |----------|-------------|
-| `input_calibration` | Path to input calibration JSON file |
+| `input_calibration` | Path to a calibration JSON file **or** a dataset folder containing `calibration.json` (a sibling `Top.png` is auto-detected for visualization) |
 
 ### Output Configuration
 
@@ -82,13 +91,20 @@ Your calibration file doesn't have `fieldOfViewPolygon` attributes. The tool wil
 | `--scene-bounds MIN_X MIN_Y MAX_X MAX_Y` | float×4 | None | Clip frustum polygons to scene bounds (meters) |
 | `--max-camera-distance` | float | 30.0 | Maximum distance from camera to constrain frustum (meters) |
 
+### Automatic Grouping (only when the input has no `group` field)
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--n-sensor-groups` | int | 1 | Groups to create when the input is ungrouped. `1` puts every sensor in `bev-sensor-1`; `>1` is a placeholder for a future clustering algorithm (run `create_camera_clusters.py` first for real multi-group splits) |
+| `--max-sensors-per-group` | int | None | Upper bound on sensors per group (reserved for future grouping functionality) |
+
 ### Filtering & Visualization
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
 | `--sensor-names` | str | None | Process only specified sensors (comma-separated) |
 | `--map_file` | str | None | Path to map image for visualization |
-| `--visualize` | flag | False | Generate group visualization (requires `--map_file`) |
+| `--visualize` | flag | False | Generate group visualization (falls back to a black background if `--map_file` is omitted) |
 | `--vis_separate_images` | flag | False | Generate separate images per group instead of combined (default: combined) |
 
 ## Usage Examples
@@ -108,11 +124,11 @@ python tools/camera_grouping/calculate_origin.py \
 2. ✅ Calculates origin and dimensions for each group
 3. ✅ Saves updated calibration
 
-### Example 2: Automatic Grouping (Without Groups)
+### Example 2: Single-Group Fallback (Without Groups)
 
 ```bash
 # Input: calibration.json (NO groups)
-# Output: calibration_with_origins.json (WITH groups and origins!)
+# Output: calibration_with_origins.json (WITH a single group + origins)
 
 python tools/camera_grouping/calculate_origin.py \
     data/mtmc/scene_001/calibration.json \
@@ -121,7 +137,7 @@ python tools/camera_grouping/calculate_origin.py \
 
 **What happens:**
 1. ✅ Detects missing groups
-2. ✅ Runs camera grouping algorithm automatically
+2. ✅ Assigns all sensors to one group (`bev-sensor-1`, per `--n-sensor-groups 1`)
 3. ✅ Calculates origins and dimensions
 4. ✅ Saves complete calibration
 
@@ -290,7 +306,7 @@ python tools/camera_grouping/calculate_origin.py \
 
 ### Workflow 1: With Existing Groups
 
-```
+```text
 Input: calibration_grouped.json
   ↓
 [Load calibration]
@@ -304,22 +320,24 @@ Input: calibration_grouped.json
 Output: calibration_grouped_with_origins.json
 ```
 
-### Workflow 2: Without Groups (Automatic Grouping)
+### Workflow 2: Without Groups (Single-Group Fallback)
 
-```
+```text
 Input: calibration.json (no groups)
   ↓
 [Load calibration]
   ↓
 [Groups exist?] → NO
   ↓
-[Run camera grouping algorithm]
-  ├─ Find overlapping FOVs
-  ├─ Create groups
-  └─ Calculate origins (done automatically!)
+[--n-sensor-groups == 1? (default)] → YES
+  ├─ Assign all sensors to bev-sensor-1
+  └─ Calculate origins / dimensions
   ↓
-Output: calibration_with_origins.json (complete!)
+Output: calibration_with_origins.json (single group)
 ```
+
+For real multi-group assignments, run `create_camera_clusters.py` or
+`create_camera_groups.py` before this tool.
 
 ## FOV Calculation Methods
 
@@ -332,14 +350,7 @@ Calculates FOV from camera intrinsic/extrinsic matrices by intersecting camera f
 - ✅ Dynamically adapts to camera parameters
 - ✅ Accurate for varying camera heights
 
-**Usage:**
-```bash
-python tools/camera_grouping/calculate_origin.py calibration.json
-# Or explicitly:
-python tools/camera_grouping/calculate_origin.py calibration.json --height-range 1.0 3.0
-```
-
-### Method 2: Attribute-Based
+### Method 2: Attribute-Based (`--prefer-existing-fov`)
 
 Uses existing `fieldOfViewPolygon` from calibration attributes, falls back to frustum if missing.
 
@@ -347,11 +358,6 @@ Uses existing `fieldOfViewPolygon` from calibration attributes, falls back to fr
 - ✅ Uses pre-computed FOV polygons
 - ✅ Faster processing
 - ✅ Consistent with calibration data
-
-**Usage:**
-```bash
-python tools/camera_grouping/calculate_origin.py calibration.json --prefer-existing-fov
-```
 
 ## Parameter Details
 
@@ -363,48 +369,18 @@ Controls how much to expand the FOV polygons when calculating group bounds.
 - **Larger (1.5-3.0)**: More generous bounds, includes buffer zone
 - **Default**: 1.0 meters
 
-**Example:**
-```bash
-# Tight bounds
-python tools/camera_grouping/calculate_origin.py calibration.json --dilation 0.5
-
-# Generous bounds with buffer
-python tools/camera_grouping/calculate_origin.py calibration.json --dilation 2.0
-```
-
 ### `--height-range` (Meters)
 
 Defines the height range for ground plane intersection when using frustum-based FOV.
 
 - **Format**: `MIN MAX` (two float values)
 - **Default**: `1.0 3.0` (1 to 3 meters above ground)
-- **Use case**: Adjust based on typical object heights in your scene
-
-**Examples:**
-```bash
-# For low objects (packages, small vehicles)
-python tools/camera_grouping/calculate_origin.py calibration.json --height-range 0.5 2.0
-
-# For tall objects (trucks, buildings)
-python tools/camera_grouping/calculate_origin.py calibration.json --height-range 1.0 4.0
-
-# For human tracking
-python tools/camera_grouping/calculate_origin.py calibration.json --height-range 1.0 2.0
-```
+- **Use case**: Adjust to typical object heights — e.g. `0.5 2.0` for low objects (packages, small vehicles), `1.0 2.0` for human tracking, `1.0 4.0` for tall objects (trucks, buildings)
 
 ### `--prefer-existing-fov`
 
-**Without flag (default)**: Calculate FOV from camera frustum
-```bash
-python tools/camera_grouping/calculate_origin.py calibration.json
-# → Uses intrinsic/extrinsic matrices to compute FOV
-```
-
-**With flag**: Prefer FOV from calibration attributes
-```bash
-python tools/camera_grouping/calculate_origin.py calibration.json --prefer-existing-fov
-# → Uses fieldOfViewPolygon from attributes (falls back to frustum if missing)
-```
+- **Without the flag (default)**: FOV is computed from each camera's frustum (intrinsic/extrinsic matrices).
+- **With the flag**: prefer `fieldOfViewPolygon` from the calibration attributes, falling back to frustum if missing.
 
 ### `--scene-bounds` (Meters)
 
@@ -413,23 +389,6 @@ Clips frustum polygons to a rectangular boundary in world coordinates. Useful fo
 - **Format**: `MIN_X MIN_Y MAX_X MAX_Y` (four float values)
 - **Default**: None (no clipping)
 - **Use case**: Limit FOV to a specific room, zone, or region
-
-**Examples:**
-```bash
-# Clip to a 100m x 100m area centered at origin
-python tools/camera_grouping/calculate_origin.py calibration.json \
-    --scene-bounds -50 -50 50 50
-
-# Clip to a specific warehouse section
-python tools/camera_grouping/calculate_origin.py calibration.json \
-    --scene-bounds 0 0 100 75
-
-# Combine with other parameters
-python tools/camera_grouping/calculate_origin.py calibration.json \
-    --scene-bounds -30 -40 30 40 \
-    --max-camera-distance 25.0 \
-    --height-range 1.0 3.0
-```
 
 **When to use:**
 - 🎯 Focus on a specific region (e.g., warehouse floor, parking lot)
@@ -445,24 +404,8 @@ Constrains frustum polygon generation to a maximum distance from each camera cen
 - **Range**: Typically 10-100 meters depending on scene scale
 - **Use case**: Match camera's effective detection range
 
-**Examples:**
-```bash
-# Short-range cameras (e.g., indoor narrow corridors)
-python tools/camera_grouping/calculate_origin.py calibration.json \
-    --max-camera-distance 15.0
-
-# Long-range cameras (e.g., parking lots, outdoor areas)
-python tools/camera_grouping/calculate_origin.py calibration.json \
-    --max-camera-distance 50.0
-
-# Combine with scene bounds for precise control
-python tools/camera_grouping/calculate_origin.py calibration.json \
-    --scene-bounds -40 -40 40 40 \
-    --max-camera-distance 35.0
-```
-
 **Effect on FOV:**
-```
+```text
 Camera Position: (0, 0, 5m height)
 Without constraint: Frustum extends until scene bounds
 With --max-camera-distance 30.0: Frustum limited to 30m radius from camera
@@ -493,7 +436,7 @@ dimensions = [x_min, y_min, x_max, y_max]
 ```
 
 **Example:**
-```
+```text
 Group FOV Union (top-down view):
   ┌─────────────┐
   │             │
@@ -522,7 +465,7 @@ python tools/camera_grouping/calculate_origin.py \
 ```
 
 **Output:**
-```
+```text
 2025-11-17 10:30:15 - INFO - Loading calibration data from: calibration_buffer_zone_c4.json
 2025-11-17 10:30:15 - INFO - Loaded 4 sensors
 2025-11-17 10:30:15 - INFO - ================================================================================
@@ -537,48 +480,11 @@ python tools/camera_grouping/calculate_origin.py \
 2025-11-17 10:30:15 - INFO - ✓ Completed!
 ```
 
-## Common Workflows
-
-### Workflow A: Update Existing Groups
-
-```bash
-# You have calibration_grouped.json with groups
-# Update origins with new parameters
-
-python tools/camera_grouping/calculate_origin.py \
-    calibration_grouped.json \
-    --dilation 1.0 \
-    --overwrite
-```
-
-### Workflow B: Complete Pipeline (No Groups)
-
-```bash
-# Start with raw calibration (no groups)
-# Get complete calibration in one step
-
-python tools/camera_grouping/calculate_origin.py \
-    calibration.json \
-    --map_file Top.png \
-    --output calibration_production.json \
-    --visualize
-```
-
-### Workflow C: Process Subset for Testing
-
-```bash
-# Test on specific cameras first
-python tools/camera_grouping/calculate_origin.py \
-    calibration.json \
-    --sensor-names Camera_01,Camera_02,Camera_03 \
-    --output calibration_test.json
-```
-
 ## Troubleshooting
 
 ### Issue 1: Camera center very low warning
 
-```
+```text
 WARNING: Camera center is very low (z=-3.33m), frustum may not intersect ground planes
 ```
 
@@ -587,21 +493,24 @@ WARNING: Camera center is very low (z=-3.33m), frustum may not intersect ground 
 - Use `--prefer-existing-fov` if FOV polygons are available
 - Check camera extrinsic matrix calibration
 
-### Issue 2: No groups found automatically
+### Issue 2: No groups found / input has no `group` field
 
-```
+```text
 WARNING: No valid groups found for any sensors in the group
 ```
 
+`calculate_origin.py` does not run an FOV-overlap grouping search — when the
+input is ungrouped it falls back to `--n-sensor-groups` (default `1`, i.e. all
+sensors in `bev-sensor-1`).
+
 **Solutions:**
-- Increase `--time-limit` for more search time (default: 180s)
-- Check if cameras have overlapping FOVs
-- Verify camera calibration data is correct
-- Increase `--dilation` to allow more overlap detection
+- Run `create_camera_clusters.py` or `create_camera_groups.py` first to produce real multi-group assignments
+- Verify camera calibration data (intrinsics/extrinsics) is correct
+- Increase `--dilation` to expand FOV polygons before the union
 
 ### Issue 3: Invalid sensor names
 
-```
+```text
 ERROR: The following sensor names do not exist: ['InvalidCamera']
 ```
 
@@ -611,17 +520,15 @@ Check available sensors in calibration file and use exact names.
 ### Issue 4: Slow processing
 
 **Solutions:**
-- Use `--prefer-existing-fov` if polygons are available (faster)
-- Reduce `--time-limit` for quicker but less thorough grouping
+- Use `--prefer-existing-fov` if polygons are available (faster than frustum)
 - Process fewer sensors with `--sensor-names`
+- Narrow `--scene-bounds` or lower `--max-camera-distance` to shrink frustum polygons
 
-### Issue 5: Visualization requires map file
+### Issue 5: Visualization looks empty / black
 
-```
-ERROR: --visualize requires --map_file to be specified
-```
+`--visualize` does **not** require `--map_file`; without it the groups are drawn
+on a black background. Pass a map image for an overhead reference:
 
-**Solution:**
 ```bash
 --map_file data/scene/Top.png --visualize
 ```
@@ -693,22 +600,22 @@ This tool is a command-line wrapper around:
 from spatialai_data_utils.core.cameras.bev import calculate_group_origins_from_calibration
 
 output_path = calculate_group_origins_from_calibration(
-    input_calibration="calibration.json",
+    input_calibration="calibration.json",  # JSON file or dataset directory
     output="calibration_with_origins.json",
+    overwrite=False,
+    map_file=None,
     dilation=1.0,
     height_range=(1.0, 3.0),
     prefer_existing_fov=False,
     sensor_names=None,
     visualize=False,
+    vis_separate_images=False,
     # FOV constraint parameters
     scene_bounds=(-50, -50, 50, 50),  # Optional: (min_x, min_y, max_x, max_y)
     max_camera_distance=30.0,  # Maximum frustum distance from camera
-    # Automatic grouping params (if groups missing)
-    n_sensor_groups=1,  # Number of groups to create if missing
-    min_sensors_per_group=2,
-    max_sensors_per_group=4,
-    grouping_mode="all_intersect",
-    min_overlap_ratio=0.2,
+    # Single-group fallback params (used only if groups are missing)
+    n_sensor_groups=1,  # 1 -> all sensors assigned to bev-sensor-1
+    max_sensors_per_group=None,
 )
 ```
 
@@ -755,13 +662,13 @@ The positional `input_calibration` argument accepts either a `calibration.json` 
 
 ## Algorithm Description
 
-The clustering algorithm uses a **greedy initialization** followed by **iterative refinement** to partition cameras into spatially compact clusters.
+The clustering algorithm uses a **greedy initialization** followed by **unassigned-camera handling** (`--mode densify`/`balanced`) to partition cameras into spatially compact clusters. By default it also **auto-tunes** its key parameters first (see [Auto-Tuning Parameters](#auto-tuning-parameters)).
 
 ### Phase 1: Greedy Initialization
 
 Builds clusters by iteratively adding cameras based on FOV overlap and spatial proximity:
 
-```
+```text
 1. Seed first cluster with the specified start camera
 2. For each remaining camera slot:
    a. If current cluster is not empty:
@@ -778,30 +685,30 @@ Builds clusters by iteratively adding cameras based on FOV overlap and spatial p
 - **Spatial Distance**: Euclidean distance from camera's FOV centroid to cluster centroid
 - **Cluster Centroid**: Center of the union of all FOV polygons in the cluster
 
-### Phase 2: Iterative Refinement
+### Phase 2: Unassigned-Camera Handling (`--mode`)
 
-Improves cluster compactness by swapping cameras between clusters:
+After greedy initialization, some cameras may remain unassigned (no cluster met
+the overlap/distance thresholds, or clusters reached capacity). The `--mode`
+flag controls how they are resolved:
 
+```text
+densify (default):
+  - Prioritize filling clusters to capacity
+  - Reassign leftover cameras by cascading them into the nearest cluster
+    that still has room (recursing up to --max_cascade_depth)
+balanced:
+  - Enforce the overlap/distance thresholds more strictly
+  - Split overflow into additional clusters instead of overfilling
 ```
-1. Calculate initial "spatial scatter" for each cluster
-   - Scatter = average of longest distances from each camera to others in same cluster
-2. For each iteration (up to max_refinement_iterations):
-   a. For each pair of clusters (i, j):
-      - Try swapping each camera in cluster i with each camera in cluster j
-      - Calculate new scatter for both clusters after swap
-      - If total scatter decreases: keep the swap
-      - Otherwise: revert the swap
-3. Stop when no improvement found or max iterations reached
-```
 
-**Spatial Scatter Formula:**
+**Spatial Scatter** (lower is better) scores how compact a cluster is:
 ```python
 scatter(cluster) = mean([max_distance(camera, other_cameras) for camera in cluster])
 ```
 
 ### Algorithm Visualization
 
-```
+```text
 Initial State (12 cameras, 3 clusters):
 ┌─────────────────────────────────────────┐
 │  ○ ○    ○                               │
@@ -817,7 +724,7 @@ After Greedy Initialization:
 │  ●       ▲    ■                         │  ■ = Cluster 3
 └─────────────────────────────────────────┘
 
-After Refinement (swaps to minimize scatter):
+After densify/balanced handling (unassigned cameras resolved):
 ┌─────────────────────────────────────────┐
 │  ● ●    ●                               │  Cluster 1: compact top-left
 │    ●  ▲    ■ ■                          │  Cluster 2: compact center
@@ -855,31 +762,53 @@ python tools/camera_grouping/create_camera_clusters.py data/scene/calibration.js
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
 | `--n_clusters` | int | None | Optional override for cluster count (auto-calculated from total cameras / max_camera_per_group) |
-| `--start_camera_index` | int | 0 | Index of camera to seed the first cluster |
-| `--max_refinement_iterations` | int | 200 | Maximum iterations for cluster refinement |
+| `--start_camera_index` | int | 0 | Index of camera to seed the first cluster (auto-tuned by default unless `--disable_param_tuning`) |
+| `--mode` | str | "densify" | `densify` fills clusters to capacity via cascade reassignment; `balanced` enforces thresholds and splits overflow |
+| `--min_overlap_threshold` | float | 0.2 | Minimum FOV overlap (0-1) for cluster membership (auto-tuned by default) |
+| `--max_distance_threshold` | float | 8.0 | Maximum centroid distance (meters) for membership (auto-tuned by default) |
+| `--max_cascade_depth` | int | 3 | Max recursion depth for densify-mode cascade reassignment |
 
 ### FOV Calculation Parameters
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| `--use_frustum` | flag | False | Calculate FOV from camera frustum instead of using pre-computed polygons |
+| `--prefer_existing_fov` | flag | False | Use pre-computed FOV polygons from the calibration instead of frustum (frustum is the default) |
 | `--height_range` | float float | 1.0 3.0 | Height range (min, max) in meters for ground plane intersection |
 | `--image_size` | int int | 1920 1080 | Image dimensions (width, height) in pixels for frustum calculation |
 | `--max_camera_distance` | float | 30.0 | Maximum effective distance in meters for frustum calculation |
 | `--dilation` | float | 8.0 | Buffer distance in meters for cluster bounding boxes |
 
-### Output Configuration
+### Output & Input Options
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
+| `--output` | str | None | Output path for the clustered calibration (defaults next to the input) |
+| `--overwrite` | flag | False | Overwrite the input calibration file |
 | `--output_suffix` | str | "clustered" | Suffix for output files |
+| `--map_file` | str | None | Map image for visualization (black background if omitted) |
+| `--sensor_names` | str ... | None | Restrict clustering to the listed sensor names (space-separated) |
 
 ### Visualization Options
+
+Visualization is **always** generated for this tool — there is no `--visualize` / `--no-visualize` toggle.
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
 | `--vis_no_camera_id_labels` | flag | False | Disable camera ID labels in visualization |
 | `--vis_separate_images` | flag | False | Generate separate images per cluster instead of combined (default: combined for clustering) |
+
+### Auto-Tuning Parameters
+
+By default the tool **auto-tunes** `start_camera_index`, `min_overlap_threshold`, and `max_distance_threshold` with a parameter sweep (the same logic as the standalone `find_suggested_cluster_params.py`) and overrides the values you pass. Disable with `--disable_param_tuning`.
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--disable_param_tuning` | flag | False | Skip auto-tuning; use the `start_camera_index` / threshold values as given |
+| `--tuning_overlap_grid` | float ... | None | Overlap thresholds (0-1) to search when auto-tuning |
+| `--tuning_distance_grid` | float ... | None | Centroid distance thresholds (meters) to search when auto-tuning |
+| `--tuning_start_index_grid` | int ... | None | Seed camera indices to try when auto-tuning |
+| `--tuning_start_index_seed` | int | None | Random seed for auto-generated start indices (when no grid given) |
+| `--tuning_workers` | int | 0 | Parallel workers for the sweep (0=auto cpu_count, 1=serial) |
 
 ## Usage Examples
 
@@ -909,13 +838,13 @@ python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_p
 python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_per_group 10
 ```
 
-### Example 4: Use Frustum-Based FOV
+### Example 4: Custom Frustum Parameters
 
 ```bash
-# Calculate FOV from camera intrinsic/extrinsic matrices
+# Frustum-based FOV is the default; tune its parameters here.
+# (Pass --prefer_existing_fov to use pre-computed polygons instead.)
 python tools/camera_grouping/create_camera_clusters.py data/scene \
     --max_camera_per_group 10 \
-    --use_frustum \
     --height_range 0.5 4.0 \
     --image_size 3840 2160
 ```
@@ -951,12 +880,11 @@ python tools/camera_grouping/create_camera_clusters.py data/scene \
 # Full configuration for production use
 python tools/camera_grouping/create_camera_clusters.py data/warehouse \
     --max_camera_per_group 8 \
-    --use_frustum \
     --height_range 1.0 3.0 \
     --image_size 1920 1080 \
     --max_camera_distance 25.0 \
     --dilation 10.0 \
-    --max_refinement_iterations 300 \
+    --mode densify \
     --output_suffix production
 ```
 
@@ -970,7 +898,7 @@ The `--max_camera_per_group` parameter is **required** and controls how cameras 
 
 The number of clusters (`n_clusters`) is determined by the following logic:
 
-```
+```text
 1. If --n_clusters is NOT provided:
    → n_clusters = ceil(num_sensors / max_camera_per_group)
    → Example: 45 sensors / 10 max = 5 clusters
@@ -1024,7 +952,7 @@ python create_camera_clusters.py data/small_scene --max_camera_per_group 10 --n_
 | 4                    | 37              | ~17.2s           |
 
 Notes:
-- Configuration: `--use_frustum --visualize --height_range 1.0 8.0 --max_camera_distance 30 --max_distance_threshold 90.0 --min_overlap_threshold 0.0001 --mode densify --start_camera_index 0`.
+- Configuration: `--height_range 1.0 8.0 --max_camera_distance 30 --max_distance_threshold 90.0 --min_overlap_threshold 0.0001 --mode densify --start_camera_index 0 --disable_param_tuning` (frustum FOV and visualization are on by default).
 - Overlap threshold is a ratio (0–1). Distance is in meters.
 - Larger `max_camera_per_group` → fewer clusters → slightly faster.
 - Times measured on this dataset; expect small variance (±1–2s) by hardware/load.
@@ -1046,25 +974,25 @@ Notes:
 
 **Solutions:**
 - Try `--mode balanced` (stricter on thresholds, splits overflow).
-- Lower `--min_overlap_threshold` or raise `--max_distance_threshold` if too strict.
-- Verify sensors have valid FOV polygons (or enable `--use_frustum`).
+- Lower `--min_overlap_threshold` or raise `--max_distance_threshold` if too strict (or let auto-tuning pick them).
+- Verify sensors have valid intrinsics/extrinsics (frustum FOV is the default).
 
 ### Issue 2: Slow Processing
 
 **Symptom:** Clustering takes too long.
 
 **Solutions:**
-- Disable `--visualize` when not needed (PNG generation adds time).
-- Skip `--use_frustum` if calibration already has FOV polygons (frustum is slower).
-- Reduce image size (`--image_size`) if using frustum-based FOV.
+- Pass `--disable_param_tuning` to skip the auto-tuning parameter sweep.
+- Pass `--prefer_existing_fov` if the calibration already has FOV polygons (frustum is slower).
+- Reduce image size (`--image_size`), which is only used for frustum-based FOV.
 
 ### Issue 3: Missing FOV Polygons
 
 **Symptom:** Warning about missing `fieldOfViewPolygon`.
 
 **Solutions:**
-- Use `--use_frustum` to calculate FOV from camera matrices
-- Verify calibration has valid intrinsic/extrinsic matrices
+- No action needed: frustum FOV (computed from camera matrices) is the default; only `--prefer_existing_fov` relies on `fieldOfViewPolygon`.
+- Verify calibration has valid intrinsic/extrinsic matrices.
 
 ## API Integration
 
@@ -1161,7 +1089,7 @@ The grouping algorithm uses **farthest-first seeding** combined with **greedy gr
 
 ### Phase 1: Group Seeding
 
-```
+```text
 1. First group: Seed with camera at start_camera_index
 2. Subsequent groups: 
    a. Prefer UNSELECTED cameras: Pick farthest unselected camera from all previous seeds
@@ -1174,7 +1102,7 @@ The grouping algorithm uses **farthest-first seeding** combined with **greedy gr
 
 For each group after seeding:
 
-```
+```text
 1. While group size < cameras_per_group:
    a. Try to add from UNSELECTED cameras (prefer cameras not yet in any group):
       - Find cameras with MAXIMUM FOV overlap with current group
@@ -1190,7 +1118,7 @@ For each group after seeding:
 
 ### Phase 3: Duplicate Detection
 
-```
+```text
 After building each group:
 1. Check if the new group is identical to any previously created group
 2. If duplicate detected:
@@ -1202,7 +1130,7 @@ After building each group:
 
 ### Phase 4: Coverage Verification
 
-```
+```text
 After all groups are built:
 1. Check for any cameras with assignment_count == 0
 2. If any camera is not covered → RAISE ERROR
@@ -1213,7 +1141,7 @@ After all groups are built:
 
 ### Algorithm Visualization
 
-```
+```text
 Initial State (6 cameras, 3 groups of 3):
 ┌─────────────────────────────────────────┐
 │  ○ ○    ○                               │
@@ -1248,49 +1176,20 @@ Result: 6 cameras × 3 groups × 3 per group = 9 slots
 
 ## Quick Start
 
-```bash
-# Input can be a calibration.json file directly, or a directory containing one
-python tools/camera_grouping/create_camera_groups.py data/scene/calibration.json --auto
+Input can be a `calibration.json` file directly **or** a directory containing one.
 
-# Auto mode: create groups with sizes 1, 2, ..., min(n_sensors, 18)
+```bash
+# Auto mode: groups of sizes 1, 2, ..., min(n_sensors, 18) — recommended for training
 python tools/camera_grouping/create_camera_groups.py data/scene --auto
 
-# Auto mode with custom max sensors per group (e.g., 12)
-python tools/camera_grouping/create_camera_groups.py data/scene --auto --max_sensors_per_group 12
-
-# Auto mode with multiple groups per size
-python tools/camera_grouping/create_camera_groups.py data/scene --auto --n_groups 2
-
-# Basic usage: 5 groups with 8 cameras each
-python tools/camera_grouping/create_camera_groups.py data/scene \
-    --n_groups 5 --cameras_per_group 8
-
-# Multiple size types: 2 groups × 3 sizes = 6 total groups
-# (2 groups with 5 cameras, 2 with 8, 2 with 6)
-python tools/camera_grouping/create_camera_groups.py data/scene \
-    --n_groups 2 --cameras_per_group 5 8 6
-
-# With visualization (separate images per group by default)
+# Manual: 5 groups with 8 cameras each (+ visualization)
 python tools/camera_grouping/create_camera_groups.py data/scene \
     --n_groups 5 --cameras_per_group 8 --visualize
-
-# With combined visualization (single image for all groups)
-python tools/camera_grouping/create_camera_groups.py data/scene \
-    --n_groups 5 --cameras_per_group 8 --visualize --vis_combined
-
-# Custom overlap threshold
-python tools/camera_grouping/create_camera_groups.py data/scene \
-    --n_groups 5 --cameras_per_group 8 \
-    --min_overlap_threshold 0.3 --visualize
-
-# Deterministic results with random seed
-python tools/camera_grouping/create_camera_groups.py data/scene \
-    --n_groups 3 --cameras_per_group 10 --random_seed 42
-
-# Disable randomization entirely for fully deterministic results
-python tools/camera_grouping/create_camera_groups.py data/scene \
-    --n_groups 3 --cameras_per_group 10 --no_randomize
 ```
+
+See the **Usage Examples** below for the auto-mode variants (`--max_sensors_per_group`,
+`--n_groups`), multiple size types (`--cameras_per_group 5 8 6`), overlap thresholds,
+deterministic seeding (`--random_seed` / `--no_randomize`), and combined visualization.
 
 ## Command-Line Arguments
 
@@ -1562,7 +1461,7 @@ python tools/camera_grouping/create_camera_groups.py \
 
 The algorithm automatically calculates the minimum duplication required:
 
-```
+```text
 total_slots = n_groups × cameras_per_group
 min_duplication = (total_slots - num_cameras) / num_cameras
 
@@ -1573,7 +1472,7 @@ Example:
 ```
 
 **Important**: To ensure all cameras can be covered, make sure:
-```
+```text
 n_groups × cameras_per_group ≥ num_cameras
 ```
 
@@ -1585,7 +1484,7 @@ If total slots < num_cameras, some cameras may not be covered and an error will 
 
 If any camera cannot be assigned to any group, the algorithm raises a `RuntimeError`:
 
-```
+```text
 RuntimeError: Camera grouping failed: 2 camera(s) could not be assigned to any group: 
 ['Camera_15', 'Camera_16']. Consider adjusting n_groups, cameras_per_group, or threshold parameters.
 ```
@@ -1600,12 +1499,7 @@ RuntimeError: Camera grouping failed: 2 camera(s) could not be assigned to any g
 
 ### `--auto` Mode
 
-Auto mode is ideal for **training and fine-tuning** where you need diverse group sizes:
-
-```bash
-# Creates groups with sizes 1, 2, ..., min(n_sensors, max_sensors_per_group)
-python create_camera_groups.py data/scene --auto
-```
+Auto mode is ideal for **training and fine-tuning** where you need diverse group sizes (`--auto` creates groups with sizes 1, 2, ..., min(n_sensors, max_sensors_per_group)).
 
 **Behavior:**
 - Reads calibration to count total sensors (n_sensors)
@@ -1623,19 +1517,13 @@ python create_camera_groups.py data/scene --auto
 
 ### `--max_sensors_per_group`
 
-Limits the maximum number of cameras in any single group.
+Limits the maximum number of cameras in any single group. In auto mode it caps the largest size (e.g. 25 cameras with `--max_sensors_per_group 12` → groups of sizes 1-12).
 
 | Value | Use Case |
 |-------|----------|
 | 18 (default) | Standard training, balances diversity and computation |
 | 8-12 | Faster training, smaller batches |
 | 24+ | Large-scale scenes where more cameras per group is beneficial |
-
-**In Auto Mode:**
-```bash
-# 25 cameras, max 12 per group → creates groups of sizes 1-12
-python create_camera_groups.py data/scene --auto --max_sensors_per_group 12
-```
 
 ### `--random_seed` and `--no_randomize`
 
@@ -1773,8 +1661,7 @@ cameras_per_group = list(range(1, min(n_sensors, max_sensors_per_group) + 1))
 output_path = create_camera_groups_from_calibration(
     input_calibration="data/scene",
     n_groups=1,
-    cameras_per_group=cameras_per_group,
-    max_sensors_per_group=max_sensors_per_group,
+    cameras_per_group=cameras_per_group,  # max_sensors_per_group only shapes this list; it is NOT a function parameter
     # ... other parameters
 )
 ```
@@ -1844,17 +1731,77 @@ See `spatialai_data_utils/core/cameras/bev.py` for programmatic usage.
 
 ---
 
+# Other Tools
+
+These helpers complement the three primary tools above. Run any of them with `--help` for the full option list.
+
+## `reassign_camera_groups.py`
+
+Move specific cameras into **existing** BEV groups in a clustered/grouped `calibration.json`, then recompute the affected group origins. Useful for hand-correcting a few misassigned cameras without re-running the whole clustering.
+
+```bash
+python tools/camera_grouping/reassign_camera_groups.py \
+    data/scene/calibration_clustered.json \
+    --move Camera_01:bev-sensor-2 Camera_05:bev-sensor-3 \
+    --output data/scene/calibration_reassigned.json
+```
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `input_calibration` | str | — | Calibration with existing groups (e.g. from `create_camera_clusters.py`) |
+| `--move` (required) | str ... | — | `camera_id:group_name` pairs (space-separated) to reassign |
+| `--output` | str | `<input>_reassigned.json` | Output calibration path |
+| `--overwrite` | flag | False | Overwrite the input file in-place |
+| `--strict` | flag | False | Fail (vs. warn + skip) if a camera or target group is missing |
+| `--prefer_existing_fov` | flag | False | Use existing FOV polygons instead of frustum when recomputing origins |
+| `--dilation` | float | 1.0 | Dilation (meters) when recomputing group bounds |
+| `--height_range` | float float | 1.0 3.0 | Height range for ground-plane intersection |
+| `--image_size` | int int | 1920 1080 | Image size for frustum FOV |
+| `--max_camera_distance` | float | 30.0 | Max frustum distance from camera |
+| `--map_file` | str | None | Map image (auto-detects sibling `Top.png`) |
+| `--vis_no_camera_id_labels` | flag | False | Toggle camera-ID labels on the visualization |
+| `--output_suffix` | str | "reassigned" | Suffix for output files |
+
+Wraps `spatialai_data_utils.core.cameras.group_utils.reassign_camera_groups_from_calibration`.
+
+## `find_suggested_cluster_params.py`
+
+Grid-search `overlap_threshold`, `distance_threshold`, and `start_camera_index` for `create_camera_clusters.py`, printing the best-scoring combinations (lower score = more compact, capacity-respecting clusters). `create_camera_clusters.py` runs this automatically unless you pass `--disable_param_tuning`.
+
+```bash
+python tools/camera_grouping/find_suggested_cluster_params.py \
+    data/scene --max_camera_per_group 10 --top_k 5
+```
+
+Key options: `--max_camera_per_group` (required), `--mode {densify,balanced}`, `--prefer_existing_fov`, `--height_range` (default `1.0 3.0`), `--image_size`, `--max_camera_distance`, `--max_cascade_depth`, `--overlap_grid`, `--distance_grid`, `--start_index_grid`, `--start_index_seed`, `--workers`, `--top_k`, `--verbose`.
+
+Wraps `spatialai_data_utils.core.cameras.clustering.find_suggested_cluster_params`.
+
+## `batch_create_camera_groups.sh`
+
+Interactive helper that scans a data directory for scene folders containing `calibration.json`, lets you pick scenes and shared parameters, then runs `create_camera_groups.py` on each.
+
+```bash
+bash tools/camera_grouping/batch_create_camera_groups.sh data/mtmc
+```
+
+Defaults to `data/mtmc` when no directory is given; prompts for auto mode, `n_groups`, thresholds, visualization, etc., and prints a per-scene success/failure summary at the end.
+
+---
+
 ## Related Resources
 
 ### Core Modules
 - **`spatialai_data_utils/core/cameras/bev.py`** - BEV camera functions (public API)
 - **`spatialai_data_utils/core/cameras/origin.py`** - Core origin calculations
 - **`spatialai_data_utils/core/cameras/grouping.py`** - Grouping algorithms
+- **`spatialai_data_utils/core/cameras/clustering.py`** - Clustering + parameter auto-tuning
+- **`spatialai_data_utils/core/cameras/group_utils.py`** - Group reassignment helpers
 
 ### Test Suites
-- **`tests/test_origin_calculation.py`** - Origin calculation tests
-- **`tests/test_camera_clustering.py`** - Camera clustering tests
-- **`tests/test_camera_grouping.py`** - Camera grouping tests
+- **`tests/core/cameras/test_origin_calculation.py`** - Origin calculation tests
+- **`tests/core/cameras/test_camera_clustering.py`** - Camera clustering tests
+- **`tests/core/cameras/test_camera_grouping.py`** - Camera grouping tests
 
 ## Getting Help
 
@@ -1868,7 +1815,7 @@ python tools/camera_grouping/calculate_origin.py --help | grep -A 20 "Examples:"
 
 ---
 
-**Last Updated**: 2026-06-01  
+**Last Updated**: 2026-06-02  
 **Tools Location**: `tools/camera_grouping/`  
 **Core Module**: `spatialai_data_utils.core.cameras.bev`  
 **Status**: ✅ Production Ready (all tools)
