@@ -186,7 +186,7 @@ Then prompt the user for any of the following that are ambiguous (FR-4):
 - **Endpoint conflicts** — when port collisions cannot be resolved automatically.
 - **Model selection** — when multiple VLM / LLM options are compatible.
 - **Remote vs. local inference** — for NIM-based services (RT-VLM in `openai-compat` mode, LLM NIMs).
-- **External RTSP source location** (when the prompt mentions live stream input) — is the source a public RTSP server, a sibling container, or a host process? Pre-flight reachability **from inside the rtvi-vlm container** (not just the host) before generating the compose. If the source is a non-VSS sidecar, recommend co-locating on the same compose network with `--network-alias` (see `integrate-rt-vlm.md` § Network Requirements > Reaching external RTSP sources). If the source is on the host, verify Docker's iptables FORWARD chain has the necessary rule by probing `docker exec rtvi-vlm bash -c "exec 3<>/dev/tcp/${HOST_IP}/${RTSP_PORT}"`.
+- **External RTSP source location** (when the prompt mentions live stream input) — is the source a real public RTSP server, a real IP camera, a sibling container, or a host process? **If the user supplies a real camera / RTSP URL**, use it: pre-flight reachability **from inside the rtvi-vlm container** (not just the host) before generating the compose; if the source is a non-VSS sidecar, recommend co-locating on the same compose network with `--network-alias` (see `integrate-rt-vlm.md` § Network Requirements > Reaching external RTSP sources); if the source is on the host, verify Docker's iptables FORWARD chain has the necessary rule by probing `docker exec rtvi-vlm bash -c "exec 3<>/dev/tcp/${HOST_IP}/${RTSP_PORT}"`. **If the user did NOT supply a real source but the capability has a live/streaming path**, include the **NvStreamer validation harness** as a synthetic RTSP source (a stored sample video served over RTSP by `vss-vios-nvstreamer`, replacing the legacy `mediamtx + ffmpeg` dummy-stream sidecar) — record the decision in the sidecar's `validation_harness:` key and emit the service in Step 6. The inclusion rule, the service block, config/sample-video staging, and the NvStreamer → VIOS → RT-VLM smoke sequence are all in `references/validation-harness.md`. NvStreamer is a validation-harness component ONLY — NOT a `sensor_topology` variant and NOT a `component_services:` entry.
 
 Wait for confirmation before continuing. The only exception is **autonomous mode** — when the user's request explicitly says "deploy autonomously" or "run without confirmation", or when running inside a non-interactive eval harness with that permission.
 
@@ -195,6 +195,16 @@ Wait for confirmation before continuing. The only exception is **autonomous mode
 Once the user confirms the architecture, synthesize a flat allow-list of upstream compose service-keys by **unioning the `component_services:` blocks** of every microservice in the proposal, **resolving each `variants:` block against the user's chosen `deployment_shape`**, and dropping any entry whose `required: false` is excluded by the architecture (e.g. an optional MQTT broker that the user opted out of).
 
 Write the result to `<BUILD_DIR>/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time. Persist the sidecar before invoking Step 6, which expects the flag chosen here to be reused.
+
+If the **NvStreamer validation harness** was included (per the External RTSP source decision above — live/streaming capability AND no real camera supplied), also record a top-level `validation_harness:` key in the sidecar:
+
+```yaml
+validation_harness:
+  rtsp_source: nvstreamer
+  sample_video: <sample-video-filename>     # staged into ${VSS_DATA_DIR}/videos/<build-name>/ by Step 6; no whitespace
+```
+
+`validation_harness:` is an **extra** top-level key — Step 6.5 reads only `flag` / `deployment_shape` / `services` and ignores it; Step 6 reads it to emit the NvStreamer service and wire the streaming smoke sequence. NvStreamer is NOT an allow-list `services:` entry (it is not a `component_services:`-declared microservice). Cite `references/validation-harness.md` for the decision. Omit the key entirely when the harness is not included.
 
 The sidecar schema, a worked IN-1 example, and the union rules (per-microservice contribution; variant case selection; dedup of identical `(key, file)` pairs; catalog-inconsistency error on conflicting `file:` paths) live in `references/allow-list-sidecar.md`. The full schema for `component_services:` blocks is in `references/component-services-schema.md`.
 
@@ -224,6 +234,17 @@ Write the compose file following VSS dev-profile conventions:
 
 For Helm output (post-v1, not implemented in v0.1): generate one Deployment / StatefulSet per service, one Service manifest per service, GPU resource requests parameterized in `values.yaml`, secrets in Secret manifests, all other config in ConfigMaps, with VSS labeling conventions (`app.kubernetes.io/part-of: vss`).
 
+#### Emit the NvStreamer validation harness (when the sidecar has `validation_harness:`)
+
+If Step 4 recorded a `validation_harness: { rtsp_source: nvstreamer, ... }` key in the sidecar, emit the synthetic RTSP source so the generated deployment can exercise its live/streaming path without a real camera. Do all of the following (full contract in `references/validation-harness.md`):
+
+1. **Emit the `nvstreamer-validation` service block** into a patched copy under `<BUILD_DIR>/patched/` that the build-output `compose.yml` `include:`s (never into an upstream file). Model it on `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml § nvstreamer-alerts`: image `vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}`, `ADAPTOR=streamer`, `HTTP_PORT=${NVSTREAMER_HTTP_PORT}` (default 31000), RTSP pool 31554–31561, `network_mode: host`, `container_name: vss-vios-nvstreamer`, `depends_on: broker-health-check`, and a `profiles:` list carrying only the invented flag (added by Step 6.5 Patch 1). The block is in `references/validation-harness.md § 2`. NvStreamer is **NOT** an allow-list `services:` entry and **NOT** a `sensor_topology` variant — emit it directly here.
+2. **Stage the sample video** into `${VSS_DATA_DIR}/videos/<build-name>/` (the host dir bind-mounted at `/home/vst/vst_release/streamer_videos`). `mkdir -p` + `chmod -R 777` it; copy a known-good H.264/H.265 MP4/MKV/TS with a whitespace-free filename; record the filename as `validation_harness.sample_video`. The skill does NOT fetch/generate video — prompt the operator for a path if none is on the host (eval-harness mode documents the path). NvStreamer auto-discovers it (`sensorId == streamId == name == stem`).
+3. **Add `.env` entries**: `NVSTREAMER_IMAGE_TAG` (reuse the VIOS tag), `NVSTREAMER_HTTP_PORT=31000`, `NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=true` (the same libav gate VIOS uploads need). Pre-resolve any `${VAR}` chains during env-folding so dry-run has zero unexpanded tokens.
+4. **Materialize the config files** (handled by Step 6.5 Patch 3): the two `nvstreamer/configs/{vst-config.json,vst-storage.json}` are copied into `<BUILD_DIR>/patched/nvstreamer/configs/`.
+
+The generated deploy skill's post-deploy smoke test (below) must include the NvStreamer → VIOS → RT-VLM streaming sequence from `references/validation-harness.md § 4`.
+
 #### Bundle related skills
 
 After writing the compose artifact, copy the skill folders the operator will need to interact with this deployment into `build-output/skills/`. Scope is **only what already exists** in the VSS repo's skills folder — do NOT synthesize a new use-case skill at this step.
@@ -248,7 +269,7 @@ The generated SKILL.md must include:
 - **Bring-up command** — the exact `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> up -d` invocation.
 - **Health-check loop** — poll each service's healthcheck endpoint until pass or per-service `start_period` timeout; fail loudly with the specific service name when a check times out.
 - **Tear-down command** — `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> down -v` (note: `-v` removes named volumes; warn the operator inline).
-- **Post-deploy smoke test** — one curl or kafka-console-consumer command per "Outputs" section in the bundled microservice skills' `integrate-<microservice>.md`, so the operator can confirm the wiring actually works.
+- **Post-deploy smoke test** — one curl or kafka-console-consumer command per "Outputs" section in the bundled microservice skills' `integrate-<microservice>.md`, so the operator can confirm the wiring actually works. **When the NvStreamer validation harness is included** (sidecar `validation_harness:` key), also emit the streaming-path smoke sequence from `references/validation-harness.md § 4`: verify NvStreamer up (`GET :31000/vst/api/v1/sensor/version` → `type=="streamer"`), the sample auto-discovered (`/sensor/list`), read the RTSP URL from `/sensor/<stem>/streams` (NEVER construct the 315xx port), register it with VIOS `POST :30888/vst/api/v1/sensor/add` (field `sensorUrl`), feed the VIOS proxy `rtsp://${HOST_IP}:30554/live/<sensorId>` (use `${HOST_IP}`, not localhost) to RT-VLM `POST :8018/v1/streams/add`, and assert `mdx-vlm-captions` offset advance + ES `default_<id>` doc count FROM THE LIVE PATH (distinct from the VOD/upload check). This validates the streaming half.
 
 If a deploy skill already exists at `build-output/skills/deploy-<profile-name>/SKILL.md` (the user is regenerating the same profile), **overwrite it** with the new values. Do not append — stale GPU assignments or stale env paths from a prior run would silently misdirect deploy.
 
@@ -273,14 +294,15 @@ build-output/
 
 ### Step 6.5 — Apply Standalone-Compose Patches
 
-The build-output deploys a unique, never-before-seen profile generated by the skill. To make that work against the upstream's existing compose tree **without modifying upstream files**, the skill copies the involved upstream service composes into `<BUILD_DIR>/patched/` and applies four patches:
+The build-output deploys a unique, never-before-seen profile generated by the skill. To make that work against the upstream's existing compose tree **without modifying upstream files**, the skill copies the involved upstream service composes into `<BUILD_DIR>/patched/` and applies five patches:
 
-- **Patch 0** — pre-flight host preparation (run at deploy time): validate `.env` secrets, create bind-mount dirs with permissions, clear conflicting named volumes, kill orphan containers from prior generations, NGC login, profile-flag collision check.
-- **Patch 1** — insert the invented gating flag into the `profiles:` list of every `(key, file)` pair in `<BUILD_DIR>/allow-list.yml`. Additive (preserves upstream flags); each sidecar entry is patched at exactly one site. Handles both inline and block-style `profiles:` lists.
+- **Patch 0** — pre-flight host preparation (run at deploy time): validate `.env` secrets, create bind-mount dirs with permissions (incl. `${VSS_DATA_DIR}/data_log/redis/{data,log}` — a missing redis log dir crash-loops Redis with `Can't open the log file: Permission denied`, which cascades into `sdr-controller` Redis failures and a non-serving VIOS RTSP proxy; see `references/standalone-compose-patches.md § Patch 0`), clear conflicting named volumes, kill orphan containers from prior generations (the orphan-container grep includes `vss-vios-nvstreamer` so a stale validation-harness streamer holding port 31000 / the 31554–31561 RTSP pool under `network_mode: host` is detected), NGC login, profile-flag collision check.
+- **Patch 1** — insert the invented gating flag into the `profiles:` list of every `(key, file)` pair in `<BUILD_DIR>/allow-list.yml`. Additive (preserves upstream flags); each sidecar entry is patched at exactly one site. Handles both inline and block-style `profiles:` lists. When the NvStreamer validation harness was emitted in Step 6, Patch 1 also adds the same invented flag to the `nvstreamer-validation` service block (it rides the main flag — not a separate one).
 - **Patch 2** — strip undefined `depends_on` entries. Compose ≥ v2.36 rejects standalone projects with unresolvable `depends_on` even when `required: false`. For each allow-listed service, walk its `depends_on:` — keep defined peers, strip undefined peers with `required: false`, error on undefined peers without `required: false` (allow-list/upstream inconsistency).
-- **Patch 3** — materialize relative-path bind-mount source files. The patched tree under `<BUILD_DIR>/patched/` contains only the patched YAML; Docker would silently create empty directories for `./envoy.yaml`, `./sdr-config`, etc., causing obscure container exits. Walk every patched compose's `volumes:` and `cp -r` upstream sources into the patched copy. Sub-case: SDRC config templates (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`) are env-var-resolved (not relative), so handle them explicitly when `sdr-controller` is in the allow-list.
+- **Patch 3** — materialize relative-path bind-mount source files. The patched tree under `<BUILD_DIR>/patched/` contains only the patched YAML; Docker would silently create empty directories for `./envoy.yaml`, `./sdr-config`, etc., causing obscure container exits. Walk every patched compose's `volumes:` and `cp -r` upstream sources into the patched copy. Sub-case: SDRC config templates (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`) are env-var-resolved (not relative), so handle them explicitly when `sdr-controller` is in the allow-list. Sub-case: NvStreamer validation-harness configs — when the sidecar has `validation_harness:`, copy `deploy/docker/developer-profiles/dev-profile-alerts/nvstreamer/configs/{vst-config.json,vst-storage.json}` into `<BUILD_DIR>/patched/nvstreamer/configs/` so the emitted `nvstreamer-validation` service's config binds resolve.
+- **Patch 4** — neutralize nested `include:` directives in copied composes. Some upstream composes (notably `services/infra/compose.yml`) carry their own top-level `include:` of sibling files (`./haproxy/compose.yml`, `./sdrc/docker-compose.yaml`). Copied into `<BUILD_DIR>/patched/`, those relative paths fail to resolve (`no such file or directory`) and can double-include a file the build `compose.yml` already orchestrates. Strip the nested `include:` from each patched copy — the build's top-level `compose.yml` is the single include orchestrator; every needed file is already an explicit entry there, and unneeded ones (e.g. `haproxy`, not allow-listed and not a `depends_on` target) are correctly dropped. Record each dropped include in `PATCHES.md`.
 
-The full Patch 0 pre-flight checklist, the Patch 1 / Patch 2 / Patch 3 pseudocode and rationale, the "why an allow-list, not patch-then-exclude" architectural note, the VIOS + SDRC mandatory-stack note, and the per-allow-listed-service IN-1 behavior breakdown all live in `references/standalone-compose-patches.md`. Read it before modifying any patch logic — every entry there is grounded in a live deploy failure mode.
+The full Patch 0 pre-flight checklist, the Patch 1 / Patch 2 / Patch 3 / Patch 4 pseudocode and rationale, the "why an allow-list, not patch-then-exclude" architectural note, the VIOS + SDRC mandatory-stack note, and the per-allow-listed-service IN-1 behavior breakdown all live in `references/standalone-compose-patches.md`. Read it before modifying any patch logic — every entry there is grounded in a live deploy failure mode.
 
 Record the chosen flag at the top of `<BUILD_DIR>/MANIFEST.md`, note every stripped `depends_on` entry in `MANIFEST.md`, and add a row to `PATCHES.md` for every materialized file/directory so the operator can audit.
 
@@ -362,7 +384,7 @@ skills/vss-build-vision-agent/
 │   ├── env-file-enumeration.md                        # Step 0 detail — 10 core .env files + NIM hw-tier set
 │   ├── architecture-diagram-template.md               # Step 4 detail — ASCII flowchart requirements + IN-1 example
 │   ├── allow-list-sidecar.md                          # Step 4 detail — sidecar schema, IN-1 example, union rules
-│   ├── standalone-compose-patches.md                  # Step 6.5 detail — Patch 0/1/2/3 pseudocode + per-service notes
+│   ├── standalone-compose-patches.md                  # Step 6.5 detail — Patch 0/1/2/3/4 pseudocode + per-service notes
 │   ├── example-walkthroughs.md                        # concrete streaming-dense-captioning walkthrough (IN-1)
 │   ├── vss-compose-patterns.md                        # (planned) include-based compose, env_overrides, dry-run
 │   ├── vss-helm-patterns.md                           # (planned, post-v1)
@@ -410,7 +432,8 @@ rm -rf ./build-output/
 - `references/env-file-enumeration.md` — Step 0 `.env` enumeration table + NIM hw-tier layout
 - `references/architecture-diagram-template.md` — Step 4 ASCII diagram requirements + canonical IN-1 example
 - `references/allow-list-sidecar.md` — Step 4 sidecar schema, IN-1 example, union rules
-- `references/standalone-compose-patches.md` — Step 6.5 Patch 0/1/2/3 pseudocode and per-service IN-1 notes
+- `references/standalone-compose-patches.md` — Step 6.5 Patch 0/1/2/3/4 pseudocode and per-service IN-1 notes
+- `references/validation-harness.md` — NvStreamer synthetic-RTSP validation harness: inclusion rule (Step 4), service block + sample-video staging + config materialization (Step 6 / Step 6.5), NvStreamer → VIOS → RT-VLM smoke sequence
 - `references/example-walkthroughs.md` — worked end-to-end walkthroughs (currently: IN-1 streaming-dense-captioning)
 - Per-deployment deploy skills are generated by Step 6 at `build-output/skills/deploy-<profile-name>/SKILL.md` — no shared `/deploy` skill exists.
 - VSS docs: <https://docs.nvidia.com/vss/latest/>
