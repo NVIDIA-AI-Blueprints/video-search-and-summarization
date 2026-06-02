@@ -176,6 +176,43 @@ class ListChangedFiles(unittest.TestCase):
         self.assertIn("FETCH_HEAD...HEAD", flat)
         self.assertNotIn("compare", flat)
 
+    def test_manual_filter_enumerates_specs_without_git(self):
+        """Manual sweep (MANUAL_SKILLS_FILTER set) enumerates the chosen
+        skill's specs instead of diffing, so build_matrix fans them per
+        (spec, platform) like a push — and no git diff is run."""
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *a, **k):
+            calls.append(list(cmd))
+
+            class _R:
+                stdout = ""
+
+            return _R()
+
+        orig_run = plan_matrix.subprocess.run
+        orig_specs = plan_matrix.specs_for_skill
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        plan_matrix.subprocess.run = fake_run  # type: ignore[assignment]
+        plan_matrix.specs_for_skill = lambda s: (
+            [("skills/vss-foo/evals/a.json", "evals", "a"),
+             ("skills/vss-foo/evals/b.json", "evals", "b")]
+            if s == "vss-foo" else []
+        )
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-foo"
+        try:
+            files = plan_matrix.list_changed_files()
+        finally:
+            plan_matrix.subprocess.run = orig_run  # type: ignore[assignment]
+            plan_matrix.specs_for_skill = orig_specs
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
+
+        self.assertEqual(files, ["skills/vss-foo/evals/a.json",
+                                 "skills/vss-foo/evals/b.json"])
+        self.assertEqual(calls, [])  # manual mode never invokes git
+
 
 class EmitSlugSafety(unittest.TestCase):
     def test_emit_rejects_unsafe_slug(self):
