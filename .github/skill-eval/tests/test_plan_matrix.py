@@ -194,12 +194,14 @@ class ListChangedFiles(unittest.TestCase):
         orig_specs = plan_matrix.specs_for_skill
         orig_changed = os.environ.pop("CHANGED_FILES", None)
         plan_matrix.subprocess.run = fake_run  # type: ignore[assignment]
+        # Use a real skill dir so the existence guard passes; specs_for_skill
+        # is stubbed so the assertion stays stable as the tree changes.
         plan_matrix.specs_for_skill = lambda s: (
-            [("skills/vss-foo/evals/a.json", "evals", "a"),
-             ("skills/vss-foo/evals/b.json", "evals", "b")]
-            if s == "vss-foo" else []
+            [("skills/vss-manage-alerts/evals/a.json", "evals", "a"),
+             ("skills/vss-manage-alerts/evals/b.json", "evals", "b")]
+            if s == "vss-manage-alerts" else []
         )
-        os.environ["MANUAL_SKILLS_FILTER"] = "vss-foo"
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-manage-alerts"
         try:
             files = plan_matrix.list_changed_files()
         finally:
@@ -209,9 +211,22 @@ class ListChangedFiles(unittest.TestCase):
             if orig_changed is not None:
                 os.environ["CHANGED_FILES"] = orig_changed
 
-        self.assertEqual(files, ["skills/vss-foo/evals/a.json",
-                                 "skills/vss-foo/evals/b.json"])
+        self.assertEqual(files, ["skills/vss-manage-alerts/evals/a.json",
+                                 "skills/vss-manage-alerts/evals/b.json"])
         self.assertEqual(calls, [])  # manual mode never invokes git
+
+    def test_manual_filter_unknown_skill_raises(self):
+        """A typo'd / non-existent skill filter fails the plan loudly instead
+        of emitting a silent empty matrix the eval job skips."""
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-this-skill-does-not-exist-xyz"
+        try:
+            with self.assertRaises(ValueError):
+                plan_matrix.list_changed_files()
+        finally:
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
 
 
 class EmitSlugSafety(unittest.TestCase):

@@ -319,15 +319,16 @@ async def run_agent() -> int:
     system_prompt = AGENTS_MD.read_text()
 
     if eval_kind == "missing_adapter":
+        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
         user_prompt = f"""
-PR #{pr_number}: skill `{eval_skill}` ships eval specs but has NO adapter at
+{target}: skill `{eval_skill}` ships eval specs but has NO adapter at
 `.github/skill-eval/adapters/{eval_skill}/generate.py`. The `plan` job
 collapsed every spec on this skill into this one leg so the adapter is
 committed exactly once.
 
 Context:
   repo         = {pr_repo}
-  PR number    = {pr_number}
+  PR number    = {pr_number or "(manual sweep — no PR)"}
   base branch  = {pr_base}
   mirror head  = {pr_head}
   workflow run = {run_id}

@@ -89,6 +89,14 @@ def list_changed_files() -> list[str]:
                 f"unsafe MANUAL_SKILLS_FILTER {manual!r}: expected a skill-dir "
                 f"name ([A-Za-z0-9_-]) or '*'"
             )
+        # Fail loud on a typo'd / renamed skill rather than emitting an empty
+        # matrix that the eval job silently skips (the removed manual-sweep
+        # job errored here too).
+        if manual != "*" and not (REPO_ROOT / "skills" / manual).is_dir():
+            raise ValueError(
+                f"MANUAL_SKILLS_FILTER {manual!r}: skills/{manual}/ does not "
+                f"exist on this ref — check the skill name"
+            )
         skills = (
             sorted(p.name for p in (REPO_ROOT / "skills").iterdir() if p.is_dir())
             if manual == "*" else [manual]
