@@ -109,7 +109,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Skill | Description |
 |---|---|
 | [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Add, manage, and monitor alerts on streamed video — CV verification mode or VLM real-time mode, Alert-Bridge subscriptions, Slack notifications, camera onboarding. |
-| [vss-setup-behavior-analytics](vss-setup-behavior-analytics/SKILL.md) | Deploy the `vss-behavior-analytics` service standalone (events, incidents, violation rules) without the full warehouse stack. |
+| [vss-setup-behavior-analytics](vss-setup-behavior-analytics/SKILL.md) | Deploy the `vss-behavior-analytics` service standalone — pick the entrypoint (Analytics 2D / 3D / mv3dt, dev_example, fusion_search), point it at a profile-shipped or custom config and optional calibration, and (with a Kafka / Redis Streams / MQTT broker reachable) push dynamic-config and dynamic-calibration updates over the `mdx-notification` topic — all without bringing up the full warehouse stack. |
 | [vss-setup-video-analytics-api](vss-setup-video-analytics-api/SKILL.md) | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
 
 ### Layer 3 — Agent & offline processing
