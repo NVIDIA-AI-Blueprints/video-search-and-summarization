@@ -21,7 +21,7 @@ AI-powered video search, summarization, and incident analysis agent built on
 [NVIDIA AIQ Toolkit](https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html).
 
 For deployment instructions (Docker Compose, Helm, cloud), refer to the
-[repository root](../README.md) and [`deploy/docker/`](../deploy/docker/).
+[repository root](../../README.md) and [`deploy/docker/`](../../deploy/docker/).
 
 ## Overview
 
@@ -49,6 +49,12 @@ VSS Agent provides composable tools and agents for video understanding:
 
 ## Installation
 
+Commands in **Installation**, **Quick Start**, **Testing**, and **Contributing** assume your shell is in `services/agent/` (this directory). From the repository root:
+
+```bash
+cd services/agent
+```
+
 Install system libraries required for PDF generation:
 
 ```bash
@@ -68,8 +74,9 @@ source .venv/bin/activate
 ### Docker
 
 ```bash
-cd .. # Be at repo root level
+cd .. # Be at services/ (Docker build context; Dockerfile COPY paths use agent/)
 docker buildx build --platform linux/amd64 -f agent/docker/Dockerfile -t vss-agent:latest --load .
+cd agent  # back to services/agent/ for Quick Start and local development below
 ```
 
 ## Quick Start
@@ -77,7 +84,7 @@ docker buildx build --platform linux/amd64 -f agent/docker/Dockerfile -t vss-age
 The instructions below use the **dev-profile-base** profile as an example.
 The same pattern applies to other profiles (search, alerts, LVS) — substitute the
 corresponding `.env` and `config.yml` from
-[`deploy/docker/developer-profiles/`](../deploy/docker/developer-profiles/).
+[`deploy/docker/developer-profiles/`](../../deploy/docker/developer-profiles/).
 See [Configuration](#configuration) for the full list of profiles.
 
 ### 1. Set Environment Variables
@@ -86,7 +93,7 @@ Create a `.env_file` that points to the profile's `.env` so the agent auto-loads
 environment variables on startup (one-time per profile):
 
 ```bash
-echo "../deploy/docker/developer-profiles/dev-profile-base/.env" > .env_file
+echo "../../deploy/docker/developer-profiles/dev-profile-base/.env" > .env_file
 ```
 
 Then source the same `.env` in your shell and override the placeholders.
@@ -97,7 +104,7 @@ must be re-evaluated — that is what the remaining lines do.
 
 ```bash
 set -a
-source ../deploy/docker/developer-profiles/dev-profile-base/.env
+source ../../deploy/docker/developer-profiles/dev-profile-base/.env
 
 HOST_IP=<YOUR_HOST_IP>                 # placeholder in .env
 LLM_BASE_URL=http://${HOST_IP}:${LLM_PORT}   # empty in .env
@@ -119,7 +126,7 @@ set +a
 
 ```bash
 nat serve \
-  --config_file ../deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml \
+  --config_file ../../deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml \
   --host 0.0.0.0 --port 8000
 ```
 
@@ -157,14 +164,14 @@ Agent behavior is defined in YAML config files with four top-level sections:
 Config values support `${ENV_VAR}` substitution with optional defaults (`${VAR:-default}`).
 
 Ready-to-use configurations are provided under
-[`deploy/docker/developer-profiles/`](../deploy/docker/developer-profiles/):
+[`deploy/docker/developer-profiles/`](../../deploy/docker/developer-profiles/):
 
 | Profile | Path | Description |
 |---------|------|-------------|
-| Base | [`dev-profile-base/.../config.yml`](../deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml) | Video understanding and report generation |
-| Search | [`dev-profile-search/.../config.yml`](../deploy/docker/developer-profiles/dev-profile-search/vss-agent/configs/config.yml) | Search and RAG workflow |
-| LVS | [`dev-profile-lvs/.../config.yml`](../deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config.yml) | LVS video understanding |
-| Alerts | [`dev-profile-alerts/.../config.yml`](../deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml) | Incident analysis and alerting |
+| Base | [`dev-profile-base/.../config.yml`](../../deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml) | Video understanding and report generation |
+| Search | [`dev-profile-search/.../config.yml`](../../deploy/docker/developer-profiles/dev-profile-search/vss-agent/configs/config.yml) | Search and RAG workflow |
+| LVS | [`dev-profile-lvs/.../config.yml`](../../deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config.yml) | LVS video understanding |
+| Alerts | [`dev-profile-alerts/.../config.yml`](../../deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml) | Incident analysis and alerting |
 
 Each profile has a companion `.env` file in the same directory with all deployment variables
 pre-configured.
