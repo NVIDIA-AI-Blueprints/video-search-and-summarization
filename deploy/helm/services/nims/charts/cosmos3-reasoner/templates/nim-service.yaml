@@ -36,7 +36,7 @@ spec:
     prometheus.io/path: "/v1/metrics"
   {{- end }}
   # GPU-tuning env vars read from the nim-env ConfigMap (all optional),
-  # plus NIM_MODEL_SIZE selecting the staging RC variant (nano | super).
+  # plus NIM_MODEL_SIZE selecting the model variant (nano | super).
   env:
     - name: NIM_MODEL_SIZE
       value: {{ .Values.nimModelSize | default "nano" | quote }}
