@@ -62,8 +62,10 @@ from pathlib import Path
 
 PLATFORMS: dict[str, dict] = {
     # Primary target for vss-build-vision-agent IN-1
-    "2xRTXPro": {
-        "short_name":       "2xrtxpro",
+    # Key matches the spec's resources.platforms declaration ("RTXPRO6000BW")
+    # and the cross-adapter convention (see vss-manage-video-io-storage, vss-deploy-profile, etc.)
+    "RTXPRO6000BW": {
+        "short_name":       "rtxpro6000bw",
         "gpu_type":         "RTX PRO 6000",
         "gpu_count":        2,
         "min_vram_per_gpu": 96,
@@ -89,7 +91,7 @@ PLATFORMS: dict[str, dict] = {
     },
 }
 
-DEFAULT_PLATFORM = "2xRTXPro"
+DEFAULT_PLATFORM = "RTXPRO6000BW"
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause fires.
 # The skill's SKILL.md "Autonomous mode" branch triggers on exactly this wording;
