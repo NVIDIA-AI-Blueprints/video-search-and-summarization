@@ -28,7 +28,9 @@ info:
     - Video aging policy: The aging policy feature makes sure that old media files are deleted to make space for new ones.
     - Media download support: The media files can be downloaded.
 
-    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below. Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type and are unaffected.
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
 
   version: 1.0.0
   license:
@@ -262,6 +264,7 @@ paths:
                 description: Video container format. Used as fallback if container query parameter is not provided.
               overlay:
                 $ref: '#/components/schemas/OverlayConfiguration'
+            # yamllint disable-line rule:line-length
             example: '{"overlay":{"bbox":{"showAll":true,"classType":["Person","Pallet"],"showObjId":true,"objIdPosition":0,"objIdTextColor":"white","objIdTextBGColor":"green"},"color":"green","thickness":5,"debug":true,"opacity":254}}'
       responses:
         '200':
@@ -1077,7 +1080,9 @@ paths:
                     maxLength: 65536
                     pattern: ".*"
                     example: '{"eventInfo": "Motion detected", "timestamp": 1752045606222}'
-                    description: Raw metadata JSON string from the database (verbatim DB column). Empty string when no event metadata is associated. Only included in the response when the `metadata=true` query parameter is supplied.
+                    description: >-
+                      Raw metadata JSON string from the database (verbatim DB column). Empty string when no event metadata is associated. Only included in the response when the `metadata=true` query
+                      parameter is supplied.
                 required:
                   - id
                   - mediaFilePath
@@ -1193,7 +1198,9 @@ paths:
                       maxLength: 65536
                       pattern: ".*"
                       example: '{"eventInfo": "Motion detected", "timestamp": 1752045606222}'
-                      description: Raw metadata JSON string from the database (verbatim DB column). Empty string when no event metadata is associated. Only included in the response when the `metadata=true` query parameter is supplied.
+                      description: >-
+                        Raw metadata JSON string from the database (verbatim DB column). Empty string when no event metadata is associated. Only included in the response when the `metadata=true`
+                        query parameter is supplied.
                   required:
                     - id
                     - mediaFilePath
@@ -1331,7 +1338,9 @@ paths:
       tags:
         - v1
       summary: Get recording timelines for all streams
-      description: Get recording timelines for all streams. Returns an object with streamId keys, each mapped to an array of timeline segments. Optional streams query filters the response to only the provided streamIds.
+      description: >-
+        Get recording timelines for all streams. Returns an object with streamId keys, each mapped to an array of timeline segments. Optional streams query filters the response to only the provided
+        streamIds.
       operationId: getAllStorageTimelines
       parameters:
         - name: streams
@@ -1485,6 +1494,7 @@ paths:
                 type: boolean
               opacity:
                 type: integer
+          # yamllint disable-line rule:line-length
           example: '{"bbox":{"showAll":false,"objectId":[521,517,496,333,23,441],"classType":["Person","Pallet"],"showObjId":true,"objIdPosition":0,"objIdTextColor":"white","objIdTextBGColor":"green"},"tripwire":{"showAll":false,"id":[521,517,496,333,23,441]},"roi":{"showAll":false,"id":[521,517,496,333,23,441]},"color":"green","thickness":5,"debug":true,"opacity":254}'
       responses:
         '200':
@@ -1507,7 +1517,9 @@ paths:
       tags:
         - v1
       summary: Get temporary URL for accessing storage picture
-      description: Get temporary URL for accessing storage picture from a camera stream at a specific time. This does not download the picture, but provides a temporary URL that can be used to access the image file.
+      description: >-
+        Get temporary URL for accessing storage picture from a camera stream at a specific time. This does not download the picture, but provides a temporary URL that can be used to access the image
+        file.
       operationId: getStorageStreamPictureUrl
       parameters:
         - name: streamId

@@ -18,7 +18,9 @@ info:
   title: VST Proxy Stream MS
   description: |-
     VST Replay Stream MS is used to manage proxy RTSP URLs sensors
-    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below. Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type and are unaffected.
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
 
   version: 1.0.0
   license:
@@ -185,7 +187,9 @@ paths:
       tags:
         - v1
       summary: Get QoS stats for all streams
-      description: Get QoS stats for all streams managed by this stream-processor. The QoS status includes average FPS, average bitrate, total packets lost, etc. When the stream monitor has not collected any samples yet, stats is null.
+      description: >-
+        Get QoS stats for all streams managed by this stream-processor. The QoS status includes average FPS, average bitrate, total packets lost, etc. When the stream monitor has not collected any
+        samples yet, stats is null.
       operationId: getProxyQos
       responses:
         '200':

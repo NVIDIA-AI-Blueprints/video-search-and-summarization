@@ -30,7 +30,9 @@ info:
     - Inventory Management: Comprehensive list of all connected sensors and their associated streams
     - Stream Management: Configuration of primary and multiple secondary streams for each sensor
 
-    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below. Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type and are unaffected.
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
 
   version: 1.0.0
   license:
@@ -135,7 +137,8 @@ paths:
             application/json:
               schema:
                 type: array
-                description: The actual number of streams depends on hardware capabilities. For VIOS/VST it is bounded by the max_sensors_supported config value. For NVStreamer there is no enforced limit.
+                description: >-
+                  The actual number of streams depends on hardware capabilities. For VIOS/VST it is bounded by the max_sensors_supported config value. For NVStreamer there is no enforced limit.
                 maxItems: 10000
                 items:
                   $ref: '#/components/schemas/StreamInfoWrapper'
@@ -912,7 +915,9 @@ paths:
       tags:
         - v1
       summary: Get recording timelines for all sensors
-      description: Get recording timelines for all sensors. For MMS adaptor, timelines are retrieved from ONVIF APIs. For VST and STREAMER adaptors, timelines are retrieved from the database. Returns an object with sensor IDs as keys and arrays of timeline entries as values.
+      description: >-
+        Get recording timelines for all sensors. For MMS adaptor, timelines are retrieved from ONVIF APIs. For VST and STREAMER adaptors, timelines are retrieved from the database. Returns an object
+        with sensor IDs as keys and arrays of timeline entries as values.
       operationId: getAllSensorTimelines
       responses:
         '200':
@@ -933,7 +938,9 @@ paths:
       tags:
         - v1
       summary: Get recording timelines for a specific sensor
-      description: Get recording timelines for a particular sensor. For MMS adaptors, returns all timelines from ONVIF. For VST/STREAMER adaptors, returns timelines from database and supports optional time range filtering.
+      description: >-
+        Get recording timelines for a particular sensor. For MMS adaptors, returns all timelines from ONVIF. For VST/STREAMER adaptors, returns timelines from database and supports optional time
+        range filtering.
       operationId: getSensorTimelines
       parameters:
         - name: sensorId

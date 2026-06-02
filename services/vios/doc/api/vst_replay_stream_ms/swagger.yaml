@@ -27,7 +27,9 @@ info:
     - Performance Analytics: Ability to get stats for recorded stream to measure performance
     - Stream operations: The stream supported various operations like querying the stream to get the current position and metadata of stream.
 
-    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below. Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type and are unaffected.
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
 
   version: 1.0.0
   license:
@@ -57,7 +59,8 @@ paths:
             application/json:
               schema:
                 type: array
-                description: The actual number of streams depends on hardware capabilities. For VIOS/VST it is bounded by the max_sensors_supported config value. For NVStreamer there is no enforced limit.
+                description: >-
+                  The actual number of streams depends on hardware capabilities. For VIOS/VST it is bounded by the max_sensors_supported config value. For NVStreamer there is no enforced limit.
                 maxItems: 10000
                 items:
                   $ref: '#/components/schemas/StreamInfoWrapper'
@@ -131,7 +134,8 @@ paths:
       summary: Start recorded WebRTC streaming
       description: |
         Start recorded WebRTC streaming for a particular sensor. In this API the SDP offer is shared by the client and SDP answer is returned by the replay stream service.
-        Clients need to take care of further WebRTC related steps like ICE Candidate exchange. The API takes in the stream ID of the stream which the client meant to stream and a unique peer ID to identify
+        Clients need to take care of further WebRTC related steps like ICE Candidate exchange. The API takes in the stream ID of the stream which the client meant to stream and a unique peer ID to
+        identify
         the Peer Connection. The stream can be configured using the 'options' field. For example:-
 
         1. The quality of stream can be changed using the 'quality' field. The supported values are low, medium, high and auto.
@@ -371,7 +375,8 @@ paths:
             maxLength: 100
       requestBody:
         description: JSON object containing seek information.
-          The "value" field is optional and can be either a number or string. For absolute seek to any time, provide ISO UTC time format as string in "value" field. For relative seek operations, provide number of seconds (e.g., 2, 4, 8) in "value" field and set "action" to seekForward or seekBackward.
+          The "value" field is optional and can be either a number or string. For absolute seek to any time, provide ISO UTC time format as string in "value" field. For relative seek operations,
+          provide number of seconds (e.g., 2, 4, 8) in "value" field and set "action" to seekForward or seekBackward.
         content:
           application/json:
             schema:
@@ -428,7 +433,9 @@ paths:
                   position:
                     type: integer
                     format: int64
-                    description: Current playback position as reported by the underlying media pipeline (gint64 from GStreamer). Units depend on the pipeline implementation — do not assume seconds, milliseconds, or percent. Returned verbatim from getPositionTrackSource().
+                    description: >-
+                      Current playback position as reported by the underlying media pipeline (gint64 from GStreamer). Units depend on the pipeline implementation — do not assume seconds,
+                      milliseconds, or percent. Returned verbatim from getPositionTrackSource().
         default:
           description: Unexpected error
           content:
@@ -540,6 +547,7 @@ paths:
             JSON object specifying unified overlay configuration. Supports bounding boxes, pose, proximity, and safety features.
           schema:
             $ref: '#/components/schemas/OverlayConfiguration'
+          # yamllint disable-line rule:line-length
           example: '{"bbox":{"showAll":false,"objectId":[521,517,496,333,23,441],"classType":["Person","Pallet"],"showObjId":true,"objIdPosition":0,"objIdTextColor":"white","objIdTextBGColor":"green"},"color":"green","thickness":5,"debug":true,"opacity":254}'
       responses:
         '200':
@@ -562,7 +570,9 @@ paths:
       tags:
         - v1
       summary: Get temporary URL for accessing replay picture
-      description: Get temporary URL for accessing replay picture from a camera stream at a specific time. This does not download the picture, but provides a temporary URL that can be used to access the image file.
+      description: >-
+        Get temporary URL for accessing replay picture from a camera stream at a specific time. This does not download the picture, but provides a temporary URL that can be used to access the image
+        file.
       operationId: getReplayStreamPictureUrl
       parameters:
         - name: streamId
@@ -1127,7 +1137,9 @@ components:
             - type: number
               description: "Number of seconds for relative seek (e.g., 2, 4, 8)"
               example: 10
-          description: "Optional field. Can be a number (seconds for relative seek) or ISO UTC time string (for absolute seek). For relative seeks with seekForward/seekBackward actions, provide seconds as number. For absolute seek to specific time, provide ISO time format as string."
+          description: >-
+            Optional field. Can be a number (seconds for relative seek) or ISO UTC time string (for absolute seek). For relative seeks with seekForward/seekBackward actions, provide seconds as
+            number. For absolute seek to specific time, provide ISO time format as string.
 
     StreamInfoWrapper:
       type: object

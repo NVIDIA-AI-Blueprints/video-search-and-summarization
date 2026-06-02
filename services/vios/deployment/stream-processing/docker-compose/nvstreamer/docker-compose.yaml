@@ -26,7 +26,13 @@ services:
     <<: *nvstreamer-base
     container_name: nvstreamer-1
     profiles: ["nvstreamer-1"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
@@ -43,7 +49,13 @@ services:
     <<: *nvstreamer-base
     container_name: nvstreamer-2
     profiles: ["nvstreamer-2"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
@@ -60,7 +72,13 @@ services:
     <<: *nvstreamer-base
     container_name: nvstreamer-3
     profiles: ["nvstreamer-3"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
@@ -77,7 +95,13 @@ services:
     <<: *nvstreamer-base
     container_name: nvstreamer-4
     profiles: ["nvstreamer-4"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
@@ -94,7 +118,13 @@ services:
     <<: *nvstreamer-base
     container_name: nvstreamer-5
     profiles: ["nvstreamer-5"]
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
