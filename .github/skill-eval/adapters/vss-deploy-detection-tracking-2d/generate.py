@@ -108,10 +108,12 @@ def _instruction_intro(kind: str, platform: str) -> str:
     if kind == "usage":
         return (
             f"Use the `/vss-deploy-detection-tracking-2d` skill against the RTVI-CV "
-            f"container already running on this `{platform}` host "
-            "(`http://localhost:9000/api/v1` must respond). The eval harness "
-            "started that container in an earlier trial; do not redeploy it, "
-            "invoke `/vss-deploy-profile`, or call `scripts/dev-profile.sh`.\n"
+            f"container on this `{platform}` host. If the container isn't already "
+            "running, the precheck below brings it up via `docker start` (the "
+            "image is pre-pulled on the box from a prior deploy trial); do not "
+            "invoke `/vss-deploy-profile` or `scripts/dev-profile.sh` for this "
+            "trial — just ensure `http://localhost:9000/api/v1` responds before "
+            "running the query.\n"
             "\n"
             "### MANDATORY container-alive precheck — run this Bash command FIRST, before reading the query\n"
             "\n"
@@ -230,10 +232,6 @@ def generate_task(
             "",
             expect.get("query", ""),
             "",
-            "## Environment notes",
-            "",
-            rendered_spec.get("env", ""),
-            "",
             "Run autonomously without prompting for confirmation.",
             "",
         ]
@@ -323,7 +321,14 @@ def main() -> None:
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / DEFAULT_SPEC)
+    if args.spec:
+        spec_path = Path(args.spec)
+    else:
+        spec_path = skill_dir / "evals" / DEFAULT_SPEC
+        if not spec_path.exists():
+            legacy = skill_dir / "eval" / DEFAULT_SPEC
+            if legacy.exists():
+                spec_path = legacy
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)
