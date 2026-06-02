@@ -24,7 +24,7 @@ below.
 ## `video2frame.py` — decode a video → frame directory
 
 ```bash
-# Default: every frame as 9-digit zero-padded JPG
+# Default: every frame as <frame_id>.png (no zero-pad; sorts numerically)
 python tools/video_utils/video2frame.py video.mp4 output/frames/
 
 # Keep every 5th frame, capped at the first 200 source frames
@@ -42,7 +42,7 @@ python tools/video_utils/video2frame.py video.mp4 output/frames/ \
 |---|---|---|---|
 | `VIDEO` (positional) | Yes | — | Input video file path |
 | `OUTPUT_DIR` (positional) | Yes | — | Output frame directory (created if missing) |
-| `--frame_pattern` | No | `{:09d}.jpg` | `str.format`-style filename pattern; extension drives the image encoder |
+| `--frame_pattern` | No | `{frame_id}.png` | `str.format`-style pattern (`{:09d}` positional or `{frame_id}` named slot); extension drives the image encoder |
 | `--frame_skip` | No | `1` | Keep every Nth decoded frame |
 | `--start_frame` | No | `0` | First source-video frame to keep |
 | `--end_frame` | No | end | One-past-last source-video frame |
@@ -58,8 +58,8 @@ and uses it to decide the exit code:
 | `completed` | Frames written successfully |
 | `skipped` | Output dir already had ≥ expected frame count (use `--overwrite` to force) |
 | `file_not_found` | Input video doesn't exist |
-| `empty_file` | Input video is 0 bytes (often the moov-atom-corruption case) |
-| `cannot_open` | OpenCV refused to open the file |
+| `empty_file` | Input video is 0 bytes (interrupted download / failed capture) |
+| `cannot_open` | OpenCV refused to open the file (corrupt container / missing moov atom) |
 | `invalid_properties` | Frame count / fps / dimensions came back ≤ 0 |
 | `no_frames_extracted` | Decoded loop ran but no frames written |
 | `incomplete_extraction` | < 80% of expected frames written (decoder bailed early) |
@@ -144,7 +144,7 @@ python tools/video_utils/video2frame_scene.py data/scene/ \
 ```
 
 Cameras are discovered by listing subdirectories of `<scene_dir>` via
-[`get_cam_names_in_scene`](../../spatialai_data_utils/utils/camera_name_utils.py),
+[`get_cam_names_in_scene`](../../spatialai_data_utils/datasets/scenes.py),
 with the same natural-sort ordering.
 
 ### Arguments
@@ -353,7 +353,8 @@ multi-camera / parallel workflows, import the library helpers directly:
 
 ```python
 from spatialai_data_utils.visualization.video_utils.video2frame import (
-    video_to_frames, video_to_frames_batch, diagnose_video_file,
+    video_to_frames, video_to_frames_batch,
+    diagnose_video_file, expected_extraction_count,
 )
 from spatialai_data_utils.visualization.video_utils.frame2video import (
     frames_to_video, frames_to_video_batch,
@@ -381,6 +382,10 @@ results = video_to_frames_batch(
 
 # Probe a problematic video without extracting any frames
 print(diagnose_video_file("suspicious.mp4"))
+
+# Predict how many frames a job will write (cheap pre-flight, no decode;
+# returns 0 when the output dir already looks complete)
+print(expected_extraction_count("video.mp4", "frames/", frame_skip=5))
 
 # Multi-camera grid video (auto-grid layout, 1080p output, threaded)
 status = frames_to_video_grid(

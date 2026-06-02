@@ -3,7 +3,7 @@
 CLI tools that project 3D bounding boxes from world coordinates to 2D
 image-space coordinates for a specific camera, writing the result back
 out as structured data. The actual projection math lives in the
-`spatialai_data_utils.core.geometry.projection` package — these tools
+`spatialai_data_utils.core.geometry.projection` module — these tools
 are thin wrappers that do I/O and argument parsing.
 
 Unlike the scripts under `tools/visualization/`, nothing here *draws*
@@ -28,8 +28,8 @@ frame:
 
 1. Read the world-space objects (each with `bbox3d.coordinates`).
 2. Project the 8 cuboid corners onto a target camera's image plane.
-3. Keep only boxes whose corners are in front of the camera **and**
-   have at least one corner inside the image.
+3. Keep only boxes where all 8 corners are in front of the camera
+   **and** at least one corner lies inside the image.
 4. Populate each surviving object's native `bbox3d.info` map (the
    `map<string, string>` field on the `Bbox3d` proto) with the target
    `sensorId` and a `json.dumps`-encoded list of the 8 projected
@@ -62,7 +62,7 @@ python tools/projection/project_bbox3d_to_2d.py \
 | `--calib_path` | Yes | — | Path to the scene's calibration JSON file |
 | `--nvschema_path` | Yes | — | Input NVSchema JSON-lines file |
 | `--output_path` | Yes | — | Output NVSchema JSON-lines file (created / overwritten) |
-| `--image_size` | No | `(1920, 1080)` | `WIDTH HEIGHT` used for the in-image visibility check |
+| `--image_size` | No | calib → `(1920, 1080)` | `WIDTH HEIGHT` for the visibility check. If omitted, uses the per-sensor `frameWidth`/`frameHeight` from the calibration, falling back to the package `(1920, 1080)` |
 | `--origin` | No | `0.5 0.5 0.5` | Box origin in `(w, l, h)` fractions (geometric centre by default) |
 | `--recentering` | No | `false` | Apply group-origin recentering to the calibration before projecting |
 
@@ -83,8 +83,9 @@ python tools/projection/project_bbox3d_to_2d.py \
 
 Each object must carry `bbox3d.coordinates` as the 9-value
 `[x, y, z, w, l, h, pitch, roll, yaw]` form prescribed by the
-NVSchema `Bbox3d` proto. Missing or wrong-length coordinates raise
-a clear `ValueError` rather than silently dropping the object.
+NVSchema `Bbox3d` proto. A missing `bbox3d` / `coordinates` field
+raises `KeyError`, and a wrong-length coordinate list raises
+`ValueError`, rather than silently dropping the object.
 Legacy 7-value inputs `[x, y, z, w, l, h, yaw]` are no longer
 accepted — such datasets must be re-exported to the 9-value form
 before consumption.
@@ -125,9 +126,10 @@ for details.
 
 ### Output shape mirrors the input
 
-The tool is a pure line-by-line transform: for every input line it
-writes exactly one output line with the same `"id"` and `"sensorId"`
-fields and the filtered + enriched `"objects"` list.
+The tool is a pure line-by-line transform: for every non-blank input
+line it writes exactly one output line with the same `"id"` and
+`"sensorId"` fields and the filtered + enriched `"objects"` list
+(blank lines are skipped).
 
 NVSchema files typically record the same world-space objects once
 per observing camera in a BEV sensor group — so a given frame has one
@@ -157,7 +159,7 @@ enriched = project_bev_objects_bbox_in_image(
     sensor_id="Camera_01",
     calib_dict=calib_dict,                # {cam_name: {"intrinsic_matrix", "w2c_matrix"}}
     bev_objects=nvschema_object_list,       # list of raw NVSchema object dicts
-    image_size=(1920, 1080),              # optional
+    image_size=(1920, 1080),              # optional (default None -> package IMAGE_SIZE)
     origin=(0.5, 0.5, 0.5),               # optional
 )
 ```
@@ -165,6 +167,14 @@ enriched = project_bev_objects_bbox_in_image(
 `enriched` is a filtered copy of the input list where each object is
 decorated with the `bbox3d.info` projection metadata exactly as the
 CLI writes it.
+
+`calib_dict` is the flat `{cam_name: calib_info}` dict produced by
+`spatialai_data_utils.loaders.calibration.load_calib_into_dict` (each
+`calib_info` carries `intrinsic_matrix`, `w2c_matrix`, `w2p_matrix`, and
+optional `image_size`). See that
+[module's docstring](../../spatialai_data_utils/loaders/calibration.py)
+for the full set of calibration dictionary shapes and the authoritative
+key spec.
 
 ---
 
