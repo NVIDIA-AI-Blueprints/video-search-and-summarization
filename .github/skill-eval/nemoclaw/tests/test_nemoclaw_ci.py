@@ -119,6 +119,25 @@ class NotebookSetupAdapterTest(unittest.TestCase):
 
         self.assertEqual(redacted["outputs"][0]["text"], "token=<redacted:ANTHROPIC_API_KEY>")
 
+    def test_redacts_generated_openclaw_bearer_token_from_notebook_outputs(self):
+        redacted = notebook_adapter._redact(
+            {
+                "outputs": [
+                    {
+                        "text": (
+                            "$ curl -H 'Authorization: Bearer "
+                            "33edab45ea2845acc0498b5139a5142bafd3b4b2d32ebfc58f40a563cba18cae' "
+                            "http://127.0.0.1:18789/hooks/agent"
+                        )
+                    }
+                ]
+            },
+            {},
+        )
+
+        self.assertIn("Authorization: Bearer <redacted:OPENCLAW_HOOKS_TOKEN>", redacted["outputs"][0]["text"])
+        self.assertNotIn("33edab45", redacted["outputs"][0]["text"])
+
     def test_persist_cell_keeps_hooks_token_out_of_debug_env_file(self):
         source = notebook_adapter.PERSIST_SOURCE
         keys_block = source.split("_keys = [", 1)[1].split("]", 1)[0]
