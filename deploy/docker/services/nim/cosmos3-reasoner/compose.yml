@@ -14,7 +14,8 @@
 # limitations under the License.
 #
 # Cosmos3 Reasoner NIM image. Opt in via
-#   VLM_NAME=nvidia/cosmos3-reasoner
+#   VLM_NAME=nvidia/cosmos3-nano-reasoner (for nano) or
+#   VLM_NAME=nvidia/cosmos3-super-reasoner (for super)
 #   VLM_NAME_SLUG=cosmos3-reasoner
 # in dev-profile-base/.env. NIM_MODEL_SIZE selects nano (default) or super.
 
