@@ -42,11 +42,11 @@ Index of every VSS microservice that has reference files the `build-vision-agent
 
 > **Note on ELK's location:** unlike RT-VLM, RT-CV, or VIOS — which are NVIDIA-built RTVI microservices owned by per-service teams — ELK is a third-party open-source stack (Elastic) used as VSS foundational infrastructure. Its reference files therefore live **co-located with the orchestrator skill** (`skills/vss-build-vision-agent/references/`) rather than in a sibling `skills/elk/` folder. This is the convention for foundational/infra components that the skill itself effectively owns; per-service NVIDIA microservices follow the canonical `skills/<service>/references/` pattern.
 
-### Phase 1b — Planned
+### Phase 1b
 
-| Microservice | Skill folder | Integration ref (current ⇢ target) | Deployment ref (current ⇢ target) |
-|---|---|---|---|
-| RT-CV (DeepStream) | `skills/vss-deploy-detection-tracking-2d/` | — ⇢ `integrate-vss-detection-tracking-2d.md` *(pending — author under the upstream long-form name to match the deploy companion; upstream has `api-reference.md`, `pipeline-config.md`, `workflow-reference.md`, etc. as additional refs)* | `deploy-vss-detection-tracking-2d.md` ✓ *(canonical; upstream long-form retained)* |
+| Microservice | Skill folder | Integration ref (current ⇢ target) | Deployment ref (current ⇢ target) | Capability tags |
+|---|---|---|---|---|
+| RT-CV (DeepStream) | `skills/vss-deploy-detection-tracking-2d/` | `integrate-vss-detection-tracking-2d.md` ✓ *(canonical; authored under the upstream long-form name to match the deploy companion)* | `deploy-vss-detection-tracking-2d.md` ✓ *(canonical; upstream long-form retained)* | `person-detection`, `object-detection`, `multi-object-tracking`, `bounding-box-metadata`, `frame-metadata`, `rtdetr`, `streaming-inference` |
 
 ### Phase 1c — Planned
 
@@ -93,5 +93,11 @@ Tags used to match user prompts to microservices. Keep tags consistent across ca
 | `dashboard` | Visual dashboards over indexed data | ELK (Kibana) |
 | `kafka-ingestion` | Consumes Kafka topics and writes to a sink | ELK (Logstash) |
 | `redis-ingestion` | Consumes Redis streams and writes to a sink | ELK (Logstash) |
+| `person-detection` | Detects people / objects in video frames | RT-CV (DeepStream) |
+| `object-detection` | General object detection over video streams | RT-CV (DeepStream) |
+| `multi-object-tracking` | Multi-object tracking over video streams | RT-CV (DeepStream) |
+| `bounding-box-metadata` | Emits per-frame bounding boxes and class metadata | RT-CV (DeepStream) |
+| `frame-metadata` | Emits frame-level structured detection records | RT-CV (DeepStream) |
+| `rtdetr` | RT-DETR-based detection pipeline | RT-CV (DeepStream) |
 
 When you add a new tag, list it here with the services that carry it.

@@ -9,9 +9,9 @@ Unlike `vss-deploy-profile`, which deploys a pre-existing VSS profile, this skil
 BUILDS a new profile from scratch and then deploys it. No pre-deploy prerequisite
 is injected — the skill itself handles the full generate+deploy lifecycle.
 
-The current spec (`profile_in_1_streaming_dense_captions.json`) targets:
+The current specs target:
   - profile: "in-1" (streaming dense captioning — VIOS + RT-VLM + ELK)
-  - platform: "2xRTXPro" (2× RTX PRO 6000 Blackwell, 96 GB VRAM per GPU)
+  - profile: "in-2" (RT-CV / RT-DETR detection-tracking — VIOS + RT-CV + ELK)
   - The spec's `profile` field is the *build-profile slug* passed to
     `/vss-build-vision-agent`, NOT a `/vss-deploy-profile -p <profile>` arg.
     No prerequisite deploy is injected when the spec does not declare
@@ -34,7 +34,8 @@ The current spec (`profile_in_1_streaming_dense_captions.json`) targets:
         solution/solve.sh
         skills/vss-build-vision-agent/   (full skill copy)
         skills/vss-manage-video-io-storage/   (bundled — skill invokes VIOS API after deploy)
-        skills/vss-deploy-dense-captioning/   (bundled — RT-VLM API checks post-deploy)
+        skills/vss-deploy-dense-captioning/   (bundled for IN-1 / RT-VLM checks)
+        skills/vss-deploy-detection-tracking-2d/ (bundled for IN-2 / RT-CV checks)
         environment/Dockerfile           (FROM scratch; BrevEnvironment takes over)
 
 Usage from the repository root:
@@ -43,6 +44,7 @@ Usage from the repository root:
         --skill-dir skills/vss-build-vision-agent \\
         --vios-skill-dir skills/vss-manage-video-io-storage \\
         --rtvi-skill-dir skills/vss-deploy-dense-captioning \\
+        --rtcv-skill-dir skills/vss-deploy-detection-tracking-2d \\
         --spec skills/vss-build-vision-agent/eval/profile_in_1_streaming_dense_captions.json
 """
 from __future__ import annotations
@@ -87,6 +89,14 @@ PLATFORMS: dict[str, dict] = {
         "gpu_count":        2,
         "min_vram_per_gpu": 48,
         "brev_search":      "L40S",
+        "min_root_disk_gb": 220,
+    },
+    "DGX-SPARK": {
+        "short_name":       "spark",
+        "gpu_type":         "DGX-SPARK",
+        "gpu_count":        1,
+        "min_vram_per_gpu": 120,
+        "brev_search":      "DGX-SPARK",
         "min_root_disk_gb": 220,
     },
 }
@@ -189,6 +199,7 @@ def generate_task(
     skill_dir: Path,
     vios_skill_dir: Path | None,
     rtvi_skill_dir: Path | None,
+    rtcv_skill_dir: Path | None,
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'].
     Multi-step specs produce step-N/ subdirs; single-step specs are flat."""
@@ -298,14 +309,17 @@ def generate_task(
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform, build_profile))
 
         # ---- skills/ -------------------------------------------------------
-        # Bundle the build skill itself plus VIOS + RT-VLM skills — the agent
-        # needs all three to complete the end-to-end checks (build → deploy →
-        # VIOS upload → RT-VLM caption verification).
+        # Bundle the build skill itself plus the service skills the spec may
+        # need after generation. IN-1 uses RT-VLM; IN-2 uses RT-CV.
+        profile = str(spec.get("profile", "")).lower()
         skills_to_copy: list[tuple[Path | None, str]] = [
             (skill_dir, "vss-build-vision-agent"),
             (vios_skill_dir, "vss-manage-video-io-storage"),
-            (rtvi_skill_dir, "vss-deploy-dense-captioning"),
         ]
+        if profile == "in-1":
+            skills_to_copy.append((rtvi_skill_dir, "vss-deploy-dense-captioning"))
+        elif profile == "in-2":
+            skills_to_copy.append((rtcv_skill_dir, "vss-deploy-detection-tracking-2d"))
         for src, name in skills_to_copy:
             if src and src.exists():
                 dst = step_dir / "skills" / name
@@ -340,6 +354,10 @@ def main() -> None:
         help="Path to skills/vss-deploy-dense-captioning (bundled for RT-VLM checks)",
     )
     parser.add_argument(
+        "--rtcv-skill-dir", default=None,
+        help="Path to skills/vss-deploy-detection-tracking-2d (bundled for RT-CV checks)",
+    )
+    parser.add_argument(
         "--spec", default=None,
         help="Path to the eval spec JSON (default: <skill-dir>/eval/profile_in_1_streaming_dense_captions.json)",
     )
@@ -358,6 +376,7 @@ def main() -> None:
     skill_dir = Path(args.skill_dir)
     vios_skill_dir = Path(args.vios_skill_dir) if args.vios_skill_dir else None
     rtvi_skill_dir = Path(args.rtvi_skill_dir) if args.rtvi_skill_dir else None
+    rtcv_skill_dir = Path(args.rtcv_skill_dir) if args.rtcv_skill_dir else None
 
     spec_path = (
         Path(args.spec)
@@ -405,7 +424,7 @@ def main() -> None:
         print(f"  GEN  vss-build-vision-agent/{dataset_group}/{task_id}")
         generate_task(
             platform, spec, output_root, skill_dir,
-            vios_skill_dir, rtvi_skill_dir,
+            vios_skill_dir, rtvi_skill_dir, rtcv_skill_dir,
         )
 
     print()
