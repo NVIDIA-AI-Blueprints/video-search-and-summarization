@@ -336,6 +336,17 @@ The canonical harbor command is in § Harbor invocation.
       INSTANCE_NAME=<picked>
       ```
 
+      Resolving a candidate's gpu_count for the exact-match preference:
+      `brev ls --json` does **not** carry `gpu_count` (only `name`, `gpu`,
+      `instance_type`, `status`), so cross-reference each candidate's
+      `instance_type` against `brev search gpu --json` — the same catalog
+      `brev_env._get_instance_gpu_count_from_catalog` validates against. The
+      `vss-eval-*` fleet naming is a fallback hint (`*-1g` → 1 GPU; bare or
+      `*-2` → 2 GPU). If you can't resolve a count, just pick any
+      `gpu_type`-matching box and let `brev_env` enforce `gpu_count >=
+      required` post-selection — exact-match is a partitioning *optimisation*,
+      not a correctness gate (the box is reset either way).
+
       With fleet=1, this collapses to today's behaviour — the single
       `vss-eval-<short>` candidate is picked and locked. With fleet>1
       (operator manually `brev create`s `vss-eval-l40s-2`, etc.), two
