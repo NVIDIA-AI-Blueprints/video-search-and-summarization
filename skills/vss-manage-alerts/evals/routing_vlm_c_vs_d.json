@@ -16,6 +16,15 @@
   "description": "Routing boundary: Workflow C (query past incidents via /generate) vs Workflow D (list active subscription rules via Alert Bridge GET). Tests that the parent alerts skill correctly distinguishes 'what happened' from 'what is running'.",
   "expects": [
     {
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints.",
+      "checks": [
+        "`bash -c 'for i in $(seq 1 12); do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx rtvi-vlm` returns exit 0 (continuous VLM processor \u2014 required for VLM real-time mode).",
+        "`! docker ps --format '{{.Names}}' | grep -qx perception-alerts` returns exit 0 (CV-only perception is NOT running \u2014 confirms VLM real-time, not verification)."
+      ]
+    },
+    {
       "query": "What alerts have been triggered today?",
       "checks": [
         "The trajectory calls `POST /generate` with a query intent \u2014 'triggered today' means past incidents, routing to Workflow C.",

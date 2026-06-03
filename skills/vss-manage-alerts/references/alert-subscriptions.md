@@ -14,8 +14,13 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 - "Create an alert on parking-cam-3 for vehicle collisions"
 - "Watch sensor entrance-1 for tailgating"
 - "Alert me if someone enters restricted zone on cam-floor-2"
+- "Send me alerts for fallen boxes in camera warehouse_sample"
+- "Notify me about people loitering near the loading dock on warehouse_sample"
+- "Vehicle collisions needs an alert on warehouse_sample"
 
-**List — rule inventory:**
+> **Create vs List — a request that names a *new detection condition* to watch for is a CREATE (issue `POST /api/v1/realtime`), even when phrased as "send me alerts for &lt;condition&gt;", "notify me about &lt;condition&gt;", or "&lt;condition&gt; needs an alert on &lt;sensor&gt;".** Such phrasings set up a *new* rule — they are NOT a request to list/show existing rules and NOT a query of past incidents. Only route to **List** when the user asks to see/show/list **existing** rules with **no** new condition to add. When a sensor + condition is present, you MUST `POST` to create the rule; listing (`GET`) alone does not satisfy a create request, and an already-existing similar rule does not excuse skipping the `POST`.
+
+**List — rule inventory (show EXISTING rules; no new condition):**
 - "Show me all realtime alert rules that are currently running"
 - "What realtime alerts do we have set up right now?"
 - "List active rules on warehouse-dock-1"
@@ -145,6 +150,8 @@ From the user's prompt, generate a short `snake_case` tag that summarizes the al
 - Lowercase, words separated by underscores
 - 2-4 words maximum
 - Descriptive of the specific monitoring condition
+- **Derive it from the detection condition in *this* request only.** Map the *condition phrase*, not the sensor name, the sentence subject, or a location: "anyone without a safety vest" → `ppe_vest_violation` (NOT `box_dropped`), "smoke detection" → `smoke_detection` (NOT `camera_02`), "people loitering near the loading dock" → `people_loitering` (NOT `loading_dock`).
+- **Never reuse an `alert_type` from an existing rule or a previous request.** If you list existing rules first (e.g. to check for duplicates), ignore their tags when deriving this one — a leftover `fallen_boxes`/`box_dropped` rule from an earlier request must not influence a safety-vest request.
 
 **Examples:**
 
@@ -293,6 +300,8 @@ Do not treat an empty list as an error.
 | "yes" (after a confirmation question) | **Confirmation** — triggers deletion | Call DELETE -> report result |
 
 "Stop X" and "yes" are NOT the same intent. "Stop X" always produces a question. Only "yes" produces a deletion. Even if you already know the rule ID from conversation context, "Stop X" still produces only a question.
+
+> **This confirmation is a user-facing safety gate, not a setup/deploy confirmation.** It ALWAYS applies — including under autonomous, pre-authorized, or non-interactive/CI execution. A "run autonomously / do not ask for confirmation" instruction authorizes deploy and setup actions only; it does NOT authorize you to skip this stop/delete confirmation. When there is no interactive user to answer (e.g. an eval harness), reply with the yes/no confirmation question (stating the rule ID and sensor) and STOP — do not issue the `DELETE`.
 
 ### On "Stop" Request — Find Rule and Ask Confirmation
 
