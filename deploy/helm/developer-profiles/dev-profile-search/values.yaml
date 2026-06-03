@@ -587,7 +587,6 @@ agent:
 vss-agent-ui:
   enabled: true
   # Set global.externalHost to vss-search.$NODE_IP.nip.io (e.g. --set) so public URLs and ws:// use that host. MDX/Map match Search ingress.
-  mdxWebApiPath: /api/v3.0/analytics
   mapAppPath: /ui/smartcities
   global:
     externalHost: ''
