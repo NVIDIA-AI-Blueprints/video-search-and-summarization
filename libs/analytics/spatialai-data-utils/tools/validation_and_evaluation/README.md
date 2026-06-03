@@ -134,7 +134,6 @@ Incorrect:
 |---|---:|---|
 | `--calibration_url` | required | S3 or HTTPS URL for `calibration.json`. |
 | `--confidence_threshold` | `0.0` | Filters predictions below this score before evaluation. |
-| `--num_cores` | unset | Reserved for parallel processing; currently parsed but not used by this tool. |
 | `--num_frames_to_eval` | `200000` | Maximum frames to include during detection evaluation. |
 | `--ground_truth_frame_offset_secs` | `0.0` | Temporal offset applied to GT during detection evaluation. |
 | `--eval_options` | `location` | Detection-matching function. `location` uses centre-distance matching (`DET_CONFIG_CENTER_DISTANCE`, historical MTMC default); `bbox` uses 3D-IoU bounding-box matching (`DET_CONFIG_IOU3D`). |
