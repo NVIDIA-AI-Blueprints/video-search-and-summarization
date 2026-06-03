@@ -14,8 +14,22 @@ deployment-specific. For the VSS developer `lvs` profile, the default external
 URL is:
 
 ```bash
-export BASE_URL="${LVS_BACKEND_URL:-http://localhost:38111}"
+export BASE_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+BASE_URL="${BASE_URL%/}"
 ```
+
+Do not infer this host from the video URL. The video URL identifies media; the
+base URL identifies the video summarization service.
+
+When connected to a running service, treat its OpenAPI document as
+authoritative for request fields:
+
+```bash
+curl -sf "$BASE_URL/openapi.json" | jq '.paths["/v1/summarize"]'
+```
+
+If `/openapi.json` is unavailable, use this reference. Do not invent fields that
+are absent from the OpenAPI schema.
 
 The OpenAPI declares bearer auth globally, but local VSS developer deployments
 usually expose these endpoints without an auth header. If the deployment
@@ -69,6 +83,9 @@ curl -sf "$BASE_URL/models" | jq '.data[] | {id, object, owned_by, api_type}'
 ## File Summarization
 
 `POST /v1/summarize` and `POST /summarize` both use `SummarizationQuery`.
+These endpoints do not accept the VLM chat-completions `messages` payload. For
+file summarization, pass the video as top-level `url` or `id` plus top-level
+`model`, `scenario`, and `events`.
 
 Required fields:
 

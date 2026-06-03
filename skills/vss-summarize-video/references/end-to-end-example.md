@@ -6,8 +6,13 @@ header). The flow probes the video summarization service once, runs
 HITL + LVS when it is up, and falls back to the VLM with the default
 prompt only when it is not.
 
+Do not derive the video summarization or VLM backend host from `$CLIP`.
+`LVS_BACKEND_URL` / `VIDEO_SUMMARIZATION_URL` and `VLM_BASE_URL` /
+`RTVI_VLM_BASE_URL` identify backend services; `$CLIP` identifies media.
+
 ```bash
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
 
 # Readiness = HTTP 200 on /v1/ready. Body may be empty — do not inspect it.
 # Retry on 503 (warmup) for up to ~30s before concluding the service is unavailable.
@@ -22,7 +27,8 @@ if [ "$video_sum_code" = "200" ]; then
   # HITL (required, before the curl): post the Step 2 scenario/events message and
   # wait for the user's reply. Substitute their values (or the `defaults` opt-in)
   # into $SCENARIO, $EVENTS_JSON, and $OBJECTS_JSON below. Do not run the curl
-  # without that reply.
+  # without that reply. Once those values are available, do not ask for a second
+  # confirmation before calling /v1/summarize.
   SCENARIO='warehouse monitoring'            # or whatever the user gave
   EVENTS_JSON='["notable activity"]'         # jq-compatible JSON array
   OBJECTS_JSON=''                            # '' to omit, else '["cars","trucks"]'
@@ -49,6 +55,7 @@ else
   # Prepend the Routing fallback note to the response so the user knows.
   echo "⚠ Note: the video summarization service returned HTTP $video_sum_code; falling back to VLM with the default prompt."
   VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
+  VLM="${VLM%/}"
   VLM="${VLM%/v1}"
   PROMPT='Describe in detail what is happening in this video,
 including all visible people, vehicles, equipments, objects,

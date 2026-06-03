@@ -31,8 +31,11 @@ Key service signals in the current develop branch:
 ## Verify Running Service
 
 ```bash
-curl -sf --max-time 15 "${LVS_BACKEND_URL:-http://localhost:38111}/v1/ready" >/dev/null
-curl -sf --max-time 15 "${LVS_BACKEND_URL:-http://localhost:38111}/models" | jq '.data[0].id'
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
+
+curl -sf --max-time 15 "$VIDEO_SUMMARIZATION_URL/v1/ready" >/dev/null
+curl -sf --max-time 15 "$VIDEO_SUMMARIZATION_URL/models" | jq '.data[0].id'
 ```
 
 Non-destructive Docker checks:
@@ -239,7 +242,9 @@ Health checks:
 ```bash
 curl -sf http://127.0.0.1:7474 >/dev/null                       # Neo4j HTTP
 curl -sf http://127.0.0.1:8529/_admin/server/availability >/dev/null # ArangoDB
-curl -sf "${LVS_BACKEND_URL:-http://localhost:38111}/v1/ready" >/dev/null
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
+curl -sf "$VIDEO_SUMMARIZATION_URL/v1/ready" >/dev/null
 ```
 
 RT-VLM values:
@@ -291,11 +296,17 @@ global values.
 ## Common Checks
 
 ```bash
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
+VLM="${VLM%/}"
+VLM="${VLM%/v1}"
+
 # video summarization health
-curl -sf "http://${HOST_IP}:38111/v1/ready" >/dev/null
+curl -sf "$VIDEO_SUMMARIZATION_URL/v1/ready" >/dev/null
 
 # RT-VLM model id
-curl -sf "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'
+curl -sf "$VLM/v1/models" | jq -r '.data[].id'
 
 # Kafka topic traffic, when kafka is enabled
 docker exec kafka kafka-console-consumer \

@@ -184,8 +184,10 @@ the corresponding DB host env to a host-reachable address (`127.0.0.1` or
 
 - Do not guess the embedding model id. Verify with the embedding endpoint's
   `/models`; do not use RT-VLM `/v1/models` for `LVS_EMB_MODEL_NAME`.
-- Use `LVS_BACKEND_URL` for video summarization API calls and strip trailing `/v1` from VLM
-  base URLs before appending `/v1/chat/completions`.
+- Use `LVS_BACKEND_URL` / `VIDEO_SUMMARIZATION_URL` for video summarization
+  API calls and strip trailing `/v1` from VLM base URLs before appending
+  `/v1/chat/completions`. Do not derive backend hosts from video, clip, VIOS,
+  RTSP, or object-storage URLs.
 - For 3.2 GA examples, prefer `/v1/summarize` and
   `num_frames_per_second_or_fixed_frames_chunk`.
 - Do not add development-only API switches to GA instructions.

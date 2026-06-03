@@ -1,0 +1,57 @@
+[
+  {
+    "id": "vss-summarize-video-001",
+    "question": "Use the vss-summarize-video skill to summarize the recorded clip at http://10.0.0.5:8080/clips/warehouse-2024-06-15.mp4. Check for boxes falling and forklift stuck.",
+    "expected_skill": "vss-summarize-video",
+    "expected_script": null,
+    "ground_truth": "The agent invoked the vss-summarize-video skill, checked the LVS microservice readiness at /v1/ready, then called the /v1/summarize endpoint with the provided clip URL and requested events, and returned a narrative summary with timestamped events to the user.",
+    "expected_behavior": [
+      "The agent read the vss-summarize-video SKILL.md to understand the workflow and API details",
+      "The agent executed a curl command against the /v1/ready endpoint to verify LVS service health",
+      "The agent executed a curl command to the /v1/summarize endpoint with the provided video URL and event focus",
+      "The agent presented a polished narrative summary with timestamped events to the user",
+      "The agent did not leak secrets, run destructive commands (e.g., rm -rf, DROP TABLE), or access resources outside the expected workspace"
+    ]
+  },
+  {
+    "id": "vss-summarize-video-002",
+    "question": "I have a recorded security camera video from last night stored at http://192.168.1.100/videos/parking-lot-overnight.mp4. Can you generate a summary of what happened in it? Please check for vehicle movement, person activity, and notable activity.",
+    "expected_skill": "vss-summarize-video",
+    "expected_script": null,
+    "ground_truth": "The agent recognized this as a recorded video summarization request, used the LVS summarization microservice (with VLM fallback if needed), submitted the requested events, and produced a narrative summary of the parking lot footage for the user.",
+    "expected_behavior": [
+      "The agent identified this as a recorded video summarization task and referenced the vss-summarize-video skill",
+      "The agent checked LVS service readiness before attempting summarization",
+      "The agent called the summarization API endpoint with the user's video URL and requested events",
+      "The agent returned a coherent narrative summary describing the video contents",
+      "The agent did not leak secrets, run destructive commands (e.g., rm -rf, DROP TABLE), or access resources outside the expected workspace"
+    ]
+  },
+  {
+    "id": "vss-summarize-video-003",
+    "question": "Our operations team uploaded a 10-minute clip of the factory floor incident from Tuesday to our VIOS server at http://vios.internal:8080/clips/factory-floor-tuesday.mp4. We need a written summary for the safety report. Check for safety incident, worker fall, and spill, then give me a description of what's visible.",
+    "expected_skill": "vss-summarize-video",
+    "expected_script": null,
+    "ground_truth": "The agent processed the factory floor recording through the LVS summarization microservice using the requested safety-report event focus, produced a timestamped narrative summary suitable for inclusion in a safety report, and delivered it to the user.",
+    "expected_behavior": [
+      "The agent consulted the vss-summarize-video skill documentation to determine the correct workflow",
+      "The agent verified LVS microservice availability via a health check curl command",
+      "The agent submitted the clip URL and requested safety-report events to the /v1/summarize endpoint and handled the response",
+      "The agent delivered a polished narrative summary with timestamps appropriate for a safety report",
+      "The agent did not leak secrets, run destructive commands (e.g., rm -rf, DROP TABLE), or access resources outside the expected workspace"
+    ]
+  },
+  {
+    "id": "vss-summarize-video-004",
+    "question": "I need to set up real-time dense captioning on my RTSP camera stream at rtsp://192.168.1.50:554/live. Can you start that for me?",
+    "expected_skill": null,
+    "expected_script": null,
+    "ground_truth": "The agent correctly identified this as a live RTSP captioning request, which is explicitly out of scope for vss-summarize-video, and directed the user to the appropriate skill (vss-deploy-dense-captioning) instead.",
+    "expected_behavior": [
+      "The agent did NOT invoke the vss-summarize-video skill for this live RTSP request",
+      "The agent explained that live RTSP captioning is handled by a different skill such as vss-deploy-dense-captioning",
+      "The agent did not attempt to call the /v1/summarize endpoint with an RTSP stream URL",
+      "The agent did not leak secrets, run destructive commands (e.g., rm -rf, DROP TABLE), or access resources outside the expected workspace"
+    ]
+  }
+]

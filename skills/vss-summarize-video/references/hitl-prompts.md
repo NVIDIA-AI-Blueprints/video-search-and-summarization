@@ -1,25 +1,35 @@
 # Video Summarization — HITL Prompt Walkthroughs
 
-### HITL: collect scenario and events first (REQUIRED — do not skip)
+### HITL: collect scenario and events when intent is ambiguous
 
-**Before any call to `POST /v1/summarize`, you MUST ask the user for
-`scenario`, `events`, and `objects_of_interest`, and wait for their
-response.** Do not call the video summarization service with defaults silently — if the user wants
-defaults, they must say so explicitly (e.g., "use the generic
-defaults").
+Before any call to `POST /v1/summarize`, resolve the required `scenario` and
+`events` fields. Use explicit user-provided values when present. If the user
+provides `events` and the purpose makes the `scenario` clear, infer a concise
+scenario and proceed. Ask the HITL prompt when required fields are absent or
+ambiguous, or when the user asks to choose parameters manually.
+
+This HITL step collects summarization parameters; it is not a second
+permission prompt after the user has already asked for a summary. Once the user
+provides values, has resolvable values from the original request, or replies
+`defaults`, send the `/v1/summarize` request without
+asking for another confirmation. Pause for an additional review-before-send
+confirmation only if the user explicitly requested that review, or if the
+resolved backend would send private media outside the user's expected VSS
+deployment boundary. Ordinary configured `LVS_BACKEND_URL`,
+`VIDEO_SUMMARIZATION_URL`, `HOST_IP`, and localhost targets do not require that
+extra confirmation.
 
 You MAY reuse previously confirmed `scenario` / `events` /
 `objects_of_interest` from earlier in the same chat **only if** the user
 is asking to re-summarize the **same video** (same `streamId` / clip
 URL) — in that case, remind the user which parameters you're about to
-reuse and let them change them before calling. For any **different
-video**, re-run the HITL from scratch.
+reuse, then call the service unless they change them or cancel. For any
+**different video**, re-run the HITL from scratch.
 
 Post the message as follows (literal template — fill the `{video_name}`
 and `{duration}` placeholders):
 
-> I'm about to send **{video_name}** ({duration}s) to the video summarization service. I need three
-> parameters first:
+> To summarize **{video_name}** ({duration}s), I need three parameters:
 >
 > 1. **`scenario`** — one-line context, e.g. `"warehouse monitoring"`,
 >    `"traffic monitoring"`
@@ -32,8 +42,10 @@ and `{duration}` placeholders):
 > Or reply `defaults` to use `scenario="activity monitoring"`,
 > `events=["notable activity"]`, no objects. Reply `/cancel` to stop.
 
-Only after the user replies with values (or `defaults`) may you build
-and send the video summarization request.
+Only after fields are resolved by explicit values, clear inference, or a user
+reply to the HITL prompt may you build and send the video summarization request.
+After that, send the request without asking for a separate approval to call
+`/v1/summarize`.
 
 **Required parameters:**
 
@@ -64,7 +76,10 @@ canonical defaults rather than guessing.
 **Request:**
 
 ```bash
-curl -s -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/v1/summarize" \
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
+
+curl -s -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "<clip_url_from_vss_manage_video_io_storage>",

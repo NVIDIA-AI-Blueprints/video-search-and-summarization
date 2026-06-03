@@ -21,6 +21,18 @@ microservice **directly**. Always run `curl` commands yourself; never instruct t
 
 Primary video workflow query type: **"Summarize this video."** Direct video summarization API
 and service-ops requests are handled by the reference-routed sections below.
+If the user asks to summarize an uploaded or pre-seeded video and `/v1/ready`
+returns 200, continue through Step 1 and Step 2 until `/v1/summarize` returns a
+result. Do not stop after readiness, model, recommended-config, or metrics
+checks unless the user asked for API/service verification instead of a summary.
+If the requested VIOS video cannot be found, use Step 1's sample-registration
+branch when the request names a known sample video; otherwise report the
+missing-video prerequisite clearly. Do not pivot to API/service verification as
+a substitute summary.
+If the user already provided a direct recorded-video URL, treat that URL as the
+clip URL. Do not `curl`, `HEAD`, download, or otherwise probe the media URL
+from the agent host; pass it only as the `url` field to the configured LVS or
+VLM backend.
 
 ## Purpose
 
@@ -28,15 +40,16 @@ Produce a single, polished narrative summary of one recorded video clip, with
 timestamped events when the LVS microservice path is reachable.
 
 **Do NOT use this skill for:**
-- Live RTSP captioning — use `vss-deploy-dense-captioning`.
+- Live RTSP captioning — explicitly direct the user to `vss-deploy-dense-captioning`.
 - Incident-range or alert-window reports — use `vss-generate-video-report` Mode B.
 - Semantic search across the archive — use `vss-search-archive`.
 
 ## Prerequisites
 
-- VSS `lvs` profile running on `$HOST_IP` (port 38111) OR a reachable
-  VLM/RT-VLM endpoint as a fallback. The `vss-deploy-profile` skill brings
-  these up.
+- VSS `lvs` profile reachable at `LVS_BACKEND_URL` /
+  `VIDEO_SUMMARIZATION_URL`, or at the deployment-configured `HOST_IP` on port
+  38111, OR a reachable VLM/RT-VLM endpoint as a fallback. The
+  `vss-deploy-profile` skill brings these up.
 - Network reachability from the agent host to both endpoints; clip URLs from
   VIOS must be fetchable by the chosen backend.
 - `jq` and `curl` available on the agent host.
@@ -96,16 +109,21 @@ If the user asks to configure, deploy, restart, tear down, or troubleshoot the
 video summarization service, prefer the `vss-deploy-profile` skill for full VSS profile
 deployment and use [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md)
 for video summarization-specific service details.
+For a deployment status report, include the REST port `38111`, readiness
+endpoint `/v1/ready`, and at least one named service signal: compose profile
+`bp_developer_lvs_2d`, container `vss-lvs`, or service `lvs-server`.
 
 ## Routing
 
 Decide purely from video summarization service availability (probed in
 *Setup → Availability checks* below). **Duration does not drive routing.**
+The Setup block resolves `VIDEO_SUMMARIZATION_URL` before probing; use that
+resolved value for the LVS readiness and summarize calls.
 
 | `/v1/ready` | Backend | Endpoint |
 |---|---|---|
-| HTTP 200 | LVS microservice with HITL | `POST ${LVS_BACKEND_URL}/v1/summarize` |
-| Anything else | VLM / RT-VLM with the default prompt + fallback note | `POST ${VLM_BASE_URL}/v1/chat/completions` |
+| HTTP 200 | LVS microservice with HITL | `POST ${VIDEO_SUMMARIZATION_URL}/v1/summarize` |
+| Anything else | VLM / RT-VLM with the default prompt + fallback note | `POST ${VLM}/v1/chat/completions` |
 
 Fallback message when the LVS service is unreachable — copy verbatim above the summary:
 
@@ -117,11 +135,11 @@ Fallback message when the LVS service is unreachable — copy verbatim above the
 
 ## Deployment prerequisite
 
-The VSS **lvs** profile on `$HOST_IP` is the primary backend. If the
-`/v1/ready` probe (see *Setup → Availability checks*) returns anything
-other than 200 after the warmup retries, ask the user:
+The VSS **lvs** profile behind the resolved video summarization URL is the
+primary backend. If the `/v1/ready` probe (see *Setup → Availability checks*)
+returns anything other than 200 after the warmup retries, ask the user:
 
-> *"The VSS `lvs` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p lvs`? Reply `no` to summarize with the VLM-only fallback instead (lower quality, no scenario/events targeting)."*
+> *"The VSS `lvs` profile is not reachable at the configured video summarization URL. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p lvs`? Reply `no` to summarize with the VLM-only fallback instead (lower quality, no scenario/events targeting)."*
 
 - **Yes** → hand off to `/vss-deploy-profile`, then re-probe and continue with Step 2 (LVS + HITL).
 - **No** → go straight to **Step 2 fallback (VLM with default prompt)** and prepend the Routing fallback note. Do not ask again, and do not run scenario/events HITL.
@@ -135,17 +153,28 @@ other than 200 after the warmup retries, ask the user:
 **Endpoints (defaults for a local VSS `lvs` deployment):**
 
 - VLM / RT-VLM: `${VLM_BASE_URL}` — default `${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}`
-- LVS service: `${LVS_BACKEND_URL}` — default `http://${HOST_IP:-localhost}:38111`
+- LVS service: `${LVS_BACKEND_URL}` or `${VIDEO_SUMMARIZATION_URL}` — default `http://${HOST_IP:-localhost}:38111`
 - VIOS: owned by `vss-manage-video-io-storage`; refer there.
 
 Use env vars when set (strip trailing `/v1` from the VLM base — the skill appends it). Otherwise use the defaults. If neither works, ask the user — do not scan ports or read config files to guess.
+
+**Endpoint precedence is strict.** If `LVS_BACKEND_URL` or
+`VIDEO_SUMMARIZATION_URL` is set, use that value exactly (apart from removing a
+trailing slash). Do **not** set or override `HOST_IP` from the input video URL,
+clip URL, VIOS URL, RTSP stream URL, S3 URL, or any other media location. Media
+hosts and backend service hosts are separate systems. Use `HOST_IP` only when it
+is already configured by the deployment environment.
 
 **Model name:** read `${VLM_NAME}` (default
 `nim_nvidia_cosmos-reason2-8b_hf-1208`). It must match the id RT-VLM
 `/v1/models` advertises; do not substitute the friendly
 `nvidia/cosmos-reason2-8b`.
 
-For endpoint schemas, optional fields, response envelopes, and error handling, see [`references/video-summarization-api.md`](references/video-summarization-api.md).
+For endpoint schemas, optional fields, response envelopes, and error handling,
+see [`references/video-summarization-api.md`](references/video-summarization-api.md).
+If you are uncertain about the `/v1/summarize` payload, first check the running
+service schema at `${VIDEO_SUMMARIZATION_URL}/openapi.json`; if that is
+unavailable, load the API reference. Do not guess request fields.
 
 **Availability checks** (run both before routing).
 **Readiness is determined by the HTTP status code only** — the LVS
@@ -154,6 +183,7 @@ inspect the body.
 
 ```bash
 VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
+VLM="${VLM%/}"
 VLM="${VLM%/v1}"
 
 # VLM / RT-VLM: 200 on /v1/models
@@ -162,7 +192,8 @@ vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
 [ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
 
 # Video summarization service: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
 video_sum_code=000
 for i in $(seq 1 10); do
   video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$VIDEO_SUMMARIZATION_URL/v1/ready")
@@ -186,6 +217,10 @@ done
 
 ## Step 1 - Get the clip URL via `vss-manage-video-io-storage` (sub-task, NOT the final answer)
 
+Skip this step when the user already supplied a direct HTTP(S) or S3 recorded
+video URL. In that case, use the supplied URL as the Step 2 `url` value and do
+not probe the media URL directly from the agent host.
+
 **Use the `vss-manage-video-io-storage` skill for all VIOS interactions** — it
 owns the canonical curl recipes, parameter defaults, and delete/upload flows.
 Do not fabricate URLs or hand-roll VIOS calls; they will drift.
@@ -199,18 +234,71 @@ URL as the final answer. From VIOS collect three values:
 
 Everything else (auth, upload, `disableAudio`, expiry, etc.) lives in the
 `vss-manage-video-io-storage` skill — refer users there if VIOS fails.
+Never derive `HOST_IP`, `LVS_BACKEND_URL`, `VIDEO_SUMMARIZATION_URL`, or
+`VLM_BASE_URL` from the clip URL host.
+
+**Sample-video registration branch.** If the request references a known sample
+video such as "the sample warehouse video" and no matching VIOS sensor/stream
+with a usable timeline and MP4 clip URL exists, delegate the VIOS sub-task to
+`/vss-manage-video-io-storage`: use its sample-data bootstrap mapping
+(`warehouse_sample.mp4` for "sample warehouse video"), upload/register the file
+with VIOS using the default timestamp `2025-01-01T00:00:00.000Z` when the user
+did not provide one, then fetch the timeline and temporary MP4 clip URL. If the
+sample-data bootstrap cannot run because `ngc` or `NGC_CLI_API_KEY` is missing,
+stop and report that prerequisite failure. Return to this workflow only after
+you have the clip URL. If registration or clip URL generation fails, stop and
+report that prerequisite failure; do not run API ops or service-status checks
+as a substitute summary.
 
 ---
 
-## Step 2 — Primary: video summarization microservice with HITL
+## Step 2 — Primary: video summarization microservice
 
 Use this path **whenever** `/v1/ready` returned 200 in Setup. Duration is irrelevant.
 
 For advanced fields (`media_info`, `schema`, structured output, stream captioning, metrics, recommended config) see [`references/video-summarization-api.md`](references/video-summarization-api.md).
 
-### HITL: collect scenario and events first (REQUIRED — do not skip)
+### Resolve required fields before calling `/v1/summarize`
 
-Full walk-through is in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run HITL before calling the LVS service.
+`POST /v1/summarize` is **not** the VLM chat-completions API. Send top-level
+summarization fields: `url` (or `id`), `model`, `scenario`, and `events`. Do not
+send `messages` or `video_url` content blocks to `/v1/summarize`; use that shape
+only for the VLM `/v1/chat/completions` fallback. If your `/v1/summarize`
+payload contains a `messages` key, stop and rebuild it from the LVS example
+below before running `curl`.
+
+If you are unsure about the request schema, check the running service before
+guessing:
+
+```bash
+curl -sf "$VIDEO_SUMMARIZATION_URL/openapi.json" | jq '.paths["/v1/summarize"]'
+```
+
+If `/openapi.json` is unavailable or too large to inspect, load
+[`references/video-summarization-api.md`](references/video-summarization-api.md)
+and use its `SummarizationQuery` fields.
+
+Full HITL walk-through is in [`references/hitl-prompts.md`](references/hitl-prompts.md).
+HITL is required only when the user's request does not provide enough context to
+choose `scenario` and `events`.
+
+HITL is parameter collection, not a second approval gate. After the user has
+asked for a summary and you have resolved `scenario` / `events` values,
+immediately submit the video URL to `/v1/summarize` and return the
+backend summary. Do not ask "should I call summarize now?" or require another
+confirmation before the curl. Only pause for an extra review-before-send
+confirmation if the user explicitly requested it, or if the resolved backend
+would send private media outside the user's expected VSS deployment boundary;
+ordinary configured `LVS_BACKEND_URL`, `VIDEO_SUMMARIZATION_URL`, `HOST_IP`, or
+localhost targets do not require that extra confirmation.
+
+Use explicit user-provided `events` when present. If `scenario` is not explicit
+but the user's purpose is clear, infer a concise scenario from the request
+context, such as "safety report review", "security monitoring", or "warehouse
+monitoring". If required `events` are absent and the user did not opt into
+defaults, ask the HITL prompt instead of guessing. If `objects_of_interest` is
+absent, omit it. Mention inferred values briefly in the final response and
+offer to re-run with different parameters.
 
 **Autonomous-mode defaults.** When the caller has bypassed HITL ("run
 autonomously without prompting") AND the original query asks for
@@ -224,7 +312,8 @@ short" or "the user seems in a hurry" are not valid reasons.
 Prefer `POST /v1/summarize` (3.2 GA route); `/summarize` is a compatibility alias.
 
 ```bash
-VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL:-${VIDEO_SUMMARIZATION_URL:-http://${HOST_IP:-localhost}:38111}}"
+VIDEO_SUMMARIZATION_URL="${VIDEO_SUMMARIZATION_URL%/}"
 
 # From HITL reply:
 SCENARIO='warehouse monitoring'
@@ -266,6 +355,7 @@ Use this path **only** when `/v1/ready` did not return 200 after warmup. Do NOT 
 
 ```bash
 VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
+VLM="${VLM%/}"
 VLM="${VLM%/v1}"
 PROMPT='Describe in detail what is happening in this video,
 including all visible people, vehicles, equipments, objects,
@@ -356,8 +446,15 @@ mixed into it.
 
 - **Route by service availability, not by duration.** Probe `/v1/ready` once
   in Setup; HTTP 200 → LVS+HITL for every clip; anything else → VLM fallback.
-- **HITL is mandatory on the LVS path.** The `defaults` opt-in is the only
-  sanctioned bypass. The VLM fallback path is silent (no HITL).
+- **Endpoint env vars are authoritative.** Use `LVS_BACKEND_URL` /
+  `VIDEO_SUMMARIZATION_URL` exactly when set. Never derive `HOST_IP` or backend
+  URLs from the clip URL, VIOS URL, RTSP URL, or media storage host.
+- **Resolve required LVS fields before calling summarize.** Use explicit user
+  values, infer from a clear purpose, use authorized defaults, or run HITL only
+  when needed. HITL collects `scenario` / `events`; it is not an extra
+  confirmation before the summarize call.
+- **Never probe the media URL directly.** The agent calls configured backend
+  endpoints; the LVS or VLM service fetches the media URL.
 - **Readiness = HTTP 200 on `/v1/ready`. Nothing else.** Body may be empty.
   Always use `curl -s -o /dev/null -w '%{http_code}'` — never pipe through
   `jq`/`grep`/`head`.
