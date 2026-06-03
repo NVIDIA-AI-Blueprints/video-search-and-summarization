@@ -329,9 +329,9 @@ docker compose --env-file $ENV_GEN -f resolved.yml up -d
 **Gate 0 — container count must be > 0.** Refuse to proceed past `up -d` until compose started the expected services:
 
 ```bash
-expected=$(docker compose --env-file $ENV_GEN -f resolved.yml config --services | wc -l)
+expected=$(docker compose --env-file "$ENV_GEN" -f resolved.yml config --services | wc -l)
 actual=$(docker compose -f resolved.yml ps -q | wc -l)
-[ "$actual" -gt 0 ] && [ "$actual" -ge "$expected" ] \
+[ "$expected" -gt 0 ] && [ "$actual" -gt 0 ] && [ "$actual" -ge "$expected" ] \
   || { echo "FAIL: expected $expected services, got $actual — re-check Step 5 --env-file"; exit 1; }
 ```
 
