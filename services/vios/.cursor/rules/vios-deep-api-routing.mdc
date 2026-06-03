@@ -1,0 +1,81 @@
+---
+description: "Deep reference: VIOS REST/WebSocket API surface, routing, auth, and schema validation"
+globs: "src/framework/apis/**,src/framework/web/**"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# API Endpoint Groups
+
+| Category | Handler | Key Endpoints |
+|----------|---------|---------------|
+| Core | `handleRestAPIs()` | `/api/help`, `/api/version`, `/v1/metadata` |
+| User | `UserRESTApis` | `/api/user/login`, `/logout`, `/new`, `/delete`, `/credentials` |
+| Sensor | `SensorManagementApis` | `/api/v1/sensor/list`, `/streams`, `/scan`, `/add`, `/status`, `/configuration`, `/qos`, `/timelines` |
+| Health | `SensorManagementApis` | `/v1/live`, `/v1/ready`, `/v1/startup` |
+| Live WebRTC | `PeerConnectionManager` | `/api/v1/live/stream/start`, `/stop`, `/query`, `/setAnswer`, `/iceCandidate`, `/iceServers` |
+| Replay WebRTC | `ReplayPeerConnection` | `/api/v1/replay/stream/start`, `/stop`, `/add`, `/pause`, `/resume`, `/seek`, `/swap`, `/status` |
+| RTSP Proxy | `RtspServerManager` | `/api/v1/proxy/stream/add`, `/stream/{id}`, `/activeClientSessions`, `/urlPrefix` |
+| Recording | `StreamRecorder` | `/api/v1/record/stream/add`, `/{id}` |
+| Storage | `StorageManagement` | `/api/v1/storage/file`, `/protect`, `/size/update`, `/aging`, `/capacity` |
+| StreamBridge | `StreamBridgeService` | StreamBridge WebRTC APIs |
+
+# Request Routing (HttpServerRequestHandler.cpp)
+
+- `addRequestHandler(uri, handler)` registers with CivetServer for both `uri` and `/vios` + `uri`
+- `RequestHandler` implements `CivetHandler`, dispatches GET/POST/PUT/DELETE
+- URL normalization: `/vios` prefix stripped before schema validation
+- Path matching: exact match, or wildcard if URI ends with `*`
+
+# Authentication (UserAuthHandler.cpp)
+
+- Active when `config.use_multi_user == true`
+- `/api/user/login` always allowed (bypass)
+- Other APIs: `isAuthorized()` -> `validateSessionIdandUsername()`
+- Session from `Cookie` header: `vst_session` + `username`
+- Validated against DB sessions (`GET_DB_INSTANCE()->getAllSessions()`)
+- Login: POST with `username`/`password`, SHA256 hash check, returns `Set-Cookie` with UUID session
+- Session lifetime: `config.session_max_age_sec` (default 30 days)
+- Optional HTTP Digest auth via Civetweb `global_auth_file`
+
+# Schema Validation (SchemaValidator.cpp)
+
+- Specs in `src/framework/web/api_spec/*.h` (sensor_spec, live_stream_spec, replay_stream_spec, etc.)
+- POST/PUT/PATCH: body + query validated via `validateRequest(uri, body, queryString)`
+- GET/DELETE: query-only validation
+- `matchApiPath()` supports `{param}` path placeholders, merges path params into data
+- Failure: `InvalidParameterError` (HTTP 400)
+
+# WebSocket (WebsocketServerRequestHandler.cpp)
+
+- Endpoints: `/vms/ws`, `/api/v1/live/ws`, `/api/v1/replay/ws`, `/api/v1/streambridge/ws` (+ `/vios` variants)
+- Connection requires `connectionId` query param (ASCII validated, unique)
+- Message format: `{ "apiKey": "...", "peerId": "...", "data": {...} }`
+- Dispatch via `m_callbackMap[apiKey]`
+- Async responses via `requestId` correlation with `fillResponseAndNotify()`
+
+# Error Response (error_code.h, utils.cpp)
+
+- `SET_VMS_ERROR` / `SET_VMS_ERROR2` macros set `error_code` + `error_message` in JSON
+- `translateVmsErrorCodeToCameraHttpErrorCode()` maps VmsErrorCode -> HTTP status
+- Key codes: NoError=200, InvalidParameter=400, Unauthorized=401, Forbidden=403, NotFound=404, InternalError=500, NotSupported=501, InsufficientStorage=507
+
+# Security Headers
+
+- CORS: `Access-Control-Allow-Origin: *` on all responses
+- JSON body limit: 100KB; file upload limit from `nv_streamer_max_upload_file_size_MB`
+- `isJsonSafe()` / `validateJsonStructure()` limit nesting and size

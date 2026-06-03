@@ -1,0 +1,2453 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+openapi: 3.0.3
+info:
+  title: VST Storage Management MS
+  description: |
+    The Storage Management is designed to facilitate the management of media files. For nvstreamer the media files are static media files
+    that are scanned from the specified directory or uploaded by the users. For VST, the media files are the recorded videos of sensors.
+    This service encompasses:
+
+    - Media upload: Media files can be uploaded to the service. The storage management service also supports upload of a large file in multiple small pieces.
+    - Media deletion: The uploaded media files can be deleted.
+    - Media metadata: The media medata can be queried to get information about the media like codec, framerate, duration etc.
+    - Storage monitoring: Information about the storage occupied by media files can be queried.
+    - Video aging policy: The aging policy feature makes sure that old media files are deleted to make space for new ones.
+    - Media download support: The media files can be downloaded.
+
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
+
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://localhost/api
+tags:
+  - name: nSpectId
+    description: NSPECT-1H82-JYCQ
+    externalDocs:
+      url: https://nspect.nvidia.com/review?id=NSPECT-1H82-JYCQ
+  - name: v1
+    description: VST Storage Management API Schema v1
+paths:
+  /v1/storage/file/{streamId}:
+    delete:
+      tags:
+        - v1
+      summary: Delete media file associated with the provided ID
+      description: In NvStreamer, calling this API will delete the static media file identified by the streamId. This API is not applicable for VST use-case.
+      operationId: deleteFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spaceSaved:
+                    type: integer
+                    minimum: 0
+                    description: 'Amount of disk space reclaimed by the delete, in megabytes.'
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags:
+        - v1
+      summary: Download video files of a particular stream
+      description: Download media files/clips of a particular stream from start time to end time. If the end time is not
+        provided then it is assumed to be infinity. The media file to be downloaded can be configured using the optional
+        'configuration' query parameter. When 'fullFile=true' is set, startTime and endTime are not required and the entire
+        underlying file is served directly without any processing.
+      operationId: getDownloadFile
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          required: false
+          description: Required unless fullFile=true is set. Start time of the clip to download.
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+        - name: endTime
+          in: query
+          required: false
+          description: Required unless fullFile=true is set. End time of the clip to download.
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+        - name: fullFile
+          in: query
+          required: false
+          description: If true, serves the entire underlying recording file directly (no remux/transcode) and startTime/endTime
+            are not required. Only applies to file-based sensors (SENSOR_TYPE_FILE).
+          schema:
+            type: boolean
+            default: false
+          example: true
+        - name: fullLength
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+          example: true
+        - name: container
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+          description: Video container format. If both container query parameter and container in configuration are provided, the query parameter takes precedence.
+        - name: transcode
+          in: query
+          required: false
+          description: Transcoding mode for video processing
+          schema:
+            type: string
+            enum: ["none", "full", "gop"]
+            default: "none"
+          example: "none"
+        - name: configuration
+          in: query
+          description: configuration parameters
+          required: false
+          schema:
+            $ref: '#/components/schemas/FileConfig'
+      responses:
+        '200':
+          description: Successful video file download
+          content:
+            video/mp2t:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename=<file_name>.ts
+            Content-Type:
+              schema:
+                type: string
+                example: video/mp2t
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/file/{streamId}/url:
+    get:
+      tags:
+        - v1
+      summary: Get temporary URL for accessing stored video files
+      description: Get temporary URL for accessing stored video files for the specified stream and time range. This does not
+        download the video, but provides a temporary URL that can be used to access the video file. When 'fullFile=true' is
+        set, startTime and endTime are not required and the returned URL serves the entire underlying recording without any
+        processing.
+      operationId: getVideoStorageUrl
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+            format: date-time
+          example: "2025-08-25T03:05:55.752Z"
+          description: Required unless fullFile=true is set. Start time in ISO 8601 UTC format.
+        - name: endTime
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+            format: date-time
+          example: "2025-08-25T03:06:15.752Z"
+          description: Required unless fullFile=true is set. End time in ISO 8601 UTC format.
+        - name: fullFile
+          in: query
+          required: false
+          description: If true, returns a URL that serves the entire underlying media file (no processing)
+            and startTime/endTime are not required. Only applies to file-based sensors.
+          schema:
+            type: boolean
+            default: false
+          example: true
+        - name: expiryMinutes
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10080
+          example: 10080
+          description: Expiration time in minutes for the URL (default 10080 - 7 days)
+        - name: container
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            default: "mp4"
+          example: "mp4"
+          description: Video container format. If both container query parameter and container in configuration are provided, the query parameter takes precedence.
+        - name: transcode
+          in: query
+          required: false
+          description: Transcoding mode for video processing
+          schema:
+            type: string
+            enum: ["none", "full", "gop"]
+            default: "none"
+          example: "none"
+        - name: configuration
+          in: query
+          description: Advanced video and overlay configuration parameters
+          required: false
+          schema:
+            type: object
+            properties:
+              container:
+                type: string
+                maxLength: 128
+                pattern: ".*"
+                example: "mp4"
+                description: Video container format. Used as fallback if container query parameter is not provided.
+              overlay:
+                $ref: '#/components/schemas/OverlayConfiguration'
+            # yamllint disable-line rule:line-length
+            example: '{"overlay":{"bbox":{"showAll":true,"classType":["Person","Pallet"],"showObjId":true,"objIdPosition":0,"objIdTextColor":"white","objIdTextBGColor":"green"},"color":"green","thickness":5,"debug":true,"opacity":254}}'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  absolutePath:
+                    type: string
+                    description: Full file path on server
+                    example: "/tmp/storage_video_abc123.mp4"
+                  videoUrl:
+                    type: string
+                    description: Direct URL to access the video file
+                    example: "https://example.com/temp/storage_video_abc123.mp4"
+                  expiryISO:
+                    type: string
+                    format: date-time
+                    description: URL expiration time in ISO format
+                    example: "2025-09-26T03:05:55.752Z"
+                  expiryMinutes:
+                    type: integer
+                    description: Expiry minutes as provided
+                    example: 10080
+                  streamId:
+                    type: string
+                    description: Stream ID as provided
+                    example: "stream123"
+                  type:
+                    type: string
+                    enum: ["replay"]
+                    description: Always "replay"
+                  fullFile:
+                    type: boolean
+                    description: 'Present and set to true when the returned videoUrl serves the full underlying media file.'
+                    example: true
+                  startTime:
+                    type: string
+                    format: date-time
+                    description: 'Actual segment-aligned start time of the generated clip. May differ slightly from the requested startTime because the server snaps to the nearest keyframe boundary.'
+                    example: "2026-04-20T05:03:22.340Z"
+                  startTimeEpochMs:
+                    type: integer
+                    format: int64
+                    description: 'startTime expressed as epoch milliseconds.'
+                    example: 1776661402340
+                required:
+                  - absolutePath
+                  - videoUrl
+                  - expiryISO
+                  - expiryMinutes
+                  - streamId
+                  - type
+                  - startTime
+                  - startTimeEpochMs
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/{streamId}:
+    get:
+      tags:
+        - v1
+      summary: Get the total space occupied by the video recordings of a stream
+      description: Get the total space occupied by the video recordings of a single stream.
+      operationId: getRecordSize
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: json object
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - size_in_mb
+                properties:
+                  size_in_mb:
+                    type: integer
+                    minimum: 0
+                    description: 'Total on-disk size of the stream''s recordings, in megabytes.'
+                    example: 433
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/file/mediainfo:
+    get:
+      tags:
+        - v1
+      summary: Get media file metadata information
+      description: The API provides audio video metadata information about media files, like FPS, codec, resolution, etc.
+      operationId: getMediaInfo
+      parameters:
+        - name: sensorId
+          in: query
+          required: false
+          description: Unique identifier for the Sensor
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: id
+          in: query
+          required: false
+          description: Unique identifier for the file
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileMetadata"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/file/protect:
+    post:
+      tags:
+        - v1
+      summary: Add or remove files from the protected list
+      description: Add or remove files from the protected list. Adding a file to protected list will protect it from deletion from both
+        the delete API call as well from video aging policy.
+      operationId: addOrRemoveFilesInProtectList
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FileProtection'
+        required: true
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtectFiles'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/file:
+    get:
+      tags:
+        - v1
+      summary: Download media file by unique ID
+      description: Download a media file using its unique identifier. Optionally specify start and end times to download specific portions of the file.
+      operationId: downloadFileById
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: Unique identifier for the stored file
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          required: false
+          description: Start time of clip to download. Format ISO 8601 (2025-07-09T07:00:00.000Z) or PTS starting with 0
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            example: "2025-07-09T07:00:00.000Z"
+        - name: endTime
+          in: query
+          required: false
+          description: End time of clip to download. Format ISO 8601 (2025-07-09T07:00:00.000Z) or PTS relative timestamp w.r.t to start
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            example: "2025-07-09T07:30:00.000Z"
+      responses:
+        '200':
+          description: Successful file download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment;filename=<filename>
+            Content-Type:
+              schema:
+                type: string
+                example: application/octet-stream
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      tags:
+        - v1
+      summary: Delete media file(s)
+      description: Delete multiple media files by providing array of file paths in the query parameter.
+      operationId: deleteFiles
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filePath
+          description: An array of file paths to delete
+          required: true
+          in: query
+          schema:
+            type: array
+            maxItems: 100
+            items:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteFiles'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags:
+        - v1
+      summary: Upload or register media file
+      description: Upload a media file or register an existing file on the server. The media file can be uploaded as a single file with metadata,
+        uploaded in chunks, or registered by providing file paths to existing files on the server. The media file should not have whitespaces in its file name.
+        For single file upload with metadata, use mediaFile, metadataFile, and metadata fields. For registering existing files, use mediaFilePath, metadataFilePath, and metadata fields.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Media file for chunked upload
+                mediaFile:
+                  type: string
+                  format: binary
+                  description: Media file for single upload with metadata
+                metadataFile:
+                  type: string
+                  format: binary
+                  description: JSON metadata file
+                mediaFilePath:
+                  type: string
+                  maxLength: 512
+                  pattern: ".*"
+                  example: "/videos/zone4_motion_clip.mp4"
+                  description: Full path to existing media file on server filesystem (for registration)
+                metadataFilePath:
+                  type: string
+                  maxLength: 512
+                  pattern: ".*"
+                  example: "./media/events/20240115_103000.json"
+                  description: Path to existing JSON metadata file on server filesystem (for registration)
+                metadata:
+                  $ref: '#/components/schemas/MediaMetadata'
+            encoding:
+              file:
+                contentType: application/octet-stream
+              mediaFile:
+                contentType: application/octet-stream
+              metadataFile:
+                contentType: application/json
+      parameters:
+        - name: nvstreamer-chunk-number
+          in: header
+          required: false
+          description: The current chunk number (required for chunked upload)
+          schema:
+            type: integer
+        - name: nvstreamer-total-chunks
+          in: header
+          required: false
+          description: The total number of chunks in which the media file is divided (required for chunked upload)
+          schema:
+            type: integer
+        - name: nvstreamer-is-last-chunk
+          in: header
+          required: false
+          description: Whether its the last chunk or not (required for chunked upload)
+          schema:
+            type: boolean
+        - name: nvstreamer-identifier
+          in: header
+          required: false
+          description: Unique identifier for the media upload. All chunks associated with
+            a media file will have the same chunk identifier. (required for chunked upload)
+          schema:
+            type: string
+        - name: nvstreamer-file-name
+          in: header
+          description: Media file name (required for chunked upload)
+          required: false
+          schema:
+            type: string
+        - name: nvstreamer-enable-transcode
+          in: header
+          required: false
+          description: Set to "true" to enable transcoding of the uploaded file.
+          schema:
+            type: string
+            enum: ["true", "false"]
+          example: "true"
+        - name: transcode-framerate
+          in: header
+          required: false
+          description: Target framerate for transcoding (frames per second). Overrides the source framerate.
+          schema:
+            type: integer
+            minimum: 1
+          example: 30
+        - name: transcode-bitrate
+          in: header
+          required: false
+          description: Target bitrate for transcoding (bits per second). Defaults to the source file bitrate if not provided or set to 0.
+          schema:
+            type: integer
+            minimum: 0
+          example: 4000000
+        - name: transcode-keyframe-interval
+          in: header
+          required: false
+          description: Target keyframe interval for transcoding (number of frames between keyframes).
+          schema:
+            type: integer
+            minimum: 1
+          example: 60
+        - name: nvstreamer-transcode-framerate
+          in: header
+          required: false
+          description: "Deprecated: use transcode-framerate instead. Target framerate for transcoding (frames per second)."
+          schema:
+            type: integer
+            minimum: 1
+        - name: nvstreamer-transcode-bitrate
+          in: header
+          required: false
+          description: "Deprecated: use transcode-bitrate instead. Target bitrate for transcoding (bits per second)."
+          schema:
+            type: integer
+            minimum: 0
+        - name: nvstreamer-transcode-keyframe-interval
+          in: header
+          required: false
+          description: "Deprecated: use transcode-keyframe-interval instead. Target keyframe interval for transcoding."
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: File successfully uploaded or registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    pattern: "^[a-zA-Z0-9_-]+$"
+                    maxLength: 100
+                    example: "6e0c5b4e-4d8c-4c2a-a5c2-3d9a8b4d2f1e"
+                    description: Unique identifier for the uploaded or registered file
+                  bytes:
+                    type: integer
+                    minimum: 0
+                    example: 128000
+                    description: Size of the uploaded file in bytes
+                  created_at:
+                    type: string
+                    format: date-time
+                    example: "2025-07-09T07:20:07.222Z"
+                    description: Timestamp when the file was uploaded or registered
+                  fileName:
+                    type: string
+                    maxLength: 128
+                    pattern: ".*"
+                    example: "zone3_motion_clip.mp4"
+                    description: Name of the uploaded or registered file
+                  sensorId:
+                    type: string
+                    pattern: "^[a-zA-Z0-9_-]+$"
+                    maxLength: 100
+                    example: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+                    description: Unique identifier of the sensor that captured the media
+                  filePath:
+                    type: string
+                    maxLength: 256
+                    pattern: ".*"
+                    example: "/videos/zone4_motion_clip.mp4"
+                    description: Path where the file is stored
+                  streamId:
+                    type: string
+                    maxLength: 128
+                    pattern: ".*"
+                    example: "13814000-8752-1052-bfff-ac9b0a33cda4"
+                    description: Stream identifier (for backward compatibility)
+                required:
+                  - id
+                  - bytes
+                  - created_at
+                  - fileName
+                  - sensorId
+                  - filePath
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/file/{filename}/{timestamp}:
+    put:
+      tags:
+        - v1
+      summary: Upload media file via PUT
+      description: |
+        Upload a media file using a PUT request. The media file is sent as the request body,
+        and its name is provided in the path. A timestamp (in milliseconds) is provided in the
+        path to record the logical start time of the clip.
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          description: Name of the media file. Must not contain whitespace.
+          schema:
+            type: string
+            maxLength: 128
+            pattern: "^[^\\s]+$"
+        - name: timestamp
+          in: path
+          required: true
+          description: Timestamp of the clip in milliseconds. Use 0 if not applicable.
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: File successfully uploaded via PUT
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  filename:
+                    type: string
+                    maxLength: 128
+                    pattern: ".*"
+                    description: Name of the uploaded file (without extension)
+                  bytes:
+                    type: integer
+                    minimum: 0
+                    description: Size of the uploaded file in bytes
+                  sensorId:
+                    type: string
+                    pattern: "^[a-zA-Z0-9_-]+$"
+                    maxLength: 100
+                    description: Unique identifier for the sensor
+                  streamId:
+                    type: string
+                    pattern: "^[a-zA-Z0-9_-]+$"
+                    maxLength: 100
+                    description: Unique identifier for the stream
+                  filePath:
+                    type: string
+                    maxLength: 512
+                    pattern: ".*"
+                    description: Absolute path where the file is stored on disk
+                  timestamp:
+                    type: string
+                    description: Timestamp of the clip as provided in the request
+                required:
+                  - filename
+                  - bytes
+                  - sensorId
+                  - streamId
+                  - filePath
+                  - timestamp
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/file/{filename}:
+    put:
+      tags:
+        - v1
+      summary: Upload media file via PUT (New API)
+      description: |
+        Upload a media file using PUT request with query parameters.
+        The media file is sent as the request body. Filename is in the path.
+        Optional query parameters: timestamp (milliseconds since epoch) and sensorId.
+        If sensorId is provided and already exists, file becomes a sub-stream of existing sensor.
+        If filename already exists, returns 409 Conflict (no automatic renaming).
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          description: Name of the media file. Must not contain whitespace.
+          schema:
+            type: string
+            maxLength: 128
+            pattern: "^[^\\s]+$"
+        - name: timestamp
+          in: query
+          required: false
+          description: Timestamp in milliseconds since epoch. Defaults to 0 if not provided.
+          schema:
+            type: integer
+            format: int64
+            default: 0
+          example: 1749993045000
+        - name: sensorId
+          in: query
+          required: false
+          description: Sensor ID. If not provided, server generates a random UUID. If provided and exists, creates sub-stream.
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+          example: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: File successfully uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    description: Unique file identifier
+                  filename:
+                    type: string
+                    description: Name of the uploaded file (without extension)
+                  bytes:
+                    type: integer
+                    description: Size of the uploaded file in bytes
+                  sensorId:
+                    type: string
+                    description: Sensor ID (provided or generated)
+                  streamId:
+                    type: string
+                    description: Stream ID (main stream or sub-stream)
+                  filePath:
+                    type: string
+                    description: Absolute path where file is stored
+                  timestamp:
+                    type: string
+                    description: Timestamp as provided in request
+                required:
+                  - id
+                  - filename
+                  - bytes
+                  - sensorId
+                  - streamId
+                  - filePath
+                  - timestamp
+        '409':
+          description: File already exists (conflict)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Unprocessable entity (invalid codec)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '507':
+          description: Insufficient storage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/file/{sensorId}:
+    get:
+      tags:
+        - v1
+      summary: Download media files by sensor ID
+      description: Download media files associated with a specific sensor within a defined time range.
+        Optionally specify file ID, start and end times, and full length requirements. When 'fullFile=true' is set,
+        startTime and endTime are not required and the entire underlying file is served directly without any
+        processing.
+      operationId: downloadFileBySensorId
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          description: Unique identifier for the sensor
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: id
+          in: query
+          required: false
+          description: Unique ID to identify specific file
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          required: false
+          description: Required unless fullFile=true is set. Start time of clip to download. Format ISO 8601
+            (2025-07-09T07:00:00.000Z).
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            example: "2025-07-09T07:00:00.000Z"
+        - name: endTime
+          in: query
+          required: false
+          description: Required unless fullFile=true is set. End time of clip to download. Format ISO 8601
+            (2025-07-09T07:00:00.000Z).
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            example: "2025-07-09T07:30:00.000Z"
+        - name: fullLength
+          in: query
+          required: false
+          description: The file will be downloaded if the file length is within the start and end time and there are no gaps. Default is false
+          schema:
+            type: boolean
+            default: false
+        - name: fullFile
+          in: query
+          required: false
+          description: If true, serves the entire file directly and
+            startTime/endTime are not required. Only applies to file-based sensors (SENSOR_TYPE_FILE).
+          schema:
+            type: boolean
+            default: false
+          example: true
+      responses:
+        '200':
+          description: Successful file download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment;filename=<filename>
+            Content-Type:
+              schema:
+                type: string
+                example: application/octet-stream
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/file/list:
+    get:
+      tags:
+        - v1
+      summary: Get list of all media files
+      description: This API endpoint returns a list of all media files linked to every sensor.
+      operationId: getAllFilesList
+      responses:
+        '200':
+          description: Successfully retrieved files list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorFilesList'
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/file/path:
+    get:
+      tags:
+        - v1
+      summary: Get media file path by unique ID
+      description: This API endpoint allows clients to retrieve media file path using the unique file id
+      operationId: getFilePathById
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: Unique identifier for the stored file
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+            example: "alfur7-hdv53g-dhbcu-d923s"
+        - name: metadata
+          in: query
+          required: false
+          description: To enable metadata in response. Default is false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Successfully retrieved file path information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 100
+                    example: "alfur7-hdv53g-dhbcu-d923s"
+                    description: Unique identifier for the file. May be an empty string when the file has no associated event metadata.
+                  mediaFilePath:
+                    type: string
+                    maxLength: 512
+                    pattern: ".*"
+                    example: "/vst_video/Camera/1920x1080/17514898444423.mkv"
+                    description: Full path to the media file
+                  metaDataFilePath:
+                    type: string
+                    maxLength: 512
+                    pattern: ".*"
+                    example: "./media/events/20240115_103000.json"
+                    description: Path to the metadata file. Empty string if no metadata file is associated. Note the capital D in metaDataFilePath is intentional and matches the live API response.
+                  metadata:
+                    type: string
+                    maxLength: 65536
+                    pattern: ".*"
+                    example: '{"eventInfo": "Motion detected", "timestamp": 1752045606222}'
+                    description: >-
+                      Raw metadata JSON string from the database (verbatim DB column). Empty string when no event metadata is associated. Only included in the response when the `metadata=true` query
+                      parameter is supplied.
+                required:
+                  - id
+                  - mediaFilePath
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/file/{sensorId}/list:
+    get:
+      tags:
+        - v1
+      summary: Get list of media files by sensor ID
+      description: This API endpoint returns a list of all media files linked to specified sensor Id.
+      operationId: getFileListBySensorId
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          description: Unique identifier for the Sensor
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Successfully retrieved files list for sensor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SingleSensorFilesList'
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/file/{sensorId}/path:
+    get:
+      tags:
+        - v1
+      summary: Get media file paths by sensor ID
+      description: This API endpoint allows clients to retrieve media file path associated with a specific sensor within a defined time range.
+        The API will return all the media file paths in case start and end time are not specified.
+      operationId: getFilePathsBySensorId
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          description: Unique identifier for the sensor
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          required: false
+          description: Start time of clip. Format ISO 8601 (2025-07-09T00:00:00.000Z)
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            example: "2025-07-09T00:00:00.000Z"
+        - name: endTime
+          in: query
+          required: false
+          description: End time of clip. Format ISO 8601 (2025-07-09T00:00:00.000Z)
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            example: "2025-07-09T23:59:59.999Z"
+        - name: metadata
+          in: query
+          required: false
+          description: To enable metadata in response. Default is false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Successfully retrieved file paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      pattern: ".*"
+                      maxLength: 100
+                      example: "alfur7-hdv53g-dhbcu-d923s"
+                      description: Unique identifier for the file. May be an empty string when the file has no associated event metadata.
+                    mediaFilePath:
+                      type: string
+                      maxLength: 512
+                      pattern: ".*"
+                      example: "/vst_video/Camera/1920x1080/17514898444423.mkv"
+                      description: Full path to the media file
+                    metaDataFilePath:
+                      type: string
+                      maxLength: 512
+                      pattern: ".*"
+                      example: "./media/events/20240115_103000.json"
+                      description: Path to the metadata file. Empty string if no metadata file is associated. Note the capital D in metaDataFilePath is intentional and matches the live API response.
+                    metadata:
+                      type: string
+                      maxLength: 65536
+                      pattern: ".*"
+                      example: '{"eventInfo": "Motion detected", "timestamp": 1752045606222}'
+                      description: >-
+                        Raw metadata JSON string from the database (verbatim DB column). Empty string when no event metadata is associated. Only included in the response when the `metadata=true`
+                        query parameter is supplied.
+                  required:
+                    - id
+                    - mediaFilePath
+                example:
+                  - id: "alfur7-hdv53g-dhbcu-d923s"
+                    mediaFilePath: "/vst_video/Camera/1920x1080/17514898444423.mkv"
+                    metaDataFilePath: "./media/events/20240115_103000.json"
+                    metadata: '{"eventInfo": "Motion detected in Zone 4"}'
+                  - id: ""
+                    mediaFilePath: "/vst_video/Camera/1920x1080/17514898454423.mkv"
+                    metaDataFilePath: ""
+                    metadata: ""
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/configuration:
+    get:
+      tags:
+        - v1
+      summary: Get configuration of storage management service
+      description: Get storage management service configuration. This includes
+        the information about the status of aging policy, max media file download size, total video storage size etc.
+      operationId: getStorageConfiguration
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetConfiguration'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/version:
+    get:
+      tags:
+        - v1
+      summary: Get storage management service version
+      description: Get storage management service version.
+      operationId: getVersion
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  storage_management_version:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                    example: "0.0.1"
+                required:
+                  - storage_management_version
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/help:
+    get:
+      tags:
+        - v1
+      summary: Get list of supported APIs
+      description: Get list of supported APIs by storage management service.
+      operationId: gethelp
+      responses:
+        '200':
+          description: Successs
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  $ref: '#/components/schemas/HelpEntry'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/storage/size:
+    get:
+      tags:
+        - v1
+      summary: Get total used storage size by recordings of each sensor
+      description: Get total used storage size by recordings of each sensor. The total space occupied by all sensor is also available.
+      parameters:
+        - name: timelines
+          in: query
+          description: Provide "true" if want timelines of recording segments along with size
+          required: false
+          schema:
+            type: string
+        - name: streams
+          in: query
+          description: Array of stream IDs to get size for. If not provided, returns size for all streams.
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              pattern: "^[a-zA-Z0-9_-]+$"
+            maxItems: 100
+      operationId: totalStorageSize
+      responses:
+        '200':
+          description: json object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotalStorageSize'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/timelines:
+    get:
+      tags:
+        - v1
+      summary: Get recording timelines for all streams
+      description: >-
+        Get recording timelines for all streams. Returns an object with streamId keys, each mapped to an array of timeline segments. Optional streams query filters the response to only the provided
+        streamIds.
+      operationId: getAllStorageTimelines
+      parameters:
+        - name: streams
+          in: query
+          required: false
+          description: One or more streamId values to filter the response. Provide multiple times for multiple streams (streams=a&streams=b).
+          schema:
+            type: array
+            maxItems: 100
+            items:
+              type: string
+              pattern: "^[a-zA-Z0-9_-]+$"
+              maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllStreamTimelinesResponse'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/{streamId}/timelines:
+    get:
+      tags:
+        - v1
+      summary: Get recording timelines for a specific stream
+      description: Get recording timelines for a single stream as an array of non-overlapping segments.
+      operationId: getStorageTimelinesForStream
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamTimelinesResponse'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/stream/{streamId}/picture:
+    get:
+      tags:
+        - v1
+      summary: Get picture or snapshot of recorded streaming
+      description: Get picture (jpeg) of the recorded streaming. Call this API will return a snapshot or picture of the stream from the specified UTC timestamp.
+      operationId: getStorageStreamPicture
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+            format: date-time
+          example: 2021-06-21T06:51:00.000Z
+        - name: width
+          in: query
+          schema:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example: '1920'
+        - name: height
+          in: query
+          schema:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example: '1080'
+        - name: frameId
+          in: query
+          schema:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example: '20'
+          description: 'Applicable for NvStreamer use-case'
+        - name: overlay
+          in: query
+          description: JSON object specifying overlay details
+          schema:
+            type: object
+            properties:
+              bbox:
+                type: object
+                properties:
+                  showAll:
+                    type: boolean
+                  objectId:
+                    type: array
+                    items:
+                      type: integer
+                  classType:
+                    type: array
+                    items:
+                      type: string
+                  showObjId:
+                    type: boolean
+                  objIdPosition:
+                    type: integer
+                  objIdTextColor:
+                    type: string
+                  objIdTextBGColor:
+                    type: string
+              tripwire:
+                type: object
+                properties:
+                  showAll:
+                    type: boolean
+                  id:
+                    type: array
+                    items:
+                      type: integer
+              roi:
+                type: object
+                properties:
+                  showAll:
+                    type: boolean
+                  id:
+                    type: array
+                    items:
+                      type: integer
+              color:
+                type: string
+              thickness:
+                type: integer
+              debug:
+                type: boolean
+              opacity:
+                type: integer
+          # yamllint disable-line rule:line-length
+          example: '{"bbox":{"showAll":false,"objectId":[521,517,496,333,23,441],"classType":["Person","Pallet"],"showObjId":true,"objIdPosition":0,"objIdTextColor":"white","objIdTextBGColor":"green"},"tripwire":{"showAll":false,"id":[521,517,496,333,23,441]},"roi":{"showAll":false,"id":[521,517,496,333,23,441]},"color":"green","thickness":5,"debug":true,"opacity":254}'
+      responses:
+        '200':
+          description: Success
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                maxLength: 128
+                format: binary
+        default:
+          description: Unexpected error
+          content:
+            image/jpeg:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/stream/{streamId}/picture/url:
+    get:
+      tags:
+        - v1
+      summary: Get temporary URL for accessing storage picture
+      description: >-
+        Get temporary URL for accessing storage picture from a camera stream at a specific time. This does not download the picture, but provides a temporary URL that can be used to access the image
+        file.
+      operationId: getStorageStreamPictureUrl
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+            format: date-time
+          example: "2025-09-15T12:45:52.685Z"
+          description: Start time in ISO 8601 UTC format
+        - name: expiryMinutes
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10080
+          example: 10080
+          description: Expiration time in minutes for the URL (default 10080 - 7 days)
+        - name: overlay
+          in: query
+          description: JSON object specifying overlay details
+          schema:
+            type: object
+            properties:
+              bbox:
+                type: object
+                properties:
+                  showAll:
+                    type: boolean
+                  objectId:
+                    type: array
+                    items:
+                      type: integer
+                  classType:
+                    type: array
+                    items:
+                      type: string
+                  showObjId:
+                    type: boolean
+                  objIdPosition:
+                    type: integer
+                  objIdTextColor:
+                    type: string
+                  objIdTextBGColor:
+                    type: string
+              tripwire:
+                type: object
+                properties:
+                  showAll:
+                    type: boolean
+                  id:
+                    type: array
+                    items:
+                      type: integer
+              roi:
+                type: object
+                properties:
+                  showAll:
+                    type: boolean
+                  id:
+                    type: array
+                    items:
+                      type: integer
+              color:
+                type: string
+              thickness:
+                type: integer
+              debug:
+                type: boolean
+              opacity:
+                type: integer
+              pose:
+                type: boolean
+          example: '{"bbox":{"showAll":true},"color":"green","thickness":5,"debug":true,"opacity":254}'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  absolutePath:
+                    type: string
+                    description: Full file path on server
+                    example: "/tmp/storage_picture_abc123.jpg"
+                  imageUrl:
+                    type: string
+                    description: Direct URL to access the image file
+                    example: "https://example.com/temp/storage_picture_abc123.jpg"
+                  expiryISO:
+                    type: string
+                    format: date-time
+                    description: URL expiration time in ISO format
+                    example: "2025-09-22T12:45:52.685Z"
+                  expiryMinutes:
+                    type: integer
+                    description: Expiry minutes as provided
+                    example: 10080
+                  streamId:
+                    type: string
+                    description: Stream ID as provided
+                    example: "stream123"
+                  type:
+                    type: string
+                    enum: ["replay"]
+                    description: Always "replay"
+                required:
+                  - absolutePath
+                  - imageUrl
+                  - expiryISO
+                  - expiryMinutes
+                  - streamId
+                  - type
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/info:
+    get:
+      tags:
+        - v1
+      summary: Get information about total, used and available storage.
+      description: Get information about total, used and available storage.
+      operationId: getStorageInfo
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageInfo"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/storage/file/protected:
+    get:
+      tags:
+        - v1
+      summary: Get protected file list
+      description: Get protected file list. The files that are present in protected list are not deleted by delete API call and by
+        video aging policy.
+      operationId: getProtectedFiles
+      responses:
+        '200':
+          description: Successs
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+              example:
+                - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174587.mkv
+                - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174545.mkv
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    FileConfig:
+      type: object
+      properties:
+        framerate:
+          type: integer
+          example: 30
+          maximum: 100
+          minimum: 0
+        resolution:
+          type: string
+          example: "1920x1080"
+          pattern: ".*"
+          maxLength: 128
+        container:
+          type: string
+          example: "mp4"
+          pattern: ".*"
+          maxLength: 128
+          description: Video container format. This is used as a fallback if the container query parameter is not provided.
+        disableAudio:
+          type: boolean
+          example: false
+        overlay:
+          $ref: '#/components/schemas/OverlayConfiguration'
+    FileMetadata:
+      type: object
+      properties:
+        Duration:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Container:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Codec:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Height:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Width:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Framerate:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        ScanType:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Bitrate:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        SampleRate:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Channels:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Depth:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+      required:
+        - Duration
+        - Container
+        - Codec
+        - Height
+        - Width
+        - Framerate
+        - ScanType
+        - Bitrate
+        - SampleRate
+        - Channels
+        - Depth
+
+    GetConfiguration:
+      type: object
+      properties:
+        enableAgingPolicy:
+          type: boolean
+        enableUserCleanup:
+          type: boolean
+        maxVideoDownloadSizeMB:
+          type: integer
+          minimum: 0
+          example: 1000
+        multiUserExtraOptions:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        recordedVideoDirRoot:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+        storageMonitoringFrequencySecs:
+          type: number
+        storageThresholdPercentage:
+          type: number
+        totalVideoStorageSizeMB:
+          type: integer
+          minimum: 0
+          example: 1000000
+        useHttpDigestAuthentication:
+          type: boolean
+        useHttps:
+          type: boolean
+        useMultiUser:
+          type: boolean
+        vstDataPath:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+        vstIp:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        webserviceAccessControlList:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        enableCloudStorage:
+          type: boolean
+        cloudStorageBucket:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: 'videos'
+        cloudStorageEndpoint:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+          example: 'http://127.0.0.1:9000'
+        cloudStorageRegion:
+          type: string
+          pattern: ".*"
+          maxLength: 64
+          example: 'us-east-1'
+        cloudStorageType:
+          type: string
+          pattern: ".*"
+          maxLength: 64
+          example: 'minio'
+        cloudStorageUseSsl:
+          type: boolean
+      required:
+        - enableAgingPolicy
+        - enableUserCleanup
+        - maxVideoDownloadSizeMB
+        - multiUserExtraOptions
+        - recordedVideoDirRoot
+        - storageMonitoringFrequencySecs
+        - storageThresholdPercentage
+        - totalVideoStorageSizeMB
+        - useHttpDigestAuthentication
+        - useHttps
+        - useMultiUser
+        - vstDataPath
+        - vstIp
+        - webserviceAccessControlList
+        - enableCloudStorage
+
+    TotalStorageSize:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/SensorStorage'
+      properties:
+        total:
+          $ref: '#/components/schemas/TotalStorage'
+
+    SensorStorage:
+      type: object
+      required:
+        - sizeInMegabytes
+        - state
+      properties:
+        sizeInMegabytes:
+          type: integer
+          minimum: 0
+        state:
+          type: string
+          enum: [connected, disconnected]
+        timelines:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineSegment'
+
+    TimelineSegment:
+      type: object
+      required:
+        - endTime
+        - sizeInMegabytes
+        - startTime
+      properties:
+        endTime:
+          type: string
+          format: date-time
+        sizeInMegabytes:
+          type: integer
+          minimum: 0
+        startTime:
+          type: string
+          format: date-time
+
+    TotalStorage:
+      type: object
+      required:
+        - remainingStorageDays
+        - sizeInMegabytes
+        - totalAvailableStorageSize
+        - totalDiskCapacity
+      properties:
+        remainingStorageDays:
+          type: number
+          minimum: 0
+          description: 'Estimated remaining recording capacity expressed in days (may be fractional).'
+          example: 1.7504074074074074
+        sizeInMegabytes:
+          type: integer
+          minimum: 0
+          description: 'Total size of stored recordings across all streams, in megabytes.'
+        totalAvailableStorageSize:
+          type: integer
+          minimum: 0
+          description: 'Available storage size remaining on the recordings disk, in megabytes.'
+          example: 94522
+        totalDiskCapacity:
+          type: integer
+          minimum: 0
+          description: 'Total capacity of the recordings disk, in megabytes.'
+          example: 937291
+
+    FileProtection:
+      type: object
+      properties:
+        filePath:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+          example:
+            - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174587.mkv
+            - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174545.mkv
+        protect:
+          type: boolean
+          example: true
+      required:
+        - filePath
+        - protect
+
+    StorageInfo:
+      type: object
+      description: 'Total/used/available disk space for the recordings volume, reported in megabytes.'
+      properties:
+        total:
+          type: integer
+          minimum: 0
+          example: 937291
+        used:
+          type: integer
+          minimum: 0
+          example: 2310
+        available:
+          type: integer
+          minimum: 0
+          example: 934981
+
+      required:
+        - total
+        - used
+        - available
+
+    ProtectFiles:
+      properties:
+        invalidFiles:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example:
+            - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174587.mkv
+            - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174545.mkv
+      required:
+        - invalidFiles
+
+    DeleteFiles:
+      properties:
+        invalidFiles:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example:
+            - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174587.mkv
+            - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174545.mkv
+        protectedFiles:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example:
+            - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174588.mkv
+            - /home/vst/vst_release/vst_video/ff94097a-911e-463a-8619-567883f43a5b/1920x1080/2023/10/24/13/169815174549.mkv
+        spaceSaved:
+          type: integer
+          minimum: 0
+          description: Total disk space reclaimed by the delete, in megabytes.
+      required:
+        - invalidFiles
+        - protectedFiles
+        - spaceSaved
+
+    MediaMetadata:
+      type: object
+      properties:
+        eventInfo:
+          type: string
+          maxLength: 256
+          pattern: ".*"
+          example: "Motion detected in Zone 4"
+          description: Description of the event that triggered the recording
+        timestamp:
+          type: integer
+          format: int64
+          example: 1752846869222
+          description: Unix timestamp in milliseconds when the event occurred
+        streamName:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: "zone4_motion_clip"
+          description: Name identifier for the stream
+        tag:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: "Warehouse1_Cameras"
+          description: Tag or category for the media file
+        sensorId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+          example: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+          description: Unique identifier of the sensor that captured the media
+        checksum:
+          type: string
+          maxLength: 64
+          pattern: ".*"
+          example: "c0e4d8d8a6a2e2e3c1b"
+          description: Checksum or hash of the media file for integrity verification
+      required:
+        - timestamp
+        - sensorId
+
+    SensorFilesList:
+      type: object
+      description: A map of sensor IDs to their associated media files
+      additionalProperties:
+        type: array
+        items:
+          type: object
+          properties:
+            mediaFilePath:
+              type: string
+              maxLength: 512
+              pattern: ".*"
+              example: "/videos/zone3_motion_clip.mp4"
+              description: Full path to the media file
+            metadataFilePath:
+              type: string
+              maxLength: 512
+              pattern: ".*"
+              example: "./media/events/20240115_103000.json"
+              description: Path to the metadata file
+            metadata:
+              type: object
+              properties:
+                eventInfo:
+                  type: string
+                  maxLength: 256
+                  pattern: ".*"
+                  example: "Motion detected in Zone 3"
+                  description: Description of the event that triggered the recording
+                timestamp:
+                  type: integer
+                  format: int64
+                  example: 1752045606222
+                  description: Unix timestamp in milliseconds when the event occurred. May be omitted when the recording has no associated event metadata.
+                id:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 100
+                  example: "6e0c5b4e-4d8c-4c2a-a5c2-3d9a8b4d2f1e"
+                  description: Unique identifier for the file. May be an empty string when no event metadata is associated with the file.
+                streamName:
+                  type: string
+                  maxLength: 128
+                  pattern: ".*"
+                  example: "zone3_motion_clip"
+                  description: Name identifier for the stream
+                sensorId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+                  example: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+                  description: Unique identifier of the sensor that captured the media. May be omitted when the recording has no associated event metadata.
+              required:
+                - id
+          required:
+            - mediaFilePath
+            - metadata
+      example:
+        "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b":
+          - mediaFilePath: "/videos/zone3_motion_clip.mp4"
+            metadataFilePath: "./media/events/20240115_103000.json"
+            metadata:
+              eventInfo: "Motion detected in Zone 3"
+              timestamp: 1752045606222
+              id: "6e0c5b4e-4d8c-4c2a-a5c2-3d9a8b4d2f1e"
+              streamName: "zone3_motion_clip"
+              sensorId: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+          - mediaFilePath: "/videos/zone4_motion_clip.mp4"
+            metadataFilePath: "./media/events/20250225_214100.json"
+            metadata:
+              eventInfo: "Motion detected in Zone 4"
+              timestamp: 1752045677322
+              id: "7f1d6c5f-5d8c-4c2a-a5c2-3d9a8b4d2f1e"
+              streamName: "zone4_motion_clip"
+              sensorId: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+        "c8b2d2g3-0d1f-4d8d-8a6a-2e5f7d2e3c1b":
+          - mediaFilePath: "/videos/zone5_motion_clip.mp4"
+            metadataFilePath: "./media/events/20250226_225420.json"
+            metadata:
+              eventInfo: "Motion detected in Zone 5"
+              timestamp: 1752067818333
+              id: "8a2e6d6a-4d8c-4c2a-a5c2-3d9a8b4d2f1e"
+              streamName: "zone5_motion_clip"
+              sensorId: "c8b2d2g3-0d1f-4d8d-8a6a-2e5f7d2e3c1b"
+
+    SingleSensorFilesList:
+      type: object
+      description: A map containing a single sensor ID with its associated media files
+      additionalProperties:
+        type: array
+        items:
+          type: object
+          properties:
+            mediaFilePath:
+              type: string
+              maxLength: 512
+              pattern: ".*"
+              example: "/videos/zone3_motion_clip.mp4"
+              description: Full path to the media file
+            metadataFilePath:
+              type: string
+              maxLength: 512
+              pattern: ".*"
+              example: "./media/events/20240115_103000.json"
+              description: Path to the metadata file
+            metadata:
+              type: object
+              properties:
+                eventInfo:
+                  type: string
+                  maxLength: 256
+                  pattern: ".*"
+                  example: "Motion detected in Zone 3"
+                  description: Description of the event that triggered the recording
+                timestamp:
+                  type: integer
+                  format: int64
+                  example: 1752045606222
+                  description: Unix timestamp in milliseconds when the event occurred. May be omitted when the recording has no associated event metadata.
+                id:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 100
+                  example: "6e0c5b4e-4d8c-4c2a-a5c2-3d9a8b4d2f1e"
+                  description: Unique identifier for the file. May be an empty string when no event metadata is associated with the file.
+                streamName:
+                  type: string
+                  maxLength: 128
+                  pattern: ".*"
+                  example: "zone3_motion_clip"
+                  description: Name identifier for the stream
+                sensorId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+                  example: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+                  description: Unique identifier of the sensor that captured the media. May be omitted when the recording has no associated event metadata.
+              required:
+                - id
+          required:
+            - mediaFilePath
+            - metadata
+      example:
+        "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b":
+          - mediaFilePath: "/videos/zone3_motion_clip.mp4"
+            metadataFilePath: "./media/events/20240115_103000.json"
+            metadata:
+              eventInfo: "Motion detected in Zone 3"
+              timestamp: 1752045606222
+              id: "6e0c5b4e-4d8c-4c2a-a5c2-3d9a8b4d2f1e"
+              streamName: "zone3_motion_clip"
+              sensorId: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+          - mediaFilePath: "/videos/zone4_motion_clip.mp4"
+            metadataFilePath: "./media/events/20250225_214100.json"
+            metadata:
+              eventInfo: "Motion detected in Zone 4"
+              timestamp: 1752045677322
+              id: "7f1d6c5f-5d8c-4c2a-a5c2-3d9a8b4d2f1e"
+              streamName: "zone4_motion_clip"
+              sensorId: "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b"
+
+    TimelineEntry:
+      type: object
+      required:
+        - startTime
+        - endTime
+      properties:
+        startTime:
+          type: string
+          format: date-time
+          description: Start time of the recording segment (ISO 8601 UTC).
+          example: '2026-04-20T05:02:22.445Z'
+        endTime:
+          type: string
+          format: date-time
+          description: End time of the recording segment (ISO 8601 UTC).
+          example: '2026-04-20T05:03:22.445Z'
+
+    StreamTimelinesResponse:
+      type: array
+      maxItems: 10000
+      items:
+        $ref: '#/components/schemas/TimelineEntry'
+      description: Array of recording timeline segments for a single stream.
+
+    AllStreamTimelinesResponse:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          $ref: '#/components/schemas/TimelineEntry'
+      description: Object mapping streamId values to their recording timeline segments.
+
+    HelpEntry:
+      type: object
+      properties:
+        endpoint:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+          example: "/api/v1/storage/size"
+        method:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+          example: "GET - To get total used storage size and used storage size for each recorded streams"
+      required:
+        - endpoint
+        - method
+
+    Error:
+      required:
+        - error_code
+        - error_message
+      type: object
+      properties:
+        error_code:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+          example: VMSInternalError
+        error_message:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+          example: VMS internal processing error
+
+    OverlayConfiguration:
+      type: object
+      description: |
+        Unified overlay configuration for visual overlays including bounding boxes, pose, proximity, and safety features.
+      properties:
+        bbox:
+          type: object
+          description: Bounding box overlay configuration
+          properties:
+            showAll:
+              type: boolean
+              description: Show all detected objects (true) or filter by objectId/classType (false)
+              example: true
+            objectId:
+              type: array
+              description: Specific object IDs to show (only when showAll=false)
+              items:
+                type: integer
+              example: [521, 517, 496, 333]
+            classType:
+              type: array
+              description: Object class types to filter (only when showAll=false)
+              items:
+                type: string
+              example: ["Person", "Pallet", "Forklift"]
+            showObjId:
+              type: boolean
+              description: Display object ID as text on bounding box
+              example: true
+            objIdPosition:
+              type: integer
+              description: Position of object ID text (0=MIDDLE, 1=TOP_LEFT, 2=TOP_RIGHT, 3=BOTTOM_LEFT, 4=BOTTOM_RIGHT)
+              minimum: 0
+              maximum: 4
+              example: 1
+            objIdTextColor:
+              type: string
+              description: Color of object ID text
+              example: "white"
+            objIdTextBGColor:
+              type: string
+              description: Background color for object ID text
+              example: "green"
+        color:
+          type: string
+          description: Default overlay color (e.g., green, red, blue, white, yellow)
+          example: "green"
+        thickness:
+          type: integer
+          description: Line thickness for overlays
+          minimum: 1
+          maximum: 10
+          example: 5
+        debug:
+          type: boolean
+          description: Enable debug mode for additional information
+          example: true
+        opacity:
+          type: integer
+          description: Opacity level (0=transparent, 255=opaque)
+          minimum: 0
+          maximum: 255
+          example: 254
+        pose:
+          type: boolean
+          description: Enable pose detection overlays
+          example: false
+        framerate:
+          type: integer
+          description: Frame rate for overlay processing
+          example: 15
+        proximityClass:
+          type: array
+          description: Classes to track for proximity detection
+          items:
+            type: string
+          example: ["Person", "Forklift"]
+        entrantClass:
+          type: array
+          description: Classes that can enter safety zones
+          items:
+            type: string
+          example: ["nova_carter", "person"]
+        proximityAreaFactor:
+          type: number
+          description: Scaling factor for proximity areas
+          example: 1.3
+        proximityAnimation:
+          type: string
+          description: Animation style for proximity visualization
+          example: "ellipseAndLine"
+        overlayColorCode:
+          type: array
+          description: Custom RGBA colors per class type [R, G, B, A] where values are 0-255
+          items:
+            type: object
+            additionalProperties:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+                maximum: 255
+          example:
+            - Person: [118, 185, 0, 255]
+            - Humanoid: [0, 113, 197, 255]
+            - NovaCarter: [250, 194, 0, 255]
+            - Transporter: [0, 133, 100, 255]
+            - Forklift: [0, 113, 197, 255]
+            - Box: [250, 194, 0, 255]
+            - Pallet: [93, 22, 130, 255]
+            - Crate: [94, 94, 94, 255]
+            - proximity_bubble: [0, 255, 0, 75]
+            - proximity_bubble_inner: [255, 0, 0, 75]
+            - proximity_bubble_outer: [204, 85, 0, 75]
+            - proximity_bubble_border: [255, 255, 255, 255]
+            - proximity_line: [255, 255, 255, 255]
+        needBbox:
+          type: boolean
+          description: (Deprecated) Use bbox.showAll instead
+          example: true
+          deprecated: true
+        needTripwire:
+          type: boolean
+          description: (Deprecated) Use tripwire.showAll instead
+          example: false
+          deprecated: true
+        needRoi:
+          type: boolean
+          description: (Deprecated) Use roi.showAll instead
+          example: false
+          deprecated: true
+        objectId:
+          type: array
+          description: (Deprecated) Use bbox.objectId instead
+          items:
+            type: integer
+          example: [23, 42]
+          deprecated: true
+        classType:
+          type: array
+          description: (Deprecated) Use bbox.classType instead
+          items:
+            type: string
+          example: ["Person"]
+          deprecated: true

@@ -1,0 +1,554 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+openapi: 3.0.3
+info:
+  title: VST Proxy Stream MS
+  description: |-
+    VST Replay Stream MS is used to manage proxy RTSP URLs sensors
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
+
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://localhost/api
+tags:
+  - name: nSpectId
+    description: NSPECT-1H82-JYCQ
+    externalDocs:
+      url: https://nspect.nvidia.com/review?id=NSPECT-1H82-JYCQ
+  - name: v1
+    description: VST Proxy Stream API Schema v1
+paths:
+  /v1/proxy/streams:
+    get:
+      tags:
+        - v1
+      summary: Get list of available replay streams
+      operationId: getProxyStreams
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamInfoWrapper'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/proxy/stream/add:
+    post:
+      tags:
+        - v1
+      summary: Add RTSP streams
+      operationId: postProxyStreamAdd
+      security:
+        - bearerAuth: []
+      parameters:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddRTSPRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                required:
+                  - url
+                  - vodUrl
+                type: object
+                properties:
+                  url:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 256
+                    description: Live RTSP URL exposed by the proxy.
+                  vodUrl:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 256
+                    description: VOD RTSP URL for replaying recordings of this stream.
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/proxy/stream/{streamId}:
+    delete:
+      tags:
+        - v1
+      summary: Remove RTSP URL (full unregister — terminates client sessions, frees LB slot)
+      description: |
+        Removes the stream from the device manager, frees the load-balancer slot,
+        terminates active client sessions, and emits STREAM_STATUS_REMOVED. Idempotent —
+        returns null/HTTP 200 even for unknown streamIds. Does NOT delete on-disk recordings.
+      operationId: deleteProxyStream
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/proxy/session/{streamId}:
+    delete:
+      tags:
+        - v1
+      summary: Alias of DELETE /v1/proxy/stream/{streamId}
+      description: |
+        This endpoint dispatches to the same handler as DELETE /v1/proxy/stream/{streamId}
+        and has identical side effects (full stream unregister, sessions terminated, LB slot freed).
+        There is NO "kick client sessions but keep the stream registered" variant. Prefer
+        /v1/proxy/stream/{streamId} for clarity.
+      operationId: deleteProxySession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/proxy/info:
+    get:
+      tags:
+        - v1
+      summary: Get RTSP proxy info
+      operationId: getProxyInfo
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProxyInfo'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/proxy/debug/qos:
+    get:
+      tags:
+        - v1
+      summary: Get QoS stats for all streams
+      description: >-
+        Get QoS stats for all streams managed by this stream-processor. The QoS status includes average FPS, average bitrate, total packets lost, etc. When the stream monitor has not collected any
+        samples yet, stats is null.
+      operationId: getProxyQos
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stats:
+                    type: array
+                    maxItems: 1024
+                    description: Per-stream QoS samples. Empty array when the stream monitor has not yet collected samples (NOT null).
+                    items:
+                      $ref: '#/components/schemas/QosStats'
+                  numActiveRtspConnections:
+                    type: string
+                    maxLength: 32
+                    pattern: "^[0-9]+$"
+                    description: 'Number of active RTSP client sessions, reported as a decimal string.'
+                    example: "0"
+                  rtspServerTxBitrate:
+                    type: string
+                    maxLength: 32
+                    pattern: ".*"
+                    description: 'Aggregate RTSP server transmit bitrate, reported as a decimal string.'
+                    example: "0"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/proxy/configuration:
+    get:
+      tags:
+        - v1
+      summary: Get RTSP Proxy service configuration
+      operationId: getProxyConfiguration
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetConfiguration'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    ProxyInfo:
+      type: object
+      description: >
+        Dynamic object containing serverN entries (server0, server1, ...) and a stats entry.
+        Each serverN holds RTSP proxy server connection details. The stats entry holds
+        aggregate session and bitrate information.
+      additionalProperties:
+        oneOf:
+          - $ref: '#/components/schemas/ProxyServerEntry'
+          - $ref: '#/components/schemas/ProxyStats'
+      example:
+        server0:
+          rtspServerDomainPrefix: ""
+          urlPrefix: "rtsp://localhost:30554/"
+        server1:
+          rtspServerDomainPrefix: ""
+          urlPrefix: "rtsp://localhost:30555/"
+        stats:
+          activeClientSessions: 10
+          rtspServerTxBitrate: "0"
+
+    QosStats:
+      type: object
+      properties:
+        avgFps:
+          type: number
+        avgFramecount:
+          type: number
+        bitrateKbpsAvg:
+          type: number
+        bitrateKbpsMax:
+          type: number
+        bitrateKbpsMin:
+          type: number
+        elapsedMeasurementTime:
+          type: number
+        errors:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        interPacketGapMsAvg:
+          type: number
+        interPacketGapMsMax:
+          type: number
+        interPacketGapMsMin:
+          type: number
+        name:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        packetLossPercentageAvg:
+          type: number
+        packetLossPercentageMax:
+          type: number
+        packetLossPercentageMin:
+          type: number
+        rtspUrl:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        timestamp:
+          type: string
+          maxLength: 128
+          format: date-time
+        totalPacketsLost:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Unbounded packet-loss counter since stream start.
+        totalPacketsReceived:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Unbounded packet-received counter since stream start.
+
+    ProxyServerEntry:
+      type: object
+      properties:
+        rtspServerDomainPrefix:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        urlPrefix:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+
+    ProxyStats:
+      type: object
+      properties:
+        activeClientSessions:
+          type: integer
+          minimum: 0
+          example: 10
+        rtspServerTxBitrate:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: "0"
+
+    AddRTSPRequest:
+      type: object
+      required:
+        - id
+        - url
+      properties:
+        id:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        url:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+
+    StreamInfoWrapper:
+      type: array
+      maxItems: 2147483647
+      items:
+        $ref: '#/components/schemas/StreamInfo'
+
+    StreamInfo:
+      type: object
+      properties:
+        sensorId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        name:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        proxyUrl:
+          type: string
+          maxLength: 256
+          format: uri
+          description: 'Live RTSP URL exposed by the proxy.'
+          example: 'rtsp://10.41.26.58:30554/live/TruckAccident'
+        vodUrl:
+          type: string
+          maxLength: 256
+          format: uri
+          description: 'VOD RTSP URL exposed by the proxy for replaying recordings.'
+          example: 'rtsp://10.41.26.58:30562/vod/TruckAccident'
+      required:
+        - sensorId
+        - name
+        - proxyUrl
+        - vodUrl
+
+    GetConfiguration:
+      type: object
+      properties:
+        enableProxyServerFrameIdSupport:
+          type: boolean
+        enableRtspServerFrameIdSupport:
+          type: boolean
+        rtsp_server_instances_count:
+          type: integer
+          minimum: 0
+          description: 'Number of RTSP server instances spawned by the proxy.'
+          example: 8
+        use_sensor_ntp_time:
+          type: boolean
+        httpPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        maxStreamsSupported:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        enableQosMonitoring:
+          type: boolean
+        qosDataCaptureIntervalSec:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        qosDataPublishIntervalSec:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        qosLogfilePath:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        enablePrometheus:
+          type: boolean
+        enableStreamMonitoring:
+          type: boolean
+        prometheusPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        rtspInBaseUdpPortNum:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        rtspOutBaseUdpPortNum:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        rtspPreferredNetworkIface:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        rtspServerPort:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        rtspServerReclamationClientTimeoutSec:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        rtspStreamingOverTcp:
+          type: boolean
+        serverDomainName:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        sessionMaxAgeSec:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        streamMonitorIntervalSecs:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        useHttpDigestAuthentication:
+          type: boolean
+        useHttps:
+          type: boolean
+        useRtspAuthentication:
+          type: boolean
+        vstDataPath:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        webserviceAccessControlList:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        enableUserCleanup:
+          type: boolean
+        multiUserExtraOptions:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        useMultiUser:
+          type: boolean
+        vstIp:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+      required:
+        - enableRtspServerFrameIdSupport
+        - httpPort
+        - maxStreamsSupported
+        - enableQosMonitoring
+        - qosDataCaptureIntervalSec
+        - qosDataPublishIntervalSec
+        - qosLogfilePath
+        - enablePrometheus
+        - enableStreamMonitoring
+        - prometheusPort
+        - rtspInBaseUdpPortNum
+        - rtspOutBaseUdpPortNum
+        - rtspPreferredNetworkIface
+        - rtspServerPort
+        - rtspServerReclamationClientTimeoutSec
+        - rtspStreamingOverTcp
+        - serverDomainName
+        - sessionMaxAgeSec
+        - streamMonitorIntervalSecs
+        - useHttpDigestAuthentication
+        - useHttps
+        - useRtspAuthentication
+        - vstDataPath
+        - webserviceAccessControlList
+        - enableUserCleanup
+        - multiUserExtraOptions
+        - useMultiUser
+        - vstIp
+
+    Error:
+      required:
+        - error_code
+        - error_message
+      type: object
+      properties:
+        error_code:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+          example: VMSInternalError
+        error_message:
+          type: string
+          maxLength: 512
+          pattern: ".*"
+          example: VMS internal processing error

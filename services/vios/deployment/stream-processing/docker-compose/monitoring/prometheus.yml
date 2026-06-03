@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  scrape_timeout: 10s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Core VST Services (Critical - always available)
+  - job_name: 'vst-core-services'
+    static_configs:
+      - targets:
+          - 'localhost:8080'  # sensor-ms
+          - 'localhost:8081'  # storage-ms
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    scheme: http
+    honor_labels: true
+
+  # Recorder Microservices (Optional - lazy initialized)
+  - job_name: 'vst-recorder-services'
+    static_configs:
+      - targets:
+          - 'localhost:8082'  # recorder-ms-1
+          - 'localhost:8083'  # recorder-ms-2
+          - 'localhost:8084'  # recorder-ms-3
+          - 'localhost:8085'  # recorder-ms-4
+          - 'localhost:8086'  # recorder-ms-5
+    scrape_interval: 30s
+    scrape_timeout: 3s
+    metrics_path: /metrics
+    scheme: http
+    honor_labels: true
+    sample_limit: 10000
+
+  # RTSP Server Microservices (Optional - lazy initialized)
+  - job_name: 'vst-rtspserver-services'
+    static_configs:
+      - targets:
+          - 'localhost:8087'  # rtspserver-ms-1
+          - 'localhost:8088'  # rtspserver-ms-2
+          - 'localhost:8089'  # rtspserver-ms-3
+          - 'localhost:8090'  # rtspserver-ms-4
+          - 'localhost:8091'  # rtspserver-ms-5
+    scrape_interval: 30s
+    scrape_timeout: 3s
+    metrics_path: /metrics
+    scheme: http
+    honor_labels: true
+    sample_limit: 10000
+
+  # Livestream Microservices (Optional - lazy initialized)
+  - job_name: 'vst-livestream-services'
+    static_configs:
+      - targets:
+          - 'localhost:8092'  # livestream-ms-1
+          - 'localhost:8093'  # livestream-ms-2
+    scrape_interval: 30s
+    scrape_timeout: 3s
+    metrics_path: /metrics
+    scheme: http
+    honor_labels: true
+    sample_limit: 10000
+
+  # Replaystream Microservices (Optional - lazy initialized)
+  - job_name: 'vst-replaystream-services'
+    static_configs:
+      - targets:
+          - 'localhost:8094'  # replaystream-ms-1
+          - 'localhost:8095'  # replaystream-ms-2
+    scrape_interval: 30s
+    scrape_timeout: 3s
+    metrics_path: /metrics
+    scheme: http
+    honor_labels: true
+    sample_limit: 10000

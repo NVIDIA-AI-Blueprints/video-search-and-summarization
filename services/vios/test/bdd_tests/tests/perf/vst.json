@@ -1,0 +1,321 @@
+{
+  "service": "Video-IO",
+  "schema_version": "0.0.1",
+  "topology_matching": null,
+  "kpis": [
+    {
+      "name": "avg_latency",
+      "description": "Average Latency (ms)",
+      "path": "latency.avg_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "warning_pct": 10,
+      "critical_pct": 20,
+      "dashboard": {
+        "chart": "primary",
+        "trend": true,
+        "summary_stat": true
+      },
+      "configurations": [
+        {
+          "id": "h100-rtsp",
+          "gpu_model": "H100",
+          "gpu_count": 1,
+          "baseline": {
+            "video-download_15s_2000ms_without-transcode": 40,
+            "video-download_15s_1000ms_without-transcode": 20,
+            "video-download_15s_500ms_without-transcode": 20,
+            "video-download_15s_200ms_without-transcode": 80,
+            "video-download_30s_1000ms_without-transcode": 30,
+            "video-download_30s_10000ms_without-transcode": 40,
+            "video-download_60s_1000ms_without-transcode": 70,
+            "video-download_60s_10000ms_without-transcode": 70,
+            "video-download_5-concurrent_without-transcode": 70,
+            "video-download_10-concurrent_without-transcode": 150,
+            "video-download_20-concurrent_without-transcode": 260,
+            "video-download_50-concurrent_without-transcode": 790
+          }
+        },
+        {
+          "id": "h100-file",
+          "gpu_model": "H100",
+          "gpu_count": 1,
+          "baseline": {
+            "video-download_15s_2000ms_without-transcode": 20,
+            "video-download_15s_1000ms_without-transcode": 20,
+            "video-download_15s_500ms_without-transcode": 20,
+            "video-download_15s_200ms_without-transcode": 20,
+            "video-download_30s_1000ms_without-transcode": 20,
+            "video-download_30s_10000ms_without-transcode": 20,
+            "video-download_60s_1000ms_without-transcode": 30,
+            "video-download_60s_10000ms_without-transcode": 30,
+            "video-download_15s_2000ms_with-transcode": 550,
+            "video-download_15s_1000ms_with-transcode": 550,
+            "video-download_15s_500ms_with-transcode": 550,
+            "video-download_15s_200ms_with-transcode": 550,
+            "video-download_15s_10000ms_with-transcode": 550,
+            "video-download_30s_1000ms_with-transcode": 810,
+            "video-download_30s_10000ms_with-transcode": 800,
+            "video-download_60s_1000ms_with-transcode": 1050,
+            "video-download_60s_10000ms_with-transcode": 1050,
+            "picture-api_NA_1000ms_without-overlay": 200,
+            "picture-api_NA_10000ms_without-overlay": 220,
+            "picture-api_NA_1000ms_with-overlay": 230,
+            "picture-api_NA_10000ms_with-overlay": 200,
+            "video-download_5-concurrent_without-transcode": 60,
+            "video-download_10-concurrent_without-transcode": 70,
+            "video-download_20-concurrent_without-transcode": 90,
+            "video-download_50-concurrent_without-transcode": 470,
+            "video-download_5-concurrent_with-transcode": 1490,
+            "video-download_10-concurrent_with-transcode": 3130,
+            "video-download_20-concurrent_with-transcode": 6800,
+            "video-download_50-concurrent_with-transcode": 16930,
+            "picture-api_5-concurrent_without-overlay": 360,
+            "picture-api_10-concurrent_without-overlay": 1010,
+            "picture-api_20-concurrent_without-overlay": 1970,
+            "picture-api_50-concurrent_without-overlay": 5270,
+            "picture-api_5-concurrent_with-overlay": 1210,
+            "picture-api_10-concurrent_with-overlay": 1680,
+            "picture-api_20-concurrent_with-overlay": 3380,
+            "picture-api_50-concurrent_with-overlay": 9220
+          }
+        }
+      ]
+    },
+    {
+      "name": "p99_latency",
+      "description": "P99 Latency (ms)",
+      "path": "latency.p99_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "warning_pct": 10,
+      "critical_pct": 20,
+      "dashboard": {
+        "chart": "primary",
+        "trend": true,
+        "summary_stat": true
+      },
+      "configurations": [
+        {
+          "id": "h100-rtsp",
+          "gpu_model": "H100",
+          "gpu_count": 1,
+          "baseline": {
+            "video-download_15s_2000ms_without-transcode": 50,
+            "video-download_15s_1000ms_without-transcode": 30,
+            "video-download_15s_500ms_without-transcode": 30,
+            "video-download_15s_200ms_without-transcode": 110,
+            "video-download_30s_1000ms_without-transcode": 40,
+            "video-download_30s_10000ms_without-transcode": 60,
+            "video-download_60s_1000ms_without-transcode": 80,
+            "video-download_60s_10000ms_without-transcode": 80,
+            "video-download_5-concurrent_without-transcode": 70,
+            "video-download_10-concurrent_without-transcode": 170,
+            "video-download_20-concurrent_without-transcode": 310,
+            "video-download_50-concurrent_without-transcode": 2110
+          }
+        },
+        {
+          "id": "h100-file",
+          "gpu_model": "H100",
+          "gpu_count": 1,
+          "baseline": {
+            "video-download_15s_2000ms_without-transcode": 40,
+            "video-download_15s_1000ms_without-transcode": 40,
+            "video-download_15s_500ms_without-transcode": 40,
+            "video-download_15s_200ms_without-transcode": 40,
+            "video-download_30s_1000ms_without-transcode": 40,
+            "video-download_30s_10000ms_without-transcode": 40,
+            "video-download_60s_1000ms_without-transcode": 40,
+            "video-download_60s_10000ms_without-transcode": 40,
+            "video-download_15s_2000ms_with-transcode": 570,
+            "video-download_15s_1000ms_with-transcode": 570,
+            "video-download_15s_500ms_with-transcode": 570,
+            "video-download_15s_200ms_with-transcode": 570,
+            "video-download_15s_10000ms_with-transcode": 570,
+            "video-download_30s_1000ms_with-transcode": 820,
+            "video-download_30s_10000ms_with-transcode": 820,
+            "video-download_60s_1000ms_with-transcode": 1070,
+            "video-download_60s_10000ms_with-transcode": 1080,
+            "picture-api_NA_1000ms_without-overlay": 220,
+            "picture-api_NA_10000ms_without-overlay": 210,
+            "picture-api_NA_1000ms_with-overlay": 290,
+            "picture-api_NA_10000ms_with-overlay": 220,
+            "video-download_5-concurrent_without-transcode": 70,
+            "video-download_10-concurrent_without-transcode": 70,
+            "video-download_20-concurrent_without-transcode": 110,
+            "video-download_50-concurrent_without-transcode": 560,
+            "video-download_5-concurrent_with-transcode": 1500,
+            "video-download_10-concurrent_with-transcode": 3170,
+            "video-download_20-concurrent_with-transcode": 6840,
+            "video-download_50-concurrent_with-transcode": 17130,
+            "picture-api_5-concurrent_without-overlay": 370,
+            "picture-api_10-concurrent_without-overlay": 1030,
+            "picture-api_20-concurrent_without-overlay": 2120,
+            "picture-api_50-concurrent_without-overlay": 6400,
+            "picture-api_5-concurrent_with-overlay": 1220,
+            "picture-api_10-concurrent_with-overlay": 1710,
+            "picture-api_20-concurrent_with-overlay": 3450,
+            "picture-api_50-concurrent_with-overlay": 12070
+          }
+        }
+      ]
+    },
+    {
+      "name": "p90_latency",
+      "description": "P90 Latency (ms)",
+      "path": "latency.p90_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "warning_pct": 10,
+      "critical_pct": 20,
+      "dashboard": {
+        "chart": "secondary"
+      },
+      "optional": true,
+      "configurations": [
+        {
+          "id": "h100-rtsp",
+          "gpu_model": "H100",
+          "gpu_count": 1,
+          "baseline": {
+            "video-download_15s_2000ms_without-transcode": 40,
+            "video-download_15s_1000ms_without-transcode": 30,
+            "video-download_15s_500ms_without-transcode": 30,
+            "video-download_15s_200ms_without-transcode": 110,
+            "video-download_30s_1000ms_without-transcode": 40,
+            "video-download_30s_10000ms_without-transcode": 50,
+            "video-download_60s_1000ms_without-transcode": 70,
+            "video-download_60s_10000ms_without-transcode": 80,
+            "video-download_5-concurrent_without-transcode": 70,
+            "video-download_10-concurrent_without-transcode": 170,
+            "video-download_20-concurrent_without-transcode": 300,
+            "video-download_50-concurrent_without-transcode": 850
+          }
+        },
+        {
+          "id": "h100-file",
+          "gpu_model": "H100",
+          "gpu_count": 1,
+          "baseline": {
+            "video-download_15s_2000ms_without-transcode": 40,
+            "video-download_15s_1000ms_without-transcode": 30,
+            "video-download_15s_500ms_without-transcode": 40,
+            "video-download_15s_200ms_without-transcode": 40,
+            "video-download_30s_1000ms_without-transcode": 30,
+            "video-download_30s_10000ms_without-transcode": 30,
+            "video-download_60s_1000ms_without-transcode": 30,
+            "video-download_60s_10000ms_without-transcode": 30,
+            "video-download_15s_2000ms_with-transcode": 560,
+            "video-download_15s_1000ms_with-transcode": 560,
+            "video-download_15s_500ms_with-transcode": 560,
+            "video-download_15s_200ms_with-transcode": 560,
+            "video-download_15s_10000ms_with-transcode": 560,
+            "video-download_30s_1000ms_with-transcode": 820,
+            "video-download_30s_10000ms_with-transcode": 810,
+            "video-download_60s_1000ms_with-transcode": 1060,
+            "video-download_60s_10000ms_with-transcode": 1070,
+            "picture-api_NA_1000ms_without-overlay": 210,
+            "picture-api_NA_10000ms_without-overlay": 210,
+            "picture-api_NA_1000ms_with-overlay": 250,
+            "picture-api_NA_10000ms_with-overlay": 210,
+            "video-download_5-concurrent_without-transcode": 70,
+            "video-download_10-concurrent_without-transcode": 70,
+            "video-download_20-concurrent_without-transcode": 100,
+            "video-download_50-concurrent_without-transcode": 540,
+            "video-download_5-concurrent_with-transcode": 1500,
+            "video-download_10-concurrent_with-transcode": 3170,
+            "video-download_20-concurrent_with-transcode": 6840,
+            "video-download_50-concurrent_with-transcode": 17110,
+            "picture-api_5-concurrent_without-overlay": 370,
+            "picture-api_10-concurrent_without-overlay": 1030,
+            "picture-api_20-concurrent_without-overlay": 2060,
+            "picture-api_50-concurrent_without-overlay": 6370,
+            "picture-api_5-concurrent_with-overlay": 1220,
+            "picture-api_10-concurrent_with-overlay": 1710,
+            "picture-api_20-concurrent_with-overlay": 3420,
+            "picture-api_50-concurrent_with-overlay": 11470
+          }
+        }
+      ]
+    },
+    {
+      "name": "p50_latency",
+      "description": "Median Latency (ms)",
+      "path": "latency.p50_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "warning_pct": 10,
+      "critical_pct": 20,
+      "dashboard": {
+        "chart": "secondary"
+      },
+      "optional": true,
+      "configurations": {
+        "default": {
+          "baseline": null,
+          "sol": null
+        }
+      }
+    },
+    {
+      "name": "max_latency",
+      "description": "Max Latency (ms)",
+      "path": "latency.max_ms",
+      "unit": "ms",
+      "direction": "lower",
+      "warning_pct": 10,
+      "critical_pct": 20,
+      "dashboard": {},
+      "optional": true,
+      "configurations": {
+        "default": {
+          "baseline": null,
+          "sol": null
+        }
+      }
+    },
+    {
+      "name": "success_rate",
+      "description": "Success Rate (%)",
+      "path": "reliability.success_rate_percent",
+      "unit": "%",
+      "direction": "higher",
+      "warning_pct": 5,
+      "critical_pct": 10,
+      "dashboard": {
+        "chart": "secondary",
+        "trend": true
+      },
+      "configurations": [
+        {
+          "id": "h100-rtsp",
+          "gpu_model": "H100",
+          "gpu_count": 1,
+          "baseline": {
+            "video-download_15s_2000ms_without-transcode": 100,
+            "video-download_15s_1000ms_without-transcode": 100,
+            "video-download_15s_500ms_without-transcode": 100,
+            "video-download_15s_200ms_without-transcode": 100,
+            "video-download_30s_1000ms_without-transcode": 100,
+            "video-download_30s_10000ms_without-transcode": 100,
+            "video-download_60s_1000ms_without-transcode": 100,
+            "video-download_60s_10000ms_without-transcode": 100,
+            "video-download_5-concurrent_without-transcode": 100,
+            "video-download_10-concurrent_without-transcode": 100,
+            "video-download_20-concurrent_without-transcode": 100,
+            "video-download_50-concurrent_without-transcode": 100
+          }
+        },
+        {
+          "id": "h100-file",
+          "gpu_model": "H100",
+          "gpu_count": 1,
+          "baseline": {
+            "default": 100
+          }
+        }
+      ]
+    }
+  ]
+}
