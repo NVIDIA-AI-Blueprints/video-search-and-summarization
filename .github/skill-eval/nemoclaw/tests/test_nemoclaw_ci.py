@@ -692,6 +692,22 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(one_gpu, ["vss-eval-rtx-1g-2", "vss-eval-rtx-2g-4"])
         self.assertEqual(two_gpu, ["vss-eval-rtx-2g-4"])
 
+    def test_instance_candidates_allow_any_platform_for_gpu_free_tasks(self):
+        instances = [
+            {"name": "vss-eval-l40s-1g", "status": "RUNNING", "gpu": "L40S"},
+            {"name": "vss-eval-rtx-1g", "status": "RUNNING", "gpu": "RTX PRO 6000"},
+            {"name": "personal-l40s", "status": "RUNNING", "gpu": "L40S"},
+        ]
+
+        candidates = smoke_runner._instance_candidates(
+            instances,
+            platform="ANY",
+            gpu_count=0,
+        )
+
+        self.assertCountEqual(candidates, ["vss-eval-l40s-1g", "vss-eval-rtx-1g"])
+        self.assertNotIn("personal-l40s", candidates)
+
     def test_worker_selection_skips_locked_candidate(self):
         previous = {
             "_list_instances": smoke_runner._list_instances,
@@ -838,6 +854,55 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertFalse(reachable)
 
+    def test_generic_task_wrapper_creates_nemoclaw_launcher(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_dir = root / "base" / "l40s" / "step-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "instruction.md").write_text(
+                "Use the /vss-ask-video skill against the already running base profile.",
+                encoding="utf-8",
+            )
+            (task_dir / "task.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [task]
+                    name = "nvidia-vss/vss-ask-video-base-l40s-step-1"
+
+                    [metadata]
+                    skill = "vss-ask-video"
+                    profile = "base"
+                    platform = "L40S"
+                    gpu_count = 1
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            scenario = smoke_runner._wrap_task_for_nemoclaw(
+                task_dir=task_dir,
+                skill="vss-ask-video",
+                spec_path=REPO_ROOT / "skills" / "vss-ask-video" / "evals" / "base_profile_video_understanding.json",
+                platform="L40S",
+            )
+
+            prompt = (task_dir / "tests" / "nemoclaw_prompt.md").read_text(encoding="utf-8")
+            instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
+            task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
+
+        self.assertEqual(scenario.skill, "vss-ask-video")
+        self.assertEqual(scenario.task_name, "step-1")
+        self.assertEqual(scenario.deployment_profile, "base")
+        self.assertIn("Use the `/vss-ask-video` skill as the primary workflow", prompt)
+        self.assertIn("requires the `base` VSS profile", prompt)
+        self.assertIn("Use the /vss-ask-video skill against", prompt)
+        self.assertIn("headless_runner.py", instruction)
+        self.assertIn("--wait-profile base", instruction)
+        self.assertIn('runner = "nemoclaw"', task_toml)
+        self.assertIn('expected_skill = "vss-ask-video"', task_toml)
+        self.assertIn("vss_orchestrator__docker_status", task_toml)
+
     def test_nemoclaw_report_uses_harbor_eval_format(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -924,10 +989,20 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             os.environ["BREV_ENV_ID"] = "abc123"
             old_scratch = smoke_runner.SCRATCH_ROOT
             smoke_runner.SCRATCH_ROOT = root / "scratch"
+            scenario = smoke_runner.NemoClawScenario(
+                skill="vss-deploy-profile",
+                spec_name="base",
+                spec_path=REPO_ROOT / "skills" / "vss-deploy-profile" / "evals" / "base.json",
+                platform="RTXPRO6000BW",
+                gpu_count=1,
+                task_dir=trial_dir,
+                harbor_path=trial_dir.parent,
+                task_name="rtxpro6000bw",
+                deployment_profile="base",
+            )
             try:
                 smoke_runner._append_harbor_report(
-                    profile="base",
-                    platform="RTXPRO6000BW",
+                    scenario=scenario,
                     instance="vss-eval-rtx-1g-2",
                     results_root=results_root,
                     run_id=run_id,
@@ -951,7 +1026,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("| RTXPRO6000BW | FAIL 0.5 (1/2) | 0.5 | 26m 57s | 1 | 8.4k | 150 |", report)
         self.assertIn("MCP docker_status reached terminal state", report)
         self.assertIn("[trace](https://harbor-abc123.brevlab.com/jobs/", report)
-        self.assertIn("Skills Eval Benchmark - NemoClaw smoke", benchmark)
+        self.assertIn("Skills Eval Benchmark - NemoClaw sweep", benchmark)
 
     def test_nemoclaw_report_prefers_leaf_trial_and_links_run_when_viewer_unavailable(self):
         with tempfile.TemporaryDirectory() as td:
@@ -997,10 +1072,20 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             os.environ.pop("BREV_ENV_ID", None)
             old_scratch = smoke_runner.SCRATCH_ROOT
             smoke_runner.SCRATCH_ROOT = root / "scratch"
+            scenario = smoke_runner.NemoClawScenario(
+                skill="vss-deploy-profile",
+                spec_name="base",
+                spec_path=REPO_ROOT / "skills" / "vss-deploy-profile" / "evals" / "base.json",
+                platform="RTXPRO6000BW",
+                gpu_count=1,
+                task_dir=trial_dir,
+                harbor_path=trial_dir.parent,
+                task_name="rtxpro6000bw",
+                deployment_profile="base",
+            )
             try:
                 smoke_runner._append_harbor_report(
-                    profile="base",
-                    platform="RTXPRO6000BW",
+                    scenario=scenario,
                     instance="vss-eval-rtx-2g-4",
                     results_root=results_root,
                     run_id=run_id,

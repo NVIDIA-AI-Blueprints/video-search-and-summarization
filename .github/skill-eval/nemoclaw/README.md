@@ -8,3 +8,5 @@ This directory contains the GitHub CI integration for opt-in NemoClaw/OpenClaw s
 - `headless_runner.py` is called from the Harbor trial. It posts the real task prompt to the OpenClaw hooks endpoint so the scenario runs through NemoClaw/OpenClaw.
 
 Harbor remains the CI entrypoint and result owner. The default runner is unchanged unless a spec declares `runner: "nemoclaw"` / `requires_nemoclaw: true`, or a manual workflow dispatch selects `runner=nemoclaw`.
+
+When manual dispatch uses `runner=nemoclaw`, `skills=vss-deploy-profile` keeps the lightweight base-profile smoke behavior. `skills=*` discovers adapter-backed `skills/*/evals/*.json` specs, wraps their generated Harbor tasks as NemoClaw/OpenClaw launcher tasks, and reports unsupported eval specs as blocked coverage gaps.

@@ -144,6 +144,10 @@ Orchestrator MCP server exposed by the notebook setup.
 The NemoClaw smoke runner publishes the same high-level `Harbor Eval` Markdown
 shape as the Claude Code path, with NemoClaw runtime details, failing checks,
 trace links, and a benchmark artifact under `/tmp/skill-eval/<run_id>/`.
+Manual dispatch with `runner=nemoclaw` supports both the default
+`vss-deploy-profile/base` smoke and `skills=*` sweeps across adapter-backed
+`skills/*/evals/*.json` specs. Skills with eval specs but no Harbor adapter are
+reported as blocked coverage gaps rather than silently skipped.
 
 ### Eval-profile vs deploy-profile (vss-deploy-profile adapter only)
 
