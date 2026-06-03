@@ -8,37 +8,40 @@ deploy "done".
 
 ## Step 1 — wait for the compose project to settle
 
-**Gate 0 first — confirm a non-zero, expected container count.** The state
-filter below passes *vacuously* when no services started (the missing
-`--env-file` / unset `COMPOSE_PROFILES` failure mode — `up -d` exits 0 with
-"no service selected"), so check the count before the states — same gate as
-[`SKILL.md`](../SKILL.md) Step 5b:
+**Gate 0 first — confirm a non-zero, expected container count and healthy
+container states together.** A state-only `ps --format json | jq ...` filter
+passes *vacuously* when no services started (the missing `--env-file` / unset
+`COMPOSE_PROFILES` failure mode — `up -d` exits 0 with "no service selected"),
+so keep the count guard in the same snippet as the state guard:
 
 ```bash
 expected=$(docker compose --env-file "$ENV_GEN" -f resolved.yml config --services | wc -l)
 actual=$(docker compose -f resolved.yml ps -q | wc -l)
-[ "$actual" -gt 0 ] && [ "$actual" -ge "$expected" ] \
-  || { echo "FAIL: expected $expected services, got $actual — re-check Step 5 --env-file"; exit 1; }
-```
+if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
+  echo "FAIL: expected $expected services, got $actual — re-check Step 5 --env-file" >&2
+  exit 1
+fi
 
-Then every container must be either `running` or cleanly `exited 0`. One-shot init
-jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
-fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
-failure even though `up -d` returned 0.
-
-```bash
 # docker compose 2.21+ emits NDJSON (one bare object per line) from
 # `ps --format json`, not a JSON array — so no `.[]` here; jq's default
 # input loop already iterates each line. The filter accepts only
 # `running` and `exited 0`; everything else (restarting, unhealthy,
 # exited with non-zero code) is a failure.
-docker compose -f resolved.yml ps --format json \
-  | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
-           | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"' \
-  | { mapfile -t bad; if [ "${#bad[@]}" -gt 0 ]; then
-        printf 'FAIL: %s\n' "${bad[@]}" >&2; exit 1;
-      fi; }
+mapfile -t bad < <(
+  docker compose -f resolved.yml ps --format json \
+    | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
+             | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
+)
+if [ "${#bad[@]}" -gt 0 ]; then
+  printf 'FAIL: %s\n' "${bad[@]}" >&2
+  exit 1
+fi
 ```
+
+Every container must be either `running` or cleanly `exited 0`. One-shot init
+jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
+fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
+failure even though `up -d` returned 0.
 
 ## Step 2 — probe the profile's documented readiness endpoints
 
