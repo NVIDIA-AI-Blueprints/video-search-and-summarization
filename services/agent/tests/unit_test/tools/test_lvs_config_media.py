@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import aiohttp
 from nat.builder.context import ContextState
 from pydantic import ValidationError
 import pytest
@@ -212,6 +213,174 @@ class TestLVSConfigMediaInner:
         captions_call = mock_session.post.call_args_list[1]
         assert captions_call.args[0] == "http://localhost:38111/v1/generate_captions"
         assert captions_call.kwargs["json"]["id"] == "stream-uuid"
+
+    @pytest.mark.asyncio
+    async def test_config_media_accepts_already_registered_rtvi_stream(self):
+        config = LVSConfigMediaConfig(
+            lvs_backend_url="http://localhost:38111",
+            rtvi_vlm_url="http://localhost:8018",
+            vst_internal_url="http://localhost:30888",
+            model="nvidia/cosmos-reason2-8b",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            default_scenario="warehouse monitoring",
+            default_events=["accident"],
+        )
+
+        register_resp = MagicMock()
+        register_resp.status = 409
+        register_resp.text = AsyncMock(return_value="stream already exists")
+        register_resp.__aenter__ = AsyncMock(return_value=register_resp)
+        register_resp.__aexit__ = AsyncMock(return_value=False)
+
+        captions_resp = MagicMock()
+        captions_resp.status = 202
+        captions_resp.text = AsyncMock(return_value="")
+        captions_resp.__aenter__ = AsyncMock(return_value=captions_resp)
+        captions_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = [register_resp, captions_resp]
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+            mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
+            with patch(
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
+                new_callable=AsyncMock,
+            ) as mock_prompt:
+                mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                        inner_fn = await self._get_inner_fn(config)
+                        result = await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
+
+        assert result.status == LVSMediaStatus.ACCEPTED
+        assert result.configured is True
+        assert mock_session.post.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_config_media_fails_when_rtvi_registration_status_fails(self):
+        config = LVSConfigMediaConfig(
+            lvs_backend_url="http://localhost:38111",
+            rtvi_vlm_url="http://localhost:8018",
+            vst_internal_url="http://localhost:30888",
+            model="nvidia/cosmos-reason2-8b",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            default_scenario="warehouse monitoring",
+            default_events=["accident"],
+        )
+
+        register_resp = MagicMock()
+        register_resp.status = 500
+        register_resp.text = AsyncMock(return_value="internal error")
+        register_resp.__aenter__ = AsyncMock(return_value=register_resp)
+        register_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post.return_value = register_resp
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+            mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
+            with patch(
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
+                new_callable=AsyncMock,
+            ) as mock_prompt:
+                mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                        inner_fn = await self._get_inner_fn(config)
+                        result = await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
+
+        assert result.status == LVSMediaStatus.FAILED
+        assert result.configured is False
+        assert "Failed to register stream 'CAM_1' with RTVI" in result.message
+        assert "status 500" in result.message
+        mock_session.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_config_media_fails_when_rtvi_registration_response_has_errors(self):
+        config = LVSConfigMediaConfig(
+            lvs_backend_url="http://localhost:38111",
+            rtvi_vlm_url="http://localhost:8018",
+            vst_internal_url="http://localhost:30888",
+            model="nvidia/cosmos-reason2-8b",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            default_scenario="warehouse monitoring",
+            default_events=["accident"],
+        )
+
+        register_resp = MagicMock()
+        register_resp.status = 200
+        register_resp.text = AsyncMock(return_value='{"errors":["bad stream"]}')
+        register_resp.__aenter__ = AsyncMock(return_value=register_resp)
+        register_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post.return_value = register_resp
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+            mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
+            with patch(
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
+                new_callable=AsyncMock,
+            ) as mock_prompt:
+                mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                        inner_fn = await self._get_inner_fn(config)
+                        result = await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
+
+        assert result.status == LVSMediaStatus.FAILED
+        assert result.lvs_backend_response == {"errors": ["bad stream"]}
+        assert "returned errors" in result.message
+        mock_session.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_config_media_fails_when_rtvi_registration_connection_fails(self):
+        config = LVSConfigMediaConfig(
+            lvs_backend_url="http://localhost:38111",
+            rtvi_vlm_url="http://localhost:8018",
+            vst_internal_url="http://localhost:30888",
+            model="nvidia/cosmos-reason2-8b",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            default_scenario="warehouse monitoring",
+            default_events=["accident"],
+        )
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = aiohttp.ClientError("connection refused")
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+            mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
+            with patch(
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
+                new_callable=AsyncMock,
+            ) as mock_prompt:
+                mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                        inner_fn = await self._get_inner_fn(config)
+                        result = await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
+
+        assert result.status == LVSMediaStatus.FAILED
+        assert result.lvs_backend_response is None
+        assert "Failed to connect to RTVI VLM /v1/streams/add: connection refused" in result.message
+        mock_session.post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_config_media_payload_includes_enable_audio_when_set(self):
