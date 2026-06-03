@@ -296,27 +296,36 @@ configure_ngc_credential_provider() {
 # to /usr/local/bin/ngc to match the path the `ngc` policy block allows.
 # Best-effort: logs and continues on failure rather than aborting the deploy.
 configure_ngc_cli_in_sandbox() {
-  if ! have nemoclaw; then
-    log "nemoclaw not available; skipping in-sandbox NGC CLI install"
+  if ! have openshell; then
+    log "openshell not available; skipping in-sandbox NGC CLI install"
     return
   fi
   log "Installing NGC CLI inside sandbox ${NEMOCLAW_SANDBOX_NAME} (pip3 install --user ngcsdk)"
-  if ! nemoclaw sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" --no-tty -- bash -c '
-    set -e
-    if command -v ngc >/dev/null 2>&1 && ngc --version >/dev/null 2>&1; then
-      echo "ngc already installed: $(ngc --version 2>&1 | head -1)"
-      exit 0
-    fi
-    python3 -m pip install --user --quiet --break-system-packages ngcsdk 2>/dev/null \
-      || python3 -m pip install --user --quiet ngcsdk
-    if [ ! -e /usr/local/bin/ngc ] && [ -e "$HOME/.local/bin/ngc" ]; then
-      sudo install -m 0755 "$HOME/.local/bin/ngc" /usr/local/bin/ngc 2>/dev/null \
-        || cp "$HOME/.local/bin/ngc" /usr/local/bin/ngc 2>/dev/null \
-        || true
-    fi
-    /usr/local/bin/ngc --version 2>/dev/null \
-      || "$HOME/.local/bin/ngc" --version
-  '; then
+  # Feed the install script over stdin via `bash -s` rather than as a
+  # `bash -c <script>` argument: the sandbox-exec gRPC API rejects any single
+  # argument containing newlines ("command argument N contains newline or
+  # carriage return characters"), so a multi-line inline script cannot be passed
+  # positionally. Use `openshell` to match every other in-sandbox exec here; the
+  # earlier `nemoclaw sandbox exec -n …` form failed twice over — `nemoclaw` takes
+  # the sandbox name positionally with no `-n` flag, and then rejected the
+  # multi-line `bash -c` body.
+  if ! openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- bash -s <<'NGC_INSTALL'
+set -e
+if command -v ngc >/dev/null 2>&1 && ngc --version >/dev/null 2>&1; then
+  echo "ngc already installed: $(ngc --version 2>&1 | head -1)"
+  exit 0
+fi
+python3 -m pip install --user --quiet --break-system-packages ngcsdk 2>/dev/null \
+  || python3 -m pip install --user --quiet ngcsdk
+if [ ! -e /usr/local/bin/ngc ] && [ -e "$HOME/.local/bin/ngc" ]; then
+  sudo install -m 0755 "$HOME/.local/bin/ngc" /usr/local/bin/ngc 2>/dev/null \
+    || cp "$HOME/.local/bin/ngc" /usr/local/bin/ngc 2>/dev/null \
+    || true
+fi
+/usr/local/bin/ngc --version 2>/dev/null \
+  || "$HOME/.local/bin/ngc" --version
+NGC_INSTALL
+  then
     log "In-sandbox NGC CLI install failed; ngc registry calls inside the sandbox will not work"
   fi
 }
