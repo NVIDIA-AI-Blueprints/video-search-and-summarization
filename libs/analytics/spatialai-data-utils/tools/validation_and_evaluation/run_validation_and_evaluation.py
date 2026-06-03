@@ -260,7 +260,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--calibration_url", help="Input calibration url file", required=True)
     parser.add_argument("--confidence_threshold", type=float, default=0.0, help="Confidence threshold. Values less than threshold will be filtered out.")
-    parser.add_argument("--num_cores", type=int, help="Number of cores for parallel processing.")
     parser.add_argument("--num_frames_to_eval", type=int, default=200000)
     parser.add_argument("--ground_truth_frame_offset_secs", type=float, default=0.0)
     parser.add_argument(
