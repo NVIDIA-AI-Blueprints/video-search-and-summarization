@@ -305,7 +305,7 @@ def main() -> int:
         changed = True
 
     # Set agents.defaults.workspace so the VSS plugin's register hook can locate the
-    # workspace dir and copy AGENTS.md / BOOTSTRAP.md / IDENTITY.md / SOUL.md / TOOLS.md.
+    # workspace dir and copy workspace bootstrap files.
     agents_defaults = data.setdefault("agents", {}).setdefault("defaults", {})
     if agents_defaults.get("workspace") != DEFAULT_WORKSPACE_DIR:
         agents_defaults["workspace"] = DEFAULT_WORKSPACE_DIR

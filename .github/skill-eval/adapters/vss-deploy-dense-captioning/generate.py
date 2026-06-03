@@ -62,10 +62,17 @@ def _substitute_spec(spec: dict, platform: str, mode: str) -> dict:
     return _sub(spec)
 
 
+def _is_profile_spec(spec: dict) -> bool:
+    """A spec is profile-bound (uses the full VSS deploy path) iff its
+    `skills[]` includes `vss-deploy-profile`. Standalone specs only
+    bring up the RT-VLM compose service via this skill itself."""
+    return "vss-deploy-profile" in (spec.get("skills") or [])
+
+
 def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[tuple[str, str]]:
     declared = ((spec.get("resources") or {}).get("platforms") or {})
     if not declared:
-        default_mode = "remote-all" if spec.get("profile") else "standalone"
+        default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
         declared = {DEFAULT_PLATFORM: {"modes": [default_mode]}}
 
     tasks: list[tuple[str, str]] = []
@@ -74,35 +81,28 @@ def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[t
             continue
         if platform not in PLATFORMS:
             continue
-        default_mode = "remote-all" if spec.get("profile") else "standalone"
+        default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
         for mode in (cfg or {}).get("modes") or [default_mode]:
             tasks.append((platform, mode))
-    fallback_mode = "remote-all" if spec.get("profile") else "standalone"
+    fallback_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
     return tasks or [(platform_filter or DEFAULT_PLATFORM, fallback_mode)]
 
 
-def _is_profile_spec(spec: dict) -> bool:
-    return bool(spec.get("profile"))
-
-
 def _dataset_group(spec: dict) -> str:
-    if _is_profile_spec(spec):
-        profile = str(spec.get("profile"))
-        deploy_mode = str(spec.get("deploy_mode", ""))
-        return f"{profile}-{deploy_mode}" if deploy_mode else profile
-    return "standalone"
+    """Group output dirs by spec stem so multiple specs on the same
+    adapter don't collide. e.g. `alerts_profile_api` vs `standalone_api`."""
+    stem = Path(spec.get("_source_path", DEFAULT_SPEC)).stem
+    return stem or ("alerts-real-time" if _is_profile_spec(spec) else "standalone")
 
 
 def _instruction_intro(spec: dict) -> str:
     if _is_profile_spec(spec):
-        profile = spec.get("profile")
-        deploy_mode = spec.get("deploy_mode")
+        # Spec's own expects[0] carries the deploy instruction; the
+        # adapter doesn't need to repeat it. Just describe what the
+        # skill is for so the agent has the right framing.
         return (
-            "Use `/vss-deploy-dense-captioning` against the already-deployed full VSS "
-            f"`{profile}` profile"
-            + (f" in `{deploy_mode}` mode" if deploy_mode else "")
-            + ". The eval harness predeploys that prerequisite before this task starts; do not "
-            + "invoke `/vss-deploy-profile`, `scripts/dev-profile.sh`, or redeploy the stack."
+            "Use `/vss-deploy-dense-captioning` against the deployed VSS "
+            "stack to exercise the RT-VLM dense-captioning add-on."
         )
 
     return (
@@ -174,10 +174,6 @@ def generate_task(
             "",
             expect.get("query", ""),
             "",
-            "## Environment notes",
-            "",
-            rendered_spec.get("env", ""),
-            "",
             "Run autonomously without prompting for confirmation.",
             "",
         ]
@@ -216,20 +212,10 @@ def generate_task(
             "",
         ]
         if profile_spec:
-            meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'profile = "{spec.get("profile")}"')
             if spec.get("deploy_mode"):
                 meta_lines.insert(
                     meta_lines.index(f'platform = "{platform}"'),
                     f'deploy_mode = "{spec.get("deploy_mode")}"',
-                )
-                # prerequisite_deploy_mode is alerts-only — it selects
-                # which alerts stack (verification vs real-time) the
-                # trial requires. The deploy marker is profile-name
-                # only for non-alerts (base/lvs/search), so we skip
-                # this field when spec.deploy_mode is unset.
-                meta_lines.insert(
-                    meta_lines.index(f'platform = "{platform}"'),
-                    f'prerequisite_deploy_mode = "{spec.get("deploy_mode")}"',
                 )
         else:
             meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'compose_profile = "{COMPOSE_PROFILE}"')
@@ -273,7 +259,14 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / DEFAULT_SPEC)
+    if args.spec:
+        spec_path = Path(args.spec)
+    else:
+        spec_path = skill_dir / "evals" / DEFAULT_SPEC
+        if not spec_path.exists():
+            legacy = skill_dir / "eval" / DEFAULT_SPEC
+            if legacy.exists():
+                spec_path = legacy
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

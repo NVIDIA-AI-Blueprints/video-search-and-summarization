@@ -3,19 +3,19 @@
 
 ## Build
 ```bash
-docker build -t py-analytics -f docker/Dockerfile .
+docker build -t behavior-analytics -f docker/Dockerfile .
 ```
 
 ## Run (host network)
 ```bash
-docker run --network=host py-analytics python3 apps/playback/playback_frames.py
+docker run --network=host behavior-analytics python3 apps/playback/playback_frames.py
 ```
 
 ## Run with custom config
 ```bash
 docker run --network=host \
   -v /path/to/config.json:/behavior-analytics/config.json \
-  py-analytics python3 apps/playback/playback_frames.py --config /behavior-analytics/config.json
+  behavior-analytics python3 apps/playback/playback_frames.py --config /behavior-analytics/config.json
 ```
 > The image's WORKDIR is `/behavior-analytics`; mount paths and CLI args must line up.
 

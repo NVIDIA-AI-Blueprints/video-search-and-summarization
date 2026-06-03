@@ -16,7 +16,7 @@
 services:
 
   vss-ui:
-    image: nvcr.io/nvstaging/vss-core/vss-agent-ui:3.2.0-26.05.2-794e57d82d0e
+    image: nvcr.io/nvstaging/vss-core/vss-agent-ui:3.2.0-26.05.5-c777a8d34f70
     profiles: ["bp_wh_2d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     container_name: vss-agent-ui
     ports:
@@ -91,7 +91,7 @@ services:
       NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE: "Generate a report for incident {incidentId} with sensor id {sensorId}."
       # Max search time limit (0 = unlimited, or use: 10m, 2h, 3d, 1w, 2M, 1y)
       NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT: 0
-      NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX: ${NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX:-true}
+      NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX: ${NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX:-false}
       # === End of Alerts Tab Configuration ===
 
       # === Dashboard Tab Configuration ===

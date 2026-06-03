@@ -403,7 +403,7 @@ The reference configs are located at:
 ```text
 reference-configs/warehouse-2d/
 ├── ds-main-config.txt                     # Main pipeline config
-├── ds-ppl-analytics-pgie-config.yml       # nvinfer PGIE config (RT-DETR, YAML)
+├── ds-pgie-config.yml                     # nvinfer PGIE config (RT-DETR, YAML)
 ├── ds-detector-labels.txt                 # 7 classes
 ├── ds-nvdcf-accuracy-tracker-config.yml   # NvDCF tracker config
 ├── ds-kafka-config.txt                    # Kafka broker config
@@ -440,7 +440,7 @@ The default configs are pre-configured for up to **4 streams** (batch-size=4) wi
 
 Follow this section if you need to change the maximum number of streams. The default is 4; modify all values below to match your desired limit.
 
-**PGIE config** (`$CONFIGS/warehouse-2d/ds-ppl-analytics-pgie-config.yml`) — set `onnx-file` to the absolute path of your ONNX on disk. `model-engine-file` is optional: if omitted, DeepStream auto-builds the engine next to the ONNX on first run and reuses it on every subsequent run.
+**PGIE config** (`$CONFIGS/warehouse-2d/ds-pgie-config.yml`) — set `onnx-file` to the absolute path of your ONNX on disk. `model-engine-file` is optional: if omitted, DeepStream auto-builds the engine next to the ONNX on first run and reuses it on every subsequent run.
 
 ```yaml
 property:

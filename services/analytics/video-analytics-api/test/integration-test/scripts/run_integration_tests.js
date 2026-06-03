@@ -23,7 +23,7 @@
  * - Controllers: load test/controllers/rest-apis/*.js (one file per app/controllers/rest-apis/*.js)
  *   and run getTests(constants) for each; covers /livez, /config GETs, /behavior, /tracker, etc.
  * Response bodies are validated against the response schemas from src/app/specification/openapi.json.
- * Usage: node run_integration_tests.js <BASE_URL> <FIXTURES_DIR> [WEB_APIS_ROOT]
+ * Usage: node run_integration_tests.js <BASE_URL> <FIXTURES_DIR> [VIDEO_ANALYTICS_API_ROOT]
  */
 
 'use strict';
@@ -38,7 +38,7 @@ const OPENAPI_SPEC_PATH = path.join('src', 'app', 'specification', 'openapi.json
 
 const SCRIPT_DIR = __dirname;
 const TEST_DIR = path.join(SCRIPT_DIR, '..', '..');
-const DEFAULT_WEB_APIS_ROOT = path.join(TEST_DIR, '..');
+const DEFAULT_VIDEO_ANALYTICS_API_ROOT = path.join(TEST_DIR, '..');
 
 const UPLOADS = [
     { docType: 'calibration', fixtureFile: 'calibration.json', schemaFile: 'calibration.json' },
@@ -367,7 +367,7 @@ function postMultipartFile(baseUrl, docType, filePath) {
 async function main() {
     const baseUrl = process.argv[2] || 'http://localhost:8081';
     const fixturesDir = process.argv[3];
-    const webApisRoot = process.argv[4] || DEFAULT_WEB_APIS_ROOT;
+    const webApisRoot = process.argv[4] || DEFAULT_VIDEO_ANALYTICS_API_ROOT;
     const schemasDir = path.join(webApisRoot, 'src', 'web-api-core', 'schemas', 'ajv');
 
     if (!fixturesDir || !fs.existsSync(fixturesDir)) {

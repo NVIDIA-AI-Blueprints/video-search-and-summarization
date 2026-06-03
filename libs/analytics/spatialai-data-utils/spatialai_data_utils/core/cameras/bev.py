@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from spatialai_data_utils.core.cameras.utils import (
+    discover_map_file,
     load_map_data,
     save_calibration_data,
 )
@@ -395,7 +396,7 @@ def create_camera_clusters_from_calibration(
     6. Save updated calibration file
     7. Optionally generate visualization
 
-    :param input_calibration: Path to calibration.json or directory containing calibration.json and Top.png.
+    :param input_calibration: Path to calibration.json or directory containing calibration.json and Top.png (directly or in an ``images/`` subfolder).
     :type input_calibration: str
     :param output: Output calibration file path (default: input_clustered.json).
     :type output: str or None
@@ -404,7 +405,7 @@ def create_camera_clusters_from_calibration(
     :param max_camera_per_group: Maximum cameras per cluster. Used to automatically calculate
         n_clusters based on sensor count.
     :type max_camera_per_group: int
-    :param map_file: Path to map image for visualization/region metadata. Defaults to Top.png next to the calibration file or directory.
+    :param map_file: Path to map image for visualization/region metadata. Defaults to Top.png next to the calibration file/directory, or in an ``images/`` subfolder.
     :type map_file: Path or None
     :param n_clusters: Optional override for number of clusters. If not provided, calculated
         from total cameras / max_camera_per_group.
@@ -507,14 +508,11 @@ def create_camera_clusters_from_calibration(
         logger.exception("Calibration validation failed for %s", input_calibration)
         sys.exit(1)
 
-    # Auto-discover Top.png if map_file not provided
+    # Auto-discover Top.png (scene root or images/ subfolder) if not provided
     if map_file is None:
-        if input_path.is_dir():
-            default_map = input_path / "Top.png"
-        else:
-            default_map = input_path.parent / "Top.png"
-        if default_map.exists():
-            map_file = default_map
+        discovered_map = discover_map_file(input_path)
+        if discovered_map is not None:
+            map_file = discovered_map
             logger.info(f"Auto-discovered map file: {map_file}")
 
     map_file, map_image, map_width, map_height = load_map_data(map_file)
@@ -947,14 +945,11 @@ def create_camera_groups_from_calibration(
         logger.exception("Calibration validation failed for %s", input_calibration)
         sys.exit(1)
 
-    # Auto-discover Top.png if map_file not provided
+    # Auto-discover Top.png (scene root or images/ subfolder) if not provided
     if map_file is None:
-        if input_path.is_dir():
-            default_map = input_path / "Top.png"
-        else:
-            default_map = input_path.parent / "Top.png"
-        if default_map.exists():
-            map_file = default_map
+        discovered_map = discover_map_file(input_path)
+        if discovered_map is not None:
+            map_file = discovered_map
             logger.info(f"Auto-discovered map file: {map_file}")
 
     map_file, map_image, map_width, map_height = load_map_data(map_file)

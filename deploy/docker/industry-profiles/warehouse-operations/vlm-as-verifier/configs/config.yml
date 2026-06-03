@@ -72,7 +72,7 @@ vlm:
 
 rtvi_vlm:
   base_url: "${RTVI_VLM_BASE_URL}/v1"
-  default_model: "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
+  default_model: "nim_nvidia_cosmos-reason2-8b_hf-1208"
   # Stream readiness probe (replaces deprecated stream_readiness_timeout).
   # Worst-case create latency = captions_ack_timeout + stream_readiness_max_wait.
   stream_readiness_poll_interval: 0.2

@@ -157,6 +157,18 @@ def parse_args() -> argparse.Namespace:
         "(scene, class) pair with a single sequence. Default: 1.",
     )
     parser.add_argument(
+        "--frame_start",
+        type=int,
+        default=0,
+        help="0-indexed inclusive lower bound for frame_id (per scene). "
+        "Defaults to 0 (the official validation server's behaviour). "
+        "Combined with --num_frames_to_eval this defines an arbitrary "
+        "half-open frame window [frame_start, num_frames_to_eval) -- "
+        "e.g. --frame_start 4500 --num_frames_to_eval 9000 evaluates "
+        "the second half of a 9000-frame scene; --frame_start 0 "
+        "--num_frames_to_eval 4500 evaluates the first half.",
+    )
+    parser.add_argument(
         "--num_frames_to_eval",
         type=int,
         default=9000,
@@ -222,6 +234,22 @@ def main() -> None:
         )
 
     start_time = time.time()
+    if args.frame_start < 0:
+        raise ValueError(
+            f"--frame_start must be >= 0, got {args.frame_start}."
+        )
+    if args.frame_start >= args.num_frames_to_eval:
+        raise ValueError(
+            f"--frame_start ({args.frame_start}) must be strictly less "
+            f"than --num_frames_to_eval ({args.num_frames_to_eval}); "
+            f"otherwise the frame window is empty."
+        )
+    if args.frame_start > 0:
+        logger.info(
+            "Evaluating on frame window [%d, %d) per scene.",
+            args.frame_start, args.num_frames_to_eval,
+        )
+
     results = run_aicity_mtmc_evaluation(
         ground_truth_file=args.ground_truth_file,
         prediction_file=args.input_file,
@@ -233,6 +261,7 @@ def main() -> None:
         fps=args.fps,
         quiet=args.quiet,
         class_id_to_name=class_id_to_name,
+        frame_start=args.frame_start,
     )
 
     print_aicity_mtmc_summary(results)

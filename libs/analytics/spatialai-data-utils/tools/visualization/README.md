@@ -49,8 +49,6 @@ scene-aware 3D view angle unless `--elev` / `--azim` are specified.
 ### Quick Start
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 python tools/visualization/draw_camera_placement.py \
     --calib_path data/mtmc/Scene/calibration.json \
     --output_path output/camera_placement_seq
@@ -156,8 +154,6 @@ counted as `skipped_sensor_not_in_calib` in the end-of-run report.
 ### Quick Start
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # Bare minimum
 python tools/visualization/draw_3dbbox.py \
     --input_data_path  results/scene_001.jsonl \
@@ -277,8 +273,6 @@ Exactly one of the three source arguments must be provided.
 ### Quick Start
 
 ```bash
-cd /path/to/spatialai_data_utils
-
 # NVSchema model results with a calibration JSON
 python tools/visualization/draw_3dbbox_batch.py \
     --nvschema_path results/scene_001.json \
@@ -547,6 +541,9 @@ spatialai_data_utils/visualization/
     render.py         # High-level pipeline (visualize_nvschema, visualize_3dbbox, ...)
     box_2d.py         # 2D bounding box drawing
     points.py         # 3D vertex / keypoint visualization
+    coloring.py       # Class / track-id color maps
+    camera_groups.py  # Camera-group / map visualizations (canonical path for the compat shim)
+    camera_placement/ # 3D-frustum + BEV-coverage placement (calibration_parser, plotter)
 
 spatialai_data_utils/core/geometry/
     projection.py     # Pure-numpy stage-1 projection (project_bev_objects_bbox_in_image)
@@ -557,8 +554,9 @@ spatialai_data_utils/loaders/
     calibration.py    # load_calib, load_calib_into_dict_from_pkl, load_calib_into_dict
 
 tools/visualization/
-    draw_3dbbox.py          # NVSchema-only CLI; inlines stage-1 + stage-2 in main
-    draw_3dbbox_batch.py    # CLI wrapper around visualize_3dbbox (3-mode dispatcher)
+    draw_3dbbox.py            # NVSchema-only CLI; inlines stage-1 + stage-2 in main
+    draw_3dbbox_batch.py      # CLI wrapper around visualize_3dbbox (3-mode dispatcher)
+    draw_camera_placement.py  # 3D camera-frustum + BEV-coverage placement CLI
 ```
 
 ## 3D Box Format
@@ -611,4 +609,13 @@ The calibration dictionary (per camera) uses these keys:
 | `"w2c_matrix"` | 4x4 | World-to-camera extrinsic matrix |
 | `"w2p_matrix"` | 4x4 | World-to-pixel (K @ w2c), optional |
 
-Loaded via `spatialai_data_utils.loaders.calibration.load_calib()`.
+Loaded via `spatialai_data_utils.loaders.calibration.load_calib_into_dict()` (the per-camera flat dict used by the visualization pipeline; `load_calib()` is a separate scene-master loader with a different return shape).
+
+The table above is a quick reference for the per-camera `calib_info`
+entry. The **authoritative** spec for every calibration dictionary
+shape — flat `{cam: calib_info}`, grouped `{group: {cam: calib_info}}`,
+flat + group-memberships, the `(flat, infos)` pkl tuple, and the raw
+NVSchema sensor dict — lives in the
+[`loaders/calibration.py` module docstring](../../spatialai_data_utils/loaders/calibration.py).
+The on-disk `calibration.json` structure is defined by the JSON Schema at
+[`spatialai_data_utils/schemas/calibration.json`](../../spatialai_data_utils/schemas/calibration.json).

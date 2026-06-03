@@ -149,22 +149,12 @@ def generate_instruction(spec: dict, spec_stem: str, platform: str) -> str:
         else "Deploy vss-video-analytics-api standalone."
     )
     query = _render_text(raw_query, platform, profile)
-    env_context = _render_text(spec.get("env", ""), platform, profile)
 
     lines = [
         PREAMBLE,
         "",
         query,
         "",
-    ]
-    if env_context:
-        lines += [
-            "## Environment notes",
-            "",
-            env_context,
-            "",
-        ]
-    lines += [
         "Use the `/vss-setup-video-analytics-api` skill.",
         "Run autonomously without prompting for confirmation.",
         "",

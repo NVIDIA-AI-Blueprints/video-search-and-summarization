@@ -147,6 +147,36 @@ def load_map_data(map_file: Optional[Path] = None) -> Tuple[Optional[Path], Opti
         logger.warning(f"Could not load map image '{map_path_local}': {exc}")
         return map_path_local, None, None, None
 
+
+def discover_map_file(
+    input_path: Path, map_filename: str = "Top.png"
+) -> Optional[Path]:
+    """Locate the BEV / top-view map image for a scene.
+
+    *input_path* is either the scene directory or the ``calibration.json``
+    file inside it. The map image is searched for in the conventional
+    locations, returning the first that exists:
+
+    1. directly under the scene directory (``<scene>/Top.png``), and
+    2. inside an ``images/`` subfolder (``<scene>/images/Top.png``) — the
+       layout used by the warehouse sample-data calibration bundles.
+
+    :param input_path: Scene directory or calibration-file path.
+    :type input_path: Path
+    :param map_filename: Map image filename to look for. Defaults to
+        ``"Top.png"``.
+    :type map_filename: str
+    :return: Path to the first existing candidate, or ``None`` if neither
+        location has the map image.
+    :rtype: Path or None
+    """
+    base_dir = input_path if input_path.is_dir() else input_path.parent
+    for candidate in (base_dir / map_filename, base_dir / "images" / map_filename):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def extract_camera_matrices(sensor_data):
     """
     Extract intrinsic and extrinsic matrices from sensor calibration data.

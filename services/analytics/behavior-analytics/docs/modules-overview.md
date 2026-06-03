@@ -130,7 +130,7 @@ Purpose: stateless (or per-message) transforms and event emitters.
 | `calibration/calibration_dynamic.py` | One-time-switch wrapper used when the app starts with no `--calibration`; defines `CalibrationType` enum |
 | `calibration/calibration_listener.py` | Kafka consumer thread that drains `mdx-notification` (key `calibration`), schema-validates each payload, and atomic-writes valid per-action JSON files |
 | `calibration/calibration_validator.py` | Per-action JSON Schema gate (`upsert-all` / `upsert` full schema; `delete` minimal inline) raising `CalibrationValidationError` |
-| `calibration/schemas/calibration.schema.json` | Vendored from `web-apis/web-api-core/schemas/ajv/calibration.json` — used by the validator |
+| `calibration/schemas/calibration.schema.json` | Vendored from `video-analytics-api/src/web-api-core/schemas/ajv/calibration.json` — used by the validator |
 
 **Add a new calibration variant** → subclass `CalibrationBase`, register where
 selected by config.

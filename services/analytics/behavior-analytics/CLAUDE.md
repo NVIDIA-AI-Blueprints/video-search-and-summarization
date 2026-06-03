@@ -64,8 +64,8 @@ cd tests/integration && ./test.sh <profile1> <profile2> <mode>
 # mode:     dev (default, no cleanup on fail) | prod
 
 # Docker
-docker build -t py-analytics -f docker/Dockerfile .
-docker run --network=host py-analytics python3 apps/playback/playback_frames.py
+docker build -t behavior-analytics -f docker/Dockerfile .
+docker run --network=host behavior-analytics python3 apps/playback/playback_frames.py
 ```
 
 ## Packaging

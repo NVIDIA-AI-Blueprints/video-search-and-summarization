@@ -186,7 +186,6 @@ if __name__ == "__main__":
             "Operating System :: Ubuntu",
         ],
         license_files=[
-            "LICENSE",
             "NOTICE",
             "3rdParty_Licenses.md",
         ],

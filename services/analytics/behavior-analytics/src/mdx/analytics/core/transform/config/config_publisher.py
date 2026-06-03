@@ -16,7 +16,7 @@
 """
 Outgoing-message publisher for the dynamic-configuration flow.
 
-Two messages originate on the py-analytics side:
+Two messages originate on the behavior-analytics side:
 
 * ``request-config`` (Flow B bootstrap) -- emitted once per process at startup
   to ask the video analytics api for the latest verified config from the DB.

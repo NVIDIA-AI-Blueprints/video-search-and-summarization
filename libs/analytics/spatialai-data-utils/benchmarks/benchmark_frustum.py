@@ -210,7 +210,7 @@ if __name__ == "__main__":
     print("\n🚀 Frustum Calculation Performance Benchmark\n")
     
     # Load real calibration data
-    calib_file = Path(__file__).parent.parent / "data" / "mtmc" / "SURF_Booth_031325" / "calibration.json"
+    calib_file = Path(__file__).parent.parent / "data" / "mtmc" / "scene_001" / "calibration.json"
     
     if not calib_file.exists():
         print(f"ERROR: Calibration file not found: {calib_file}")

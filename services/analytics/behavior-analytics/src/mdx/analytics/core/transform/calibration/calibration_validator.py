@@ -18,7 +18,7 @@ Schema validator for calibration notification payloads.
 
 We vendor the AJV schema that ``web-api-core`` uses pre-publish
 (``schemas/calibration.schema.json``, derived from
-``web-apis/web-api-core/schemas/ajv/calibration.json`` with the AJV-only
+``video-analytics-api/src/web-api-core/schemas/ajv/calibration.json`` with the AJV-only
 ``errorMessage`` keywords stripped). Validating on the worker side gives us
 defense-in-depth against schema drift between the publisher and consumer.
 
@@ -26,10 +26,10 @@ Per-action policy (action prefix is parsed from the notification filename --
 see :func:`CalibrationBase.reload_data`):
 
 * ``upsert-all`` / ``upsert``: validate against the **full** schema.
-  Web-api enforces the same schema before publishing, so a violation here
-  signals either a schema drift or a non-web-api producer.
+  video-analytics-api enforces the same schema before publishing, so a violation here
+  signals either a schema drift or a non-video-analytics-api producer.
 * ``delete``: validate against a **minimal** schema (sensors array,
-  each item carrying an ``id``). Web-api builds the delete payload from
+  each item carrying an ``id``). video-analytics-api builds the delete payload from
   existing stored sensors; those records may pre-date strict schema
   tightening, so a full check would falsely reject legitimate deletes.
 """

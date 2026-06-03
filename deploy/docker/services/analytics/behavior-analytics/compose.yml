@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Shared base for the vss-behavior-analytics image. Default entrypoint is 2D warehouse;
-# extending services set `command`, profiles, container_name, and volumes as needed.
+# Shared base for the vss-behavior-analytics image. Default entrypoint is 2D warehouse.
 #
-# Mount `/resources/vss-behavior-analytics-config.json` in each app compose file (warehouse,
-# dev-profile-alerts, etc.) so it overrides cleanly — do not duplicate that mount here, or Compose
-# `extends` would merge two binds to the same path. Do not `include` this file — use `extends` only.
+# The base ships a working default mount + command so this file is runnable standalone
+# (e.g. via `docker compose -f .../compose.yml up -d vss-behavior-analytics-base`)
+# Extending services override `command`, profiles, container_name, and the volume target at the same path
+# Compose `extends` deduplicates bind targets by container-side path, so the child's mount wins cleanly.
+# Do not `include` this file — use `extends` only.
 
 services:
 
@@ -28,4 +29,4 @@ services:
     restart: always
     volumes:
       - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
-    command: python3 apps/analytics/main_analytics_2d_app.py --config resources/warehouse_2d_config.json
+    command: python3 apps/analytics/main_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json

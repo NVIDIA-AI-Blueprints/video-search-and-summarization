@@ -22,6 +22,15 @@ On **AGX Thor / IGX Thor**, this skill does not have a verified Nano 9B
 DGX Spark NIM replacement. Keep using the Thor Edge 4B standalone vLLM path
 below unless a Thor-supported NIM is confirmed.
 
+## Ask first — the local edge LLM is latency-limited
+
+The edge local LLM — **Edge 4B** (AGX/IGX Thor) or **Nano 9B Nemotron** (DGX Spark) — runs on the device's shared/unified memory and is **slow** (on DGX Spark it is the main latency bottleneck). **Before deploying, ask the user:**
+
+> The local edge LLM (Edge 4B on Thor, Nano 9B Nemotron on DGX Spark) runs on the device and is latency-limited. If you have a **remote LLM endpoint** (build.nvidia.com / NVIDIA API catalog, or your own OpenAI-compatible server), using it gives noticeably better latency. Use a remote LLM, or run the local one?
+
+- **Remote (recommended for latency):** the user supplies the endpoint + model. Set `LLM_MODE=remote`, `LLM_NAME_SLUG=none`, `LLM_BASE_URL=<endpoint, no trailing /v1>`, `LLM_NAME=<model the endpoint serves>`, and `NVIDIA_API_KEY=<key>` if required; probe `<endpoint>/v1/models` first (see [`credentials.md`](credentials.md)). Only the LLM goes remote; the VLM still deploys locally per the platform's VLM recipe below.
+- **Local:** proceed with the platform recipe below; expect higher latency.
+
 ## When to pick which
 
 | Situation | LLM path |
@@ -192,9 +201,9 @@ sequence limits from the standalone recipe above.
 
 On Thor, the VLM falls back to **`rtvi-vlm` serving Cosmos Reason 2
 in-process**. The standalone `cosmos-reason2-8b` NIM service does not run on
-Thor. `rtvi-vlm` loads `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` itself and
+Thor. `rtvi-vlm` loads `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` itself and
 advertises it at `http://${HOST_IP}:8018/v1` under
-`VLM_NAME=nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8` with
+`VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` with
 `VLM_NAME_SLUG=none`.
 
 Remote VLM and `--vlm` swaps are not supported on Thor for `base` or
@@ -252,6 +261,13 @@ Then follow `SKILL.md` Steps 3-5. Thor uses the default 35% GPU budget for
 
 ## Caveats
 
+- **DGX Spark needs the `-sbsa` container images.** GB10/DGX Spark runs the dGPU/SBSA
+  driver (not Tegra/L4T); the default image tags pull the Tegra DeepStream build, which
+  crash-loops on missing `libnvbufsurface.so.1.0.0` / `libnvrm_mem.so`. `dev-profile.sh`
+  auto-swaps the `-sbsa` variants for `HARDWARE_PROFILE=DGX-SPARK`. When writing
+  `generated.env` directly, set each image tag to its `-sbsa` variant (the commented
+  `# …-sbsa` line in the profile's `.env`): `RTVI_VLM_IMAGE_TAG` (RT-VLM),
+  `PERCEPTION_TAG` (RT-CV), and `LVS_TAG` (LVS).
 - **DGX Spark NIM is local but configured as remote in VSS.** This is only
   because the image is not wired into compose yet. `LLM_MODE=remote` skips the
   local LLM compose service and points the agent at `localhost:30081`.

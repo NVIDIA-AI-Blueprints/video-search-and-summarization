@@ -61,20 +61,20 @@ Examples::
 
     # Default: <scene>/Camera_*/rgb/rgb_<00000>.jpg → grid.mp4 (1080p)
     python tools/video_utils/frame2video_scene.py \\
-        data/mtmc/synthetic/SURF_Booth_031325/ \\
-        output/SURF_Booth_grid.mp4
+        data/mtmc/synthetic/scene_001/ \\
+        output/scene_001_grid.mp4
 
     # Force 6 columns, 720p output, suppress per-cam labels
     python tools/video_utils/frame2video_scene.py \\
-        data/mtmc/synthetic/SURF_Booth_031325/ \\
-        output/SURF_Booth_grid.mp4 \\
+        data/mtmc/synthetic/scene_001/ \\
+        output/scene_001_grid.mp4 \\
         --cols 6 --target_height 720 --no_per_cam_label
 
     # First 200 frames at 60 fps with a fixed run label
     python tools/video_utils/frame2video_scene.py \\
-        data/mtmc/synthetic/SURF_Booth_031325/ \\
+        data/mtmc/synthetic/scene_001/ \\
         output/preview.mp4 \\
-        --end_frame 200 --fps 60 --label 'SURF_Booth preview'
+        --end_frame 200 --fps 60 --label 'scene_001 preview'
 """
 
 import argparse

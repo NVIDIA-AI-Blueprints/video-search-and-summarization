@@ -24,7 +24,7 @@
  * - Validates each request input (query params) against OpenAPI parameter schemas (AJV).
  * - Hits the API, validates response against OpenAPI response schema.
  * - Writes fixtures (input.json + output.json) per test under fixtures/warehouse_2d_app/.
- * Usage: node run_warehouse_2d_app_tests.js <BASE_URL> [WEB_APIS_ROOT] [FIXTURES_OUT_DIR]
+ * Usage: node run_warehouse_2d_app_tests.js <BASE_URL> [VIDEO_ANALYTICS_API_ROOT] [FIXTURES_OUT_DIR]
  */
 
 'use strict';
@@ -37,7 +37,7 @@ const https = require('https');
 const OPENAPI_SPEC_PATH = path.join('src', 'app', 'specification', 'openapi-governance.json');
 const SCRIPT_DIR = __dirname;
 const TEST_DIR = path.join(SCRIPT_DIR, '..', '..');
-const DEFAULT_WEB_APIS_ROOT = path.join(TEST_DIR, '..');
+const DEFAULT_VIDEO_ANALYTICS_API_ROOT = path.join(TEST_DIR, '..');
 const WAREHOUSE_FIXTURES_SUBDIR = 'warehouse_2d_app';
 
 // Time range from Elasticsearch dump (warehouse_2d_app)
@@ -318,7 +318,7 @@ function safeSlug(s) {
 
 async function main() {
     const baseUrl = process.argv[2] || 'http://localhost:8081';
-    const webApisRoot = process.argv[3] || DEFAULT_WEB_APIS_ROOT;
+    const webApisRoot = process.argv[3] || DEFAULT_VIDEO_ANALYTICS_API_ROOT;
     const INTEGRATION_TEST_DIR = path.join(SCRIPT_DIR, '..');
     const fixturesRoot = process.argv[4] || path.join(INTEGRATION_TEST_DIR, 'fixtures');
     const outDir = path.join(fixturesRoot, WAREHOUSE_FIXTURES_SUBDIR);

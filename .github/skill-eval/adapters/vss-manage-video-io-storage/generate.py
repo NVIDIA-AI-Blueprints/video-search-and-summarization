@@ -20,34 +20,29 @@ host with a working `nvidia-container-toolkit`). Use `--platform <X>`
 to override or `--all-platforms` if you really want the fan-out (not
 what the spec asks for).
 
-## Harbor chaining / dependencies
+## Deploy modes
 
-Harbor has no native mechanism to express inter-task dependencies
-(`TaskConfig` lacks a `depends_on` / `prerequisites` field). Each
-task is independent — Harbor runs exactly one task per trial on a
-clean environment.
+Harbor runs exactly one task per trial on a clean environment, and the
+skill-eval harness no longer pre-deploys any VSS profile on the agent's
+behalf. So whichever path the spec picks, the **agent's first turn**
+is responsible for bringing up whatever it needs:
 
-The adapter supports two modes, controlled by the spec's `profile` field:
+1. **Profile-less spec (current `vios_ops.json` — `profile` absent):**
+   the instruction.md tells the agent to stand VIOS up standalone via
+   the skill's bundled `references/deploy-vios-service.md` runbook
+   (pre-authorized per the skill's "Pre-authorized autonomous mode"
+   branch). No `/vss-deploy-profile`.
 
-1. **Profile-less spec (current vios_ops.json — `profile` absent):**
-   `task.toml [metadata]` emits `requires_deployed_vss = false` and
-   no `profile = ...` line. The trial runs on a bare Brev instance
-   and the agent stands VIOS up itself via the skill's bundled
-   `references/deploy-vios-service.md` runbook (pre-authorized
-   per the skill's "Pre-authorized autonomous mode" branch). No
-   chaining; no coordinator-level deploy injection.
+2. **Profile-bound spec (e.g. `profile: "base"`):** the instruction.md
+   tells the agent to deploy the profile via
+   `/vss-deploy-profile -p <profile>` in its first turn, then run the
+   VIOS API queries against that profile's stack.
 
-2. **Profile-bound spec (e.g. `profile: "base"`):** `task.toml
-   [metadata]` emits `profile = "<value>"` and
-   `requires_deployed_vss = true`. The coordinator
-   (see `.github/skill-eval/AGENTS.md` § 2) arranges that the
-   target Brev instance already has VSS running on the requested
-   profile before dispatching the vss-manage-video-io-storage
-   trial — via `execution_groups[<id>].queue_order` (sequential
-   tasks on the same instance share state). To chain: put a
-   `/vss-deploy-profile -p <profile>` task first in the group's
-   queue, then the vss-manage-video-io-storage tasks for the
-   same platform.
+In both cases `task.toml [metadata]` is purely informational — the
+harness no longer reads `profile`, `requires_deployed_vss`, or
+`prerequisite_deploy_mode` (those fields and the
+`_ensure_prerequisite_deployed` consumer were removed in the same
+refactor that motivated this docstring rewrite).
 
 ## Directory layout
 
@@ -188,17 +183,9 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-manage-video-io-storage` skill against the VSS base profile "
-            f"already running on this `{platform}` host "
-            "(`http://localhost:30888/vst/api/v1/sensor/version` must respond).",
-            "",
             f"## Query {idx} of {len(expects)}",
             "",
             expect.get("query", ""),
-            "",
-            "## Environment notes",
-            "",
-            spec.get("env", ""),
             "",
             "Run autonomously without prompting for confirmation.",
             "",
@@ -246,24 +233,10 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             # VIOS up standalone via the skill's deploy contract.
             # Defaulting to "base" here would resurrect the wrong
             # prerequisite-deploy behaviour silently.
-            *([f'profile = "{spec["profile"]}"'] if spec.get("profile") else []),
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            # requires_deployed_vss tracks whether the trial assumes a
-            # pre-deployed VSS stack. With the current profile-less
-            # spec the agent is responsible for the deploy, so this is
-            # false; if a future spec re-introduces `profile`, flip
-            # this back to true (the coordinator gates dispatch on it).
-            f"requires_deployed_vss = {'true' if spec.get('profile') else 'false'}",
-            # prerequisite_deploy_mode is alerts-only — the deploy marker
-            # is profile-name only for base/lvs/search; the consumer
-            # (envs/brev_env.py::_ensure_prerequisite_deployed) matches
-            # on profile alone when this field is absent. Set it only if
-            # this spec needs a specific alerts stack (verification vs
-            # real-time).
-            *([f'prerequisite_deploy_mode = "{spec["prerequisite_deploy_mode"]}"'] if spec.get("prerequisite_deploy_mode") else []),
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -283,6 +256,10 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
         spec_src = skill_dir / "evals" / spec_name
+        if not spec_src.exists():
+            legacy = skill_dir / "eval" / spec_name
+            if legacy.exists():
+                spec_src = legacy
         if spec_src.exists():
             shutil.copy(spec_src, tests_dir / spec_name)
         else:
@@ -341,7 +318,14 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "evals" / "vios_ops.json")
+    if args.spec:
+        spec_path = Path(args.spec)
+    else:
+        spec_path = skill_dir / "evals" / "vios_ops.json"
+        if not spec_path.exists():
+            legacy = skill_dir / "eval" / "vios_ops.json"
+            if legacy.exists():
+                spec_path = legacy
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)
