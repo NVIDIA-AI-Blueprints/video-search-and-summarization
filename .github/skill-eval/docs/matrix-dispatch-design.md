@@ -123,8 +123,8 @@ failing leg doesn't cancel the others.
 
 | Component | Change |
 |---|---|
-| `.github/skill-eval/plan_matrix.py` | **new.** Pure-Python, no LLM. Reads the diff (via `gh api …/compare`), applies the rules above, prints `matrix` JSON + `has_targets` to `$GITHUB_OUTPUT`. Unit-testable offline. |
-| `.github/workflows/skills-eval.yml` | **rewrite.** `plan` job → `eval` matrix job. `workflow_dispatch` manual-sweep path retained (still single-agent full sweep to `$GITHUB_STEP_SUMMARY`). |
+| `.github/skill-eval/plan_matrix.py` | **new.** Pure-Python, no LLM. Reads the diff (local `git diff`) — or, on a manual sweep, enumerates the picked skill's specs — applies the rules above, prints `matrix` JSON + `has_targets` to `$GITHUB_OUTPUT`. Unit-testable offline. |
+| `.github/workflows/skills-eval.yml` | **rewrite.** `plan` job → `eval` matrix job, on push AND `workflow_dispatch` (a manual sweep feeds the picked skill's specs into the same matrix; legs write to `$GITHUB_STEP_SUMMARY` since there's no PR). |
 | `.github/skill-eval/skills_eval_agent.py` | **small add.** New single-spec mode keyed on `EVAL_SKILL`/`EVAL_SPEC`: skip the diff/detection (plan already decided), build a user prompt scoped to one spec, otherwise reuse the existing SDK session, options, hardening, and DONE/BLOCKED enforcement verbatim. |
 | `.github/skill-eval/AGENTS.md` | **add a "Single-spec mode" section** (parallel to "Manual full-sweep mode"): when `EVAL_SPEC` is set, skip step 1's diff — you are handed exactly one `(skill, spec)`; run steps 2–7 for it only, post the one comment, emit the marker. Everything else (hard rules, fleet selection § 5a, flock § 5b, harbor invocation, result format, failure modes) applies unchanged. |
 

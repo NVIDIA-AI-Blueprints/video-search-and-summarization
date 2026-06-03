@@ -26,6 +26,9 @@ of an adapterless skill don't race to commit it N times.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
+    MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name or `*`
+                   (all skills) — enumerates those specs instead of diffing,
+                   so the matrix fans per-(spec, platform) like a push
     CHANGED_FILES  optional newline-separated override (tests / local)
     GITHUB_OUTPUT  optional; when set, key=value lines are appended here
 """
@@ -72,6 +75,33 @@ def list_changed_files() -> list[str]:
     override = os.environ.get("CHANGED_FILES")
     if override is not None:
         return [ln.strip() for ln in override.splitlines() if ln.strip()]
+
+    # Manual full-sweep (workflow_dispatch): there's no diff. Enumerate the
+    # chosen skill(s)' specs so build_matrix fans them per-(spec,platform)
+    # exactly like a push — this replaces the legacy single-agent sweep.
+    # `*` sweeps every skill; otherwise a bare skill-dir name.
+    manual = os.environ.get("MANUAL_SKILLS_FILTER")
+    if manual:
+        # workflow_dispatch input — guard against path escape before it
+        # reaches specs_for_skill (which globs REPO_ROOT/skills/<filter>/…).
+        if manual != "*" and not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]*", manual):
+            raise ValueError(
+                f"unsafe MANUAL_SKILLS_FILTER {manual!r}: expected a skill-dir "
+                f"name ([A-Za-z0-9_-]) or '*'"
+            )
+        # Fail loud on a typo'd / renamed skill rather than emitting an empty
+        # matrix that the eval job silently skips (the removed manual-sweep
+        # job errored here too).
+        if manual != "*" and not (REPO_ROOT / "skills" / manual).is_dir():
+            raise ValueError(
+                f"MANUAL_SKILLS_FILTER {manual!r}: skills/{manual}/ does not "
+                f"exist on this ref — check the skill name"
+            )
+        skills = (
+            sorted(p.name for p in (REPO_ROOT / "skills").iterdir() if p.is_dir())
+            if manual == "*" else [manual]
+        )
+        return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
 
     base = os.environ["PR_BASE"]
     subprocess.run(

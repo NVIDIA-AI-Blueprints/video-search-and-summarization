@@ -201,14 +201,14 @@ Import the same functions the CLI uses from
 | Symbol                                | Purpose |
 |---------------------------------------|---------|
 | `HOTA_FIELDS`                         | `["HOTA", "DetA", "AssA", "LocA"]` — the metric quartet reported by the leaderboard. |
-| `split_aicity_mtmc_per_scene_per_class(...)` | Stream-split an AICity MTMC text file into `<scene>/<class>/<basename>` MOT-format files; returns `{scene: {class: row_count}}`. Optional kwarg `class_id_to_name` selects the active class table (defaults to AICity'25). Useful on its own for per-class analyses / visualizers / custom evaluators. |
-| `run_aicity_mtmc_evaluation(...)` | End-to-end orchestrator: splits, runs HOTA per (scene, class), aggregates, returns a results dict. Optional kwarg `class_id_to_name` selects the active class table (defaults to AICity'25; pass `aicity26.spec.CLASS_ID_TO_NAME` for the 2026 edition). |
+| `split_aicity_mtmc_per_scene_per_class(...)` | Stream-split an AICity MTMC text file into `<scene>/<class>/<basename>` MOT-format files; returns `{scene: {class: row_count}}`. Optional kwarg `class_id_to_name` selects the active class table (defaults to AICity'26). Useful on its own for per-class analyses / visualizers / custom evaluators. |
+| `run_aicity_mtmc_evaluation(...)` | End-to-end orchestrator: splits, runs HOTA per (scene, class), aggregates, returns a results dict. Optional kwarg `class_id_to_name` selects the active class table (defaults to AICity'26; pass `aicity25.spec.CLASS_ID_TO_NAME` for the 2025 edition). |
 | `print_aicity_mtmc_summary(results)` | Log the per-(scene, class) + per-scene summary table to the module's logger. |
 | `save_aicity_mtmc_results(results, output_dir)` | Persist a results dict to `<output_dir>/aicity_mtmc_hota_summary.json` in the 0–100 scale used by the official leaderboard. Returns the JSON path. |
 
 Spec constants — the class-id → name table and the text-format
 field count — live in per-edition sibling packages so the eval
-module, the submission converters under `tools/aicity25/`, and any
+module, the AICity submission converters, and any
 future AICity MTMC consumer can share a single source of truth:
 
 ```python
@@ -245,23 +245,24 @@ save_aicity_mtmc_results(results, "/tmp/aicity_mtmc_eval")
 print(results["final"]["HOTA"])    # 0.611948 (in [0, 1] scale)
 ```
 
-To evaluate a 2026 submission, swap the per-edition scene mapping
-**and** pass the 2026 class table as `class_id_to_name`:
+2026 is the default, so the snippet above needs no class-table argument.
+To evaluate a **2025** submission instead, pass the 2025 scene mapping
+**and** the 2025 class table as `class_id_to_name`:
 
 ```python
-from spatialai_data_utils.datasets.aicity26 import load_default_scene_id_to_name
-from spatialai_data_utils.datasets.aicity26.spec import (
-    CLASS_ID_TO_NAME as AICITY26_CLASS_ID_TO_NAME,
+from spatialai_data_utils.datasets.aicity25 import load_default_scene_id_to_name
+from spatialai_data_utils.datasets.aicity25.spec import (
+    CLASS_ID_TO_NAME as AICITY25_CLASS_ID_TO_NAME,
 )
 from spatialai_data_utils.eval.tracking.aicity_mtmc_eval import (
     run_aicity_mtmc_evaluation,
 )
 
 results = run_aicity_mtmc_evaluation(
-    ground_truth_file="data/aicity26/ground_truth/ground_truth.txt",
-    prediction_file="path/to/your_2026_submission.txt",
+    ground_truth_file="data/aicity25/ground_truth/ground_truth.txt",
+    prediction_file="path/to/your_2025_submission.txt",
     scene_id_to_name=load_default_scene_id_to_name(),
-    class_id_to_name=AICITY26_CLASS_ID_TO_NAME,
+    class_id_to_name=AICITY25_CLASS_ID_TO_NAME,
     output_dir="/tmp/aicity_mtmc_eval",
 )
 ```
@@ -283,10 +284,8 @@ persistence, matching the convention used by the official leaderboard.
   TrackEval keys results by sequence + the literal `"class"` token, not
   by class name, so the spelling does not affect the computed metric.
 - The prediction file format does **not** carry a confidence column, so
-  there is no `--confidence_threshold` option here — filter your
-  submission upstream (e.g. via the
-  `aicity25-submission` skill's
-  `tools/aicity25/convert_sparse4d_to_aicity25.py --conf_thresh`).
+  there is no `--confidence_threshold` option here — filter low-confidence
+  rows out of your submission upstream, before passing it to this tool.
 - `num_frames_to_eval` truncates by **frame ID**, not by **row count**,
   so it is safe to leave at its `9000` default even when one scene has
   many fewer rows.

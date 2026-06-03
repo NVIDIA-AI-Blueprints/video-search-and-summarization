@@ -182,12 +182,32 @@ class BrevEnvironment(BaseEnvironment):
 
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
-        await _run_brev_exec(
+        #
+        # Wipe /logs/artifacts and /logs/verifier FIRST: harbor's
+        # Trial._download_artifacts() does a blanket download_dir(/logs/artifacts)
+        # and nothing on a warm-pool box ever clears that dir, so a prior
+        # trial's arbitrarily-named files get collected as THIS trial's
+        # artifacts (observed: 3-day-old `nemoclaw/` base-deploy logs surfacing
+        # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
+        # left intact here — its prior-trial session JSONLs are handled by the
+        # archive step just below (move-not-delete, for forensic SSH access).
+        setup_dirs_result = await _run_brev_exec(
             self._instance_name,
+            "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
             "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
+        # Fail loud: this is the load-bearing artifacts wipe. A silent failure
+        # would leave the prior trial's /logs/artifacts in place and re-collect
+        # it as this trial's output — the exact contamination being fixed —
+        # so it gets the same exit-code guard as the docker reset / repo sync.
+        if setup_dirs_result.return_code != 0:
+            tail = (setup_dirs_result.stderr or setup_dirs_result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"log-dir reset/setup failed on {self._instance_name}: "
+                f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
+            )
 
         # Archive any session JSONLs left by prior trials on this warm-pool
         # box. Without this, harbor's claude-code mapper merges every
@@ -300,6 +320,34 @@ class BrevEnvironment(BaseEnvironment):
         # PR_HEAD_SHA forwarded above never actually lands on disk.
         await self._sync_repo_to_pr_head()
 
+        # Wipe the warm-pool box's docker runtime to a clean slate so no
+        # prior trial's deployment state can contaminate this one. Images are
+        # preserved (re-pulling the image set is slow); all containers,
+        # user-defined networks, and volumes are removed. See
+        # _reset_docker_runtime for why this is blanket, not VSS-scoped.
+        #
+        # Gate: ONLY on a spec's first trial — a single-step spec (task dir is
+        # the platform, e.g. `rtxpro6000bw`) or `step-1` of a multi-step spec.
+        # Multi-step checks for step N assume the deployment state established
+        # by step N-1 (AGENTS.md § "Multi-step specs"), and each step is a
+        # separate `harbor run` → separate start(); resetting before step-2+
+        # would destroy the very state under test. step-1 gets the clean box;
+        # later steps build on it. (`environment_dir.parent` is the task dir —
+        # named `step-N` for multi-step, the platform for single-step.)
+        # Caveat: a manual `harbor run` targeting only `step-2+` in isolation
+        # skips the reset and inherits whatever is on the box — run `step-1`
+        # first, or reset by hand. Normal CI always runs `step-1` first on a
+        # freshly reset box, so the gate is correct there.
+        task_dir_name = self.environment_dir.parent.name
+        if task_dir_name.startswith("step-") and task_dir_name != "step-1":
+            logger.info(
+                "Skipping docker runtime reset on %s — %s of a multi-step spec "
+                "must preserve step-1's deployment state",
+                self._instance_name, task_dir_name,
+            )
+        else:
+            await self._reset_docker_runtime()
+
         # The harness intentionally does NOT pre-deploy any VSS profile
         # here. Each eval spec's first `expects[]` query is responsible
         # for invoking `/vss-deploy-profile` (or the appropriate
@@ -310,6 +358,86 @@ class BrevEnvironment(BaseEnvironment):
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _reset_docker_runtime(self) -> None:
+        """Wipe the warm-pool box's docker runtime before the trial.
+
+        Removes **all** containers (running + stopped), **all** volumes
+        (named + anonymous), and **all** user-defined networks, while
+        **preserving images** — re-pulling the multi-GB VSS/NIM image set on
+        every trial would dominate wall-clock.
+
+        Why blanket, not VSS-project-scoped: trials reach a deploy through
+        heterogeneous paths — direct `docker compose --profile …`, the
+        `/vss-deploy-profile` runbook, an MCP-orchestrator base deploy — under
+        different compose project names. A project- or label-scoped
+        `compose down` from the incoming trial therefore cannot reach a
+        *predecessor's* stack, so a leftover container port-conflicts the new
+        deploy (observed: a profile_in_1 trial where `phoenix` was stuck
+        `Created` and several init containers were missing because a prior
+        base-profile deploy's containers still held the ports). Removing
+        everything is the only reset that doesn't depend on knowing what the
+        last trial deployed. Safe because `vss-eval-*` boxes are a dedicated,
+        flock-serialised eval pool — nothing else runs on them.
+
+        NOTE: wiping all volumes also drops the model-weight caches
+        (`rtvi-hf-cache`, `rtvi-ngc-model-cache`), so the next deploy pays the
+        full cold model-weight download (~20 min vs ~55 s warm). The caller
+        gates this to a spec's first trial only (single-step, or step-1 of a
+        multi-step spec — later steps reuse step-1's deployment), so under the
+        canonical `-n 1 --max-retries 0` invocation (one trial per spec) the
+        cost is paid once per spec, not once per step. An `-n>1` rollout, a
+        harbor retry, or a repeated manual run on the same warm box each
+        re-wipes the caches and re-pays the cold start. The per-trial harbor
+        timeout already budgets for a cold deploy.
+
+        Runs as the normal (docker-group) user — the same identity the
+        trial's deploy uses; no sudo. `network prune` leaves the built-in
+        bridge/host/none networks, which is correct. Fails loud (`set -u`,
+        explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
+        if any container, volume, or user-defined network survives, so a
+        half-reset box surfaces as a trial error rather than silent cross-trial
+        contamination.
+        """
+        cmd = r"""set -uo pipefail
+docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
+cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
+vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
+docker network prune -f >/dev/null 2>&1 || true
+# Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
+# died mid-script would make the count commands below print nothing and the
+# guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
+# this check, so the remaining TOCTOU window is negligible.
+docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
+rc=$(docker ps -aq | wc -l | tr -d ' ')
+rv=$(docker volume ls -q | wc -l | tr -d ' ')
+# Only user-defined networks should be gone; the built-in bridge/host/none
+# are never removable, so filter to type=custom. A surviving user network
+# would collide ("network already exists" / address-range clash) on the next
+# `compose up`, so it must fail the reset like a surviving container/volume.
+rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
+if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
+  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
+  exit 1
+fi
+echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
+"""
+        logger.info(
+            "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"docker runtime reset failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Docker reset on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
+        )
 
     async def _sync_repo_to_pr_head(self) -> None:
         """Reset `~/video-search-and-summarization` on the Brev box to the
