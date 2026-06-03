@@ -225,7 +225,6 @@ def build_matrix(changed: list[str]) -> list[dict]:
     for meta in target_meta.values():
         by_skill.setdefault(meta["skill"], []).append(meta)
 
-    print(changed_specs, whole_skills, 'aaaadasd')
     include: list[dict] = []
     for skill in sorted(by_skill):
         if not adapter_exists(skill):
