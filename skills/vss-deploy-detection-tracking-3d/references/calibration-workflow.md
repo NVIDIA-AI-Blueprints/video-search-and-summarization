@@ -72,13 +72,9 @@ if sudo -n true 2>/dev/null; then
   sudo setfacl -m u:1000:rwx "${VSS_APPS_DIR}/services/auto-calibration/projects"
   echo "AMC projects directory ready."
 else
-  cat <<'EOF'
-Sudo requires a password on this host. Please run the two commands below in
-your shell, then confirm so we can continue:
-
-  sudo mkdir -p "${VSS_APPS_DIR}/services/auto-calibration/projects"
-  sudo setfacl -m u:1000:rwx "${VSS_APPS_DIR}/services/auto-calibration/projects"
-EOF
+  echo "Sudo requires a password on this host. Please run the two commands below in your shell, then confirm to continue:"
+  echo "  sudo mkdir -p \"${VSS_APPS_DIR}/services/auto-calibration/projects\""
+  echo "  sudo setfacl -m u:1000:rwx \"${VSS_APPS_DIR}/services/auto-calibration/projects\""
 fi
 ```
 
