@@ -71,6 +71,7 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
+    modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
     env:
       - name: OPENAI_API_KEY
         value: "NOAPIKEYSET"

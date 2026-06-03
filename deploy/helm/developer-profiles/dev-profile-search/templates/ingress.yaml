@@ -155,7 +155,8 @@ spec:
                 port:
                   number: {{ $ing.vssUiPort | default 3000 }}
           {{- end }}
-    {{- if (index $vios "vss-vios-nvstreamer").enabled }}
+    {{- $nvstreamer := index $vios "vss-vios-nvstreamer" | default dict }}
+    {{- if $nvstreamer.enabled }}
     # ── Streamer host: NVStreamer HTTP API ─────────────────────────────
     - host: {{ $streamerHost }}
       http:
@@ -166,9 +167,10 @@ spec:
               service:
                 name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-nvstreamer") }}
                 port:
-                  number: {{ (index $vios "vss-vios-nvstreamer").service.port }}
+                  number: {{ (index $nvstreamer "service" | default dict).port | default 31000 }}
     {{- end }}
-    {{- if (index (.Values.infra | default dict) "kibana" | default dict).enabled }}
+    {{- $kibana := index (.Values.infra | default dict) "kibana" | default dict }}
+    {{- if $kibana.enabled }}
     # ── Kibana host: dashboards ───────────────────────────────────────
     - host: {{ $kibanaHost }}
       http:
@@ -179,7 +181,7 @@ spec:
               service:
                 name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kibana") }}
                 port:
-                  number: {{ (index (.Values.infra | default dict) "kibana" | default dict).service.port | default 5601 }}
+                  number: {{ (index $kibana "service" | default dict).port | default 5601 }}
     {{- end }}
     {{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
     {{- if and $fp (default true $fp.enabled) (ne $phoenixHost "") }}
