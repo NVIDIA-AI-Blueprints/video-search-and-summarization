@@ -903,6 +903,39 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn('expected_skill = "vss-ask-video"', task_toml)
         self.assertIn("vss_orchestrator__docker_status", task_toml)
 
+    def test_task_metadata_reader_falls_back_without_tomllib(self):
+        with tempfile.TemporaryDirectory() as td:
+            task_dir = Path(td)
+            (task_dir / "task.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [metadata]
+                    skill = "vss-ask-video"
+                    profile = "base"
+                    platform = "L40S"
+                    gpu_count = 1
+                    requires_nemoclaw = true
+                    required_mcp_tools = ["vss_orchestrator__profiles", "vss_orchestrator__docker_status"]
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            previous = smoke_runner.tomllib
+            smoke_runner.tomllib = None
+            try:
+                parsed = smoke_runner._read_task_toml(task_dir)
+            finally:
+                smoke_runner.tomllib = previous
+
+        self.assertEqual(parsed["metadata"]["skill"], "vss-ask-video")
+        self.assertEqual(parsed["metadata"]["gpu_count"], 1)
+        self.assertTrue(parsed["metadata"]["requires_nemoclaw"])
+        self.assertEqual(
+            parsed["metadata"]["required_mcp_tools"],
+            ["vss_orchestrator__profiles", "vss_orchestrator__docker_status"],
+        )
+
     def test_nemoclaw_report_uses_harbor_eval_format(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
