@@ -120,7 +120,7 @@ grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
 | Deployed mode | User asks about… | Action |
 |---|---|---|
 | **VLM real-time** | Slack webhook setup/status/test/stop | Run **Workflow E (Slack Notifications)** — follow `references/alert-notify.md` |
-| **VLM real-time** | subscription / rule CRUD, or **set up / create / watch / flag** a realtime alert on a specific sensor with a detection condition | Run **Workflow D (Alert Subscriptions)** — follow `references/alert-subscriptions.md` for Alert Bridge rule management. |
+| **VLM real-time** | subscription / rule CRUD, or **set up / create / watch / flag** a realtime alert on a specific sensor with a detection condition, **or stop / delete a named alert** (by `alert_type`/condition or rule ID, e.g. "stop the PPE alert on warehouse_sample", "delete the collision rule") | Run **Workflow D (Alert Subscriptions)** — follow `references/alert-subscriptions.md` for Alert Bridge rule management (including the two-step stop/confirm protocol). |
 | **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see Canonical refusal text below |
 | **CV or VLM** | generic start/stop monitoring via VSS Agent **without** a specific detection condition (e.g. "start real-time alert for sensor warehouse_sample") | Run **Workflow B (VLM)** — call the VSS Agent with a detection prompt. `rtvi-vlm` runs in both modes. |
 | **CV or VLM** | incident lookup / list / query — *what happened* (recent alerts, time-range queries, **and casual phrasings** like "any alerts so far today?", "any alerts today?", "what's been triggered?", "anything detected?") | Run **Workflow C (Query)** — `video_analytics_mcp.get_incidents` works on both deployments. **Always execute the query — never answer an incident question from memory.** |
@@ -132,15 +132,17 @@ grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
 ### Intent precedence (first match wins)
 
 1. **Workflow E (Slack)** — Slack-specific keywords (`slack`, `webhook` + `slack`, `bot token`, `slack channel`). `notify` alone is **not** sufficient.
-2. **Workflow D (Subscriptions)** — sensor name **plus** a detection condition, or rule CRUD keywords (`rule`, `subscription`, rule ID).
-3. **Workflow B (VLM monitoring)** — generic start/stop on a sensor with **no** detection condition.
+2. **Workflow D (Subscriptions)** — sensor name **plus** a detection condition, or rule CRUD keywords (`rule`, `subscription`, rule ID), **or stopping/deleting a named alert by its type/condition** (e.g. "stop the PPE alert on warehouse_sample", "delete the collision alert", "turn off the fire alert"). Naming an `alert_type`/condition refers to an existing **rule** → use D's two-step stop protocol (find the rule via `GET /api/v1/realtime`, ask the yes/no confirmation, then delete). Do **not** route a named-alert stop to Workflow B.
+3. **Workflow B (VLM monitoring)** — generic start/stop on a sensor with **no** detection condition and **no** alert-type qualifier (e.g. "start real-time alert for sensor warehouse_sample", "stop real-time alert for sensor warehouse_sample"). If a stop names an alert type/condition ("stop the **PPE** alert"), it is a rule stop → Workflow D, not B.
 4. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
 5. **Workflow A (CV)** — CV deployment handling for anything not matched above.
 
-> **`alerts` vs `alert rules` (C vs D):** a question about *what happened / has been triggered* (incidents) → **Workflow C** (`POST /generate`). A question about *what rules/subscriptions are configured or currently active* → **Workflow D** (Alert Bridge `GET /api/v1/realtime`). The word `alerts` on its own = incidents (C); `alert rules` / `subscriptions` / `currently active rules` = inventory (D). Never answer either from memory — execute the call.
+> **`alerts` vs `alert rules` (C vs D):** a question about *what happened / has been triggered* (incidents) → **Workflow C**, which uses **`POST /generate` ONLY**. A question about *what rules/subscriptions are configured or currently active* → **Workflow D** (Alert Bridge `GET /api/v1/realtime`). The word `alerts` on its own = incidents (C); `alert rules` / `subscriptions` / `currently active rules` = inventory (D). Pick **exactly one** workflow — never run both for one query. In particular, **Workflow C must NOT touch Alert Bridge `/api/v1/realtime`** (that is Workflow D's endpoint): an incident/"alerts" query is answered entirely through `POST /generate`. Never answer from memory — execute the one correct call.
 
 **Disambiguation (B vs D):** if a sensor is named with start/monitor language but the detection condition is unclear, ask:
 > *"Do you want me to (a) create a persistent alert rule on Alert Bridge that keeps running until you delete it, or (b) start a one-time monitoring session via the VSS Agent?"*
+
+**Stop routing (B vs D):** "Stop the **&lt;type&gt;** alert on &lt;sensor&gt;" (names an `alert_type`/condition such as PPE, collision, fire, loitering) = stopping an existing **subscription rule** → **Workflow D**: do not call `POST /generate`; instead find the rule via Alert Bridge `GET /api/v1/realtime`, then follow the two-step stop/confirm protocol in `references/alert-subscriptions.md`. Only a bare "stop real-time alert / stop monitoring on &lt;sensor&gt;" with **no** alert-type qualifier is a Workflow B stop.
 
 If a prompt mixes workflows ("start monitoring and send to Slack"), ask one clarifying question to split execution order.
 
@@ -272,7 +274,27 @@ detected lately?" are incident queries — issue a `POST /generate` (e.g.
 `{"input_message": "List alerts from today"}`) and summarize the result.
 **Never answer these from memory and never reply "no alerts" without
 running the query.** A bare "alerts" question is *always* an incident
-lookup (Workflow C), not a subscription-rule listing (Workflow D). For
+lookup (Workflow C), not a subscription-rule listing (Workflow D).
+
+> **Workflow C is `POST /generate` ONLY.** Do **not** call Alert Bridge
+> `GET /api/v1/realtime` (or any `/api/v1/realtime` endpoint) when
+> answering an incident/"alerts" query — that endpoint lists
+> *subscription rules* (Workflow D) and is wrong for "what happened"
+> questions. One incident query = one (or more) `POST /generate` call(s)
+> and nothing on Alert Bridge. Touching `/api/v1/realtime` here is a
+> routing error — this includes "orientation", health-check, or
+> connectivity probes (e.g. `curl .../api/v1/realtime`): never hit that
+> endpoint for an incident query, not even to look around.
+>
+> **Empty result is a valid answer — do NOT fall back.** If `POST
+> /generate` returns no incidents (e.g. a freshly deployed system with no
+> activity yet), reply that **no alerts/incidents were found for the
+> requested period and STOP.** Do **not** then probe Alert Bridge
+> `/api/v1/realtime`, list subscription rules, or hunt other endpoints to
+> "find alerts" — an empty incident list is the correct, complete answer.
+> Do not load or execute the Workflow D playbook (`references/alert-subscriptions.md`) for an incident query.
+
+For
 richer / non-natural-language filtering (sensor-level, time-series,
 counts) use the **`vss-query-analytics` skill** (VA-MCP on port 9901).
 
