@@ -21,10 +21,14 @@ import shutil
 import subprocess
 import sys
 import time
-import tomllib
 from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import quote
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11 on some self-hosted runners.
+    tomllib = None  # type: ignore[assignment]
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -364,12 +368,60 @@ def _run_adapter(
 
 
 def _read_task_toml(task_dir: Path) -> dict[str, Any]:
+    task_toml = task_dir / "task.toml"
+    if tomllib is not None:
+        try:
+            with task_toml.open("rb") as handle:
+                parsed = tomllib.load(handle)
+        except (OSError, tomllib.TOMLDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {"metadata": _read_metadata_fallback(task_toml)}
+
+
+def _read_metadata_fallback(task_toml: Path) -> dict[str, Any]:
     try:
-        with (task_dir / "task.toml").open("rb") as handle:
-            parsed = tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError):
+        lines = task_toml.read_text(encoding="utf-8").splitlines()
+    except OSError:
         return {}
-    return parsed if isinstance(parsed, dict) else {}
+    metadata: dict[str, Any] = {}
+    in_metadata = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            in_metadata = line == "[metadata]"
+            continue
+        if not in_metadata or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        metadata[key.strip()] = _parse_metadata_value(raw_value.strip())
+    return metadata
+
+
+def _parse_metadata_value(raw_value: str) -> Any:
+    value = raw_value.split("#", 1)[0].strip()
+    if not value:
+        return ""
+    if value in ("true", "false"):
+        return value == "true"
+    if value.startswith('"') and value.endswith('"'):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value.strip('"')
+    if value.startswith("[") and value.endswith("]"):
+        items = []
+        for item in value[1:-1].split(","):
+            item = item.strip()
+            if item:
+                items.append(_parse_metadata_value(item))
+        return items
+    try:
+        return int(value)
+    except ValueError:
+        return value
 
 
 def _metadata_value(metadata: dict[str, Any], *keys: str) -> Any:
