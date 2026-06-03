@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import quote
@@ -28,8 +29,11 @@ from urllib.parse import quote
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SKILL_EVAL_ROOT = REPO_ROOT / ".github" / "skill-eval"
-DEFAULT_DATASET_ROOT = Path("/tmp/skill-eval/datasets/vss-deploy-profile")
+ADAPTERS_ROOT = SKILL_EVAL_ROOT / "adapters"
+SKILLS_ROOT = REPO_ROOT / "skills"
+DEFAULT_DATASET_ROOT = Path("/tmp/skill-eval/datasets/nemoclaw")
 DEFAULT_RESULTS_ROOT = Path("/tmp/skill-eval/results")
+DEFAULT_SKILL = "vss-deploy-profile"
 DEFAULT_PROFILE = "base"
 DEFAULT_PLATFORM = "RTXPRO6000BW"
 SCRATCH_ROOT = Path("/tmp/skill-eval")
@@ -40,6 +44,7 @@ PLATFORM_TASK = {
     "H100": "h100",
     "DGX-SPARK": "spark",
     "IGX-THOR": "thor",
+    "ANY": "any",
 }
 
 PLATFORM_NAME_HINTS = {
@@ -48,6 +53,7 @@ PLATFORM_NAME_HINTS = {
     "H100": ("h100",),
     "DGX-SPARK": ("spark",),
     "IGX-THOR": ("thor",),
+    "ANY": (),
 }
 
 PLATFORM_GPU_HINTS = {
@@ -56,6 +62,7 @@ PLATFORM_GPU_HINTS = {
     "H100": ("H100",),
     "DGX-SPARK": ("GB10", "SPARK"),
     "IGX-THOR": ("THOR",),
+    "ANY": (),
 }
 
 
@@ -63,6 +70,18 @@ class CommandResult(NamedTuple):
     returncode: int
     stdout: str
     stderr: str
+
+
+class NemoClawScenario(NamedTuple):
+    skill: str
+    spec_name: str
+    spec_path: Path
+    platform: str
+    gpu_count: int
+    task_dir: Path
+    harbor_path: Path
+    task_name: str
+    deployment_profile: str | None
 
 
 class InfrastructureBlocked(RuntimeError):
@@ -123,6 +142,9 @@ def _instance_candidates(
         gpu_text = " ".join(
             str(inst.get(key) or "") for key in ("gpu", "instance_type", "type")
         )
+        if gpu_count == 0 or platform == "ANY":
+            candidates.append((len(name), name))
+            continue
         name_match = any(hint in lowered for hint in name_hints)
         gpu_match = _loose_tokens_match(gpu_hints, gpu_text) if gpu_hints else True
         if not (name_match or gpu_match):
@@ -197,6 +219,364 @@ def _gpu_count_from_spec(profile: str, platform: str) -> int:
         raise RuntimeError(
             f"missing gpu_count for profile={profile!r}, platform={platform!r} in {spec_path}"
         ) from exc
+
+
+def _safe_slug(value: str) -> str:
+    return "".join(ch if ch.isalnum() else "-" for ch in value.lower()).strip("-") or "scenario"
+
+
+def _skill_filters(raw: str) -> tuple[bool, list[str]]:
+    value = raw.strip()
+    if not value or value == "*":
+        return value == "*", []
+    skills = [
+        item.strip()
+        for chunk in value.split(",")
+        for item in chunk.split()
+        if item.strip()
+    ]
+    return False, skills
+
+
+def _adapter_path(skill: str) -> Path:
+    return ADAPTERS_ROOT / skill / "generate.py"
+
+
+def _adapter_help(adapter: Path) -> str:
+    result = _run([sys.executable, str(adapter), "--help"], timeout=45)
+    return f"{result.stdout}\n{result.stderr}"
+
+
+def _spec_json(spec_path: Path) -> dict[str, Any]:
+    try:
+        parsed = json.loads(spec_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _platforms_for_spec(spec_path: Path, platform_filter: str | None) -> list[str]:
+    spec = _spec_json(spec_path)
+    platforms = spec.get("resources", {}).get("platforms", {})
+    if not isinstance(platforms, dict) or not platforms:
+        return [platform_filter or DEFAULT_PLATFORM]
+    declared = [str(name) for name in platforms]
+    if not platform_filter:
+        return declared
+    if platform_filter in platforms:
+        return [platform_filter]
+    if "ANY" in platforms:
+        return ["ANY"]
+    return []
+
+
+def _selected_specs(
+    *,
+    skills_filter: str,
+    profile_filter: str | None,
+    platform_filter: str | None,
+) -> tuple[list[tuple[str, Path, list[str]]], list[str]]:
+    all_skills, requested = _skill_filters(skills_filter)
+    if not all_skills and not requested:
+        requested = [DEFAULT_SKILL]
+
+    if all_skills:
+        skill_dirs = sorted(path for path in SKILLS_ROOT.iterdir() if path.is_dir())
+    else:
+        skill_dirs = [SKILLS_ROOT / skill for skill in requested]
+
+    selected: list[tuple[str, Path, list[str]]] = []
+    blockers: list[str] = []
+    for skill_dir in skill_dirs:
+        skill = skill_dir.name
+        evals_dir = skill_dir / "evals"
+        if not evals_dir.exists():
+            continue
+        adapter = _adapter_path(skill)
+        if not adapter.exists():
+            blockers.append(f"{skill}: missing Harbor adapter at {adapter.relative_to(REPO_ROOT)}")
+            continue
+        specs = sorted(evals_dir.glob("*.json"))
+        if skill == DEFAULT_SKILL and profile_filter and not all_skills:
+            specs = [evals_dir / f"{profile_filter}.json"]
+        for spec_path in specs:
+            if not spec_path.exists():
+                blockers.append(f"{skill}: missing eval spec {spec_path.relative_to(REPO_ROOT)}")
+                continue
+            platforms = _platforms_for_spec(spec_path, platform_filter)
+            if not platforms:
+                blockers.append(
+                    f"{skill}/{spec_path.name}: no platform match for {platform_filter}"
+                )
+                continue
+            selected.append((skill, spec_path, platforms))
+    return selected, blockers
+
+
+def _run_adapter(
+    *,
+    skill: str,
+    spec_path: Path,
+    platform: str,
+    output_root: Path,
+) -> list[Path]:
+    adapter = _adapter_path(skill)
+    shutil.rmtree(output_root, ignore_errors=True)
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    help_text = _adapter_help(adapter)
+    cmd = [
+        sys.executable,
+        str(adapter.relative_to(REPO_ROOT)),
+        "--output-dir",
+        str(output_root),
+        "--skill-dir",
+        str((SKILLS_ROOT / skill).relative_to(REPO_ROOT)),
+    ]
+    if skill == DEFAULT_SKILL:
+        cmd.extend(["--profile", spec_path.stem])
+    elif "--spec" in help_text:
+        cmd.extend(["--spec", str(spec_path.relative_to(REPO_ROOT))])
+    else:
+        raise RuntimeError(
+            f"{skill}: adapter does not expose --spec, cannot target {spec_path.name}"
+        )
+    if "--platform" in help_text:
+        cmd.extend(["--platform", platform])
+    dependency_args = {
+        "--deploy-skill-dir": "vss-deploy-profile",
+        "--video-io-skill-dir": "vss-manage-video-io-storage",
+    }
+    for arg, dependency_skill in dependency_args.items():
+        dependency_dir = SKILLS_ROOT / dependency_skill
+        if arg in help_text and dependency_dir.exists():
+            cmd.extend([arg, str(dependency_dir.relative_to(REPO_ROOT))])
+
+    env = os.environ.copy()
+    env["SKILLS_EVAL_RUNNER"] = "nemoclaw"
+    print("[nemoclaw-ci] generating dataset:", " ".join(cmd), flush=True)
+    result = _run(cmd, timeout=180, env=env)
+    print(result.stdout, end="", flush=True)
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr, flush=True)
+        raise RuntimeError(f"{skill}/{spec_path.name}: adapter exited {result.returncode}")
+    return sorted(path.parent for path in output_root.rglob("task.toml"))
+
+
+def _read_task_toml(task_dir: Path) -> dict[str, Any]:
+    try:
+        with (task_dir / "task.toml").open("rb") as handle:
+            parsed = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _metadata_value(metadata: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = metadata.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _task_platform(metadata: dict[str, Any], fallback: str) -> str:
+    return str(_metadata_value(metadata, "platform", "gpu_type") or fallback)
+
+
+def _task_gpu_count(metadata: dict[str, Any]) -> int:
+    try:
+        return int(metadata.get("gpu_count", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _deployment_profile(metadata: dict[str, Any]) -> str | None:
+    value = _metadata_value(metadata, "deployment_profile", "profile")
+    return str(value) if value not in (None, "", "standalone") else None
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    return json.dumps(str(value))
+
+
+def _upsert_metadata(task_dir: Path, updates: dict[str, Any]) -> None:
+    task_toml = task_dir / "task.toml"
+    text = task_toml.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    try:
+        start = lines.index("[metadata]")
+    except ValueError:
+        body = [f"{key} = {_toml_value(value)}" for key, value in updates.items()]
+        task_toml.write_text(text.rstrip() + "\n\n[metadata]\n" + "\n".join(body) + "\n", encoding="utf-8")
+        return
+
+    end = len(lines)
+    for idx in range(start + 1, len(lines)):
+        if lines[idx].startswith("[") and lines[idx].endswith("]"):
+            end = idx
+            break
+
+    update_keys = set(updates)
+    kept = []
+    for line in lines[start + 1:end]:
+        key = line.split("=", 1)[0].strip()
+        if key in update_keys:
+            continue
+        kept.append(line)
+    body = [f"{key} = {_toml_value(value)}" for key, value in updates.items()]
+    new_lines = lines[: start + 1] + kept + body + lines[end:]
+    task_toml.write_text("\n".join(new_lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _headless_launcher_instruction(skill: str, deployment_profile: str | None) -> str:
+    wait_arg = f" \\\n  --wait-profile {deployment_profile}" if deployment_profile else ""
+    return (
+        "This Harbor trial is a thin launcher for NemoClaw/OpenClaw.\n\n"
+        "Do not complete the task directly from Claude Code. Use Bash to run the "
+        "headless NemoClaw launcher below. The real task prompt lives in "
+        "`/tests/nemoclaw_prompt.md` and is executed inside OpenClaw with the "
+        f"`/{skill}` skill available.\n\n"
+        "```bash\n"
+        "python3 .github/skill-eval/nemoclaw/headless_runner.py \\\n"
+        "  --prompt-file /tests/nemoclaw_prompt.md \\\n"
+        "  --log-dir /logs/artifacts/nemoclaw \\\n"
+        "  --launch-mode cli \\\n"
+        "  --timeout 2400"
+        f"{wait_arg}\n"
+        "```\n"
+    )
+
+
+def _generic_nemoclaw_prompt(
+    skill: str,
+    original_instruction: str,
+    deployment_profile: str | None,
+) -> str:
+    profile_guidance = (
+        f"The generated eval metadata requires the `{deployment_profile}` VSS profile. "
+        "Before exercising the skill, use the VSS Orchestrator MCP server to deploy "
+        "or confirm that profile if it is not already healthy.\n\n"
+        if deployment_profile
+        else ""
+    )
+    return (
+        "You are running inside automated GitHub VSS skill evaluation with "
+        "NemoClaw/OpenClaw.\n\n"
+        f"Use the `/{skill}` skill as the primary workflow for this task. "
+        "Use the VSS Orchestrator MCP server when the task requires a full VSS "
+        "deployment or live profile checks. For standalone microservice tasks, "
+        "follow the skill's documented standalone workflow.\n\n"
+        f"{profile_guidance}"
+        "Run autonomously without asking for confirmation. If prerequisites are "
+        "needed, prepare them through the available skill instructions and tools "
+        "before executing the user task.\n\n"
+        "## Task\n\n"
+        f"{original_instruction.strip()}\n"
+    )
+
+
+def _wrap_task_for_nemoclaw(
+    *,
+    task_dir: Path,
+    skill: str,
+    spec_path: Path,
+    platform: str,
+) -> NemoClawScenario:
+    parsed = _read_task_toml(task_dir)
+    metadata = parsed.get("metadata") if isinstance(parsed.get("metadata"), dict) else {}
+    task_platform = _task_platform(metadata, platform)
+    gpu_count = _task_gpu_count(metadata)
+    deployment_profile = _deployment_profile(metadata)
+    tests_dir = task_dir / "tests"
+    tests_dir.mkdir(exist_ok=True)
+    prompt_path = tests_dir / "nemoclaw_prompt.md"
+    instruction_path = task_dir / "instruction.md"
+    original_instruction = instruction_path.read_text(encoding="utf-8")
+    if not prompt_path.exists():
+        prompt_path.write_text(
+            _generic_nemoclaw_prompt(skill, original_instruction, deployment_profile),
+            encoding="utf-8",
+        )
+    if "headless_runner.py" not in original_instruction:
+        instruction_path.write_text(
+            _headless_launcher_instruction(skill, deployment_profile),
+            encoding="utf-8",
+        )
+
+    metadata_updates: dict[str, Any] = {
+        "runner": "nemoclaw",
+        "requires_nemoclaw": True,
+        "requires_mcp": True,
+        "expected_skill": skill,
+    }
+    if deployment_profile:
+        metadata_updates["deployment_profile"] = deployment_profile
+        metadata_updates["required_mcp_tools"] = [
+            "vss_orchestrator__profiles",
+            "vss_orchestrator__docker_status",
+        ]
+    _upsert_metadata(task_dir, metadata_updates)
+
+    return NemoClawScenario(
+        skill=skill,
+        spec_name=spec_path.stem,
+        spec_path=spec_path,
+        platform=task_platform,
+        gpu_count=gpu_count,
+        task_dir=task_dir,
+        harbor_path=task_dir.parent,
+        task_name=task_dir.name,
+        deployment_profile=deployment_profile,
+    )
+
+
+def _discover_scenarios(
+    *,
+    skills_filter: str,
+    profile_filter: str | None,
+    platform_filter: str | None,
+    dataset_root: Path,
+) -> tuple[list[NemoClawScenario], list[str]]:
+    shutil.rmtree(dataset_root, ignore_errors=True)
+    specs, blockers = _selected_specs(
+        skills_filter=skills_filter,
+        profile_filter=profile_filter,
+        platform_filter=platform_filter,
+    )
+    scenarios: list[NemoClawScenario] = []
+    for skill, spec_path, platforms in specs:
+        for platform in platforms:
+            scenario_root = dataset_root / f"{_safe_slug(skill)}__{_safe_slug(spec_path.stem)}__{_safe_slug(platform)}"
+            try:
+                task_dirs = _run_adapter(
+                    skill=skill,
+                    spec_path=spec_path,
+                    platform=platform,
+                    output_root=scenario_root,
+                )
+            except RuntimeError as exc:
+                blockers.append(str(exc))
+                continue
+            if not task_dirs:
+                blockers.append(f"{skill}/{spec_path.name}/{platform}: adapter generated no tasks")
+                continue
+            for task_dir in task_dirs:
+                scenarios.append(
+                    _wrap_task_for_nemoclaw(
+                        task_dir=task_dir,
+                        skill=skill,
+                        spec_path=spec_path,
+                        platform=platform,
+                    )
+                )
+    return scenarios, blockers
 
 
 def _list_instances() -> list[dict[str, Any]]:
@@ -383,9 +763,12 @@ def _kill_process_group(proc: subprocess.Popen[str], sig: int) -> None:
         return
 
 
-def _latest_reward(results_root: Path, run_id: str) -> tuple[float | None, Path | None]:
+def _latest_reward(results_root: Path, run_id: str, *, since: float = 0.0) -> tuple[float | None, Path | None]:
     run_root = results_root / run_id
-    rewards = sorted(run_root.glob("*/*/verifier/reward.txt"), key=lambda p: p.stat().st_mtime)
+    rewards = sorted(
+        (path for path in run_root.glob("*/*/verifier/reward.txt") if path.stat().st_mtime >= since),
+        key=lambda p: p.stat().st_mtime,
+    )
     if not rewards:
         return None, None
     path = rewards[-1]
@@ -403,13 +786,16 @@ def _read_json(path: Path) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _latest_trial(results_root: Path, run_id: str) -> tuple[Path | None, dict[str, Any]]:
+def _latest_trial(results_root: Path, run_id: str, *, since: float = 0.0) -> tuple[Path | None, dict[str, Any]]:
     run_root = results_root / run_id
     results = [
         path
         for path in run_root.rglob("result.json")
-        if (path.parent / "verifier" / "reward.txt").exists()
-        or (path.parent / "trial.log").exists()
+        if path.stat().st_mtime >= since
+        and (
+            (path.parent / "verifier" / "reward.txt").exists()
+            or (path.parent / "trial.log").exists()
+        )
     ]
     results = sorted(results, key=lambda p: p.stat().st_mtime)
     if not results:
@@ -577,8 +963,7 @@ def _copy_viewer_snapshot(
     *,
     results_root: Path,
     run_id: str,
-    profile: str,
-    platform: str,
+    scenario: NemoClawScenario,
     trial_dir: Path | None,
 ) -> str | None:
     brev_env_id = _coordinator_brev_env_id()
@@ -588,10 +973,7 @@ def _copy_viewer_snapshot(
     source = trial_dir.parent if trial_dir.parent != run_root else trial_dir
     if not source.exists():
         return None
-    viewer_name = (
-        f"nemoclaw__vss-deploy-profile__{profile}__{platform}__"
-        f"{run_id}__{source.name}"
-    )
+    viewer_name = f"nemoclaw__{_scenario_id(scenario)}__{run_id}__{source.name}"
     viewer_dir = results_root / "_viewer" / viewer_name
     shutil.rmtree(viewer_dir, ignore_errors=True)
     shutil.copytree(source, viewer_dir)
@@ -619,13 +1001,32 @@ def _github_run_url(run_id: str) -> str | None:
     return f"https://github.com/{repo}/actions/runs/{run_id}"
 
 
-def _write_benchmark_input(run_id: str, profile: str, body: str) -> None:
+def _scenario_id(scenario: NemoClawScenario) -> str:
+    return "__".join(
+        _safe_slug(part)
+        for part in (
+            scenario.skill,
+            scenario.spec_name,
+            scenario.platform,
+            scenario.task_name,
+        )
+    )
+
+
+def _write_benchmark_input(run_id: str, scenario_id: str, body: str) -> None:
     scratch = SCRATCH_ROOT / run_id
     scratch.mkdir(parents=True, exist_ok=True)
-    (scratch / f"pr-nemoclaw-{profile}.md").write_text(body, encoding="utf-8")
+    (scratch / f"pr-nemoclaw-{scenario_id}.md").write_text(body, encoding="utf-8")
+    benchmark = scratch / "benchmark.md"
+    if benchmark.exists():
+        with benchmark.open("a", encoding="utf-8") as handle:
+            handle.write("\n---\n\n")
+            handle.write(body.rstrip())
+            handle.write("\n")
+        return
     generated = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    (scratch / "benchmark.md").write_text(
-        "# Skills Eval Benchmark - NemoClaw smoke\n\n"
+    benchmark.write_text(
+        "# Skills Eval Benchmark - NemoClaw sweep\n\n"
         f"Generated: {generated}\n\n"
         "---\n\n"
         f"{body.rstrip()}\n",
@@ -635,16 +1036,16 @@ def _write_benchmark_input(run_id: str, profile: str, body: str) -> None:
 
 def _append_harbor_report(
     *,
-    profile: str,
-    platform: str,
+    scenario: NemoClawScenario,
     instance: str,
     results_root: Path,
     run_id: str,
     reward: float | None,
     harbor_rc: int,
     log_path: Path,
+    since: float = 0.0,
 ) -> None:
-    trial_dir, result = _latest_trial(results_root, run_id)
+    trial_dir, result = _latest_trial(results_root, run_id, since=since)
     started, finished, duration = _duration_from_result(result)
     if started == "-" and trial_dir is not None:
         started = dt.datetime.fromtimestamp(trial_dir.stat().st_mtime, dt.timezone.utc).isoformat()
@@ -655,8 +1056,7 @@ def _append_harbor_report(
     trace_url = _copy_viewer_snapshot(
         results_root=results_root,
         run_id=run_id,
-        profile=profile,
-        platform=platform,
+        scenario=scenario,
         trial_dir=trial_dir,
     )
     if trace_url:
@@ -675,17 +1075,20 @@ def _append_harbor_report(
 
     head_sha = os.environ.get("PR_HEAD_SHA", "")
     head = head_sha[:8] if head_sha else "unknown"
-    spec_path = f"skills/vss-deploy-profile/evals/{profile}.json"
+    spec_path = str(scenario.spec_path.relative_to(REPO_ROOT))
     body = [
         f"## Harbor Eval - `{spec_path}`",
         "",
-        f"Head: `{head}` - platform `{platform}` - instance `{instance}` - runtime `NemoClaw/OpenClaw`",
+        (
+            f"Head: `{head}` - skill `{scenario.skill}` - task `{scenario.task_name}` - "
+            f"platform `{scenario.platform}` - instance `{instance}` - runtime `NemoClaw/OpenClaw`"
+        ),
         f"First started: `{started}` - Last finished: `{finished}` - Total: `{duration}`",
         "",
         "| Platform | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |",
         "|---|---|---|---|---|---|---|---|",
         (
-            f"| {_md_cell(platform)} | {_md_cell(result_text)} | {_md_cell(reward_text)} | "
+            f"| {_md_cell(scenario.platform)} | {_md_cell(result_text)} | {_md_cell(reward_text)} | "
             f"{_md_cell(duration)} | {_md_cell(turns)} | {_md_cell(prompt_tokens)} | "
             f"{_md_cell(cached_tokens)} | {trace_cell} |"
         ),
@@ -693,6 +1096,9 @@ def _append_harbor_report(
         "### NemoClaw runtime details",
         "",
         f"- Worker: `{instance}`",
+        f"- Skill: `{scenario.skill}`",
+        f"- Spec: `{spec_path}`",
+        f"- Harbor task: `{scenario.task_name}`",
         "- Runtime path: Harbor launcher -> NemoClaw/OpenClaw -> VSS Orchestrator MCP",
         f"- Harbor exit code: `{harbor_rc}`",
         f"- Harbor log: `{log_path}`",
@@ -714,16 +1120,16 @@ def _append_harbor_report(
             handle.write("\n")
     else:
         print(report, flush=True)
-    _write_benchmark_input(run_id, profile, report)
+    _write_benchmark_input(run_id, _scenario_id(scenario), report)
 
 
-def _append_blocked_summary(*, reason: str, profile: str, platform: str) -> None:
+def _append_blocked_summary(*, reason: str, scenario: str, scenario_id: str = "blocked") -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     body = [
         "## NemoClaw VSS Skill Eval",
         "",
         "- Status: `BLOCKED`",
-        f"- Scenario: `vss-deploy-profile / {profile} / {platform}`",
+        f"- Scenario: `{scenario}`",
         f"- Reason: `{reason}`",
         "",
         "This is an infrastructure/capacity blocker, not a skill regression.",
@@ -735,10 +1141,10 @@ def _append_blocked_summary(*, reason: str, profile: str, platform: str) -> None
             handle.write(report)
     else:
         print(report, flush=True)
-    _write_benchmark_input(os.environ.get("GITHUB_RUN_ID", "local"), profile, report)
+    _write_benchmark_input(os.environ.get("GITHUB_RUN_ID", "local"), scenario_id, report)
 
 
-def _harbor_command(dataset_root: Path, profile: str, task_name: str, results_root: Path, run_id: str) -> list[str]:
+def _harbor_command(scenario: NemoClawScenario, results_root: Path, run_id: str) -> list[str]:
     uvx = _ensure_uvx()
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "").rstrip("/")
@@ -758,9 +1164,9 @@ def _harbor_command(dataset_root: Path, profile: str, task_name: str, results_ro
         "--environment-import-path",
         "envs.brev_env:BrevEnvironment",
         "-p",
-        str(dataset_root / profile),
+        str(scenario.harbor_path),
         "--include-task-name",
-        task_name,
+        scenario.task_name,
         "-a",
         "claude-code",
         "--model",
@@ -808,8 +1214,9 @@ def _ensure_uvx() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--skills", default=os.environ.get("MANUAL_SKILLS_FILTER", DEFAULT_SKILL))
     parser.add_argument("--profile", default=os.environ.get("NEMOCLAW_EVAL_PROFILE", DEFAULT_PROFILE))
-    parser.add_argument("--platform", default=os.environ.get("NEMOCLAW_EVAL_PLATFORM", DEFAULT_PLATFORM))
+    parser.add_argument("--platform", default=os.environ.get("NEMOCLAW_EVAL_PLATFORM", ""))
     parser.add_argument("--gpu-count", type=int, default=None)
     parser.add_argument("--instance", default=os.environ.get("NEMOCLAW_BREV_INSTANCE"))
     parser.add_argument("--lock-timeout", type=int, default=int(os.environ.get("NEMOCLAW_LOCK_TIMEOUT_SEC", "600")))
@@ -821,15 +1228,11 @@ def main(argv: list[str] | None = None) -> int:
     run_id = os.environ.get("GITHUB_RUN_ID", f"manual-{int(time.time())}")
     dataset_root = Path(args.dataset_root)
     results_root = Path(args.results_root)
-    task_name = PLATFORM_TASK.get(args.platform)
-    if not task_name:
-        raise RuntimeError(f"unsupported platform {args.platform!r}")
-    if args.gpu_count is None:
-        args.gpu_count = (
-            int(os.environ["NEMOCLAW_EVAL_GPU_COUNT"])
-            if os.environ.get("NEMOCLAW_EVAL_GPU_COUNT")
-            else _gpu_count_from_spec(args.profile, args.platform)
-        )
+
+    all_skills, requested_skills = _skill_filters(args.skills)
+    default_single_smoke = not all_skills and requested_skills in ([], [DEFAULT_SKILL])
+    platform_filter = args.platform or (DEFAULT_PLATFORM if default_single_smoke else None)
+    profile_filter = args.profile if default_single_smoke else None
 
     os.environ["SKILLS_EVAL_RUNNER"] = "nemoclaw"
     os.environ["PYTHONPATH"] = f"{SKILL_EVAL_ROOT}:{os.environ.get('PYTHONPATH', '')}"
@@ -837,65 +1240,112 @@ def main(argv: list[str] | None = None) -> int:
     _cleanup_results(results_root, run_id)
 
     try:
-        _generate_dataset(args.profile, args.platform, dataset_root)
-        instance, lock_fd, lock_handle = _select_and_lock_instance(
-            args.platform,
-            args.gpu_count,
-            args.instance,
-            args.lock_timeout,
+        scenarios, blockers = _discover_scenarios(
+            skills_filter=args.skills,
+            profile_filter=profile_filter,
+            platform_filter=platform_filter,
+            dataset_root=dataset_root,
         )
-        print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
-        try:
-            os.environ["BREV_INSTANCE"] = instance
-            harbor_env = os.environ.copy()
-            harbor_env["BREV_INSTANCE"] = instance
-            cmd = _harbor_command(dataset_root, args.profile, task_name, results_root, run_id)
-            log_path = Path("/tmp/skill-eval") / f"nemoclaw-harbor-{run_id}.log"
-            print("[nemoclaw-ci] running Harbor once:", " ".join(cmd), flush=True)
-            harbor_rc = _stream_command(
-                cmd,
-                timeout_s=args.harbor_timeout,
-                env=harbor_env,
-                log_path=log_path,
+        for blocker in blockers:
+            print(f"[nemoclaw-ci] blocked coverage item: {blocker}", flush=True)
+            _append_blocked_summary(
+                reason=blocker,
+                scenario="coverage discovery",
+                scenario_id=f"blocked-{_safe_slug(blocker)[:80]}",
             )
-        finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_handle.close()
+        if not scenarios:
+            raise RuntimeError("no NemoClaw scenarios were generated")
 
-        reward, _reward_path = _latest_reward(results_root, run_id)
-        _append_harbor_report(
-            profile=args.profile,
-            platform=args.platform,
-            instance=instance,
-            results_root=results_root,
-            run_id=run_id,
-            reward=reward,
-            harbor_rc=harbor_rc,
-            log_path=log_path,
-        )
-        if harbor_rc == 0 and reward is not None and reward >= 1.0:
+        print(f"[nemoclaw-ci] generated {len(scenarios)} NemoClaw scenario(s)", flush=True)
+        failures: list[str] = []
+        executed = 0
+        for index, scenario in enumerate(scenarios, start=1):
+            gpu_count = (
+                args.gpu_count
+                if args.gpu_count is not None
+                else int(os.environ["NEMOCLAW_EVAL_GPU_COUNT"])
+                if os.environ.get("NEMOCLAW_EVAL_GPU_COUNT")
+                else scenario.gpu_count
+            )
             print(
-                f"DONE: NemoClaw vss-deploy-profile/{args.profile} smoke passed",
+                "[nemoclaw-ci] scenario "
+                f"{index}/{len(scenarios)}: {scenario.skill}/{scenario.spec_name}/"
+                f"{scenario.platform}/{scenario.task_name} gpu_count={gpu_count}",
                 flush=True,
             )
-            return 0
+            instance, lock_fd, lock_handle = _select_and_lock_instance(
+                scenario.platform,
+                gpu_count,
+                args.instance,
+                args.lock_timeout,
+            )
+            print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
+            scenario_started = time.time()
+            log_path = Path("/tmp/skill-eval") / f"nemoclaw-harbor-{run_id}-{_scenario_id(scenario)}.log"
+            harbor_rc = 1
+            reward: float | None = None
+            try:
+                os.environ["BREV_INSTANCE"] = instance
+                harbor_env = os.environ.copy()
+                harbor_env["BREV_INSTANCE"] = instance
+                cmd = _harbor_command(scenario, results_root, run_id)
+                print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
+                harbor_rc = _stream_command(
+                    cmd,
+                    timeout_s=args.harbor_timeout,
+                    env=harbor_env,
+                    log_path=log_path,
+                )
+            finally:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_handle.close()
+
+            reward, _reward_path = _latest_reward(results_root, run_id, since=scenario_started)
+            _append_harbor_report(
+                scenario=scenario,
+                instance=instance,
+                results_root=results_root,
+                run_id=run_id,
+                reward=reward,
+                harbor_rc=harbor_rc,
+                log_path=log_path,
+                since=scenario_started,
+            )
+            executed += 1
+            if harbor_rc != 0 or reward is None or reward < 1.0:
+                failures.append(
+                    f"{scenario.skill}/{scenario.spec_name}/{scenario.platform}/{scenario.task_name} "
+                    f"(harbor_rc={harbor_rc}, reward={reward if reward is not None else 'missing'})"
+                )
+
+        if failures:
+            print(
+                f"FAILED: {len(failures)}/{executed} NemoClaw scenario(s) failed: "
+                + "; ".join(failures[:10]),
+                flush=True,
+            )
+            return 1
         print(
-            "BLOCKED: NemoClaw smoke failed "
-            f"(harbor_rc={harbor_rc}, reward={reward if reward is not None else 'missing'})",
+            f"DONE: {executed} NemoClaw scenario(s) passed"
+            + (f"; {len(blockers)} blocked coverage item(s) reported" if blockers else ""),
             flush=True,
         )
-        return 1
+        return 0
     except InfrastructureBlocked as exc:
         reason = str(exc)
         print(f"BLOCKED: NemoClaw smoke infra blocked: {reason}", file=sys.stderr, flush=True)
-        _append_blocked_summary(reason=reason, profile=args.profile, platform=args.platform)
+        _append_blocked_summary(
+            reason=reason,
+            scenario=f"{args.skills} / {platform_filter or 'declared-platforms'}",
+            scenario_id="infra-blocked",
+        )
         return 0
     except Exception as exc:  # noqa: BLE001
         print(f"BLOCKED: NemoClaw smoke setup failed: {exc}", file=sys.stderr, flush=True)
         body = (
             "## NemoClaw VSS Skill Eval\n\n"
             "- Status: `BLOCKED`\n"
-            f"- Scenario: `vss-deploy-profile / {args.profile} / {args.platform}`\n"
+            f"- Scenario: `{args.skills} / {platform_filter or 'declared-platforms'}`\n"
             f"- Reason: `{exc}`\n"
         )
         if os.environ.get("GITHUB_STEP_SUMMARY"):
@@ -903,7 +1353,7 @@ def main(argv: list[str] | None = None) -> int:
                 handle.write(body)
         else:
             print(body, flush=True)
-        _write_benchmark_input(run_id, args.profile, body)
+        _write_benchmark_input(run_id, "setup-blocked", body)
         return 1
 
 
