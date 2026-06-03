@@ -20,6 +20,12 @@ The VSS RTVI Embed Microservice supports the following input types:
 
 ## Prerequisites
 - **NGC API key** to download the base container and any NGC-hosted model.
+- **Docker registry access** — authenticate to NGC before `docker compose pull`:
+
+```bash
+export NGC_API_KEY=<your-key>
+echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+```
 
 ### Software Requirements
 - **OS**: Ubuntu 24.04/22.04 or compatible Linux distribution
@@ -51,7 +57,7 @@ Create `docker/.env` with the variables you want to override. A starting templat
 
 ```bash
 BACKEND_PORT=8017
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.0
+RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>
 #RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.0-custom
 MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 #HF_TOKEN=<HF_TOKEN>
@@ -63,6 +69,8 @@ KAFKA_ENABLED=true
 #KAFKA_TOPIC=vision-embed-messages
 #ERROR_MESSAGE_TOPIC=vision-embed-errors
 ```
+
+Replace `<tag>` with the NGC image tag for your platform (for example `3.2.0-26.05.4` on x86, or `3.2.0-26.05.4-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
 
 `compose.yaml` provides defaults for every other variable — see [Complete Environment Variable Reference](#complete-environment-variable-reference) below for the full list.
 
@@ -76,6 +84,21 @@ docker compose up
 This pulls and runs the shipped image (`RTVI_IMAGE` from `.env`). Kafka and Redis are launched as part of this deployment. Set `KAFKA_BOOTSTRAP_SERVERS` / `REDIS_HOST` in `.env` to point at external instances. Use `KAFKA_PORT` / `REDIS_HOST_PORT` to change the host-side port mappings if `9092` / `6379` are already taken.
 
 **Note:** First-time startup builds the Cosmos-Embed1 TensorRT engine, which can take 10–20 minutes. The compose healthcheck has a 1200 s `start_period` to accommodate this; subsequent restarts reuse the cached engine.
+
+To run detached instead (recommended for the long first boot), use `-d`:
+
+```bash
+cd docker
+docker compose up -d
+docker compose logs -f rtvi-server
+```
+
+Check readiness once startup finishes from another shell (`BACKEND_PORT` must match `docker/.env`):
+
+```bash
+export BACKEND_PORT=8017
+curl -fsS "http://localhost:${BACKEND_PORT}/v1/ready" && echo "Service is ready"
+```
 
 **Troubleshooting:** If startup fails with an out-of-memory error, set `NVIDIA_VISIBLE_DEVICES=<gpuid>` to a free GPU.
 
@@ -104,7 +127,7 @@ docker build -f docker/Dockerfile -t rtvi-embed:3.2.0-custom .
 Then, in `docker/.env`, comment out the shipped image and uncomment the local-build line:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.0
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>
 RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.0-custom
 ```
 
@@ -547,7 +570,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 #### Docker Configuration
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.0` | No |
+| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>` | No |
 | `HF_TOKEN` | Hugging Face Hub access token for private `git:` model downloads; forwarded from `docker/.env` into the container by Compose | - | No |
 
 #### AWS Configuration
