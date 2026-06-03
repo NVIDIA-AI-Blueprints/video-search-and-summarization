@@ -123,7 +123,7 @@ grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
 | **VLM real-time** | subscription / rule CRUD, or **set up / create / watch / flag** a realtime alert on a specific sensor with a detection condition | Run **Workflow D (Alert Subscriptions)** — follow `references/alert-subscriptions.md` for Alert Bridge rule management. |
 | **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see Canonical refusal text below |
 | **CV or VLM** | generic start/stop monitoring via VSS Agent **without** a specific detection condition (e.g. "start real-time alert for sensor warehouse_sample") | Run **Workflow B (VLM)** — call the VSS Agent with a detection prompt. `rtvi-vlm` runs in both modes. |
-| **CV or VLM** | incident lookup / list / query (recent alerts, time-range queries) | Run **Workflow C (Query)** — `video_analytics_mcp.get_incidents` works on both deployments. |
+| **CV or VLM** | incident lookup / list / query — *what happened* (recent alerts, time-range queries, **and casual phrasings** like "any alerts so far today?", "any alerts today?", "what's been triggered?", "anything detected?") | Run **Workflow C (Query)** — `video_analytics_mcp.get_incidents` works on both deployments. **Always execute the query — never answer an incident question from memory.** |
 | **CV** | static CV alert onboarding (just add the camera and let CV pipeline emit alerts) / verdict prompts customization | Run **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage` skill; CV pipeline picks it up automatically. No per-request create call. |
 | **VLM** | specifically a CV / behavior-analytics / PPE-rule alert that requires the static CV pipeline | **Redeployment required.** Confirm with the user first, then point to the `vss-deploy-profile` skill for `-m verification`. |
 
@@ -134,8 +134,10 @@ grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
 1. **Workflow E (Slack)** — Slack-specific keywords (`slack`, `webhook` + `slack`, `bot token`, `slack channel`). `notify` alone is **not** sufficient.
 2. **Workflow D (Subscriptions)** — sensor name **plus** a detection condition, or rule CRUD keywords (`rule`, `subscription`, rule ID).
 3. **Workflow B (VLM monitoring)** — generic start/stop on a sensor with **no** detection condition.
-4. **Workflow C (Query)** — incident lookup (`show/list incidents`, `recent alerts`, time-range queries).
+4. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
 5. **Workflow A (CV)** — CV deployment handling for anything not matched above.
+
+> **`alerts` vs `alert rules` (C vs D):** a question about *what happened / has been triggered* (incidents) → **Workflow C** (`POST /generate`). A question about *what rules/subscriptions are configured or currently active* → **Workflow D** (Alert Bridge `GET /api/v1/realtime`). The word `alerts` on its own = incidents (C); `alert rules` / `subscriptions` / `currently active rules` = inventory (D). Never answer either from memory — execute the call.
 
 **Disambiguation (B vs D):** if a sensor is named with start/monitor language but the detection condition is unclear, ask:
 > *"Do you want me to (a) create a persistent alert rule on Alert Bridge that keeps running until you delete it, or (b) start a one-time monitoring session via the VSS Agent?"*
@@ -262,7 +264,15 @@ Both CV- and VLM-generated alerts land in Elasticsearch and are
 queryable via the agent's `video_analytics_mcp.get_incidents` tool. POST
 natural-language requests to `$AGENT/generate` — "Show me recent alerts
 for sensor X", "List confirmed alerts from the last hour", "Show
-collision incidents from Camera_02 between `<ISO>` and `<ISO>`". For
+collision incidents from Camera_02 between `<ISO>` and `<ISO>`".
+
+**Casual phrasings route here too.** Questions like "Any alerts so far
+today?", "Any alerts today?", "What's been triggered?", or "Anything
+detected lately?" are incident queries — issue a `POST /generate` (e.g.
+`{"input_message": "List alerts from today"}`) and summarize the result.
+**Never answer these from memory and never reply "no alerts" without
+running the query.** A bare "alerts" question is *always* an incident
+lookup (Workflow C), not a subscription-rule listing (Workflow D). For
 richer / non-natural-language filtering (sensor-level, time-series,
 counts) use the **`vss-query-analytics` skill** (VA-MCP on port 9901).
 
