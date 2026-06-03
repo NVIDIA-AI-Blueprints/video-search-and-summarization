@@ -26,14 +26,15 @@ fi
 # `ps --format json`, not a JSON array — so no `.[]` here; jq's default
 # input loop already iterates each line. The filter accepts only
 # `running` and `exited 0`; everything else (restarting, unhealthy,
-# exited with non-zero code) is a failure.
-mapfile -t bad < <(
-  docker compose -f resolved.yml ps --format json \
-    | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
-             | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
-)
-if [ "${#bad[@]}" -gt 0 ]; then
-  printf 'FAIL: %s\n' "${bad[@]}" >&2
+# exited with non-zero code) is a failure. Capture into a string and test
+# non-empty (not `mapfile`/arrays): `mapfile` is a bash 4+ builtin, absent
+# on macOS's bash 3.2, zsh, and /bin/sh — where it would error and let this
+# gate pass *vacuously*. `bad=$(…)` + `[ -n ]` is POSIX and aborts everywhere.
+bad=$(docker compose -f resolved.yml ps --format json \
+  | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
+           | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"')
+if [ -n "$bad" ]; then
+  printf 'FAIL:\n%s\n' "$bad" >&2
   exit 1
 fi
 ```
