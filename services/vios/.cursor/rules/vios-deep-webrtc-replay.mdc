@@ -1,0 +1,78 @@
+---
+description: "Deep reference: WebRTC replay module -- seek, pause/resume, swap, file resolution, playback rate"
+globs: "src/modules/webrtc_replay/**"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# WebRTC Replay Module
+
+## Key Classes
+
+| Class | File | Role |
+|-------|------|------|
+| ReplayPeerConnection | `webrtc_replay/ReplayPeerConnection.h` | IVstModule, PeerConnectionManager("replay"), UnifiedStorageReader |
+
+Shares PeerConnectionManager, PeerConnection, NvGstVideoSource, CommonVideoSource with live module.
+
+## Replay vs Live Differences
+
+| Aspect | Live | Replay |
+|--------|------|--------|
+| URL | `rtsp://` or `udp:` | `file://` or `s3://` with `?startTime=&endTime=` |
+| Source | RTSP/UDP | `uridecodebin`/`filesrc`+`concat` |
+| Audio | Enabled | Disabled for VIOS replay |
+| Seek | N/A | GStreamer seek + file switching |
+| Multi-file | N/A | `m_fileNameArray` from DB |
+
+## File Resolution
+
+`GstNvVideoDecoder` (gstnvvideodecoder.cpp:1866-1961):
+- Parses `startTime`/`endTime` from URI query, converts to epoch ms
+- DB query: `getFileList(deviceId, epochStart, epochEnd)` or `getFileListStreamIdBased()`
+- Fallback: `getInProgressRecordFile()` for active recordings
+- If empty: throws `"no valid stream found for given timestamps"`
+
+## Seek Implementation
+
+Flow: API -> `controlStream(action, value)` -> `CommonVideoSource::controlStreamFileVideoSource()` -> `GstNvVideoDecoder::controlStream()` -> `update()` (async via EventLoop)
+
+| Action | Behavior |
+|--------|----------|
+| `seekBackward` | -10s; previous file if past start |
+| `seekForward` | +10s; next file if past end |
+| `fastForward` | Set `m_playBackSpeed` positive |
+| `rewind` | Set `m_playBackSpeed` negative |
+| Custom | ISO8601 or numeric offset -> `seekToEpoch()` |
+
+`seekToEpoch()`: `upper_bound` on `m_fileNameArray` to find file, compute in-file offset, `gst_element_seek()` with `GST_SEEK_FLAG_TRICKMODE`
+
+## Pause/Resume
+
+- Pause: `m_gstdecoder->pause()`; pass-through: `m_videowebRTCSender->pause()`
+- Resume: `m_gstdecoder->play()`; pass-through: `m_videowebRTCSender->resume()`
+
+## Stream Swap
+
+POST `/api/v1/replay/stream/swap` -> `toggleStream()`:
+- Builds new URL (replay with timestamps or live)
+- `CommonVideoSource::switchStreamVideoSource()` -> `m_pipelineManager->switchPipeline()`
+- Requires `startTime` for replay; HLS swap not supported
+
+## Position Query
+
+`getAbsPosition()`: `file_start_time + (gst_position / GST_MSECOND)` for current file

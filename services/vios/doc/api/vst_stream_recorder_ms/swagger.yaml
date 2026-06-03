@@ -1,0 +1,777 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+openapi: 3.0.3
+info:
+  title: VST Stream Recorder
+  description: |-
+    VST Stream Recorder MS is used to manage recording of sensors
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
+
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://localhost/api
+tags:
+  - name: nSpectId
+    description: NSPECT-1H82-JYCQ
+    externalDocs:
+      url: https://nspect.nvidia.com/review?id=NSPECT-1H82-JYCQ
+  - name: v1
+    description: VST Stream Recorder API Schema v1
+paths:
+  /v1/record/streams:
+    get:
+      tags:
+        - v1
+      summary: Get list of available record streams
+      operationId: getRecordStream
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 10000
+                items:
+                  $ref: '#/components/schemas/StreamInfoWrapper'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/stream/add:
+    post:
+      tags:
+        - v1
+      summary: Add stream to VST recorder MS
+      description: |
+        Registers an RTSP/RTSPS stream URL with the recorder. Both `id` and `url` are required
+        in the JSON body; `url` MUST start with `rtsp://` or `rtsps://` — other schemes return
+        `VMSNotSupportedError`. The recorder does NOT read any HTTP header.
+      operationId: postRecordStreamAdd
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddStreamRequest'
+      responses:
+        '200':
+          description: Success
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/{streamId}:
+    delete:
+      tags:
+        - v1
+      summary: Remove stream from VST recorder MS
+      operationId: deleteRecordStream
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/{streamId}/start:
+    post:
+      tags:
+        - v1
+      summary: Start recording
+      operationId: postRecordStreamStart
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/{streamId}/stop:
+    post:
+      tags:
+        - v1
+      summary: Stop recording
+      operationId: postRecordStreamStop
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/{streamId}/event:
+    post:
+      tags:
+        - v1
+      summary: Trigger event recording
+      operationId: postEventRecording
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/{streamId}/schedule:
+    get:
+      tags:
+        - v1
+      summary: Get device record schdule for particular device
+      operationId: getRecordSchedule
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: 'The response contains endTime and startTime in cron format'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleArray'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - v1
+      summary: Sets/Update device record schdule for particular sensor
+      operationId: postRecordSchedule
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleArray'
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - v1
+      summary: Un-schedule device record schdule for particular device
+      operationId: deleteRecordSchedule
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          description: 0 13 * * 2
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+        - name: endTime
+          in: query
+          description: 0 14 * * 2
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/{streamId}/timelines:
+    get:
+      tags:
+        - v1
+      summary: Get timeline of recorded video between specified time
+      operationId: getRecordTimelines
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: json object array
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelinesArray'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/{streamId}/status:
+    get:
+      tags:
+        - v1
+      summary: Get device record states
+      operationId: getRecordState
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: |
+            Success. NOTE: response shape differs from `GET /v1/record/status` (the aggregate).
+            Single-stream endpoint returns `{recordingStatus}` (camelCase, no `id` field).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SingleRecordState'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/configuration:
+    get:
+      tags:
+        - v1
+      summary: Get Stream Recorder service configuration
+      operationId: getSensorConfiguration
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetConfiguration'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/version:
+    get:
+      tags:
+        - v1
+      summary: Get MS version
+      operationId: getVersion
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorder_version:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                    example: "0.0.1"
+                required:
+                  - recorder_version
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/record/help:
+    get:
+      tags:
+        - v1
+      summary: Get supported API list
+      operationId: gethelp
+      responses:
+        '200':
+          description: Successs
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 10000
+                items:
+                  $ref: '#/components/schemas/HelpEntry'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/record/status:
+    get:
+      tags:
+        - v1
+      summary: Get recording status for all streams
+      description: Get recording status for every registered stream. Returns an object keyed by streamId where each value contains the stream id and its current recording_status.
+      operationId: getAllRecordStatus
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllRecordStates'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/record/timelines:
+    get:
+      tags:
+        - v1
+      summary: Get recording timelines for all streams or given streams
+      operationId: getRecordingTimelines
+      parameters:
+        - name: streams
+          in: query
+          description: Array of stream IDs to get timelines for. If not provided, returns timelines for all streams.
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              pattern: "^[a-zA-Z0-9_-]+$"
+            maxItems: 100
+      responses:
+        '200':
+          description: Successs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimelinesResponse"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    StreamInfoWrapper:
+      type: object
+      properties:
+        additionalProperties:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/StreamInfo'
+
+    StreamInfo:
+      type: object
+      properties:
+        streamId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        isMain:
+          type: boolean
+          example: true
+        storageLocation:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          description: 'Storage location type for the stream'
+          example: 'Local'
+          enum:
+            - Local
+            - Cloud
+            - Unknown
+        type:
+          type: string
+          maxLength: 128
+          description: 'Stream protocol type'
+          example: 'Rtsp'
+          enum:
+            - Http
+            - Hls
+            - Rtsp
+            - FileDownload
+            - Udp
+            - Webrtc
+            - Native
+            - NotSupported
+        url:
+          type: string
+          format: uri
+          maxLength: 128
+          example: 'rtsp://10.41.18.147:8554/live/7927cbbc-cba6-4f22-b65d-46f7382f5f65'
+        name:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: 'HIKVISION%20DS-2CD2T43G0-I5'
+        metadata:
+          type: object
+          properties:
+            bitrate:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '8000'
+            codec:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: 'H264'
+            framerate:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '30'
+            govlength:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '60'
+            resolution:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '1920x1080'
+
+    Schedule:
+      required:
+        - endTime
+        - startTime
+      type: object
+      properties:
+        endTime:
+          type: string
+          maxLength: 128
+          pattern: "^([0-5]?[0-9]|\\*) ([0-1]?[0-9]|2[0-3]|\\*) ([1-9]|[12][0-9]|3[01]|\\*) ([1-9]|1[0-2]|\\*) ([0-6]|\\*)$"
+          description: "CRON format string for minute hour day month day_of_week (e.g. '* * * * *' for top of every minute, '5 0 * * *' for every day 5 minutes after midnight)"
+        startTime:
+          maxLength: 128
+          type: string
+          pattern: "^([0-5]?[0-9]|\\*) ([0-1]?[0-9]|2[0-3]|\\*) ([1-9]|[12][0-9]|3[01]|\\*) ([1-9]|1[0-2]|\\*) ([0-6]|\\*)$"
+          description: "CRON format string for minute hour day month day_of_week (e.g. '* * * * *' for top of every minute, '5 0 * * *' for every day 5 minutes after midnight)"
+
+    ScheduleArray:
+      type: array
+      maxItems: 10000
+      items:
+        $ref: '#/components/schemas/Schedule'
+
+    Timelines:
+      required:
+        - endTime
+        - startTime
+      type: object
+      properties:
+        endTime:
+          type: string
+          maxLength: 128
+          format: date-time
+        startTime:
+          type: string
+          maxLength: 128
+          format: date-time
+
+    TimelinesResponse:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          $ref: '#/components/schemas/Timelines'
+
+    TimelinesArray:
+      type: array
+      maxItems: 10000
+      items:
+        $ref: '#/components/schemas/Timelines'
+
+    AddStreamRequest:
+      type: object
+      description: Request body for POST /v1/record/stream/add.
+      required:
+        - id
+        - url
+      properties:
+        id:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+          description: Stream identifier to register with the recorder.
+        url:
+          type: string
+          pattern: "^rtsps?://.*"
+          maxLength: 2048
+          description: |
+            Source RTSP/RTSPS URL. Other schemes (http, https, file, ...) return
+            VMSNotSupportedError.
+        codec:
+          type: string
+          maxLength: 32
+          description: Optional codec hint. Defaults to empty (auto-detect by GStreamer).
+
+    RecordStates:
+      type: object
+      description: 'Per-stream record state as emitted by GET /v1/record/status (aggregate). Uses snake_case `recording_status` and includes `id`.'
+      required:
+        - id
+        - recording_status
+      properties:
+        id:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+          description: 'The stream id.'
+        recording_status:
+          type: string
+          enum:
+            - off
+            - schedule
+            - user
+            - event
+            - alwaysOn
+            - error
+            - statusUnknown
+
+    AllRecordStates:
+      type: object
+      description: 'Object mapping streamId to its RecordStates.'
+      additionalProperties:
+        $ref: '#/components/schemas/RecordStates'
+
+    SingleRecordState:
+      type: object
+      description: |
+        Recording state for a single stream as returned by `GET /v1/record/{streamId}/status`.
+        Field naming differs from the aggregate `RecordStates` schema (which uses `recording_status`
+        and includes `id`). The single-stream endpoint returns ONLY `recordingStatus` (camelCase).
+      properties:
+        recordingStatus:
+          type: string
+          enum:
+            - off
+            - schedule
+            - user
+            - event
+            - alwaysOn
+            - error
+            - statusUnknown
+      required:
+        - recordingStatus
+
+    GetConfiguration:
+      type: object
+      properties:
+        alwaysRecording:
+          type: boolean
+        httpPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        recordedVideoDirRoot:
+          type: string
+          maxLength: 256
+          pattern: ".*"
+        useHttpDigestAuthentication:
+          type: boolean
+        useHttps:
+          type: boolean
+        vstDataPath:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+        enableUserCleanup:
+          type: boolean
+        multiUserExtraOptions:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        useMultiUser:
+          type: boolean
+        eventRecordLengthSecs:
+          type: integer
+          minimum: 0
+          example: 10
+        recordBufferLengthSecs:
+          type: integer
+          minimum: 0
+          example: 2
+        sessionMaxAgeSec:
+          type: integer
+          minimum: 0
+          example: 2592000
+      required:
+        - alwaysRecording
+        - httpPort
+        - recordedVideoDirRoot
+        - useHttpDigestAuthentication
+        - useHttps
+        - vstDataPath
+        - enableUserCleanup
+        - multiUserExtraOptions
+        - useMultiUser
+        - eventRecordLengthSecs
+        - recordBufferLengthSecs
+        - sessionMaxAgeSec
+
+    HelpEntry:
+      type: object
+      properties:
+        endpoint:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+          example: "/api/v1/record/streams"
+        method:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+          example: "GET - To get list of available record streams"
+      required:
+        - endpoint
+        - method
+
+    Error:
+      required:
+        - error_code
+        - error_message
+      type: object
+      properties:
+        error_code:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+          example: VMSInternalError
+        error_message:
+          type: string
+          maxLength: 512
+          pattern: ".*"
+          example: VMS internal processing error

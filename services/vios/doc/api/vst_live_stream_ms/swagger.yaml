@@ -1,0 +1,1888 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+openapi: 3.0.3
+info:
+  title: VST Live Stream Service
+  description: |
+    The Live Stream Service is designed to facilitate the live or real time streaming of sensors. This service encompasses:
+
+    - Live streaming: Live streaming of sensors using WebRTC protocol
+    - Listing live streams: The list of available live streams can be queried
+    - Snapshop capturing: Ability to capture snapshot or picture of a live stream
+    - Live stream monitoring: Real-time status update for the live stream
+    - Sub-stream support: A sensor can have a main stream and multiple sub-streams. Streaming of both type of streams is supported.
+    - Performance Analytics: Ability to get stats for live stream to measure performance
+    - Stream operations: The stream supported various operations like querying the stream to get the current position and metadata of stream, pause and play the live stream etc.
+
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
+
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://localhost/api
+tags:
+  - name: nSpectId
+    description: NSPECT-1H82-JYCQ
+    externalDocs:
+      url: https://nspect.nvidia.com/review?id=NSPECT-1H82-JYCQ
+  - name: v1
+    description: VST Live Stream API Schema v1
+paths:
+  /v1/live/streams:
+    get:
+      tags:
+        - v1
+      summary: Get list of available live streams
+      description: Get list of available live streams. Each sensor can have multiple streams like main and sub-streams of different resolution or quality.
+        The API returns all the live streams supported by all the sensors. Each stream has fields like stream ID, name, metadata and a flag to detect if its the main stream of the sensor.
+
+      operationId: getLiveStream
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                description: >-
+                  The actual number of streams depends on hardware capabilities. For VIOS/VST it is bounded by the max_sensors_supported config value. For NVStreamer there is no enforced limit.
+                maxItems: 10000
+                items:
+                  $ref: '#/components/schemas/StreamInfoWrapper'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/settings:
+    post:
+      tags:
+        - v1
+      summary: Set stream settings
+      description: >-
+        Set stream settings for a particular stream. The settings like framerate, resolution, overlay, pose, proximity, safety features, color of overlay, thickness of overlay etc. can be adjusted.
+      operationId: postStreamSettings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamConfig'
+      responses:
+        '200':
+          description: Success
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/query:
+    get:
+      tags:
+        - v1
+      summary: Query live stream for timestamp and metadata
+      description: |
+        Query the live stream to get stream's last played timestamp and related metadata
+        if it's available. Contract: send `peerId` (camelCase). Source planned to accept
+        both `peerId` and `peerid`; in earlier builds only the lowercase `peerid` was read,
+        matching `/stream/start`'s backward-compatibility fallback.
+      operationId: getLiveStreamQuery
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: peerId
+          in: query
+          required: true
+          description: Peer ID — camelCase preferred. Older builds accept only lowercase `peerid`; prefer `peerId` for forward compatibility.
+          schema:
+            type: string
+            maxLength: 100
+        - name: metadata
+          in: query
+          required: true
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: qos stats of each device
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metadata:
+                    $ref: '#/components/schemas/Metadata'
+                  ts:
+                    type: integer
+                    format: int64
+                    description: Last played timestamp as reported by the underlying media pipeline. Units depend on the pipeline implementation — do not assume seconds, milliseconds, or percent.
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/start:
+    post:
+      tags:
+        - v1
+      summary: Start live WebRTC streaming
+      description: |
+        Start live WebRTC streaming for a particular sensor. In this API the SDP offer is shared by the client and SDP answer is returned by the live stream service.
+        Clients need to take care of further WebRTC related steps like ICE Candidate exchange. The API takes in the stream ID of the stream which the client meant to stream and a unique peer ID to
+        identify
+        the Peer Connection. The stream can be configured using the 'options' field. For example:-
+
+        1. To stream video wall or use the video wall feature the 'doComposite' flag needs to be true and streamId(s) should be filled with relevant streamId(s). The streamId at the root level is
+        ignored in this case.
+        2. The quality of stream can be changed using the 'quality' field. The supported values are low, medium, high and auto.
+        3. The overlay related settings can be configured using the 'overlay' field.
+
+      operationId: postLiveStreamStart
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamStartRequest'
+        required: true
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamStartResponse'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/swap:
+    post:
+      tags:
+        - v1
+      summary: Switch stream type from recorded to live
+      description: Switch stream type from recorded stream to live stream. This is useful when a recorded stream is already running for a sensor and users need to
+        view the live stream immediately. The switch happens without much delay and its faster than stopping recorded stream and starting a fresh live stream.
+      operationId: postSwitchString
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - peerId
+                - streamId
+              type: object
+              properties:
+                peerId:
+                  type: string
+                  format: uuid
+                  maxLength: 100
+                streamId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/stop:
+    post:
+      tags:
+        - v1
+      summary: Stop live WebRTC streaming
+      description: Stop the live WebRTC stream. Calling this API will stop the live streaming with the specified Peer ID and free resources. Note that
+        live stream service can automatically free resources if it detects that the client has disconnected. Calling the API is faster because automatic
+        detection can have a delay.
+      operationId: postLiveStreamStop
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - peerId
+                - mediaSessionId
+              type: object
+              properties:
+                peerId:
+                  type: string
+                  format: uuid
+                  maxLength: 100
+                mediaSessionId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/pause:
+    post:
+      tags:
+        - v1
+      summary: Pause the live stream WebRTC playback
+      description: Pause the live stream WebRTC playback. To resume the stream the resume API needs to be called.
+      operationId: postLiveStreamPause
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - peerId
+                - mediaSessionId
+              type: object
+              properties:
+                peerId:
+                  type: string
+                  format: uuid
+                  maxLength: 100
+                mediaSessionId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/resume:
+    post:
+      tags:
+        - v1
+      summary: Resume the live stream WebRTC playback
+      description: Resume the live stream WebRTC playback. Calling this API for a paused stream will resume it. If the stream is already playing calling this
+        API will have no effect.
+      operationId: postLiveStreamResume
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - peerId
+                - mediaSessionId
+              type: object
+              properties:
+                peerId:
+                  type: string
+                  format: uuid
+                  maxLength: 100
+                mediaSessionId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/status:
+    get:
+      tags:
+        - v1
+      summary: Get live stream playback status
+      description:
+        Get live stream WebRTC playback status. It can be used to check the error flag. If the error flag is set as true that means the stream is erroneous.
+        The playback status can also be queried. The playback status can have values like PLAYING, NOT PLAYING, PAUSED and ERROR.
+      operationId: getLiveStreamStatus
+      parameters:
+        - name: peerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+        - name: mediaSessionId
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamStatus'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/{streamId}/picture:
+    get:
+      tags:
+        - v1
+      summary: Get picture or snapshot of live streaming
+      description: Get picture (jpeg) of the live streaming. Calling this API will return the most recent available frame from the sensor.
+      operationId: getLiveStreamPicture
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: width
+          in: query
+          schema:
+            type: integer
+            maximum: 8000
+            minimum: 0
+          example: 1920
+        - name: height
+          in: query
+          schema:
+            type: integer
+            maximum: 4000
+            minimum: 0
+          example: 1080
+        - name: frameId
+          in: query
+          schema:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example: '20'
+          description: 'Applicable for NvStreamer use-case'
+        - name: overlay
+          in: query
+          description: |
+            JSON object specifying unified overlay configuration. Supports bounding boxes, pose, proximity, and safety features.
+          schema:
+            $ref: '#/components/schemas/OverlayConfiguration'
+          # yamllint disable-line rule:line-length
+          example: '{"bbox":{"showAll":false,"objectId":[521,517,496,333,23,441],"classType":["Person","Pallet"],"showObjId":true,"objIdPosition":0,"objIdTextColor":"white","objIdTextBGColor":"green"},"color":"green","thickness":5,"debug":true,"opacity":254}'
+      responses:
+        '200':
+          description: Success
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+                maxLength: 128
+        default:
+          description: Unexpected error
+          content:
+            image/jpeg:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/{streamId}/picture/url:
+    get:
+      tags:
+        - v1
+      summary: Get temporary URL for accessing live picture
+      description: Get temporary URL for accessing live picture from a camera stream. This does not download the picture, but provides a temporary URL that can be used to access the image file.
+      operationId: getLiveStreamPictureUrl
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: expiryMinutes
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10080
+          example: 10080
+          description: Expiration time in minutes for the URL (default 10080 - 7 days)
+        - name: overlay
+          in: query
+          description: |
+            JSON object specifying unified overlay configuration. Supports bounding boxes, pose, proximity, and safety features.
+          schema:
+            $ref: '#/components/schemas/OverlayConfiguration'
+          example: '{"bbox":{"showAll":true},"color":"green","thickness":5,"debug":true,"opacity":254}'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  absolutePath:
+                    type: string
+                    description: Full file path on server
+                    example: "/tmp/live_picture_abc123.jpg"
+                  imageUrl:
+                    type: string
+                    description: Direct URL to access the image file
+                    example: "https://example.com/temp/live_picture_abc123.jpg"
+                  expiryISO:
+                    type: string
+                    format: date-time
+                    description: URL expiration time in ISO format
+                    example: "2025-09-26T12:45:52.685Z"
+                  expiryMinutes:
+                    type: integer
+                    description: Expiry minutes as provided
+                    example: 10080
+                  streamId:
+                    type: string
+                    description: Stream ID as provided
+                    example: "stream123"
+                  type:
+                    type: string
+                    enum: ["live"]
+                    description: Always "live"
+                required:
+                  - absolutePath
+                  - imageUrl
+                  - expiryISO
+                  - expiryMinutes
+                  - streamId
+                  - type
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/stream/stats:
+    get:
+      tags:
+        - v1
+      summary: Get live stream stats
+      description: Get live stream stats like framerate, total encoded-decoded frames, encoding profile, network bandwidth of interfaces etc.
+      operationId: getLiveStreamStats
+      parameters:
+        - name: peerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+        - name: mediaSessionId
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamStats'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/setAnswer:
+    post:
+      tags:
+        - v1
+      summary: Share SDP answer with live streaming service
+      description: Share SDP answer with live stream service. This is useful in case where live streaming service has shared a SDP
+        offer with client using websocket.
+        After processing SDP offer the client can share the respective SDP answer by calling this API.
+      operationId: postLiveSetAnswer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: peerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - sessionDescription
+              type: object
+              properties:
+                sessionDescription:
+                  type: object
+                  description: 'SDP answer object (same shape as the offer in /stream/start).'
+                  required:
+                    - sdp
+                    - type
+                  properties:
+                    type:
+                      type: string
+                      example: answer
+                      maxLength: 128
+                      pattern: ".*"
+                    sdp:
+                      type: string
+                      maxLength: 65535
+                      pattern: ".*"
+                mediaSessionId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+                  description: 'Accepted but not validated by the handler.'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/iceCandidate:
+    post:
+      tags:
+        - v1
+      summary: Share client's ICE candidate with live streaming service
+      description: The client can share its ICE candidate with live streaming service through this API.
+      operationId: postLiveAddIceCandidate
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddIceCandidate'
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      tags:
+        - v1
+      summary: Get list of ICE Candidates generated by live streaming service
+      description: Get list of ICE candidates of the live streaming service. The ICE candidates
+        are generated asynchronously and the client needs to poll the API until peer connection goes into connected state.
+      operationId: getLiveGetIceCandidate
+      parameters:
+        - name: peerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success array
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetIceCandidate'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/iceServers:
+    get:
+      tags:
+        - v1
+      summary: Get list of ICE servers
+      description:
+        Get URL or URLs of the ICE servers to be used for ICE negotiations. These
+        are typically STUN and/or TURN servers. peerId is optional; the server
+        returns the configured ICE servers regardless of peerId.
+      operationId: getLiveGetIceServers
+      parameters:
+        - name: peerId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IceServersResponse'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/configuration:
+    get:
+      tags:
+        - v1
+      summary: Get live stream service configuration
+      description: Get Live Stream service configuration. The configuration includes information regarding HTTP port, maximum number of streams supported,
+        enabling reverse proxy, enabling software path etc.
+      operationId: getSensorConfiguration
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetConfiguration'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - v1
+      summary: Set live stream service configuration
+      description: Set Live Stream service configuration like stun or turn URL list, enabling reverse proxy etc.
+      operationId: postSensorConfiguration
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetConfiguration'
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/live/version:
+    get:
+      tags:
+        - v1
+      summary: Get live stream service version
+      description: Get live stream service version
+      operationId: getVersion
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                    example: "vst"
+                  version:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                    example: "2.1.0-26.02.1.3"
+                required:
+                  - type
+                  - version
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/live/help:
+    get:
+      tags:
+        - v1
+      summary: Get list of supported APIs by live stream service
+      description: Get list of supported APIs by live stream service. Returns a flat array of endpoint path strings.
+      operationId: gethelp
+      responses:
+        '200':
+          description: Successs
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  type: string
+                  maxLength: 256
+                  pattern: ".*"
+                  example: "/api/v1/live/streams"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    StreamConfig:
+      type: object
+      properties:
+        framerate:
+          type: integer
+          example: 30
+          maximum: 100
+          minimum: 0
+        resolution:
+          type: string
+          example: "1920x1080"
+          pattern: ".*"
+          maxLength: 128
+        peerId:
+          type: string
+          format: uuid
+          maxLength: 100
+        overlay:
+          $ref: '#/components/schemas/OverlayConfiguration'
+    Options:
+      type: object
+      required:
+        - quality
+        - rtptransport
+        - timeout
+      properties:
+        quality:
+          type: string
+          enum: [low, medium, high, auto]
+        rtptransport:
+          type: string
+          enum: [udp, tcp]
+        timeout:
+          type: integer
+          example: 60
+        composite:
+          description: (Deprecated) Video wall/composite configuration inside options. Use root-level composite field instead.
+          deprecated: true
+          $ref: '#/components/schemas/CompositeConfiguration'
+        overlay:
+          $ref: '#/components/schemas/OverlayConfiguration'
+
+    StreamStartRequest:
+      required:
+        - options
+        - peerId
+        - sessionDescription
+      type: object
+      properties:
+        streamId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        tag:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        peerId:
+          type: string
+          format: uuid
+          maxLength: 100
+        composite:
+          description: |
+            (New format) Video wall/composite configuration at root level.
+            For backward compatibility, composite can also be specified inside options.composite (deprecated).
+            If both are provided, root level takes precedence.
+          $ref: '#/components/schemas/CompositeConfiguration'
+        options:
+          $ref: '#/components/schemas/Options'
+        sessionDescription:
+          required:
+            - sdp
+            - type
+          type: object
+          properties:
+            type:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: offer
+            sdp:
+              type: string
+              maxLength: 65535
+              pattern: ".*"
+
+    StreamStartResponse:
+      required:
+        - sdp
+        - type
+      type: object
+      properties:
+        sdp:
+          type: string
+          maxLength: 65535
+          pattern: ".*"
+        type:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: answer
+        mediaSessionId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+
+    IceServer:
+      type: object
+      properties:
+        urls:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+      required:
+        - urls
+
+    IceServersResponse:
+      type: object
+      properties:
+        iceServers:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/IceServer'
+      required:
+        - iceServers
+
+    StreamStatus:
+      type: object
+      properties:
+        error:
+          type: boolean
+        state:
+          type: string
+          enum:
+            - PLAYING
+            - NOT PLAYING
+            - PAUSED
+            - ERROR
+
+    StreamInfoWrapper:
+      type: object
+      description: |
+        Single-entry map of `sensorId` → array of streams. Each element in the outer array
+        (returned by GET /v1/live/streams) is one such map. Use `jq 'add'` to flatten.
+      additionalProperties:
+        type: array
+        description: Streams for one sensor. Bounded by max_sensors_supported on VIOS/VST.
+        maxItems: 10000
+        items:
+          $ref: '#/components/schemas/StreamInfo'
+
+    StreamInfo:
+      type: object
+      properties:
+        streamId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        isMain:
+          type: boolean
+          example: true
+        type:
+          type: string
+          maxLength: 128
+          description: 'Stream type'
+          example: 'Rtsp'
+          enum:
+            - Http
+            - Hls
+            - Rtsp
+            - FileDownload
+            - Udp
+            - Webrtc
+            - Native
+            - NotSupported
+        storageLocation:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          description: 'Storage location type for the stream'
+          example: 'Local'
+          enum:
+            - Local
+            - Cloud
+            - Unknown
+        url:
+          type: string
+          maxLength: 256
+          format: uri
+          description: 'Live RTSP URL.'
+          example: 'rtsp://10.41.26.58:30554/live/TruckAccident'
+        vodUrl:
+          type: string
+          maxLength: 256
+          format: uri
+          description: 'VOD (replay) RTSP URL. Supports startTs/endTs query parameters.'
+          example: 'rtsp://10.41.26.58:30562/vod/TruckAccident'
+        name:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: 'HIKVISION%20DS-2CD2T43G0-I5'
+        metadata:
+          type: object
+          properties:
+            bitrate:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '8000'
+            codec:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: 'H264'
+            framerate:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '30'
+            govlength:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '60'
+            resolution:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '1920x1080'
+
+    AddIceCandidate:
+      required:
+        - candidate
+        - peerId
+      type: object
+      properties:
+        peerId:
+          type: string
+          format: uuid
+          maxLength: 100
+        candidate:
+          required:
+            - candidate
+            - sdpMLineIndex
+            - sdpMid
+          type: object
+          properties:
+            candidate:
+              type: string
+              maxLength: 500
+              pattern: ".*"
+            sdpMLineIndex:
+              type: integer
+              maximum: 100
+              minimum: 0
+              example: 0
+            sdpMid:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '0'
+
+    GetIceCandidate:
+      type: array
+      maxItems: 100
+      items:
+        required:
+          - candidate
+          - sdpMLineIndex
+          - sdpMid
+        type: object
+        properties:
+          candidate:
+            type: string
+            pattern: ".*"
+            maxLength: 500
+          sdpMLineIndex:
+            type: integer
+            maximum: 100
+            minimum: 0
+            example: 0
+          sdpMid:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+            example: '0'
+
+    GetConfiguration:
+      type: object
+      required:
+        - coturnTurnUrlListWithSecret
+        - gpuIndices
+        - httpPort
+        - maxStreamsSupported
+        - maxWebrtcInConnections
+        - maxWebrtcOutConnections
+        - enableFrameDrop
+        - prometheusPort
+        - stunUrlList
+        - useTwilioStunTurn
+        - twilioAccountSid
+        - twilioAuthToken
+        - useReverseProxy
+        - reverseProxyServerAddress
+        - staticTurnUrlList
+        - useCoturnAuthSecret
+        - useHttpDigestAuthentication
+        - useHttps
+        - enablePerfLogging
+        - useSoftwarePath
+        - useVideoMetadataProtobuf
+        - videoMetadataQueryBatchSizeNumFrames
+        - videoMetadataServer
+        - vstDataPath
+        - webrtcLatencyMs
+        - webrtcOutEnableInsertSpsPps
+        - webrtcOutMinDrcInterval
+        - webrtcOutSetIdrInterval
+        - webrtcOutSetIframeInterval
+        - webserviceAccessControlList
+        - enableGstDebugProbes
+        - enableUserCleanup
+        - multiUserExtraOptions
+        - useMultiUser
+        - vstIp
+      properties:
+        coturnTurnUrlListWithSecret:
+          type: array
+          maxItems: 100
+          nullable: true
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+        gpuIndices:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          default: ''
+        httpPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          default: '30001'
+        maxStreamsSupported:
+          type: integer
+          minimum: 0
+          default: 500
+        maxWebrtcInConnections:
+          type: integer
+          minimum: 0
+          default: 8
+        maxWebrtcOutConnections:
+          type: integer
+          minimum: 0
+          default: 8
+        enableFrameDrop:
+          type: boolean
+          default: true
+        prometheusPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          default: '8087'
+        stunUrlList:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example:
+            - stun.l.google.com:19302
+            - stun1.l.google.com:19302
+        useTwilioStunTurn:
+          type: boolean
+          default: false
+        twilioAccountSid:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          default: ''
+        twilioAuthToken:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        useReverseProxy:
+          type: boolean
+          default: false
+        reverseProxyServerAddress:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        staticTurnUrlList:
+          type: array
+          maxItems: 100
+          nullable: true
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+        useCoturnAuthSecret:
+          type: boolean
+          default: false
+        useHttpDigestAuthentication:
+          type: boolean
+          default: false
+        useHttps:
+          type: boolean
+          default: false
+        enablePerfLogging:
+          type: boolean
+          default: true
+        useSoftwarePath:
+          type: boolean
+          default: false
+        useVideoMetadataProtobuf:
+          type: boolean
+          default: true
+        videoMetadataQueryBatchSizeNumFrames:
+          type: integer
+          minimum: 0
+          default: 300
+        videoMetadataServer:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        vstDataPath:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+        webrtcLatencyMs:
+          type: integer
+          minimum: 0
+          default: 1000
+        webrtcOutEnableInsertSpsPps:
+          type: boolean
+          default: true
+        webrtcOutMinDrcInterval:
+          type: integer
+          minimum: 0
+          default: 5
+        webrtcOutSetIdrInterval:
+          type: integer
+          minimum: 0
+          default: 256
+        webrtcOutSetIframeInterval:
+          type: integer
+          minimum: 0
+          default: 30
+        webserviceAccessControlList:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        enableGstDebugProbes:
+          type: boolean
+          default: true
+        enableUserCleanup:
+          type: boolean
+          default: false
+        multiUserExtraOptions:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          default: 'Secure, SameSite=none'
+        useMultiUser:
+          type: boolean
+          default: false
+        vstIp:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        3dOverlaySensorName:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        WebrtcOutDefaultResolution:
+          type: string
+          pattern: ".*"
+          maxLength: 32
+          example: '1920x1080'
+        analyticServerAddress:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+          example: 'http://:30080/emdx'
+        calibrationFilePath:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+        calibrationMode:
+          type: string
+          pattern: ".*"
+          maxLength: 64
+          example: 'synthetic'
+        enableDecLowLatencyMode:
+          type: boolean
+        enableRecentering:
+          type: boolean
+        floorMapFilePath:
+          type: string
+          pattern: ".*"
+          maxLength: 256
+        overlayClassLabels:
+          type: array
+          items:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+        overlayColorCode:
+          type: array
+          description: 'List of single-key objects mapping a class label to an RGBA color array.'
+          items:
+            type: object
+            additionalProperties:
+              type: array
+              minItems: 4
+              maxItems: 4
+              items:
+                type: integer
+                minimum: 0
+                maximum: 255
+        overlayProximityLabels:
+          type: array
+          items:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+        overlayTextFontType:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: 'DejaVuSansMono.ttf'
+        useCameraGroups:
+          type: boolean
+        webrtc_video_quality_tunning:
+          type: object
+          description: 'Per-resolution encoder tuning. Keys are resolution_480, resolution_720, resolution_1080, resolution_1440, resolution_2160.'
+          additionalProperties:
+            type: object
+            properties:
+              bitrate_range:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items:
+                  type: integer
+                  minimum: 0
+              bitrate_start:
+                type: integer
+                minimum: 0
+              qp_range_I:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items:
+                  type: integer
+                  minimum: 0
+              qp_range_P:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items:
+                  type: integer
+                  minimum: 0
+        webrtcpeerConnTimeoutSec:
+          type: integer
+          minimum: 0
+          example: 10
+
+    SetConfiguration:
+      type: object
+      properties:
+        coturnTurnUrlListWithSecret:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+        stunUrlList:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+          example:
+            - stun.l.google.com:19302
+            - stun1.l.google.com:19302
+        useTwilioStunTurn:
+          type: boolean
+          default: false
+        twilioAccountSid:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          default: ''
+        twilioAuthToken:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        useReverseProxy:
+          type: boolean
+          default: false
+        reverseProxyServerAddress:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        staticTurnUrlList:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+        useCoturnAuthSecret:
+          type: boolean
+          default: false
+
+    BoundingBox:
+      type: object
+      properties:
+        bottomY:
+          type: number
+        leftX:
+          type: number
+        rightX:
+          type: number
+        topY:
+          type: number
+    Object:
+      type: object
+      properties:
+        bbox:
+          $ref: '#/components/schemas/BoundingBox'
+        confidence:
+          type: number
+        coordinate:
+          type: object
+        dir:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+        embedding:
+          type: object
+        gaze:
+          type: object
+        id:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        info:
+          type: object
+        lipActivity:
+          type: object
+        location:
+          type: object
+        pose:
+          type: object
+        speed:
+          type: number
+        type:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+    Metadata:
+      type: object
+      properties:
+        epocTime:
+          type: number
+        id:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        objects:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Object'
+
+    StreamStatsSettings:
+      type: object
+      properties:
+        Encoding:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Resolution:
+          type: object
+          properties:
+            height:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            width:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+        streamId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 128
+        encodingProfile:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        framerate:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+    NetworkBandwidth:
+      type: object
+      properties:
+        interfaceList:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+
+    CompositeConfiguration:
+      type: object
+      description: |
+        Video wall/composite stream configuration. Allows combining multiple camera streams into a single composite view.
+        Supports grid layouts, floor plan overlay, and sensor name display.
+      properties:
+        doComposite:
+          type: boolean
+          description: Enable composite/video wall mode
+          example: true
+        streamIds:
+          type: array
+          description: Array of stream IDs to include in the composite
+          maxItems: 100
+          items:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+          example: ["35da25cf-d9a2-4a62-8b06-faf244bdb24b", "9529c2db-3da8-4c1f-b452-cb3820eca053"]
+        includeFloorPlan:
+          type: boolean
+          description: Include floor plan/God's eye view in composite
+          example: false
+        quality:
+          type: string
+          description: Quality setting for composite stream
+          enum: [low, medium, high, auto]
+          example: "high"
+        showSensorName:
+          type: object
+          description: Display sensor names on composite streams
+          properties:
+            enable:
+              type: boolean
+              description: Enable sensor name display
+              example: true
+            position:
+              type: array
+              description: Position [x, y] for sensor name text
+              items:
+                type: integer
+              minItems: 2
+              maxItems: 2
+              example: [10, 10]
+        gridLayout:
+          type: object
+          description: Custom grid layout configuration for composite
+          additionalProperties: true
+          example: {"rows": 2, "cols": 2}
+
+    OverlayConfiguration:
+      type: object
+      description: |
+        Unified overlay configuration for visual overlays including bounding boxes, pose, proximity, and safety features.
+      properties:
+        bbox:
+          type: object
+          description: Bounding box overlay configuration
+          properties:
+            showAll:
+              type: boolean
+              description: Show all detected objects (true) or filter by objectId/classType (false)
+              example: true
+            objectId:
+              type: array
+              description: Specific object IDs to show (only when showAll=false)
+              maxItems: 100
+              items:
+                type: integer
+              example: [521, 517, 496, 333]
+            classType:
+              type: array
+              description: Object class types to filter (only when showAll=false)
+              maxItems: 100
+              items:
+                type: string
+              example: ["Person", "Pallet", "Forklift"]
+            showObjId:
+              type: boolean
+              description: Display object ID as text on bounding box
+              example: true
+            objIdPosition:
+              type: integer
+              description: Position of object ID text (0=MIDDLE, 1=TOP_LEFT, 2=TOP_RIGHT, 3=BOTTOM_LEFT, 4=BOTTOM_RIGHT)
+              minimum: 0
+              maximum: 4
+              example: 1
+            objIdTextColor:
+              type: string
+              description: Color of object ID text
+              example: "white"
+            objIdTextBGColor:
+              type: string
+              description: Background color for object ID text
+              example: "green"
+        color:
+          type: string
+          description: Default overlay color (e.g., green, red, blue, white, yellow)
+          example: "green"
+        thickness:
+          type: integer
+          description: Line thickness for overlays
+          minimum: 1
+          maximum: 10
+          example: 5
+        debug:
+          type: boolean
+          description: Enable debug mode for additional information
+          example: true
+        opacity:
+          type: integer
+          description: Opacity level (0=transparent, 255=opaque)
+          minimum: 0
+          maximum: 255
+          example: 254
+        pose:
+          type: boolean
+          description: Enable pose detection overlays
+          example: false
+        framerate:
+          type: integer
+          description: Frame rate for overlay processing
+          example: 15
+        proximityClass:
+          type: array
+          description: Classes to track for proximity detection
+          maxItems: 100
+          items:
+            type: string
+          example: ["Person", "Forklift"]
+        entrantClass:
+          type: array
+          description: Classes that can enter safety zones
+          maxItems: 100
+          items:
+            type: string
+          example: ["nova_carter", "person"]
+        proximityAreaFactor:
+          type: number
+          description: Scaling factor for proximity areas
+          example: 1.3
+        proximityAnimation:
+          type: string
+          description: Animation style for proximity visualization
+          example: "ellipseAndLine"
+        overlayColorCode:
+          type: array
+          description: Custom RGBA colors per class type [R, G, B, A] where values are 0-255
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+                maximum: 255
+          example:
+            - Person: [118, 185, 0, 255]
+            - Humanoid: [0, 113, 197, 255]
+            - NovaCarter: [250, 194, 0, 255]
+            - Transporter: [0, 133, 100, 255]
+            - Forklift: [0, 113, 197, 255]
+            - Box: [250, 194, 0, 255]
+            - Pallet: [93, 22, 130, 255]
+            - Crate: [94, 94, 94, 255]
+            - proximity_bubble: [0, 255, 0, 75]
+            - proximity_bubble_inner: [255, 0, 0, 75]
+            - proximity_bubble_outer: [204, 85, 0, 75]
+            - proximity_bubble_border: [255, 255, 255, 255]
+            - proximity_line: [255, 255, 255, 255]
+        needBbox:
+          type: boolean
+          description: (Deprecated) Use bbox.showAll instead
+          example: true
+          deprecated: true
+        needTripwire:
+          type: boolean
+          description: (Deprecated) Use tripwire.showAll instead
+          example: false
+          deprecated: true
+        needRoi:
+          type: boolean
+          description: (Deprecated) Use roi.showAll instead
+          example: false
+          deprecated: true
+        objectId:
+          type: array
+          description: (Deprecated) Use bbox.objectId instead
+          maxItems: 100
+          items:
+            type: integer
+          example: [23, 42]
+          deprecated: true
+        classType:
+          type: array
+          description: (Deprecated) Use bbox.classType instead
+          maxItems: 100
+          items:
+            type: string
+          example: ["Person"]
+          deprecated: true
+    StreamStats:
+      type: object
+      properties:
+        streamSettings:
+          $ref: '#/components/schemas/StreamStatsSettings'
+        frameRetrievalAccuracy:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        networkBandwidth:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/NetworkBandwidth'
+        streamStats:
+          type: object
+          properties:
+            currentFrameRate:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            decode:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            encode:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            inboundAudio:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            inboundVideo:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+        timestamp:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+
+    Error:
+      required:
+        - error_code
+        - error_message
+      type: object
+      properties:
+        error_code:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+          example: VMSInternalError
+        error_message:
+          type: string
+          maxLength: 512
+          pattern: ".*"
+          example: VMS internal processing error

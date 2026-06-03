@@ -1,0 +1,11 @@
+#pragma once
+/**
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0.
+ */
+
+#define AWS_CRT_CPP_VERSION "@FULL_VERSION@"
+#define AWS_CRT_CPP_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define AWS_CRT_CPP_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define AWS_CRT_CPP_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define AWS_CRT_CPP_GIT_HASH "@GIT_HASH@"

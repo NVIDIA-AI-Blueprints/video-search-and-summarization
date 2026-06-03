@@ -1,0 +1,278 @@
+# Video-IO KPI Definition
+service: Video-IO
+schema_version: "0.0.1"
+
+# ---------------------------------------------------------------------------
+# Platform configs
+# ---------------------------------------------------------------------------
+platform_configs:
+  - platform:
+      gpu: {model: "H100", count: 1}
+    config:
+      - id: h100-rtsp
+        stream_type: "rtsp"
+      - id: h100-file
+        stream_type: "file"
+
+  - platform:
+      gpu: {model: "RTX6000Pro", count: 1}
+    config:
+      - id: rtx6000pro-rtsp
+        stream_type: "rtsp"
+      - id: rtx6000pro-file
+        stream_type: "file"
+
+  - platform:
+      gpu: {model: "Spark", count: 1}
+    config:
+      - id: spark-rtsp
+        stream_type: "rtsp"
+      - id: spark-file
+        stream_type: "file"
+
+  - platform:
+      gpu: {model: "Thor", count: 1}
+    config:
+      - id: thor-rtsp
+        stream_type: "rtsp"
+      - id: thor-file
+        stream_type: "file"
+
+# ---------------------------------------------------------------------------
+# KPIs
+# Baseline keys = test_case_id values from vss_perf_vst_adaptor.py
+# ---------------------------------------------------------------------------
+kpis:
+  # -- Primary: Average Latency -----------------------------------------------
+  - name: avg_latency
+    description: "Average Latency (ms)"
+    path: test_cases[*].metrics.latency.avg_ms
+    unit: ms
+    direction: lower
+    aggregation: avg
+    dashboard: {chart: primary, trend: true, summary_stat: true}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-rtsp:
+        video-download_15s_2000ms_without-transcode: 40
+        video-download_15s_1000ms_without-transcode: 20
+        video-download_15s_500ms_without-transcode: 20
+        video-download_15s_200ms_without-transcode: 80
+        video-download_30s_1000ms_without-transcode: 30
+        video-download_30s_10000ms_without-transcode: 40
+        video-download_60s_1000ms_without-transcode: 70
+        video-download_60s_10000ms_without-transcode: 70
+        video-download_5-concurrent_without-transcode: 70
+        video-download_10-concurrent_without-transcode: 150
+        video-download_20-concurrent_without-transcode: 260
+        video-download_50-concurrent_without-transcode: 790
+      h100-file:
+        # video-download without-transcode
+        video-download_15s_2000ms_without-transcode: 20
+        video-download_15s_1000ms_without-transcode: 20
+        video-download_15s_500ms_without-transcode: 20
+        video-download_15s_200ms_without-transcode: 20
+        video-download_30s_1000ms_without-transcode: 20
+        video-download_30s_10000ms_without-transcode: 20
+        video-download_60s_1000ms_without-transcode: 30
+        video-download_60s_10000ms_without-transcode: 30
+        # video-download with-transcode
+        video-download_15s_2000ms_with-transcode: 550
+        video-download_15s_1000ms_with-transcode: 550
+        video-download_15s_500ms_with-transcode: 550
+        video-download_15s_200ms_with-transcode: 550
+        video-download_15s_10000ms_with-transcode: 550
+        video-download_30s_1000ms_with-transcode: 810
+        video-download_30s_10000ms_with-transcode: 800
+        video-download_60s_1000ms_with-transcode: 1050
+        video-download_60s_10000ms_with-transcode: 1050
+        # picture-api
+        picture-api_NA_1000ms_without-overlay: 200
+        picture-api_NA_10000ms_without-overlay: 220
+        picture-api_NA_1000ms_with-overlay: 230
+        picture-api_NA_10000ms_with-overlay: 200
+        # concurrent video-download without-transcode
+        video-download_5-concurrent_without-transcode: 60
+        video-download_10-concurrent_without-transcode: 70
+        video-download_20-concurrent_without-transcode: 90
+        video-download_50-concurrent_without-transcode: 470
+        # concurrent video-download with-transcode
+        video-download_5-concurrent_with-transcode: 1490
+        video-download_10-concurrent_with-transcode: 3130
+        video-download_20-concurrent_with-transcode: 6800
+        video-download_50-concurrent_with-transcode: 16930
+        # concurrent picture-api without-overlay
+        picture-api_5-concurrent_without-overlay: 360
+        picture-api_10-concurrent_without-overlay: 1010
+        picture-api_20-concurrent_without-overlay: 1970
+        picture-api_50-concurrent_without-overlay: 5270
+        # concurrent picture-api with-overlay
+        picture-api_5-concurrent_with-overlay: 1210
+        picture-api_10-concurrent_with-overlay: 1680
+        picture-api_20-concurrent_with-overlay: 3380
+        picture-api_50-concurrent_with-overlay: 9220
+
+  # -- Primary: P99 Latency ---------------------------------------------------
+  - name: p99_latency
+    description: "P99 Latency (ms)"
+    path: test_cases[*].metrics.latency.p99_ms
+    unit: ms
+    direction: lower
+    aggregation: max
+    dashboard: {chart: primary, trend: true, summary_stat: true}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-rtsp:
+        video-download_15s_2000ms_without-transcode: 50
+        video-download_15s_1000ms_without-transcode: 30
+        video-download_15s_500ms_without-transcode: 30
+        video-download_15s_200ms_without-transcode: 110
+        video-download_30s_1000ms_without-transcode: 40
+        video-download_30s_10000ms_without-transcode: 60
+        video-download_60s_1000ms_without-transcode: 80
+        video-download_60s_10000ms_without-transcode: 80
+        video-download_5-concurrent_without-transcode: 70
+        video-download_10-concurrent_without-transcode: 170
+        video-download_20-concurrent_without-transcode: 310
+        video-download_50-concurrent_without-transcode: 2110
+      h100-file:
+        video-download_15s_2000ms_without-transcode: 40
+        video-download_15s_1000ms_without-transcode: 40
+        video-download_15s_500ms_without-transcode: 40
+        video-download_15s_200ms_without-transcode: 40
+        video-download_30s_1000ms_without-transcode: 40
+        video-download_30s_10000ms_without-transcode: 40
+        video-download_60s_1000ms_without-transcode: 40
+        video-download_60s_10000ms_without-transcode: 40
+        video-download_15s_2000ms_with-transcode: 570
+        video-download_15s_1000ms_with-transcode: 570
+        video-download_15s_500ms_with-transcode: 570
+        video-download_15s_200ms_with-transcode: 570
+        video-download_15s_10000ms_with-transcode: 570
+        video-download_30s_1000ms_with-transcode: 820
+        video-download_30s_10000ms_with-transcode: 820
+        video-download_60s_1000ms_with-transcode: 1070
+        video-download_60s_10000ms_with-transcode: 1080
+        picture-api_NA_1000ms_without-overlay: 220
+        picture-api_NA_10000ms_without-overlay: 210
+        picture-api_NA_1000ms_with-overlay: 290
+        picture-api_NA_10000ms_with-overlay: 220
+        video-download_5-concurrent_without-transcode: 70
+        video-download_10-concurrent_without-transcode: 70
+        video-download_20-concurrent_without-transcode: 110
+        video-download_50-concurrent_without-transcode: 560
+        video-download_5-concurrent_with-transcode: 1500
+        video-download_10-concurrent_with-transcode: 3170
+        video-download_20-concurrent_with-transcode: 6840
+        video-download_50-concurrent_with-transcode: 17130
+        picture-api_5-concurrent_without-overlay: 370
+        picture-api_10-concurrent_without-overlay: 1030
+        picture-api_20-concurrent_without-overlay: 2120
+        picture-api_50-concurrent_without-overlay: 6400
+        picture-api_5-concurrent_with-overlay: 1220
+        picture-api_10-concurrent_with-overlay: 1710
+        picture-api_20-concurrent_with-overlay: 3450
+        picture-api_50-concurrent_with-overlay: 12070
+
+  # -- Secondary: P90 Latency -------------------------------------------------
+  - name: p90_latency
+    description: "P90 Latency (ms)"
+    path: test_cases[*].metrics.latency.p90_ms
+    unit: ms
+    direction: lower
+    aggregation: avg
+    optional: true
+    dashboard: {chart: secondary}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-rtsp:
+        video-download_15s_2000ms_without-transcode: 40
+        video-download_15s_1000ms_without-transcode: 30
+        video-download_15s_500ms_without-transcode: 30
+        video-download_15s_200ms_without-transcode: 110
+        video-download_30s_1000ms_without-transcode: 40
+        video-download_30s_10000ms_without-transcode: 50
+        video-download_60s_1000ms_without-transcode: 70
+        video-download_60s_10000ms_without-transcode: 80
+        video-download_5-concurrent_without-transcode: 70
+        video-download_10-concurrent_without-transcode: 170
+        video-download_20-concurrent_without-transcode: 300
+        video-download_50-concurrent_without-transcode: 850
+      h100-file:
+        video-download_15s_2000ms_without-transcode: 40
+        video-download_15s_1000ms_without-transcode: 30
+        video-download_15s_500ms_without-transcode: 40
+        video-download_15s_200ms_without-transcode: 40
+        video-download_30s_1000ms_without-transcode: 30
+        video-download_30s_10000ms_without-transcode: 30
+        video-download_60s_1000ms_without-transcode: 30
+        video-download_60s_10000ms_without-transcode: 30
+        video-download_15s_2000ms_with-transcode: 560
+        video-download_15s_1000ms_with-transcode: 560
+        video-download_15s_500ms_with-transcode: 560
+        video-download_15s_200ms_with-transcode: 560
+        video-download_15s_10000ms_with-transcode: 560
+        video-download_30s_1000ms_with-transcode: 820
+        video-download_30s_10000ms_with-transcode: 810
+        video-download_60s_1000ms_with-transcode: 1060
+        video-download_60s_10000ms_with-transcode: 1070
+        picture-api_NA_1000ms_without-overlay: 210
+        picture-api_NA_10000ms_without-overlay: 210
+        picture-api_NA_1000ms_with-overlay: 250
+        picture-api_NA_10000ms_with-overlay: 210
+        video-download_5-concurrent_without-transcode: 70
+        video-download_10-concurrent_without-transcode: 70
+        video-download_20-concurrent_without-transcode: 100
+        video-download_50-concurrent_without-transcode: 540
+        video-download_5-concurrent_with-transcode: 1500
+        video-download_10-concurrent_with-transcode: 3170
+        video-download_20-concurrent_with-transcode: 6840
+        video-download_50-concurrent_with-transcode: 17110
+        picture-api_5-concurrent_without-overlay: 370
+        picture-api_10-concurrent_without-overlay: 1030
+        picture-api_20-concurrent_without-overlay: 2060
+        picture-api_50-concurrent_without-overlay: 6370
+        picture-api_5-concurrent_with-overlay: 1220
+        picture-api_10-concurrent_with-overlay: 1710
+        picture-api_20-concurrent_with-overlay: 3420
+        picture-api_50-concurrent_with-overlay: 11470
+
+  - name: p50_latency
+    description: "Median Latency (ms)"
+    path: test_cases[*].metrics.latency.p50_ms
+    unit: ms
+    direction: lower
+    optional: true
+    dashboard: {chart: secondary}
+
+  - name: max_latency
+    description: "Max Latency (ms)"
+    path: test_cases[*].metrics.latency.max_ms
+    unit: ms
+    direction: lower
+    optional: true
+
+  # -- Reliability -------------------------------------------------------------
+  - name: success_rate
+    description: "Success Rate (%)"
+    path: test_cases[*].metrics.reliability.success_rate_percent
+    unit: "%"
+    direction: higher
+    aggregation: min
+    dashboard: {chart: secondary, trend: true}
+    thresholds: {warning_percent: 5, critical_percent: 10}
+    baselines:
+      h100-rtsp:
+        video-download_15s_2000ms_without-transcode: 100
+        video-download_15s_1000ms_without-transcode: 100
+        video-download_15s_500ms_without-transcode: 100
+        video-download_15s_200ms_without-transcode: 100
+        video-download_30s_1000ms_without-transcode: 100
+        video-download_30s_10000ms_without-transcode: 100
+        video-download_60s_1000ms_without-transcode: 100
+        video-download_60s_10000ms_without-transcode: 100
+        video-download_5-concurrent_without-transcode: 100
+        video-download_10-concurrent_without-transcode: 100
+        video-download_20-concurrent_without-transcode: 100
+        video-download_50-concurrent_without-transcode: 100
+      h100-file: {default: 100}

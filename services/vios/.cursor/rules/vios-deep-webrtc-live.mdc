@@ -1,0 +1,69 @@
+---
+description: "Deep reference: WebRTC live streaming module -- PeerConnection lifecycle, ICE, DRC, multi-viewer"
+globs: "src/modules/webrtc_live/**,src/framework/webrtc_streamer/**"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# WebRTC Live Module
+
+## Key Classes
+
+| Class | File | Role |
+|-------|------|------|
+| LivePeerConnection | `src/modules/webrtc_live/LivePeerConnection.h` | IVstModule, owns PeerConnectionManager(pcType="live") |
+| PeerConnectionManager | `webrtc_streamer/PeerConnectionManager.cpp` | Session lifecycle, ICE servers, peer maps, limits |
+| PeerConnection | `webrtc_streamer/PeerConnection.cpp` | Per-peer WebRTC state, SDP/ICE, tracks, EventLoop |
+| PeerConnectionObserver | `webrtc_streamer/WebrtcCallbacks.cpp` | ICE candidates, connection state, timeout |
+| NvGstVideoSource | `webrtc_streamer/nvgstvideosource.cpp` | VideoSourceInterface over CommonVideoSource |
+| LiveVideoSource | `webrtc_streamer/inc/livevideosource.h` | RTSP via live555, GstNvVideoDecoder pipeline |
+| CapturerFactory | `webrtc_streamer/inc/CapturerFactory.h` | Creates TrackSource for RTSP/UDP/file |
+| VideoSenderPool | `media/video_source/senders/videosenderpool.h` | Shared VideoWebRTCSender for pass-through |
+
+## PeerConnection Lifecycle
+
+1. Client POST `/api/v1/live/stream/start` -> `PeerConnectionManager::startStream()` -> `call()`
+2. `PeerConnection::call()`: SetRemoteDescription(offer) -> AddStreams -> CreateAnswer (or CreateOffer if server-initiated)
+3. ICE: `OnIceCandidate` -> WebSocket `api/v1/live/iceCandidate`; client POST `/api/v1/live/iceCandidate`
+4. `OnConnectionChange(kConnected)` -> `startPlayback()`
+5. Teardown: POST `/api/v1/live/stream/stop` -> `hangUp()` -> `removeTracks()` -> `erasePeerConnection()`
+
+## Video Source Attachment
+
+- RTSP: `TrackSource<RTSPVideoCapturer>` (live555 -> GstNvVideoDecoder -> NvEncoder -> WebrtcSinkConsumer)
+- Pass-through: `VideoSenderPool` -> `VideoWebRTCSender` -> `rtc::VideoBroadcaster` (multi-viewer, no re-encode)
+- UDP: `TrackSource<NvGstUDPVideoCapturer>`
+- File: `TrackSource<NvGstVideoCapturer>`
+
+## Quality Adaptation (DRC)
+
+- `OnSinkWantsChanged` -> `decoder->handleDRC(peerid, max_pixel_count, max_framerate_fps)`
+- Throttled by `webrtc_out_min_drc_interval` (default 5s)
+
+## ICE Servers
+
+- STUN from `config.stunurl_list`; TURN from Twilio, Coturn (HMAC-SHA1 5min expiry), or `static_turnurl_list`
+- Stored per-peer in `m_iceServerPeerIdMap`
+
+## Connection Timeout
+
+- `webrtc_peer_conn_timeout_sec` (default 10): scheduled after signaling stable; hangUp if no ICE
+- `OnConnectionChange(kDisconnected|kFailed|kClosed)` -> `closePeerConnection()`
+
+## Thread Safety
+
+`m_peerMapMutex` (peer map), `m_streamMapMutex` (streams), `m_clientMutex` (clients), `m_iceServerPeerIdMapLock` (ICE). PeerConnection uses EventLoop to serialize work.
