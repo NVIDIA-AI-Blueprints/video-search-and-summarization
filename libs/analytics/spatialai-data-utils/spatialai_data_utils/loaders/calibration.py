@@ -44,6 +44,11 @@ name alone:
     (e.g. ``_with_group_memberships`` adds ``{group: [cams]}``).
   * ``_grouped[_<variant>]`` → **nested** by group
     (``{group: {cam: calib_info}}``) plus per-group area metadata.
+  * ``_from_pkl`` is the exception to the suffix rule — it returns
+    ``(flat {cam: calib_info}, infos)``: the decoded flat dict plus
+    the pkl's per-frame ``infos`` list.
+  * ``_from_bevformer`` returns the raw legacy BEVFormer dict as-is,
+    *not* the decoded ``calib_info`` shape.
 
 ============================
 Which loader should I use?

@@ -164,6 +164,9 @@ The canonical harbor command is in § Harbor invocation.
        it, and the commit + the re-run's per-spec result comments (with
        trace/artifact links) are the review trail. **Fork PRs are the one
        exception**: the bot can't push to a fork, so it comments + BLOCKs.
+       (On a **manual sweep**, `PR_NUMBER` is empty — there is no PR/branch
+       to commit to either; record the adapter trouble in
+       `$GITHUB_STEP_SUMMARY` and `BLOCKED:`, per § "Manual full-sweep mode".)
 
        ```bash
        # Resolve the PR head repo + branch. A fork = head-repo owner differs
@@ -396,23 +399,48 @@ The canonical harbor command is in § Harbor invocation.
 
 7. **Release all locks. DO NOT tear down any Brev instance.** The
    `vss-eval-*` boxes are a long-running pool managed by the
-   operator; instances stay up across runs, and so do the slow
-   caches (docker image layers, repo clone, sample-data extract).
+   operator; instances stay up across runs, and so do the slow caches
+   that survive a volume wipe (docker **image** layers, the repo clone, the
+   `data/` sample-data extract — but NOT the model-weight *volumes*, which
+   the per-trial reset drops; see § 7).
    Close each lock FD (`exec {LFD}>&-`) so the next worker can
    grab the box. You never `brev stop` / `brev delete`. Pool
    lifecycle is strictly an operator concern.
 
-   **You do NOT reset deployment state on exit.** Each box's
-   running containers and named volumes stay as you left them;
-   cleanup is the *next* trial's first agent
-   turn — each spec's leading `expects[]` query invokes
-   `/vss-deploy-profile` (or a standalone deploy runbook), which is
-   responsible for `docker compose down` of any leftover containers
-   before bringing its own stack up. No `atexit`, no signal handler,
-   no harness-side reconcile — every exit path (happy, `BLOCKED`,
-   cancel-in-progress, max-turns, agent crash, SIGKILL, host reboot)
-   leaves the same possibly-dirty box, and the next trial's deploy
-   step handles it the same way.
+   **The box's docker runtime is reset for you at the *start* of each spec,
+   not on exit.** On a spec's first trial — a single-step spec, or `step-1`
+   of a multi-step one — `BrevEnvironment.start()` (the env provider, before
+   the agent runs) wipes the docker runtime to a clean slate: it force-removes
+   **all** containers, **all** user-defined networks, and **all** volumes
+   (images are preserved — re-pulling them is slow). So a spec always begins
+   from a deterministic, leak-free runtime regardless of what the previous
+   spec left — a leftover container from a *different* compose project used to
+   port-conflict the new deploy (observed: a stuck `phoenix` + missing init
+   containers because a prior base-profile deploy still held the ports).
+   **Multi-step step-2+ deliberately skip the reset** — their checks build on
+   the deployment step N-1 established, so wiping it would destroy the state
+   under test. Separately, *every* trial (each step included) clears the stale
+   `/logs/artifacts` + `/logs/verifier` working dirs, so a prior run's
+   arbitrarily-named files are never re-collected as this trial's output
+   (observed: 3-day-old `nemoclaw/` artifacts surfacing in an unrelated trial).
+   You still do **not** tear anything down on *exit* — no `atexit`, no signal
+   handler — and you never `brev stop` / `brev delete`; the *next* spec's
+   `start()` is what cleans up, on every exit path (happy, `BLOCKED`, cancel,
+   max-turns, crash, SIGKILL, reboot). One consequence: wiping all volumes
+   drops the `rtvi-hf-cache` / `rtvi-ngc-model-cache` model-weight volumes, so
+   a spec's first deploy is cold (~20 min weight download vs ~55 s warm) under
+   the canonical `-n 1 --max-retries 0` invocation — paid once per spec; an
+   `-n>1` rollout or a harbor retry re-wipes the caches and re-pays it. The
+   per-trial harbor timeout already budgets for a cold deploy. The deploy
+   runbook may still `docker compose down` defensively, but it no longer has to.
+
+   ⚠️ **`start()` is now destructive on a spec's first trial — never run
+   `harbor` manually against a box another run currently holds.** The wipe is
+   not structurally gated by the per-box flock (that's orchestrator discipline,
+   § 5b); a manual `uvx harbor run` with `BREV_INSTANCE` set (README "Run one
+   trial by hand") will `docker rm -f` the holder's containers and volumes
+   mid-trial. Acquire the flock — or pick a demonstrably idle box — before any
+   manual run.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
@@ -801,6 +829,11 @@ wait for or aggregate the spec's other platforms: those run as separate
 parallel legs this job cannot see. A two-platform spec therefore yields
 two independent comments, one per platform.
 
+**Where the comment goes:** on a PR run (`PR_NUMBER` set) post it with
+`gh pr comment`. On a **manual sweep** (`PR_NUMBER` empty —
+`workflow_dispatch`) there is no PR: append the exact same markdown to
+`$GITHUB_STEP_SUMMARY` instead (see § "Manual full-sweep mode").
+
 ```markdown
 ## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
 
@@ -967,55 +1000,28 @@ harbor invocation, result format, failure modes, the DONE/BLOCKED marker
 
 ## Manual full-sweep mode
 
-The workflow also exposes a `workflow_dispatch` trigger that fires this
-agent against the **current head of whatever branch the operator dispatched
-from** (typically `develop`), with no diff and no PR. The wrapper sets
-`MANUAL_FULL_SWEEP=1`, blanks `PR_NUMBER`/`PR_BASE`, and passes a single
-skill filter:
+The `workflow_dispatch` trigger runs the **same matrix as a push** — the
+`plan` job enumerates the picked skill's specs (`MANUAL_SKILLS_FILTER`, a
+skill-dir name or `*` for every skill) instead of diffing, and the `eval`
+job fans them per `(spec, platform)`. So there is no separate sweep agent:
+each leg runs **Single-spec mode** exactly as on a push, with one
+difference — there is no PR (`PR_NUMBER` is empty). That means:
 
-  - `MANUAL_SKILLS_FILTER` — one skill name from the `type: choice`
-    dispatch dropdown, or `*` for every skill. There is intentionally no
-    spec-level filter — once a skill is picked, every spec under
-    `skills/<skill>/evals/*.json` runs.
-
-When you see `MANUAL_FULL_SWEEP=1` in the env (the user prompt also says so
-explicitly), apply these step overrides — everything else in this file
-applies unchanged:
-
-- **Step 1 (override):** skip the diff. Enumerate `skills/*/evals/*.json` on
-  the checked-out workspace, then drop any skill not matching the filter
-  (`*` keeps all). Skills with no `eval/` dir remain runtime libraries and
-  are skipped as in the normal path. Every spec on the kept skill(s) runs.
-
-- **Step 3 (override):** the adapter auto-commit flow in §§ 3c/3d is **off**
-  — there is no contributor branch to target. If an adapter is missing or stale for a
-  given spec, record that spec as `BLOCKED:<reason>` in the results table
-  and move on. Do NOT push branches, do NOT open PRs. (The hard rule
-  against `skills/` writes still applies in full.)
-
-- **Step 6 (override):** there is no PR to comment on. For each completed
-  `(skill, spec)` batch, append the same markdown you would have posted
-  via `gh pr comment` (per § Result comment format) to the file at
-  `$GITHUB_STEP_SUMMARY`:
-
-  ```bash
-  cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
-  ## Harbor Eval — `skills/<skill>/evals/<spec>.json`
-  ... table + failing checks + suggestions, exactly as in PR-comment mode ...
-  MD
-  ```
-
-  Append per-spec — don't buffer everything for the end. If
-  `$GITHUB_STEP_SUMMARY` is empty/unset (running locally for a smoke
-  test), print the same markdown to stdout and note the fallback. The
-  rendered Actions run summary is the operator's primary view; the Harbor
-  viewer URLs in each row are still per-trial trace links.
+- **Output → job summary, not a PR comment.** Append your result table
+  (the same § Result comment format markdown) to `$GITHUB_STEP_SUMMARY`
+  instead of `gh pr comment`. Each leg is its own job, so its summary is
+  that leg's view; the run page aggregates them and the per-leg artifact +
+  Harbor trace links carry the rest. (If `$GITHUB_STEP_SUMMARY` is unset —
+  a local smoke test — print the markdown to stdout and note the fallback.)
+- **No adapter auto-commit.** § 3c needs a contributor branch; a manual
+  sweep has none. A missing/stale adapter → record it in
+  `$GITHUB_STEP_SUMMARY` and `BLOCKED:` (never push; the hard rule against
+  `skills/` writes still applies in full).
 
 Everything else — startup hygiene, fleet selection (§ 5a), per-box flock
-(§ 5b), canonical harbor invocation (§ Harbor invocation), no
-trial-supervision polling, the artifact-tarball collection step in the
-workflow — is identical to the PR-driven path. The DONE/BLOCKED final
-marker (§ Output requirements) is also unchanged.
+(§ 5b), canonical harbor invocation, no trial-supervision polling, the
+artifact collection step, the DONE/BLOCKED final marker — is identical to
+the PR-driven path.
 
 ## Output requirements
 
@@ -1031,9 +1037,11 @@ marker (§ Output requirements) is also unchanged.
     - `DONE: 2/3 specs passed; 1 spec failed (vss-deploy-dense-captioning/step-2 reward=0.83)`
     - `BLOCKED: anthropic rate limit after 3 retries`
     - `BLOCKED: lock timeout on vss-eval-l40s`
-  If you ran trials, you MUST also have called `gh pr comment
-  $PR_NUMBER` with the per-batch results before printing
-  `DONE:` — otherwise the contributor sees no signal on their PR.
+  If you ran trials, you MUST also have posted the per-spec result before
+  printing `DONE:` — via `gh pr comment $PR_NUMBER` on a PR run, or, on a
+  manual sweep (`PR_NUMBER` empty), appended to `$GITHUB_STEP_SUMMARY`
+  (§ "Result comment format" / "Manual full-sweep mode") — otherwise the
+  result is invisible.
 - Don't tear down or `brev stop` / `brev delete` any instance. The
   `vss-eval-*` pool is operator-managed and stays warm across runs.
 

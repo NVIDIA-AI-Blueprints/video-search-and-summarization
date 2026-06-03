@@ -38,17 +38,17 @@ Usage Examples:
     # Basic usage (visualization on by default)
     python create_camera_clusters.py data/scene --max_camera_per_group 10
     
-    # Disable visualization
-    python create_camera_clusters.py data/scene --max_camera_per_group 10 --no-visualize
+    # Use pre-computed FOV polygons instead of frustum
+    python create_camera_clusters.py data/scene --max_camera_per_group 10 --prefer_existing_fov
     
     # Override auto-calculated n_clusters
     python create_camera_clusters.py data/scene --max_camera_per_group 10 --n_clusters 5
     
-    # Custom settings with visualization disabled
+    # Custom settings; skip the auto-tuning parameter sweep
     python create_camera_clusters.py data/scene \\
         --max_camera_per_group 8 \\
         --start_camera_index 5 \\
-        --no-visualize
+        --disable_param_tuning
 """
 
 import sys
@@ -72,14 +72,14 @@ Examples:
   # Basic usage (visualization on by default)
   python %(prog)s data/scene --max_camera_per_group 10
   
-  # Disable visualization
-  python %(prog)s data/scene --max_camera_per_group 10 --no_visualize
+  # Use pre-computed FOV polygons instead of frustum
+  python %(prog)s data/scene --max_camera_per_group 10 --prefer_existing_fov
   
   # Override auto-calculated n_clusters
   python %(prog)s data/scene --max_camera_per_group 10 --n_clusters 5
   
-  # Custom settings with visualization disabled
-  python %(prog)s data/scene --max_camera_per_group 8 --start_camera_index 5 --no_visualize
+  # Custom settings; skip the auto-tuning parameter sweep
+  python %(prog)s data/scene --max_camera_per_group 8 --start_camera_index 5 --disable_param_tuning
         """,
     )
 
@@ -202,7 +202,7 @@ Examples:
         "--height_range",
         type=float,
         nargs=2,
-        default=[1.0, 8.0],
+        default=[1.0, 3.0],
         metavar=("MIN", "MAX"),
         help="Height range (min, max) in meters for ground plane intersection (default: 1.0 3.0)",
     )

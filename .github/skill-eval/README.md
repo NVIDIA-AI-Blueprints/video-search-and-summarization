@@ -171,6 +171,12 @@ python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
 
 # 2. Make sure you have a Brev instance for the target platform
 #    (or let the skills-eval agent manage it).
+#
+# ⚠️ On a spec's first trial the env provider WIPES the box's docker runtime
+#    (all containers, user-defined networks, and volumes; images are kept).
+#    NEVER point a manual run at a box a CI run currently holds — it will
+#    `docker rm -f` that run's deployment mid-trial. Use a demonstrably idle
+#    box, or hold the per-box flock (see AGENTS.md § 5b).
 export BREV_INSTANCE=vss-eval-l40s
 
 # 3. Run one trial. The flags here mirror the canonical invocation in

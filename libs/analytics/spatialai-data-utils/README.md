@@ -14,7 +14,7 @@ retail, and hospital environments. It provides:
 - **Multi-camera 3D bounding-box visualization** on camera images and BEV.
 - **Evaluation** for detection (nuScenes-style mAP + TP errors) and
   tracking (HOTA, CLEAR, identity, count), including a reproduction of
-  the AICity'25 Track-1 protocol.
+  the AICity Challenge MTMC Track-1 protocol (2025 + 2026 editions).
 - **Result-format converters** (e.g. nuScenes-style results → NVSchema).
 - **Video ↔ frame** utilities for single-cam and full-scene multi-cam
   decoding/encoding.
@@ -114,10 +114,10 @@ via `visualization.render`.
 |---|---|
 | [`loaders/`](spatialai_data_utils/loaders) | NVSchema, ground-truth, calibration, Sparse4D pkl, and object-class loaders. |
 | [`core/`](spatialai_data_utils/core) | Pure-numpy primitives: 3D box ↔ corner conversions, projection, FOV / frustum helpers, camera utilities. |
-| [`datasets/`](spatialai_data_utils/datasets) | Scene/split metadata, frame-path resolvers, AICity'24 / AICity'25 dataset hooks, cloud-utils. |
+| [`datasets/`](spatialai_data_utils/datasets) | Scene/split metadata, frame-path resolvers, AICity'24 / '25 / '26 dataset hooks, cloud-utils. |
 | [`converters/`](spatialai_data_utils/converters) | Result-format converters (e.g. nuScenes-style results → NVSchema). |
 | [`visualization/`](spatialai_data_utils/visualization) | 3D-bbox rendering on camera images and BEV; camera-group / map visualizations; video ↔ frame helpers. |
-| [`eval/`](spatialai_data_utils/eval) | Detection (mAP + TP errors) and tracking (HOTA, CLEAR, identity, count) evaluators; AICity'25 Track-1 reproduction. |
+| [`eval/`](spatialai_data_utils/eval) | Detection (mAP + TP errors) and tracking (HOTA, CLEAR, identity, count) evaluators; AICity Challenge MTMC reproduction (2025 + 2026 editions). |
 | [`validation/`](spatialai_data_utils/validation) | Schema / dataset structural validators. |
 | [`utils/`](spatialai_data_utils/utils) | Cross-cutting helpers (dataset splits, etc.). |
 | [`schemas/`](spatialai_data_utils/schemas) | JSON schemas for input validation (e.g. `calibration.json`). |
@@ -134,7 +134,7 @@ README with full usage, arguments, and examples.
 | [`tools/visualization/`](tools/visualization/README.md) | 3D-bbox rendering (`draw_3dbbox.py`, `draw_3dbbox_batch.py`) and dual-view camera placement from calibration (`draw_camera_placement.py`: 3D frustums + BEV coverage). |
 | [`tools/projection/`](tools/projection/README.md) | Project NVSchema 3D bounding boxes to 2D image-space corners for a target camera (`project_bbox3d_to_2d.py`). Pure-numpy, no `mmdet3d` dependency. |
 | [`tools/video_utils/`](tools/video_utils/README.md) | Video ↔ per-frame-image conversion: single-video decode (`video2frame.py`) and encode (`frame2video.py`), plus multi-camera scene-wide parallel decode (`video2frame_scene.py`) and stacked-grid encode (`frame2video_scene.py`). |
-| [`tools/evaluation/`](tools/evaluation/README.md) | Standalone metric runners on already-produced results, e.g. `evaluate_aicity_mtmc.py` (reproduces the official AICity Challenge MTMC HOTA protocol; year-agnostic, ships the 2025-edition class table + scene mapping by default). |
+| [`tools/evaluation/`](tools/evaluation/README.md) | Standalone metric runners on already-produced results, e.g. `evaluate_aicity_mtmc.py` (reproduces the official AICity Challenge MTMC HOTA protocol; supports the 2025 + 2026 editions via `--edition`, default 2026). |
 | [`tools/validation_and_evaluation/`](tools/validation_and_evaluation/README.md) | End-to-end validation + Sparse4D BEV-detection evaluation on MTMC data pulled from S3 (`run_validation_and_evaluation.py`). |
 
 ## Library API
@@ -187,14 +187,14 @@ deps are not installed.
 ## Contributing
 
 Contributions are accepted under Apache-2.0 with a DCO sign-off. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for full details, including
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for full details, including
 file-level license-header conventions for new files and for changes to
 third-party-derived files.
 
 ## License
 
 `spatialai_data_utils` is released under the Apache License, Version 2.0
-(see the root [`LICENSE`](LICENSE) file). Third-party attributions and the
+(see the root [`LICENSE`](../../../LICENSE) file). Third-party attributions and the
 full upstream license texts for adapted/vendored code are collected in the
 root [`NOTICE`](NOTICE) file, and per-dependency licenses for everything
 installed at runtime (plus optional extras) are listed in
