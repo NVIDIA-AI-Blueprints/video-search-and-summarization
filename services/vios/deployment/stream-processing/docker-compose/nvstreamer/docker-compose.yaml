@@ -1,0 +1,138 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+x-nvstreamer-base: &nvstreamer-base  # Base configuration
+  image: ${NVSTREAMER_IMAGE}
+  user: "0:0"
+  network_mode: "host"
+  deploy:
+    restart_policy:
+      condition: always
+
+services:
+  nvstreamer-1:
+    <<: *nvstreamer-base
+    container_name: nvstreamer-1
+    profiles: ["nvstreamer-1"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT_1}
+      - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_1}
+    volumes:
+      - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_VIDEO_1}:/home/vst/vst_release/streamer_videos
+      - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-1:/home/vst/vst_release/vst_data
+      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+
+  nvstreamer-2:
+    <<: *nvstreamer-base
+    container_name: nvstreamer-2
+    profiles: ["nvstreamer-2"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT_2}
+      - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_2}
+    volumes:
+      - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_VIDEO_2}:/home/vst/vst_release/streamer_videos
+      - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-2:/home/vst/vst_release/vst_data
+      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+
+  nvstreamer-3:
+    <<: *nvstreamer-base
+    container_name: nvstreamer-3
+    profiles: ["nvstreamer-3"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT_3}
+      - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_3}
+    volumes:
+      - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_VIDEO_3}:/home/vst/vst_release/streamer_videos
+      - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-3:/home/vst/vst_release/vst_data
+      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+
+  nvstreamer-4:
+    <<: *nvstreamer-base
+    container_name: nvstreamer-4
+    profiles: ["nvstreamer-4"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT_4}
+      - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_4}
+    volumes:
+      - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_VIDEO_4}:/home/vst/vst_release/streamer_videos
+      - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-4:/home/vst/vst_release/vst_data
+      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+
+  nvstreamer-5:
+    <<: *nvstreamer-base
+    container_name: nvstreamer-5
+    profiles: ["nvstreamer-5"]
+    entrypoint:
+      - /bin/bash
+      - "-c"
+      - >-
+        if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
+        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/launch_vst
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT_5}
+      - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_5}
+    volumes:
+      - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_VIDEO_5}:/home/vst/vst_release/streamer_videos
+      - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-5:/home/vst/vst_release/vst_data
+      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh

@@ -1,0 +1,46 @@
+---
+description: Communication style, available subagents, and slash commands for VIOS
+alwaysApply: true
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Communication Style
+
+- Keep responses concise and direct. Lead with the answer; include reasoning only when necessary.
+- Convey key information only -- skip preamble, filler phrases, and summaries of what was just done.
+- Do not reproduce large code snippets when a file path and line reference suffices.
+- No emojis in responses, code, or comments.
+
+# Subagents
+
+| Agent | When to use |
+|---|---|
+| `gstreamer` | GStreamer pipeline design, element selection, caps negotiation, NvEnc/NvDec, NVIDIA plugin usage, pipeline debugging, WebRTC media paths |
+| `vios-sqa` | One-click build → deploy (nvstreamer + streamprocessor) → test → evaluate cycle. Use for any task involving testing, validation, or UI checks. |
+| `vios-deployment` | **Standalone** build/deploy/stop/status commands when NO testing follows. Use for building containers, deploying a specific target, stopping services, or checking stack status. Do NOT use before `vios-sqa` — it handles build and deployment automatically. |
+| `vios-api` | Interact with a running VIOS/VST backend via REST API (list sensors, timelines, clips, snapshots, add/delete sensors, upload files). Does NOT deploy — assumes the stack is already up. |
+
+# Commands
+
+| Command | When to use |
+|---|---|
+| `/security-review` | Before committing -- scans changes for Checkmarx/nspect issues |
+| `/new-adaptor` | Scaffold a new VMS adaptor following the project pattern |
+| `/build-help` | Get the exact `build.sh` command for any build scenario |
+| `/bdd-test` | Write feature files and pytest-bdd steps for a new feature |
+| `/ui-test` | Run playwright-based UI tests against a running VIOS instance |
+| `/vios-api` | Query the running VIOS REST API via curl (sensors, timelines, clips, snapshots, add/delete/upload) |

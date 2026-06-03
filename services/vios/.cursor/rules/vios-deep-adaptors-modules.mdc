@@ -1,0 +1,104 @@
+---
+description: "Deep reference: VIOS adaptor interfaces, implementations, module system, and dynamic loading"
+globs: "src/adaptors/**,src/modules/**,src/app/vstmodule.*"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Adaptor Interfaces
+
+## Control: ISensorControlInterface (include/sensor_control_adaptor.h)
+
+Pure virtual: `connect()`, `getSensorStreamInfo()` (vector and single), `isServerOnline()`
+Optional: `synchronizeSensorTime`, `getSensorStatus`, `rebootSensor`, `getSensor{Image,Encode}Settings`, `set*`, `getNetworkInfo`, `setPTZ/getPTZ`, `validateCredentials`, `addSensor`, `deleteSensor`, `getRecordingTimelines`
+Factory: `createObject()` / `destroyObject()` (C linkage)
+
+## Discovery: ISensorDiscoveryInterface (include/sensor_discovery_adaptor.h)
+
+Pure virtual: `start()`, `stop()`
+Optional: `searchSensor()`
+Listeners: `registerSensorDiscoveryListener`, `publishOnSensorFound/Changed/Removed`
+Factory: `createObject()` / `destroyObject()`
+
+## Media: IMediaInterface (include/vms_media_interface.h)
+
+Pure virtual: `connect()`, `isServerOnline()`, `getCapabilities()`, `fetchSnapshot()`, `fetchClip()`
+Factory: `createMediaObject()` / `destroyMediaObject()`
+
+# Adaptor Implementations
+
+| Adaptor | Path | Backend | Type |
+|---------|------|---------|------|
+| Milestone | `src/adaptors/milestone/` | Milestone XProtect (SOAP) | Control |
+| ONVIF | `src/adaptors/onvif/` | ONVIF cameras | Control |
+| ONVIF Discovery | `src/adaptors/sensors_discovery/onvif/` | WS-Discovery | Discovery |
+| Native Sensors | `src/adaptors/native_sensors/` | /dev/video* | Control |
+| Native Discovery | `src/adaptors/sensors_discovery/native_sensors/` | Local enum | Discovery |
+| RTSP Streams | `src/adaptors/rtsp_streams/` | RTSP URLs | Control |
+| Remote Device | `src/adaptors/remote_device/` | Remote VIOS (WebRTC) | Control |
+| Streamer | `src/adaptors/streamer/` | Local files / NV Streamer | Control+Discovery |
+| VMS Media | `src/adaptors/vms_media/` | Milestone gRPC/GraphQL | Media |
+
+# Dynamic Loading (adaptor_loader.cpp)
+
+- `loadLibrary(path)`: `realpath` + `dlopen(resolved_path, RTLD_NOW)`, arch placeholder replaced
+- `loadControlAdaptorLibrary`: `dlsym("createObject")` -> `ISensorControlInterface*`
+- `loadDiscoveryAdaptorLibrary`: `dlsym("createObject")` -> `ISensorDiscoveryInterface*`
+- `MediaAdaptorLoader::load()` (media_adaptor_loader.cpp): `dlsym("createMediaObject")` -> `IMediaInterface*`
+
+# Adaptor Selection (Runtime)
+
+Config-driven via `adaptor_config.json` + `getAdaptorInfo()` (utils.cpp:359):
+1. `ADAPTOR` env var set -> pick matching `name`
+2. Otherwise -> first entry with `enabled == true`
+3. Env overrides: `NEED_RECORDING`, `NEED_RTSPSERVER`, `NEED_STORAGE`, `NEED_STREAM_MONITORING`
+
+# Module System
+
+## ModuleId enum (device_manager.h:85-96)
+
+`ModuleAll=0, ModuleRtspServer, ModuleSensorManagement, ModuleStorageManagement, ModuleStreamRecorder, ModuleLiveStream, ModuleReplayStream, ModuleStreamBridge, ModuleStreamProcessing`
+
+## Module Libraries (vstmodule.cpp)
+
+| Module | Library | Create Symbol |
+|--------|---------|---------------|
+| RTSP Server | `libnvrtspserver.so` | `createRtspServerManagerObject` |
+| Stream Recorder | `libnvstreamrecorder.so` | `createStreamRecorderObject` |
+| Storage Mgmt | `libnvstoragemanagement.so` | `createStorageManagementObject` |
+| Sensor Mgmt | `libnvsensormanagement.so` | `createSensorManagementObject` |
+| PeerConn Live | `libnvpeerconnection_live.so` | `createPeerConnectionLiveManagerObject` |
+| PeerConn Replay | `libnvpeerconnection_replay.so` | `createPeerConnectionReplayManagerObject` |
+| Stream Bridge | `libnvstreambridge.so` | `createStreamBridgeObject` |
+| Stream SDK | `libnvstreamsdk.so` | `createStreamSdkManagerObject` |
+
+## CPPFLAGS Defines (Makefile:322-430)
+
+| Define | Modules |
+|--------|---------|
+| `SENSOR_MODULE` | sensor, monolith, streambridge, streamprocessing |
+| `RTSP_SERVER_MODULE` | rtspserver, streambridge, streamprocessing |
+| `RECORDER_MODULE` | recorder, streambridge, streamprocessing |
+| `STORAGE_MODULE` | storage, streambridge, streamprocessing |
+| `LIVE_STREAM_MODULE` | livestream, streambridge, streamprocessing |
+| `REPLAY_STREAM_MODULE` | replaystream, streambridge, streamprocessing |
+| `STREAMBRIDGE_MODULE` | streambridge |
+| `MONOLITH_MODULE` | monolith (no module= flag) |
+
+## Registration Pattern
+
+Each module implements `IVstModule::getHttpApi()` returning `map<string, httpFunction>`. Registered in `VmsServer::initialize()` via `m_webServer->registerRESTAPIs(module->getHttpApi())`.

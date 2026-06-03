@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Generated files
+*.min.js
+*.min.css
+
+# Lock files
+package-lock.json
+yarn.lock
+
+# Electron
+electron-main.js
+
+# Logs
+*.log
+
+# Other
+.DS_Store
+*.md 

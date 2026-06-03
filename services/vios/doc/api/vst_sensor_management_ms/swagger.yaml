@@ -1,0 +1,2139 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+openapi: 3.0.3
+info:
+  title: Sensor Management Service
+  description: |
+    The Sensor Management Service is a comprehensive system designed to facilitate the administration and control of
+      sensor-related functionalities. It streamlines sensor operations, enhances monitoring capabilities, and provides efficient management of sensors acorss the network. This service encompasses:
+
+    - Configuration Management: Retrieval and modification of sensor image and encoding settings
+    - Sensor Integration: Addition and removal of sensors using RTSP URLs or IP addresses
+    - Status Monitoring: Real-time status updates on sensors to identify and report issues
+    - Authentication: Verification of sensor credentials for secure access and operation
+    - Performance Analytics: Quality of Service (QoS) statistics for each sensor
+    - Network Information: Retrieval and management of network-related data for individual sensors
+    - Remote Management: Capability to reboot sensors remotely
+    - Inventory Management: Comprehensive list of all connected sensors and their associated streams
+    - Stream Management: Configuration of primary and multiple secondary streams for each sensor
+
+    NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is JSON-encoded as documented under `application/json` content blocks below.
+    Clients must parse the body as JSON and ignore the wire Content-Type header. Binary endpoints (image/jpeg snapshots, application/octet-stream clip downloads) set their own proper Content-Type
+    and are unaffected.
+
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://localhost/api
+tags:
+  - name: nSpectId
+    description: NSPECT-1H82-JYCQ
+    externalDocs:
+      url: https://nspect.nvidia.com/review?id=NSPECT-1H82-JYCQ
+  - name: v1
+    description: VST Sensor Management API Schema v1
+paths:
+  /v1/sensor/list:
+    get:
+      tags:
+        - v1
+      summary: Get list of sensors
+      description: Get list of all sensors and their basic information like sensor IP, sensor ID, hardware IP, position, tags etc.
+      operationId: getSensorList
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorInfoArray'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/scan:
+    post:
+      tags:
+        - v1
+      summary: Scan sensors on the network
+      description: Scan sensors on the network. Use this API to manually trigger sensor discovery on the network.
+      operationId: postSensorScan
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/{sensorId}/streams:
+    get:
+      tags:
+        - v1
+      summary: Get streams of a sensor
+      description:
+        Get list of live RTSP urls, replay RTSP urls, main stream, sub streams and other stream related information like stream metadata for a particular sensor
+      operationId: getSensorStreams
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  $ref: '#/components/schemas/StreamInfo'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/streams:
+    get:
+      tags:
+        - v1
+      summary: Get streams of all sensors
+      description:
+        Get list of live RTSP urls, replay RTSP urls, main stream, sub streams and other stream related information like stream metadata for all sensor
+      operationId: getSensorStreamsAll
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                description: >-
+                  The actual number of streams depends on hardware capabilities. For VIOS/VST it is bounded by the max_sensors_supported config value. For NVStreamer there is no enforced limit.
+                maxItems: 10000
+                items:
+                  $ref: '#/components/schemas/StreamInfoWrapper'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/add:
+    post:
+      tags:
+        - v1
+      summary: Add sensor manually
+      description:
+        Add sensor manually using either the IP address, username, password of sensor or using a RTSP URL of the sensor.
+      operationId: postSensorNew
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: |
+          url field can be omitted in case of add sensor using IP address
+          and ip, username and password fields can be omitted in case of add sensor
+          using RTSP url.
+
+          When `sensorUrl` (RTSP) is used, the optional boolean field
+          `verifyRtsp` (default `false`) controls whether the server performs
+          an RTSP DESCRIBE pre-flight against the supplied URL before
+          persisting the sensor. When `true`, an unreachable endpoint or a
+          DESCRIBE failure causes the request to be rejected with
+          `InvalidParameterError` and the sensor is not added. When `false`
+          or omitted, legacy behaviour is preserved (the sensor is accepted
+          regardless of reachability) so existing clients are not broken.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SensorAddInfo'
+        required: true
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sensorId:
+                    type: string
+                    pattern: "^[a-zA-Z0-9_-]+$"
+                    maxLength: 100
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/status:
+    get:
+      tags:
+        - v1
+      summary: Get status of all sensors
+      description: Get status of all the sensors to check for any error or to check whether the sensors are offline or online.
+      operationId: getSensorStatus
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorStatusWrapper'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/{sensorId}/status:
+    get:
+      tags:
+        - v1
+      summary: Get status of a sensor
+      description: Get status of a particular sensor to check for any error or to check whether the sensor is offline or online.
+      operationId: getSensorStatusWithId
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorStatus'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/{sensorId}/replace:
+    post:
+      tags:
+        - v1
+      summary: Replace inactive sensor with a active sensor
+      description: Replace the inactive sensor with another active sensor. Use this to associate data related to an inactive sensor with another active sensor.
+      operationId: postSensorReplace
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        description: |
+          Either `sensorId` (preferred) or legacy `deviceid` is required.
+          The server also accepts `deviceid` as a fallback when `sensorId` is absent.
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sensorId
+              properties:
+                sensorId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+                  description: Active sensorId that should replace the inactive one (path param).
+                deviceid:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+                  description: Legacy alias for sensorId. Consulted only if sensorId is absent.
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/{sensorId}:
+    delete:
+      tags:
+        - v1
+      summary: Remove a sensor from VST
+      description: Remove sensor from VST. Calling this API will delete the sensor from the VST. Note that tht video recordings of the sensor are not deleted
+      operationId: deleteSensorWithId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/{sensorId}/info:
+    get:
+      tags:
+        - v1
+      summary: Get information of a sensor
+      description: Get basic information for particular sensor like sensor IP, location, name, hardware ID, position etc.
+      operationId: getSensorInfo
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorInfo'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - v1
+      summary: Set information of a sensor
+      description: Set basic information for particular sensor. Only name and position values can be changed for a sensor
+      operationId: postSensorInfo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostSensorInfo'
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/{sensorId}/settings:
+    get:
+      tags:
+        - v1
+      summary: Get sensor settings
+      description:
+        Get image and encode related sensor settings of a particular sensor
+      operationId: getSensorSettings
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: |
+            Map keyed by streamId -> per-stream encode and image settings.
+            Returns `null` for non-ONVIF sensors (file/RTSP-URL sources).
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                additionalProperties:
+                  type: object
+                  properties:
+                    Encode:
+                      $ref: '#/components/schemas/SensorEncodeSettings'
+                    Image:
+                      $ref: '#/components/schemas/SensorImageSettings'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - v1
+      summary: Set sensor settings
+      description: Set image and encode related sensor settings of a particular sensor
+      operationId: postSensorSettings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Encode:
+                  $ref: '#/components/schemas/SetEncodeSettings'
+                Image:
+                  $ref: '#/components/schemas/SetImageSettings'
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/{sensorId}/credentials:
+    post:
+      tags:
+        - v1
+      summary: Set credentials of a sensor
+      description: Authorize the sensor using username and password. Sensors must be authorized before performing any operations on them.
+      operationId: postSensorCredentials
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        description: json object
+        content:
+          application/json:
+            schema:
+              required:
+                - password
+                - username
+              type: object
+              properties:
+                password:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                username:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/debug/unplug:
+    post:
+      tags:
+        - v1
+      summary: Simulate sensor unplug
+      description: This is a debug only API to simulate sensor unplug virtually.
+      operationId: postDebugUnplug
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DebugPlugUnplug'
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/debug/plug:
+    post:
+      tags:
+        - v1
+      summary: Simulate sensor plug
+      description: This is a debug only API to simulate sensor plug virtually.
+      operationId: postDebugPlug
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DebugPlugUnplug'
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/configuration:
+    get:
+      tags:
+        - v1
+      summary: Get configuration of sensor management service
+      description: Get sensor management service configuration. This includes the information about config like sensor discovery interfaces, http port, ONVIF request timeout etc.
+      operationId: getSensorConfiguration
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetConfiguration'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - v1
+      summary: Set configuration for sensor management service
+      description: Set sensor management service configuration. Only device discovery interface and NTP servers can be set.
+      operationId: postSensorConfiguration
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetConfiguration'
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/debug/status:
+    get:
+      tags:
+        - v1
+      summary: Get sensor plug-unplug status
+      description: Check if sensor is plugged or unplugged. This should only be used for debug purpose along with plug and unplug APIs.
+      operationId: getDebugStatus
+      parameters:
+        - name: ip
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - plug
+                      - unplug
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/qos:
+    get:
+      tags:
+        - v1
+      summary: Get QoS stats for all sensors. (Deprecated)
+      description: >
+        Deprecated. Use /api/v1/proxy/debug/qos on the stream-processor instead.
+        The sensor-ms has no RTSP server and never collects QoS data, so this endpoint
+        always returns null stats.
+      deprecated: true
+      operationId: getSensorQos
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stats:
+                    type: array
+                    maxItems: 100
+                    nullable: true
+                    items:
+                      $ref: '#/components/schemas/QosStats'
+                  numActiveRtspConnections:
+                    type: string
+                    maxLength: 32
+                    pattern: "^[0-9]+$"
+                    description: 'Number of active RTSP client sessions, reported as a decimal string.'
+                    example: "0"
+                  rtspServerTxBitrate:
+                    type: string
+                    maxLength: 32
+                    pattern: ".*"
+                    description: 'Aggregate RTSP server transmit bitrate, reported as a decimal string.'
+                    example: "0"
+
+  /v1/sensor/debug/system/stats:
+    get:
+      tags:
+        - v1
+      summary: Get system stats
+      description: Get system stats like CPU usage, GPU usage, encoder-decoder usage, memory usage and tegrastats if system is aarch64.
+      operationId: getSystemStats
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStats'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/version:
+    get:
+      tags:
+        - v1
+      summary: Get sensor management service version
+      description: Get sensor management service version.
+      operationId: getVersion
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                    example: "vst"
+                  version:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                    example: "2.1.0-26.02.1.2"
+                required:
+                  - type
+                  - version
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/sensor/help:
+    get:
+      tags:
+        - v1
+      summary: Get list of supported APIs
+      description: Get list of supported APIs by sensor management service. Returns a flat array of endpoint path strings.
+      operationId: gethelp
+      responses:
+        '200':
+          description: Successs
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  type: string
+                  maxLength: 256
+                  pattern: ".*"
+                  example: "/api/v1/sensor/list"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/sensor/{sensorId}/network:
+    parameters:
+      - name: sensorId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+    get:
+      tags:
+        - v1
+      summary: Get network information of a sensor
+      description: Get network related information of a particular sensor like dhcpv4, dhcpv6, subnet mask etc.
+      operationId: getSensorNetwork
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dhcpV4:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                  dhcpV6:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                  ipAddressV4:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                  ipAddressV6:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                  isIpv4Enabled:
+                    type: boolean
+                  isIpv6Enabled:
+                    type: boolean
+                  subnetMaskV4:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                  subnetMaskV6:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - v1
+      summary: Set network information of a sensor
+      description: Set network related information of a particular sensor like dhcpv4, dhcpv6, subnet mask etc.
+      operationId: updateSensorNetwork
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dhcpV4:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                dhcpV6:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                ipAddressV4:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                ipAddressV6:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                isIpv4Enabled:
+                  type: boolean
+                isIpv6Enabled:
+                  type: boolean
+                subnetMaskV4:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                subnetMaskV6:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+              example:
+                dhcpV4: "false"
+                dhcpV6: "Off"
+                ipAddressV4: "10.24.219.177"
+                ipAddressV6: ""
+                isIpv4Enabled: false
+                isIpv6Enabled: false
+                subnetMaskV4: "255.255.252.0"
+                subnetMaskV6: ""
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rebootNeeded:
+                    type: boolean
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/sensor/{sensorId}/reboot:
+    parameters:
+      - name: sensorId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+    post:
+      tags:
+        - v1
+      summary: Reboot a sensor remotely
+      description: Reboot a sensor remotely. Calling this API will perform a reboot operation on the sensor. Note that sensor will not be avaiable for some time as it reboots.
+      operationId: postSensorReboot
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/sensor/timelines:
+    get:
+      tags:
+        - v1
+      summary: Get recording timelines for all sensors
+      description: >-
+        Get recording timelines for all sensors. For MMS adaptor, timelines are retrieved from ONVIF APIs. For VST and STREAMER adaptors, timelines are retrieved from the database. Returns an object
+        with sensor IDs as keys and arrays of timeline entries as values.
+      operationId: getAllSensorTimelines
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllSensorTimelinesResponse'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sensor/{sensorId}/timelines:
+    get:
+      tags:
+        - v1
+      summary: Get recording timelines for a specific sensor
+      description: >-
+        Get recording timelines for a particular sensor. For MMS adaptors, returns all timelines from ONVIF. For VST/STREAMER adaptors, returns timelines from database and supports optional time
+        range filtering.
+      operationId: getSensorTimelines
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: startTime
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Start time for timeline query (ISO 8601 format). Only used for VST/STREAMER adaptors.
+        - name: endTime
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: End time for timeline query (ISO 8601 format). Only used for VST/STREAMER adaptors.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorTimelinesResponse'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    Options:
+      type: array
+      items:
+        type: object
+        properties:
+          H264:
+            $ref: '#/components/schemas/H264'
+          H265:
+            $ref: '#/components/schemas/H265'
+    H264:
+      type: object
+      properties:
+        Bitrate:
+          $ref: '#/components/schemas/RangeSetting'
+        FrameRate:
+          $ref: '#/components/schemas/RangeSetting'
+        GovLength:
+          $ref: '#/components/schemas/RangeSetting'
+        Profiles:
+          $ref: '#/components/schemas/EnumSetting'
+        Quality:
+          $ref: '#/components/schemas/RangeSetting'
+        Resolution:
+          $ref: '#/components/schemas/ResolutionSetting'
+    H265:
+      type: object
+      properties:
+        Bitrate:
+          $ref: '#/components/schemas/RangeSetting'
+        FrameRate:
+          $ref: '#/components/schemas/RangeSetting'
+        GovLength:
+          $ref: '#/components/schemas/RangeSetting'
+        Profiles:
+          $ref: '#/components/schemas/EnumSetting'
+        Quality:
+          $ref: '#/components/schemas/RangeSetting'
+        Resolution:
+          $ref: '#/components/schemas/ResolutionSetting'
+    RangeSetting:
+      required:
+        - Max
+        - Min
+        - Value
+      type: object
+      properties:
+        Max:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Min:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Value:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+    EnumSetting:
+      required:
+        - AllowedValues
+        - Value
+      type: object
+      properties:
+        AllowedValues:
+          type: array
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+        Value:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+    ResolutionSetting:
+      required:
+        - AllowedValues
+        - Value
+      type: object
+      properties:
+        AllowedValues:
+          type: array
+          items:
+            required:
+              - Height
+              - Width
+            type: object
+            properties:
+              Height:
+                type: string
+                pattern: ".*"
+                maxLength: 128
+              Width:
+                type: string
+                pattern: ".*"
+                maxLength: 128
+        Value:
+          required:
+            - Height
+            - Width
+          type: object
+          properties:
+            Height:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            Width:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+    Position:
+      type: object
+      properties:
+        depth:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        direction:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        fieldOfView:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        coordinates:
+          $ref: '#/components/schemas/Coordinates'
+        geoLocation:
+          $ref: '#/components/schemas/GeoLocation'
+        origin:
+          $ref: '#/components/schemas/Origin'
+    Coordinates:
+      type: object
+      properties:
+        x:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        y:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+    GeoLocation:
+      type: object
+      properties:
+        latitude:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        longitude:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+    Origin:
+      type: object
+      properties:
+        latitude:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        longitude:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+    SensorEncodeSettings:
+      type: object
+      properties:
+        Encoding:
+          $ref: '#/components/schemas/EnumSetting'
+        Options:
+          $ref: '#/components/schemas/Options'
+    SensorImageSettings:
+      type: object
+      properties:
+        BacklightCompensationLevel:
+          $ref: '#/components/schemas/RangeSetting'
+        BacklightCompensationMode:
+          $ref: '#/components/schemas/EnumSetting'
+        Brightness:
+          $ref: '#/components/schemas/RangeSetting'
+        ColorSaturation:
+          $ref: '#/components/schemas/RangeSetting'
+        Contrast:
+          $ref: '#/components/schemas/RangeSetting'
+        ExposureGain:
+          $ref: '#/components/schemas/RangeSetting'
+        ExposureMaxGain:
+          $ref: '#/components/schemas/RangeSetting'
+        ExposureMode:
+          $ref: '#/components/schemas/EnumSetting'
+        ExposurePriority:
+          $ref: '#/components/schemas/EnumSetting'
+        ExposureTime:
+          $ref: '#/components/schemas/RangeSetting'
+        ExposureWindow:
+          $ref: '#/components/schemas/EnumSetting'
+        IrCutFilterMode:
+          $ref: '#/components/schemas/EnumSetting'
+        MaxExposureTime:
+          $ref: '#/components/schemas/RangeSetting'
+        MinExposureTime:
+          $ref: '#/components/schemas/RangeSetting'
+        Sharpness:
+          $ref: '#/components/schemas/RangeSetting'
+        WhiteBalanceMode:
+          $ref: '#/components/schemas/EnumSetting'
+        WhiteBalanceYbGain:
+          $ref: '#/components/schemas/RangeSetting'
+        WhiteBalanceYrGain:
+          $ref: '#/components/schemas/RangeSetting'
+        WideDynamicRangeLevel:
+          $ref: '#/components/schemas/RangeSetting'
+        WideDynamicRangeMode:
+          $ref: '#/components/schemas/EnumSetting'
+    SetEncodeSettings:
+      type: object
+      properties:
+        Bitrate:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Encoding:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        EncodingInterval:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        FrameRate:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        GovLength:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Profiles:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Quality:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Resolution:
+          type: object
+          properties:
+            Height:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            Width:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+    SetImageSettings:
+      type: object
+      properties:
+        BacklightCompensationLevel:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        BacklightCompensationMode:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Brightness:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        ColorSaturation:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Contrast:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        ExposureGain:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        ExposureMaxGain:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        ExposureMode:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        ExposurePriority:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        ExposureTime:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        ExposureWindow:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        IrCutFilterMode:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        MaxExposureTime:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        MinExposureTime:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        Sharpness:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        WhiteBalanceMode:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        WhiteBalanceYbGain:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        WhiteBalanceYrGain:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        WideDynamicRangeLevel:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        WideDynamicRangeMode:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+
+    SensorInfo:
+      type: object
+      properties:
+        firmwareVersion:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        hardware:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        hardwareId:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        sensorId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        sensorIp:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        location:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        manufacturer:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        name:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        position:
+          $ref: '#/components/schemas/Position'
+        serialNumber:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        state:
+          type: string
+          description: 'State is only populated by GET /sensor/list. It is not returned by GET /sensor/{sensorId}/info.'
+          enum:
+            - 'online'
+            - 'offline'
+            - 'removed'
+        tags:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        type:
+          type: string
+          description: 'Sensor type. Only populated by GET /sensor/list, not by GET /sensor/{sensorId}/info.'
+          enum:
+            - sensor_rtsp
+            - sensor_onvif
+            - sensor_streamer
+            - sensor_mms
+        isTimelinePresent:
+          type: boolean
+          description: 'Whether the sensor has any recorded timelines in storage. Only populated by GET /sensor/list.'
+          example: true
+        isRemoteSensor:
+          type: boolean
+          description: 'True if this sensor is proxied from a remote VST instance.'
+          example: false
+        remoteDeviceId:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          description: 'Remote device identifier when isRemoteSensor is true. Empty string otherwise.'
+        remoteDeviceLocation:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          description: 'Remote device location when isRemoteSensor is true. Empty string otherwise.'
+        remoteDeviceName:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          description: 'Remote device name when isRemoteSensor is true. Empty string otherwise.'
+
+    PostSensorInfo:
+      type: object
+      properties:
+        firmwareVersion:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        hardware:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        hardwareId:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        sensorId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        sensorIp:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        location:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        manufacturer:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        name:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        position:
+          $ref: '#/components/schemas/Position'
+        serialNumber:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        tags:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+
+    SensorInfoArray:
+      type: array
+      description: Depends on hardware capabilities. Bounded by max_sensors_supported config for VIOS/VST; no enforced limit for NVStreamer.
+      maxItems: 10000
+      items:
+        $ref: '#/components/schemas/SensorInfo'
+
+    StreamInfoWrapper:
+      type: object
+      description: |
+        Single-entry map of `sensorId` -> array of streams. Each element in the outer array (used by
+        GET /v1/sensor/streams) contains exactly one sensorId key whose value is the list of streams
+        for that sensor. Use `jq 'add'` to flatten the outer array into a single map keyed by sensorId.
+      additionalProperties:
+        type: array
+        description: Streams for one sensor. Number depends on hardware capability.
+        maxItems: 10000
+        items:
+          $ref: '#/components/schemas/StreamInfo'
+
+    StreamInfo:
+      type: object
+      properties:
+        streamId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        isMain:
+          type: boolean
+          example: true
+        type:
+          type: string
+          maxLength: 128
+          description: 'Stream type'
+          example: 'Rtsp'
+          enum:
+            - Http
+            - Hls
+            - Rtsp
+            - FileDownload
+            - Udp
+            - Webrtc
+            - Native
+            - NotSupported
+        storageLocation:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          description: 'Storage location type for the stream'
+          example: 'Local'
+          enum:
+            - Local
+            - Cloud
+            - Unknown
+        vodUrl:
+          type: string
+          maxLength: 128
+          format: uri
+          example: 'rtsp://10.41.18.147:8554/vod/7927cbbc-cba6-4f22-b65d-46f7382f5f65'
+          description: 'vodUrl can be played using start and end time by providing UTC time in params startTs and endTs'
+        url:
+          type: string
+          maxLength: 128
+          format: uri
+          example: 'rtsp://10.41.18.147:8554/live/7927cbbc-cba6-4f22-b65d-46f7382f5f65'
+        name:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: 'HIKVISION%20DS-2CD2T43G0-I5'
+        metadata:
+          type: object
+          properties:
+            bitrate:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '8000'
+            codec:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: 'H264'
+            framerate:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '30'
+            govlength:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '60'
+            resolution:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+              example: '1920x1080'
+
+    SensorAddInfo:
+      oneOf:
+        - type: object
+          required:
+            - sensorIp
+            - password
+            - username
+          properties:
+            sensorIp:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            name:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            location:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            hardware:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            username:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            password:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            manufacturer:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            serialNumber:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            firmwareVersion:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            hardwareId:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            tags:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+        - type: object
+          required:
+            - sensorUrl
+            - password
+            - username
+          properties:
+            sensorUrl:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            name:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            location:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            hardware:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            username:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            password:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            manufacturer:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            serialNumber:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            firmwareVersion:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            hardwareId:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            tags:
+              type: string
+              pattern: ".*"
+              maxLength: 128
+            verifyRtsp:
+              type: boolean
+              default: false
+              description: |
+                When `true`, the server runs an RTSP DESCRIBE pre-flight
+                against `sensorUrl` (using `username`/`password` if supplied)
+                before persisting the sensor. Unreachable endpoints or
+                DESCRIBE failures (e.g. 401 Unauthorized, 404 Not Found,
+                connection refused, 2-second timeout) are rejected with
+                `InvalidParameterError` and the sensor is not added. When
+                `false` or omitted, the sensor is accepted without
+                connectivity validation (legacy behaviour).
+              example: false
+
+    SensorStatusWrapper:
+      type: object
+      description: 'Map of sensorId -> SensorStatus.'
+      additionalProperties:
+        $ref: '#/components/schemas/SensorStatus'
+
+    SensorStatus:
+      description: |
+        Status of a single sensor. `name` is absent when the sensor is not found
+        (errorCode == CameraNotFoundError); for known sensors all four fields are present.
+      required:
+        - errorCode
+        - errorMessage
+        - state
+      type: object
+      properties:
+        errorCode:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: NoError
+        errorMessage:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: No Error
+        state:
+          type: string
+          enum:
+            - online
+            - offline
+        name:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+
+    DebugPlugUnplug:
+      required:
+        - action
+        - ip
+      type: object
+      properties:
+        ip:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: 10.24.213.119
+        action:
+          type: string
+          enum:
+            - plug
+            - unplug
+
+    GetConfiguration:
+      type: object
+      properties:
+        deviceDiscoveryFrequencySeconds:
+          type: integer
+          maximum: 100
+          minimum: 0
+        deviceDiscoveryInterfaces:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            example: eth0
+        deviceDiscoveryTimeoutSeconds:
+          type: integer
+          maximum: 100
+          minimum: 0
+        httpPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        useMessageBroker:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          description: 'Name of the active message broker backend ("redis", "kafka", or empty when disabled).'
+          example: "redis"
+        kafkaServerAddress:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        redisServerEnvironmentVariable:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        messageBrokerTopic:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        maxSensorsSupported:
+          type: integer
+          maximum: 100
+          minimum: 0
+        ntpServers:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+        onvifRequestTimeoutSeconds:
+          type: integer
+          maximum: 100
+          minimum: 0
+        enablePrometheus:
+          type: boolean
+        enableNotification:
+          type: boolean
+        prometheusPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        enableDebugApis:
+          type: boolean
+        supportedAudioCodecs:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        supportedVideoCodecs:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        useHttpDigestAuthentication:
+          type: boolean
+        useHttps:
+          type: boolean
+        vstDataPath:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        webserviceAccessControlList:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        enableUserCleanup:
+          type: boolean
+        multiUserExtraOptions:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        useMultiUser:
+          type: boolean
+        vstIp:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        mqttBrokerAddress:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: 'tcp://172.17.0.1:1883'
+        messageBrokerMetadataTopic:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: 'test'
+        message_broker_payload_key:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: 'sensor.id'
+        use_sensor_ntp_time:
+          type: boolean
+        remoteVstAddress:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        deviceName:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: 'VST'
+        deviceLocation:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        defaultProfile:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: 'Main'
+        defaultQuality:
+          type: number
+          example: 3.0
+        defaultEncodingInterval:
+          type: integer
+          minimum: 0
+          example: 1
+        defaultGovLength:
+          type: integer
+          minimum: 0
+          example: 60
+        defaultResolution:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+          example: '1920x1080'
+        defaultFramerate:
+          type: number
+          example: 30.0
+        defaultBitrateKbps:
+          type: integer
+          minimum: 0
+          example: 8000
+        nvOrgId:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        nvNgcKey:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+      required:
+        - deviceDiscoveryFrequencySeconds
+        - deviceDiscoveryInterfaces
+        - deviceDiscoveryTimeoutSeconds
+        - httpPort
+        - kafkaServerAddress
+        - redisServerEnvironmentVariable
+        - messageBrokerTopic
+        - maxSensorsSupported
+        - onvifRequestTimeoutSeconds
+        - enablePrometheus
+        - enableNotification
+        - prometheusPort
+        - enableDebugApis
+        - supportedAudioCodecs
+        - supportedVideoCodecs
+        - useHttpDigestAuthentication
+        - useHttps
+        - vstDataPath
+        - webserviceAccessControlList
+        - enableUserCleanup
+        - multiUserExtraOptions
+        - useMultiUser
+        - vstIp
+        - useMessageBroker
+
+    SetConfiguration:
+      type: object
+      properties:
+        deviceDiscoveryInterfaces:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+            example: eth0
+        ntpServers:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+
+    SystemStats:
+      required:
+        - cpu_usage
+        - dec_usage
+        - enc_usage
+        - gpu_usage
+        - open_files_count
+        - rss_MB
+        - system_memory_usage_MB
+        - total_gpu_mem_MB
+        - total_gpu_mem_usage_MB
+      type: object
+      properties:
+        cpu_usage:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 7
+        dec_usage:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 13
+        enc_usage:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 19
+        gpu_usage:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 1
+        gpu_index:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: "0"
+        gpu_name:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: "NVIDIA GeForce RTX 3070 Ti"
+        open_files_count:
+          type: integer
+          minimum: 0
+          example: 155
+        rss_MB:
+          type: integer
+          minimum: 0
+          example: 100
+          description: 'Resident set size of the vst-sensor process, in megabytes.'
+        system_memory_usage_MB:
+          type: integer
+          minimum: 0
+          example: 433
+          description: 'Total system memory usage, in megabytes.'
+        total_gpu_mem_MB:
+          type: integer
+          minimum: 0
+          example: 24576
+          description: 'Total GPU memory of the selected device, in megabytes.'
+        total_gpu_mem_usage_MB:
+          type: integer
+          minimum: 0
+          example: 501
+          description: 'Total GPU memory currently used across all processes, in megabytes.'
+        vst_gpu_mem_usage_MB:
+          type: integer
+          minimum: 0
+          example: 164
+          description: 'GPU memory used by the VST process itself, in megabytes.'
+        tegraStats:
+          type: object
+          properties:
+            total:
+              type: object
+              properties:
+                cpu:
+                  type: string
+                  maxLength: 128
+                  pattern: ".*"
+                  example: 32%@878,20%@1036,11%@1036,12%@1113,4%@1190,6%@1190,9%@1445,12%@1497
+                emcFrequencyMegahertz:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                  example: 1%@408
+                gr3dFrequencyMegahertz:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                  example: 0%@114
+                memoryInMegabytes:
+                  type: string
+                  pattern: ".*"
+                  maxLength: 128
+                  example: 982/15825
+
+    QosStats:
+      type: object
+      properties:
+        avgFps:
+          type: number
+        avgFramecount:
+          type: number
+        bitrateKbpsAvg:
+          type: number
+        bitrateKbpsMax:
+          type: number
+        bitrateKbpsMin:
+          type: number
+        elapsedMeasurementTime:
+          type: number
+        errors:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        interPacketGapMsAvg:
+          type: number
+        interPacketGapMsMax:
+          type: number
+        interPacketGapMsMin:
+          type: number
+        name:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        packetLossPercentageAvg:
+          type: number
+        packetLossPercentageMax:
+          type: number
+        packetLossPercentageMin:
+          type: number
+        rtspUrl:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        timestamp:
+          type: string
+          maxLength: 128
+          format: date-time
+        totalPacketsLost:
+          type: integer
+          maximum: 100
+          minimum: 0
+        totalPacketsReceived:
+          type: integer
+          maximum: 100
+          minimum: 0
+
+    TimelineEntry:
+      type: object
+      properties:
+        startTime:
+          type: string
+          format: date-time
+          description: Start time of the recording timeline (ISO 8601 format)
+          example: '2024-01-15T10:30:00Z'
+        endTime:
+          type: string
+          format: date-time
+          description: End time of the recording timeline (ISO 8601 format)
+          example: '2024-01-15T11:30:00Z'
+
+    SensorTimelinesResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/TimelineEntry'
+      description: Array of timeline entries for a specific sensor
+
+    AllSensorTimelinesResponse:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          $ref: '#/components/schemas/TimelineEntry'
+      description: Object mapping sensor IDs to their respective timeline arrays
+      example:
+        sensor_id_1:
+          - startTime: '2024-01-15T10:30:00Z'
+            endTime: '2024-01-15T11:30:00Z'
+          - startTime: '2024-01-15T12:00:00Z'
+            endTime: '2024-01-15T13:00:00Z'
+        sensor_id_2:
+          - startTime: '2024-01-15T09:00:00Z'
+            endTime: '2024-01-15T10:00:00Z'
+
+    Error:
+      required:
+        - error_code
+        - error_message
+      type: object
+      properties:
+        error_code:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+          example: VMSInternalError
+        error_message:
+          type: string
+          maxLength: 512
+          pattern: ".*"
+          example: VMS internal processing error
