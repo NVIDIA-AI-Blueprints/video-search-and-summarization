@@ -240,7 +240,15 @@ NGC_CLI_ORG="$ORG" ngc registry resource download-version "${ORG}/vss-warehouse/
 # The tarball extracts into a nested vss-warehouse-app-data/ directory — flatten it.
 cd "vss-warehouse-app-data_v${TAG#v}" || cd "vss-warehouse-app-data_${TAG}"
 tar -xvf vss-warehouse-app-data.tar.gz
-sudo chmod -R a+rX /path/to/vss-warehouse-app-data
+
+# Open read perms for container users. Auto-proceed when sudo is passwordless;
+# otherwise surface the command for the user to run.
+if sudo -n true 2>/dev/null; then
+  sudo chmod -R a+rX /path/to/vss-warehouse-app-data
+else
+  echo "Sudo requires a password on this host. Please run the command below in your shell, then confirm to continue:"
+  echo "  sudo chmod -R a+rX /path/to/vss-warehouse-app-data"
+fi
 # Then point VSS_DATA_DIR at /path/to/vss-warehouse-app-data
 ```
 
