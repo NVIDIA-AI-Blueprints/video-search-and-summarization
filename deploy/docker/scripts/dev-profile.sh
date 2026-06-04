@@ -30,6 +30,7 @@ external_ip=""
 mode=""
 mode_env=""
 ngc_cli_api_key="${NGC_CLI_API_KEY:-}"
+ngc_cli_org="${NGC_CLI_ORG:-nvidia}"
 # NVIDIA_API_KEY and OPENAI_API_KEY from environment (optional); always written to generated.env
 nvidia_api_key="${NVIDIA_API_KEY:-}"
 openai_api_key="${OPENAI_API_KEY:-}"
@@ -357,6 +358,7 @@ function usage() {
   echo ""
   echo "NOTE: The following are read from the environment (no CLI options):"
   echo "  • NGC_CLI_API_KEY     — required for 'up'"
+  echo "  • NGC_CLI_ORG         — optional; NGC org for model downloads (default: nvidia)"
   echo "  • NVIDIA_API_KEY      — optional; used for accessing remote LLM/VLM endpoints"
   echo "  • OPENAI_API_KEY      — optional; used for accessing remote LLM/VLM endpoints"
   echo "  • LLM_ENDPOINT_URL    — optional; required when --use-remote-llm is passed (both must be set)"
@@ -1166,6 +1168,7 @@ function state_up() {
   fi
 
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
+  set_env_var "NGC_CLI_ORG" "${ngc_cli_org}"
   set_env_var "HARDWARE_PROFILE" "${hardware_profile}"
   if [[ -n "${mode_env}" ]]; then
     set_env_var "MODE" "${mode_env}"
@@ -1425,10 +1428,10 @@ function state_up() {
       echo "[DRY-RUN] rm -rf ${data_directory}/models"
       echo "[DRY-RUN] mkdir -p ${data_directory}/models/rtdetr-its"
       echo "[DRY-RUN] mkdir -p ${data_directory}/models/gdino"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
+      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> NGC_CLI_ORG=${ngc_cli_org} ngc registry model download-version nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0 --org ${ngc_cli_org}"
       echo "[DRY-RUN] mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx ${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
       echo "[DRY-RUN] rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
+      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> NGC_CLI_ORG=${ngc_cli_org} ngc registry model download-version nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm --org ${ngc_cli_org}"
       echo "[DRY-RUN] mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx ${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
       echo "[DRY-RUN] rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
       echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
@@ -1439,11 +1442,12 @@ function state_up() {
       mkdir -p "${data_directory}/models/gdino"
 
       # Download and install trafficcamnet RT-DETR model
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      NGC_CLI_API_KEY="${ngc_cli_api_key}" NGC_CLI_ORG="${ngc_cli_org}" ngc \
         registry \
         model \
         download-version \
-        nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
+        nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0 \
+        --org "${ngc_cli_org}"
 
       mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
         "${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
@@ -1451,11 +1455,12 @@ function state_up() {
       rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
 
       # Download and install grounding DINO model
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      NGC_CLI_API_KEY="${ngc_cli_api_key}" NGC_CLI_ORG="${ngc_cli_org}" ngc \
         registry \
         model \
         download-version \
-        nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
+        nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm \
+        --org "${ngc_cli_org}"
 
       mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
         "${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
@@ -1488,7 +1493,7 @@ function state_up() {
     else
       mkdir -p "${data_directory}/models"
 
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      NGC_CLI_API_KEY="${ngc_cli_api_key}" NGC_CLI_ORG="${ngc_cli_org}" ngc \
         registry \
         model \
         download-version \

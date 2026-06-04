@@ -15,6 +15,8 @@ DEV_PROFILE="${REPO_ROOT}/deploy/docker/scripts/dev-profile.sh"
 # Must be exported: dev-profile.sh runs as a child process and only reads the environment.
 NGC_CLI_API_KEY="${NGC_CLI_API_KEY:-test-key-for-dry-run}"
 export NGC_CLI_API_KEY
+NGC_CLI_ORG="${NGC_CLI_ORG:-nvidia}"
+export NGC_CLI_ORG
 # Skip hardware-profile vs nvidia-smi check so tests that pass a specific profile (e.g. DGX-SPARK) pass on CI without that GPU.
 # Unset SKIP_HARDWARE_CHECK in tests that assert the fail-fast mismatch behavior.
 export SKIP_HARDWARE_CHECK=true
@@ -560,7 +562,7 @@ run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW local 
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
 run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8" "alerts" \
   -i 127.0.0.1 -m verification -H L40S --llm-device-id 2 --vlm-device-id 1 -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "NGC_CLI_ORG" "nvidia"
 run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
   -i 127.0.0.1 -m verification -H RTXPRO4500BW -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
@@ -765,11 +767,11 @@ fi
 # Alerts profile: dry-run must include NGC model download steps (rtdetr-its, trafficcamnet, gdino/mask_grounding_dino)
 _out_alerts="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p alerts -i 127.0.0.1 -m verification -d > "${_out_alerts}" 2>&1
-if grep -q "models/rtdetr-its" "${_out_alerts}" && grep -q "trafficcamnet" "${_out_alerts}" && grep -q "models/gdino" "${_out_alerts}" && grep -q "mask_grounding_dino" "${_out_alerts}" && grep -q "mgdino_mask_head_pruned_dynamic_batch.onnx" "${_out_alerts}" && grep -q "ngc registry model" "${_out_alerts}"; then
+if grep -q "models/rtdetr-its" "${_out_alerts}" && grep -q "trafficcamnet" "${_out_alerts}" && grep -q "models/gdino" "${_out_alerts}" && grep -q "mask_grounding_dino" "${_out_alerts}" && grep -q "mgdino_mask_head_pruned_dynamic_batch.onnx" "${_out_alerts}" && grep -q "ngc registry model" "${_out_alerts}" && grep -q -- "--org nvidia" "${_out_alerts}"; then
   echo "PASS: alerts dry-run output includes NGC model download steps"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts dry-run output missing NGC model download steps (models/rtdetr-its, trafficcamnet, models/gdino, mask_grounding_dino, mgdino_mask_head_pruned_dynamic_batch.onnx, ngc registry model)"
+  echo "FAIL: alerts dry-run output missing NGC model download steps (models/rtdetr-its, trafficcamnet, models/gdino, mask_grounding_dino, mgdino_mask_head_pruned_dynamic_batch.onnx, --org nvidia, ngc registry model)"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_alerts}"
