@@ -39,7 +39,7 @@ workloads should stay on the Docker Compose path.
 ```yaml
 dependencies:
   - name: sdrc
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/sdrc"
     condition: sdrc.enabled
 ```
