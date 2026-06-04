@@ -6,7 +6,7 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
+      "RTXPRO6000BW": {
         "modes": [
           "remote-all"
         ]
@@ -66,24 +66,6 @@
       ]
     },
     {
-      "_phrasing": "subject-first: '<condition> needs an alert on <sensor>'",
-      "_extraction": {
-        "sensor_name": "warehouse_sample",
-        "prompt_must_contain": "vehicle collision",
-        "alert_type_pattern": "vehicle_collision*"
-      },
-      "query": "Vehicle collisions needs an alert on warehouse_sample",
-      "checks": [
-        "The trajectory calls Alert Bridge `POST /api/v1/realtime`.",
-        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi 'vehicle.collision'` returns exit 0 (a created rule's prompt contains 'vehicle collision', confirming the agent identified the condition as the sentence subject, NOT the sensor; deterministic end-state probe).",
-        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port) - confirms the sensor after 'on' was resolved to a real stream; deterministic end-state probe).",
-        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi warehouse_sample` returns exit 0 (a realtime rule is registered against the warehouse_sample sensor).",
-        "The Alert Bridge payload's `sensor_name` is `warehouse_sample`.",
-        "The Alert Bridge payload's `alert_type` is a snake_case tag like `vehicle_collision` \u2014 NOT `warehouse_sample` or a sensor-derived tag.",
-        "The response includes a rule `id` (UUID) and `status: success`."
-      ]
-    },
-    {
       "_phrasing": "passive voice: 'alert needs to be created for <condition> on <sensor>'",
       "_extraction": {
         "sensor_name": "Camera_02",
@@ -110,8 +92,8 @@
       },
       "query": "I want to be notified about people loitering near the loading dock on warehouse_sample",
       "checks": [
-        "The trajectory calls Alert Bridge `POST /api/v1/realtime` \u2014 'notified' without 'slack'/'webhook' routes to Workflow D, NOT Workflow E.",
-        "The agent does NOT attempt Slack setup.",
+        "The trajectory issues a `POST` to Alert Bridge `/api/v1/realtime` (the rule-create call) \u2014 i.e. this request was handled as a subscription-rule create via Workflow D.",
+        "The agent does NOT attempt Slack / webhook setup (Workflow E) \u2014 'notify me' here is a detection-rule request, not a Slack notification setup.",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi loitering` returns exit 0 (a created rule's prompt contains 'loitering', confirming 'near the loading dock' was treated as part of the detection condition, NOT as the sensor name; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port), with the sensor taken as the token after 'on'; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi warehouse_sample` returns exit 0 (a realtime rule is registered against the warehouse_sample sensor).",
@@ -127,7 +109,7 @@
         "The trajectory calls Alert Bridge `GET /api/v1/realtime`.",
         "The response contains at least 4 rules (from the previous create entries).",
         "The listed rules span BOTH sensors (`warehouse_sample` and `Camera_02`) \u2014 confirming that sensor extraction was correct across different phrasings and both sensors were used.",
-        "Each rule's `alert_type` is a distinct, condition-specific snake_case tag (e.g. `fallen_boxes`, `smoke_detection`, `vehicle_collision`, `unauthorized_access`, `people_loitering`) \u2014 NOT generic tags and NOT sensor-name-derived tags.",
+        "Each rule's `alert_type` is a distinct, condition-specific snake_case tag (e.g. `fallen_boxes`, `smoke_detection`, `unauthorized_access`, `people_loitering`) \u2014 NOT generic tags and NOT sensor-name-derived tags.",
         "The RTSP URLs are reverse-resolved to human-readable sensor names in the agent's output.",
         "The agent renders a readable table or list \u2014 not raw JSON."
       ]

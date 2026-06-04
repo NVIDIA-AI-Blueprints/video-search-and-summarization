@@ -267,7 +267,7 @@ For each rule remaining after filtering, determine the human-readable sensor nam
 
 1. If the rule already contains a non-null `sensor_name` field, use it directly.
 2. Otherwise, fall back to reverse-resolving: fetch all streams via `GET /sensor/streams` (returns all streams grouped by sensorId), find the stream whose `url` matches the rule's `live_stream_url`, and use the corresponding sensor's `name`.
-3. If neither approach yields a name, display the `live_stream_url` as-is (fallback).
+3. If neither approach yields a name, show the rule's `sensor_id` (or the literal `(unresolved sensor)`) — **never** print the raw `live_stream_url` / `rtsp://` URL to the user.
 
 ---
 
@@ -282,6 +282,8 @@ Display one line per rule with these fields:
 | **Prompt** | `prompt` from the rule (truncate if longer than ~80 chars) |
 | **Created** | `created_at` from the rule |
 | **Rule ID** | `id` from the rule |
+
+> **Never expose raw RTSP / `live_stream_url` values in your reply.** The user must see only the reverse-resolved **sensor name** (or the `sensor_id` fallback) — do NOT print `rtsp://...` URLs, and do NOT dump the raw rule JSON. Show only human-readable fields: sensor name, tag, prompt, created time, rule ID. Leaking an `rtsp://` URL is an error.
 
 **Empty list is a success case.** If no rules are returned (or all are filtered out), reply:
 > "No realtime alert rules are currently running."

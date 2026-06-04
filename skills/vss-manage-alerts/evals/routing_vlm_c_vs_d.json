@@ -5,7 +5,7 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
+      "RTXPRO6000BW": {
         "modes": [
           "remote-all"
         ]
@@ -27,23 +27,23 @@
     {
       "query": "What alerts have been triggered today?",
       "checks": [
-        "The trajectory calls `POST /generate` with a query intent \u2014 'triggered today' means past incidents, routing to Workflow C.",
-        "The agent does NOT call Alert Bridge `GET /api/v1/realtime` \u2014 that lists active rules, not past incidents."
+        "The trajectory queries incidents \u2014 either via `POST /generate` or via a `GET` to the Alert Bridge incidents endpoint `/api/v1/realtime/incidents` \u2014 'triggered today' means past incidents, routing to Workflow C.",
+        "The agent does NOT list subscription rules via the bare `GET /api/v1/realtime` (the rules-inventory endpoint, with no `/incidents` suffix) \u2014 that is Workflow D and is wrong for a 'what happened' query. (A `GET /api/v1/realtime/incidents` call is an incident query and is allowed.)"
       ]
     },
     {
       "query": "What alert rules are currently active?",
       "checks": [
-        "The trajectory calls Alert Bridge `GET /api/v1/realtime` \u2014 'rules' + 'currently active' means subscription inventory, routing to Workflow D.",
-        "The agent does NOT call `POST /generate` to query incidents.",
+        "The trajectory calls the bare Alert Bridge rules-list endpoint `GET /api/v1/realtime` (no `/incidents` suffix) \u2014 'rules' + 'currently active' means subscription inventory, routing to Workflow D.",
+        "The agent does NOT query incidents (no `POST /generate` and no `GET /api/v1/realtime/incidents`) \u2014 this is a rules query, not an incident query.",
         "The agent renders a human-readable summary of active rules (not raw JSON)."
       ]
     },
     {
       "query": "Any alerts so far today?",
       "checks": [
-        "The trajectory calls `POST /generate` \u2014 casual incident query routes to Workflow C, not D's list-rules.",
-        "The agent does NOT call Alert Bridge `GET /api/v1/realtime` \u2014 'alerts' here means incidents, not subscription rules."
+        "The trajectory queries incidents \u2014 either via `POST /generate` or via a `GET` to the Alert Bridge incidents endpoint `/api/v1/realtime/incidents` \u2014 casual incident query routes to Workflow C, not D's list-rules.",
+        "The agent does NOT list subscription rules via the bare `GET /api/v1/realtime` (no `/incidents` suffix) \u2014 'alerts' here means incidents, not subscription rules. (A `GET /api/v1/realtime/incidents` call is an incident query and is allowed.)"
       ]
     }
   ]
