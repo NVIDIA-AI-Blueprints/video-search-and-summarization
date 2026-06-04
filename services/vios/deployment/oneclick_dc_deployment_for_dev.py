@@ -1603,7 +1603,7 @@ class DeploymentManager:
             try:
                 SystemUtils.run_command(
                     "docker compose -f docker-compose.yaml --env-file ./compose.env down --remove-orphans",
-                    cwd=str(self.config.script_dir / "scaling" / "docker-compose" / "nvstreamer")
+                    cwd=str(self.config.script_dir / "stream-processing" / "docker-compose" / "nvstreamer")
                 )
                 Logger.success("NVStreamer services stopped successfully")
             except subprocess.CalledProcessError:
@@ -1669,7 +1669,7 @@ class DeploymentManager:
         Logger.info("Deploying NVStreamer instances...")
         Logger.info(f"{self.config.script_dir}")
         
-        nvstreamer_dir = self.config.script_dir / "scaling" / "docker-compose" / "nvstreamer"
+        nvstreamer_dir = self.config.script_dir / "stream-processing" / "docker-compose" / "nvstreamer"
         
         # Pull images only if --pull-always is specified
         if self.config.pull_always:
@@ -1923,7 +1923,6 @@ class DeploymentManager:
             
             for compose_dir in [
                 self.config.script_dir / "stream-processing" / "docker-compose",
-                self.config.script_dir / "scaling" / "docker-compose",
             ]:
                 for cmd in stop_commands:
                     Logger.info(f"Trying ({compose_dir.parent.name}): {cmd}")
@@ -1933,7 +1932,7 @@ class DeploymentManager:
             Logger.info("Attempting to stop NVStreamer services...")
             SystemUtils.run_command(
                 "docker compose -f docker-compose.yaml --env-file ./compose.env down --remove-orphans -v",
-                cwd=str(self.config.script_dir / "scaling" / "docker-compose" / "nvstreamer"),
+                cwd=str(self.config.script_dir / "stream-processing" / "docker-compose" / "nvstreamer"),
                 check=False
             )
         
@@ -2006,7 +2005,7 @@ class DeploymentManager:
         try:
             SystemUtils.run_command(
                 "docker compose -f docker-compose.yaml --env-file ./compose.env down --remove-orphans",
-                cwd=str(self.config.script_dir / "scaling" / "docker-compose" / "nvstreamer")
+                cwd=str(self.config.script_dir / "stream-processing" / "docker-compose" / "nvstreamer")
             )
             Logger.success("NVStreamer services stopped successfully")
         except subprocess.CalledProcessError:
@@ -2048,7 +2047,6 @@ class DeploymentManager:
         
         for compose_dir in [
             self.config.script_dir / "stream-processing" / "docker-compose",
-            self.config.script_dir / "scaling" / "docker-compose",
         ]:
             for cmd in stop_commands:
                 Logger.info(f"Executing ({compose_dir.parent.name}): {cmd}")
@@ -2230,7 +2228,7 @@ DEPLOYMENT OPTIONS:
     --auto              Use auto-detected values without user confirmation
     --fresh-start       Stop existing deployments and remove VST volume data for clean start
     --pull-always       Pull latest Docker images before deployment (default: use local images)
-    --path PATH         Copy scaling folder from specified path
+    --path PATH         Copy stream-processing folder from specified path
     --help              Show this help message
 
 CONFIGURATION OVERRIDES:
@@ -2460,30 +2458,30 @@ def main():
             Logger.error(f"Specified path does not exist: {source_path}")
             sys.exit(1)
 
-        # Check if the provided path is directly a scaling folder
-        if source_path.name == "scaling" and source_path.is_dir():
-            source_scaling_folder = source_path
-            Logger.info(f"Using provided scaling folder directly: {source_scaling_folder}")
+        # Check if the provided path is directly a stream-processing folder
+        if source_path.name == "stream-processing" and source_path.is_dir():
+            source_stream_processing_folder = source_path
+            Logger.info(f"Using provided stream-processing folder directly: {source_stream_processing_folder}")
         else:
-            source_scaling_folder = source_path / "scaling"
-            if not source_scaling_folder.exists():
-                Logger.error(f"Scaling folder not found in specified path: {source_scaling_folder}")
+            source_stream_processing_folder = source_path / "stream-processing"
+            if not source_stream_processing_folder.exists():
+                Logger.error(f"stream-processing folder not found in specified path: {source_stream_processing_folder}")
                 sys.exit(1)
 
         current_dir = Path(__file__).parent.absolute()
-        target_scaling_folder = current_dir / "scaling"
+        target_stream_processing_folder = current_dir / "stream-processing"
 
-        Logger.info(f"Copying scaling folder from {source_scaling_folder} to {target_scaling_folder}")
+        Logger.info(f"Copying stream-processing folder from {source_stream_processing_folder} to {target_stream_processing_folder}")
 
-        if target_scaling_folder.exists():
-            Logger.info("Removing existing scaling folder")
-            shutil.rmtree(target_scaling_folder)
+        if target_stream_processing_folder.exists():
+            Logger.info("Removing existing stream-processing folder")
+            shutil.rmtree(target_stream_processing_folder)
 
         try:
-            shutil.copytree(source_scaling_folder, target_scaling_folder)
-            Logger.success("Successfully copied scaling folder to current directory")
+            shutil.copytree(source_stream_processing_folder, target_stream_processing_folder)
+            Logger.success("Successfully copied stream-processing folder to current directory")
         except Exception as e:
-            Logger.error(f"Failed to copy scaling folder: {e}")
+            Logger.error(f"Failed to copy stream-processing folder: {e}")
             sys.exit(1)
 
     # Initialize configuration
