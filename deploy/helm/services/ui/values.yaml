@@ -18,8 +18,8 @@ global: {}
 serviceAccount:
   create: false
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-  tag: "3.2.0-26.05.5-c777a8d34f70"
+  repository: nvcr.io/nvidia/vss-core/vss-agent-ui
+  tag: "3.2.0"
   pullPolicy: IfNotPresent
 replicas: 1
 service:

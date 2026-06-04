@@ -22,7 +22,7 @@
 set -e
 
 BACKEND="${RTVI_BACKEND:-http://0.0.0.0:8010}"
-MODEL="${RTVI_MODEL:-nvstaging_nim_cosmos-reason-2-8b_hf-v2}"
+MODEL="${RTVI_MODEL:-nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8}"
 
 MODEL=$(python3 -c "
 import sys

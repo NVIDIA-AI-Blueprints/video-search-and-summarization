@@ -45,7 +45,7 @@ services:
 
   nvstreamer-2d:
     container_name: vss-vios-nvstreamer
-    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
     profiles: ["bp_wh_redis_2d","bp_wh_kafka_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
@@ -122,7 +122,7 @@ services:
         fi
 
   bp-configurator-2d:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
+    image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.0
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     container_name: vss-configurator
     network_mode: "host"

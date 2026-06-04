@@ -17,39 +17,39 @@ apiVersion: v2
 name: vss
 description: "VSS stack - Helm chart for developer profiles - alerts"
 type: application
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0"
 dependencies:
   - name: infra
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/infra"
     condition: infra.enabled
   - name: vios
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/vios"
     condition: vios.enabled
   - name: agent
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/agent"
     condition: agent.enabled
   - name: vss-agent-ui
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/ui"
     condition: vss-agent-ui.enabled
   - name: vss-alert-bridge
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/alert"
     condition: vss-alert-bridge.enabled
   - name: analytics
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/analytics"
     condition: analytics.enabled
   - name: rtvi
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/rtvi"
     condition: rtvi.enabled
   - name: nims
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/nims"
     condition: nims.enabled
 maintainers: []

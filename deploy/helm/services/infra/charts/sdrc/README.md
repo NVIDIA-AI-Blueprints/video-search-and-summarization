@@ -39,7 +39,7 @@ workloads should stay on the Docker Compose path.
 ```yaml
 dependencies:
   - name: sdrc
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/sdrc"
     condition: sdrc.enabled
 ```
@@ -48,8 +48,8 @@ dependencies:
 sdrc:
   enabled: true
   image:
-    repository: nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l
-    tag: 3.0.0-rc.13
+    repository: nvcr.io/nvidia/vss-core/sdr-mw-l
+    tag: 3.2.0
   imagePullSecrets:
     - name: ngc-docker-reg-secret
   service:
