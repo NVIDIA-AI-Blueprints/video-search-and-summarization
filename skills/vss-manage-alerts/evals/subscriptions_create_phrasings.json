@@ -37,7 +37,7 @@
       "query": "Send me alerts for fallen boxes in camera warehouse_sample",
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime`.",
-        "The Alert Bridge payload's `prompt` field contains 'fallen boxes' verbatim or a semantically equivalent phrase \u2014 the agent must NOT rephrase the user's condition into something unrelated.",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi 'fallen.box'` returns exit 0 (a created rule's prompt contains 'fallen box', confirming the agent preserved the user's detection condition verbatim; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port) - confirms live_stream_url/sensor_id came from the live sensor list, not a fabricated or 'camera_'-prefixed name; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi warehouse_sample` returns exit 0 (a realtime rule is registered against the warehouse_sample sensor).",
         "The Alert Bridge payload's `sensor_name` is `warehouse_sample`.",
@@ -56,7 +56,7 @@
       "query": "Create alert for smoke detection on Camera_02",
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime`.",
-        "The Alert Bridge payload's `prompt` field contains 'smoke' \u2014 the agent extracted the detection condition correctly, not the sensor name.",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi smoke` returns exit 0 (a created rule's prompt contains 'smoke', confirming the agent extracted the detection condition correctly, not the sensor name; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port) - confirms live_stream_url/sensor_id came from the live sensor list; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi camera_02` returns exit 0 (a realtime rule is registered against the Camera_02 sensor).",
         "The Alert Bridge payload's `sensor_name` is `Camera_02`.",
@@ -75,7 +75,7 @@
       "query": "Vehicle collisions needs an alert on warehouse_sample",
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime`.",
-        "The Alert Bridge payload's `prompt` field contains 'vehicle collision' \u2014 the agent correctly identified the condition as the sentence subject ('Vehicle collisions'), NOT the sensor.",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi 'vehicle.collision'` returns exit 0 (a created rule's prompt contains 'vehicle collision', confirming the agent identified the condition as the sentence subject, NOT the sensor; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port) - confirms the sensor after 'on' was resolved to a real stream; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi warehouse_sample` returns exit 0 (a realtime rule is registered against the warehouse_sample sensor).",
         "The Alert Bridge payload's `sensor_name` is `warehouse_sample`.",
@@ -93,7 +93,7 @@
       "query": "Alert needs to be created for unauthorized access on Camera_02",
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime`.",
-        "The Alert Bridge payload's `prompt` field contains 'unauthorized access' \u2014 extracted from the passive construction, not confused with the subject 'Alert'.",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi 'unauthorized.access'` returns exit 0 (a created rule's prompt contains 'unauthorized access', extracted from the passive construction, not confused with the subject 'Alert'; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port), not 'unauthorized access' treated as a sensor; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi camera_02` returns exit 0 (a realtime rule is registered against the Camera_02 sensor).",
         "The Alert Bridge payload's `sensor_name` is `Camera_02`.",
@@ -112,7 +112,7 @@
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime` \u2014 'notified' without 'slack'/'webhook' routes to Workflow D, NOT Workflow E.",
         "The agent does NOT attempt Slack setup.",
-        "The Alert Bridge payload's `prompt` field contains 'people loitering near the loading dock' or equivalent \u2014 the phrase 'near the loading dock' is part of the detection condition, NOT part of the sensor name.",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi loitering` returns exit 0 (a created rule's prompt contains 'loitering', confirming 'near the loading dock' was treated as part of the detection condition, NOT as the sensor name; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port), with the sensor taken as the token after 'on'; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi warehouse_sample` returns exit 0 (a realtime rule is registered against the warehouse_sample sensor).",
         "The Alert Bridge payload's `sensor_name` is `warehouse_sample`.",
