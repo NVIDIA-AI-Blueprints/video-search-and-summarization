@@ -46,25 +46,28 @@ Optional: tag and push the base image to the registry.
 
 ### C) Build module containers
 
-Build the `sensor` and `streamprocessing` module containers:
+Build the `sensor` and `streamprocessing` module containers (clean first for a fresh build):
 
 ```bash
+./build.sh clean
 ./build.sh container module=streamprocessing,sensor
 ```
 
 ### D) Build the NVStreamer container
 
 ```bash
+./build.sh clean
 ./build.sh nvstreamer container
 ```
 
 ### E) Run Media Service
 
-The compiled images are deployed via docker-compose. If you built with the default `vios` / `nvstreamer` names, point the one-click deployment at them — local builds are tagged `latest`, so line the tags up too:
+The compiled images are deployed via docker-compose. Pass the exact images you built to the one-click deployment (local builds are tagged `latest`). Use `--target all` so both the VST services and NVStreamer are deployed (the default `--target vios` brings up only the VST services and ignores the `--nvstreamer-*` flags):
 
 ```bash
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy \
-  --image-registry vios --all-tag latest \
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target all \
+  --streamprocessor-image vios/vst-streamprocessing --streamprocessor-tag latest \
+  --sensor-image vios/vst-sensor --sensor-tag latest \
   --nvstreamer-image nvstreamer --nvstreamer-tag latest \
   --auto --force
 ```

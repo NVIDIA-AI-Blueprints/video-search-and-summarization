@@ -119,6 +119,9 @@ class DeploymentConfig:
         self.tag_overrides = {}
         self.image_registry = ""
         self.nvstreamer_image = ""
+        # Full-image overrides keyed by compose.env var (e.g. VST_STREAM_PROCESSOR_IMAGE);
+        # replace the entire image reference verbatim rather than swapping only the prefix.
+        self.image_overrides = {}
     
     @property
     def vst_compose_dir(self) -> Path:
@@ -488,12 +491,19 @@ class ConfigurationManager:
                           'VST_LIVESTREAM_IMAGE', 'VST_MCP_IMAGE']
         
         for image_var in vst_image_vars:
+            full_image = self.config.image_overrides.get(image_var, "")
             org = self.config.image_registry
             tag = self.config.tag_overrides.get(image_var, "")
-            if not org and not tag:
+            if not full_image and not org and not tag:
                 continue
             current_image = self._read_env_value(self.config.main_compose_env, image_var)
-            new_image = self._retarget_image(current_image, org=org, tag=tag, org_is_prefix=True)
+            if full_image:
+                # Full-image override: replace the entire image reference verbatim
+                # (org_is_prefix=False) so the deploy uses exactly the built image,
+                # instead of swapping only the registry prefix.
+                new_image = self._retarget_image(current_image, org=full_image, tag=tag, org_is_prefix=False)
+            else:
+                new_image = self._retarget_image(current_image, org=org, tag=tag, org_is_prefix=True)
             if new_image:
                 updates[image_var] = new_image
                 Logger.info(f"Applying image override: {image_var} = {new_image}")
@@ -2238,8 +2248,9 @@ CONFIGURATION OVERRIDES:
     --nvstreamer-path PATH  Override NVStreamer base path
 
 IMAGE TAG OVERRIDES:
-    --all-tag TAG           Override tag for all VST service images including stream-processor (except MCP and NVStreamer)
-    --sensor-tag TAG        Override sensor service image tag
+    --all-tag TAG               Override tag for all VST service images including stream-processor (except MCP and NVStreamer)
+    --streamprocessor-tag TAG   Override stream-processor service image tag
+    --sensor-tag TAG            Override sensor service image tag
     --rtsp-tag TAG          Override RTSP server service image tag
     --recorder-tag TAG      Override recorder service image tag
     --livestream-tag TAG    Override livestream service image tag
@@ -2249,8 +2260,10 @@ IMAGE TAG OVERRIDES:
     --nvstreamer-tag TAG    Override NVStreamer service image tag
 
 IMAGE REGISTRY / REPOSITORY OVERRIDES:
-    --image-registry REGISTRY   Override the registry/org prefix for all VST service images including MCP (keeps name and tag), e.g. vios -> vios/vst-sensor:<tag>
-    --nvstreamer-image REPO     Override the NVStreamer image repository (keeps tag), e.g. nvstreamer or my-registry/nvstreamer
+    --image-registry REGISTRY      Override the registry/org prefix for all VST service images including MCP (keeps name and tag), e.g. vios -> vios/vss-vios-sensor:<tag>
+    --streamprocessor-image REPO   Override the stream-processor image with a complete reference (e.g. vios/vst-streamprocessing); pair with --streamprocessor-tag
+    --sensor-image REPO            Override the sensor image with a complete reference (e.g. vios/vst-sensor); pair with --sensor-tag
+    --nvstreamer-image REPO        Override the NVStreamer image repository (keeps tag), e.g. nvstreamer or my-registry/nvstreamer
 
 EXAMPLES:
     # Deploy VIOS stream-processor (default target)
@@ -2268,7 +2281,10 @@ EXAMPLES:
     python3 oneclick_dc_deployment_for_dev.py --auto --force --pull-always
 
     # Deploy locally built images (built with IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE=nvstreamer)
-    python3 oneclick_dc_deployment_for_dev.py --auto --force --image-registry vios --nvstreamer-image nvstreamer
+    python3 oneclick_dc_deployment_for_dev.py deploy --target all --auto --force \
+        --streamprocessor-image vios/vst-streamprocessing --streamprocessor-tag latest \
+        --sensor-image vios/vst-sensor --sensor-tag latest \
+        --nvstreamer-image nvstreamer --nvstreamer-tag latest
 
     # Fresh start (removes existing data)
     python3 oneclick_dc_deployment_for_dev.py --fresh-start --auto --force
@@ -2344,7 +2360,16 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
         Logger.info(f"Using command line image registry override: {config.image_registry}")
     if config.nvstreamer_image:
         Logger.info(f"Using command line NVStreamer image override: {config.nvstreamer_image}")
-    
+
+    # Full-image overrides (complete reference, replaces the whole image verbatim)
+    config.image_overrides = {}
+    if args.streamprocessor_image:
+        config.image_overrides['VST_STREAM_PROCESSOR_IMAGE'] = args.streamprocessor_image
+        Logger.info(f"Using command line stream-processor image override: {args.streamprocessor_image}")
+    if args.sensor_image:
+        config.image_overrides['VST_SENSOR_IMAGE'] = args.sensor_image
+        Logger.info(f"Using command line sensor image override: {args.sensor_image}")
+
     if args.all_tag:
         # Apply to all VST service images except MCP and NVStreamer.
         # MCP is intentionally excluded: it is never built locally (pre-built image always used).
@@ -2359,6 +2384,10 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
         Logger.info(f"Using command line all-tag override: {args.all_tag}")
     
     # Individual tag overrides (these take precedence over --all-tag)
+    if args.streamprocessor_tag:
+        config.tag_overrides['VST_STREAM_PROCESSOR_IMAGE'] = args.streamprocessor_tag
+        Logger.info(f"Using command line stream-processor tag override: {args.streamprocessor_tag}")
+
     if args.sensor_tag:
         config.tag_overrides['VST_SENSOR_IMAGE'] = args.sensor_tag
         Logger.info(f"Using command line sensor tag override: {args.sensor_tag}")
@@ -2427,6 +2456,7 @@ def main():
 
     # Image tag overrides
     parser.add_argument('--all-tag', type=str, help='Override tag for all VST service images including stream-processor (except MCP and NVStreamer)')
+    parser.add_argument('--streamprocessor-tag', type=str, help='Override stream-processor service image tag')
     parser.add_argument('--sensor-tag', type=str, help='Override sensor service image tag')
     parser.add_argument('--rtsp-tag', type=str, help='Override RTSP server service image tag')
     parser.add_argument('--recorder-tag', type=str, help='Override recorder service image tag')
@@ -2437,7 +2467,9 @@ def main():
     parser.add_argument('--nvstreamer-tag', type=str, help='Override NVStreamer service image tag')
 
     # Image registry / repository overrides
-    parser.add_argument('--image-registry', type=str, help='Override registry/org prefix for all VST service images, keeping name and tag (e.g. vios -> vios/vst-sensor:<tag>)')
+    parser.add_argument('--image-registry', type=str, help='Override registry/org prefix for all VST service images, keeping name and tag (e.g. vios -> vios/vss-vios-sensor:<tag>)')
+    parser.add_argument('--streamprocessor-image', type=str, help='Override the stream-processor image with a complete reference (e.g. vios/vst-streamprocessing); pair with --streamprocessor-tag')
+    parser.add_argument('--sensor-image', type=str, help='Override the sensor image with a complete reference (e.g. vios/vst-sensor); pair with --sensor-tag')
     parser.add_argument('--nvstreamer-image', type=str, help='Override the NVStreamer image repository, keeping the tag (e.g. nvstreamer or my-registry/nvstreamer)')
 
     parser.add_argument('--help', action='store_true', help='Show this help message')
