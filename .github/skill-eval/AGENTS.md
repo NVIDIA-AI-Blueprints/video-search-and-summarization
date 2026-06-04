@@ -318,18 +318,34 @@ The canonical harbor command is in § Harbor invocation.
       score and pick:
 
       ```bash
-      # Candidates: RUNNING+READY ^vss-eval-* boxes whose gpu/platform
-      # matches the trial. (envs/brev_env.py validates the pick post-
-      # selection; this step just narrows the field.)
+      # Candidates: RUNNING+READY ^vss-eval-* boxes whose gpu_type matches
+      # the trial AND whose gpu_count >= the spec's required count.
+      # (envs/brev_env.py validates the pick post-selection; this step
+      # just narrows the field.)
       brev ls --json > "/tmp/skill-eval/brev-snapshot-${LEG}.json"
-      # Score:
-      #   1. lock free (try flock -n)            (free)
-      #   2. instance name asc                   (tiebreak)
-      # Pick the first candidate that scores best AND whose flock -n
-      # succeeds. If none free, block on flock -w 21000 of the
-      # first hardware-matching candidate.
+      # Score (PREFER an exact gpu_count match so the pool stays partitioned
+      # — don't tie up a 2-GPU box with 1-GPU work):
+      #   1. exact gpu_count match               (prefer over over-provisioned)
+      #   2. lock free (try flock -n)            (free)
+      #   3. instance name asc                   (tiebreak)
+      # Pick the best-scoring candidate whose flock -n succeeds. Use an
+      # OVER-provisioned box (more GPUs than required) only as a fallback,
+      # when no exact-count match is lock-free/reachable — brev_env accepts
+      # it (>= check) and start() wipes it clean before the trial. If none
+      # free, block on flock -w 21000 of the best candidate.
       INSTANCE_NAME=<picked>
       ```
+
+      Resolving a candidate's gpu_count for the exact-match preference:
+      `brev ls --json` does **not** carry `gpu_count` (only `name`, `gpu`,
+      `instance_type`, `status`), so cross-reference each candidate's
+      `instance_type` against `brev search gpu --json` — the same catalog
+      `brev_env._get_instance_gpu_count_from_catalog` validates against. The
+      `vss-eval-*` fleet naming is a fallback hint (`*-1g` → 1 GPU; bare or
+      `*-2` → 2 GPU). If you can't resolve a count, just pick any
+      `gpu_type`-matching box and let `brev_env` enforce `gpu_count >=
+      required` post-selection — exact-match is a partitioning *optimisation*,
+      not a correctness gate (the box is reset either way).
 
       With fleet=1, this collapses to today's behaviour — the single
       `vss-eval-<short>` candidate is picked and locked. With fleet>1
@@ -546,6 +562,14 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
   of 'L40S' in 'L4'`. Treat the candidate as not eligible and wait
   for a hardware-matching pool member per § 5a — the operator
   provisions matching capacity, not the agent.
+- **gpu_count is `>=`, not exact.** `_check_instance_matches` accepts any
+  box with **at least** the spec's `gpu_count` — a 1-GPU spec runs fine on
+  a 2-GPU box (2nd GPU idles); only an *under*-provisioned box is rejected.
+  **Prefer** an exact match at selection time (§ 5a scoring) so the pool
+  stays partitioned, but an over-provisioned box is a valid fallback when
+  no exact match is free/reachable. Because the `>=` check passes (rather
+  than raising), `start()` runs `_reset_docker_runtime` on the fallback
+  box, so it never inherits a prior trial's containers.
 
 ## Harbor invocation
 
