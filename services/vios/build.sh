@@ -294,7 +294,9 @@ build_base_image() {
     if [[ -n "$BASE_TAG" ]]; then
         BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:${BASE_TAG}"
     else
-        BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:latest"
+        # Default to the same base tag the container build consumes (DEFAULT_TAGS),
+        # so "base-container" and "container" agree without passing base-tag= to both.
+        BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:${DEFAULT_TAGS["vst-base"]:-latest}"
     fi
 
     echo "Building base image: $BASE_IMAGE_NAME"
