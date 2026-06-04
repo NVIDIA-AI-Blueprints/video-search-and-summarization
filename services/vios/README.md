@@ -88,3 +88,25 @@ For all build options, run `./build.sh help`.
 </li>
 <li>It is expected that the web browser should load the Media Service dashboard</li>
 </ul>
+
+<h2>Troubleshooting</h2>
+
+### `docker pull` fails with an "Incorrect Repository Format" / unsupported manifest error
+
+The published images are multi-arch OCI image indexes (`application/vnd.oci.image.index.v1+json`) that also carry BuildKit attestation manifests (SBOM/provenance). Those attestations show up as `unknown/unknown` platform entries in the manifest list, and some Docker/containerd versions try to resolve them and fail with errors such as `Incorrect Repository Format`, `no matching manifest`, or `unsupported manifest media type`.
+
+Fix: pull for an explicit platform so Docker resolves a single concrete image manifest instead of the full index.
+
+```bash
+# x86_64 hosts
+docker pull --platform linux/amd64 <image>:<tag>
+
+# Arm hosts (Grace / Jetson)
+docker pull --platform linux/arm64 <image>:<tag>
+```
+
+For example:
+
+```bash
+docker pull --platform linux/amd64 nvcr.io/nvstaging/vss-core/vss-vios-ingress:2.1.0-26.05.2
+```
