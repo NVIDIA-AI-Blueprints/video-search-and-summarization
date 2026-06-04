@@ -239,5 +239,19 @@ class VersionCompareSanity(unittest.TestCase):
         self.assertFalse(brev_env._version_lt("580.95", "580.95"))
 
 
+class ClaudeTaskScratchCleanup(unittest.TestCase):
+    def test_cleanup_command_targets_current_user_task_dirs(self):
+        cmd = brev_env._claude_task_scratch_cleanup_command()
+
+        self.assertIn('BASE="/tmp/claude-${UID_NUM}"', cmd)
+        self.assertIn("-name tasks", cmd)
+        self.assertIn("-exec rm -rf {} +", cmd)
+        self.assertIn("[claude-task-scratch]", cmd)
+        self.assertNotIn("sudo rm -rf /tmp/claude-", cmd)
+        # The rm step must not swallow stderr — a real cleanup failure has to
+        # surface its error to the caller, not raise an empty-tail RuntimeError.
+        self.assertNotIn("rm -rf {} + 2>/dev/null", cmd)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
