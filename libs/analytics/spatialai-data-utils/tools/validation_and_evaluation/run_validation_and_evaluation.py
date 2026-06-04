@@ -256,7 +256,7 @@ def main(args, env_variables):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="MTMC Validation - evaluate multi-camera tracking results.",
+        description="MTMC Validation and Evaluation - evaluate multi-camera tracking results.",
     )
     parser.add_argument("--calibration_url", help="Input calibration url file", required=True)
     parser.add_argument("--confidence_threshold", type=float, default=0.0, help="Confidence threshold. Values less than threshold will be filtered out.")
