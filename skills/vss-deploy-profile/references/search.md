@@ -297,8 +297,8 @@ mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/models"
 
 NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
-    nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-    --org nvstaging
+    nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
+    --org nvidia
 
 mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx \
     "$DATA/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
