@@ -345,7 +345,7 @@ docker compose -f compose.yml \
 
 **Cause(s):**
 - `docker login nvcr.io` not run (or token expired).
-- `NGC_CLI_API_KEY` resolves to an org that doesn't have access to the image — `vss-core` lives in both `nvidia/` and `nvstaging/`, and your key may only see one.
+- `NGC_CLI_API_KEY` doesn't have access to the image — `vss-core` lives in `nvidia`, and your key may not see it.
 
 **Diagnose:**
 ```bash
