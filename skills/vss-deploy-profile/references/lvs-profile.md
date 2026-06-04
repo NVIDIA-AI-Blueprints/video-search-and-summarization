@@ -188,13 +188,19 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 
 ## Endpoints (after deploy)
 
-| Service | URL |
+`PUBLIC` = the deployed public origin (`docker inspect vss-agent` →
+`VSS_AGENT_EXTERNAL_URL`; on Brev the `https://7777-<id>.brevlab.com` secure
+link). Report the ingress URLs, not raw ports — see
+[`base.md`](base.md#endpoints-after-deploy) / [`brev.md`](brev.md). Rows marked
+*(direct)* are internal service ports: on-host `curl` only, not browser-reachable on Brev.
+
+| Service | URL to report (through ingress) |
 |---|---|
-| Agent UI | `http://<HOST_IP>:3000/` |
-| Agent REST API | `http://<HOST_IP>:8000/` |
-| RT-VLM | `http://<HOST_IP>:8018/v1/` (OpenAI-compatible) |
-| Kibana | `http://<HOST_IP>:5601/` |
-| Phoenix | `http://<HOST_IP>:6006/` |
+| Agent UI | `${PUBLIC}/` |
+| Agent REST API | `${PUBLIC}/api` |
+| Kibana | `${PUBLIC}/kibana` |
+| Phoenix | `${PUBLIC}/phoenix` |
+| RT-VLM (direct) | `http://<HOST_IP>:8018/v1/` (OpenAI-compatible) |
 
 ## Env file location
 

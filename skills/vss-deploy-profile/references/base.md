@@ -424,13 +424,31 @@ The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automati
 
 ## Endpoints (after deploy)
 
-| Service | URL |
+**Report the deployed public origin, not a raw container port.** Read it
+directly from the running stack — `docker inspect vss-agent` exposes
+`VSS_AGENT_EXTERNAL_URL`, the fully-assembled `proto://host:port` the agent
+actually serves (orchestrator equivalent: `docker_read`). Don't synthesize a
+`<HOST_IP>:<port>` URL — that surfaces an unreachable internal IP on Brev,
+where this origin is the `https://7777-<id>.brevlab.com` secure link (see
+[`brev.md`](brev.md)). Call that value `PUBLIC` below; everything is routed
+through the HAProxy ingress at that origin.
+
+| Service | URL to report (through ingress) |
 |---|---|
-| Agent UI | `http://<HOST_IP>:3000/` |
-| Agent REST API | `http://<HOST_IP>:8000/` |
-| Swagger UI | `http://<HOST_IP>:8000/docs` |
-| Reports | `http://<HOST_IP>:8000/static/agent_report_<DATE>.md` |
-| Phoenix telemetry | `http://<HOST_IP>:6006/` |
+| Agent UI | `${PUBLIC}/` |
+| Agent REST API | `${PUBLIC}/api` |
+| Reports | `${PUBLIC}/static/agent_report_<DATE>.md` |
+| Phoenix telemetry | `${PUBLIC}/phoenix` |
+
+**Direct service ports — internal only** (on-host `curl` debugging; not
+browser-reachable on Brev, never report these as the access URL):
+
+| Service | Direct port |
+|---|---|
+| Agent UI (direct) | `http://<HOST_IP>:3000/` |
+| Agent REST API (direct) | `http://<HOST_IP>:8000/` |
+| Swagger UI | `http://<HOST_IP>:8000/docs` — not routed through the ingress; direct/port-forward only |
+| Phoenix (direct) | `http://<HOST_IP>:6006/` |
 
 ## Env File Location
 
