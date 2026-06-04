@@ -248,6 +248,9 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
         self.assertIn("-exec rm -rf {} +", cmd)
         self.assertIn("[claude-task-scratch]", cmd)
         self.assertNotIn("sudo rm -rf /tmp/claude-", cmd)
+        # The rm step must not swallow stderr — a real cleanup failure has to
+        # surface its error to the caller, not raise an empty-tail RuntimeError.
+        self.assertNotIn("rm -rf {} + 2>/dev/null", cmd)
 
 
 if __name__ == "__main__":

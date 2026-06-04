@@ -768,7 +768,10 @@ def _claude_task_scratch_cleanup_command() -> str:
         'BASE="/tmp/claude-${UID_NUM}"; '
         'if [ -d "$BASE" ]; then '
         '  BEFORE=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
-        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + 2>/dev/null || exit 1; '
+        # No `2>/dev/null` on the rm step: a real cleanup failure's stderr must
+        # reach claude_task_cleanup_result.stderr so the RuntimeError tail isn't
+        # empty (the BEFORE/AFTER count-finds keep theirs — that noise is benign).
+        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || exit 1; '
         '  AFTER=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
         '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
         'else '
