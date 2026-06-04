@@ -5,7 +5,7 @@
 
 Spawns one `claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md`
 as its system prompt and lets it drive an eval end-to-end:
-adapter/dataset → Brev lock → harbor run → results comment. Two modes:
+adapter/dataset → Brev box selection → run_leg.py → results comment. Two modes:
 
   - Single-spec (push): the `plan` job in skills-eval.yml resolves the PR
     diff into a matrix of one leg per (spec, platform); each leg invokes
@@ -72,7 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 
 # Hard cap on the agent's tool loop — one trial burns ~20-30 harness
-# turns (startup + brev wait + `uvx harbor run` exec + reading results +
+# turns (startup + brev wait + `run_leg.py` exec + reading results +
 # migrating to _viewer), so a full-PR fan-out of 10-15 trials plus
 # recon/retry overhead exceeds the previous 300 ceiling. The 600 cap
 # that replaced it was still tight when the agent hit a novel
@@ -81,7 +81,7 @@ AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 # without prior context) — each "discovery" burst is 5-10 turns of
 # Read/Grep/Bash spelunking on top of the steady-state per-trial
 # cost. Bumping to 2000 absorbs that overhead without lifting the
-# real ceiling (skills-eval.yml timeout-minutes: 480 is the wall-
+# real ceiling (skills-eval.yml timeout-minutes: 360 is the wall-
 # clock gate; this knob is just a safety valve against runaway
 # loops).
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "2000"))
@@ -124,25 +124,25 @@ def _disable_server_thinking() -> None:
 
 
 def _set_bash_timeouts() -> None:
-    """Raise the Bash tool's timeout cap above the worst-case single
-    `uvx harbor run` so the runtime never auto-backgrounds the foreground
-    trial call.
+    """Raise the Bash tool's timeout cap above the worst-case `run_leg.py`
+    foreground call.
 
     Claude Code moves a foreground Bash command to a background task once it
     crosses the Bash *max* timeout (default 600000 ms = 10 min), then
     surfaces it as pollable task output. That silently defeats AGENTS.md's
-    "block on harbor — no polling" contract for any trial longer than 10 min
-    (most real deploys: env-build 1800s + agent 3600s + verify 1800s ≈ 2h).
-    Past the cap the foreground call is backgrounded and the agent falls into
-    polling its task .output files. The
+    "block on run_leg.py / Harbor -- no polling" contract. A full leg can
+    include lock contention plus multiple ordered Harbor subprocesses, so the
+    foreground cap must cover the workflow job window, not just one Harbor
+    attempt. Past the cap the foreground call is backgrounded and the agent
+    falls into polling its task .output files. The
     `_block_bash_background` hook can't prevent it: the runtime sets
     run_in_background *after* the timeout, not in the call input the hook
     inspects. Raising the cap is the only structural fix. The CI workflow
     exports these too; set them here defensively so local smoke-tests and any
     non-CI caller get the same guarantee. Both stay under the workflow's
     timeout-minutes so a genuinely hung call is still reaped by the job."""
-    os.environ.setdefault("BASH_DEFAULT_TIMEOUT_MS", "7200000")   # 2h
-    os.environ.setdefault("BASH_MAX_TIMEOUT_MS", "10800000")      # 3h
+    os.environ.setdefault("BASH_DEFAULT_TIMEOUT_MS", "21600000")  # 6h
+    os.environ.setdefault("BASH_MAX_TIMEOUT_MS", "21600000")      # 6h
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +248,7 @@ def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
 async def _block_bash_background(input_data, tool_use_id, context):
     """PreToolUse hook: deny any Bash call that backgrounds work.
 
-    AGENTS.md § "No polling — block on harbor" requires `uvx harbor run`
+    AGENTS.md § "No polling — block on harbor" requires `run_leg.py`
     to be invoked synchronously so the orchestrating agent blocks on
     stdout instead of polling an output file. Enforcing that in prose
     alone is fragile — a drifting agent can still set
@@ -265,7 +265,7 @@ async def _block_bash_background(input_data, tool_use_id, context):
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": (
-                    "Backgrounding forbidden — run harbor synchronously "
+                    "Backgrounding forbidden — run run_leg.py synchronously "
                     "(AGENTS.md § No polling — block on harbor)."
                 ),
             }
@@ -373,10 +373,11 @@ Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
 already selected this (spec, platform). Run steps 2–7 for it only:
 ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
 (missing/stale → handle per § 3c, then exit BLOCKED — never run a
-locally-patched adapter in this leg) → generate the dataset → acquire a
-per-box flock on a `vss-eval-*` member matching
-`{eval_platform or "the spec's platform"}` → run harbor synchronously for
-this platform (§ Harbor invocation; never background it) → gather results →
+locally-patched adapter in this leg) → generate the dataset → select a
+`vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run `.github/skill-eval/run_leg.py` for this platform (§ Harbor invocation;
+never background it; the wrapper holds the per-box lock while Harbor runs)
+→ gather results →
 {post_step} (§ Result comment format). Do NOT touch any other spec or skill.
 
 End with `DONE: <reward summary>` after posting the result, or
