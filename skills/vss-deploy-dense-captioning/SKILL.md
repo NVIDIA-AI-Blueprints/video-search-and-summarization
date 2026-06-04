@@ -84,6 +84,8 @@ Always follow this sequence. Never skip the dry-run.
 # 3. Strip the standalone-only dangling depends_on block from the copy.
 # 4. Create a gitignored .env with the required RT-VLM values.
 # 5. Prepare host bind paths such as $VSS_DATA_DIR/data_log/vst/clip_storage.
+#    Use `sudo -n` for ownership fixes; if passwordless sudo is unavailable,
+#    stop and ask the host owner to run the printed command manually.
 # 6. docker compose --env-file .env -f rtvi-vlm-docker-compose.yml config --quiet
 # 7. docker pull the exact RT-VLM image tag.
 # 8. docker compose ... up -d rtvi-vlm, wait for ready, then smoke test.
@@ -105,6 +107,13 @@ contains `depends_on` references to sibling VLM/NIM services that are only
 defined in the full VSS/met-blueprints compose project. The standalone reference
 shows how to copy the compose file, derive the current image tag from it, strip
 the `depends_on` block, and validate the result before `up`.
+
+For agent-driven validation, never let `sudo` prompt interactively. Before any
+privileged ownership or Docker operation, use the non-interactive guard in
+[`references/deploy-rt-vlm-service.md`](references/deploy-rt-vlm-service.md):
+prefer plain `docker`; otherwise use `sudo -n docker`; if `sudo -n` fails, stop
+with the exact manual command for the host owner instead of retrying with
+interactive sudo or weakening permissions.
 
 If `docker pull` fails with a containerd snapshotter/unpack error on Docker 28+,
 apply the `/etc/docker/daemon.json` `containerd-snapshotter=false` fix in the
