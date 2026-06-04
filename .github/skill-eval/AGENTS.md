@@ -326,13 +326,16 @@ The canonical harbor command is in § Harbor invocation.
       # Score (PREFER an exact gpu_count match so the pool stays partitioned
       # — don't tie up a 2-GPU box with 1-GPU work):
       #   1. exact gpu_count match               (prefer over over-provisioned)
-      #   2. lock free (try flock -n)            (free)
+      #   2. lock appears free (advisory try flock -n)  (free)
       #   3. instance name asc                   (tiebreak)
-      # Pick the best-scoring candidate whose flock -n succeeds. Use an
+      # Pick the best-scoring candidate whose advisory flock -n succeeds.
+      # This is only a scoring hint; run_leg.py below is the only code that
+      # actually reserves the box. Use an
       # OVER-provisioned box (more GPUs than required) only as a fallback,
       # when no exact-count match is lock-free/reachable — brev_env accepts
       # it (>= check) and start() wipes it clean before the trial. If none
-      # free, block on flock -w 21000 of the best candidate.
+      # free, hand the best candidate to run_leg.py and let its structural
+      # lock wait arbitrate.
       INSTANCE_NAME=<picked>
       ```
 
@@ -350,8 +353,8 @@ The canonical harbor command is in § Harbor invocation.
       With fleet=1, this collapses to today's behaviour — the single
       `vss-eval-<short>` candidate is picked and locked. With fleet>1
       (operator manually `brev create`s `vss-eval-l40s-2`, etc.), two
-      concurrent CI runs land on different boxes naturally; the per-box
-      flock arbitrates within-fleet contention.
+      concurrent CI runs land on different boxes naturally; the wrapper-held
+      per-box lock arbitrates within-fleet contention.
 
       Selection priority is **hardware-hard, software-free**: the
       candidate's `gpu_type` MUST match the platform (hard); the box's
@@ -369,17 +372,22 @@ The canonical harbor command is in § Harbor invocation.
       polling forbidden in § "No polling", which watches in-flight work
       the synchronous harbor call already blocks on.
 
-   b. **Acquire the per-box lock** before running anything on the
-      chosen instance (filename keys off `$INSTANCE_NAME`):
+   b. **Run the structural leg wrapper**. Do not acquire or release
+      `flock` manually in a separate Bash call. `run_leg.py` opens
+      `/tmp/brev/$INSTANCE_NAME.lock`, holds that file descriptor for
+      the entire Harbor run (including all step-1..N invocations), and
+      releases it only when the wrapper exits or dies:
       ```bash
-      exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
-      flock -w 21000 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
-      # ... trials ...
-      exec {LFD}>&-        # release on exit; the kernel also releases
-                           # automatically on process death (no userspace
-                           # trap needed for cancel-in-progress / SIGKILL).
+      python3 .github/skill-eval/run_leg.py \
+        --instance "$INSTANCE_NAME" \
+        --dataset-root "$DS" \
+        --results-root "$RES" \
+        --scratch "$SCRATCH" \
+        --spec-stem "$EVAL_SPEC_STEM" \
+        --platform "$EVAL_PLATFORM"
       ```
-      The flock wait (21000s ≈ 5.8 h) sits just under the per-leg job
+
+      The wrapper's flock wait (21000s ≈ 5.8 h) sits just under the per-leg job
       timeout (`skills-eval.yml` `timeout-minutes: 360` = 6 h), so the
       agent always reaches the `BLOCKED: lock timeout` line before the
       job-killer fires (the old 12 h / 43200s budget was for the
@@ -387,19 +395,14 @@ The canonical harbor command is in § Harbor invocation.
       mid-wait). If another worker holds the lock past that window,
       fall back to step 5a and rescore — another box may have come
       free. Final fallback: emit `BLOCKED: lock timeout` and exit.
-   c. Drive harbor one trial at a time (they share GPU/ports on the
-      host). Use the canonical invocation in § Harbor invocation
-      below — **do not improvise flags**. Before the `uvx harbor run`
-      call, `export BREV_INSTANCE=<name>` to the instance you
-      resolved in step 5a; the canonical snippet has the line —
-      omitting it makes `BrevEnvironment.start()` raise immediately
-      ("no instance resolved, harness does not auto-provision") and
-      the trial fails before harbor invokes the agent. If a trial fails, read the
-      trial log, fix the adapter (not the flags), rerun. While a
-      trial is running, do NOT poll the remote box from your tool loop
-      — harbor has its own agent-execution timeout and will fail the
-      trial cleanly. Spend turns on the next trial's setup or on
-      reading already-completed trial logs instead.
+   c. The wrapper drives Harbor one trial at a time (they share GPU/ports
+      on the host), exports `BREV_INSTANCE`, discovers single-step vs
+      multi-step task layouts, and uses the canonical flags in
+      § Harbor invocation. If a trial fails, read the trial log, fix the
+      adapter (not the flags), regenerate the dataset, and rerun the
+      wrapper. While a trial is running, do NOT poll the remote box from
+      your tool loop — Harbor has its own agent-execution timeout and
+      will fail the trial cleanly.
    d. After each trial, parse
       `$RES/<date>/<trial>/verifier/reward.txt`
       and `test-stdout.txt`. Record `(spec, platform, reward,
@@ -413,15 +416,15 @@ The canonical harbor command is in § Harbor invocation.
    --body-file …`. Do NOT post a planning / "refresh" comment up
    front — comments carry results, not intent.
 
-7. **Release all locks. DO NOT tear down any Brev instance.** The
+7. **Do not tear down any Brev instance.** The
    `vss-eval-*` boxes are a long-running pool managed by the
    operator; instances stay up across runs, and so do the slow caches
    that survive a volume wipe (docker **image** layers, the repo clone, the
    `data/` sample-data extract — but NOT the model-weight *volumes*, which
    the per-trial reset drops; see § 7).
-   Close each lock FD (`exec {LFD}>&-`) so the next worker can
-   grab the box. You never `brev stop` / `brev delete`. Pool
-   lifecycle is strictly an operator concern.
+   `run_leg.py` releases the per-box lock automatically when its process
+   exits; there is no shell FD for you to close. You never `brev stop` /
+   `brev delete`. Pool lifecycle is strictly an operator concern.
 
    **The box's docker runtime is reset for you at the *start* of each spec,
    not on exit.** On a spec's first trial — a single-step spec, or `step-1`
@@ -452,11 +455,10 @@ The canonical harbor command is in § Harbor invocation.
 
    ⚠️ **`start()` is now destructive on a spec's first trial — never run
    `harbor` manually against a box another run currently holds.** The wipe is
-   not structurally gated by the per-box flock (that's orchestrator discipline,
-   § 5b); a manual `uvx harbor run` with `BREV_INSTANCE` set (README "Run one
-   trial by hand") will `docker rm -f` the holder's containers and volumes
-   mid-trial. Acquire the flock — or pick a demonstrably idle box — before any
-   manual run.
+   structurally gated only when the trial goes through `run_leg.py` (§ 5b);
+   a manual direct `uvx harbor run` with `BREV_INSTANCE` set will
+   `docker rm -f` the holder's containers and volumes mid-trial. Use
+   `run_leg.py` — or pick a demonstrably idle box — before any manual run.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
@@ -491,8 +493,8 @@ The canonical harbor command is in § Harbor invocation.
   running across runs. The agent's `brev` surface is limited to
   `brev ls`, `brev exec` (read-only — peeking at container state for
   diagnostics; deployment is done by each trial's own first agent
-  turn, not by anything you run from this agent), and acquiring /
-  releasing the per-box flock.
+  turn, not by anything you run from this agent), and invoking
+  `run_leg.py` for the structurally locked Harbor run.
   If no hardware-matching pool member exists for the trial's
   platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
   poll, 21000s budget, then `BLOCKED: pool exhausted for
@@ -524,7 +526,7 @@ Pool naming is operator-managed; the actual fleet is whatever
 `brev ls` reports matching the prefix. Don't hardcode a specific
 instance name — the fleet-selection algorithm in § 5a picks the
 candidate. **Lifecycle is the operator's job**; you only acquire
-the per-box flock, run trials, and release the flock — see Hard
+the per-box lock through `run_leg.py` and run trials — see Hard
 rules about `brev create / start / stop / delete / reset`.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
@@ -532,13 +534,13 @@ even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** One matrix leg = one serial
 worker; concurrency comes from sibling legs each grabbing a different
-box. Pick + lock per § 5a, then `export BREV_INSTANCE` before
-`uvx harbor run` (§ Harbor invocation). The export is mandatory —
-BrevEnvironment no longer auto-provisions, so without it (or
-`task.toml [metadata].brev_instance`) `start()` raises before harbor
-runs. The pool is operator-managed: never `brev create / start / stop /
-reset / delete` a member; if none matches the platform, wait per § 5a
-and only then `BLOCKED: pool exhausted for <platform>`.
+box. Pick per § 5a, then run `run_leg.py` (§ Harbor invocation). The
+wrapper exports `BREV_INSTANCE` before Harbor starts; that export is
+mandatory because BrevEnvironment no longer auto-provisions, so without
+it (or `task.toml [metadata].brev_instance`) `start()` raises before
+Harbor runs. The pool is operator-managed: never `brev create / start /
+stop / reset / delete` a member; if none matches the platform, wait per
+§ 5a and only then `BLOCKED: pool exhausted for <platform>`.
 
 **Name prefix is an anchored match, not a substring.** Only instances
 whose name starts with `vss-eval-` are eligible. Ignore everything else
@@ -573,82 +575,33 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
 
 ## Harbor invocation
 
-The one command that drives a trial. Copy this verbatim — harbor's
-flag names have bitten multiple runs (`--include-task-name`, not
-`--include`; the environment import is a Python **module** path, not
-a file path).
+The command that drives a trial is the wrapper from § 5b. Copy this
+shape, substituting only the selected `$INSTANCE_NAME`:
 
 ```bash
-# uvx (and claude) install under ~/.local/bin. A fresh `bash -c` /
-# subshell does NOT source ~/.bashrc, so $HOME/.local/bin is missing
-# from PATH and `uvx` resolves to "command not found" — the trial
-# never starts. Re-export PATH defensively at the top of every Bash
-# call that runs harbor (observed on PR #827: "uvx is not in PATH for
-# subshells", whole sweep stalled).
-export PATH="$HOME/.local/bin:$PATH"
-
-# PYTHONPATH lets uvx harbor resolve envs.brev_env:BrevEnvironment.
-# The workflow step already exports it, but re-export defensively in
-# case you're driving harbor from a subshell.
-export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
-
-# CRITICAL: point the environment at the box you selected in step 5a.
-# BrevEnvironment reads BREV_INSTANCE at module import time; if it's
-# unset and task.toml [metadata].brev_instance is also absent,
-# BrevEnvironment.start() raises immediately — the harness no longer
-# auto-provisions, so the trial fails before harbor invokes the
-# agent. The export is the only path to a successful run.
-#
-# $INSTANCE_NAME comes from the fleet-selection algorithm in step 5a:
-# the chosen ^vss-eval-* candidate scored by (free-lock, name). Do
-# not hardcode "vss-eval-l40s" — with a multi-box fleet, concurrent
-# workflow runs land on different boxes and that's how parallelism
-# happens.
-export BREV_INSTANCE="$INSTANCE_NAME"
-
-# Per-(spec, platform) output ROOT. This is load-bearing: harbor
-# creates a <date>/<trial> subdir keyed to the *second* under -o, so
-# two harbor runs that share one -o and start in the same second
-# collide with FileExistsError and silently lose a trial (observed on
-# PR #827: base/lvs/alerts_cv vanished when 6 specs fanned out onto a
-# shared -o). Giving every invocation its own root makes serial
-# retries, stale dirs left by a failed attempt, and concurrent
-# fan-out (§ Wait contract #4) all collision-proof. NEVER point two
-# harbor runs at the same -o.
-# `$RES` (this leg's per-leg results root, set in § "Per-leg scratch
-# isolation") IS the harbor -o for a single-step spec — a single-step
-# leg owns its whole `$RES` root, so trials land at `$RES/<date>/<trial>`
-# and the workflow's collector finds them directly. Do NOT prepend an
-# extra `<spec_stem>-<platform>` subdir (a vestige of the retired
-# unscoped `results/<run_id>/` layout): that pushed result.json one
-# level deeper than the collector's `find` looks and silently dropped
-# the artifact.
-
-# Harbor names each task by its path RELATIVE to -p (the dir that holds
-# task.toml), NOT the task.toml `[task] name`. Point -p at the task dir's
-# immediate PARENT so the name collapses to the leaf basename. A single-step
-# spec emits ONE task at $DS/<profile>/<platform>/task.toml; the <profile>
-# middle dir varies per spec, so discover it — never hardcode -p "$DS".
-TASK_DIR=$(dirname "$(find "$DS" -name task.toml -print -quit)")
-
-uvx harbor run \
-  --environment-import-path "envs.brev_env:BrevEnvironment" \
-  -p "$(dirname "$TASK_DIR")" \
-  --include-task-name "$(basename "$TASK_DIR")" \
-  -a claude-code \
-  --model "$ANTHROPIC_MODEL" \
-  --ak api_base="$ANTHROPIC_BASE_URL/v1" \
-  --ae CLAUDE_CODE_DISABLE_THINKING=1 \
-  --environment-build-timeout-multiplier 3.0 \
-  --agent-timeout-multiplier 6.0 \
-  --verifier-timeout-multiplier 3.0 \
-  --max-retries 0 -n 1 --yes \
-  -o "$RES"
+python3 .github/skill-eval/run_leg.py \
+  --instance "$INSTANCE_NAME" \
+  --dataset-root "$DS" \
+  --results-root "$RES" \
+  --scratch "$SCRATCH" \
+  --spec-stem "$EVAL_SPEC_STEM" \
+  --platform "$EVAL_PLATFORM"
 ```
 
-(`$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
+Do **not** run `uvx harbor run` directly from the agent. The wrapper
+does that inside the same process that holds `/tmp/brev/$INSTANCE_NAME.lock`.
+It exports `PATH`, `PYTHONPATH`, `BREV_INSTANCE`, and
+`CLAUDE_CODE_DISABLE_THINKING=1`; discovers whether `$DS` contains a
+single-step task or ordered `step-1..N` tasks; dispatches one Harbor
+task at a time with the fixed flags below; writes multi-step skip
+markers; and releases the lock when it exits.
+
+`$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
-path; concurrent legs share the host.)
+path; concurrent legs share the host. `$RES` is the Harbor `-o` root
+for both single-step and multi-step specs, so trials land at
+`$RES/<date>/<trial>/` where the collector and viewer migration expect
+them.
 
 Notes that have burned prior runs:
 - `--include-task-name` matches a task by its path **relative to `-p`**,
@@ -669,71 +622,16 @@ Notes that have burned prior runs:
 - `-i` / `--include` is a different flag and will silently match
   nothing or everything.
 - **Multi-step specs MUST be dispatched one step at a time, in
-  order, with skip-on-prior-fail.** Harbor's default scheduler
-  treats every `step-*/` subdir as an independent task and runs them
-  unordered (observed on PR #440: alerts ran step-1 → step-4 → step-2,
-  step-3 never dispatched at all). Spec checks for step N assume
-  the state established by step N-1; running them out of order
-  silently produces bogus failures. Use this dispatch loop instead
-  of a single `harbor run -p <platform_dir>` invocation:
-
-  ```bash
-  # Discover the platform dir that holds the step-*/ subdirs. The adapter
-  # nests them under a middle dir that is NOT the platform — it's the
-  # spec's deploy-profile (e.g. summarize emits $DS/lvs/l40s/step-1, whose
-  # stem is `lvs_api_ops`), so never hardcode `$DS/<platform>`. Find it.
-  STEP1_TOML=$(find "$DS" -path '*/step-1/task.toml' -print -quit)
-  PLATFORM_DIR=$(dirname "$(dirname "$STEP1_TOML")")   # the .../<platform> dir
-  # Read step_count from any step's task.toml [metadata] (same on each).
-  STEP_COUNT=$(grep -oP '^step_count\s*=\s*\K\d+' "$STEP1_TOML")
-
-  for STEP in $(seq 1 "$STEP_COUNT"); do
-    # All steps share the per-leg root `-o "$RES"`, same as a single-step
-    # spec — so trials land at `$RES/<date>/<trial>` (depth the collector +
-    # the viewer-migration below both expect). Sharing one -o is safe HERE
-    # because the steps run strictly sequentially, minutes apart (each is a
-    # full deploy+trial), so harbor always writes a distinct `<date>` dir —
-    # the same-second `-o` collision warned about above only happens with
-    # PARALLEL spec fan-out, never sequential steps. `--include-task-name`
-    # pins this invocation to exactly step N's task.
-    uvx harbor run \
-      --environment-import-path "envs.brev_env:BrevEnvironment" \
-      -p "$PLATFORM_DIR" \
-      --include-task-name "step-${STEP}" \
-      -a claude-code \
-      --model "$ANTHROPIC_MODEL" \
-      --ak api_base="$ANTHROPIC_BASE_URL/v1" \
-      --ae CLAUDE_CODE_DISABLE_THINKING=1 \
-      --environment-build-timeout-multiplier 3.0 \
-      --agent-timeout-multiplier 6.0 \
-      --verifier-timeout-multiplier 3.0 \
-      --max-retries 0 -n 1 --yes \
-      -o "$RES"
-
-    # Read the just-completed step's reward. Trial dirs are named
-    # step-<N>__<rand6> under $RES/<date>/, so glob on the step prefix.
-    REWARD=$(cat "$RES"/*/step-${STEP}__*/verifier/reward.txt \
-      2>/dev/null | tail -n 1)
-    REWARD="${REWARD:-0}"
-
-    # Skip-on-prior-fail: if this step didn't fully pass, do not
-    # dispatch the remaining steps. Their checks assume this step's
-    # state was set up; running them produces noise, not signal.
-    # Record "skipped (prior-step fail)" in the result table.
-    awk -v r="$REWARD" 'BEGIN { exit !(r+0 < 1.0) }' && {
-      for SKIP in $(seq $((STEP + 1)) "$STEP_COUNT"); do
-        printf '%s\n' "skipped (prior-step fail, step=$STEP reward=$REWARD)" \
-          > "$SCRATCH/skipped-<spec_stem>-<platform>-step-${SKIP}.txt"
-      done
-      break
-    }
-  done
-  ```
-
-  Single-step specs (most `vss-deploy-profile/*` specs) skip this loop and use
-  the one-shot pattern above (`-p "$(dirname "$TASK_DIR")"`,
-  `--include-task-name "$(basename "$TASK_DIR")"`). Detect by reading
-  `step_count` from `task.toml`: if 1, dispatch once; if N, use the loop.
+  order, with skip-on-prior-fail.** Harbor's default scheduler treats every
+  `step-*/` subdir as an independent task and runs them unordered
+  (observed on PR #440: alerts ran step-1 -> step-4 -> step-2, step-3
+  never dispatched at all). `run_leg.py` implements the ordered loop:
+  it finds every `*/step-1/task.toml` chain under `$DS`, reads
+  `step_count`, runs `step-1..N` sequentially with `--include-task-name
+  step-N`, reads the just-finished step's reward, and writes
+  `$SCRATCH/skipped-<spec_stem>-<platform>-step-<N>.txt` for remaining
+  steps when a prior step's reward is below 1.0. Do not reimplement this
+  loop in Bash.
 - `--environment-import-path` is a **Python module spec**
   (`envs.brev_env:BrevEnvironment`), not a filesystem path. Do not
   prepend `.github.skill-eval.` — `.github` isn't a valid Python
@@ -759,19 +657,20 @@ Notes that have burned prior runs:
 - Output goes to `$RES/<date>/<trial>/`. Migrate to the viewer
   (see § Harbor viewer).
 
-### Wait contract — every harbor invocation is reaped before the Bash tool returns
+### Wait contract — run_leg.py blocks until Harbor exits
 
-`uvx harbor run` MUST block this turn until the trial exits. Do NOT
-background it and poll progress (line counts, `brev exec`, etc.) — each
-poll burns a tool turn and a trial that out-runs the budget exits with
-no comment (a real failure: the wrapper exits 4, see § Output
-requirements).
+`python3 .github/skill-eval/run_leg.py ...` MUST run in the foreground
+until the trial or ordered multi-step chain exits. Do NOT background it
+and poll progress (line counts, `brev exec`, etc.) — each poll burns a
+tool turn and a trial that out-runs the budget exits with no comment (a
+real failure: the wrapper exits 4, see § Output requirements).
 
 Don't background the trial (`run_in_background`, `&`/`nohup`/`disown`):
-the harness blocks those and raises the Bash timeout cap so a long
-foreground run isn't auto-backgrounded into a pollable task. Wrap each
-run as `timeout 7800 uvx harbor run …` (hard backstop, under the cap).
-To peek at a stuck trial, do it ONCE between trials, never in a loop.
+the harness blocks those and raises the Bash timeout cap so the long
+foreground wrapper call is not auto-backgrounded into a pollable task.
+`run_leg.py` applies a 7800s hard backstop to each internal Harbor
+subprocess. To peek at a stuck trial, do it ONCE after the wrapper
+returns, never in a loop while it is running.
 
 If a trial errors out, read `$RES/<date>/<trial>/trial.log` —
 it has the harness + adapter traceback. Fix the adapter
@@ -989,9 +888,9 @@ separate; don't conflate the two.
 - **Claude-agent-sdk / API rate limit.** Back off 60s, retry up to
   3x. If still failing, emit `BLOCKED: anthropic rate limit` and
   exit.
-- **Lock contention** (another CI run holds the Brev lock). Wait up
-  to ~5.8 h (flock `-w 21000`, the per-leg job timeout is 6 h). If you time out, emit `BLOCKED: lock
-  timeout on <instance>`.
+- **Lock contention** (another CI run holds the Brev lock). `run_leg.py`
+  waits up to ~5.8 h (`--lock-timeout-sec 21000`, under the per-leg job
+  timeout). If it times out, emit `BLOCKED: lock timeout on <instance>`.
 
 ## Single-spec mode
 
@@ -1018,7 +917,7 @@ loop. Two leg kinds:
   (fork PR → comment + BLOCK). Run no trial, post no results comment.
   End `BLOCKED: missing adapter for <skill> auto-committed (<sha>)`.
 
-Everything else — hard rules, fleet selection (§ 5a), flock (§ 5b),
+Everything else — hard rules, fleet selection (§ 5a), wrapper-held lock (§ 5b),
 harbor invocation, result format, failure modes, the DONE/BLOCKED marker
 (§ Output requirements) — applies unchanged.
 
@@ -1042,8 +941,8 @@ difference — there is no PR (`PR_NUMBER` is empty). That means:
   `$GITHUB_STEP_SUMMARY` and `BLOCKED:` (never push; the hard rule against
   `skills/` writes still applies in full).
 
-Everything else — startup hygiene, fleet selection (§ 5a), per-box flock
-(§ 5b), canonical harbor invocation, no trial-supervision polling, the
+Everything else — startup hygiene, fleet selection (§ 5a), wrapper-held
+per-box lock (§ 5b), canonical harbor invocation, no trial-supervision polling, the
 artifact collection step, the DONE/BLOCKED final marker — is identical to
 the PR-driven path.
 

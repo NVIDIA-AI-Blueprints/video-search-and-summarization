@@ -49,9 +49,10 @@ permissions:
   pull-requests: write
 
 # One eval generation per PR (or manual sweep) at a time. A fresh push
-# cancels every in-flight matrix leg of the prior push for this ref; the
-# per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock) release automatically
-# when each agent process dies (POSIX flock(2) — no userspace trap).
+# cancels every in-flight matrix leg of the prior push for this ref;
+# run_leg.py holds /tmp/brev/<INSTANCE_NAME>.lock while Harbor runs, and
+# the kernel releases it automatically when the wrapper process dies
+# (POSIX flock(2) — no userspace trap).
 # Stale containers/volumes a cancelled leg left on a box are reconciled by
 # the next trial's own deploy step (the harness no longer pre-deploys or
 # tracks an active-deploy marker). Same path handles SIGKILL (the
@@ -138,7 +139,7 @@ jobs:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
       # Cap concurrent legs near the vss-eval-* box count so legs don't
-      # all grab a runner slot only to block on flock. Excess legs queue.
+      # all grab a runner slot only to wait inside run_leg.py. Excess legs queue.
       max-parallel: 4
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
@@ -146,10 +147,10 @@ jobs:
     # (AGENTS.md `--agent-timeout-multiplier 6.0`). 360m covers a ~4-step
     # cold-box spec plus deploy/dataset/comment overhead without the
     # whole-sweep 12 h cap the single-job design needed. AGENTS.md's
-    # box-lock wait (flock -w 21000 ≈ 5.8 h) is kept strictly under this
+    # box-lock wait (run_leg.py --lock-timeout-sec 21000 ≈ 5.8 h) is kept strictly under this
     # 360 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
     # before the job-killer fires (a 43200 s / 12 h wait would be
-    # silently killed mid-flock with no verdict — the exit-4 trap).
+    # silently killed while waiting on a box with no verdict — the exit-4 trap).
     timeout-minutes: 360
     steps:
       - name: Checkout mirror head
@@ -176,16 +177,17 @@ jobs:
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
-          # Raise the Bash-tool timeout cap above the worst-case single
-          # `uvx harbor run` (~2h: env-build 1800s + agent 3600s + verify
-          # 1800s). Without this the runtime auto-backgrounds the foreground
-          # harbor call at the 10-min default cap and the agent falls into
-          # polling its task output — silently defeating the "block on
-          # harbor" wait contract (the PreToolUse hook can't catch a
+          # Raise the Bash-tool timeout cap above the worst-case foreground
+          # run_leg.py call. The wrapper can spend most of the job waiting
+          # for a box lock and then run one or more Harbor subprocesses.
+          # Without this the runtime auto-backgrounds the foreground wrapper
+          # call at the default cap and the agent falls into polling its task
+          # output — silently defeating the "block on Harbor" wait contract
+          # (the PreToolUse hook can't catch a
           # runtime-initiated background; it only inspects call input). Both
           # stay under the job's timeout-minutes so the call can't outlive it.
-          BASH_DEFAULT_TIMEOUT_MS: "7200000"
-          BASH_MAX_TIMEOUT_MS: "10800000"
+          BASH_DEFAULT_TIMEOUT_MS: "21600000"
+          BASH_MAX_TIMEOUT_MS: "21600000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           set -a
