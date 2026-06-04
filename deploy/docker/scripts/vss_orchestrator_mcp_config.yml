@@ -105,7 +105,6 @@ function_groups:
             RTVI_VLM_IMAGE_TAG: "3.2.1-sbsa"
             PERCEPTION_TAG: "3.2.1-sbsa"
             base:
-              VLM_NIM_KVCACHE_PERCENT: "0.2"
             alerts.verification:
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
               RTVI_VLM_MAX_MODEL_LEN: "8192"  # can raise to 16384 if VLLM_ENFORCE_EAGER=true
