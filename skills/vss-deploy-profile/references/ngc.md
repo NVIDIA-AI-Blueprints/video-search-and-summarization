@@ -77,14 +77,14 @@ echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
 ## Verify Access
 
 ```bash
-ngc registry resource info nvstaging/vss-developer/dev-profile-compose:3.2.0-26.05.2
+ngc registry resource info nvidia/vss-developer/dev-profile-sample-data:3.2.0
 ```
 
 Should return resource info without errors.
 
-> **Develop-only compose resource.** The `dev-profile-compose` check intentionally exercises the staging `nvstaging/vss-developer/dev-profile-compose:<release-tag>` resource. Published VSS image defaults in this repo use `nvcr.io/nvidia/vss-core/...`; use this staging resource check only when validating unreleased develop compose bundles.
+> **Public catalog resource.** This check exercises the published `nvidia/vss-developer/dev-profile-sample-data:<release-tag>` resource — the same sample-data bundle the deploy pulls for its sample videos. VSS image defaults in this repo pull from `nvcr.io/nvidia/vss-core/...`, so verifying a `nvidia/vss-developer` resource confirms the same API key and org reach the published VSS catalog.
 >
-> **Why resource and not image?** Image tags on develop carry the build's commit SHA (e.g. `vss-agent:3.2.0-26.05.5-220a0fdacdd2` from `VSS_AGENT_VERSION` in `dev-profile-base/.env`), which churns every weekly cut and would make this doc stale immediately. The `dev-profile-compose` resource is versioned with the bare release tag and is stable across SHA-stamped image rebuilds.
+> **Why resource and not image?** Image tags carry the build's commit SHA (e.g. `vss-agent:3.2.0-26.05.5-220a0fdacdd2` from `VSS_AGENT_VERSION` in `dev-profile-base/.env`), which churns every weekly cut and would make this doc stale immediately. The `dev-profile-sample-data` resource is versioned with the bare release tag and is stable across SHA-stamped image rebuilds.
 
 **Common error:** `Missing org — If Authenticated, org is also required.`
 → Fix: run `ngc config set` and ensure the org matches the one selected when generating the key.
