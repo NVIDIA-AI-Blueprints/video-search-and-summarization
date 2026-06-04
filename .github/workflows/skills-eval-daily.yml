@@ -197,7 +197,7 @@ jobs:
           # overwrite each other's archive before upload — each leg then
           # uploads whichever sibling wrote last. The slug makes the path
           # unique per (skill,spec,platform).
-          LEG_TARBALL="/tmp/skills-eval-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
+          LEG_TARBALL="/tmp/skills-eval-daily-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
           RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
             tar czf "$LEG_TARBALL" \
