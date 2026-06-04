@@ -232,12 +232,8 @@ RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remo
 
 | Model or checkpoint | Example selector |
 |---------------------|------------------|
-| [Cosmos3-Nano-Reasoner](https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner) | `VLM_MODEL_TO_USE=cosmos-reason3`, `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner` |
-| [Cosmos3-Super-Reasoner](https://huggingface.co/nvidia/Cosmos3-Super-Reasoner) | `VLM_MODEL_TO_USE=cosmos-reason3`, `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos3-Super-Reasoner` |
 | [Cosmos3 Nano Reasoner, modelopt-nvfp4-full-quantize](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=modelopt-nvfp4-full-quantize-final_format_fix) | `VLM_MODEL_TO_USE=cosmos-reason3`, `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 | [Cosmos3 Nano Reasoner, modelopt-fp8-full-quantize](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=modelopt-fp8-final_format_fix) | `VLM_MODEL_TO_USE=cosmos-reason3`, `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
-| [Cosmos3-Nano](https://huggingface.co/nvidia/Cosmos3-Nano) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos3-Nano` |
-| [Cosmos3-Super](https://huggingface.co/nvidia/Cosmos3-Super) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos3-Super` |
 
 ### Nemotron Omni Family
 
