@@ -17,8 +17,8 @@
 import pytest
 
 from vss_agents.tools.video_understanding import VideoUnderstandingConfig
-from vss_agents.tools.video_understanding import _classify_audio_error
 from vss_agents.tools.video_understanding import _build_vlm_messages
+from vss_agents.tools.video_understanding import _classify_audio_error
 from vss_agents.tools.video_understanding import _effective_system_prompt
 from vss_agents.tools.video_understanding import _is_omni_audio_model
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
@@ -233,6 +233,17 @@ class TestAudioErrorClassification:
             _classify_audio_error(ValueError("Invalid audio file: audio format is not supported"))
             == "invalid_or_unsupported_audio_file"
         )
+
+    @pytest.mark.parametrize(
+        ("message", "expected"),
+        [
+            ("Invalid or unsupported audio file", "invalid_or_unsupported_audio_file"),
+            ("The media contains no audio track", "no_audio_stream"),
+            ("Failed to decode audio stream due to unsupported audio codec", "audio_decode_or_unsupported_codec"),
+        ],
+    )
+    def test_classifies_common_audio_variants(self, message, expected):
+        assert _classify_audio_error(RuntimeError(message)) == expected
 
     def test_non_audio_error_returns_none(self):
         assert _classify_audio_error(RuntimeError("timeout talking to backend")) is None

@@ -34,6 +34,7 @@ class TestVSTVideoClipConfig:
         assert config.overlay_config is False
         assert config.time_format == "offset"
         assert config.enable_audio is False
+        assert config.enable_audio_fallback is True
 
     def test_config_with_overlay(self):
         """Test config with overlay enabled."""

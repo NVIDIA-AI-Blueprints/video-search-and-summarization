@@ -50,6 +50,8 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 
+from vss_agents.tools.video_understanding import _audio_error_message
+from vss_agents.tools.video_understanding import _classify_audio_error
 from vss_agents.utils.hitl import format_hitl_popup_header
 from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
@@ -174,6 +176,11 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
             "Pairs with `streaming_ingest.enable_audio=True` so VST keeps audio "
             "during upload transcoding."
         ),
+    )
+    enable_audio_fallback: bool = Field(
+        default=True,
+        description="When True, deterministic audio failures trigger one retry with enable_audio=false. "
+        "When False, audio-related failures return immediately.",
     )
 
     stream: bool = Field(
@@ -662,47 +669,47 @@ async def lvs_video_understanding(
         video_url = rewrite_to_internal_vst_url(video_url, config.vst_internal_url)
         logger.info(f"[LVS Video Understanding] INTERNAL VIDEO URL FOR LVS ANALYSIS: {video_url}")
 
-        # Build LVS request using new API contract
-        lvs_request: dict[str, Any] = {
-            "url": video_url,
-            "model": config.model,
-            # HITL parameters
-            "scenario": scenario,
-            "events": events,
-            # Video processing parameters
-            "chunk_duration": config.chunk_duration,
-            "num_frames_per_chunk": config.num_frames_per_chunk,
-        }
-
-        if start_time is not None or end_time is not None:
-            lvs_request["media_info"] = {
-                "type": "offset",
-                "start_offset": int(start_time) if start_time is not None else 0,
-                "end_offset": int(end_time) if end_time is not None else 0,
+        def _build_lvs_request(enable_audio: bool) -> dict[str, Any]:
+            lvs_request: dict[str, Any] = {
+                "url": video_url,
+                "model": config.model,
+                # HITL parameters
+                "scenario": scenario,
+                "events": events,
+                # Video processing parameters
+                "chunk_duration": config.chunk_duration,
+                "num_frames_per_chunk": config.num_frames_per_chunk,
             }
 
-        # Add seed if configured
-        if config.seed is not None:
-            lvs_request["seed"] = config.seed
+            if start_time is not None or end_time is not None:
+                lvs_request["media_info"] = {
+                    "type": "offset",
+                    "start_offset": int(start_time) if start_time is not None else 0,
+                    "end_offset": int(end_time) if end_time is not None else 0,
+                }
 
-        if objects_of_interest:
-            lvs_request["objects_of_interest"] = objects_of_interest
+            # Add seed if configured
+            if config.seed is not None:
+                lvs_request["seed"] = config.seed
 
-        if config.vlm_input_width is not None:
-            lvs_request["vlm_input_width"] = config.vlm_input_width
-        if config.vlm_input_height is not None:
-            lvs_request["vlm_input_height"] = config.vlm_input_height
+            if objects_of_interest:
+                lvs_request["objects_of_interest"] = objects_of_interest
 
-        if config.enable_audio:
-            lvs_request["enable_audio"] = True
+            if config.vlm_input_width is not None:
+                lvs_request["vlm_input_width"] = config.vlm_input_width
+            if config.vlm_input_height is not None:
+                lvs_request["vlm_input_height"] = config.vlm_input_height
 
-        logger.info(f"LVS request: {lvs_request}")
+            if enable_audio:
+                lvs_request["enable_audio"] = True
+            return lvs_request
 
-        logger.info(f"Calling LVS service: {config.lvs_backend_url}/summarize")
-        logger.debug(f"LVS request: {lvs_request}")
+        async def _invoke_lvs(enable_audio: bool) -> dict[str, Any]:
+            lvs_request = _build_lvs_request(enable_audio=enable_audio)
+            logger.info(f"LVS request: {lvs_request}")
+            logger.info(f"Calling LVS service: {config.lvs_backend_url}/summarize")
+            logger.debug(f"LVS request: {lvs_request}")
 
-        # Call LVS service
-        try:
             timeout = aiohttp.ClientTimeout(connect=config.conn_timeout_ms / 1000, total=config.read_timeout_ms / 1000)
             async with (
                 aiohttp.ClientSession(timeout=timeout) as session,
@@ -748,12 +755,27 @@ async def lvs_video_understanding(
                 logger.info(f"LVS response received with {len(detected_events)} events for '{sensor_id}'")
                 return result
 
-        except aiohttp.ClientError as e:
-            logger.error(f"LVS service connection error: {e}")
-            raise RuntimeError(f"Failed to connect to LVS service: {e}") from e
+        try:
+            return await _invoke_lvs(enable_audio=config.enable_audio)
         except Exception as e:
-            logger.error(f"LVS video understanding failed: {e}")
-            raise
+            audio_error = _classify_audio_error(e) if config.enable_audio else None
+            if not audio_error:
+                if isinstance(e, aiohttp.ClientError):
+                    logger.error(f"LVS service connection error: {e}")
+                    raise RuntimeError(f"Failed to connect to LVS service: {e}") from e
+                logger.error(f"LVS video understanding failed: {e}")
+                raise
+            if config.enable_audio_fallback:
+                logger.warning(
+                    "Detected deterministic audio error (%s) for %s; retrying once with enable_audio=false.",
+                    audio_error,
+                    sensor_id,
+                )
+                return await _invoke_lvs(enable_audio=False)
+            friendly = _audio_error_message(audio_error)
+            raise ValueError(
+                f"{friendly} Set enable_audio_fallback=true to retry once with audio disabled."
+            ) from e
 
     async def _lvs_video_understanding(lvs_input: LVSVideoUnderstandingInput) -> LVSVideoUnderstandingOutput:
         """

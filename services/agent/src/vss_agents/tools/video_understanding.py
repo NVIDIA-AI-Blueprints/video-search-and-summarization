@@ -67,20 +67,30 @@ _VLM_RETRYABLE_ERRORS = (
 
 
 _AUDIO_INVALID_PATTERNS = (
+    "invalid or unsupported audio file",
     "invalid audio",
     "unsupported audio",
+    "unsupported audio file",
+    "unsupported audio format",
     "audio file is invalid",
     "audio format is not supported",
 )
 _AUDIO_NO_STREAM_PATTERNS = (
     "no audio stream",
+    "video has no audio",
+    "contains no audio",
     "audio stream not found",
     "audio stream is missing",
+    "does not contain an audio stream",
     "without an audio stream",
 )
 _AUDIO_CODEC_PATTERNS = (
     "audio decode",
     "decode audio",
+    "failed to decode audio",
+    "cannot decode audio",
+    "unsupported audio codec",
+    "audio decoder",
     "audio codec",
 )
 _AUDIO_CODEC_GENERIC_PATTERNS = (
@@ -650,7 +660,9 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             if is_cosmos_model:
                 media_io_kwargs = {"video": {"num_frames": num_frames}}
                 if is_cosmos_reason2:
-                    mm_processor_kwargs = {"size": {"shortest_edge": config.min_pixels, "longest_edge": config.max_pixels}}
+                    mm_processor_kwargs = {
+                        "size": {"shortest_edge": config.min_pixels, "longest_edge": config.max_pixels}
+                    }
                 else:
                     mm_processor_kwargs = {
                         "videos_kwargs": {"min_pixels": config.min_pixels, "max_pixels": config.max_pixels}

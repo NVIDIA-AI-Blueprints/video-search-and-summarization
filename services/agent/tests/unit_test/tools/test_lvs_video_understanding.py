@@ -109,6 +109,7 @@ class TestLVSVideoUnderstandingConfig:
         }
         assert LVSVideoUnderstandingConfig(**base_kwargs).enable_audio is False
         assert LVSVideoUnderstandingConfig(**base_kwargs, enable_audio=True).enable_audio is True
+        assert LVSVideoUnderstandingConfig(**base_kwargs).enable_audio_fallback is True
 
 
 class TestLVSVideoUnderstandingInput:
@@ -195,3 +196,113 @@ class TestLVSVideoUnderstandingInner:
         mock_session.post.assert_called_once()
         _, kwargs = mock_session.post.call_args
         assert kwargs["json"].get("enable_audio") is True
+
+    @pytest.mark.asyncio
+    async def test_lvs_audio_error_retries_once_with_audio_disabled(self):
+        config = LVSVideoUnderstandingConfig(
+            lvs_backend_url="http://localhost:38111",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            default_scenario="warehouse monitoring",
+            default_events=["accident"],
+            enable_audio=True,
+            enable_audio_fallback=True,
+            vst_internal_url="http://localhost:30888",
+        )
+
+        mock_video_url_result = MagicMock()
+        mock_video_url_result.video_url = "http://localhost:30888/video.mp4"
+        mock_video_url_tool = MagicMock()
+        mock_video_url_tool.ainvoke = AsyncMock(return_value=mock_video_url_result)
+        mock_builder = MagicMock()
+        mock_builder.get_tool = AsyncMock(return_value=mock_video_url_tool)
+
+        fail_resp = MagicMock()
+        fail_resp.status = 400
+        fail_resp.text = AsyncMock(return_value="Invalid or unsupported audio file")
+        fail_resp.__aenter__ = AsyncMock(return_value=fail_resp)
+        fail_resp.__aexit__ = AsyncMock(return_value=False)
+
+        ok_resp = MagicMock()
+        ok_resp.status = 200
+        ok_resp.text = AsyncMock(return_value="")
+        ok_resp.json = AsyncMock(return_value={"choices": [{"message": {"content": '{"video_summary": "ok", "events": []}'}}]})
+        ok_resp.__aenter__ = AsyncMock(return_value=ok_resp)
+        ok_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = [fail_resp, ok_resp]
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        mock_hitl_response = MagicMock()
+        mock_hitl_response.content.text = ""
+        mock_uim = MagicMock()
+        mock_uim.prompt_user_input = AsyncMock(return_value=mock_hitl_response)
+        mock_ctx = MagicMock()
+        mock_ctx.user_interaction_manager = mock_uim
+
+        with patch("vss_agents.tools.lvs_video_understanding.Context") as mock_context_class:
+            mock_context_class.get.return_value = mock_ctx
+            with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientSession", return_value=mock_session):
+                with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientTimeout"):
+                    gen = lvs_video_understanding.__wrapped__(config, mock_builder)
+                    function_info = await gen.__anext__()
+                    inner_fn = function_info.single_fn
+                    await inner_fn(LVSVideoUnderstandingInput(sensor_id="sensor-1"))
+
+        assert mock_session.post.call_count == 2
+        first_kwargs = mock_session.post.call_args_list[0].kwargs
+        second_kwargs = mock_session.post.call_args_list[1].kwargs
+        assert first_kwargs["json"].get("enable_audio") is True
+        assert second_kwargs["json"].get("enable_audio") is None
+
+    @pytest.mark.asyncio
+    async def test_lvs_audio_error_with_fallback_disabled_returns_clean_error(self):
+        config = LVSVideoUnderstandingConfig(
+            lvs_backend_url="http://localhost:38111",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            default_scenario="warehouse monitoring",
+            default_events=["accident"],
+            enable_audio=True,
+            enable_audio_fallback=False,
+            vst_internal_url="http://localhost:30888",
+        )
+
+        mock_video_url_result = MagicMock()
+        mock_video_url_result.video_url = "http://localhost:30888/video.mp4"
+        mock_video_url_tool = MagicMock()
+        mock_video_url_tool.ainvoke = AsyncMock(return_value=mock_video_url_result)
+        mock_builder = MagicMock()
+        mock_builder.get_tool = AsyncMock(return_value=mock_video_url_tool)
+
+        fail_resp = MagicMock()
+        fail_resp.status = 400
+        fail_resp.text = AsyncMock(return_value="No audio stream found in media")
+        fail_resp.__aenter__ = AsyncMock(return_value=fail_resp)
+        fail_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post.return_value = fail_resp
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        mock_hitl_response = MagicMock()
+        mock_hitl_response.content.text = ""
+        mock_uim = MagicMock()
+        mock_uim.prompt_user_input = AsyncMock(return_value=mock_hitl_response)
+        mock_ctx = MagicMock()
+        mock_ctx.user_interaction_manager = mock_uim
+
+        with patch("vss_agents.tools.lvs_video_understanding.Context") as mock_context_class:
+            mock_context_class.get.return_value = mock_ctx
+            with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientSession", return_value=mock_session):
+                with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientTimeout"):
+                    gen = lvs_video_understanding.__wrapped__(config, mock_builder)
+                    function_info = await gen.__anext__()
+                    inner_fn = function_info.single_fn
+                    with pytest.raises(ValueError, match="Set enable_audio_fallback=true"):
+                        await inner_fn(LVSVideoUnderstandingInput(sensor_id="sensor-1"))
