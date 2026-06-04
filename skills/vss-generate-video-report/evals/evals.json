@@ -1,0 +1,13 @@
+[
+  {
+    "id": "generate-video-report",
+    "question": "Generate a VSS analysis report for a recorded video.",
+    "expected_skill": "vss-generate-video-report",
+    "ground_truth": "Loads vss-generate-video-report and produces a VSS analysis report, selecting Mode A (per-clip VLM) or Mode B (incident-range via video-analytics); not real-time alerts or ad-hoc Q&A.",
+    "expected_behavior": [
+      "Loads vss-generate-video-report and selects Mode A (per-clip VLM) or Mode B (incident-range).",
+      "Produces the analysis report and does not route to alerts or ad-hoc Q&A skills.",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]

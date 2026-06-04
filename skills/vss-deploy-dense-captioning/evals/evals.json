@@ -1,0 +1,13 @@
+[
+  {
+    "id": "deploy-dense-captioning",
+    "question": "Deploy the standalone RT-VLM dense-captioning service and verify its REST API.",
+    "expected_skill": "vss-deploy-dense-captioning",
+    "ground_truth": "Loads vss-deploy-dense-captioning, brings up the standalone RT-VLM dense-captioning service (not a full VSS profile), and exercises its REST API (uploads, captions, streams, chat-completions).",
+    "expected_behavior": [
+      "Loads vss-deploy-dense-captioning and deploys the standalone RT-VLM service, not a full VSS profile.",
+      "Verifies the REST API (uploads / captions / streams / chat-completions).",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]

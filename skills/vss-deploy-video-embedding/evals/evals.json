@@ -1,0 +1,13 @@
+[
+  {
+    "id": "deploy-video-embedding",
+    "question": "Deploy the VSS RT-Embed video-embedding microservice and verify its /v1 embedding API.",
+    "expected_skill": "vss-deploy-video-embedding",
+    "ground_truth": "Loads vss-deploy-video-embedding, brings up the standalone RT-Embed video-embedding microservice via Docker Compose, and verifies its /v1 REST API (health/metrics, text and video embeddings); not a full VSS profile or search ingestion.",
+    "expected_behavior": [
+      "Loads vss-deploy-video-embedding and brings up the standalone RT-Embed microservice via Docker Compose.",
+      "Verifies the /v1 embedding REST API (health, text/video embeddings).",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]

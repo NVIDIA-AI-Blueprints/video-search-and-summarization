@@ -1,0 +1,13 @@
+[
+  {
+    "id": "setup-behavior-analytics",
+    "question": "Deploy the vss-behavior-analytics service standalone.",
+    "expected_skill": "vss-setup-behavior-analytics",
+    "ground_truth": "Loads vss-setup-behavior-analytics and deploys the standalone vss-behavior-analytics service (entrypoint, config-source, optional calibration); not the full warehouse deploy.",
+    "expected_behavior": [
+      "Loads vss-setup-behavior-analytics and deploys the standalone behavior-analytics service.",
+      "Does not run the full warehouse profile deploy.",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": "deploy-detection-tracking-2d",
+    "question": "Deploy the RTVI-CV 2D detection/tracking microservice and call its REST API.",
+    "expected_skill": "vss-deploy-detection-tracking-2d",
+    "ground_truth": "Loads vss-deploy-detection-tracking-2d, deploys the standalone RTVI-CV 2D detection/tracking microservice, and calls its REST API; does not route to VLM, embedding, or analytics skills.",
+    "expected_behavior": [
+      "Loads vss-deploy-detection-tracking-2d and deploys the 2D detection/tracking microservice.",
+      "Calls its REST API and does not route to VLM / embedding / analytics skills.",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]

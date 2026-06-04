@@ -1,0 +1,13 @@
+[
+  {
+    "id": "manage-video-io-storage",
+    "question": "List sensors and extract a video clip via the VIOS REST API.",
+    "expected_skill": "vss-manage-video-io-storage",
+    "ground_truth": "Loads vss-manage-video-io-storage and calls the VIOS REST API (sensor list, timelines, clip extraction, snapshots, add/delete sensors and streams); not VLM inference or search.",
+    "expected_behavior": [
+      "Loads vss-manage-video-io-storage and calls the VIOS REST API (sensor list / clip extraction).",
+      "Does not route to VLM or search skills.",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]
