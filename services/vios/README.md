@@ -74,25 +74,14 @@ See `deployment/1click_README.md` and `deployment/oneclick_dc_deployment_for_dev
 For all build options, run `./build.sh help`.
 
 <h2>Quick Start</h2>
-<p>To quickly test if Media Service is properly set up and launched, one can test it with any web browser or curl command,
-launch Media Service and perform any one of below mentioned tests.</p>
-<h5>A) Browser</h5>
+<p>To quickly test if Media Service is properly set up and launched, open the dashboard in any web browser.</p>
+<h5>Browser</h5>
 <ul>
 <li>Launch web browser</li>
-<li>In the address bar enter IP Address of host on which Media Service is running followed by port number followed by Media Service API to test.
+<li>In the address bar enter the IP Address of the host on which Media Service is running followed by the ingress port and path:
 <ul>
-<li>Example : <strong><em>&lt;IP_ADDRESS&gt;:&lt;PORT_NUMBER&gt;/api/&lt;API NAME&gt;<br /></em></strong>Sample URL: <a href="http://192.168.1.23:81/api/help"><strong><em>http://192.168.1.23:81/api/help</em></strong></a></li>
+<li>Example : <strong><em>&lt;IP_ADDRESS&gt;:30888/vst<br /></em></strong>Sample URL: <a href="http://0.0.0.0:30888/vst"><strong><em>http://0.0.0.0:30888/vst</em></strong></a></li>
 </ul>
 </li>
-<li>It is expected that web browser should print the JSON response received from Media Service</li>
-</ul>
-<h5>B) Curl Command</h5>
-<ul>
-<li>Launch Linux Terminal</li>
-<li>Execute curl command with IP Address of host on which Media Service is running followed by port number followed by Media Service API to test.
-<ul>
-<li>Example: <strong><em>curl &lt;IP_ADDRESS&gt;:&lt;PORT_NUMBER&gt;/api/&lt;API NAME&gt;</em></strong><br /> Sample curl command: <strong><em>curl </em></strong><a href="http://192.168.1.23:81/api/help"><strong><em>http://192.168.1.23:81/api/help</em></strong></a></li>
-</ul>
-</li>
-<li>It is expected that the JSON response received from Media Service should be printed in terminal</li>
+<li>It is expected that the web browser should load the Media Service dashboard</li>
 </ul>
