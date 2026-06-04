@@ -502,6 +502,20 @@ class ConfigurationManager:
                 # (org_is_prefix=False) so the deploy uses exactly the built image,
                 # instead of swapping only the registry prefix.
                 new_image = self._retarget_image(current_image, org=full_image, tag=tag, org_is_prefix=False)
+                if not tag:
+                    # No paired tag override: the tag falls back to the compose.env value,
+                    # which almost never matches a local build (those default to ':latest'),
+                    # so Docker will try to pull the missing reference and fail.
+                    tag_flag = {
+                        'VST_STREAM_PROCESSOR_IMAGE': '--streamprocessor-tag',
+                        'VST_SENSOR_IMAGE': '--sensor-tag',
+                    }.get(image_var, 'the matching --*-tag flag')
+                    Logger.warning(
+                        f"{image_var}: image override '{full_image}' was given without a paired tag; "
+                        f"falling back to the compose.env tag -> {new_image}. Local builds default to "
+                        f"':latest', so this reference may not exist locally and Docker will try to pull it. "
+                        f"Pass {tag_flag} to pin the tag explicitly."
+                    )
             else:
                 new_image = self._retarget_image(current_image, org=org, tag=tag, org_is_prefix=True)
             if new_image:

@@ -83,7 +83,7 @@ For all build options, run `./build.sh help`.
 <li>Launch web browser</li>
 <li>In the address bar enter the IP Address of the host on which Media Service is running followed by the ingress port and path:
 <ul>
-<li>Example : <strong><em>&lt;IP_ADDRESS&gt;:30888/vst<br /></em></strong>Sample URL: <a href="http://0.0.0.0:30888/vst"><strong><em>http://0.0.0.0:30888/vst</em></strong></a></li>
+<li>Example : <strong><em>&lt;IP_ADDRESS&gt;:30888/vst<br /></em></strong>Sample URL: <a href="http://localhost:30888/vst"><strong><em>http://localhost:30888/vst</em></strong></a></li>
 </ul>
 </li>
 <li>It is expected that the web browser should load the Media Service dashboard</li>
