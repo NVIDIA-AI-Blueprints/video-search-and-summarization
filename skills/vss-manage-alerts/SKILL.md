@@ -137,7 +137,7 @@ grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
 4. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
 5. **Workflow A (CV)** — CV deployment handling for anything not matched above.
 
-> **`alerts` vs `alert rules` (C vs D):** a question about *what happened / has been triggered* (incidents) → **Workflow C**, which uses **`POST /generate` ONLY**. A question about *what rules/subscriptions are configured or currently active* → **Workflow D** (Alert Bridge `GET /api/v1/realtime`). The word `alerts` on its own = incidents (C); `alert rules` / `subscriptions` / `currently active rules` = inventory (D). Pick **exactly one** workflow — never run both for one query. In particular, **Workflow C must NOT touch Alert Bridge `/api/v1/realtime`** (that is Workflow D's endpoint): an incident/"alerts" query is answered entirely through `POST /generate`. Never answer from memory — execute the one correct call.
+> **`alerts` vs `alert rules` (C vs D):** a question about *what happened / has been triggered* (incidents) → **Workflow C** — answered via `POST /generate` **or** the Alert Bridge **incidents** endpoint `GET /api/v1/realtime/incidents` (note the `/incidents` suffix). A question about *what rules/subscriptions are configured or currently active* → **Workflow D** — the **bare** rules list `GET /api/v1/realtime` (no `/incidents`). The word `alerts` on its own = incidents (C); `alert rules` / `subscriptions` / `currently active rules` = inventory (D). Pick **exactly one** workflow — never run both for one query. For an incident query, **never list subscription rules via the bare `GET /api/v1/realtime`** (that is Workflow D); but `GET /api/v1/realtime/incidents` **is** a valid Workflow C incident query. Never answer from memory — execute the correct call.
 
 **Disambiguation (B vs D):** if a sensor is named with start/monitor language but the detection condition is unclear, ask:
 > *"Do you want me to (a) create a persistent alert rule on Alert Bridge that keeps running until you delete it, or (b) start a one-time monitoring session via the VSS Agent?"*
@@ -276,23 +276,32 @@ detected lately?" are incident queries — issue a `POST /generate` (e.g.
 running the query.** A bare "alerts" question is *always* an incident
 lookup (Workflow C), not a subscription-rule listing (Workflow D).
 
-> **Workflow C is `POST /generate` ONLY.** Do **not** call Alert Bridge
-> `GET /api/v1/realtime` (or any `/api/v1/realtime` endpoint) when
-> answering an incident/"alerts" query — that endpoint lists
-> *subscription rules* (Workflow D) and is wrong for "what happened"
-> questions. One incident query = one (or more) `POST /generate` call(s)
-> and nothing on Alert Bridge. Touching `/api/v1/realtime` here is a
-> routing error — this includes "orientation", health-check, or
-> connectivity probes (e.g. `curl .../api/v1/realtime`): never hit that
-> endpoint for an incident query, not even to look around.
+> **Workflow C has two incident endpoints — both valid:**
+> - `POST /generate` — natural-language incident questions via the VSS Agent.
+> - `GET http://<HOST>:9080/api/v1/realtime/incidents` — the Alert Bridge
+>   **incidents** endpoint (note the `/incidents` suffix). Query params:
+>   `sensor_id`, `start_time`, `end_time` (ISO-8601), `limit`, `offset`.
+>   Response includes `total` (total matching incident count), `count`
+>   (number returned), and `incidents[]`. **Prefer this for a count or a
+>   structured/filtered list** — read `total` for "how many" questions.
 >
-> **Empty result is a valid answer — do NOT fall back.** If `POST
-> /generate` returns no incidents (e.g. a freshly deployed system with no
-> activity yet), reply that **no alerts/incidents were found for the
-> requested period and STOP.** Do **not** then probe Alert Bridge
-> `/api/v1/realtime`, list subscription rules, or hunt other endpoints to
-> "find alerts" — an empty incident list is the correct, complete answer.
-> Do not load or execute the Workflow D playbook (`references/alert-subscriptions.md`) for an incident query.
+> ```bash
+> # count incidents for a sensor since a timestamp
+> curl -sf "http://<HOST>:9080/api/v1/realtime/incidents?sensor_id=<UUID>&start_time=<ISO>" | jq '.total'
+> ```
+>
+> **Do NOT list subscription rules for an incident query.** The **bare**
+> `GET /api/v1/realtime` (no `/incidents`) lists *subscription rules*
+> (Workflow D) and is wrong for "what happened" questions — never call,
+> probe, or "orient" against it, and do not load the Workflow D playbook
+> (`references/alert-subscriptions.md`) for an incident query. The
+> `/api/v1/realtime/incidents` endpoint above is a **different** endpoint
+> and **is** allowed for Workflow C.
+>
+> **Empty result is a valid answer.** If no incidents match (e.g. a
+> freshly deployed system with no activity yet), report that **none were
+> found / the count is 0** for the requested period and STOP — do not fall
+> back to listing rules or hunting other endpoints.
 
 For
 richer / non-natural-language filtering (sensor-level, time-series,
