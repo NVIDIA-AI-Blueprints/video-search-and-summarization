@@ -11,7 +11,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **warehouse** profile in 2D mode (`bp_wh_2d`, the agents variant) on {{platform}}. Set LLM_REMOTE_URL and LLM_REMOTE_MODEL. Get the App Data from ngc registry resource download-version nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-05212026. Use the `/vss-deploy-profile` skill end-to-end and autonomously.",
+      "query": "Deploy the VSS **warehouse** profile in 2D mode (`bp_wh_2d`, the agents variant) on {{platform}}. Set LLM_REMOTE_URL and LLM_REMOTE_MODEL. Get the App Data from ngc registry resource download-version nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0. Use the `/vss-deploy-profile` skill end-to-end and autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",

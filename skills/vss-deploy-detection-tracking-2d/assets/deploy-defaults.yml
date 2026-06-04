@@ -40,8 +40,8 @@
 #    Multi-arch and SBSA tags publish at different cadences — keep separate.
 # ─────────────────────────────────────────────────────────────────────────────
 docker_image:
-  multi_arch: nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.0-26.05.1      # x86_64 dGPU + aarch64 Jetson
-  sbsa:       nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.0-sbsa-26.05.1 # SBSA (Spark, Grace-Hopper)
+  multi_arch: nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0      # x86_64 dGPU + aarch64 Jetson
+  sbsa:       nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0-sbsa # SBSA (Spark, Grace-Hopper)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. In-container path layout (the image is built around these).
@@ -90,8 +90,8 @@ ngc_resources:
   # both video sets. Reused by warehouse-2d and warehouse-3d.
   warehouse_dataset:
     kind:        resource
-    ref:         nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-04282026
-    extract_dir: vss-warehouse-app-data_vv3.2.0-04282026
+    ref:         nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+    extract_dir: vss-warehouse-app-data_v3.2.0
 
   # Smartcity videos. Detection models are SEPARATE entries below
   # Reused by smartcity-rtdetr and smartcity-gdino.

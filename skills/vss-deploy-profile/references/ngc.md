@@ -82,7 +82,7 @@ ngc registry resource info nvstaging/vss-developer/dev-profile-compose:3.2.0-26.
 
 Should return resource info without errors.
 
-> **`nvstaging` not `nvidia`** on develop. develop pulls every VSS image from the staging org (`nvcr.io/nvstaging/vss-core/...` per the compose files), so the verify-access check must use the same org — `nvstaging/vss-developer/dev-profile-compose:<release-tag>` exercises that exact path. For main-branch deploys (published org), swap `nvstaging` → `nvidia`.
+> **Develop-only compose resource.** The `dev-profile-compose` check intentionally exercises the staging `nvstaging/vss-developer/dev-profile-compose:<release-tag>` resource. Published VSS image defaults in this repo use `nvcr.io/nvidia/vss-core/...`; use this staging resource check only when validating unreleased develop compose bundles.
 >
 > **Why resource and not image?** Image tags on develop carry the build's commit SHA (e.g. `vss-agent:3.2.0-26.05.5-220a0fdacdd2` from `VSS_AGENT_VERSION` in `dev-profile-base/.env`), which churns every weekly cut and would make this doc stale immediately. The `dev-profile-compose` resource is versioned with the bare release tag and is stable across SHA-stamped image rebuilds.
 

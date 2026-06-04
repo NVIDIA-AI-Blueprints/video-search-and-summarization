@@ -61,9 +61,9 @@ Create `.env` with your configuration:
 ```bash
 cat > .env << EOF
 BACKEND_PORT=8000
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4
+RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0
 # For DGX Spark/SBSA platforms:
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4-sbsa
+#RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0-sbsa
 VLM_MODEL_TO_USE=cosmos-reason2
 MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 KAFKA_ENABLED=true
@@ -125,7 +125,7 @@ docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.2.0-custom .
 To test the custom image with Docker Compose, set `RTVI_IMAGE` in `docker/.env`:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4
+#RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0
 RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.2.0-custom
 ```
 
@@ -148,7 +148,7 @@ docker buildx build --platform linux/arm64 \
   --load .
 ```
 
-For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default base image (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4`) is multi-arch, so a `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
+For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default base image (`nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0`) is multi-arch, so a `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
 
 ```bash
 docker buildx build --platform linux/arm64 \
@@ -920,8 +920,8 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | Value | Description | Default |
 |-------|-------------|---------|
 | `enabled` | Enable the RT-VLM chart | `false` in `values.yaml`, `true` in `overrides_rtvi_vlm.yaml` |
-| `image.repository` | RT-VLM image repository | `nvcr.io/nvstaging/vss-core/vss-rt-vlm` |
-| `image.tag` | RT-VLM image tag | `3.2.0-26.05.4` |
+| `image.repository` | RT-VLM image repository | `nvcr.io/nvidia/vss-core/vss-rt-vlm` |
+| `image.tag` | RT-VLM image tag | `3.2.0` |
 | `image.pullPolicy` | Kubernetes image pull policy | `IfNotPresent` |
 | `replicas` | Number of RT-VLM replicas | `1` |
 | `useSharedNim` | Use an in-cluster or remote OpenAI-compatible NIM instead of loading the model in the RT-VLM pod | `false` |
