@@ -1,27 +1,12 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
 dependencies:
 - name: vss-behavior-analytics
   repository: file://./charts/behavior-analytics
-  version: 26.04.2
+  version: 3.2.0
 - name: vss-video-analytics-api
   repository: file://./charts/video-analytics-api
-  version: 26.05.4
+  version: 3.2.0
 - name: video-analytics-ui
   repository: file://./charts/video-analytics-ui
-  version: 26.04.2
-digest: sha256:173a8cd0d7c2d3145d17e04689bb6ebe4f57ac4142b1444321c0ff739d789e51
-generated: "2026-05-30T19:38:57.212772806Z"
+  version: 3.2.0
+digest: sha256:eac1281ef1f5ade1a5510da5dedc44a304079cc9ddd0a5a68b44687b1ee44c88
+generated: "2026-06-04T16:43:40.590863+05:30"

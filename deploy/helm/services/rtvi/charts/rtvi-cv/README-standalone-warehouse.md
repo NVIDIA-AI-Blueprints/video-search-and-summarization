@@ -100,7 +100,7 @@ helm upgrade --install "${RELEASE}" . \
   --set vss-rtvi-cv.downloadModelsFromNgc=false \
   --set vss-rtvi-cv.persistence.models.size=80Gi \
   --set vss-rtvi-cv.persistence.storageClass='' \
-  --set-string vss-rtvi-cv.ngcAppDataOrg=nvstaging \
+  --set-string vss-rtvi-cv.ngcAppDataOrg=nvidia \
   --set-string vss-rtvi-cv.ngcAppDataResourceVersion=<vss-warehouse-app-data-resource>
 ```
 
