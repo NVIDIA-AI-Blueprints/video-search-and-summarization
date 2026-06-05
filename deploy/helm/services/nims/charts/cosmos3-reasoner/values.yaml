@@ -67,6 +67,7 @@ envConfigMapKeys:
   - NIM_GPU_MEMORY_UTILIZATION
   - NIM_PASSTHROUGH_ARGS
   - NIM_DISABLE_MM_PREPROCESSOR_CACHE
+  - NIM_DELETE_LAST_FRAMES
 
 global:
   pullSecretName: "ngc-nim-docker-reg-secret"
