@@ -129,7 +129,7 @@ rewrite to canonical container-side names at the compose boundary.
 | `VLM_NAME` | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | Remote model name | Your backend |
 | `REDIS_PASSWORD` | `REDIS_PASSWORD` | Only when `ENABLE_REDIS_ERROR_MESSAGES=true` | Your Redis |
 
-> ⚠️ **Minimum to boot standalone with the documented pull path**:
+> **Minimum to boot standalone with the documented pull path**:
 > `NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`, plus either
 > `RTVI_VLM_ENDPOINT` + `VLM_NAME` for `openai-compat` or
 > `RTVI_VLM_MODEL_TO_USE` + `RTVI_VLM_MODEL_PATH` for local self-hosted model
@@ -360,10 +360,9 @@ volumes:
 
 ## 12. Deployment Flow
 
-This mirrors the compose-centric workflow used by
-[`../../vss-deploy-profile/SKILL.md`](../../vss-deploy-profile/SKILL.md): work
-from a local copy, build a deploy-specific `.env`, dry-run, review, deploy, and
-wait for health. Always follow this sequence. Never skip the dry-run.
+This mirrors the compose-centric workflow used by the `vss-deploy-profile`
+skill: work from a local copy, build a deploy-specific `.env`, dry-run, review,
+deploy, and wait for health. Always follow this sequence. Never skip the dry-run.
 
 This compose declares **6 blueprint profiles**. Service will NOT start under
 plain `docker compose up` — `--profile <name>` is required.
