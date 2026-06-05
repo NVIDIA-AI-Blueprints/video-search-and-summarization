@@ -1,19 +1,17 @@
 ---
 name: vss-deploy-video-embedding
-description: >
-  Deploy, operate, and integrate the VSS 3.2 GA RT-Embed Video Embedding
-  microservice. Covers Docker Compose bring-up,
-  GPU and storage prerequisites, the `/v1` REST API (file uploads,
-  text and video embeddings, live RTSP streams, health and metrics),
-  Redis/Kafka/OTel integration, common failure modes, and teardown.
+description: Deploy and operate the VSS RT-Embed video embedding microservice.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team <vss-dev@nvidia.com>"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
 
 # VSS Video Embedding (RT-Embed)
+
+## Purpose
 
 Use this skill when you need to:
 
@@ -24,6 +22,19 @@ Use this skill when you need to:
 - Triage readiness, model-download, GPU, or stream-reconnection failures.
 
 **Trigger phrases:** `vss-deploy-video-embedding`, `RT-Embed`, `rtvi-embed`, `video embedding service`, `Cosmos-Embed1`, `embed live stream`, `embed video file`, `generate video embeddings`, `text embedding for video search`.
+
+## Instructions
+
+Follow the standalone deploy flow below, then use the `/v1` REST API for file,
+text, video, or live-stream embeddings. Before `docker compose up`,
+`docker compose down`, cache deletion, or any command that changes local
+infrastructure, confirm the target host, working directory, and user intent.
+
+## Examples
+
+- "Deploy RT-Embed on this GPU host."
+- "Generate embeddings for this uploaded video file."
+- "Register an RTSP stream and start video embedding."
 
 ## Service Snapshot
 
@@ -48,6 +59,11 @@ Before bringing the service up:
 3. `docker login nvcr.io` completed with `$oauthtoken` and a valid NGC API key.
 4. Host environment provides at minimum: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, `NGC_API_KEY`, and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
 5. Free disk space for persistent caches: `rtvi-hf-cache`, `rtvi-ngc-model-cache`, `rtvi-triton-model-repo` (multi-GB).
+
+Keep `NGC_API_KEY`, `HF_TOKEN`, `NVIDIA_API_KEY`, `REDIS_PASSWORD`, and bearer
+tokens in a restricted `.env` file, Docker secret, or secrets manager. Do not
+echo raw values, commit `.env` files, paste secrets into logs, or include them in
+reports or issue comments.
 
 See `references/deploy-vss-deploy-video-embedding.md` for the full prerequisite list and `references/environment.md` for the variable matrix.
 
@@ -192,6 +208,15 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 - `/v1/ready` stuck at 503 → check for missing `NGC_API_KEY`, Hugging Face 429 rate-limit failures during the first-boot model download (set `HF_TOKEN` to avoid), or unreachable Redis/Kafka peers when those flags are enabled.
 - Healthcheck flipping unhealthy in the first 20 minutes → restore `start_period: 1200s`.
 - Permission errors on bind-mounted cache directories → `chown -R 1001:1001` on the host paths.
+
+## Limitations
+
+- First boot can take 20 minutes or more while models and Triton artifacts are
+  downloaded and cached.
+- Live-stream embedding requires stable RTSP connectivity and enough GPU memory
+  for the selected batch/process settings.
+- Optional Redis, Kafka, and OpenTelemetry integrations must be reachable from
+  the container network before enabling their feature flags.
 
 ## Upgrade And Rollback
 

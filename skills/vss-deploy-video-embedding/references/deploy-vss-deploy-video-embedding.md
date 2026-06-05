@@ -47,7 +47,7 @@ deploy:
 | `/tmp/triton_model_repo` | Generated Triton model repository for the configured embedding model. | Named volume (`rtvi-triton-model-repo`). | Multi-GB. | Writable by container UID/GID `1001:1001`. |
 | `/tmp/assets` | Optional asset storage when `ASSET_STORAGE_DIR` is set. | Bind mount (gated by `${ASSET_STORAGE_DIR:+...}`). | Sized by uploaded media volume. | Writable by container UID/GID `1001:1001`. |
 | `/opt/nvidia/rtvi/log/rtvi/` | Optional host-side log directory when `RTVI_EMBED_LOG_DIR` is set. | Bind mount (gated by `${RTVI_EMBED_LOG_DIR:+...}`). | Grows with log retention. | Writable by container UID/GID `1001:1001`. |
-| `/home/vst/vst_release/streamer_videos` | Shared clip storage written by upstream VST so the embedding service can read locally recorded clips. | Bind mount from `${VSS_DATA_DIR}/data_log/vst/clip_storage`. | Sized by clip retention. | Readable by container UID/GID `1001:1001`. |
+| `/opt/nvidia/vss/streamer_videos` | Shared clip storage written by upstream VST so the embedding service can read locally recorded clips. | Bind mount from `${VSS_DATA_DIR}/data_log/vst/clip_storage`. | Sized by clip retention. | Readable by container UID/GID `1001:1001`. |
 
 The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-model-repo` survive `docker compose down`. They are destroyed by `docker compose down -v`, which forces a full model re-download and Triton repo rebuild on the next start.
 

@@ -3,6 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. Not for real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team <vss-dev@nvidia.com>"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -10,7 +11,22 @@ metadata:
 
 # Report
 
+## Purpose
+
 Generate a video analysis report by routing to one of two backends — **never via** `POST /generate` on the VSS agent.
+
+## Instructions
+
+Classify the request into Mode A (per-clip VLM report) or Mode B (incident-range
+analytics report), verify the required deployment endpoint, collect only the
+needed clip/incident data, and render a readable report with browser-playable
+clip links.
+
+## Examples
+
+- "Generate a report for `warehouse_01.mp4`."
+- "Report on incidents from 12:31Z to 12:32Z."
+- "Summarize alerts on sensor `cam-17` over the last hour."
 
 | Mode | Trigger | Backend |
 |---|---|---|
@@ -94,6 +110,10 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 | **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE` (model identifier on the RT-VLM side, e.g. `cosmos-reason2`) | `${RTVI_VLM_BASE_URL}/v1` — alerts default `http://${HOST_IP}:8018/v1`, base default `http://${HOST_IP}:30082/v1` (`RTVI_VLM_ENDPOINT`) | `VLM_MODE=none` **or** `VLM_BASE_URL` empty; also the only path for `warehouse` |
 
 Read the live values off the running agent container — do not guess:
+
+Only read the allowlisted non-secret endpoint/model variables below. Do not dump
+the full container environment, and never include API keys, bearer tokens,
+passwords, or raw `.env` contents in logs or reports.
 
 ```bash
 docker exec vss-agent env | grep -E '^(VLM_BASE_URL|VLM_NAME|VLM_MODE|RTVI_VLM_BASE_URL|RTVI_VLM_ENDPOINT|RTVI_VLM_MODEL_TO_USE)='
@@ -277,6 +297,29 @@ Group by sensor (or by category if no sensor scope), tally verdicts, list each i
 ```
 
 If `get_incidents` returns zero results, return a one-line report stating the range and scope produced no incidents — do not invent content and do not fall back to Mode A.
+
+---
+
+## Limitations
+
+- Mode A requires the selected VLM endpoint to fetch the clip URL; remote VLMs
+  usually cannot fetch `localhost`, private `HOST_IP`, or VST-internal URLs.
+- Mode B depends on VA-MCP/Elasticsearch data and cannot infer incidents that
+  were never indexed.
+- Browser-facing report links must be rewritten with the public VSS host/port;
+  raw internal VST URLs are only for in-cluster services.
+
+## Troubleshooting
+
+- **Error**: VST or VA-MCP probe fails. **Cause**: required profile is not
+  running. **Solution**: confirm with the user and deploy `base` for Mode A or
+  `alerts` for Mode B via `vss-deploy-profile`.
+- **Error**: VLM request succeeds on `/v1/models` but fails on video analysis.
+  **Cause**: selected VLM cannot fetch the clip URL. **Solution**: use a local
+  VLM endpoint or surface the reachability blocker.
+- **Error**: report link is not browser-playable. **Cause**: raw
+  `HOST_IP:30888` URL was pasted. **Solution**: rewrite with
+  `$VSS_PUBLIC_HTTP_PROTOCOL`, `$VSS_PUBLIC_HOST`, and `$VSS_PUBLIC_PORT`.
 
 ---
 
