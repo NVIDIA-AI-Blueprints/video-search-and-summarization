@@ -140,7 +140,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 | `vss-agent` | Orchestrator |
 | `vss-agent-ui` | Next.js UI |
 | `vss-va-mcp` | Video Analysis MCP server |
-| `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies VST + kibana + analytics API there) |
+| `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies kibana + analytics API there) |
 | `phoenix` | Telemetry / observability |
 
 > **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). Warehouse uses **RTVI VLM only** — `vss-agent` connects to it directly. `VLM_MODE=none` in the warehouse `.env`. Do not search for a VLM NIM container — it does not exist in this stack.
@@ -241,7 +241,7 @@ Expected access points after a successful deploy (substitute your host IP or dom
 ```
 HAProxy:             http://<host_ip/domain_name>:7777
 Kibana:              http://<host_ip/domain_name>:7777/kibana
-VST:                 http://<host_ip/domain_name>:30888/vst
+VST:                 http://<host_ip/domain_name>:30888/vst/
 Grafana:             http://<host_ip/domain_name>:3000
 NvStreamer:          http://<host_ip/domain_name>:31000
 Video Analytics API: http://<host_ip/domain_name>:7777/video-analytics-api
