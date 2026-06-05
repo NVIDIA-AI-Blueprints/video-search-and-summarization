@@ -108,5 +108,5 @@ docker pull --platform linux/arm64 <image>:<tag>
 For example:
 
 ```bash
-docker pull --platform linux/amd64 nvcr.io/nvstaging/vss-core/vss-vios-ingress:2.1.0-26.05.2
+docker pull --platform linux/amd64 nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.0
 ```
