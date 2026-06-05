@@ -6,7 +6,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "L40S": {
         "modes": [
           "remote-all"
         ]
@@ -31,10 +31,9 @@
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime` with a payload containing `live_stream_url` (RTSP from warehouse_sample) and `prompt` (referencing safety vest or PPE).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (the created rule carries a real rtsp:// live_stream_url resolved from VIOS for warehouse_sample - host/port may be rewritten to the deployment's external IP, so match the rtsp scheme rather than a fixed port; deterministic end-state probe).",
-        "The Alert Bridge payload includes `sensor_name` set to `warehouse_sample`.",
-        "The response includes a rule `id` (UUID) and `status: success`.",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"warehouse_sample\") | select(.chunk_duration == 30 and ((.system_prompt // \"\") | length > 0) and ((.id // \"\") | test(\"[0-9a-fA-F-]{36}\")))] | length >= 1'` returns exit 0 (a stored rule for warehouse_sample exists with the canonical payload defaults \u2014 chunk_duration 30, non-empty system_prompt \u2014 and a UUID id; deterministic end-state probe).",
         "The agent confirms the rule was created and reports the rule ID and sensor name to the user.",
-        "The derived `alert_type` tag is a snake_case value related to PPE or vest violation."
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"warehouse_sample\") | select(.alert_type | test(\"ppe|vest\";\"i\"))] | length >= 1'` returns exit 0 (the stored rule's alert_type is a PPE/vest-related tag derived from this request's condition; deterministic end-state probe)."
       ]
     },
     {

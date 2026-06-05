@@ -186,6 +186,15 @@ curl -s -X POST "http://${HOST_IP}:9080/api/v1/realtime" \
   }' | jq .
 ```
 
+**Send this canonical payload consistently.** Use exactly these field names
+and the fixed defaults shown (`system_prompt: "Answer yes or no"`,
+`chunk_duration: 30`, `chunk_overlap_duration: 5`) on every create — do not
+improvise extra fields, rename fields, or vary the defaults between requests.
+Only `live_stream_url`, `alert_type`, and `prompt` are strictly required by the
+API; the three sensor/`system_prompt`/chunk fields above are skill conventions
+that keep created rules uniform and the behavior reproducible. Omit `model` (the
+service falls back to its configured default).
+
 **Payload field reference:**
 
 | Field | Source | Default | Description |
