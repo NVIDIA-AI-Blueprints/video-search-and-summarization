@@ -18,3 +18,11 @@ deploy/docker/resolved.yml
 *.log
 *checkpoint.*
 .orchestrator-artifacts/*
+
+# Generated build artifacts from the vss-build-vision-agent skill. Each
+# generation writes to _builds/<build-name>/ (the build-name is derived
+# from the per-generation compose-profile flag — e.g. bp_developer_in_1
+# → in-1 — or chosen by the user in Step 0). Contents include resolved
+# .env files with NGC_CLI_API_KEY and other credentials, so the whole
+# tree is ignored.
+_builds/
