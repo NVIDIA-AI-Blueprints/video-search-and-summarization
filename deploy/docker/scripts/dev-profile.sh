@@ -1481,7 +1481,7 @@ function state_up() {
 
     if [[ "${dry_run}" == "true" ]]; then
       echo "[DRY-RUN] mkdir -p ${data_directory}/models"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvstaging"
+      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvidia"
       echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
       echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2"
       echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
@@ -1492,8 +1492,8 @@ function state_up() {
         registry \
         model \
         download-version \
-        nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-        --org nvstaging
+        nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
+        --org nvidia
 
       mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
 

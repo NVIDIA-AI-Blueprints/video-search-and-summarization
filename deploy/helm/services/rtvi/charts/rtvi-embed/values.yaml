@@ -18,8 +18,8 @@ imagePullSecrets:
 
 replicas: 1
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-  tag: "3.2.0-26.05.4"
+  repository: nvcr.io/nvidia/vss-core/vss-rt-embed
+  tag: "3.2.0"
   pullPolicy: IfNotPresent
 port: 8000
 service:

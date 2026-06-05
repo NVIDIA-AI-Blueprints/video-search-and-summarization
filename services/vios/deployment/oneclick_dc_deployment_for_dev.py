@@ -1731,11 +1731,26 @@ class DeploymentManager:
         Logger.info("Waiting for NVStreamer services to be ready...")
         time.sleep(10)
         
-        # Check service health
+        # Determine which instances are configured via COMPOSE_PROFILES in compose.env
+        compose_profiles_raw = self.config_manager._read_env_value(
+            self.config.nvstreamer_compose_env, "COMPOSE_PROFILES"
+        )
+        active_instances = []
+        for profile in compose_profiles_raw.split(","):
+            profile = profile.strip()
+            if profile.startswith("nvstreamer-"):
+                try:
+                    active_instances.append(int(profile.split("-")[1]))
+                except ValueError:
+                    pass
+        if not active_instances:
+            active_instances = [1]  # fallback to instance 1 if COMPOSE_PROFILES is unset
+
+        # Check service health for configured instances only
         healthy_services = 0
-        for i in range(1, 6):
+        for i in active_instances:
             port = 31000 + i - 1
-        
+
             try:
                 response = requests.get(f"http://{self.config.host_ip}:{port}", timeout=5)
                 Logger.info(f"NVStreamer-{i} response: {response.status_code}")
@@ -1747,8 +1762,8 @@ class DeploymentManager:
                     continue # Don't retry for bad status codes, move to next service
             except:
                 Logger.warning(f"NVStreamer-{i} may not be ready on port {port}")
-        
-        Logger.info(f"NVStreamer health check: {healthy_services}/5 services responding")
+
+        Logger.info(f"NVStreamer health check: {healthy_services}/{len(active_instances)} services responding")
     
     def deploy_vst(self):
         """Deploy VST services"""
@@ -2334,8 +2349,8 @@ PREREQUISITES:
     - Python packages: requests
 
 ACCESS URLS (after deployment):
-    - NVStreamer instances: http://<HOST_IP>:31000-31004/#/dashboard
-    - VIOS UI: http://<HOST_IP>:30888/vios/#/dashboard
+    - NVStreamer instance 1 (default): http://<HOST_IP>:31000/#/dashboard
+    - VIOS UI: http://<HOST_IP>:30888/vst/#/dashboard
     - Grafana: http://<HOST_IP>:3000 (if --with-monitoring used)
     - MinIO Console: http://<HOST_IP>:9001 (if --with-minio used)
 """

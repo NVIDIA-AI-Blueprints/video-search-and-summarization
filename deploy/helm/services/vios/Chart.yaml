@@ -17,26 +17,26 @@ apiVersion: v2
 name: vios
 description: Umbrella chart for NVIDIA Metropolis VIOS / VST shared microservices (postgres, sensor, ingress, …)
 type: application
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0"
 dependencies:
   - name: vss-vios-postgres
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/vios-postgres"
     condition: vss-vios-postgres.enabled
   - name: vss-vios-sensor
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/vios-sensor"
     condition: vss-vios-sensor.enabled
   - name: vss-vios-streamprocessing
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/vios-streamprocessing"
     condition: vss-vios-streamprocessing.enabled
   - name: vss-vios-ingress
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/vios-ingress"
     condition: vss-vios-ingress.enabled
   - name: vss-vios-nvstreamer
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/vios-nvstreamer"
     condition: vss-vios-nvstreamer.enabled
