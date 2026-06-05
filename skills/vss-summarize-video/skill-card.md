@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for live RTSP captioning or incident-range reports. <br>
+Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for report generation or live RTSP captioning. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 

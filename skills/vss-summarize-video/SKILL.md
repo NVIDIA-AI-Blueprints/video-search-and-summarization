@@ -1,6 +1,6 @@
 ---
 name: vss-summarize-video
-description: Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for live RTSP captioning or incident-range reports.
+description: Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for report generation or live RTSP captioning.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
