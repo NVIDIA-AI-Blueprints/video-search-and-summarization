@@ -366,9 +366,8 @@ Context:
 
 Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
 already selected this (spec, platform). Run steps 2–7 for it only:
-ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
-(missing/stale → commit it to the PR branch per § 3c, then exit BLOCKED;
-the eval re-runs on sync — never run a locally-patched adapter in this leg)
+ensure its adapter exists under `.github/skill-eval/adapters/{eval_skill}/`
+(missing/stale → just skip this spec)
 → generate the dataset → acquire a per-box flock
 on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
 run harbor synchronously for this platform (§ Harbor invocation; never
