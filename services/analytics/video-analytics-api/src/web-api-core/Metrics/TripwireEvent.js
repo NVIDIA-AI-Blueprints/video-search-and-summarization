@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -248,16 +248,16 @@ class TripwireEvent {
     } 
 
     /** 
-     * returns an object containing effective and actual tripwire counts.
+     * Retrieves an object containing effective and actual tripwire counts.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {?string} [input.tripwireId=null]
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
-     * @param {?string} [input.objectType=null]
+     * @param {string} input.sensorId - Sensor ID used to query tripwire counts.
+     * @param {?string} [input.tripwireId=null] - Tripwire ID used to filter tripwire counts.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {?string} [input.objectType=null] - Object type used to filter tripwire counts.
      * @returns {Promise<Object>} Effective and actual tripwire counts are returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -444,18 +444,18 @@ class TripwireEvent {
     }
 
     /** 
-     * returns an object containing histogram of actual and effective tripwire counts.
+     * Retrieves an object containing histogram of actual and effective tripwire counts.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {?string} [input.tripwireId=null]
+     * @param {string} input.sensorId - Sensor ID used to query the tripwire histogram.
+     * @param {?string} [input.tripwireId=null] - Tripwire ID used to filter the tripwire histogram.
      * @param {string} [input.fromTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
      * @param {string} [input.toTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
-     * @param {number} [input.minutesAgo] - minutesAgo must be an integer. Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
-     * @param {number} [input.bucketCount=20] - bucketCount must be an integer.
-     * @param {?string} [input.objectType=null]
+     * @param {number} [input.minutesAgo] - Time window in minutes before now. Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {number} [input.bucketCount=20] - Number of histogram buckets returned.
+     * @param {?string} [input.objectType=null] - Object type used to filter the tripwire histogram.
      * @returns {Promise<Object>} Histogram of actual and effective tripwire counts is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");

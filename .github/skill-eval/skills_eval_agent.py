@@ -3,34 +3,38 @@
 # SPDX-License-Identifier: Apache-2.0
 """Skills eval agent — single-shot CI-driven runner.
 
-Called by .github/workflows/skills-eval.yml on push to `pull-request/<N>`
-when files under `skills/` (or the harness itself) change. Spawns one
-`claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md` as its
-system prompt and lets it drive the eval end-to-end: diff →
-adapter/dataset → Brev lock → harbor run → results comment → cleanup.
+Spawns one `claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md`
+as its system prompt and lets it drive an eval end-to-end:
+adapter/dataset → Brev box selection → run_leg.py → results comment. Two modes:
 
-The agent gets Bash/Read/Edit/Write/Glob/Grep. It is explicitly told
-(in AGENTS.md) that it must NOT modify anything under `skills/`.
+  - Single-spec (push): the `plan` job in skills-eval.yml resolves the PR
+    diff into a matrix of one leg per (spec, platform); each leg invokes
+    this script with EVAL_* set and evaluates exactly that one trial.
+  - Manual full-sweep (workflow_dispatch): no diff; enumerate every spec
+    on the picked skill(s) and write tables to $GITHUB_STEP_SUMMARY.
+
+The agent gets Bash/Read/Edit/Write/Glob/Grep, and is explicitly told (in
+AGENTS.md) it must NOT modify anything under `skills/`. Background/task
+tools are disabled (see ClaudeAgentOptions below) so it drives harbor
+synchronously.
 
 Env (set by the workflow step):
-    PR_NUMBER             PR being evaluated, e.g. "100" (push mode; blank on workflow_dispatch)
-    PR_BASE               Base branch, e.g. "develop" (push mode; blank on workflow_dispatch)
+    PR_NUMBER             PR being evaluated, e.g. "100" (blank on workflow_dispatch)
+    PR_BASE               Base branch, e.g. "develop" (blank on workflow_dispatch)
     PR_HEAD_SHA           Mirror or main-branch head SHA (full)
     PR_REPO               "owner/repo"
-    GITHUB_RUN_ID         CI run id (for lock + instance-started tracking)
-    GITHUB_STEP_SUMMARY   Path to a markdown file appended to the Actions run summary
-                          page. The agent writes per-spec results tables here in
-                          manual-sweep mode (no PR to comment on).
-    MANUAL_FULL_SWEEP     "1" when workflow_dispatch fired. Swaps user prompt:
-                          enumerate every skills/<skill>/eval/*.json for the
-                          skill named in MANUAL_SKILLS_FILTER (or all skills when
-                          `*`), write results to $GITHUB_STEP_SUMMARY, never
-                          post `gh pr comment`, never raise bot PRs (missing
-                          adapter is a BLOCKED outcome). Every spec on the
-                          chosen skill(s) runs — no spec-level filter knob.
-    MANUAL_SKILLS_FILTER  Single skill name from the dispatch dropdown, or "*"
-                          for all (default "*"). Validated server-side by GH
-                          Actions against the type:choice enum.
+    GITHUB_RUN_ID         CI run id (lock + results dir scoping)
+    GITHUB_STEP_SUMMARY   Markdown file appended to the Actions run summary;
+                          manual-sweep writes per-spec tables here.
+    EVAL_KIND             Single-spec mode: "eval" or "missing_adapter".
+    EVAL_SKILL            Single-spec mode: the skill dir name.
+    EVAL_SPEC_PATH        Single-spec mode: skills/<skill>/evals/<spec>.json.
+    EVAL_SPEC_STEM        Single-spec mode: the spec filename without .json.
+    EVAL_PLATFORM         Single-spec mode: the one platform this leg runs.
+    MANUAL_SKILLS_FILTER  Skill name from the dispatch input, or "*" for all —
+                          consumed by plan_matrix.py to build the manual-sweep
+                          matrix; manual legs run as single-spec with an empty
+                          PR_NUMBER (results go to the job summary).
     ANTHROPIC_*           Agent SDK credentials (sourced from coordinator .env)
     GH_TOKEN              PR comment posting (push mode only)
     NGC_CLI_API_KEY       Local NIM pulls in trials
@@ -47,7 +51,10 @@ Exit codes:
 from __future__ import annotations
 
 import asyncio
+import datetime
+import glob
 import os
+import re
 import subprocess
 import sys
 import time
@@ -65,7 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 
 # Hard cap on the agent's tool loop — one trial burns ~20-30 harness
-# turns (startup + brev wait + `uvx harbor run` exec + reading results +
+# turns (startup + brev wait + `run_leg.py` exec + reading results +
 # migrating to _viewer), so a full-PR fan-out of 10-15 trials plus
 # recon/retry overhead exceeds the previous 300 ceiling. The 600 cap
 # that replaced it was still tight when the agent hit a novel
@@ -74,7 +81,7 @@ AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 # without prior context) — each "discovery" burst is 5-10 turns of
 # Read/Grep/Bash spelunking on top of the steady-state per-trial
 # cost. Bumping to 2000 absorbs that overhead without lifting the
-# real ceiling (skills-eval.yml timeout-minutes: 480 is the wall-
+# real ceiling (skills-eval.yml timeout-minutes: 360 is the wall-
 # clock gate; this knob is just a safety valve against runaway
 # loops).
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "2000"))
@@ -116,39 +123,194 @@ def _disable_server_thinking() -> None:
         os.environ["CLAUDE_CODE_DISABLE_THINKING"] = "1"
 
 
+def _set_bash_timeouts() -> None:
+    """Raise the Bash tool's timeout cap above the worst-case `run_leg.py`
+    foreground call.
+
+    Claude Code moves a foreground Bash command to a background task once it
+    crosses the Bash *max* timeout (default 600000 ms = 10 min), then
+    surfaces it as pollable task output. That silently defeats AGENTS.md's
+    "block on run_leg.py / Harbor -- no polling" contract. A full leg can
+    include lock contention plus multiple ordered Harbor subprocesses, so the
+    foreground cap must cover the workflow job window, not just one Harbor
+    attempt. Past the cap the foreground call is backgrounded and the agent
+    falls into polling its task .output files. The
+    `_block_bash_background` hook can't prevent it: the runtime sets
+    run_in_background *after* the timeout, not in the call input the hook
+    inspects. Raising the cap is the only structural fix. The CI workflow
+    exports these too; set them here defensively so local smoke-tests and any
+    non-CI caller get the same guarantee. Both stay under the workflow's
+    timeout-minutes so a genuinely hung call is still reaped by the job."""
+    os.environ.setdefault("BASH_DEFAULT_TIMEOUT_MS", "21600000")  # 6h
+    os.environ.setdefault("BASH_MAX_TIMEOUT_MS", "21600000")      # 6h
+
+
+# ---------------------------------------------------------------------------
+# Benchmark report
+# ---------------------------------------------------------------------------
+
+# Per-run scratch root. AGENTS.md § "Startup hygiene" mandates that
+# every piece of state this run owns lives under $SCRATCH so that
+# parallel workflow_dispatch sweeps don't trample each other's
+# in-flight files. The agent writes per-spec result comments to
+# `$SCRATCH/pr-<spec>.md` before posting via `gh pr comment` (per
+# § "Result comment format"); we read them back from the same place
+# rather than re-fetching from the PR — that path also works in
+# manual-sweep mode, where there's no PR to read.
+_RUN_ID = os.environ.get("GITHUB_RUN_ID", "local")
+_SCRATCH = Path(f"/tmp/skill-eval/{_RUN_ID}")
+BENCHMARK_INPUT_GLOB = str(_SCRATCH / "pr-*.md")
+BENCHMARK_OUT_PATH = _SCRATCH / "benchmark.md"
+
+_MD_LINK_RE = re.compile(r"\[([^\]\n]+)\]\([^)\n]*\)")
+_BARE_URL_RE = re.compile(r"https?://\S+")
+
+
+def _sanitize_public(text: str) -> str:
+    """Scrub a per-spec result body for public consumption.
+
+    The benchmark.md is published as a workflow artifact downloadable
+    by anyone with read access to the Actions run, so we strip:
+      - internal tool names ("Harbor" → "Skill") — Harbor is an
+        internal-only product name and shouldn't appear in published
+        artifacts.
+      - markdown links `[text](url)` → keep `text`, drop `url`. Trace
+        URLs point at internal viewer endpoints; PR/run links leak
+        org-internal routing that's already evident from the artifact's
+        provenance.
+      - bare http(s) URLs anywhere in prose.
+    """
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _BARE_URL_RE.sub("", text)
+    text = re.sub(r"\bHarbor\b", "Skill", text)
+    return text
+
+
+def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
+    """Concatenate per-spec result comments into one benchmark report.
+
+    Reads every `$SCRATCH/pr-*.md` the agent produced (one per (PR,
+    spec) batch per AGENTS.md § "Result comment format") and writes a
+    single `benchmark.md` with a run-level header followed by each spec
+    body in deterministic order. Output is sanitized for public
+    consumption via `_sanitize_public` — see that docstring for what's
+    stripped. The glob is run-scoped so a parallel workflow_dispatch
+    peer's per-spec comments never leak into this run's benchmark.
+
+    Returns the output path on success, or `None` if no per-spec
+    comments were found — that's a valid outcome (blocker before any
+    trial ran) and shouldn't fail the workflow.
+    """
+    sources = sorted(glob.glob(BENCHMARK_INPUT_GLOB))
+    if not sources:
+        print(f"[benchmark] no per-spec comments at {BENCHMARK_INPUT_GLOB} — "
+              "skipping benchmark.md (agent likely blocked before running trials)",
+              flush=True)
+        return None
+
+    generated = datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%d %H:%M:%S UTC")
+
+    title = "Skills Eval Benchmark"
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w") as fp:
+        fp.write(f"# {title}\n\n")
+        fp.write(f"Generated: {generated}  \n")
+        fp.write(f"Specs: {len(sources)}\n\n")
+        fp.write("---\n\n")
+        for src in sources:
+            try:
+                body = Path(src).read_text()
+            except OSError as exc:
+                print(f"[benchmark] skip {src}: {exc!r}", flush=True)
+                continue
+            # Demote any top-level `# heading` inside the per-spec body
+            # to `##` so the benchmark TOC stays single-rooted at the
+            # `# ` title above. AGENTS.md § Result comment format starts
+            # spec bodies with `## ...` so this is usually a no-op, but
+            # be defensive against future format drift.
+            body = "\n".join(
+                ("#" + line) if line.startswith("# ") else line
+                for line in body.splitlines()
+            )
+            fp.write(_sanitize_public(body).rstrip() + "\n\n---\n\n")
+
+    print(f"[benchmark] wrote {out_path} ({len(sources)} spec comments)",
+          flush=True)
+    return out_path
+
+
 # ---------------------------------------------------------------------------
 # Agent loop
 # ---------------------------------------------------------------------------
 
+async def _block_bash_background(input_data, tool_use_id, context):
+    """PreToolUse hook: deny any Bash call that backgrounds work.
+
+    AGENTS.md § "No polling — block on harbor" requires `run_leg.py`
+    to be invoked synchronously so the orchestrating agent blocks on
+    stdout instead of polling an output file. Enforcing that in prose
+    alone is fragile — a drifting agent can still set
+    `run_in_background=True` or append `&`/`nohup`/`disown` to the
+    command. This hook makes the rule structural at the SDK boundary.
+    """
+    tool_name = input_data.get("tool_name", "")
+    tool_input = input_data.get("tool_input", {}) or {}
+    if tool_name != "Bash":
+        return {}
+    if tool_input.get("run_in_background"):
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "Backgrounding forbidden — run run_leg.py synchronously "
+                    "(AGENTS.md § No polling — block on harbor)."
+                ),
+            }
+        }
+    cmd = (tool_input.get("command") or "").strip()
+    if cmd.endswith("&") or " nohup " in cmd or cmd.startswith("nohup ") or " disown" in cmd:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "No shell-level backgrounding (`&` / `nohup` / `disown`). "
+                    "Run the command synchronously and block on it."
+                ),
+            }
+        }
+    return {}
+
+
 async def run_agent() -> int:
     from claude_agent_sdk import (  # type: ignore
         AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient,
-        ResultMessage, TextBlock, ToolUseBlock,
+        HookMatcher, ResultMessage, TextBlock, ToolUseBlock,
     )
 
-    manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
     pr_head = _require("PR_HEAD_SHA")
     pr_repo = _require("PR_REPO")
     run_id = os.environ.get("GITHUB_RUN_ID", f"local-{int(time.time())}")
 
-    if manual_sweep:
-        # workflow_dispatch path: no PR, no diff. PR_NUMBER/PR_BASE may be
-        # blank — keep them as empty strings so any downstream prompt
-        # interpolation still works.
-        pr_number = os.environ.get("PR_NUMBER", "") or f"manual-{run_id}"
-        pr_base = os.environ.get("PR_BASE", "") or "(manual)"
-        # `type: choice` already constrains the value server-side, but
-        # strip whitespace + newlines defensively before splicing into
-        # the agent's user prompt. The agent runs with bypassPermissions
-        # and full filesystem tools, so any prompt-templated user data is
-        # worth scrubbing regardless of the upstream guard.
-        skills_filter = os.environ.get("MANUAL_SKILLS_FILTER", "*").strip().splitlines()[0] if os.environ.get("MANUAL_SKILLS_FILTER", "").strip() else "*"
-        step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
-    else:
-        pr_number = _require("PR_NUMBER")
-        pr_base = _require("PR_BASE")
-        skills_filter = "*"
-        step_summary = ""
+    # Single-spec mode (push AND manual sweep): the `plan` job resolved a diff
+    # (push) or the picked skill's specs (workflow_dispatch) into one matrix
+    # leg, so this run evaluates exactly one (skill, spec, platform) — no diff,
+    # no looping. EVAL_KIND distinguishes a normal eval leg from a
+    # missing-adapter leg (which only commits the adapter). PR_NUMBER is empty
+    # on a manual sweep — the leg then writes its result to its job summary
+    # ($GITHUB_STEP_SUMMARY) instead of a PR comment, and cannot auto-commit an
+    # adapter (no contributor branch). The legacy single-agent sweep is gone;
+    # the matrix owns fan-out for both push and manual now.
+    pr_number = os.environ.get("PR_NUMBER", "")   # empty ⇒ manual sweep
+    pr_base = os.environ.get("PR_BASE", "")
+    eval_kind = os.environ.get("EVAL_KIND", "eval")
+    eval_skill = _require("EVAL_SKILL")
+    eval_spec_path = os.environ.get("EVAL_SPEC_PATH", "")
+    eval_platform = os.environ.get("EVAL_PLATFORM", "")
+    manual = not pr_number
 
     if not AGENTS_MD.exists():
         print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
@@ -156,80 +318,70 @@ async def run_agent() -> int:
 
     system_prompt = AGENTS_MD.read_text()
 
-    if manual_sweep:
+    if eval_kind == "missing_adapter":
+        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
         user_prompt = f"""
-**Manual full-sweep run** — `workflow_dispatch` fired (no PR, no diff).
+{target}: skill `{eval_skill}` ships eval specs but has NO adapter at
+`.github/skill-eval/adapters/{eval_skill}/generate.py`. The `plan` job
+collapsed every spec on this skill into this one leg so the adapter is
+committed exactly once.
 
 Context:
-  repo                = {pr_repo}
-  head SHA            = {pr_head}
-  workflow run        = {run_id}
-  working dir         = {REPO_ROOT}
-  skills filter       = {skills_filter}   (single skill name from the dispatch dropdown, or `*` = all)
-  GITHUB_STEP_SUMMARY = {step_summary or '(unset — fall back to stdout)'}
+  repo         = {pr_repo}
+  PR number    = {pr_number or "(manual sweep — no PR)"}
+  base branch  = {pr_base}
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
 
-Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
+Per AGENTS.md § "Single-spec mode" (missing-adapter case) + § 3c: generate
+the adapter and COMMIT it directly to the source PR's `headRefName` (NOT the
+mirror) so the eval re-runs against it on the next sync. Do NOT run any trial
+in this leg (the re-run evaluates the committed adapter), and do NOT post a
+results comment. For an external-fork PR (the bot can't push to a fork),
+comment that the contributor must add the adapter and BLOCK instead. If this
+is a manual sweep (`PR number` above is blank) there is no branch to commit
+to — record the missing adapter in `$GITHUB_STEP_SUMMARY` and BLOCK.
 
-  Step 1 (override): skip the diff entirely. Enumerate `skills/*/eval/*.json`
-    on the checked-out workspace. Keep only the skill named in `skills filter`
-    (the dispatch dropdown is single-select; `*` matches all). All specs on the
-    chosen skill(s) run — there is no spec-level filter. Skills with no eval/
-    dir are runtime libraries and are skipped as in the normal path.
-
-  Step 3 (override): the bot-PR flow is OFF in manual mode (there's no
-    contributor branch to target). If an adapter is missing or stale for a
-    spec, record that spec as BLOCKED with the trigger that fired
-    (missing / stale / spec drift) and a one-line reason in the results
-    table — DO NOT push a branch, DO NOT create a PR. Keep processing the
-    remaining (skill, spec) pairs.
-
-  Step 6 (override): there is no PR to comment on. For each completed
-    `(skill, spec)` batch, append the same markdown table you would have
-    posted via `gh pr comment` to the path in `$GITHUB_STEP_SUMMARY`. Use:
-
-      cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
-      ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
-      ... (table + failing checks + suggestions, identical to § Result comment format) ...
-      MD
-
-    Append per-spec — don't buffer everything for the end. If
-    `$GITHUB_STEP_SUMMARY` is empty/unset (smoke-test locally), print the
-    same markdown to stdout instead and note the fallback.
-
-Everything else in AGENTS.md applies unchanged: startup hygiene, fleet
-selection (§ 5a), per-box flock (§ 5b), canonical harbor invocation, no
-trial-supervision polling, no writes under `skills/`, no instance lifecycle
-calls.
-
-When done, emit `DONE: <n>/<total> specs passed; <m> blockers` on the final
-line. If the sweep couldn't proceed at all (e.g. pool exhausted before the
-first trial), emit `BLOCKED: <reason>` instead.
+End with `BLOCKED: missing adapter for {eval_skill} auto-committed (<sha>)`
+once pushed, `BLOCKED: fork PR — adapter must be added by the contributor`
+for a fork, `BLOCKED: missing adapter for {eval_skill} (manual sweep)` for a
+manual run, or `BLOCKED: <reason>` if you could not commit.
 """
     else:
+        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
+        post_step = (
+            "append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on)"
+            if manual else "post ONE PR comment for this spec"
+        )
         user_prompt = f"""
-PR #{pr_number} just pushed new commits touching `skills/` (or eval harness code).
+{target}: evaluate exactly ONE spec on ONE platform —
+`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
 
 Context:
-  repo          = {pr_repo}
-  PR number     = {pr_number}
-  base branch   = {pr_base}
-  mirror head   = {pr_head}
-  workflow run  = {run_id}
-  working dir   = {REPO_ROOT}
+  repo         = {pr_repo}
+  PR number    = {pr_number or "(manual sweep — no PR)"}
+  base branch  = {pr_base}
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
+  spec         = {eval_spec_path}
+  platform     = {eval_platform or "(read from spec)"}
+  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
 
-Your workspace is the repo at `{REPO_ROOT}` (already checked out to the mirror head).
-The coordinator host is vss-skill-validator; Brev CLI is authenticated, Docker is running.
+Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
+already selected this (spec, platform). Run steps 2–7 for it only:
+ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
+(missing/stale → handle per § 3c, then exit BLOCKED — never run a
+locally-patched adapter in this leg) → generate the dataset → select a
+`vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run `.github/skill-eval/run_leg.py` for this platform (§ Harbor invocation;
+never background it; the wrapper holds the per-box lock while Harbor runs)
+→ gather results →
+{post_step} (§ Result comment format). Do NOT touch any other spec or skill.
 
-Process this PR per AGENTS.md: diff → detect changed skills → update or create the
-adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset → acquire
-a per-box flock on a `vss-eval-*` pool member matching the target platform(s) →
-run harbor trials → gather results → post ONE comment per (PR, spec) batch →
-reset deployment state on each locked box per § 7 → release the flock. Never
-`brev stop` / `brev delete` any pool member — pool lifecycle is operator-managed.
-
-When done, emit a one-line final summary starting with `DONE:` so the workflow
-can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
-line starting with `BLOCKED:` followed by the reason.
+End with `DONE: <reward summary>` after posting the result, or
+`BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
 """
 
     model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
@@ -239,6 +391,24 @@ line starting with `BLOCKED:` followed by the reason.
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         allowed_tools=["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
+        # `allowed_tools` is an allowlist for primary tool calls, but the
+        # SDK's background-shell and task-tracking affordances pass through
+        # it because they're treated as runtime/harness features. List them
+        # here explicitly so the agent can't create background tasks or
+        # read backgrounded-shell output, which is how the polling
+        # anti-pattern reaches into the trial wall-clock.
+        disallowed_tools=[
+            "BashOutput", "KillShell",
+            "TaskCreate", "TaskUpdate", "TaskGet",
+            "TaskList", "TaskOutput", "TaskStop",
+        ],
+        # Closes the `Bash(run_in_background=True)` / shell-`&` loophole that
+        # `disallowed_tools` alone can't catch — see _block_bash_background.
+        hooks={
+            "PreToolUse": [
+                HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
+            ],
+        },
         model=model,
         max_turns=MAX_TURNS,
         permission_mode="bypassPermissions",
@@ -313,18 +483,21 @@ line starting with `BLOCKED:` followed by the reason.
 # Main
 # ---------------------------------------------------------------------------
 #
-# No process-side cleanup here by design — the box's deployment state is
-# reset on the NEXT run's lock acquisition, not on this run's exit. See
-# `envs/brev_env.py::_ensure_prerequisite_deployed`: the active-deploy
-# marker carries `<profile_tag>|<run_id>`, and a run id mismatch always
-# triggers tear-down + redeploy. That makes every exit path equivalent
-# from the next run's perspective — happy path, max-turns, cancel-in-
-# progress SIGTERM, agent crash, SIGKILL, host reboot — so we don't need
-# atexit / signal handlers / a touched-boxes ledger to chase the cases
-# where end-of-run cleanup might be skipped.
+# No process-side cleanup here by design — each trial deploys whatever
+# VSS profile it needs as part of its own first agent turn (the harness
+# no longer pre-deploys or maintains an active-deploy marker). A
+# previous-run leftover container on the box is the next trial's deploy-
+# step problem, not the harness's, and tools like
+# `docker compose down` invoked by the agent reconcile cleanly. That
+# makes every exit path equivalent from the next run's perspective —
+# happy path, max-turns, cancel-in-progress SIGTERM, agent crash,
+# SIGKILL, host reboot — so we don't need atexit / signal handlers / a
+# touched-boxes ledger to chase the cases where end-of-run cleanup
+# might be skipped.
 
 def main() -> int:
     _disable_server_thinking()
+    _set_bash_timeouts()
     _ensure_sdk()
     try:
         rc = asyncio.run(run_agent())
@@ -335,6 +508,15 @@ def main() -> int:
         print(f"[agent] crashed: {exc!r}", file=sys.stderr)
         import traceback; traceback.print_exc()
         rc = 2
+    # Always try to assemble benchmark.md — even on crash/max-turns, any
+    # specs the agent did finish have their per-spec markdown on disk and
+    # are worth publishing. Errors here are non-fatal: the agent's verdict
+    # (rc) is what gates the workflow, not the report builder.
+    try:
+        build_benchmark_md()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[benchmark] failed to build benchmark.md: {exc!r}",
+              file=sys.stderr)
     return rc
 
 

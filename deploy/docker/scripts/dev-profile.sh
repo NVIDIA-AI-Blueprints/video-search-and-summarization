@@ -955,6 +955,18 @@ function process_args() {
         fi
       fi
 
+      # Search critic requires a local VLM unless --use-remote-vlm is provided.
+      # On 2-GPU Brev launchables the configured local VLM device is unavailable,
+      # so fail fast instead of silently deploying without the critic service.
+      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]] && ! ([[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]); then
+        local _brev_gpu_count
+        _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
+        if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
+          echo "[ERROR] Search critic requires a local VLM GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Set ENABLE_CRITIC=false to deploy search without critic, or pass --use-remote-vlm with VLM_ENDPOINT_URL."
+          ((_all_good++))
+        fi
+      fi
+
       # Fail fast: VLM_CUSTOM_WEIGHTS must be an absolute path and the directory must exist (even in dry-run)
       if [[ "${vlm_mode}" != "remote" ]]; then
         if [[ -n "${vlm_custom_weights}" ]]; then
@@ -1162,7 +1174,7 @@ function state_up() {
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
     set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
     set_env_var "VSS_PUBLIC_PORT" "443"
-    set_env_var "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
+    # set_env_var "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
   fi
 
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
@@ -1284,22 +1296,12 @@ function state_up() {
   fi
 
   # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
-  # Brev 2-GPU launchables do not have enough local devices for the Search critic VLM assignment, so disable critic there as well.
   # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
+  # Brev 2-GPU local-VLM critic deployments are rejected during argument validation.
   if [[ "${profile}" == "search" ]]; then
     if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]; then
       set_env_var "ENABLE_CRITIC" "false"
       set_env_var "VLM_NAME_SLUG" "none"
-    elif [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
-      local _brev_gpu_count
-      _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
-      if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
-        echo "[WARN] Brev environment has ${_brev_gpu_count} GPU(s). Disabling Search critic to avoid starting the local VLM on GPU ${vlm_device_id}."
-        set_env_var "ENABLE_CRITIC" "false"
-        set_env_var "VLM_NAME_SLUG" "none"
-      else
-        set_env_var "ENABLE_CRITIC" "true"
-      fi
     else
       set_env_var "ENABLE_CRITIC" "true"
     fi
@@ -1359,6 +1361,10 @@ function state_up() {
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
       set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
       set_env_var "RT_VLM_DEVICE_ID" "0"
+    fi
+    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
     fi
   fi
   # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
@@ -1477,7 +1483,7 @@ function state_up() {
 
     if [[ "${dry_run}" == "true" ]]; then
       echo "[DRY-RUN] mkdir -p ${data_directory}/models"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvstaging"
+      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvidia"
       echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
       echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2"
       echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
@@ -1488,8 +1494,8 @@ function state_up() {
         registry \
         model \
         download-version \
-        nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-        --org nvstaging
+        nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
+        --org nvidia
 
       mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
 

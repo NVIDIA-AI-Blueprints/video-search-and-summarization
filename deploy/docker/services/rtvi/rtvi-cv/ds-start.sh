@@ -159,6 +159,18 @@ start_rtdetr_gdino()
         fi
     fi
 
+    TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
+    echo "##### Updating minTrackerConfidence in $TRACKER_CONFIG... #####"
+    if [[ -f "$TRACKER_CONFIG" ]]; then
+        sed -i '/^TargetManagement:/,/^[A-Z][a-zA-Z]*:/ {s/^[[:space:]]*minTrackerConfidence:.*/  minTrackerConfidence: 0.2513/;}' "$TRACKER_CONFIG"
+        echo "##### Updated minTrackerConfidence to 0.2513 in TargetManagement section... #####"
+    else
+        echo "Warning: Tracker config $TRACKER_CONFIG not found, skipping minTrackerConfidence update..."
+    fi
+
+    echo "##### Contents of $TRACKER_CONFIG: #####"
+    cat $TRACKER_CONFIG
+
     cat "$config_file"
     echo "Application starting with this command: ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -t 0 -l 5 --message-rate "$DS_MESSAGE_RATE" --show-sensor-id"
     exec ./metropolis_perception_app -c "$config_file" \

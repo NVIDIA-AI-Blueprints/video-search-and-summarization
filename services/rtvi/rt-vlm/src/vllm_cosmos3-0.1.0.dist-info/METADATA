@@ -1,0 +1,5 @@
+Metadata-Version: 2.1
+Name: vllm-cosmos3
+Version: 0.1.0
+Summary: vLLM plugin that loads Cosmos3 checkpoints
+Requires-Python: >=3.10

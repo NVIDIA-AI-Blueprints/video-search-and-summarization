@@ -1,0 +1,38 @@
+{
+  "id": "vehicle-alert-demo",
+  "timestamp": "2025-10-30T15:30:00Z",
+  "end": "2025-10-30T15:30:05Z",
+  "bearing": 274.2043331224882,
+  "sensor": {
+    "id": "HWY_20_AND_LOCUST__WBA",
+    "type": "traffic_camera",
+    "description": "Demo roadway camera"
+  },
+  "analyticsModule": {
+    "id": "Stop Anomaly Module",
+    "description": "Detects vehicles stopped in active travel lanes",
+    "info": {
+      "dropped": "False",
+      "confidence": "{\"parked\": \"0.9\", \"waiting\": \"1.0\"}",
+      "description_of_scene": "Vehicle ID 352331 is stopped in the middle of the roadway and may be obstructing traffic flow."
+    }
+  },
+  "event": {
+    "id": "vehicle-alert-demo",
+    "type": "vehicle_waiting",
+    "description": "Vehicle stopped in a travel lane near an intersection"
+  },
+  "videoPath": "frameId-651616",
+  "smoothLocations": {
+    "type": "LineString",
+    "coordinates": [
+      { "point": [-78.6402248736209, 35.77295741591659, 0.0] },
+      { "point": [-78.64025605876665, 35.77295914555985, 0.0] },
+      { "point": [-78.64028013064335, 35.77296045919338, 0.0] }
+    ]
+  },
+  "info": {
+    "scene_summary": "Vehicle 352331 stopped in travel lane near intersection"
+  }
+  ,"place": { "name": "unknown_location" }
+}

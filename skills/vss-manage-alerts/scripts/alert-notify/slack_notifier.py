@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Slack notification backend. Builds Slack Block Kit messages and posts them
-to a configured channel via the Slack Web API."""
+"""Slack notification backend. See :class:`SlackNotifier`."""
 
 from __future__ import annotations
 

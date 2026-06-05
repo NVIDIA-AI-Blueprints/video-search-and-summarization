@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -239,10 +239,10 @@ class LastProcessedTimestamp {
     }
 
     /** 
-     * returns an object containing last processed timestamp.
+     * Retrieves an object containing last processed timestamp.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
      * @param {string} [input.sensorId] - Either sensorId or place should be present.
      * @param {string} [input.place] - Either sensorId or place should be present.

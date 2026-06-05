@@ -264,17 +264,21 @@ rtvi_vlm:
   timeout: 10                                # HTTP request timeout (seconds)
   default_model: "${VLM_NAME}"  # Default VLM model for caption/alert generation
   captions_ack_timeout: 2.0                  # Seconds to wait for generate_captions initial HTTP ack
-  # Stream readiness timeout: after the captions ack window expires
-  # (streaming mode), the HTTP response is held open for this many
-  # additional seconds while the generate_captions task is monitored
-  # inline.  If the task raises during this window (e.g. GStreamer
-  # cannot open the RTSP source), the rule is rolled back (marked
-  # FAILED in ES, RTVI stream stopped) and a 502 is returned.
+  # Stream readiness probe: after the captions ack window expires
+  # (streaming mode) the create path polls GET /streams/get-stream-info
+  # every ``stream_readiness_poll_interval`` seconds until either the
+  # stream id appears in the registry (positive readiness signal) or
+  # ``stream_readiness_max_wait`` elapses. The probe is skipped when
+  # the rule reused an already-registered stream — existence was just
+  # confirmed at resolve time.
   # Total worst-case response latency: captions_ack_timeout +
-  # stream_readiness_timeout (default 12 s).
-  # Set to 0 to disable the readiness check and return immediately
-  # after the ack window.
-  stream_readiness_timeout: 10.0
+  # stream_readiness_max_wait (default ~4 s, down from the previous
+  # 12 s readiness window). Late caption-task failures are still
+  # caught asynchronously via the captions task done callback.
+  stream_readiness_poll_interval: 0.2
+  stream_readiness_max_wait: 2.0
+  # ``stream_readiness_timeout`` is deprecated. The realtime service
+  # logs a warning and ignores it — set the two probe knobs above.
   rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
   pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
   health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery

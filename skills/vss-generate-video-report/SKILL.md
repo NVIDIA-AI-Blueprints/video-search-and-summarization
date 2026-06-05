@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-report
-description: Produce a video analysis report. Two modes — (a) report on a recorded video / sensor clip via direct VLM call, (b) report on incidents in a time range via video-analytics. Use when the user says "generate a report", "give me a report", or "create a report".
+description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. Not for real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -45,7 +45,19 @@ curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/
 curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
 ```
 
-If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or `-p alerts` (Mode B). With pre-authorization to deploy prerequisites, invoke `/vss-deploy-profile` directly; otherwise confirm with the user first.
+If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or `-p alerts` (Mode B). **Always** confirm the deploy with the user first.
+
+---
+
+## Browser-playable clip URL (always do this before embedding any clip in the report)
+
+VST returns clip URLs using the agent-internal `${HOST_IP}:30888` host:port. Those work in-cluster (VLM frame pulls, agent backend) but the user's browser cannot reach them. The deploy layer already exports the browser-facing host:port as `$VSS_PUBLIC_HOST` / `$VSS_PUBLIC_PORT` (and scheme as `$VSS_PUBLIC_HTTP_PROTOCOL`) in every profile `.env` — Brev or bare-metal — so the rewrite is a one-liner:
+
+```bash
+BROWSER_CLIP_URL=$(echo "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
+```
+
+Apply it to **every clip URL surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A Step 3 on the original internal URL — the VLM is in-cluster.
 
 ---
 
@@ -65,7 +77,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
-   That gives a direct `mp4` URL that the VLM can pull frames from. Bind it to `VIDEO_URL`.
+   That gives a direct `mp4` URL that the VLM can pull frames from. Bind it to `VIDEO_URL` (used in-cluster by the VLM in Step 3) **and** rewrite to `BROWSER_CLIP_URL` for the Step 4 report template using the one-liner from *Browser-playable clip URL* above — the user's browser cannot reach `$VIDEO_URL` directly.
    Mode A requires the selected VLM endpoint to be able to fetch `VIDEO_URL`.
    Local NIM/RT-VLM deployments normally can; remote endpoints generally cannot
    fetch `localhost`, private `HOST_IP`, or VST-internal URLs. If the live
@@ -109,13 +121,18 @@ If the probe fails or the listed ids don't include `${VLM_MODEL}`, fall back to 
 
 ### Step 3 — Call the VLM directly
 
-Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages`):
+Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
+
+The frame sampling and visual-token (pixel) budget below mirror the **base profile** `video_understanding` config (`deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml`): `max_fps=2`, `max_frames=30`, `min_pixels=3136`, `max_pixels=8388608`. **Send `mm_processor_kwargs` and `media_io_kwargs`** so the direct call uses the same frame sampling and pixel budget as the in-agent `video_understanding` tool — omitting them lets the VLM apply its own defaults, so the output diverges from the agent path.
 
 ```bash
 PROMPT='Describe in detail what happens in the video, with timestamps (start–end in seconds from clip start) for each segment or event. Cover scenes, objects, people, vehicles, and notable actions.'
 
-# Cosmos Reason 2 reasoning prompt suffix — matches video_understanding.py for is_cosmos_reason2 + reasoning=true.
-# Drop this suffix for non-cosmos-reason2 VLMs.
+# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`).
+# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning.
+# Append the Cosmos Reason 2 reasoning suffix ONLY when the user explicitly asks for reasoning
+# (drop it for non-cosmos-reason2 VLMs). With reasoning off, the response has no <think> block.
+if [ "${REASONING:-false}" = "true" ]; then
 PROMPT="${PROMPT}
 
 Answer the question using the following format:
@@ -125,6 +142,29 @@ Your reasoning.
 </think>
 
 Write your final answer immediately after the </think> tag."
+fi
+
+# Multimodal settings — mirror the base-profile video_understanding config (config.yml).
+MAX_FPS=2; MAX_FRAMES=30; MIN_PIXELS=3136; MAX_PIXELS=8388608
+
+# num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
+# clip_seconds (Step 1 endTime-startTime) may be fractional; truncate to integer seconds — bash $((...))
+# is integer-only and errors on "15.0"/"1.5". Default 15s -> caps at MAX_FRAMES.
+CLIP_SECONDS=$(awk -v s="${CLIP_SECONDS:-15}" 'BEGIN{printf "%d", s}')
+NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
+[ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
+[ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
+
+# num_frames (media_io_kwargs) applies to any Cosmos VLM. The pixel budget (mm_processor_kwargs) below is
+# Cosmos Reason 2-SPECIFIC: both the size{shortest_edge,longest_edge} shape and the 3136/8388608 values come
+# from the CR2 base config. Do NOT reuse these for Cosmos Reason 1 — CR1 takes videos_kwargs{min_pixels,
+# max_pixels}, whose max_pixels is a different quantity than CR2's longest_edge (see the Cosmos Reason NIM
+# docs). For CR1/other VLMs, add that model's own mm_processor_kwargs per its docs. Build the JSON fragment:
+case "$VLM_MODEL" in
+  *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+  *cosmos*)         MM_KWARGS=", \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;  # CR1/other Cosmos: also add mm_processor_kwargs per the model's NIM docs
+  *)                MM_KWARGS="" ;;
+esac
 
 curl -s -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
@@ -141,10 +181,12 @@ curl -s -X POST "${VLM_ENDPOINT}/chat/completions" \
     }
   ],
   "max_tokens": 1024,
-  "temperature": 0.0
+  "temperature": 0.0${MM_KWARGS}
 }
 EOF
 ```
+
+> The `case "$VLM_MODEL"` block sends the Cosmos Reason 2 pixel budget (`size:{shortest_edge:3136, longest_edge:8388608}`, from `config.yml`) **only for Cosmos Reason 2**, plus `num_frames` for any Cosmos VLM. **Do not reuse these pixel values for other VLMs:** Cosmos Reason 1 takes `videos_kwargs:{min_pixels, max_pixels}`, and its `max_pixels` is **not** the same quantity as CR2's `longest_edge` — set CR1/other-VLM `mm_processor_kwargs` per that model's [Cosmos Reason NIM docs](https://docs.nvidia.com/nim/vision-language-models/1.6.0/introduction.html). Non-Cosmos VLMs need no extra kwargs.
 
 If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), keep only the text after `</think>` as the report body.
 
@@ -162,6 +204,7 @@ If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), 
 | **Time of Analysis** | <HH:MM:SS> |
 | **Video Source** | <sensor_id or filename> |
 | **Clip Range** | <startTime> – <endTime> |
+| **Clip URL** | `<BROWSER_CLIP_URL>` (apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite — NEVER paste the raw `HOST_IP:30888` URL here) |
 | **VLM** | <VLM_MODEL (NIM or RT-VLM)> |
 | **Analysis Request** | <user's request> |
 
@@ -199,7 +242,7 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
 }
 ```
 
-For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`.
+For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite (see *Browser-playable clip URL* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
 
 ### Step 3 — Fill the Incident Range Report template
 
@@ -224,6 +267,7 @@ Group by sensor (or by category if no sensor scope), tally verdicts, list each i
 
 - **<timestamp>** — <category> — verdict: **<confirmed|rejected|unverified>**
   - <info.reasoning (1–2 lines)>
+  - clip: `<rewritten URL>` (omit row when the incident carries no clip URL — never paste a raw `HOST_IP:30888` URL)
   - objects: <objectIds joined>
 - …
 
@@ -242,3 +286,4 @@ If `get_incidents` returns zero results, return a one-line report stating the ra
 - **`/vss-query-analytics`** — incident retrieval (and verdict / reasoning enrichment) for Mode B Step 2.
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
+

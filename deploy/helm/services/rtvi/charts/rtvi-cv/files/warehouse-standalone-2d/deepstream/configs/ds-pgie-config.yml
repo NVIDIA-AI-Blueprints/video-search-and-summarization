@@ -44,7 +44,7 @@ property:
   offsets: 0;0;0
   interval: 0
   labelfile-path: ds-detector-labels.txt
-  maintain-aspect-ratio: 1
+  maintain-aspect-ratio: 0
   model-color-format: 0
   net-scale-factor: 0.00392156862745098
   network-mode: 2

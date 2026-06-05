@@ -1,0 +1,38 @@
+{
+  "sensorId": "WAREHOUSE_CAM_01",
+  "timestamp": "2025-01-09T10:15:30.000Z",
+  "end": "2025-01-09T10:15:45.000Z",
+  "objectIds": [
+    "forklift_001",
+    "worker_042",
+    "pallet_stack_12"
+  ],
+  "place": {
+    "name": "warehouse=Distribution_Center_A/zone=Loading_Dock_3",
+    "id": "warehouse_zone_ld3",
+    "type": "industrial",
+    "info": {
+      "facility": "Distribution Center A",
+      "zone_type": "loading_dock"
+    }
+  },
+  "analyticsModule": {
+    "id": "Proximity Violation Detection Module",
+    "description": "Worker detected in close proximity to moving forklift",
+    "info": {
+      "triggerModules": "Proximity Detection, Safety Zone Monitoring"
+    },
+    "source": "safety_analytics_v2",
+    "version": "2.1.0"
+  },
+  "category": "proximity violation",
+  "isAnomaly": true,
+  "info": {
+    "location": "37.7749,-122.4194,0.0",
+    "primaryObjectId": "worker_042",
+    "distance_meters": "1.5",
+    "safe_distance_threshold": "3.0"
+  },
+  "frameIds": [],
+  "embeddings": []
+}

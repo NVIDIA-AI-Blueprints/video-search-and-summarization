@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -150,8 +150,8 @@ class ConfigManager {
      * returns an object containing config and the timestamp associated with it.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
-     * @param {("behavior-analytics")} docType
+     * @param {Database} documentDb - Database Object.
+     * @param {("behavior-analytics")} docType - Config document type.
      * @returns {Promise<Object>} Config Object along with timestamp is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -227,6 +227,19 @@ class ConfigManager {
         return result.body.hits.hits.length > 0;
     }
 
+    /**
+     * Checks whether a docType has at least one successful config update audit record.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {("behavior-analytics")} docType - Config document type.
+     * @returns {Promise<boolean>} True when a successful or partial-success config update exists.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let configManagerObject = new mdx.Services.ConfigManager();
+     * let result = await configManagerObject.auditHasSuccessfulConfigUpdate(elastic,"behavior-analytics");
+     */
     async auditHasSuccessfulConfigUpdate(documentDb, docType){
         switch(documentDb.getName()){
             case "Elasticsearch":
@@ -314,6 +327,21 @@ class ConfigManager {
         return {updated: timedOutConfigUpdates.length, timeoutCutoff};
     }
 
+    /**
+     * Returns a config audit record for a reference ID and docType.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {("behavior-analytics")} input.docType - Config document type.
+     * @param {string} input.referenceId - Config update reference ID.
+     * @returns {Promise<?Object>} Config audit record is returned when found, otherwise null is returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let configManagerObject = new mdx.Services.ConfigManager();
+     * let result = await configManagerObject.getAuditConfig(elastic,{docType: "behavior-analytics", referenceId: "update-1"});
+     */
     async getAuditConfig(documentDb, input){
         switch(documentDb.getName()){
             case "Elasticsearch":
@@ -323,6 +351,25 @@ class ConfigManager {
         }
     }
 
+    /**
+     * Records a pending config update request in the audit index.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {("behavior-analytics")} input.docType - Config document type.
+     * @param {string} input.referenceId - Config update reference ID.
+     * @param {Object|string} input.config - Config object or JSON stringified config object.
+     * @param {string} input.timestamp - Request timestamp in ISO 8601 format.
+     * @param {("upsert")} input.eventType - Config update event type.
+     * @param {?string} [input.error=null] - Optional error message associated with the request.
+     * @returns {Promise<Object>} Pending config update request details are returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let configManagerObject = new mdx.Services.ConfigManager();
+     * let result = await configManagerObject.recordConfigUpdateRequest(elastic,{docType: "behavior-analytics", referenceId: "update-1", config, timestamp, eventType: "upsert"});
+     */
     async recordConfigUpdateRequest(documentDb, {docType, referenceId, config, timestamp, eventType, error=null}){
         if(!ConfigManager.#validDocTypes.has(docType)){
             throw new BadRequestError(`Invalid docType: ${docType}.`);
@@ -377,6 +424,22 @@ class ConfigManager {
         }
     }
 
+    /**
+     * Returns the status of a config update request and marks it failed if it has timed out.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {("behavior-analytics")} input.docType - Config document type.
+     * @param {string} input.referenceId - Config update reference ID.
+     * @param {number} timeoutThresholdMs - Time after which a pending update is marked as failure.
+     * @returns {Promise<Object>} Config update status, config, error, and timestamp are returned.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let configManagerObject = new mdx.Services.ConfigManager();
+     * let result = await configManagerObject.getConfigStatus(elastic,{docType: "behavior-analytics", referenceId: "update-1"},30000);
+     */
     async getConfigStatus(documentDb, input, timeoutThresholdMs){
         const schema = {
             type: "object",
@@ -464,7 +527,7 @@ class ConfigManager {
      * Marks pending behavior analytics config audit records as failure after they time out.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {number} timeoutThresholdMs - Time after which pending updates are marked as failure.
      * @returns {Promise<Object>} Timeout sweep details are returned.
      * @example
@@ -485,6 +548,19 @@ class ConfigManager {
         }
     }
 
+    /**
+     * Runs a guarded timeout check for pending config update requests.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {number} timeoutThresholdMs - Time after which pending updates are marked as failure.
+     * @returns {Promise<Object>} Timeout sweep details are returned, including whether the run was skipped.
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let configManagerObject = new mdx.Services.ConfigManager();
+     * let result = await configManagerObject.runConfigStatusTimeoutCheck(elastic,30000);
+     */
     async runConfigStatusTimeoutCheck(documentDb, timeoutThresholdMs){
         if(this.#isConfigStatusTimeoutCheckRunning){
             return {skipped: true};
@@ -509,9 +585,10 @@ class ConfigManager {
      * Inserts the initial config into the database.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
-     * @param {("behavior-analytics")} docType
+     * @param {Database} documentDb - Database Object.
+     * @param {("behavior-analytics")} docType - Config document type.
      * @param {string} config - A json stringified config object
+     * @returns {Promise<void>}
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
      * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
@@ -553,6 +630,24 @@ class ConfigManager {
         }
     }
 
+    /**
+     * Records the result of a pending config update and persists successful configs.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {("behavior-analytics")} input.docType - Config document type.
+     * @param {string} input.referenceId - Config update reference ID.
+     * @param {("success"|"partial-success"|"failure")} input.status - Config update result status.
+     * @param {?Object} input.config - Result config object. config should be null when status is failure.
+     * @param {?string} input.error - Optional error message for the result.
+     * @returns {Promise<void>}
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let configManagerObject = new mdx.Services.ConfigManager();
+     * await configManagerObject.updateConfigResult(elastic,{docType: "behavior-analytics", referenceId: "update-1", status: "success", config, error: null});
+     */
     async updateConfigResult(documentDb, {docType, referenceId, status, config, error}){
         if(typeof referenceId !== "string" || referenceId.trim() === ""){
             throw new BadRequestError("Invalid referenceId.");
@@ -603,9 +698,9 @@ class ConfigManager {
      * returns a success message once the config has been updated and kafka message is sent.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {MessageBroker} messageBroker - MessageBroker Object
-     * @param {("behavior-analytics")} docType
+     * @param {("behavior-analytics")} docType - Config document type.
      * @param {string} inputConfig - A json stringified config object
      * @returns {Promise<Object>} A success message is returned
      * @example

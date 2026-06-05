@@ -14,18 +14,20 @@ Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. The
 
 ## What gets deployed
 
+Container names below are the actual `container_name:` keys from `deploy/docker/services/**/compose.yml`. LLM/VLM NIM containers are named after the selected model (default shown; varies with `LLM_NAME_SLUG` / `VLM_NAME_SLUG`).
+
 | Service | Container | Port | Purpose |
 |---|---|---|---|
-| RT-CV (DeepStream perception) | vss-rtvi-cv | — (host net) | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
-| RT-Embed (Cosmos Embed1) | vss-rtvi-embed | 8017 | Video + text embedding generation |
-| LLM NIM | mdx-nim-llm-1 | 30081 | Same options as `base` (Nano 9B v2 default) |
-| VLM | (depends on placement) | 30082 (NIM) / 8018 (RT-VLM) | **Only if Critique enabled** — see [VLM placement](#vlm-placement) |
-| VSS Agent | mdx-vss-agent-1 | 8000 | Orchestrates tool calls, embed search, critique |
-| VSS UI | mdx-vss-ui-1 | 3000 | Search tab |
-| VST | mdx-vst-1 | 30888 | Video storage + ingest |
-| Elasticsearch + Logstash + Kibana | mdx-elasticsearch-1, logstash, kibana | 9200, 5601 | Index, ingest pipeline, dashboards |
-| Kafka | mdx-kafka-1 | 9092 | Embedding pipeline message bus |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability |
+| RT-CV (DeepStream perception) | `vss-rtvi-cv` | — (host net) | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
+| RT-Embed (Cosmos Embed1) | `vss-rtvi-embed` | 8017 | Video + text embedding generation |
+| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. |
+| VLM | depends on placement; default `nvidia-cosmos-reason2-8b` (NIM) or `vss-rtvi-vlm` (RT-VLM) | 30082 (NIM) / 8018 (RT-VLM) | **Only if Critique enabled** — see [VLM placement](#vlm-placement) |
+| VSS Agent | `vss-agent` | 8000 | Orchestrates tool calls, embed search, critique |
+| VSS Agent UI | `vss-agent-ui` | 3000 | Search tab |
+| VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest |
+| Elasticsearch + Logstash + Kibana | `elasticsearch`, `logstash`, `kibana` | 9200, 5601 | Index, ingest pipeline, dashboards |
+| Kafka | `kafka` | 9092 | Embedding pipeline message bus |
+| Phoenix | `phoenix` | 6006 | Observability |
 
 ## Default models
 
@@ -138,7 +140,7 @@ For VLM and LLM weight cost + the general formula, see [`base.md` § Sizing math
 
 ### RT-Embed sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.0-26.05.4` (SBSA: `3.2.0-sbsa-...`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Image: `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.0` (SBSA: `3.2.0-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 Per the upstream `perf/benchmark/rtvi_embed_gpu_initial_stream_counts.json`, the **dedicated-GPU ceiling** — max concurrent streams when RT-Embed has the GPU to itself with **no co-resident** model:
 
@@ -165,7 +167,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 | `VLM_BATCH_SIZE` | `VLM_BATCH_SIZE` | auto (3 / 16 / 64 / 128 by GPU mem) | Batch size for inference. Auto-clamps to GPU capacity. |
 | `RTVI_EMBED_NUM_GPUS` / `VSS_NUM_GPUS_PER_VLM_PROC` | `NUM_GPUS` | empty (1) | Multi-GPU distribution per embed process. |
 | `RT_EMBED_DEVICE_ID` | (compose `device_ids`) | `1` | Which GPU RT-Embed pins to. |
-| `RTVI_EMBED_TAG` | (image tag) | `3.2.0-26.05.4` | x86 / iGPU. For DGX Spark: use the `-sbsa-` variant of the current weekly (verify against `dev-profile-search/.env` and the registry). |
+| `RTVI_EMBED_TAG` | (image tag) | `3.2.0` | x86 / iGPU. For DGX Spark: use the published `3.2.0-sbsa` variant when available. |
 
 **Default Cosmos-Embed1 deployment runs on Triton (ONNX), not vLLM.** From `start_rtvi_embed.sh:47-49` and `src/models/custom/samples/cosmos-embed1/inference.py:55-56`, the default `VLM_MODEL_TO_USE=custom` loads Cosmos-Embed1 via Triton-served ONNX models (`text_embeddings`, `video_embeddings`). For that path:
 
@@ -179,7 +181,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 
 ### RT-CV sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.0-26.05.1` (SBSA: `3.2.0-sbsa-26.05.1`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
+Image: `nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0` (SBSA: `3.2.0-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
 
 RT-CV is a **DeepStream perception pipeline**, not a vLLM container. It has no `--gpu-memory-utilization`-style knob. Memory scales with stream count and the active model family.
 
@@ -194,7 +196,7 @@ Knobs (in `dev-profile-search/.env`):
 | `DS_TRACKER_REID` | `false` | Enable re-identification (extra VRAM). |
 | `VISION_ENCODER_MODEL` | `siglip_v2` | Vision encoder downloaded by `perception-2d-init`. |
 | `RT_CV_DEVICE_ID` | `0` | Which GPU RT-CV pins to. |
-| `PERCEPTION_TAG` | `3.2.0-26.05.1` | Image tag (use `-sbsa-` variant on DGX Spark). |
+| `PERCEPTION_TAG` | `3.2.0` | Image tag (use `-sbsa-` variant on DGX Spark). |
 
 The upstream perf guide doesn't publish a single GB number — it publishes per-GPU max stream counts (consistent with the table above for RT-Embed). Treat **`NUM_STREAMS=16`** as a starting point on H100 / RTX PRO 6000 / L40S; lower it on smaller GPUs or when co-locating with a VLM.
 
@@ -256,15 +258,22 @@ For Path B (default — VLM on GPU 0 with RT-CV), the math is on GPU 0 instead: 
 
 ## Endpoints (after deploy)
 
-| Service | URL |
+`PUBLIC` = the deployed public origin (`docker inspect vss-agent` →
+`VSS_AGENT_EXTERNAL_URL`; on Brev the `https://7777-<id>.brevlab.com` secure
+link). Report the ingress URLs, not raw ports — see
+[`base.md`](base.md#endpoints-after-deploy) / [`brev.md`](brev.md). Rows marked
+*(direct)* are internal service ports: on-host `curl` only, not browser-reachable on Brev.
+
+| Service | URL to report (through ingress) |
 |---|---|
-| Agent UI | `http://<HOST_IP>:3000/` |
-| Agent REST API | `http://<HOST_IP>:8000/` |
-| RT-Embed | `http://<HOST_IP>:8017/` |
-| Elasticsearch | `http://<HOST_IP>:9200/` |
-| Kibana | `http://<HOST_IP>:5601/` |
-| VLM (Path B/C) | `http://<HOST_IP>:30082/v1/` (NIM) or `http://<HOST_IP>:8018/v1/` (RT-VLM) |
-| Phoenix | `http://<HOST_IP>:6006/` |
+| Agent UI | `${PUBLIC}/` |
+| Agent REST API | `${PUBLIC}/api` |
+| Kibana | `${PUBLIC}/kibana` |
+| Phoenix | `${PUBLIC}/phoenix` |
+| nvstreamer | own secure link `https://31000-<id>.brevlab.com` on Brev (see [`brev.md`](brev.md)); else `http://<HOST_IP>:31000/` |
+| RT-Embed (direct) | `http://<HOST_IP>:8017/` |
+| Elasticsearch (direct) | `http://<HOST_IP>:9200/` |
+| VLM (direct, Path B/C) | `http://<HOST_IP>:30082/v1/` (NIM) or `http://<HOST_IP>:8018/v1/` (RT-VLM) |
 
 ## Env file location
 
@@ -275,7 +284,7 @@ deploy/docker/developer-profiles/dev-profile-search/generated.env   # skill's wo
 
 ## Stage perception models (RT-DETR warehouse)
 
-**MUST run before `docker compose -f resolved.yml up -d`.** The compose's `perception-2d-init` container only fetches the SigLIP vision encoder. The RT-DETR detector model that RT-CV needs is staged separately by `dev-profile.sh` — and since this skill doesn't run that script, the agent must stage it directly.
+**MUST run before `docker compose --env-file <env> -f resolved.yml up -d`.** The compose's `perception-2d-init` container only fetches the SigLIP vision encoder. The RT-DETR detector model that RT-CV needs is staged separately by `dev-profile.sh` — and since this skill doesn't run that script, the agent must stage it directly.
 
 Symptom if skipped: RT-CV starts but its TensorRT engine build fails because `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx` is missing. (User-confirmed on 2026-05-10.)
 
@@ -288,8 +297,8 @@ mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/models"
 
 NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
-    nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-    --org nvstaging
+    nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
+    --org nvidia
 
 mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx \
     "$DATA/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
@@ -305,7 +314,10 @@ ls -l "$VSS_DATA_DIR/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
 # expected: ~30–50 MB onnx file, mode 777
 ```
 
-After RT-CV starts, it builds a TensorRT engine from this ONNX (3–5 min on first start) — those engines are cached under the same `models/` directory.
+After RT-CV starts, it builds a TensorRT engine from this ONNX (3–5 min on
+first start). Note that engine caches live alongside the ONNX files under
+`$VSS_DATA_DIR/models/` here, not under `$VSS_APPS_DIR/engines/` like the
+alerts profile — see [`alerts.md` § Stage perception models](alerts.md#stage-perception-models-rtdetr-its--gdino) for the alerts-profile path.
 
 ## First-run note
 

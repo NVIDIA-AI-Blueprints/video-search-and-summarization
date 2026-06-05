@@ -139,53 +139,6 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
             brev_env._get_instance_gpu_count_from_catalog = original
 
 
-class EnsurePrerequisiteCleanup(unittest.IsolatedAsyncioTestCase):
-
-    async def test_profileless_trial_cleans_even_when_marker_empty(self):
-        calls = []
-
-        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
-            calls.append((instance, command, timeout))
-            if command.startswith("cat "):
-                return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
-            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
-
-        original = brev_env._run_brev_exec
-        brev_env._run_brev_exec = fake_run_brev_exec
-        try:
-            env = brev_env.BrevEnvironment()
-            env._instance_name = "vss-eval-test"
-            await env._ensure_prerequisite_deployed({})
-        finally:
-            brev_env._run_brev_exec = original
-
-        self.assertEqual(len(calls), 2)
-        self.assertIn("cat /tmp/skill-eval/active-deploy.txt", calls[0][1])
-        self.assertIn("docker ps -aq | xargs -r docker rm -f", calls[1][1])
-        self.assertIn("printf '' > /tmp/skill-eval/active-deploy.txt", calls[1][1])
-
-    async def test_matching_profile_marker_still_skips_reconcile(self):
-        calls = []
-
-        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
-            calls.append((instance, command, timeout))
-            return brev_env.ExecResult(stdout="alerts-real-time\n", stderr=None, return_code=0)
-
-        original = brev_env._run_brev_exec
-        brev_env._run_brev_exec = fake_run_brev_exec
-        try:
-            env = brev_env.BrevEnvironment()
-            env._instance_name = "vss-eval-test"
-            await env._ensure_prerequisite_deployed(
-                {"profile": "alerts", "prerequisite_deploy_mode": "real-time"}
-            )
-        finally:
-            brev_env._run_brev_exec = original
-
-        self.assertEqual(len(calls), 1)
-        self.assertIn("cat /tmp/skill-eval/active-deploy.txt", calls[0][1])
-
-
 class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_dir_copies_tarball_and_extracts_with_short_command(self):
@@ -284,6 +237,20 @@ class VersionCompareSanity(unittest.TestCase):
         self.assertTrue(brev_env._version_lt("565.57.01", "580.95"))
         self.assertFalse(brev_env._version_lt("580.105.08", "580.95"))
         self.assertFalse(brev_env._version_lt("580.95", "580.95"))
+
+
+class ClaudeTaskScratchCleanup(unittest.TestCase):
+    def test_cleanup_command_targets_current_user_task_dirs(self):
+        cmd = brev_env._claude_task_scratch_cleanup_command()
+
+        self.assertIn('BASE="/tmp/claude-${UID_NUM}"', cmd)
+        self.assertIn("-name tasks", cmd)
+        self.assertIn("-exec rm -rf {} +", cmd)
+        self.assertIn("[claude-task-scratch]", cmd)
+        self.assertNotIn("sudo rm -rf /tmp/claude-", cmd)
+        # The rm step must not swallow stderr — a real cleanup failure has to
+        # surface its error to the caller, not raise an empty-tail RuntimeError.
+        self.assertNotIn("rm -rf {} + 2>/dev/null", cmd)
 
 
 if __name__ == "__main__":

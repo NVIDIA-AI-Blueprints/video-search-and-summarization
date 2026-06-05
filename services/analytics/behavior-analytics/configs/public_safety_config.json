@@ -1,0 +1,153 @@
+
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"consumer": {
+			"autoOffsetReset": "latest",
+			"enableAutoCommit": false,
+			"maxPollIntervalMs": 900000,
+			"maxPartitionFetchBytes": 10485760,
+			"fetchMaxBytes": 104857600,
+			"maxPollRecords": 10000,
+			"timeout": 0.01
+		},
+		"producer": {
+			"lingerMs": 0
+		},
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
+			}
+		]
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "proximityDetectionEnable",
+					"value": "true"
+				},
+				{
+					"name": "proximityDetectionThreshold",
+					"value": "1.8"
+				},
+				{
+					"name": "proximityDetectionCenterClasses",
+					"value": "[\"Person\"]"
+				},
+				{
+					"name": "proximityDetectionSurroundingClasses",
+					"value": "[\"Person\"]"
+				}
+			]
+		}
+	],
+	"app": [
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorStateTimeout",
+			"value": "10"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "100"
+		},
+		{
+			"name": "objectConfidenceThreshold",
+			"value": "0.5"
+		},
+		{
+			"name": "inSimulationMode",
+			"value": "false"
+		},
+		{
+			"name": "playbackSimulationTimedeltaInMin",
+			"value": "60"
+		},
+		{
+			"name": "playbackLoop",
+			"value": "1"
+		},
+		{
+			"name": "playbackFilterEmptyObjects",
+			"value": "true"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "euclidean"
+		},
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "2"
+		},
+		{
+			"name": "numWorkersForFrameEnhancement",
+			"value": "2"
+		},
+		{
+			"name": "proximityViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "proximityViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "proximityViolationIncidentThreshold",
+			"value": "1"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentThreshold",
+			"value": "1"
+		},
+		{
+			"name": "confinedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "confinedAreaViolationIncidentExpirationWindow",
+			"value": "1"
+		},
+		{
+			"name": "confinedAreaViolationIncidentThreshold",
+			"value": "1"
+		}
+	]
+}

@@ -1,0 +1,169 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"group": "mdx-space-utilization-3d-app",
+		"consumer": {
+			"autoOffsetReset": "latest",
+			"enableAutoCommit": false,
+			"maxPollIntervalMs": 900000,
+			"maxPartitionFetchBytes": 10485760,
+			"fetchMaxBytes": 104857600,
+			"maxPollRecords": 10000,
+			"timeout": 0.01
+		},
+		"producer": {
+			"lingerMs": 0
+		},
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-bev"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "spaceUtilization",
+				"value": "mdx-space-utilization"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
+			}
+		]
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "sensorMinFrames",
+					"value": "1"
+				},
+				{
+					"name": "proximityDetectionEnable",
+					"value": "true"
+				},
+				{
+					"name": "proximityDetectionThreshold",
+					"value": "2"
+				},
+				{
+					"name": "proximityDetectionCenterClasses",
+					"value": "[\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\"]"
+				},
+				{
+					"name": "proximityDetectionSurroundingClasses",
+					"value": "[\"Agility_Digit_Humanoid\",\"Fourier_GR1_T2_Humanoid\",\"Person\"]"
+				}
+			]
+		}
+	],
+	"app": [
+		{
+			"name": "spaceAnalyticsIntervalSec",
+			"value": "1.0"
+		},
+		{
+			"name": "spaceAnalyticsCalibSensorsOnly",
+			"value": "false"
+		},
+		{
+			"name": "spaceAnalyticsGridSize",
+			"value": "0.2"
+		},
+		{
+			"name": "spaceAnalyticsUnsafeSize",
+			"value": "0.5"
+		},
+		{
+			"name": "spaceAnalyticsTargetClasses",
+			"value": "[\"Box\", \"Pallet\"]"
+		},
+		{
+			"name": "spaceAnalyticsUseGA",
+			"value": "false"
+		},
+		{
+			"name": "spaceAnalyticsPopulationSizeGA",
+			"value": "100"
+		},
+		{
+			"name": "spaceAnalyticsNumGenerationsGA",
+			"value": "100"
+		},
+		{
+			"name": "behaviorStateTimeout",
+			"value": "20"
+		},
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "200"
+		},
+		{
+			"name": "inSimulationMode",
+			"value": "false"
+		},
+		{
+			"name": "in3dMode",
+			"value": "true"
+		},
+		{
+			"name": "playbackLoop",
+			"value": "10000"
+		},
+		{
+			"name": "playbackSimulationBaseTime",
+			"value": "2025-03-04T17:20:00.000000Z"
+		},
+		{
+			"name": "playbackSimulationFps",
+			"value": "1"
+		},
+		{
+			"name": "compactFrame",
+			"value": "true"
+		},
+		{
+			"name": "stateManagementFilter",
+			"value": "[\"Agility_Digit_Humanoid\",\"Fourier_GR1_T2_Humanoid\",\"Person\", \"Nova_Carter\"]"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "euclidean"
+		},
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "1"
+		},
+		{
+			"name": "numWorkersForFrameEnhancement",
+			"value": "1"
+		},
+		{
+			"name": "numWorkersForSpaceEstimation",
+			"value": "1"
+		}
+	]
+}

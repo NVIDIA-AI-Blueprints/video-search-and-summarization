@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+
+  analytics-stream-playback:
+    image: py-behavior-analytics:latest
+    network_mode: "host"
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/analytics-stream-$STREAMING_SERVICE-config.json:/resources/analytics-stream-config.json
+      - $MDX_DATA_DIR/playback/${APP_NAME}${APP_MODE}_playback_data.txt:/opt/mdx/playback/playback_data.txt
+    container_name: mdx-analytics-playback
+    command: python3 apps/playback/playback_frames.py --config /resources/analytics-stream-config.json --playback-filepath /opt/mdx/playback/playback_data.txt $PLAYBACK_MODE
+    depends_on:
+      - logstash
+
+  analytics-stream:
+    image: py-behavior-analytics:latest
+    network_mode: "host"
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/analytics-stream-$STREAMING_SERVICE-config.json:/resources/analytics-stream-config.json
+      - $MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/calibration.json:/resources/calibration.json
+    restart: always
+    container_name: mdx-analytics
+    command: python3 apps/${APP_DIR}/main_${APP_DIR}${APP_MODE}_app.py --config /resources/analytics-stream-config.json --calibration /resources/calibration.json
+    depends_on:
+      kafka-topic-init-container:
+        condition: service_completed_successfully

@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Container Stats - VST BDD Tests</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .summary-card.success {
+            background: linear-gradient(135deg, #56ab2f 0%, #a8e063 100%);
+        }
+        
+        .summary-card.warning {
+            background: linear-gradient(135deg, #f2994a 0%, #f2c94c 100%);
+        }
+        
+        .summary-card.info {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .summary-card h3 {
+            font-size: 14px;
+            font-weight: normal;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .summary-card .value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .summary-card .subvalue {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+        
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .chart-container {
+            background: #fafafa;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .chart-container h2 {
+            font-size: 18px;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 14px;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab:hover {
+            color: #2c3e50;
+        }
+        
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+            position: sticky;
+            top: 0;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge.high { background: #fee; color: #c33; }
+        .badge.medium { background: #fef3cd; color: #856404; }
+        .badge.low { background: #d1ecf1; color: #0c5460; }
+        
+        .json-viewer {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .json-viewer pre {
+            margin: 0;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px;
+            font-size: 18px;
+            color: #7f8c8d;
+        }
+        
+        .section-header {
+            font-size: 20px;
+            color: #2c3e50;
+            margin: 40px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .stat-item .label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .stat-item .value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Container Resource Monitoring</h1>
+        <div class="subtitle">VST BDD Test Suite - Comprehensive Container Stats</div>
+        
+        <div id="loading" class="loading">Loading container stats...</div>
+        <div id="error" class="error" style="display:none;"></div>
+        <div id="content" style="display:none;">
+            <div class="summary" id="summary"></div>
+            
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('overview')">Overview</button>
+                <button class="tab" onclick="showTab('cpu')">CPU Details</button>
+                <button class="tab" onclick="showTab('memory')">Memory Details</button>
+                <button class="tab" onclick="showTab('network')">Network I/O</button>
+                <button class="tab" onclick="showTab('block')">Block I/O</button>
+                <button class="tab" onclick="showTab('raw')">Raw JSON</button>
+            </div>
+            
+            <div id="tab-overview" class="tab-content active">
+                <div class="chart-grid" id="charts"></div>
+                <div id="table-container"></div>
+            </div>
+            
+            <div id="tab-cpu" class="tab-content">
+                <h2 class="section-header">CPU Usage Analysis</h2>
+                <div id="cpu-stats"></div>
+                <div class="chart-container">
+                    <div class="chart-wrapper">
+                        <canvas id="cpuDetailChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="tab-memory" class="tab-content">
+                <h2 class="section-header">Memory Usage Analysis</h2>
+                <div id="memory-stats"></div>
+                <div class="chart-container">
+                    <div class="chart-wrapper">
+                        <canvas id="memDetailChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="tab-network" class="tab-content">
+                <h2 class="section-header">Network I/O Statistics</h2>
+                <div id="network-stats"></div>
+            </div>
+            
+            <div id="tab-block" class="tab-content">
+                <h2 class="section-header">Block I/O Statistics</h2>
+                <div id="block-stats"></div>
+            </div>
+            
+            <div id="tab-raw" class="tab-content">
+                <h2 class="section-header">Raw JSON Data</h2>
+                <div class="json-viewer" id="raw-json"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let globalData = null;
+        
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            
+            // Show selected tab
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            event.target.classList.add('active');
+            
+            // Load data for specific tabs if needed
+            if (globalData) {
+                if (tabName === 'cpu') displayCPUDetails(globalData);
+                if (tabName === 'memory') displayMemoryDetails(globalData);
+                if (tabName === 'network') displayNetworkStats(globalData);
+                if (tabName === 'block') displayBlockStats(globalData);
+                if (tabName === 'raw') displayRawJSON(globalData);
+            }
+        }
+        
+        async function loadStats() {
+            try {
+                const response = await fetch('container_stats.json');
+                if (!response.ok) {
+                    throw new Error('Failed to load container_stats.json');
+                }
+                
+                globalData = await response.json();
+                displayStats(globalData);
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = 'Error loading container stats: ' + error.message + 
+                    '\n\nMake sure container_stats.json exists in the same directory as this HTML file.';
+            }
+        }
+        
+        function displayStats(data) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+            
+            displaySummary(data);
+            const containerMetrics = processContainerMetrics(data);
+            displayCharts(containerMetrics, data.snapshots);
+            displayTable(containerMetrics, data.snapshots);
+        }
+        
+        function displaySummary(data) {
+            const summary = document.getElementById('summary');
+            
+            const testDuration = data.test_start && data.test_end 
+                ? calculateDuration(data.test_start, data.test_end)
+                : 'N/A';
+            
+            const totalContainers = data.snapshots && data.snapshots.length > 0
+                ? data.snapshots[0].containers.length
+                : 0;
+            
+            // Calculate average CPU and Memory across all containers
+            let totalAvgCpu = 0;
+            let totalAvgMem = 0;
+            if (data.snapshots && data.snapshots.length > 0) {
+                data.snapshots.forEach(snapshot => {
+                    snapshot.containers.forEach(container => {
+                        totalAvgCpu += parseFloat(container.cpu_percent.replace('%', ''));
+                        totalAvgMem += parseFloat(container.mem_percent.replace('%', ''));
+                    });
+                });
+                const totalSamples = data.snapshots.length * totalContainers;
+                totalAvgCpu = totalSamples > 0 ? (totalAvgCpu / totalSamples).toFixed(1) : 0;
+                totalAvgMem = totalSamples > 0 ? (totalAvgMem / totalSamples).toFixed(1) : 0;
+            }
+            
+            summary.innerHTML = `
+                <div class="summary-card">
+                    <h3>Test Duration</h3>
+                    <div class="value">${testDuration}</div>
+                    <div class="subvalue">From ${data.test_start ? new Date(data.test_start).toLocaleTimeString() : 'N/A'}</div>
+                </div>
+                <div class="summary-card success">
+                    <h3>Containers Monitored</h3>
+                    <div class="value">${totalContainers}</div>
+                    <div class="subvalue">${data.total_snapshots || 0} snapshots collected</div>
+                </div>
+                <div class="summary-card info">
+                    <h3>Avg CPU Usage</h3>
+                    <div class="value">${totalAvgCpu}%</div>
+                    <div class="subvalue">Across all containers</div>
+                </div>
+                <div class="summary-card warning">
+                    <h3>Avg Memory Usage</h3>
+                    <div class="value">${totalAvgMem}%</div>
+                    <div class="subvalue">Across all containers</div>
+                </div>
+                <div class="summary-card">
+                    <h3>Collection Interval</h3>
+                    <div class="value">${data.collection_interval_seconds || 0}s</div>
+                    <div class="subvalue">Between snapshots</div>
+                </div>
+            `;
+        }
+        
+        function calculateDuration(start, end) {
+            const startTime = new Date(start);
+            const endTime = new Date(end);
+            const durationSeconds = (endTime - startTime) / 1000;
+            
+            if (durationSeconds < 60) {
+                return durationSeconds.toFixed(1) + 's';
+            } else {
+                const minutes = Math.floor(durationSeconds / 60);
+                const seconds = (durationSeconds % 60).toFixed(0);
+                return `${minutes}m ${seconds}s`;
+            }
+        }
+        
+        function processContainerMetrics(data) {
+            const metrics = {};
+            
+            data.snapshots.forEach((snapshot, snapshotIndex) => {
+                snapshot.containers.forEach(container => {
+                    if (!metrics[container.name]) {
+                        metrics[container.name] = {
+                            cpu: [],
+                            mem: [],
+                            mem_usage: [],
+                            mem_limit: [],
+                            net_io: [],
+                            block_io: [],
+                            pids: [],
+                            timestamps: [],
+                            raw_data: []
+                        };
+                    }
+                    
+                    const cpuVal = parseFloat(container.cpu_percent.replace('%', ''));
+                    const memVal = parseFloat(container.mem_percent.replace('%', ''));
+                    
+                    metrics[container.name].cpu.push(cpuVal);
+                    metrics[container.name].mem.push(memVal);
+                    metrics[container.name].mem_usage.push(container.mem_usage || 'N/A');
+                    metrics[container.name].mem_limit.push(container.mem_limit || 'N/A');
+                    metrics[container.name].net_io.push(container.net_io || 'N/A');
+                    metrics[container.name].block_io.push(container.block_io || 'N/A');
+                    metrics[container.name].pids.push(container.pids || 'N/A');
+                    metrics[container.name].timestamps.push(snapshot.timestamp);
+                    metrics[container.name].raw_data.push(container);
+                });
+            });
+            
+            return metrics;
+        }
+        
+        function displayCharts(containerMetrics, snapshots) {
+            const chartsDiv = document.getElementById('charts');
+            chartsDiv.innerHTML = '';
+            
+            // CPU Chart (all containers)
+            const cpuChartDiv = document.createElement('div');
+            cpuChartDiv.className = 'chart-container';
+            cpuChartDiv.innerHTML = '<h2>CPU Usage Over Time</h2><div class="chart-wrapper"><canvas id="cpuChart"></canvas></div>';
+            chartsDiv.appendChild(cpuChartDiv);
+            
+            // Memory Chart (all containers)
+            const memChartDiv = document.createElement('div');
+            memChartDiv.className = 'chart-container';
+            memChartDiv.innerHTML = '<h2>Memory Usage Over Time</h2><div class="chart-wrapper"><canvas id="memChart"></canvas></div>';
+            chartsDiv.appendChild(memChartDiv);
+            
+            // Create CPU chart
+            const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+            const cpuDatasets = [];
+            const colors = generateColors(Object.keys(containerMetrics).length);
+            let colorIndex = 0;
+            
+            for (const [name, data] of Object.entries(containerMetrics)) {
+                cpuDatasets.push({
+                    label: name,
+                    data: data.cpu,
+                    borderColor: colors[colorIndex],
+                    backgroundColor: colors[colorIndex] + '20',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: false
+                });
+                colorIndex++;
+            }
+            
+            const labels = snapshots.map((s, i) => {
+                const date = new Date(s.timestamp);
+                return date.toLocaleTimeString();
+            });
+            
+            new Chart(cpuCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: cpuDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { boxWidth: 12, font: { size: 10 } }
+                        },
+                        title: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'CPU %' }
+                        },
+                        x: {
+                            ticks: { maxRotation: 45, minRotation: 45 }
+                        }
+                    }
+                }
+            });
+            
+            // Create Memory chart
+            const memCtx = document.getElementById('memChart').getContext('2d');
+            const memDatasets = [];
+            colorIndex = 0;
+            
+            for (const [name, data] of Object.entries(containerMetrics)) {
+                memDatasets.push({
+                    label: name,
+                    data: data.mem,
+                    borderColor: colors[colorIndex],
+                    backgroundColor: colors[colorIndex] + '20',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: false
+                });
+                colorIndex++;
+            }
+            
+            new Chart(memCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: memDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { boxWidth: 12, font: { size: 10 } }
+                        },
+                        title: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Memory %' }
+                        },
+                        x: {
+                            ticks: { maxRotation: 45, minRotation: 45 }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function displayTable(containerMetrics, snapshots) {
+            const tableContainer = document.getElementById('table-container');
+            
+            let html = '<h2 class="section-header">Container Statistics Summary</h2>';
+            html += '<table>';
+            html += '<thead><tr>';
+            html += '<th>Container Name</th>';
+            html += '<th>CPU Avg</th>';
+            html += '<th>CPU Max</th>';
+            html += '<th>Memory Avg</th>';
+            html += '<th>Memory Max</th>';
+            html += '<th>PIDs Avg</th>';
+            html += '<th>Samples</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+            
+            // Sort by average CPU (highest first)
+            const sorted = Object.entries(containerMetrics).sort((a, b) => {
+                const avgA = a[1].cpu.reduce((sum, val) => sum + val, 0) / a[1].cpu.length;
+                const avgB = b[1].cpu.reduce((sum, val) => sum + val, 0) / b[1].cpu.length;
+                return avgB - avgA;
+            });
+            
+            sorted.forEach(([name, data]) => {
+                const avgCpu = data.cpu.reduce((sum, val) => sum + val, 0) / data.cpu.length;
+                const maxCpu = Math.max(...data.cpu);
+                const avgMem = data.mem.reduce((sum, val) => sum + val, 0) / data.mem.length;
+                const maxMem = Math.max(...data.mem);
+                const avgPids = data.pids.filter(p => p !== 'N/A').length > 0
+                    ? (data.pids.filter(p => p !== 'N/A').reduce((sum, val) => sum + parseInt(val), 0) / data.pids.filter(p => p !== 'N/A').length).toFixed(0)
+                    : 'N/A';
+                
+                const cpuBadge = avgCpu > 50 ? 'high' : avgCpu > 20 ? 'medium' : 'low';
+                const memBadge = avgMem > 50 ? 'high' : avgMem > 20 ? 'medium' : 'low';
+                
+                html += '<tr>';
+                html += `<td><strong>${name}</strong></td>`;
+                html += `<td><span class="badge ${cpuBadge}">${avgCpu.toFixed(2)}%</span></td>`;
+                html += `<td>${maxCpu.toFixed(2)}%</td>`;
+                html += `<td><span class="badge ${memBadge}">${avgMem.toFixed(2)}%</span></td>`;
+                html += `<td>${maxMem.toFixed(2)}%</td>`;
+                html += `<td>${avgPids}</td>`;
+                html += `<td>${data.cpu.length}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            tableContainer.innerHTML = html;
+        }
+        
+        function displayCPUDetails(data) {
+            const statsDiv = document.getElementById('cpu-stats');
+            const metrics = processContainerMetrics(data);
+            
+            let html = '<div class="stats-grid">';
+            
+            Object.entries(metrics).forEach(([name, data]) => {
+                const avgCpu = data.cpu.reduce((sum, val) => sum + val, 0) / data.cpu.length;
+                const maxCpu = Math.max(...data.cpu);
+                const minCpu = Math.min(...data.cpu);
+                
+                html += `
+                    <div class="stat-item">
+                        <div class="label">${name}</div>
+                        <div class="value">${avgCpu.toFixed(2)}% avg</div>
+                        <div class="subvalue" style="font-size: 11px; color: #999; margin-top: 5px;">
+                            Min: ${minCpu.toFixed(2)}% | Max: ${maxCpu.toFixed(2)}%
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            statsDiv.innerHTML = html;
+        }
+        
+        function displayMemoryDetails(data) {
+            const statsDiv = document.getElementById('memory-stats');
+            const metrics = processContainerMetrics(data);
+            
+            let html = '<div class="stats-grid">';
+            
+            Object.entries(metrics).forEach(([name, data]) => {
+                const avgMem = data.mem.reduce((sum, val) => sum + val, 0) / data.mem.length;
+                const maxMem = Math.max(...data.mem);
+                const minMem = Math.min(...data.mem);
+                const lastUsage = data.mem_usage[data.mem_usage.length - 1];
+                const lastLimit = data.mem_limit[data.mem_limit.length - 1];
+                
+                html += `
+                    <div class="stat-item">
+                        <div class="label">${name}</div>
+                        <div class="value">${avgMem.toFixed(2)}% avg</div>
+                        <div class="subvalue" style="font-size: 11px; color: #999; margin-top: 5px;">
+                            Min: ${minMem.toFixed(2)}% | Max: ${maxMem.toFixed(2)}%<br>
+                            Usage: ${lastUsage} / ${lastLimit}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            statsDiv.innerHTML = html;
+        }
+        
+        function displayNetworkStats(data) {
+            const statsDiv = document.getElementById('network-stats');
+            const metrics = processContainerMetrics(data);
+            
+            let html = '<div class="stats-grid">';
+            
+            Object.entries(metrics).forEach(([name, data]) => {
+                const firstIO = data.net_io[0];
+                const lastIO = data.net_io[data.net_io.length - 1];
+                
+                html += `
+                    <div class="stat-item">
+                        <div class="label">${name}</div>
+                        <div class="value" style="font-size: 16px;">${lastIO}</div>
+                        <div class="subvalue" style="font-size: 11px; color: #999; margin-top: 5px;">
+                            Initial: ${firstIO}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            
+            html += '<p style="margin-top: 20px; color: #666; font-size: 13px;"><em>Note: Network I/O shows cumulative values (Input / Output)</em></p>';
+            statsDiv.innerHTML = html;
+        }
+        
+        function displayBlockStats(data) {
+            const statsDiv = document.getElementById('block-stats');
+            const metrics = processContainerMetrics(data);
+            
+            let html = '<div class="stats-grid">';
+            
+            Object.entries(metrics).forEach(([name, data]) => {
+                const firstIO = data.block_io[0];
+                const lastIO = data.block_io[data.block_io.length - 1];
+                
+                html += `
+                    <div class="stat-item">
+                        <div class="label">${name}</div>
+                        <div class="value" style="font-size: 16px;">${lastIO}</div>
+                        <div class="subvalue" style="font-size: 11px; color: #999; margin-top: 5px;">
+                            Initial: ${firstIO}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            
+            html += '<p style="margin-top: 20px; color: #666; font-size: 13px;"><em>Note: Block I/O shows cumulative values (Read / Write)</em></p>';
+            statsDiv.innerHTML = html;
+        }
+        
+        function displayRawJSON(data) {
+            const jsonDiv = document.getElementById('raw-json');
+            jsonDiv.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+        }
+        
+        function generateColors(count) {
+            const colors = [
+                '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+                '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384',
+                '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40',
+                '#E7E9ED', '#71B37C', '#EC6B56', '#FFC870', '#47B39C'
+            ];
+            
+            while (colors.length < count) {
+                colors.push('#' + Math.floor(Math.random()*16777215).toString(16));
+            }
+            
+            return colors;
+        }
+        
+        // Load stats on page load
+        loadStats();
+    </script>
+</body>
+</html>

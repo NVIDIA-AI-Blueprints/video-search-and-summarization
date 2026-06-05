@@ -7,7 +7,7 @@ Docker launch commands and platform-specific setup for the RTVI-CV container.
 | Placeholder | Description |
 |---|---|
 | `<RTVI_CV_IMAGE>` | Full image reference, e.g. `nvcr.io/<org>/<repo>:<tag>` |
-| `<GPU_INDEX>` | GPU device index. Default sourced from `references/deploy-defaults.yml > runtime.gpu_id` (currently `0`). The skill captures it as `DEFAULT_GPU_ID` via `scripts/load_defaults.sh`. Override per-deploy by saying e.g. "run on gpu 1" in the skill query — that overrides the YAML default but does NOT mutate the file. |
+| `<GPU_INDEX>` | GPU device index. Default sourced from `assets/deploy-defaults.yml > runtime.gpu_id` (currently `0`). The skill captures it as `DEFAULT_GPU_ID` via `scripts/load_defaults.sh`. Override per-deploy by saying e.g. "run on gpu 1" in the skill query — that overrides the YAML default but does NOT mutate the file. |
 | `<STORAGE_HOST>` | Host path for persistent storage (default `$HOME/rtvicv-storage`) |
 | `<CONTAINER_NAME>` | Docker container name. Canonical: `rtvicv-perception-docker`. Only differs in the parallel-instance branch — see `container-reuse.md`. |
 
@@ -15,7 +15,7 @@ Docker launch commands and platform-specific setup for the RTVI-CV container.
 
 **GPU selection default:** all docker-run templates use
 `--gpus '"device=<GPU_INDEX>"'`. `<GPU_INDEX>` resolves to
-`runtime.gpu_id` from `references/deploy-defaults.yml` (default `0`).
+`runtime.gpu_id` from `assets/deploy-defaults.yml` (default `0`).
 Pinning the container to a specific GPU avoids claiming every device
 on the host (which `--gpus all` would do, surprising users on shared
 multi-GPU workstations). To target a different device, change

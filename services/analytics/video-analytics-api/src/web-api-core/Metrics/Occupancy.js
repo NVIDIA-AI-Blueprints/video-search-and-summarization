@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -109,24 +109,6 @@ class Occupancy {
         }
     }
 
-    /**
-     * Formats object type for use as a map key.
-     * Normalizes the string to ensure consistent comparison despite manual entry variations.
-     * - Converts to lowercase
-     * - Replaces all whitespace (spaces, tabs, etc.) and existing underscores with single underscore
-     * - Collapses multiple consecutive underscores into one
-     * - Removes leading and trailing underscores
-     * - Returns null if normalization results in empty string
-     * @private
-     * @param {string} objectType - The object type to format
-     * @returns {?string} Formatted object type, or null if empty after normalization
-     * @example
-     * "Person Type" → "person_type"
-     * " Person__Type " → "person_type"
-     * "Person_ _Type" → "person_type"
-     * "   " → null
-     * "___" → null
-     */
     #formatObjectTypeKey(objectType) {
         const formatted = objectType
             .trim()
@@ -138,15 +120,6 @@ class Occupancy {
         return formatted === '' ? null : formatted;
     }
 
-    /**
-     * Creates a map from occupancy reset details with formatted object types as keys.
-     * If multiple reset details map to the same formatted key, keeps the one with the newest timestamp.
-     * @private
-     * @async
-     * @param {Database} documentDb - Database Object
-     * @param {Object} input - Input object for getOccupancyResetDetails
-     * @returns {Promise<Map>} Map where key is formatted objectType and value is the reset detail object
-     */
     async #getOccupancyResetMap(documentDb, input) {
         const resetDetails = await this.#getOccupancyResetDetails(documentDb, input);
         const resetMap = new Map();
@@ -295,10 +268,10 @@ class Occupancy {
      * returns an object containing occupancy based on tripwire events.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.place
-     * @param {string} input.timestamp
+     * @param {string} input.place - Place used to query occupancy.
+     * @param {string} input.timestamp - Timestamp for the query in ISO 8601 format.
      * @param {?string} [input.objectType] - If null, returns occupancy for all object types. If specified, returns occupancy for that specific object type.
      * @returns {Promise<Object>} Occupancy based on tripwire events is returned
      * @example
@@ -482,12 +455,12 @@ class Occupancy {
      * returns a success message if reset value was inserted successfully.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.place
-     * @param {string} input.timestamp
-     * @param {number} input.occupancyReset - occupancyReset must be an integer. 
-     * @param {string} [input.objectType="Person"]
+     * @param {string} input.place - Place used to insert the occupancy reset.
+     * @param {string} input.timestamp - Timestamp for the occupancy reset in ISO 8601 format.
+     * @param {number} input.occupancyReset - Occupancy reset value to insert.
+     * @param {string} [input.objectType="Person"] - Object type used to insert the occupancy reset.
      * @returns {Promise<Object>} A success message is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -606,12 +579,12 @@ class Occupancy {
      * returns an object containing average fov occupancy.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
-     * @param {?string} [input.objectType=null]
+     * @param {string} input.sensorId - Sensor ID used to query average fov occupancy.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {?string} [input.objectType=null] - Object type used to filter average fov occupancy.
      * @returns {Promise<Object>} Average Fov Occupancy is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -765,14 +738,14 @@ class Occupancy {
      * returns an object containing histogram of average fov occupancy.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
+     * @param {string} input.sensorId - Sensor ID used to query the occupancy histogram.
      * @param {string} [input.fromTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
      * @param {string} [input.toTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
-     * @param {number} [input.minutesAgo] - minutesAgo must be an integer. Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
-     * @param {number} [input.bucketCount=20] - bucketCount must be an integer.
-     * @param {?string} [input.objectType=null]
+     * @param {number} [input.minutesAgo] - Time window in minutes before now. Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {number} [input.bucketCount=20] - Number of histogram buckets returned.
+     * @param {?string} [input.objectType=null] - Object type used to filter the histogram.
      * @returns {Promise<Object>} Histogram of Average Fov Occupancy is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1016,13 +989,13 @@ class Occupancy {
      * returns an object containing average and unique object roi occupancy.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {?string} [input.roiId=null]
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
-     * @param {?string} [input.objectType=null]
+     * @param {string} input.sensorId - Sensor ID used to query roi occupancy.
+     * @param {?string} [input.roiId=null] - ROI ID used to filter roi occupancy.
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {?string} [input.objectType=null] - Object type used to filter the roi occupancy.
      * @returns {Promise<Object>} Roi Occupancy is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1196,15 +1169,15 @@ class Occupancy {
      * returns an object containing histogram of roi occupancy.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {?string} [input.roiId=null]
+     * @param {string} input.sensorId - Sensor ID used to query the roi occupancy histogram.
+     * @param {?string} [input.roiId=null] - ROI ID used to filter the roi occupancy histogram.
      * @param {string} [input.fromTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
      * @param {string} [input.toTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
-     * @param {number} [input.minutesAgo] - minutesAgo must be an integer. Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
-     * @param {number} [input.bucketCount=20] - bucketCount must be an integer.
-     * @param {?string} [input.objectType=null]
+     * @param {number} [input.minutesAgo] - Time window in minutes before now. Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {number} [input.bucketCount=20] - Number of histogram buckets returned.
+     * @param {?string} [input.objectType=null] - Object type used to filter the roi occupancy histogram.
      * @returns {Promise<Object>} Histogram of Roi Occupancy is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1454,14 +1427,14 @@ class Occupancy {
      * returns an object containing occupancy of a place which is calculated based on mutually exclusive rois.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.place
-     * @param {?string} [input.timestamp=null]
-     * @param {string} [input.objectType="Person"]
-     * @param {boolean} [input.objectDetails=false]
-     * @param {number} [input.timestampDelayInSec=3] - timestampDelayInSec must be an integer.
-     * @param {number} [input.timeWindowInMs=2000] - timeWindowInMs must be an integer.
+     * @param {string} input.place - Place used to query occupancy.
+     * @param {?string} [input.timestamp=null] - Timestamp for the query in ISO 8601 format.
+     * @param {string} [input.objectType="Person"] - Object type used to filter occupancy.
+     * @param {boolean} [input.objectDetails=false] - Whether to include object details in the response.
+     * @param {number} [input.timestampDelayInSec=3] - Timestamp delay in seconds used to query recent occupancy.
+     * @param {number} [input.timeWindowInMs=2000] - Time window in milliseconds used to query occupancy.
      * @returns {Promise<Object>} Occupancy of a place which is calculated based on mutually exclusive rois is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -1674,6 +1647,25 @@ class Occupancy {
         return results;
     }
 
+    /** 
+     * returns an object containing histogram of average occupancy of a place.
+     * @public
+     * @async
+     * @param {Database} documentDb - Database Object.
+     * @param {Object} input - Input object.
+     * @param {string} input.place - Place used to query the occupancy histogram.
+     * @param {string} [input.fromTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {string} [input.toTimestamp] - Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {number} [input.minutesAgo] - Time window in minutes before now. Either fromTimestamp and toTimestamp should be present together or minutesAgo should be present.
+     * @param {number} [input.bucketCount=20] - Number of histogram buckets returned.
+     * @returns {Promise<Object>} Histogram of Average Occupancy of a place is returned
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const elastic = new mdx.Utils.Elasticsearch({node: "elasticsearch-url"},databaseConfigMap);
+     * let input = {place: "building=abc/room=xyz", fromTimestamp: "2023-01-12T11:20:10.000Z", toTimestamp: "2023-01-12T14:20:10.000Z",bucketCount:24};
+     * let occupancyObject = new mdx.Metrics.Occupancy();
+     * let histogramResult = await occupancyObject.getHistogramOfAverageOccupancyOfAPlace(elastic,input);
+     */
     async getHistogramOfAverageOccupancyOfAPlace(documentDb, input){
         const schema = {
             type: "object",

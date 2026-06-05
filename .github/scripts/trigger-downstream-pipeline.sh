@@ -15,6 +15,10 @@ from urllib.parse import urlencode
 from urllib.request import Request
 from urllib.request import urlopen
 
+LAUNCHABLE_NOTEBOOK_PATH = "deploy/docker/scripts/deploy_vss_launchable.ipynb"
+LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE = "BREV_LAUNCHABLE_NOTEBOOK_TESTS"
+CHANGED_FILE_FIELDS = ("added", "modified")
+
 
 def emit_error(message: str) -> None:
     print(f"::error::{message}", file=sys.stderr)
@@ -150,6 +154,7 @@ def trigger_pipeline(
     commit_sha: str,
     target_branch: str,
     compare_branch: str,
+    extra_variables: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     payload_pairs: list[tuple[str, str]] = [
         ("ref", ref),
@@ -160,6 +165,13 @@ def trigger_pipeline(
         ("variables[][key]", "VSS_COMPARE_BRANCH"),
         ("variables[][value]", compare_branch),
     ]
+    for key, value in (extra_variables or {}).items():
+        payload_pairs.extend(
+            [
+                ("variables[][key]", key),
+                ("variables[][value]", value),
+            ]
+        )
     payload = urlencode(payload_pairs).encode("utf-8")
     return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
 
@@ -198,6 +210,94 @@ def fetch_pr_base_ref(repo: str, pr_number: int, token: str) -> str:
         if isinstance(ref, str):
             return ref
     return ""
+
+
+def fetch_pr_changed_files(repo: str, pr_number: int, token: str) -> set[str]:
+    """Fetch changed filenames for a PR from the GitHub REST API."""
+    if not repo or pr_number <= 0:
+        return set()
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "vss-trigger-downstream-pipeline",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    filenames: set[str] = set()
+    page = 1
+    per_page = 100
+    while True:
+        url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files?per_page={per_page}&page={page}"
+        request = Request(url, headers=headers)
+        try:
+            with urlopen(request) as response:
+                payload = response.read().decode("utf-8")
+        except (HTTPError, URLError, ContentTooShortError):
+            return filenames
+        try:
+            data = json.loads(payload)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return filenames
+        if not isinstance(data, list):
+            return filenames
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            if item.get("status") == "removed":
+                continue
+            filename = item.get("filename")
+            if isinstance(filename, str):
+                filenames.add(filename)
+        if len(data) < per_page:
+            return filenames
+        page += 1
+
+
+def push_event_changed_files() -> set[str]:
+    """Read changed filenames from the local GitHub push event payload."""
+    event_path = os.environ.get("GITHUB_EVENT_PATH", "").strip()
+    if not event_path:
+        return set()
+    try:
+        with open(event_path, encoding="utf-8") as event_file:
+            event = json.load(event_file)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return set()
+    if not isinstance(event, dict):
+        return set()
+
+    filenames: set[str] = set()
+    commits = event.get("commits")
+    if isinstance(commits, list):
+        for commit in commits:
+            if not isinstance(commit, dict):
+                continue
+            for field in CHANGED_FILE_FIELDS:
+                values = commit.get(field)
+                if isinstance(values, list):
+                    filenames.update(item for item in values if isinstance(item, str))
+
+    head_commit = event.get("head_commit")
+    if not filenames and isinstance(head_commit, dict):
+        for field in CHANGED_FILE_FIELDS:
+            values = head_commit.get(field)
+            if isinstance(values, list):
+                filenames.update(item for item in values if isinstance(item, str))
+
+    return filenames
+
+
+def launchable_notebook_changed() -> bool:
+    """Return true when this run's VSS changes touch the launchable notebook."""
+    ref_name = os.environ.get("GITHUB_REF_NAME", "").strip()
+    pr_match = re.fullmatch(r"pull-request/(\d+)", ref_name)
+    if pr_match:
+        pr_number = int(pr_match.group(1))
+        repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        return LAUNCHABLE_NOTEBOOK_PATH in fetch_pr_changed_files(repo, pr_number, token)
+    return LAUNCHABLE_NOTEBOOK_PATH in push_event_changed_files()
 
 
 def resolve_branches() -> tuple[str, str]:
@@ -265,6 +365,9 @@ def main() -> int:
             add_mask(segment)
 
         target_branch, compare_branch = resolve_branches()
+        extra_variables: dict[str, str] = {}
+        if launchable_notebook_changed():
+            extra_variables[LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE] = "true"
 
         project_id = fetch_project_id(base_url, token, project_path)
         pipeline = trigger_pipeline(
@@ -276,6 +379,7 @@ def main() -> int:
             commit_sha,
             target_branch,
             compare_branch,
+            extra_variables,
         )
 
         pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")
@@ -298,6 +402,8 @@ def main() -> int:
         print(f"  {variable_name}={commit_sha}")
         print(f"  VSS_TARGET_BRANCH={target_branch}")
         print(f"  VSS_COMPARE_BRANCH={compare_branch}")
+        for key, value in extra_variables.items():
+            print(f"  {key}={value}")
 
         sha_short = pipeline_sha[:8] if pipeline_sha else ""
         commit_sha_short = commit_sha[:8] if commit_sha else ""
@@ -314,6 +420,8 @@ def main() -> int:
             summary_lines.append(f"- **VSS_TARGET_BRANCH:** `{target_branch}`")
         if compare_branch:
             summary_lines.append(f"- **VSS_COMPARE_BRANCH:** `{compare_branch}`")
+        for key, value in extra_variables.items():
+            summary_lines.append(f"- **{key}:** `{value}`")
         if pipeline_created_at:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
         write_summary("\n".join(summary_lines))

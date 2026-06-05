@@ -39,7 +39,7 @@ The video-analytics-api server loads a JSON config file at startup via the `--co
 | Key | Type | Default (service-shipped) | Default (image-baked) | What it controls |
 |---|---|---|---|---|
 | `postBodySizeLimit` | string | `"50mb"` | `"50mb"` | Maximum POST body size accepted by Express. |
-| `amrRetentionInSec` | string | `"3"` | `"300"` | How long AMR data is retained in memory (seconds). Profiles use `"3"`; the image default uses `"300"`. |
+| `amrRetentionInSec` | string | `"3"` | `"3"` | How long AMR data is retained in memory (seconds). |
 | `inSimulationMode` | string | `"false"` | `"false"` | Whether the server runs in simulation mode. |
 | `configStatusTimeoutMs` | string | `"30000"` | `"30000"` | How long to wait for an ACK from behavior-analytics after publishing a config update (milliseconds). |
 | `configStatusTimeoutCheckFrequencyMs` | string | `"900000"` | `"900000"` | How often the server checks for timed-out config update ACKs (milliseconds). |
@@ -109,4 +109,4 @@ Any absolute host path. Copy one of the above as a starting point and edit. Bind
 - Keep `server.configs[].value` as strings — the server parses types internally.
 - When running with `network_mode: "host"`, Elasticsearch and Kafka must also be on the host network.
 - Set `kafka.brokers` to an empty array `[]` to run without Kafka. The server starts normally; Kafka-dependent endpoints (dynamic config, dynamic calibration, RTLS/AMR) are simply unavailable.
-- The `amrRetentionInSec` default differs between the service-shipped config (`"3"`) and the image-baked default (`"300"`). Use the shorter retention in production to reduce memory usage.
+- The `amrRetentionInSec` default is `"3"` in both the service-shipped config and the image-baked default.

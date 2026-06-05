@@ -59,13 +59,13 @@ every pool member; Step 2 is stdlib-only and would also run on
 
    ```bash
    sudo python3 -m venv /opt/nvbase-venv
-   sudo /opt/nvbase-venv/bin/pip install --upgrade nv-base
+   sudo /opt/nvbase-venv/bin/pip install --upgrade nv-base==2.11.0
    /opt/nvbase-venv/bin/nv-base --version
    ```
 
    The pip command needs the internal NV-BASE index URL; check the
-   NV-BASE distribution docs for the current location. Operators with
-   access should pin a version (`nv-base==X.Y.Z`) for reproducibility.
+   NV-BASE distribution docs for the current location. **Current pinned
+   version: `2.11.0`** for reproducibility and consistency across runners.
 
 3. Register the host as a GitHub Actions self-hosted runner on this
    repository with the **`nv-base`** label
@@ -75,8 +75,13 @@ every pool member; Step 2 is stdlib-only and would also run on
    defaults to `/opt/nvbase-venv/bin/nv-base`; adjust if your install
    path differs.
 
-To refresh nv-base later, SSH to the runner and re-run the
-`pip install --upgrade` line above. No workflow change is needed.
+To refresh nv-base later, SSH to the runner and re-run:
+
+```bash
+sudo /opt/nvbase-venv/bin/pip install --upgrade nv-base==2.11.0
+```
+
+No workflow change is needed.
 
 ## Tuning the gate
 

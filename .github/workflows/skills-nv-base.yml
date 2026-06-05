@@ -46,21 +46,32 @@ on:
   workflow_dispatch:
     inputs:
       skills:
-        description: "Which skill to check (single-select). Pick `*` for the whole skills/ tree. Keep this list in sync with the skills-eval dispatch input."
+        # `type: string` rather than `type: choice` because the skills/ tree
+        # has more than 10 entries — GitHub caps `choice` options at 10.
+        # The scope-resolution step below sanity-checks the value to reject
+        # path-traversal before passing it to nv-base.
+        #
+        # Valid values (skills/<name>/ on develop):
+        #   *  (sweep entire skills/ tree)
+        #   vss-ask-video
+        #   vss-deploy-dense-captioning
+        #   vss-deploy-detection-tracking-2d
+        #   vss-deploy-profile
+        #   vss-deploy-video-embedding
+        #   vss-generate-video-calibration
+        #   vss-generate-video-report
+        #   vss-generate-video-report-rag
+        #   vss-manage-alerts
+        #   vss-manage-video-io-storage
+        #   vss-query-analytics
+        #   vss-search-archive
+        #   vss-setup-behavior-analytics
+        #   vss-setup-video-analytics-api
+        #   vss-summarize-video
+        description: "Which skill to check (single-select). `*` sweeps every skill. Otherwise type the bare skill dir name (e.g. `vss-deploy-profile`). Keep aligned with skills-eval dispatch input."
         required: false
         default: "*"
-        type: choice
-        options:
-          - "*"
-          - vss-ask-video
-          - vss-deploy-dense-captioning
-          - vss-deploy-profile
-          - vss-deploy-video-embedding
-          - vss-generate-video-report
-          - vss-manage-alerts
-          - vss-manage-video-io-storage
-          - vss-search-archive
-          - vss-summarize-video
+        type: string
 
 permissions:
   contents: read
@@ -128,10 +139,10 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           # Route the dispatch input through env: so it isn't templated
-          # directly into the run: script body. `type: choice` already
-          # enum-validates the value (no free-form input), but this
-          # matches the defense-in-depth pattern used in skills-eval.yml
-          # and keeps the run: body free of templated user data.
+          # directly into the run: script body. The input is now
+          # `type: string` (free-form) because skills/ has >10 entries
+          # and `type: choice` is capped at 10 options. Sanitize the
+          # value below before passing it to nv-base.
           INPUT_SKILLS: ${{ inputs.skills }}
         run: |
           set -euo pipefail
@@ -140,12 +151,18 @@ jobs:
             SKILL_NAME=""
             echo "manual: scanning entire skills/ tree"
           else
-            # The dropdown is server-validated against the choice enum;
-            # path-traversal is impossible. Verify the dir exists so we
-            # fail loudly on stale options rather than silently scanning
-            # nothing.
+            # Free-form string input — defense in depth against path
+            # traversal: reject anything that isn't a bare lowercase
+            # skill-dir name (e.g. `vss-deploy-profile`). Allowed chars:
+            # alnum, hyphen, underscore. No `/`, no `..`, no leading dot.
+            if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
+              echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-deploy-profile' or '*' to sweep all."
+              exit 1
+            fi
+            # Verify the dir exists so we fail loudly on typos rather
+            # than silently scanning nothing.
             if [ ! -d "skills/${INPUT_SKILLS}" ]; then
-              echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref. Update the workflow_dispatch options to match the current skills/ tree."
+              echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref. Check skills/ for the current set of valid names."
               exit 1
             fi
             SKILL_ROOT="skills/${INPUT_SKILLS}"

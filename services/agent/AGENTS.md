@@ -18,16 +18,16 @@ pre-commit install
 
 # Test
 uv run pytest tests/unit_test/ -v                           # all tests
-uv run pytest tests/unit_test/tools/test_video_clip.py -v   # single file
+uv run pytest tests/unit_test/tools/vst/test_video_clip.py -v   # single file
 
 # Lint & type-check (run all three after every change)
 uv run ruff check src/                                      # lint
-uv run ruff check src/vss_agents/tools/video_clip.py        # lint single file
+uv run ruff check src/vss_agents/tools/vst/video_clip.py        # lint single file
 uv run ruff format --check src/                             # format check
 uv run mypy src/vss_agents/                                 # type check
 
 # Run the agent (dev-profile-base example; see README.md Quick Start)
-nat serve --config_file ../deployments/developer-workflow/dev-profile-base/vss-agent/configs/config.yml \
+nat serve --config_file ../../deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml \
   --host 0.0.0.0 --port 8000
 ```
 
@@ -94,7 +94,8 @@ async def get(id, s, e):
   entry point listed under `[project.entry-points.'nat.components']` in `pyproject.toml`.
 - **Agents** are LangGraph state machines (`top_agent.py` routes to tools and sub-agents).
 - **Config** is YAML with `${ENV_VAR}` substitution. Profiles live in
-  `../deployments/developer-workflow/<profile>/vss-agent/configs/config.yml`.
+  `../../deploy/docker/developer-profiles/<profile>/vss-agent/configs/config.yml`
+  (e.g. `dev-profile-base`, `dev-profile-search`, `dev-profile-lvs`, `dev-profile-alerts`).
 - **Stubs**: `stubs/` has Mypy stubs for NAT. When subclassing a NAT base config,
   verify `uv run mypy src/vss_agents/` passes — extend the stub if needed.
 

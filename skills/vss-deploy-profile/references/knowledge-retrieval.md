@@ -39,7 +39,7 @@ Three patches per retriever you want to add. They can be layered on top of any p
 2. Pick the adapter(s) to add: `frag_api`, `es_caption`, or both.
 3. For each retriever to add, apply Patches 1, 2, 3 below.
 4. Save as a new file in the profile's `configs/` directory (convention: `config_rag.yml` if it adds frag), then repoint `VSS_AGENT_CONFIG_FILE` in the profile's `.env`.
-5. Hand off to the [vss-deploy-profile skill](../SKILL.md) with the new config path.
+5. Hand off to the `vss-deploy-profile skill` (see `../SKILL.md`) with the new config path.
 
 ### Patch 1 — register a function block
 
@@ -158,23 +158,12 @@ In-process equivalent of `frag_api`. Runs the full NVIDIA RAG Blueprint pipeline
 filters = {"filter_expr": 'content_metadata["filename"] == "<exact name>"'}
 ```
 
-### `langchain`
+### ChromaDB-backed adapters (`langchain`, `llama_index`)
 
-In-process retrieval over an embedded ChromaDB persist directory, via LangChain's `langchain_chroma` + NVIDIA embedding NIM. The persist directory must be pre-built (no in-adapter ingestion); mount it into the agent container at a known path.
-
-| Field | Purpose | Default |
-|---|---|---|
-| `persist_dir` | Path to the Chroma persist directory inside the container | env `VSS_CHROMA_DIR`, then `/tmp/chroma_data` |
-| `collection_name` | Default Chroma collection (used when caller passes empty) | `default` |
-| `embed_model` | NVIDIA embedding model name | `nvidia/llama-nemotron-embed-vl-1b-v2` |
-| `embed_base_url` | Embedding NIM base URL | `https://integrate.api.nvidia.com/v1` |
-| `embed_api_key` | NVIDIA API key | env `NVIDIA_API_KEY` |
-
-**Per-query `filters`** — filter pushdown is not supported; pass only `query`, `collection`, and `top_k`.
-
-### `llama_index`
-
-Same storage + ingestion model as `langchain` — embedded ChromaDB persist directory — but routed through the LlamaIndex framework (`llama-index-vector-stores-chroma` + `llama-index-embeddings-nvidia`). Field set mirrors `langchain`.
+Both adapters do in-process retrieval over an embedded ChromaDB persist
+directory using the NVIDIA embedding NIM. The persist directory must be
+pre-built (no in-adapter ingestion); mount it into the agent container at a
+known path. They share the same field set and defaults:
 
 | Field | Purpose | Default |
 |---|---|---|
@@ -184,7 +173,18 @@ Same storage + ingestion model as `langchain` — embedded ChromaDB persist dire
 | `embed_base_url` | Embedding NIM base URL | `https://integrate.api.nvidia.com/v1` |
 | `embed_api_key` | NVIDIA API key | env `NVIDIA_API_KEY` |
 
-**Per-query `filters`** — filter pushdown is not supported; pass only `query`, `collection`, and `top_k`.
+**Per-query `filters`** — filter pushdown is not supported for either adapter;
+pass only `query`, `collection`, and `top_k`.
+
+**Framework-specific dependencies:**
+
+- `langchain` — routes through LangChain's `langchain_chroma` + the NVIDIA
+  embedding wrapper.
+- `llama_index` — routes through LlamaIndex's
+  `llama-index-vector-stores-chroma` + `llama-index-embeddings-nvidia`.
+
+Behavior is otherwise identical; pick the framework that matches the rest of
+the caller's stack.
 
 ## Revert
 

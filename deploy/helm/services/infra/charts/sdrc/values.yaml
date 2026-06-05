@@ -5,8 +5,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
-  tag: 3.0.0-prd.5
+  repository: nvcr.io/nvidia/vss-core/sdr-mw-l
+  tag: 3.2.0
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -38,7 +38,7 @@ runtimeEnv:
   KUBERNETES_PORT: "443"
   WDM_CONTROLLER_HOST: "127.0.0.1"
   HOST_IP: "127.0.0.1" # TODO
-  WDM_CLUSTER_TYPE: "k8s-headless"
+  WDM_CLUSTER_TYPE: "k8s"
 
 serviceAccount:
   create: true

@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vss-behavior-analytics"
+description = "vss-behavior-analytics modules"
+authors = [{ name = "NVIDIA CORPORATION" }]
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["3rdParty_Licenses.md"]
+requires-python = ">=3.13"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "numpy>=2.0.0",
+    "scipy>=1.15.2",
+    "omegaconf>=2.3.0",
+    "pydantic>=2.6.3",
+    "shapely>=2.0.4",
+    "matplotlib>=3.9.0",
+    "opencv-python-headless>=4.10.0",
+    "pykml>=0.2.0",
+    "lxml>=5.4.0",
+    "watchdog>=5.0.3",
+    "protobuf>=5.29.6",
+    "pyproj>=3.7.0",
+    "leuvenmapmatching>=1.1.4",
+    # Undeclared transitive dep of leuvenmapmatching.visualization (imported by mdx.analytics.core.utils.crs)
+    "smopy>=0.0.8",
+    "osmnx>=2.0.0",
+    "rtree>=1.3.0",
+    "tritonclient[grpc]>=2.52.0",
+    "confluent-kafka>=2.6.1",
+    "redis>=6.0.0",
+    "paho-mqtt>=2.1.0",
+    "requests>=2.32.5",
+    "jsonschema>=4.21.0",
+]
+dynamic = ["version"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mdx*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.pyi", "py.typed"]
+# Vendored JSON Schema for calibration payloads; loaded at runtime via
+# importlib.resources from calibration_validator.py. Must be shipped
+# inside the package, not just present in the source tree.
+"mdx.analytics.core.transform.calibration" = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/mdx/analytics/core"]
+omit = [
+    "*/__init__.py",
+    "src/mdx/analytics/core/tools/*",
+    "src/mdx/analytics/core/logger_setup.py",
+    "src/mdx/analytics/core/utils/lru_cache.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+
+# No formatter is wired into CI yet; this section declares the project's
+# preferred line length so any future ruff/black run picks it up, and so
+# editor integrations and tooling agree on a single value.
+[tool.ruff]
+line-length = 120
+
+[tool.black]
+line-length = 120

@@ -17,7 +17,7 @@ apiVersion: v2
 name: logstash
 description: Logstash pipeline for MDX (Kafka → Elasticsearch)
 type: application
-version: 26.04.2
+version: 3.2.0
 appVersion: "9.3.3"
 maintainers:
   - name: NVIDIA

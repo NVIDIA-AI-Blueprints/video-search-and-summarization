@@ -33,7 +33,7 @@ Usage from the repository root:
         --skill-dir skills/vss-ask-video \\
         --deploy-skill-dir skills/vss-deploy-profile \\
         --video-io-skill-dir skills/vss-manage-video-io-storage \\
-        --spec skills/vss-ask-video/eval/base_profile_video_understanding.json
+        --spec skills/vss-ask-video/evals/base_profile_video_understanding.json
 """
 from __future__ import annotations
 
@@ -157,18 +157,10 @@ def generate_task(
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-ask-video` skill against the VSS **{profile}** "
-            f"profile already running on this `{platform}` host "
-            "(`http://localhost:8000/docs` must respond, and a sample "
-            "warehouse video must already be uploaded per the env notes below).",
             "",
             f"## Query {idx} of {len(expects)}",
             "",
             expect.get("query", ""),
-            "",
-            "## Environment notes",
-            "",
-            spec.get("env", ""),
             "",
             "Run autonomously without prompting for confirmation.",
             "",
@@ -196,21 +188,12 @@ def generate_task(
             "",
             "[metadata]",
             'skill = "vss-ask-video"',
-            f'profile = "{spec.get("profile", "base")}"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            "requires_deployed_vss = true",
             "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — vss-ask-video",
             "# exercises POST /generate only, so there is no benefit to local NIMs.",
-            # prerequisite_deploy_mode is alerts-only — the deploy marker
-            # is profile-name only for base/lvs/search; the consumer
-            # (envs/brev_env.py::_ensure_prerequisite_deployed) matches
-            # on profile alone when this field is absent. Set it only if
-            # this spec needs a specific alerts stack (verification vs
-            # real-time).
-            *([f'prerequisite_deploy_mode = "{spec["prerequisite_deploy_mode"]}"'] if spec.get("prerequisite_deploy_mode") else []),
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -229,7 +212,11 @@ def generate_task(
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "eval" / spec_name
+        spec_src = skill_dir / "evals" / spec_name
+        if not spec_src.exists():
+            legacy = skill_dir / "eval" / spec_name
+            if legacy.exists():
+                spec_src = legacy
         if spec_src.exists():
             shutil.copy(spec_src, tests_dir / spec_name)
         else:
@@ -287,7 +274,7 @@ def main() -> None:
     parser.add_argument(
         "--spec", default=None,
         help="Path to spec JSON "
-             "(default: <skill-dir>/eval/base_profile_video_understanding.json)",
+             "(default: <skill-dir>/evals/base_profile_video_understanding.json)",
     )
     parser.add_argument(
         "--platform", default=None, choices=list(PLATFORMS.keys()),
@@ -303,7 +290,7 @@ def main() -> None:
     spec_path = (
         Path(args.spec)
         if args.spec
-        else (skill_dir / "eval" / "base_profile_video_understanding.json")
+        else (skill_dir / "evals" / "base_profile_video_understanding.json")
     )
 
     if not spec_path.exists():

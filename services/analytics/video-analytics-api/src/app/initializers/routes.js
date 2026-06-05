@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,6 +33,11 @@ const logger = winston.createLogger({
     exitOnError: false
 });
 
+/**
+ * Discovers and mounts REST API route modules on the Express application.
+ * @param {import("express").Application} app - Express application instance.
+ * @returns {void}
+ */
 module.exports = (app) => {
     let routesLocation = "../controllers/rest-apis";
     let routes = require('require-dir')(routesLocation);

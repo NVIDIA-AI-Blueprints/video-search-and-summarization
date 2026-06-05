@@ -1,0 +1,998 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+openapi: 3.0.3
+info:
+  title: VST Streambridge MS
+  description: |
+    The Stream Bridge Service is designed to manage the UDP stream. It can receive the UDP stream from other services and
+    the clients of stream bridge service can stream the same UDP stream using WebRTC. Recording of stream is also supported.
+
+    - WebRTC streaming: The UDP stream received by the stream bridge service can be consumed by the clients using WebRTC protocol.
+    - Listing live streams: The list of available streams can be queried.
+    - Stream monitoring: Real-time status update for the WebRTC stream.
+
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://localhost/api
+tags:
+  - name: nSpectId
+    description: NSPECT-1H82-JYCQ
+    externalDocs:
+      url: https://nspect.nvidia.com/review?id=NSPECT-1H82-JYCQ
+  - name: v1
+    description: VST Streambridge API Schema v1
+paths:
+  /v1/streambridge/streams:
+    get:
+      tags:
+        - v1
+      summary: Get list of available streambridge streams
+      description: Get list of available streambridge streams. These are the streams that stream bridge is receiving over the
+        UDP connection and can be streamed on a supported web browser using WebRTC protocol.
+      operationId: getStreambridgeStream
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  $ref: '#/components/schemas/StreamInfoWrapper'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/streambridge/stream/start:
+    post:
+      tags:
+        - v1
+      summary: Start WebRTC streaming
+      description: Start the WebRTC streaming. The streaming can be of two types, inbound streaming and outbound streaming.
+        In context of a web browser, the stream that is being sent from web browser to stream bridge service is called outbound stream and the
+        stream that is being sent from stream bridge service to the web browser is called the inbound stream.
+
+        1. In case of inbound stream the 'isClient' field must be set to true for the
+        incoming stream, i.e. the stream that is being sent from the web browser to the stream bridge service. For example, if the
+        client is sending the Web Camera stream to stream bridge service then the 'isClient' field must be set to true. This is the
+        first peer connection.
+
+        2. In case of outbound stream, the stream bridge service initiates the connection and sends SDP offer to the client over websocket.
+        The client then responds to the offer by sending back the answer followed by ICE candidate re-negotiation. This is the
+        second peer connection.
+
+
+        The above two peer connections generally makes up for the stream bridge workflow.
+      operationId: postStreambridgeStreamStart
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamStartRequest'
+        required: true
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamStartResponse'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/streambridge/stream/stop:
+    post:
+      tags:
+        - v1
+      summary: Stop WebRTC streaming
+      description: Stop the WebRTC stream. Calling this API will stop the WebRTC streaming with the specified Peer ID and free resources. Note that
+        stream bridge service can automatically free resources if it detects that the client has disconnected. Calling the API is faster because automatic
+        detection can have a delay.
+      operationId: postStreambridgeStreamStop
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - peerId
+                - mediaSessionId
+              type: object
+              properties:
+                peerId:
+                  type: string
+                  format: uuid
+                  maxLength: 100
+                mediaSessionId:
+                  type: string
+                  format: uuid
+                  maxLength: 100
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/streambridge/stream/status:
+    get:
+      tags:
+        - v1
+      summary: Get WebRTC stream playback status
+      description: Get WebRTC stream playback status. It can be used to check the error flag. If the error flag is set as true that means the stream is erroneous.
+        The playback status can also be queried. The playback status can have values like PLAYING, NOT PLAYING, PAUSED and ERROR.
+      operationId: getStreambridgeStreamStatus
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: peerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+        - name: mediaSessionId
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamStatus'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/streambridge/setAnswer:
+    post:
+      tags:
+        - v1
+      summary: Share SDP answer with stream bridge streaming service
+      description: Share SDP answer with stream bridge service. This is useful in case where stream bridge service has shared a SDP
+        offer with client using websocket.
+        After processing SDP offer the client can share the respective SDP answer by calling this API.
+      operationId: postStreambridgeSetAnswer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: peerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - sessionDescription
+                - mediaSessionId
+              type: object
+              properties:
+                sessionDescription:
+                  type: string
+                  maxLength: 128
+                  pattern: ".*"
+                mediaSessionId:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]+$"
+                  maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/streambridge/iceCandidate:
+    get:
+      tags:
+        - v1
+      summary: Get list of ICE Candidates generated by stream bridge service
+      description: Get list of ICE candidates of the stream bridge service. The ICE candidates
+        are generated asynchronously and the client needs to poll the API until peer connection goes into connected state.
+      operationId: getStreambridgeGetIceCandidate
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+        - name: peerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+        - name: mediaSessionId
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      responses:
+        '200':
+          description: Success array
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetIceCandidate'
+
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - v1
+      summary: Share client's ICE candidate with stream bridge service
+      description: The client can share its ICE candidate with stream bridge service through this API.
+      operationId: postStreambridgeAddIceCandidate
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: streamId
+          in: header
+          description: The ID of the stream
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9_-]+$"
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddIceCandidate'
+        required: true
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/streambridge/iceServers:
+    get:
+      tags:
+        - v1
+      summary: Get list of ICE servers
+      description:
+        Get URL or URLs of the ICE servers to be used for ICE negotiations. These
+        are typically STUN and/or TURN servers.
+      operationId: getStreambridgeGetIceServers
+      parameters:
+        - name: peerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+            maxLength: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IceServersResponse'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/streambridge/configuration:
+    get:
+      tags:
+        - v1
+      summary: Get stream bridge service configuration
+      description: Get stream bridge configuration. The configuration includes information regarding HTTP port, maximum number of streams supported,
+        enabling reverse proxy, enabling software path etc.
+      operationId: getStreambridgeConfiguration
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetConfiguration'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - v1
+      summary: Set stream bridge service configuration
+      description: Set stream bridge service configuration like stun or turn URL list, enabling reverse proxy etc.
+      operationId: postStreambridgeConfiguration
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetConfiguration'
+      responses:
+        '200':
+          description: Success
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/streambridge/version:
+    get:
+      tags:
+        - v1
+      summary: Get stream bridge service version
+      description: Get stream bridge service version
+      operationId: getVersion
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                    example: "vst"
+                  version:
+                    type: string
+                    pattern: ".*"
+                    maxLength: 128
+                    example: "2.1.0-26.02.1.3"
+                required:
+                  - type
+                  - version
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/streambridge/help:
+    get:
+      tags:
+        - v1
+      summary: Get list of supported APIs by stream bridge service
+      description: Get list of supported APIs by stream bridge service
+      operationId: gethelp
+      responses:
+        '200':
+          description: Successs
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items:
+                  type: string
+                  maxLength: 128
+                  pattern: ".*"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    Options:
+      required:
+        - rtptransport
+        - streamId
+        - timeout
+        - quality
+      type: object
+      properties:
+        rtptransport:
+          type: string
+          enum:
+            - udp
+            - tcp
+        timeout:
+          type: integer
+          maximum: 100
+          minimum: 0
+          example: 60
+        streamId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        quality:
+          type: string
+          enum: ['low', 'medium', 'high', 'auto']
+
+    StreamStartRequest:
+      required:
+        - options
+        - peerId
+        - sessionDescription
+      type: object
+      properties:
+        tag:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        isClient:
+          type: boolean
+          example: true
+        peerId:
+          type: string
+          format: uuid
+          maxLength: 100
+        options:
+          $ref: '#/components/schemas/Options'
+        sessionDescription:
+          required:
+            - sdp
+            - type
+          type: object
+          properties:
+            type:
+              type: string
+              maxLength: 128
+              example: offer
+              pattern: ".*"
+            sdp:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+
+    StreamStartResponse:
+      required:
+        - sdp
+        - type
+      type: object
+      properties:
+        sdp:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        type:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: answer
+        mediaSessionId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+
+    IceServer:
+      type: object
+      properties:
+        urls:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+      required:
+        - urls
+
+    IceServersResponse:
+      type: object
+      properties:
+        iceServers:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/IceServer'
+      required:
+        - iceServers
+
+    StreamStatus:
+      type: object
+      properties:
+        error:
+          type: boolean
+        state:
+          type: string
+          enum:
+            - PLAYING
+            - NOT PLAYING
+            - PAUSED
+            - ERROR
+
+    StreamQuery:
+      type: object
+      properties:
+        ts:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: 00:00:06.666
+        metadata:
+          type: object
+
+    StreamInfoWrapper:
+      type: object
+      properties:
+        additionalProperties:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/StreamInfo'
+
+    StreamInfo:
+      type: object
+      properties:
+        streamId:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          maxLength: 100
+        isMain:
+          type: boolean
+          example: true
+        storageLocation:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          description: 'Storage location type for the stream'
+          example: 'Local'
+          enum:
+            - Local
+            - Cloud
+            - Unknown
+        name:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: 'HIKVISION%20DS-2CD2T43G0-I5'
+        metadata:
+          type: object
+          properties:
+            bitrate:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '8000'
+            codec:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: 'H264'
+            framerate:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '30'
+            govlength:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '60'
+            resolution:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '1920x1080'
+
+    StreamSettings:
+      required:
+        - framerate
+        - resolution
+      type: object
+      properties:
+        framerate:
+          type: integer
+          maximum: 100
+          minimum: 0
+        resolution:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+          example: '60'
+
+    AddIceCandidate:
+      required:
+        - candidate
+        - peerId
+      type: object
+      properties:
+        peerId:
+          type: string
+          format: uuid
+          maxLength: 100
+        candidate:
+          required:
+            - candidate
+            - sdpMLineIndex
+            - sdpMid
+          type: object
+          properties:
+            candidate:
+              type: string
+              maxLength: 500
+              pattern: ".*"
+            sdpMLineIndex:
+              type: integer
+              maximum: 100
+              minimum: 0
+              example: 0
+            sdpMid:
+              type: string
+              maxLength: 128
+              pattern: ".*"
+              example: '0'
+
+    GetIceCandidate:
+      type: array
+      maxItems: 100
+      items:
+        required:
+          - candidate
+          - sdpMLineIndex
+          - sdpMid
+        type: object
+        properties:
+          candidate:
+            type: string
+            maxLength: 500
+            pattern: ".*"
+          sdpMLineIndex:
+            type: integer
+            maximum: 100
+            minimum: 0
+            example: 0
+          sdpMid:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+            example: '0'
+
+    GetConfiguration:
+      type: object
+      properties:
+        grpcServerPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        httpPort:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        maxDevicesSupported:
+          type: integer
+          minimum: 0
+        maxStreamsSupported:
+          type: integer
+          minimum: 0
+        maxWebrtcInConnections:
+          type: integer
+          minimum: 0
+        maxWebrtcOutConnections:
+          type: integer
+          minimum: 0
+        messageBrokerTopic:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        enableNotification:
+          type: boolean
+        enableGrpc:
+          type: boolean
+        useMessageBroker:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        redisServerEnvVar:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        rtpUdpPortRange:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        udpDropOnLatency:
+          type: boolean
+        udpLatencyMs:
+          type: integer
+          minimum: 0
+        stunUrlList:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+        useTwilioStunTurn:
+          type: boolean
+        twilioAccountSid:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        twilioAuthToken:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        enablePerfLogging:
+          type: boolean
+        reverseProxyServerAddress:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        staticTurnUrlList:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+        useCoturnAuthSecret:
+          type: boolean
+        useReverseProxy:
+          type: boolean
+        useHttpDigestAuthentication:
+          type: boolean
+        useHttps:
+          type: boolean
+        useSoftwarePath:
+          type: boolean
+        vstDataPath:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        webrtcInAudioSenderMaxBitrate:
+          type: integer
+          minimum: 0
+        webrtcInFixedResolution:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        webrtcInMaxFramerate:
+          type: integer
+          minimum: 0
+        webrtcInVideoBitrateThresoldPercentage:
+          type: integer
+          minimum: 1
+          maximum: 100
+        webrtcInVideoDegradationPreference:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        webrtcInVideoSenderMaxFramerate:
+          type: integer
+          minimum: 0
+        webrtcLatencyMs:
+          type: integer
+          minimum: 0
+        webrtcMaxBitrate:
+          type: integer
+          minimum: 0
+        webrtcMinBitrate:
+          type: integer
+          minimum: 0
+        webrtcOutEnableInsertSpsPps:
+          type: boolean
+        webrtcOutMinDrcInterval:
+          type: integer
+          minimum: 0
+        webrtcOutSetIdrInterval:
+          type: integer
+          minimum: 0
+        webrtcOutSetIframeInterval:
+          type: integer
+          minimum: 0
+        webrtcStartBitrate:
+          type: integer
+          minimum: 0
+        webserviceAccessControlList:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        enableGstDebugProbes:
+          type: boolean
+        enableUserCleanup:
+          type: boolean
+        multiUserExtraOptions:
+          type: string
+          maxLength: 128
+          pattern: ".*"
+        useMultiUser:
+          type: boolean
+        vstIp:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+      required:
+        - grpcServerPort
+        - httpPort
+        - maxDevicesSupported
+        - maxStreamsSupported
+        - maxWebrtcInConnections
+        - maxWebrtcOutConnections
+        - messageBrokerTopic
+        - enableNotification
+        - enableGrpc
+        - useMessageBroker
+        - redisServerEnvVar
+        - rtpUdpPortRange
+        - udpDropOnLatency
+        - udpLatencyMs
+        - stunUrlList
+        - useTwilioStunTurn
+        - enablePerfLogging
+        - reverseProxyServerAddress
+        - staticTurnUrlList
+        - useCoturnAuthSecret
+        - useReverseProxy
+        - useHttpDigestAuthentication
+        - useHttps
+        - useSoftwarePath
+        - vstDataPath
+        - webrtcInAudioSenderMaxBitrate
+        - webrtcInFixedResolution
+        - webrtcInMaxFramerate
+        - webrtcInVideoBitrateThresoldPercentage
+        - webrtcInVideoDegradationPreference
+        - webrtcInVideoSenderMaxFramerate
+        - webrtcLatencyMs
+        - webrtcMaxBitrate
+        - webrtcMinBitrate
+        - webrtcOutEnableInsertSpsPps
+        - webrtcOutMinDrcInterval
+        - webrtcOutSetIdrInterval
+        - webrtcOutSetIframeInterval
+        - webrtcStartBitrate
+        - webserviceAccessControlList
+        - enableGstDebugProbes
+        - enableUserCleanup
+        - multiUserExtraOptions
+        - useMultiUser
+        - vstIp
+
+    SetConfiguration:
+      type: object
+      properties:
+        stunUrlList:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 128
+            pattern: ".*"
+        useTwilioStunTurn:
+          type: boolean
+        twilioAccountSid:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        twilioAuthToken:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        reverseProxyServerAddress:
+          type: string
+          pattern: ".*"
+          maxLength: 128
+        staticTurnUrlList:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: ".*"
+            maxLength: 128
+        useCoturnAuthSecret:
+          type: boolean
+        useReverseProxy:
+          type: boolean
+
+    Error:
+      required:
+        - error_code
+        - error_message
+      type: object
+      properties:
+        error_code:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+          example: VMSInternalError
+        error_message:
+          type: string
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+          example: VMS internal processing error

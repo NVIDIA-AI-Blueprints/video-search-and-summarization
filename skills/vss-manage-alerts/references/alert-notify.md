@@ -243,7 +243,7 @@ curl -sf -X POST http://localhost:9090/webhook/alert-notify/test | jq .
 {
   "status": "sent",
   "message": "Test notification delivered to Slack",
-  "slack_ts": "1713859200.000100",
+  "slack_ts": "<epoch>.000100",
   "channel": "C07XXXXXXXX"
 }
 ```
@@ -318,7 +318,7 @@ The rich Slack notification includes:
 4. **Detection Prompt** — The original detection prompt
 5. **Video Evidence** — Clickable link to the video clip
 
-The message attachment color reflects the verdict: red for Confirmed, green for Rejected, yellow for Verification Failed, grey for Not Confirmed. The fallback title (shown in Slack notifications/previews) is `⚠️ <Category> — <Verdict> at <Place>`.
+The message attachment color reflects the verdict: red for Confirmed, green for Rejected, yellow for Verification Failed, grey for Not Confirmed. The fallback title (shown in Slack notifications/previews) is `⚠ <Category> — <Verdict> at <Place>`.
 
 ---
 

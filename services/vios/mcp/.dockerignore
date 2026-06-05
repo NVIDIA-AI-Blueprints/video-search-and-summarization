@@ -1,0 +1,31 @@
+# VCS
+.git
+.gitignore
+
+# Bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dll
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+
+# IDE/Editor
+.vscode/
+.idea/
+
+# Build artifacts
+build/
+dist/
+.wheelhouse/
+
+# Tests and local scripts
+/tests/
+start_mcp.sh
+
+# Env files (pass at runtime with --env-file)
+.env 

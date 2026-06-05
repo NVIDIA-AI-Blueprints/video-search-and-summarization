@@ -1,0 +1,100 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"consumer": {
+			"autoOffsetReset": "latest",
+			"enableAutoCommit": false,
+			"maxPollIntervalMs": 900000,
+			"maxPartitionFetchBytes": 10485760,
+			"maxPollRecords": 10000,
+			"pollTimeoutMs": 100
+		},
+		"producer": {
+			"lingerMs": 0
+		},
+		"group": "mdx-rpm-app",
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		]
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "anomalyIgnoreSensors",
+					"value": "[\"sensorABC\",\"sensorXYZ\"]"
+				},
+				{
+					"name": "anomalyClasses",
+					"value": "[\"patient\"]"
+				},
+				{
+					"name": "anomalyActionThreshold",
+					"value": "0.5"
+				},
+				{
+					"name": "anomalyFallRisk",
+					"value": "{ \"enable\": true, \"nConfirmStart\" : 10, \"nConfirmEnd\": 50 }"
+				},
+				{
+					"name": "anomalyLackMovement",
+					"value": "{ \"enable\": true, \"durationThreshold\": 10 }"
+				}
+			]
+		}
+	],
+	"app": [
+		{
+			"name": "trajSmoothMinPoints",
+			"value": "20"
+		},
+		{
+			"name": "trajSmoothWindowSize",
+			"value": "5"
+		},
+		{
+			"name": "trajDistanceStride",
+			"value": "5"
+		},
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "200"
+		},
+		{
+			"name": "objectConfidenceThreshold",
+			"value": "0.5"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "image"
+		},
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "4"
+		}
+	]
+}

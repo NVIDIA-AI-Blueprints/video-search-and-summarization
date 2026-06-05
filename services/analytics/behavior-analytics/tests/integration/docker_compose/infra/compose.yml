@@ -1,0 +1,249 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
+    network_mode: "host"
+    environment:
+      ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
+      discovery.type: single-node
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - mdx-elastic-data:/tmp/elastic/data:rw
+      - mdx-elastic-logs:/tmp/elastic/logs:rw
+    container_name: mdx-elastic
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  elasticsearch-init-container:
+    build:
+      context: $MDX_SAMPLE_APPS_DIR/infra
+      dockerfile: Dockerfiles/elastic-init.Dockerfile
+    network_mode: "host"
+    container_name: mdx-elasticsearch-init
+    command: bash -c "
+      /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh &&
+      /opt/mdx/init-scripts/elasticsearch-template-creation.sh
+      "
+    depends_on:
+      - elasticsearch
+
+  kafka:
+    image: confluentinc/cp-kafka:8.2.0
+    network_mode: "host"
+    volumes:
+      - mdx-kafka:/tmp/kafka-data
+      - $MDX_SAMPLE_APPS_DIR/infra/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@localhost:9093'
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://$HOST_IP:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: "-Xmx6G -Xms6G"
+      KAFKA_MAX_REQUEST_SIZE: 10485760
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+      KAFKA_MAX_PARTITION_FETCH_BYTES: 10485760
+      KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760
+      KAFKA_LOG_DIRS: '/tmp/kafka-data'
+    container_name: mdx-kafka
+    entrypoint: ["/bin/sh", "/usr/local/bin/kafka-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 15s
+      retries: 10
+      start_period: 60s
+
+  kafka-topic-init-container:
+    image: confluentinc/cp-kafka:8.2.0
+    container_name: mdx-kafka-topics
+    network_mode: "host"
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/infra/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
+    environment:
+      DEFAULT_PARTITIONS: "8"
+      DEFAULT_RETENTION_MS: "14400000"
+      DEFAULT_SEGMENT_MS: "3600000"
+      DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_TOPICS: '[{"name": "mdx-raw"},
+        {"name": "mdx-bev"},
+        {"name": "mdx-space-utilization"},
+        {"name": "mdx-alerts"},
+        {"name": "mdx-behavior", "retention_ms": "14400000", "segment_ms": "3600000", "replication_factor": "1"},
+        {"name": "mdx-behavior-plus"},
+        {"name": "mdx-frames"},
+        {"name": "mdx-mtmc"},
+        {"name": "mdx-rtls"},
+        {"name": "mdx-rtls-region-1"},
+        {"name": "mdx-amr"},
+        {"name": "mdx-vlm-alerts"},
+        {"name": "mdx-notification", "partitions": "1"},
+        {"name": "mdx-events"},
+        {"name": "mdx-incidents"},
+        {"name": "mdx-embed"},
+        {"name": "mdx-embed-filtered"},
+        {"name": "mdx-vlm-incidents"}]'
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: "bash /usr/bin/create-kafka-topics.sh"
+
+  redis:
+    image: redis:8.6.2-alpine
+    profiles: ["redis"]
+    restart: always
+    command: redis-server /config/redis.conf
+    network_mode: host
+    container_name: mdx-redis
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/infra/redis/configs/redis.conf:/config/redis.conf
+      - $MDX_DATA_DIR/data_log/redis/data:/data
+      - $MDX_DATA_DIR/data_log/redis/log:/log
+
+  redis-kafka-bridge:
+    build:
+      context: $MDX_SAMPLE_APPS_DIR/infra
+      dockerfile: Dockerfiles/Dockerfile.redisbridge
+    depends_on:
+      - logstash
+      - redis
+    environment:
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: localhost:9092
+      KAFKA_TOPICS: "mdx-raw,mdx-bev,mdx-behavior,mdx-frames,mdx-events,mdx-space-utilization,mdx-incidents"
+      STARTUP_DELAY: 50
+    container_name: mdx-bridge
+    restart: always
+    network_mode: "host"
+    profiles: ["redis"]
+
+  emqx:
+    image: emqx:latest
+    profiles: ["mqtt"]
+    restart: always
+    network_mode: host
+    container_name: mdx-mqtt-emqx
+    volumes:
+      - mdx-emqx-data:/opt/emqx/data
+      - mdx-emqx-log:/opt/emqx/log
+
+  mqtt-kafka-bridge:
+    build:
+      context: $MDX_SAMPLE_APPS_DIR/infra
+      dockerfile: Dockerfiles/Dockerfile.mqttbridge
+    profiles: ["mqtt"]
+    restart: always
+    network_mode: "host"
+    container_name: mdx-mqtt-bridge
+    depends_on:
+      - logstash
+    environment:
+      MQTT_HOST: localhost
+      MQTT_PORT: 1883
+      KAFKA_BROKERS: localhost:9092
+      KAFKA_TOPICS: "mdx-raw,mdx-bev,mdx-behavior,mdx-frames,mdx-events,mdx-space-utilization,mdx-incidents"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.3.3
+    network_mode: "host"
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+    container_name: mdx-kibana
+    restart: always
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5601/api/status"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:9.3.3
+    network_mode: "host"
+    volumes:
+      - mdx-logstash-libs:/opt/logstash-data-libs
+      - $MDX_SAMPLE_APPS_DIR/infra/elk/pb_definitions/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
+      - $MDX_SAMPLE_APPS_DIR/infra/elk/pb_definitions/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
+      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/mdx-kafka-logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    environment:
+      LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
+    container_name: mdx-logstash
+    restart: always
+    depends_on:
+      kafka-topic-init-container:
+        condition: service_completed_successfully
+      elasticsearch-init-container:
+        condition: service_completed_successfully
+    command: >
+      bash -c "
+        echo 'Installing gems for mdx-apps.. This may take sometime to install plugins...' &&
+        ls -al /opt/logstash-data-libs/ &&
+        /usr/share/logstash/bin/logstash-plugin install logstash-codec-protobuf &&
+        echo 'Installed gems for logstash plugins' &&
+        /usr/local/bin/docker-entrypoint"
+
+volumes:
+  mdx-logstash-libs:
+  mdx-elastic-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: $MDX_DATA_DIR/data_log/elastic/data
+  mdx-elastic-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: $MDX_DATA_DIR/data_log/elastic/logs
+  mdx-kafka:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: $MDX_DATA_DIR/data_log/kafka
+  mdx-emqx-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: $MDX_DATA_DIR/data_log/emqx/data
+  mdx-emqx-log:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: $MDX_DATA_DIR/data_log/emqx/log
