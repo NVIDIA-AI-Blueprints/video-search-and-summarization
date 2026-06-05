@@ -38,9 +38,9 @@ Root `README.md` "Custom Dataset" section documents input-video guidelines and g
 
 ## API Call Sequence (videos mode)
 
-### Step 1 — Project Setup
+### Step 1 — Initialize Videos Run
 
-See [`common-steps.md` § Create project](common-steps.md#create-project). Save the returned `project_id`.
+Create the project with the shared request in [`common-steps.md`](common-steps.md#create-project), then keep `project_id` for the upload calls.
 
 ### Step 2 — Upload Videos (required)
 
@@ -105,7 +105,6 @@ Once uploads are done (and any UI fallback confirmed on disk), continue with [SK
 ## Videos Mode Python Script
 
 ```python
-# Videos-mode script scaffold.
 import os
 import time
 from pathlib import Path
@@ -240,7 +239,7 @@ if ui_tasks:
         )
         print(f"    Alignment files verified at {manual_dir}")
 
-# Step A/B/C/D — continue with references/calibration-tail.md for verify, calibrate, poll, and results.
+# Paste references/calibration-tail.md here before optional VGGT.
 
 # Step E — VGGT (optional)
 if RUN_VGGT:
