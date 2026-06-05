@@ -2,9 +2,9 @@
 name: vss-build-vision-agent
 description: >
   Compose VSS-based agent deployments from a natural-language capability description.
-  Use this skill when the user asks for a new VSS profile or extension to an existing
-  one (e.g. "create a profile for streaming dense captioning", "add agentic search to
-  my base deployment", "integrate my third-party camera system with VSS"). The skill
+  Use this skill when the user asks for a new VSS deployment or extension to an existing
+  one (e.g. "create a deployment for streaming dense captioning", "add agentic search to
+  my current deployment", "integrate my third-party camera system with VSS"). The skill
   reads per-microservice reference files (`integrate-{microservice}.md`,
   `deploy-{microservice}.md`) as ground truth, invents a unique compose-profile flag
   per generation, patches local copies of the relevant upstream service composes
@@ -22,17 +22,24 @@ metadata:
 
 > Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
 
-`build-vision-agent` is the orchestration skill that takes a natural-language capability description (and optionally an existing deployment to extend) and produces a validated Docker Compose file by reading authoritative per-microservice reference files. Use it whenever the user wants a VSS deployment composed for them — net-new profiles, extending a running stack, integrating a third-party system, or merging two profiles.
+`build-vision-agent` is the orchestration skill that takes a natural-language capability description (and optionally an existing deployment to extend) and produces a validated Docker Compose file by reading authoritative per-microservice reference files. Use it whenever the user wants a VSS deployment composed for them: net-new capability pipelines, extending a running stack, integrating a third-party system, or merging compatible service sets.
 
-For Phase 1a (v0.1) the skill supports **IN-1 — streaming and on-demand video dense captioning**, which combines VIOS + RT-VLM + ELK. IN-2 (RT-CV + RT-DETR person detection) and the broader catalog land in subsequent phases. The skill itself does not need updates as new microservices are added — only `references/microservice-catalog.md` and the per-service `integrate-*.md` / `deploy-*.md` files.
+The skill is capability-driven. New microservices are made available by updating `references/microservice-catalog.md` and the per-service `integrate-*.md` / `deploy-*.md` files; the skill should then compose those services without relying on named historical deployment profiles.
 
 ## When to Use
 
-- **Net-new profile**: "Create a profile for streaming and on-demand dense captioning"
-- **Extension**: "Add agentic video search to my current base deployment at `./compose.yml`"
+- **Net-new deployment**: "Create a profile for streaming and on-demand dense captioning"
+- **Extension**: "Add agentic video search to my current deployment at `./compose.yml`"
 - **3P integration**: "Integrate my existing camera management system (compose at `./camera-mgmt/compose.yml`) with VSS"
-- **Profile combination**: "Combine the Search Profile and Alerts Profile"
-- **Helm output (post-v1)**: "Convert my dev-profile-alerts compose to a Helm chart"
+- **Capability combination**: "Combine dense captioning, alert verification, and indexed metadata in one deployment"
+- **Helm output (post-v1)**: "Convert the generated compose deployment to a Helm chart"
+
+### Example Prompts
+
+Use these prompts as patterns for capability-based generation:
+
+- "Create a VSS deployment for streaming and on-demand video dense captioning. Streamed and uploaded video should be retrievable for playback. Streamed dense captions should be published to the Kafka message bus and stored in Elasticsearch."
+- "Create a VSS deployment for generating bounding box CV metadata (object detection and tracking) of persons using RT-DETR. Use the warehouse video sets. Streamed detection metadata should be published to the Kafka message bus and stored in Elasticsearch. Expose the RT-CV API for health and metrics."
 
 If the user asks to **deploy** a generated compose, the skill will create (or update) a per-deployment deploy skill in Step 6 and prompt to invoke it in Step 8 — see those steps below. If the user asks to **call** a service's API (RT-VLM endpoints, VIOS endpoints, etc.), hand off to the relevant upstream skill (`vss-deploy-dense-captioning`, `vss-manage-video-io-storage`, `vss-setup-video-analytics-api`, etc.) — those are bundled into `<BUILD_DIR>/skills/` in Step 6.
 
@@ -85,7 +92,7 @@ Existing builds under _builds/:
 
 Resolve based on the user's choice:
 
-- **(a) New build under `_builds/`** (default when the user does not specify). Resolve `<BUILD_DIR> = <repo-root>/_builds/<build-name>/`. The `<build-name>` is **deferred** to Step 6, where it is derived from the invented compose-profile flag — strip the `bp_developer_` prefix and replace remaining underscores with hyphens (e.g. `bp_developer_in_1` → `in-1`, so `<BUILD_DIR> = <repo-root>/_builds/in-1/`). If a folder with that name already exists under `_builds/`, **stop and confirm with the user** — do not silently overwrite. Offer to append a suffix (`in-1-2`, `in-1-3`, ...) or to switch to option (b). In autonomous mode, auto-append the next suffix.
+- **(a) New build under `_builds/`** (default when the user does not specify). Resolve `<BUILD_DIR> = <repo-root>/_builds/<build-name>/`. The `<build-name>` is **deferred** to Step 6, where it is derived from the generated compose flag by stripping `bp_generated_` and replacing remaining underscores with hyphens (e.g. `bp_generated_streaming_dense_captioning_rt_vlm` → `streaming-dense-captioning-rt-vlm`). If a folder with that name already exists under `_builds/`, **stop and confirm with the user** — do not silently overwrite. Offer to append a numeric suffix or to switch to option (b). In autonomous mode, auto-append the next suffix.
 - **(b) Overwrite an existing build folder.** Show the list of existing `_builds/*/` folders with their last-modified timestamp and the compose-profile flag from each folder's `MANIFEST.md` (if present). Ask which to overwrite. Confirm the choice and warn that the existing contents will be replaced — note that Docker volumes and model caches (`mdx_rtvi-hf-cache`, `mdx_rtvi-ngc-model-cache`, `mdx_cosmos_reason2_8b_cache`, etc.) survive because they are managed by Docker, not bind-mounted into `<BUILD_DIR>`. Resolve `<BUILD_DIR>` to the chosen path.
 - **(c) Custom path.** Accept any absolute path, or a path relative to the repository root (resolve relative paths against `<repo-root>`). Validate that the parent directory exists and is writable; refuse to write to a path inside `deploy/docker/` (would risk modifying upstream composes — see `[[build-output-self-contained]]`). If the path already exists and contains a previous build (i.e. has a `compose.yml`), confirm overwrite the same way option (b) does.
 
@@ -95,7 +102,7 @@ After resolving, record `<BUILD_DIR>` in the in-session context. Every subsequen
 
 #### Enumerate ALL `.env` files in the source repo
 
-VSS spreads its environment configuration across **multiple `.env` files** by concern. A skill that reads only the per-profile `dev-profile-*/.env` will miss component-internal variables and fail dry-run with errors like `invalid spec: :/home/vst/vst_release/streamer_videos: empty section between colons` (caused by an unset `${CLIP_STORAGE_PATH}` collapsing the host portion of a volume mount).
+VSS spreads its environment configuration across **multiple `.env` files** by concern. A skill that reads only a top-level developer-profile `.env` will miss component-internal variables and fail dry-run with errors like `invalid spec: :/home/vst/vst_release/streamer_videos: empty section between colons` (caused by an unset `${CLIP_STORAGE_PATH}` collapsing the host portion of a volume mount).
 
 Run a recursive `.env` discovery against the source repo:
 
@@ -103,7 +110,7 @@ Run a recursive `.env` discovery against the source repo:
 find <repo>/deploy -type f -name '.env' -not -path '*/_builds/*' -not -path '*/build-output/*' | sort
 ```
 
-The canonical set is **10 core `.env` files** (4 developer profiles, 1 industry profile, 5 service-internal) plus a NIM hardware-tier set selected by `HW_PROFILE`. Read the full enumeration, per-file ownership table, NIM hardware-tier layout, and the variable-folding rule for Step 6 in `references/env-file-enumeration.md`.
+The canonical set is **10 core `.env` files** across deployment-scope and service-internal configuration plus a NIM hardware-tier set selected by `HW_PROFILE`. Read the full enumeration, per-file ownership table, NIM hardware-tier layout, and the variable-folding rule for Step 6 in `references/env-file-enumeration.md`.
 
 If any of the following is unclear and the answer materially changes the architecture, **stop and ask** before proceeding:
 
@@ -122,7 +129,7 @@ Open `references/microservice-catalog.md`. Match the user's capability descripti
 
 If a requested capability has no matching microservice in the catalog, report the gap to the user (NFR-6) and stop. Do NOT generate a partial compose with hallucinated services.
 
-For IN-1 specifically:
+For a dense-captioning request:
 - "Streaming dense captioning" → RT-VLM (carries `dense-captioning`, `streaming-inference`)
 - "On-demand dense captioning" → RT-VLM (carries `on-demand-inference`)
 - "Kafka publication" → covered by RT-VLM's Kafka outputs in its `integrate-rt-vlm.md`
@@ -172,7 +179,7 @@ Present a structured proposal to the user before generating any output. Required
 
 Render the proposal as an ASCII flowchart (Unicode box-drawing, top-to-bottom layers) so the user can SEE the wiring, not just read it. The diagram is text-based, displays inline in the terminal at Step 4, renders identically in any Markdown viewer over SSH, and persists losslessly in `<BUILD_DIR>/MANIFEST.md`.
 
-Required content (one node per allow-listed service grouped by logical layer; one labeled edge per connection from the integrate refs' `§ Integration Interfaces`; external actors as top-level nodes; deployment shape in a comment), the canonical IN-1 example to use as a template, and the multi-diagram split rule (>~30 nodes) are spelled out in `references/architecture-diagram-template.md`.
+Required content (one node per allow-listed service grouped by logical layer; one labeled edge per connection from the integrate refs' `§ Integration Interfaces`; external actors as top-level nodes; deployment shape in a comment), the dense-captioning example to use as a template, and the multi-diagram split rule (>~30 nodes) are spelled out in `references/architecture-diagram-template.md`.
 
 Step 6 MUST embed this same diagram verbatim in `<BUILD_DIR>/MANIFEST.md § Architecture` so the operator (and any future regeneration / re-deploy) has a permanent record. Do NOT regenerate the diagram in Step 6 — copy the Step 4 output verbatim.
 
@@ -196,7 +203,7 @@ Once the user confirms the architecture, synthesize a flat allow-list of upstrea
 
 Write the result to `<BUILD_DIR>/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time. Persist the sidecar before invoking Step 6, which expects the flag chosen here to be reused.
 
-The sidecar schema, a worked IN-1 example, and the union rules (per-microservice contribution; variant case selection; dedup of identical `(key, file)` pairs; catalog-inconsistency error on conflicting `file:` paths) live in `references/allow-list-sidecar.md`. The full schema for `component_services:` blocks is in `references/component-services-schema.md`.
+The sidecar schema, a worked dense-captioning example, and the union rules (per-microservice contribution; variant case selection; dedup of identical `(key, file)` pairs; catalog-inconsistency error on conflicting `file:` paths) live in `references/allow-list-sidecar.md`. The full schema for `component_services:` blocks is in `references/component-services-schema.md`.
 
 ### Step 5 — Read `deploy-<microservice>.md` for Each Selected Service
 
@@ -212,15 +219,15 @@ Validate that the host's GPU configuration (gathered in Step 0 if the user provi
 
 ### Step 6 — Generate the Compose Artifact
 
-Write the compose file following VSS dev-profile conventions:
+Write the compose file following VSS compose conventions:
 
-- **Top-level `compose.yml`** with `include:` directives pointing to per-profile subdirectories (the existing `dev-profile-base/compose.yml`, `dev-profile-search/compose.yml`, etc., pattern).
+- **Top-level `compose.yml`** with `include:` directives pointing to patched copies of the upstream compose slices selected by the allow-list.
 - **Environment variable substitution** for all secrets, API keys, and host-specific values. Use `${VAR_NAME}` everywhere; emit a corresponding `.env.template` in the same output directory listing every variable with comments describing purpose and required values.
 - **GPU device reservations** using `deploy.resources.reservations.devices` with explicit `device_ids` from Step 4.
 - **Health checks** for every service that exposes an HTTP endpoint, copied from the per-service `deploy-<microservice>.md` (do not invent — use the exact compose values).
 - **`restart` policy** — match the source compose's pattern. VSS conventions: `restart: always` for persistent services, `restart: on-failure` for one-shot init containers, `restart: unless-stopped` where the source uses it.
 - **`depends_on:` blocks** with explicit `condition` values from the per-service references (`service_healthy`, `service_started`, `service_completed_successfully`).
-- **Compose-profile gating — invent a new flag; patch only build-output copies.** Assign the deployment a unique blueprint profile name following the catalog convention (`bp_developer_in_<N>`, `bp_developer_an_<N>`, or `bp_developer_at_<N>` per the active IN-/AN-/AT- entry in `INTEGRATION-PLAN.md` § Profile Catalog). The flag is **invented for this generation only** — it need not exist anywhere upstream, and upstream service composes are never modified. Step 6.5 copies each involved upstream compose into `build-output/patched/` and adds the new flag to every relevant service's `profiles:` list in those local copies (additive — existing upstream flags like `bp_developer_alerts_2d_vlm`, `bp_developer_search_2d`, `bp_wh_*` stay). The emitted `build-output/compose.yml` `include:`s the patched copies, so `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <new-flag> up -d` deploys against the build-output tree without ever touching the upstream repo. For reference only, upstream's currently-declared flags are: developer (`bp_developer_base_2d`, `bp_developer_search_2d`, `bp_developer_alerts_2d_vlm`, `bp_developer_alerts_2d_cv`, `bp_developer_lvs_2d`, plus `*_IGX-THOR` / `*_AGX-THOR` variants) and warehouse-industry (`bp_wh_{2d,kafka,redis,auto_calib}_*`); inventing a fresh flag avoids colliding with any of them.
+- **Compose-profile gating — invent a new flag; patch only build-output copies.** Assign the deployment a unique compose flag derived from the requested capability, such as `bp_generated_streaming_dense_captioning_rt_vlm` or `bp_generated_rt_cv_person_detection_rtdetr`. The flag is **invented for this generation only** — it need not exist anywhere upstream, and upstream service composes are never modified. Step 6.5 copies each involved upstream compose into `<BUILD_DIR>/patched/` and adds the new flag to every relevant service's `profiles:` list in those local copies. The addition is additive: any upstream flags already present stay in place. The emitted `<BUILD_DIR>/compose.yml` `include:`s the patched copies, so `docker compose --env-file <BUILD_DIR>/.env -f <BUILD_DIR>/compose.yml --profile <new-flag> up -d` deploys against the build-output tree without ever touching the upstream repo.
 
 For Helm output (post-v1, not implemented in v0.1): generate one Deployment / StatefulSet per service, one Service manifest per service, GPU resource requests parameterized in `values.yaml`, secrets in Secret manifests, all other config in ConfigMaps, with VSS labeling conventions (`app.kubernetes.io/part-of: vss`).
 
@@ -230,14 +237,14 @@ After writing the compose artifact, copy the skill folders the operator will nee
 
 What to bundle:
 
-- **Microservice skills**: for each service selected in Step 4, look up the canonical skill folder name from `references/microservice-catalog.md` and copy `<vss-repo>/skills/<skill-name>/` → `build-output/skills/<skill-name>/`. IN-1 bundles `vss-manage-video-io-storage/`, `vss-deploy-dense-captioning/`, and the ELK references (carried inside `vss-build-vision-agent/references/`).
+- **Microservice skills**: for each service selected in Step 4, look up the canonical skill folder name from `references/microservice-catalog.md` and copy `<vss-repo>/skills/<skill-name>/` → `build-output/skills/<skill-name>/`. For example, a dense-captioning deployment bundles the VIOS and RT-VLM skills; an RT-CV detection/tracking deployment bundles the VIOS and RT-CV skills. ELK references are carried inside `vss-build-vision-agent/references/`.
 - **Use-case skills**: scan `<vss-repo>/skills/` for top-level skill folders whose `description:` frontmatter matches the capability description from Step 0 (e.g., `streaming-dense-captioning`, `agentic-search`, `person-counting`). Copy each match. **If none match, skip — do not create one.**
 
 Copy the entire skill folder verbatim (including `SKILL.md`, `references/`, `scripts/`, `eval/`). Do not edit any bundled file. Record every bundled skill in `MANIFEST.md` with its source path and a one-line purpose.
 
 #### Create or update the per-deployment deploy skill
 
-Generate a self-contained deploy skill at `build-output/skills/deploy-<profile-name>/SKILL.md` that hardcodes the exact paths and values for this deployment. The `<profile-name>` is derived from the invented flag in Step 6 by stripping the `bp_developer_` prefix and replacing any remaining underscores with hyphens: `bp_developer_in_1` → `deploy-in-1`, `bp_developer_an_1` → `deploy-an-1`, `bp_developer_at_1` → `deploy-at-1`.
+Generate a self-contained deploy skill at `build-output/skills/deploy-<deployment-name>/SKILL.md` that hardcodes the exact paths and values for this deployment. The `<deployment-name>` is derived from the invented flag in Step 6 by stripping the `bp_generated_` prefix and replacing any remaining underscores with hyphens: `bp_generated_streaming_dense_captioning_rt_vlm` → `deploy-streaming-dense-captioning-rt-vlm`.
 
 The generated SKILL.md must include:
 
@@ -245,12 +252,12 @@ The generated SKILL.md must include:
 - **Env file path** — path to `.env.template` and an instruction to copy it to `.env` and fill in every variable before deploy.
 - **GPU assignments** — the device-id map confirmed in Step 4 (`RT_VLM_DEVICE_ID=0`, etc.), so the operator can sanity-check against the host before bring-up.
 - **Per-service health endpoints + `start_period`** — copied from each `deploy-<microservice>.md`. RT-VLM's `1200s` cold-boot window must be called out explicitly.
-- **Bring-up command** — the exact `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> up -d` invocation.
+- **Bring-up command** — the exact `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <deployment-flag> up -d` invocation.
 - **Health-check loop** — poll each service's healthcheck endpoint until pass or per-service `start_period` timeout; fail loudly with the specific service name when a check times out.
-- **Tear-down command** — `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> down -v` (note: `-v` removes named volumes; warn the operator inline).
+- **Tear-down command** — `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <deployment-flag> down -v` (note: `-v` removes named volumes; warn the operator inline).
 - **Post-deploy smoke test** — one curl or kafka-console-consumer command per "Outputs" section in the bundled microservice skills' `integrate-<microservice>.md`, so the operator can confirm the wiring actually works.
 
-If a deploy skill already exists at `build-output/skills/deploy-<profile-name>/SKILL.md` (the user is regenerating the same profile), **overwrite it** with the new values. Do not append — stale GPU assignments or stale env paths from a prior run would silently misdirect deploy.
+If a deploy skill already exists at `build-output/skills/deploy-<deployment-name>/SKILL.md` (the user is regenerating the same deployment), **overwrite it** with the new values. Do not append — stale GPU assignments or stale env paths from a prior run would silently misdirect deploy.
 
 Record the generated deploy skill in `MANIFEST.md` with the bring-up and tear-down commands inline so an operator can read the manifest and execute without opening the skill.
 
@@ -267,20 +274,20 @@ build-output/
     ├── vss-manage-video-io-storage/    # bundled from <vss-repo>/skills/vss-manage-video-io-storage/
     ├── vss-deploy-dense-captioning/    # bundled from <vss-repo>/skills/vss-deploy-dense-captioning/
     ├── <use-case-skill>/               # bundled IF one matched the capability description; skipped otherwise
-    └── deploy-<flag-slug>/
+    └── deploy-<deployment-name>/
         └── SKILL.md                    # generated; overwritten on re-run
 ```
 
 ### Step 6.5 — Apply Standalone-Compose Patches
 
-The build-output deploys a unique, never-before-seen profile generated by the skill. To make that work against the upstream's existing compose tree **without modifying upstream files**, the skill copies the involved upstream service composes into `<BUILD_DIR>/patched/` and applies four patches:
+The build-output deploys a unique, never-before-seen compose flag generated by the skill. To make that work against the upstream's existing compose tree **without modifying upstream files**, the skill copies the involved upstream service composes into `<BUILD_DIR>/patched/` and applies four patches:
 
-- **Patch 0** — pre-flight host preparation (run at deploy time): validate `.env` secrets, create bind-mount dirs with permissions, clear conflicting named volumes, kill orphan containers from prior generations, NGC login, profile-flag collision check.
+- **Patch 0** — pre-flight host preparation (run at deploy time): validate `.env` secrets, create bind-mount dirs with permissions, clear conflicting named volumes, kill orphan containers from prior generations, NGC login, compose-flag collision check.
 - **Patch 1** — insert the invented gating flag into the `profiles:` list of every `(key, file)` pair in `<BUILD_DIR>/allow-list.yml`. Additive (preserves upstream flags); each sidecar entry is patched at exactly one site. Handles both inline and block-style `profiles:` lists.
 - **Patch 2** — strip undefined `depends_on` entries. Compose ≥ v2.36 rejects standalone projects with unresolvable `depends_on` even when `required: false`. For each allow-listed service, walk its `depends_on:` — keep defined peers, strip undefined peers with `required: false`, error on undefined peers without `required: false` (allow-list/upstream inconsistency).
 - **Patch 3** — materialize relative-path bind-mount source files. The patched tree under `<BUILD_DIR>/patched/` contains only the patched YAML; Docker would silently create empty directories for `./envoy.yaml`, `./sdr-config`, etc., causing obscure container exits. Walk every patched compose's `volumes:` and `cp -r` upstream sources into the patched copy. Sub-case: SDRC config templates (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`) are env-var-resolved (not relative), so handle them explicitly when `sdr-controller` is in the allow-list.
 
-The full Patch 0 pre-flight checklist, the Patch 1 / Patch 2 / Patch 3 pseudocode and rationale, the "why an allow-list, not patch-then-exclude" architectural note, the VIOS + SDRC mandatory-stack note, and the per-allow-listed-service IN-1 behavior breakdown all live in `references/standalone-compose-patches.md`. Read it before modifying any patch logic — every entry there is grounded in a live deploy failure mode.
+The full Patch 0 pre-flight checklist, the Patch 1 / Patch 2 / Patch 3 pseudocode and rationale, the "why an allow-list, not patch-then-exclude" architectural note, the VIOS + SDRC mandatory-stack note, and the dense-captioning patch behavior breakdown all live in `references/standalone-compose-patches.md`. Read it before modifying any patch logic — every entry there is grounded in a live deploy failure mode.
 
 Record the chosen flag at the top of `<BUILD_DIR>/MANIFEST.md`, note every stripped `depends_on` entry in `MANIFEST.md`, and add a row to `PATCHES.md` for every materialized file/directory so the operator can audit.
 
@@ -322,7 +329,7 @@ Present a summary of the generated artifact:
 - Shared infrastructure decisions
 - `.env.template` location and the variables the user must fill in
 - Bundled skills (microservice + use-case, from Step 6)
-- Generated per-deployment deploy skill (`deploy-<profile-name>`, from Step 6) with its bring-up command
+- Generated per-deployment deploy skill (`deploy-<deployment-name>`, from Step 6) with its bring-up command
 
 Show the diff if the operation modified an existing deployment. Wait for user confirmation, then write all files to the output directory. Always emit a `MANIFEST.md` listing every generated file and its purpose. The manifest must include an `## Architecture` section embedding the ASCII flowchart produced in Step 4 verbatim — operators reading the manifest should see the wiring at a glance, without re-running the skill.
 
@@ -330,16 +337,16 @@ Show the diff if the operation modified an existing deployment. Wait for user co
 
 After all files are written, ask the user explicitly:
 
-> "Deploy this profile now? [y/N]"
+> "Deploy this generated deployment now? [y/N]"
 
 - **If `y`**: invoke the `deploy-<profile-name>` skill generated in Step 6. The skill should run from `build-output/` as its working directory so it picks up the generated `compose.yml`, `.env`, and `MANIFEST.md`. Before invoking, confirm the user has copied `.env.template` to `.env` and filled in required values (NGC API key, HF token, host IP, GPU IDs) — if `.env` is missing or still contains template placeholders, stop and ask the user to fill them in.
 - **If `n` or no response**: print the bring-up command and the skill invocation command so the user can run either later:
   ```
   # Direct compose:
-  docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> up -d
+  docker compose --env-file build-output/.env -f build-output/compose.yml --profile <deployment-flag> up -d
 
   # Or via the generated skill:
-  /deploy-<profile-name>
+  /deploy-<deployment-name>
   ```
 
 The autonomous-mode exception from Step 4 applies here too: when the user's original request explicitly said "deploy autonomously" or "and deploy", treat as `y` without prompting. When running in a non-interactive eval harness without explicit deploy intent, treat as `n` and just print the commands.
@@ -351,19 +358,20 @@ skills/vss-build-vision-agent/
 ├── SKILL.md
 ├── CONTRIBUTING.md                                    # (planned) how to add a new microservice (see Phase 0 deliverables)
 ├── eval/
-│   ├── in-1-streaming-dense-captioning.json      # priority eval — gates Phase 4 rollout
-│   ├── in-2-person-detection-rt-detr.json        # priority eval — extensibility test
-│   └── ...                                            # follow-on evals as Phase 1c services land
+│   ├── streaming-dense-captioning-rt-vlm.json         # priority dense-captioning eval
+│   ├── rt-cv-person-detection-rtdetr.json             # RT-CV detection/tracking eval
+│   ├── rt-cv-person-detection-rtdetr-harbor.json      # Harbor RT-CV eval
+│   └── ...                                            # follow-on evals as more services land
 ├── references/
 │   ├── integrate-microservice-schema.md               # canonical schema for integrate-<microservice>.md
 │   ├── deploy-microservice-schema.md                  # canonical schema for deploy-<microservice>.md
 │   ├── component-services-schema.md                   # schema for component_services: blocks (always/variants)
 │   ├── microservice-catalog.md                        # index: capability tags → service → reference paths
 │   ├── env-file-enumeration.md                        # Step 0 detail — 10 core .env files + NIM hw-tier set
-│   ├── architecture-diagram-template.md               # Step 4 detail — ASCII flowchart requirements + IN-1 example
-│   ├── allow-list-sidecar.md                          # Step 4 detail — sidecar schema, IN-1 example, union rules
+│   ├── architecture-diagram-template.md               # Step 4 detail — ASCII flowchart requirements + example
+│   ├── allow-list-sidecar.md                          # Step 4 detail — sidecar schema, example, union rules
 │   ├── standalone-compose-patches.md                  # Step 6.5 detail — Patch 0/1/2/3 pseudocode + per-service notes
-│   ├── example-walkthroughs.md                        # concrete streaming-dense-captioning walkthrough (IN-1)
+│   ├── example-walkthroughs.md                        # concrete streaming-dense-captioning walkthrough
 │   ├── vss-compose-patterns.md                        # (planned) include-based compose, env_overrides, dry-run
 │   ├── vss-helm-patterns.md                           # (planned, post-v1)
 │   ├── shared-infrastructure.md                       # (planned) Kafka / ES / Redis sharing decision tree
@@ -372,9 +380,9 @@ skills/vss-build-vision-agent/
     └── validate-references.py                         # discovers and validates every integrate-*.md / deploy-*.md
 ```
 
-## IN-1 Walkthrough — Concrete Example
+## Dense Captioning Walkthrough
 
-A worked end-to-end example of the nine-step flow against the **IN-1 streaming + on-demand dense captioning** prompt — including the caption-topic gotcha (`RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions`, since the raw compose default `vision-llm-messages` is unsubscribed by both Logstash pipelines), the GPU-placement and `vlm_backend` decisions surfaced in Step 4, and the SDRC-template materialization done by Step 6.5 / Patch 3 — lives in `references/example-walkthroughs.md`.
+A worked end-to-end example of the nine-step flow against the streaming + on-demand dense-captioning prompt — including the caption-topic gotcha (`RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions`, since the raw compose default `vision-llm-messages` is unsubscribed by both Logstash pipelines), the GPU-placement and `vlm_backend` decisions surfaced in Step 4, and the SDRC-template materialization done by Step 6.5 / Patch 3 — lives in `references/example-walkthroughs.md`.
 
 ## Operating Principles
 
@@ -388,11 +396,11 @@ A worked end-to-end example of the nine-step flow against the **IN-1 streaming +
 
 ## Tear Down
 
-`build-vision-agent` does not bring services up or down itself — that is the per-deployment `deploy-<profile-name>` skill generated in Step 6. Tear down a running profile with its skill (which knows the right `--profile` gate and volume cleanup):
+`build-vision-agent` does not bring services up or down itself — that is the per-deployment `deploy-<deployment-name>` skill generated in Step 6. Tear down a running generated deployment with its skill (which knows the right `--profile` gate and volume cleanup):
 
 ```
-/deploy-<profile-name>            # bring up
-/deploy-<profile-name> down       # tear down (or use the explicit command in MANIFEST.md)
+/deploy-<deployment-name>            # bring up
+/deploy-<deployment-name> down       # tear down (or use the explicit command in MANIFEST.md)
 ```
 
 To remove the generated build artifacts themselves (compose, bundled skills, generated deploy skill):
@@ -408,10 +416,10 @@ rm -rf ./build-output/
 - `references/deploy-microservice-schema.md` — canonical deployment-contract schema
 - `references/component-services-schema.md` — schema for `component_services:` blocks (always/variants)
 - `references/env-file-enumeration.md` — Step 0 `.env` enumeration table + NIM hw-tier layout
-- `references/architecture-diagram-template.md` — Step 4 ASCII diagram requirements + canonical IN-1 example
-- `references/allow-list-sidecar.md` — Step 4 sidecar schema, IN-1 example, union rules
-- `references/standalone-compose-patches.md` — Step 6.5 Patch 0/1/2/3 pseudocode and per-service IN-1 notes
-- `references/example-walkthroughs.md` — worked end-to-end walkthroughs (currently: IN-1 streaming-dense-captioning)
-- Per-deployment deploy skills are generated by Step 6 at `build-output/skills/deploy-<profile-name>/SKILL.md` — no shared `/deploy` skill exists.
+- `references/architecture-diagram-template.md` — Step 4 ASCII diagram requirements + dense-captioning example
+- `references/allow-list-sidecar.md` — Step 4 sidecar schema, dense-captioning example, union rules
+- `references/standalone-compose-patches.md` — Step 6.5 Patch 0/1/2/3 pseudocode and per-service notes
+- `references/example-walkthroughs.md` — worked end-to-end walkthroughs (currently: streaming dense captioning)
+- Per-deployment deploy skills are generated by Step 6 at `build-output/skills/deploy-<deployment-name>/SKILL.md` — no shared `/deploy` skill exists.
 - VSS docs: <https://docs.nvidia.com/vss/latest/>
 - agentskills.io spec: governs the `name` / `description` / `version` / `license` frontmatter at the top of this file.

@@ -5,17 +5,14 @@
 
 The vss-build-vision-agent skill takes a natural-language capability description
 and produces a validated Docker Compose deployment under `_builds/<build-name>/`.
-Unlike `vss-deploy-profile`, which deploys a pre-existing VSS profile, this skill
-BUILDS a new profile from scratch and then deploys it. No pre-deploy prerequisite
-is injected — the skill itself handles the full generate+deploy lifecycle.
+Unlike `vss-deploy-profile`, which brings up a predefined VSS deployment, this
+skill builds a new deployment from microservice references and then deploys it.
+No pre-deploy prerequisite is injected; the skill itself handles the full
+generate+deploy lifecycle.
 
-The current specs target:
-  - profile: "in-1" (streaming dense captioning — VIOS + RT-VLM + ELK)
-  - profile: "in-2" (RT-CV / RT-DETR detection-tracking — VIOS + RT-CV + ELK)
-  - The spec's `profile` field is the *build-profile slug* passed to
-    `/vss-build-vision-agent`, NOT a `/vss-deploy-profile -p <profile>` arg.
-    No prerequisite deploy is injected when the spec does not declare
-    `requires_deployed_vss = true`.
+The spec's `profile` field is the build slug passed to `/vss-build-vision-agent`.
+It is not a `/vss-deploy-profile -p <profile>` argument. No prerequisite deploy is
+injected when the spec does not declare `requires_deployed_vss = true`.
 
 ## Platform topology
 
@@ -34,8 +31,8 @@ The current specs target:
         solution/solve.sh
         skills/vss-build-vision-agent/   (full skill copy)
         skills/vss-manage-video-io-storage/   (bundled — skill invokes VIOS API after deploy)
-        skills/vss-deploy-dense-captioning/   (bundled for IN-1 / RT-VLM checks)
-        skills/vss-deploy-detection-tracking-2d/ (bundled for IN-2 / RT-CV checks)
+        skills/vss-deploy-dense-captioning/   (bundled for dense-captioning checks)
+        skills/vss-deploy-detection-tracking-2d/ (bundled for RT-CV checks)
         environment/Dockerfile           (FROM scratch; BrevEnvironment takes over)
 
 Usage from the repository root:
@@ -45,7 +42,7 @@ Usage from the repository root:
         --vios-skill-dir skills/vss-manage-video-io-storage \\
         --rtvi-skill-dir skills/vss-deploy-dense-captioning \\
         --rtcv-skill-dir skills/vss-deploy-detection-tracking-2d \\
-        --spec skills/vss-build-vision-agent/eval/profile_in_1_streaming_dense_captions.json
+        --spec skills/vss-build-vision-agent/eval/streaming-dense-captioning-rt-vlm.json
 """
 from __future__ import annotations
 
@@ -59,11 +56,11 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Platform table — maps spec platform keys to brev_env task.toml metadata.
 # The "2xRTXPro" key is specific to this skill (requires 2 GPUs for the
-# full IN-1 stack: RT-VLM in-process + SDRC + VIOS).
+# dense-captioning stack: RT-VLM in-process + SDRC + VIOS).
 # ---------------------------------------------------------------------------
 
 PLATFORMS: dict[str, dict] = {
-    # Primary target for vss-build-vision-agent IN-1
+    # Primary target for the dense-captioning generation task.
     # Key matches the spec's resources.platforms declaration ("RTXPRO6000BW")
     # and the cross-adapter convention (see vss-manage-video-io-storage, vss-deploy-profile, etc.)
     "RTXPRO6000BW": {
@@ -180,16 +177,16 @@ def generate_test_script(step: int, spec_name: str) -> str:
     )
 
 
-def generate_solve_script(platform: str, build_profile: str) -> str:
+def generate_solve_script(platform: str, build_slug: str) -> str:
     """Gold solution stub — verifier drives assertions independently;
     solve.sh just confirms the build output exists."""
     return (
         "#!/bin/bash\n"
-        f"# Gold solution: vss-build-vision-agent / {build_profile} on {platform}\n"
+        f"# Gold solution: vss-build-vision-agent / {build_slug} on {platform}\n"
         "set -euo pipefail\n"
         "\n"
         'REPO_ROOT="${HOME}/video-search-and-summarization"\n'
-        f'BUILD_DIR="${{REPO_ROOT}}/_builds/{build_profile}"\n'
+        f'BUILD_DIR="${{REPO_ROOT}}/_builds/{build_slug}"\n'
         "\n"
         'if [ ! -f "${BUILD_DIR}/compose.yml" ]; then\n'
         "    echo \"Build output missing: ${BUILD_DIR}/compose.yml\"\n"
@@ -218,14 +215,13 @@ def generate_task(
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
-    # Build profile slug from spec (e.g. "in-1")
-    build_profile: str = spec.get("profile", "")
-    if not build_profile:
-        build_profile = Path(spec_name).stem  # fallback to spec filename stem
+    build_slug: str = spec.get("profile", "")
+    if not build_slug:
+        build_slug = Path(spec_name).stem  # fallback to spec filename stem
 
     rendered_spec = _substitute_spec(spec, platform)
 
-    # dataset group = spec stem (e.g. "profile_in_1_streaming_dense_captions")
+    # dataset group = spec stem (e.g. "streaming-dense-captioning-rt-vlm")
     dataset_group = Path(spec_name).stem
 
     for idx, expect in enumerate(rendered_spec.get("expects") or [], 1):
@@ -240,7 +236,7 @@ def generate_task(
             PREAMBLE,
             "",
             f"Use the `/vss-build-vision-agent` skill to build and deploy the "
-            f"`{build_profile}` profile on `{platform}`. "
+            f"`{build_slug}` deployment on `{platform}`. "
             "Work from `$HOME/video-search-and-summarization` (the VSS repository root).",
             "",
             f"## Query {idx} of {len(expects)}",
@@ -261,8 +257,8 @@ def generate_task(
         meta_lines = [
             "[task]",
             f'name = "nvidia-vss/vss-build-vision-agent-{dataset_group}-{platform_short}{step_suffix}"',
-            f'description = "Build+deploy {build_profile} profile ({idx}/{len(expects)}) on {platform}"',
-            f'keywords = ["vss-build-vision-agent", "build", "{build_profile}", "{platform}"]',
+            f'description = "Build+deploy {build_slug} ({idx}/{len(expects)}) on {platform}"',
+            f'keywords = ["vss-build-vision-agent", "build", "{build_slug}", "{platform}"]',
             "",
             "[environment]",
             'skills_dir = "/skills"',
@@ -271,19 +267,18 @@ def generate_task(
             'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
             'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
             'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
-            # JUDGE_MAX_TURNS bumped from default 25 because the IN-1 spec carries
+            # JUDGE_MAX_TURNS bumped from default 25 because the dense-captioning spec carries
             # 20 checks — many requiring live service probes (ES, Kafka, VIOS,
             # RT-VLM) and trajectory-derived IDs; standard 25 turns is tight.
             'JUDGE_MAX_TURNS = "60"',
             "",
             "[metadata]",
             'skill = "vss-build-vision-agent"',
-            # `profile` here is the build-profile slug — NOT a /vss-deploy-profile arg.
-            # The harness does NOT inject a prerequisite deploy task when this field
-            # is "in-1" (or any non-standard VSS profile name). It is recorded for
-            # provenance only. BrevEnvironment._ensure_prerequisite_deployed looks for
+            # `profile` here is the generated build slug, not a predefined deployment
+            # selected by /vss-deploy-profile. It is recorded for provenance only.
+            # BrevEnvironment._ensure_prerequisite_deployed looks for
             # a `requires_deployed_vss = true` flag; when absent (as here) it skips.
-            f'profile = "{build_profile}"',
+            f'profile = "{build_slug}"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'gpu_count = {pspec["gpu_count"]}',
@@ -317,19 +312,35 @@ def generate_task(
         # ---- solution/ -----------------------------------------------------
         solution_dir = step_dir / "solution"
         solution_dir.mkdir(exist_ok=True)
-        (solution_dir / "solve.sh").write_text(generate_solve_script(platform, build_profile))
+        (solution_dir / "solve.sh").write_text(generate_solve_script(platform, build_slug))
 
         # ---- skills/ -------------------------------------------------------
         # Bundle the build skill itself plus the service skills the spec may
-        # need after generation. IN-1 uses RT-VLM; IN-2 uses RT-CV.
-        profile = str(spec.get("profile", "")).lower()
+        # need after generation.
+        spec_text = json.dumps(spec, sort_keys=True).lower()
         skills_to_copy: list[tuple[Path | None, str]] = [
             (skill_dir, "vss-build-vision-agent"),
             (vios_skill_dir, "vss-manage-video-io-storage"),
         ]
-        if profile == "in-1":
+        wants_dense_captioning = any(
+            token in spec_text
+            for token in ("dense-caption", "captioning", "rt-vlm", "vlm-captions")
+        )
+        wants_rt_cv = any(
+            token in spec_text
+            for token in (
+                "rt-cv",
+                "rtdetr",
+                "rt-detr",
+                "bounding box",
+                "object detection",
+                "detection/tracking",
+                "tracking metadata",
+            )
+        )
+        if wants_dense_captioning:
             skills_to_copy.append((rtvi_skill_dir, "vss-deploy-dense-captioning"))
-        elif profile == "in-2":
+        if wants_rt_cv:
             skills_to_copy.append((rtcv_skill_dir, "vss-deploy-detection-tracking-2d"))
         for src, name in skills_to_copy:
             if src and src.exists():
@@ -370,7 +381,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--spec", default=None,
-        help="Path to the eval spec JSON (default: <skill-dir>/eval/profile_in_1_streaming_dense_captions.json)",
+        help="Path to the eval spec JSON (default: <skill-dir>/eval/streaming-dense-captioning-rt-vlm.json)",
     )
     parser.add_argument(
         "--platform", default=None,
@@ -392,7 +403,7 @@ def main() -> None:
     spec_path = (
         Path(args.spec)
         if args.spec
-        else (skill_dir / "eval" / "profile_in_1_streaming_dense_captions.json")
+        else (skill_dir / "eval" / "streaming-dense-captioning-rt-vlm.json")
     )
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)
