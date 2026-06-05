@@ -3,7 +3,6 @@ name: vss-generate-video-report-rag
 description: "Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline."
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team <vss-dev@nvidia.com>"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -11,20 +10,11 @@ metadata:
 
 # VSS Generate Video Report RAG — Video Analysis with Enterprise RAG
 
-## Purpose
-
 Generate video summary reports using the VSS `video_search_frag` extension.
 This skill adds Enterprise RAG (Milvus) knowledge retrieval and guided
 human-in-the-loop (HITL) parameter collection on top of the base VSS agent.
 
-## Instructions
-
-Run read-only `curl` checks yourself and relay the results. Before `docker build`,
-`docker compose up`, `docker compose down`, or any command that changes local
-infrastructure, confirm the user's intent and working directory. Keep
-`NGC_CLI_API_KEY`, `NVIDIA_API_KEY`, and Enterprise RAG credentials in a
-restricted `.env` file or a secrets manager; do not echo, log, or paste raw
-secret values.
+Always run `curl` commands yourself; never instruct the user to run them.
 
 ## Deploying the Frag Extension
 
@@ -150,14 +140,6 @@ docker compose \
 - Deployment tasks (use `deploy` skill)
 - Real-time alerts (use `alerts` skill)
 
-## Limitations
-
-- Requires a deployed VSS frag agent with `enable_interactive_extensions: true`.
-- Enterprise RAG only improves reports when a Milvus collection is reachable and
-  already contains relevant knowledge.
-- Long-video reports can take several minutes and may require repeated HITL
-  responses before processing starts.
-
 ## Workflow: Generate an LVS Report with Enterprise RAG
 
 ### Step 1: List available videos
@@ -271,19 +253,6 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
 - `enable_interactive_extensions: true` must be set in the frag config for HTTP HITL to work
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
-
-## Troubleshooting
-
-- **Error**: `/health` is unreachable. **Cause**: frag agent is not running or
-  `HOST_IP`/`VSS_AGENT_PORT` is wrong. **Solution**: verify compose services and
-  repeat the health probe before report generation.
-- **Error**: HITL interaction endpoint returns 404. **Cause**: stale
-  `execution_id` or `interaction_id`. **Solution**: poll the execution state and
-  use the latest interaction identifiers from the response.
-- **Error**: Enterprise RAG returns no context. **Cause**: Milvus endpoint,
-  collection name, or ingestion state is wrong. **Solution**: verify
-  `ENTERPRISE_RAG_VDB_ENDPOINT` and `ENTERPRISE_RAG_COLLECTION_NAMES` in the
-  restricted `.env` file.
 
 
 

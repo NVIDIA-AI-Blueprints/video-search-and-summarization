@@ -3,7 +3,6 @@ name: vss-deploy-dense-captioning
 description: Use this skill when deploying standalone RT-VLM dense captioning or calling its REST API (uploads, captions, streams, chat-completions, Kafka). Not for VSS profile deploy or video-search ingestion.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team <vss-dev@nvidia.com>"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
@@ -20,17 +19,13 @@ For standalone RT-VLM deployment:
   image pulls, and local NGC model/artifact downloads.
 - `curl`, `jq`, and any writable working directory for the standalone compose copy.
 
-Keep API keys in a restricted `.env` file or a secrets manager. Do not echo
-`NGC_CLI_API_KEY`, `RTVI_VLM_API_KEY`, `NVIDIA_API_KEY`, or bearer tokens, and do
-not place raw secret values in command history, logs, issue comments, or reports.
-
 For API calls against an existing service:
 - Running RT-VLM service reachable at `$BASE_URL`.
 - Bearer token in `$RTVI_VLM_API_KEY` or `$NGC_CLI_API_KEY`, depending on how the
   service was configured.
 
 For full VSS profile deployment:
-- Use the `vss-deploy-profile` skill; this skill does not deploy full VSS profiles.
+- Use `../vss-deploy-profile/SKILL.md`; this skill does not deploy full VSS profiles.
 
 ## Instructions
 
@@ -67,9 +62,9 @@ checks, NIM-compatible chat completions, or Prometheus metrics. API reference:
 ## Deployment Routing
 
 If the user asks to deploy a full VSS profile, use
-the `vss-deploy-profile` skill. That skill owns profile routing,
-`generated.env`, `resolved.yml`, multi-service sizing, and full-stack
-deploy/teardown.
+[`../vss-deploy-profile/SKILL.md`](../vss-deploy-profile/SKILL.md). That skill
+owns profile routing, `generated.env`, `resolved.yml`, multi-service sizing, and
+full-stack deploy/teardown.
 
 If the user asks for standalone RT-VLM dense captioning, or no VSS profile is
 already running, use the standalone RT-VLM flow in
@@ -172,81 +167,302 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
 
 ## Endpoints
 
-Use the live OpenAPI (`$BASE_URL/openapi.json`) as the source of truth. The core
-paths are:
+### Captions
+> Generate VLM captions and alerts for videos and live streams.
 
-- `POST /v1/files`, `GET /v1/files`, `DELETE /v1/files/{file_id}` for upload and
-  cleanup.
-- `POST /v1/streams/add`, `GET /v1/streams/get-stream-info`, and
-  `DELETE /v1/streams/delete/{stream_id}` for RTSP sources.
-- `POST /v1/generate_captions` for file or stream captioning. Required payload
-  fields are `id`, `prompt`, and the exact model id from `GET /v1/models`.
-- `POST /v1/chat/completions` for OpenAI-compatible text/multimodal chat.
-- `GET /v1/models`, `/v1/metadata`, `/v1/assets/stats`, `/v1/metrics`, `/v1/ready`,
-  `/v1/live`, and `/v1/startup` for discovery and health.
+#### `POST /v1/generate_captions` — Generate VLM captions (and alerts) for video/stream
 
-Current 26.05 responses use `chunk_responses` with `start_time`/`end_time`; SSE
-streams terminate with `data: [DONE]`. For request schemas, CV-style singular
-stream compatibility paths, direct `video_url`/`image_url` examples, and legacy
-`/v1/completions` behavior, use `references/api-surface-26.05.md`.
+**Required:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string \| array | UUID of a previously-uploaded file, or id of an active live stream. Accepts a list of ids for batch |
+| `prompt` | string | User prompt to the VLM (e.g. dense-caption instruction) |
+| `model` | string | Exact model id returned by `GET /v1/models`, for example `nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8`; backend selector aliases such as `cosmos-reason2` are not request model ids |
+
+**Key optional fields:**
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `system_prompt` | string | — | System prompt; use `<think></think><answer></answer>` tags to enable reasoning on Cosmos Reason |
+| `enable_reasoning` | boolean | false | Turn on reasoning for Cosmos Reason models |
+| `enable_audio` | boolean | false | Transcribe audio (via Riva) and fold into captions |
+| `chunk_duration` | integer | — | Segment video into N-second chunks (`0` = no chunking) |
+| `chunk_overlap_duration` | integer | 0 | Overlap between consecutive chunks |
+| `num_frames_per_second_or_fixed_frames_chunk` | number | — | FPS (if `use_fps_for_chunking=true`) or fixed frames per chunk |
+| `use_fps_for_chunking` | boolean | false | Interpret above as FPS vs. fixed-frame count |
+| `vlm_input_width` / `vlm_input_height` | int | — | Resize frames before inference (0 = native) |
+| `media_info` | object | — | `{"type":"offset","start_offset":0,"end_offset":10}` to process a slice of a file (not live streams) |
+| `stream` | boolean | false | SSE: emit per-chunk caption deltas as `data:` events (recommended for long videos) |
+| `max_tokens` / `temperature` / `top_p` / `top_k` / `seed` / `ignore_eos` | | | Standard sampling controls |
+| `response_format` | object | — | Query response format object |
+| `mm_processor_kwargs` | object | — | Extra kwargs for the multimodal processor (e.g. size, shortest/longest edge) |
+
+```bash
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "prompt": "Dense-caption this warehouse video, one sentence per 10s chunk.",
+    "model": "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8",
+    "chunk_duration": 10,
+    "stream": true
+  }'
+```
+
+**Response shape:** live 26.05 responses use `chunk_responses` with
+`start_time`/`end_time`; SSE streams terminate with `data: [DONE]`. See
+[`references/api-surface-26.05.md`](references/api-surface-26.05.md).
+
+#### `DELETE /v1/generate_captions/{stream_id}` — Stop caption generation for a live stream, if exposed
+
+Some deployments expose this companion stop endpoint. Check the live OpenAPI
+(`curl -fsS "$BASE_URL/openapi.json" | jq '.paths | keys[]'`) before using it.
+Always pair live-stream cleanup with `DELETE /v1/streams/delete/{stream_id}` to
+un-register the RTSP source.
+
+```bash
+curl -X DELETE "$BASE_URL/v1/generate_captions/$STREAM_ID" -H "Authorization: Bearer $API_KEY"
+```
+
+### Files
+> Upload and manage media files consumed by `/v1/generate_captions`.
+
+#### `POST /v1/files` — Upload a media file (multipart)
+```bash
+curl -X POST "$BASE_URL/v1/files" -H "Authorization: Bearer $API_KEY" \
+  -F "file=@./video.mp4" -F "purpose=vision" -F "media_type=video"
+```
+**Response:** `{ "id", "object": "file", "bytes", "created_at", "filename", "purpose" }`.
+Optional metadata such as `sensor_name` may be accepted by newer builds; check
+the live OpenAPI before sending it.
+
+#### `GET /v1/files?purpose=vision` — List uploaded files
+#### `GET /v1/files/{file_id}` — File metadata
+#### `GET /v1/files/{file_id}/content` — Download original file content
+#### `DELETE /v1/files/{file_id}` — Delete file (releases asset storage)
+
+### Live Stream
+> RTSP stream lifecycle.
+
+#### `POST /v1/streams/add` — Register one or more RTSP streams
+**Required per stream:** `liveStreamUrl` (must start with `rtsp://`), `description`.
+Optional: `username`, `password`, `sensor_name`, and placement metadata
+(`place_name`, `place_type`, `place_lat`, `place_lon`, `place_alt`,
+`place_coordinate_x`, `place_coordinate_y`).
+
+Precheck public or external RTSP sources before registering them. A probe exit
+code alone is not enough; `gst-discoverer-1.0` can exit `0` while reporting an
+unknown media type. Treat the stream as usable only when a probe output
+identifies at least one video stream/caps entry. If one probe is inconclusive,
+cross-check with another tool such as `ffprobe` before failing or registering:
+
+```bash
+ffprobe -v error -select_streams v:0 \
+  -show_entries stream=codec_type -of csv=p=0 "$RTSP_URL" | grep -qx video
+```
+
+```bash
+STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"streams":[{"liveStreamUrl":"rtsp://cam:8554/live","description":"warehouse cam 1"}]}' \
+  | jq -r '.results[0].id')
+```
+
+#### `GET /v1/streams/get-stream-info` — List active streams
+#### `DELETE /v1/streams/delete/{stream_id}` — Remove a single stream
+#### `DELETE /v1/streams/delete-batch` — Remove many (`{"stream_ids":[...]}`)
+
+#### CV-style singular stream endpoints
+
+26.05 deployments also expose CV-style stream control paths:
+`POST /v1/stream/add`, `GET /v1/stream/get-stream-info`, and
+`POST /v1/stream/remove`. Use these when a workflow or release note explicitly uses
+the key/value envelope; otherwise prefer the plural RT-VLM stream endpoints
+above. See [`references/api-surface-26.05.md`](references/api-surface-26.05.md)
+for examples and the `stream_count:0` compatibility caveat.
+
+### NIM Compatible
+> OpenAI-compatible endpoints for interop with OpenAI/NVIDIA-API clients.
+
+#### `POST /v1/chat/completions` — OpenAI-compatible chat (text + multimodal)
+**Required:** `messages`, `model`. Text-only requests work and omit `id`,
+`video_url`, and `image_url`. For uploaded-video, direct `video_url`,
+direct `image_url`, streaming, and RTSP-backed chat examples, see
+[`references/api-surface-26.05.md`](references/api-surface-26.05.md).
+
+```bash
+curl -X POST "$BASE_URL/v1/chat/completions" -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Summarize this scene.\"}]}"
+```
+
+#### `POST /v1/completions` — OpenAI-compatible legacy completions
+This endpoint exists for compatibility, but on current 26.05 builds text-only legacy
+completion requests return HTTP 400 by design. Use `/v1/chat/completions` for
+text-only and multimodal requests.
+
+#### `GET /v1/version` — `{ "version": "3.2.0-..." }`
+#### `GET /v1/manifest` — NIM manifest
+#### `GET /v1/health/live` · `GET /v1/health/ready` — NIM-style probes
+
+Do not assume `/v1/license` exists. The current 26.05 live OpenAPI does not expose it
+and the endpoint returns 404; only call it after checking `GET /openapi.json`.
+
+### Models · Metadata · Metrics · Health Check
+#### `GET /v1/models` — List loaded VLMs: `{ "data": [{ "id", "object": "model", "owned_by" }] }`
+#### `GET /v1/metadata` — Service metadata (build, release, image tag)
+#### `GET /v1/assets/stats` — Asset storage counts, TTL, and oldest-asset age
+#### `GET /v1/metrics` — Prometheus metrics (plain text)
+#### `GET /v1/ready` · `GET /v1/live` · `GET /v1/startup` — Kubernetes-style probes
+
+---
 
 ## Common Workflows
+
+The four standard dense-captioning scenarios.
 
 ### 1. Dense captions from a stored video file
 
 ```bash
+# Upload → capture file id → generate captions (SSE stream)
 FILE_ID=$(curl -fsS -X POST "$BASE_URL/v1/files" \
   -H "Authorization: Bearer $API_KEY" \
   -F "file=@warehouse.mp4" -F "purpose=vision" -F "media_type=video" | jq -r '.id')
 
 curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d "{\"id\":\"$FILE_ID\",\"prompt\":\"Describe warehouse events in one sentence per 10s chunk.\",\"model\":\"$MODEL_ID\",\"chunk_duration\":10,\"stream\":true}"
+  -d "{
+    \"id\": \"$FILE_ID\",
+    \"prompt\": \"Describe warehouse events in 1 sentence per 10s chunk.\",
+    \"model\": \"$MODEL_ID\",
+    \"chunk_duration\": 10,
+    \"stream\": true
+  }"
 
+# When done, free storage:
 curl -X DELETE "$BASE_URL/v1/files/$FILE_ID" -H "Authorization: Bearer $API_KEY"
 ```
 
 ### 2. Dense captions from an RTSP live stream
 
-Probe the stream first; treat it as usable only when the probe identifies a video
-stream/caps entry.
+```bash
+# Register the stream
+STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
+  | jq -r '.results[0].id')
+
+# Start continuous caption generation
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d "{
+    \"id\": \"$STREAM_ID\",
+    \"prompt\": \"Describe each event; start each sentence with a timestamp.\",
+    \"model\": \"$MODEL_ID\",
+    \"chunk_duration\": 10,
+    \"num_frames_per_second_or_fixed_frames_chunk\": 2,
+    \"use_fps_for_chunking\": true,
+    \"stream\": true
+  }" &
+
+# Tear down when finished. If the live OpenAPI exposes
+# DELETE /v1/generate_captions/{stream_id}, call it before unregistering.
+curl -X DELETE "$BASE_URL/v1/streams/delete/$STREAM_ID"  -H "Authorization: Bearer $API_KEY"
+```
+
+### 3. Dense captions with alerts from an RTSP stream
 
 ```bash
-ffprobe -v error -select_streams v:0 \
-  -show_entries stream=codec_type -of csv=p=0 "$RTSP_URL" | grep -qx video
+# Pre-req: Kafka is enabled and topics match the deployment source.
+# The checked-in rtvi-vlm/.env and VSS alerts profiles use:
+#   RTVI_VLM_KAFKA_ENABLED=true
+#   RTVI_VLM_KAFKA_TOPIC=mdx-vlm
+#   RTVI_VLM_KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
+#   RTVI_VLM_ERROR_MESSAGE_TOPIC=vision-llm-errors
+#   HOST_IP=<kafka-host>
+# A copied compose without those env overrides falls back to vision-llm-* topics.
+# Confirm the live container before consuming:
+#   docker exec vss-rtvi-vlm printenv KAFKA_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE_TOPIC
 
 STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d "{\"streams\":[{\"liveStreamUrl\":\"$RTSP_URL\",\"description\":\"warehouse cam\"}]}" \
+  -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
   | jq -r '.results[0].id')
 
 curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d "{\"id\":\"$STREAM_ID\",\"prompt\":\"Describe each event; start each sentence with a timestamp.\",\"model\":\"$MODEL_ID\",\"chunk_duration\":10,\"stream\":true}"
-
-curl -X DELETE "$BASE_URL/v1/streams/delete/$STREAM_ID" -H "Authorization: Bearer $API_KEY"
+  -d "{
+    \"id\": \"$STREAM_ID\",
+    \"prompt\": \"You are a warehouse monitoring system. Describe the scene in one sentence, then on a new line output exactly:\\nAnomaly Detected: Yes/No\\nReason: <one sentence>\\nFlag an anomaly if any worker is missing a hard hat or high-vis vest.\",
+    \"system_prompt\": \"Answer the user's question correctly in yes or no.\",
+    \"model\": \"$MODEL_ID\",
+    \"chunk_duration\": 60,
+    \"chunk_overlap_duration\": 10,
+    \"stream\": true
+  }"
 ```
 
-### 3. Dense captions with Kafka alerts
-
-Kafka topics are server-side container configuration, not per-request settings.
-Confirm the live `KAFKA_TOPIC`, `KAFKA_INCIDENT_TOPIC`, and
-`ERROR_MESSAGE_TOPIC` values from `vss-rtvi-vlm` before consuming. Kafka values
-are NvSchema protobuf payloads, so use `print.value=false` for validation.
-
+**Consume alerts from Kafka**. Kafka values are NvSchema protobuf payloads, so
+use `print.value=false` for a clean validation pass that shows timestamp, key,
+and headers without dumping binary payload bytes. The VSS alerts/profile source
+uses `mdx-vlm-incidents`; a bare copied compose may fall back to
+`vision-llm-events-incidents` if no `RTVI_VLM_KAFKA_INCIDENT_TOPIC` override is
+loaded. Prefer the live container environment over hard-coded topic names.
 ```bash
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
+
 docker exec mdx-kafka kafka-console-consumer \
-  --bootstrap-server 127.0.0.1:9092 --topic "$INCIDENT_TOPIC" \
-  --from-beginning --timeout-ms 5000 --max-messages 10 \
-  --property print.timestamp=true --property print.key=true \
-  --property print.headers=true --property print.value=false
+  --bootstrap-server 127.0.0.1:9092 \
+  --topic "$INCIDENT_TOPIC" \
+  --from-beginning \
+  --timeout-ms 5000 \
+  --max-messages 10 \
+  --property print.timestamp=true \
+  --property print.key=true \
+  --property print.headers=true \
+  --property print.value=false
 ```
 
-For standalone RT-VLM Kafka validation, prefer `references/kafka-workflows.md`.
-If Kafka is already running, ask whether to reuse it or launch a dedicated broker
-before stopping or replacing anything.
+If Kafka is not running in the VSS `mdx-kafka` container, use the Kafka CLI from
+the host or container running the broker:
+```bash
+INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
+
+kafka-console-consumer \
+  --bootstrap-server "$HOST_IP:9092" \
+  --topic "$INCIDENT_TOPIC" \
+  --from-beginning \
+  --timeout-ms 5000 \
+  --max-messages 10 \
+  --property print.timestamp=true \
+  --property print.key=true \
+  --property print.headers=true \
+  --property print.value=false
+```
+
+For standalone validation, remember that the RT-VLM compose maps Kafka through
+`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; setting `KAFKA_BOOTSTRAP_SERVERS`
+directly in `.env` is ignored unless the compose is changed. The broker must
+advertise a listener reachable from the `vss-rtvi-vlm` container. `localhost`
+inside the broker and service containers is not the host, and a broker alias
+such as `kafka:9092` only works when both containers share that Docker network.
+For RT-VLM-only validation, prefer the self-contained broker in
+`references/kafka-workflows.md` over the full repo infra compose; the latter
+expects full-profile SDRC env/config. If Kafka is already running, ask the user
+whether to reuse it or launch a dedicated broker before stopping or replacing
+anything. Run CLI checks inside the actual broker container, but still configure
+the advertised listener so RT-VLM can connect from its container network.
+
+Incident protobuf (`ext.proto :: Incident`) key fields: `sensorId`, `timestamp`, `end`,
+`objectIds`, `frameIds`, `place`, `analyticsModule`, `category`, `isAnomaly` (`true` for
+alerts), `llm` (nested VisionLLM), `info` map including `triggerPhrase`, `verdict`,
+`requestId`, `chunkIdx`, `streamId`, `alertCategory` (if the deployment supports the
+`alert_category` query field — post-3.1).
+
+### 4. Kafka workflows (alerts + message bus)
+
+Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response model are documented in [`references/kafka-workflows.md`](references/kafka-workflows.md).
 
 ## Error Reference
 

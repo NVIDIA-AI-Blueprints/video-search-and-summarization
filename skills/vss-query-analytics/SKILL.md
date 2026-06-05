@@ -3,7 +3,7 @@ name: vss-query-analytics
 description: Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901). Not for live VLM or incident-range narrative reports.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team <vss-dev@nvidia.com>"
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -17,10 +17,6 @@ Answer read-only analytics questions (incidents, metrics, sensor data) by routin
 - Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
 - `curl`, `jq`, and Docker available on the caller.
-
-Keep `NGC_CLI_API_KEY`, `NVIDIA_API_KEY`, and any bearer token in a restricted
-`.env` file or a secrets manager. Do not echo raw values, place them directly in
-shell history, or include them in logs, reports, screenshots, or issue comments.
 
 ## Instructions
 
