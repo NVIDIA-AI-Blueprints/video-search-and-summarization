@@ -53,9 +53,9 @@ Ports that should NOT get their own secure link (they're behind the nginx proxy)
 ## Setup flow
 
 Before `docker compose up`, set the Brev secure-link overrides in the profile
-`generated.env` (the skill's per-deploy working copy — see ``SKILL.md`` (see
-`../SKILL.md`) Step 1c/1d). **`EXTERNAL_IP` alone is not enough** — the Brev secure
-link is served over **HTTPS on 443**, but the profile `.env` ships
+`generated.env` (the skill's per-deploy working copy — see
+[`../SKILL.md`](../SKILL.md) Step 1c/1d). **`EXTERNAL_IP` alone is not enough** —
+the Brev secure link is served over **HTTPS on 443**, but the profile `.env` ships
 `VSS_PUBLIC_HTTP_PROTOCOL=http`, `VSS_PUBLIC_WS_PROTOCOL=ws`, and
 `VSS_PUBLIC_PORT=${HAPROXY_PORT}` (7777). Leaving those at the defaults makes the
 agent emit `http://…:7777` UI/API/WS URLs from an `https://` page → the browser
@@ -92,7 +92,7 @@ echo "https://7777-${brev_env_id}.brevlab.com"
 
 If step 1 fails, the haproxy container (`vss-haproxy-ingress`) hasn't come up — check
 `docker logs vss-haproxy-ingress`. Common reason: another service on the host is
-already bound to port 7777, or `EXTERNAL_IP` in the profile `.env` doesn't
+already bound to port 7777, or `EXTERNAL_IP` in the profile `generated.env` doesn't
 match the secure-link domain (haproxy's `known_host` ACL rejects the
 request as 404 from the browser even though `curl localhost:7777` works).
 
@@ -104,4 +104,4 @@ request as 404 from the browser even though `curl localhost:7777` works).
 | UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; the UI should use the proxy only. |
 | `curl https://7777-...brevlab.com` → 502 | nginx container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
 | `curl https://7777-...brevlab.com` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
-| Agent-generated report URLs don't open | `EXTERNAL_IP` in the profile `generated.env` is still the internal `${HOST_IP}` default → reports hard-code internal IPs. Set `EXTERNAL_IP=7777-${BREV_ENV_ID}.brevlab.com` in the profile `generated.env` (see [Setup flow](#setup-flow)) and redeploy. |
+| Agent-generated report URLs don't open | Brev public URL overrides are incomplete or not applied → reports hard-code internal IPs or emit `http://...:7777` links. Apply the full [Setup flow](#setup-flow) overrides (`EXTERNAL_IP`, `VSS_PUBLIC_HTTP_PROTOCOL`, `VSS_PUBLIC_WS_PROTOCOL`, `VSS_PUBLIC_PORT`) in `generated.env` and redeploy. |
