@@ -85,7 +85,7 @@ UI fallback details for any of these live in [SKILL.md UI Fallback Pattern](../S
 
 For nvstreamer setup details and sensor pre-registration, see your VIOS deployment docs.
 
-## Step 3 — Create Project
+## Step 3 — Project Setup
 
 See [`common-steps.md` § Create project](common-steps.md#create-project) for the
 endpoint shape. Save the returned `project_id`.
@@ -164,9 +164,10 @@ See [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calib
 
 ---
 
-## Complete Python Script
+## RTSP Mode Python Script
 
 ```python
+# RTSP-mode script scaffold.
 import os
 import time
 from pathlib import Path
@@ -216,7 +217,7 @@ LAYOUT_PNG     = _resolve_local(LAYOUT_PNG,     ["layout.png"],           _scan_
 
 s = requests.Session()
 
-# Step 3 — Create project
+# Open an RTSP calibration project
 r = s.post(f"{BASE_URL}/create_project", data={"project_name": PROJECT_NAME})
 r.raise_for_status()
 project_id = r.json()["project_id"]
@@ -296,8 +297,7 @@ if FOCAL_LENGTHS:
 # RTSP difference: videos are already ingested from the RTSP capture, so in UI
 # Step 2 (Video Configuration) upload layout.png ONLY — do not re-upload videos.
 
-# Step A/B/C/D — see references/calibration-tail.md for the shared snippet
-# (verify_project → calibrate → poll get_project_info → fetch evaluation_statistics)
+# Step A/B/C/D — use references/calibration-tail.md after RTSP ingest for verification, calibration, polling, and result reporting.
 ```
 
 ## Mode-specific Troubleshooting
