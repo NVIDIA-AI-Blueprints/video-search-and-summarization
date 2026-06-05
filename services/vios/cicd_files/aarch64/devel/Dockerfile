@@ -66,20 +66,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# 3. arm64 target dependencies via multiarch. These mirror the packages
-#    that install_target_packages.sh used to install inside the chrooted
-#    Jetson rootfs, but here they land natively on the x86 host under
+# 3. arm64 target dependencies via multiarch. These land under
 #    /usr/{include,lib}/aarch64-linux-gnu/ for the cross compiler to find.
 #
-#    Side effect: some arm64 -dev packages (e.g. libgtest-dev:arm64)
-#    depend on a compiler and pull g++-13:arm64 from ports.ubuntu.com.
-#    That version differs from the amd64 g++-13 the CUDA base image
-#    pins, and the two cannot co-install, so apt removes the amd64
-#    toolchain - which cascades to cuda-nvcc-13-0 and cuda-crt-13-0 and
-#    deletes /usr/local/cuda-13.0/include/crt/host_defines.h. Step 4
-#    below puts the CUDA crt headers back. The aarch64-linux-gnu-*
-#    cross toolchain from step 2 is unaffected (it is a distinct package
-#    set from the native amd64 g++-13 that gets evicted here).
+#    Side effect: some arm64 -dev packages (e.g. libgtest-dev:arm64) pull
+#    g++-13:arm64, which conflicts with the amd64 g++-13 the base image
+#    pins. apt resolves this by removing the amd64 toolchain, taking
+#    cuda-crt-13-0 (and its crt/ headers) with it; step 4 restores them.
+#    The aarch64-linux-gnu-* cross toolchain from step 2 is unaffected.
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev:arm64 \
@@ -115,17 +109,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# 4. Restore the CUDA CRT (compile-time runtime) headers.
-#    cuda_runtime_api.h includes "crt/host_defines.h" and friends. The
-#    arm64 multiarch step above evicts cuda-crt-13-0 along with the
-#    native amd64 toolchain (see the note on step 3). Reinstalling it in
-#    a separate transaction here brings the crt/ header tree back under
-#    /usr/local/cuda-13.0/include/crt/ without re-triggering the
-#    gcc-13 amd64-vs-arm64 version conflict that breaks a combined
-#    install. We do not install nvcc: VIOS only compiles host .cpp that
-#    pulls in CUDA headers and dlopen's the libraries at runtime, so the
-#    compile headers are all that is needed. The NVIDIA CUDA apt repo is
-#    already configured in the base image.
+# 4. Restore the CUDA crt/ headers (crt/host_defines.h etc., pulled in by
+#    cuda_runtime_api.h) that step 3 evicted. A separate transaction
+#    avoids re-triggering the gcc-13 conflict. nvcc is not reinstalled:
+#    VIOS only compiles host code against the CUDA headers and dlopen's
+#    the libraries at runtime.
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cuda-crt-13-0 \
