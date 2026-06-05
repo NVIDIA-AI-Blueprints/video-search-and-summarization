@@ -46,25 +46,28 @@ Optional: tag and push the base image to the registry.
 
 ### C) Build module containers
 
-Build the `sensor` and `streamprocessing` module containers:
+Build the `sensor` and `streamprocessing` module containers (clean first for a fresh build):
 
 ```bash
+./build.sh clean
 ./build.sh container module=streamprocessing,sensor
 ```
 
 ### D) Build the NVStreamer container
 
 ```bash
+./build.sh clean
 ./build.sh nvstreamer container
 ```
 
 ### E) Run Media Service
 
-The compiled images are deployed via docker-compose. If you built with the default `vios` / `nvstreamer` names, point the one-click deployment at them — local builds are tagged `latest`, so line the tags up too:
+The compiled images are deployed via docker-compose. Pass the exact images you built to the one-click deployment (local builds are tagged `latest`). Use `--target all` so both the VST services and NVStreamer are deployed (the default `--target vios` brings up only the VST services and ignores the `--nvstreamer-*` flags):
 
 ```bash
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy \
-  --image-registry vios --all-tag latest \
+python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target all \
+  --streamprocessor-image vios/vst-streamprocessing --streamprocessor-tag latest \
+  --sensor-image vios/vst-sensor --sensor-tag latest \
   --nvstreamer-image nvstreamer --nvstreamer-tag latest \
   --auto --force
 ```
@@ -74,25 +77,36 @@ See `deployment/1click_README.md` and `deployment/oneclick_dc_deployment_for_dev
 For all build options, run `./build.sh help`.
 
 <h2>Quick Start</h2>
-<p>To quickly test if Media Service is properly set up and launched, one can test it with any web browser or curl command,
-launch Media Service and perform any one of below mentioned tests.</p>
-<h5>A) Browser</h5>
+<p>To quickly test if Media Service is properly set up and launched, open the dashboard in any web browser.</p>
+<h5>Browser</h5>
 <ul>
 <li>Launch web browser</li>
-<li>In the address bar enter IP Address of host on which Media Service is running followed by port number followed by Media Service API to test.
+<li>In the address bar enter the IP Address of the host on which Media Service is running followed by the ingress port and path:
 <ul>
-<li>Example : <strong><em>&lt;IP_ADDRESS&gt;:&lt;PORT_NUMBER&gt;/api/&lt;API NAME&gt;<br /></em></strong>Sample URL: <a href="http://192.168.1.23:81/api/help"><strong><em>http://192.168.1.23:81/api/help</em></strong></a></li>
+<li>Example : <strong><em>&lt;IP_ADDRESS&gt;:30888/vst<br /></em></strong>Sample URL: <a href="http://localhost:30888/vst"><strong><em>http://localhost:30888/vst</em></strong></a></li>
 </ul>
 </li>
-<li>It is expected that web browser should print the JSON response received from Media Service</li>
+<li>It is expected that the web browser should load the Media Service dashboard</li>
 </ul>
-<h5>B) Curl Command</h5>
-<ul>
-<li>Launch Linux Terminal</li>
-<li>Execute curl command with IP Address of host on which Media Service is running followed by port number followed by Media Service API to test.
-<ul>
-<li>Example: <strong><em>curl &lt;IP_ADDRESS&gt;:&lt;PORT_NUMBER&gt;/api/&lt;API NAME&gt;</em></strong><br /> Sample curl command: <strong><em>curl </em></strong><a href="http://192.168.1.23:81/api/help"><strong><em>http://192.168.1.23:81/api/help</em></strong></a></li>
-</ul>
-</li>
-<li>It is expected that the JSON response received from Media Service should be printed in terminal</li>
-</ul>
+
+<h2>Troubleshooting</h2>
+
+### `docker pull` fails with an "Incorrect Repository Format" / unsupported manifest error
+
+The published images are multi-arch OCI image indexes (`application/vnd.oci.image.index.v1+json`) that also carry BuildKit attestation manifests (SBOM/provenance). Those attestations show up as `unknown/unknown` platform entries in the manifest list, and some Docker/containerd versions try to resolve them and fail with errors such as `Incorrect Repository Format`, `no matching manifest`, or `unsupported manifest media type`.
+
+Fix: pull for an explicit platform so Docker resolves a single concrete image manifest instead of the full index.
+
+```bash
+# x86_64 hosts
+docker pull --platform linux/amd64 <image>:<tag>
+
+# Arm hosts (Grace / Jetson)
+docker pull --platform linux/arm64 <image>:<tag>
+```
+
+For example:
+
+```bash
+docker pull --platform linux/amd64 nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.0
+```
