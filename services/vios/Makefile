@@ -234,9 +234,13 @@ endif
 endif
 
 ifeq ($(arch),aarch64)
+# CUDA include root for the aarch64 target. The cross-compile container
+# (cicd_files/aarch64/devel) exports CUDA_TARGET_DIR via ENV; this ?=
+# default only affects direct/manual host-side invocations.
+CUDA_TARGET_DIR ?= /usr/local/cuda-13.0
 CPPFLAGS += -I $(SYSROOT)/.local/include \
-			-I $(SYSROOT)/usr/local/cuda-12.9/include \
-			-I $(SYSROOT)/usr/local/cuda-12.9/
+			-I $(CUDA_TARGET_DIR)/include \
+			-I $(CUDA_TARGET_DIR)/
 endif
 
 # Define targets & libraries for each module
