@@ -1120,6 +1120,19 @@ class InitNemoClawScriptTest(unittest.TestCase):
         self.assertIn("rerunning NemoClaw setup", source)
         self.assertIn("onboard_or_install_sandbox", source)
 
+    def test_onboard_preflights_openshell_gateway_firewall(self):
+        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("allow_openshell_gateway_bridge", source)
+        self.assertIn("NEMOCLAW_CONFIGURE_UFW_GATEWAY", source)
+        self.assertIn("sudo -n ufw allow from", source)
+        self.assertLess(
+            source.index("allow_openshell_gateway_bridge", source.index("onboard_or_install_sandbox()")),
+            source.index("run_onboard", source.index("onboard_or_install_sandbox()")),
+        )
+
     def test_gateway_restart_explicitly_starts_openclaw_dashboard(self):
         source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
             encoding="utf-8"
