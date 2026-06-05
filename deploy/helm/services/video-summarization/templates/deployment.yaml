@@ -46,7 +46,7 @@ spec:
       {{- $kafkaHost := ternary (printf "%s-kafka-kafka" $release) "kafka-kafka" $pfx }}
       {{- $kafkaBootstrap := .Values.kafkaBootstrapServers | default (printf "%s:9092" $kafkaHost) }}
       {{- $llmSvc := .Values.llmService | default "nvidia-nemotron-nano-9b-v2" }}
-      {{- $vlmSvc := .Values.vlmService | default "nvidia-cosmos-reason2-8b" }}
+      {{- $vlmSvc := .Values.vlmService | default "vss-rtvi-vlm" }}
       {{- /* Same base URL as vss-agent (global / subchart); LVS OpenAI paths need /v1 — append when missing */}}
       {{- $llmIn := trim (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) }}
       {{- $vlmIn := trim (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) }}
@@ -55,7 +55,7 @@ spec:
       {{- $llmBaseUrl := ternary (printf "http://%s:8000/v1" $llmHost) (ternary (printf "%s/v1" (trimSuffix "/" $llmIn)) $llmIn (not (hasSuffix "/v1" $llmIn))) (eq $llmIn "") }}
       {{- $vlmBaseUrl := ternary (printf "http://%s:8000/v1" $vlmHost) (ternary (printf "%s/v1" (trimSuffix "/" $vlmIn)) $vlmIn (not (hasSuffix "/v1" $vlmIn))) (eq $vlmIn "") }}
       {{- $llmModelName := trim (default "" (coalesce .Values.llmName (index $g "llmName") "nvidia/nvidia-nemotron-nano-9b-v2")) }}
-      {{- $vlmModelName := trim (default "" (coalesce .Values.vlmName (index $g "vlmName") "nvidia/cosmos-reason2-8b")) }}
+      {{- $vlmModelName := trim (default "" (coalesce .Values.vlmName (index $g "vlmName") "Cosmos3-Nano")) }}
       {{- $vstIng := ternary (printf "%s-vss-vios-ingress" $release) "vss-vios-ingress" $pfx }}
       {{- $vstInternalUrl := .Values.vstInternalUrl | default (printf "http://%s:30888" $vstIng) }}
       {{- $wfe := .Values.waitForVlmEndpoint | default dict }}
@@ -76,19 +76,25 @@ spec:
             - -c
             - |
               set -eu
-              URL="${VIA_VLM_ENDPOINT}"
+              URL="${VIA_VLM_ENDPOINT%/}/models"
               i=0
-              echo "Waiting until VLM endpoint responds: ${URL}"
-              until curl -sS --connect-timeout 5 --max-time 15 -o /dev/null "$URL"; do
+              echo "Waiting until VLM endpoint exposes models or returns an auth challenge: ${URL}"
+              while true; do
+                STATUS="$(curl -sS --connect-timeout 5 --max-time 15 -o /dev/null -w "%{http_code}" "$URL" || true)"
+                case "$STATUS" in
+                  2*|401|403)
+                    break
+                    ;;
+                esac
                 i=$((i+1))
                 if [ "$i" -ge "${MAX_ATTEMPTS}" ]; then
-                  echo "Timeout after ${MAX_ATTEMPTS} attempts waiting for ${URL}"
+                  echo "Timeout after ${MAX_ATTEMPTS} attempts waiting for ${URL} (last status: ${STATUS:-curl-error})"
                   exit 1
                 fi
-                echo "  attempt ${i}/${MAX_ATTEMPTS} ..."
+                echo "  attempt ${i}/${MAX_ATTEMPTS} (last status: ${STATUS:-curl-error}) ..."
                 sleep "${SLEEP_SECONDS}"
               done
-              echo "VLM endpoint reachable."
+              echo "VLM endpoint models API reachable."
       {{- end }}
       containers:
         - name: vss-summarization

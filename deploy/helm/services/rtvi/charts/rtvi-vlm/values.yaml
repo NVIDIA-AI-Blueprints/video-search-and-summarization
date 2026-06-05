@@ -13,18 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# vss-rtvi-vlm: Real-time VLM for alerts profile (2d_vlm). Compose: deploy/docker/services/rtvi/vss-rtvi-vlm/vss-rtvi-vlm-docker-compose.yml
+# vss-rtvi-vlm: Real-time VLM for alerts/LVS profiles. Compose: deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
 enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-rt-vlm
-  tag: "3.2.0"
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-vlm
+  tag: "3.2.1-26.06.1"
   pullPolicy: IfNotPresent
 replicas: 1
 
-# When true, use shared NIM VLM (nvidia-cosmos-reason2-8b) instead of loading model in this pod (MODEL_PATH=none, VIA_VLM_ENDPOINT set).
+# When true, use a shared/remote VLM instead of loading the integrated model in this pod (MODEL_PATH=none, VIA_VLM_ENDPOINT set).
 useSharedNim: false
+# Integrated Cosmos Reason2 checkpoint used when useSharedNim=false.
+modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
 # NIM VLM service for useSharedNim: default <release>-nvidia-cosmos-reason2-8b:8000
 sharedNimService: ""
 sharedNimPort: "8000"
@@ -43,7 +45,9 @@ ngcApiSecret:
   name: ""   # default: ngc-api (from parent global.ngcApiSecret)
   key: ""    # default: NGC_API_KEY
 
-# If name is non-empty, HF_TOKEN is taken from this Secret (key defaults to HF_TOKEN). Plain HF_TOKEN in env is then ignored for injection.
+# Optional local-model Hugging Face token secret. If name is non-empty and
+# useSharedNim=false, HF_TOKEN is taken from this Secret (key defaults to
+# HF_TOKEN) and plain HF_TOKEN in env is ignored. Ignored for shared/remote VLM.
 # hfTokenSecret:
 #   name: ""
 #   key: HF_TOKEN
@@ -96,7 +100,7 @@ env:
   - name: NVIDIA_VISIBLE_DEVICES
     value: "all"
   - name: VLM_MODEL_TO_USE
-    value: "openai-compat"
+    value: "cosmos-reason2"
   - name: KAFKA_ENABLED
     value: "true"
   # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)

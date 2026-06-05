@@ -26,7 +26,7 @@ By default this profile is an **in-cluster** deployment:
 | Component | Default behavior | Default model name |
 |-----------|------------------|--------------------|
 | LLM | Deploys the **`nvidia-nemotron-nano-9b-v2`** NIM through the **`nims`** umbrella chart (`NIMCache` / `NIMService`). | `nvidia/nvidia-nemotron-nano-9b-v2` |
-| VLM / RT-VLM | Deploys **`vss-rtvi-vlm`** in this release. The RT-VLM pod loads the integrated Cosmos Reason2 checkpoint; the profile does **not** deploy a separate Cosmos VLM NIM by default. | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
+| VLM / RT-VLM | Deploys **`vss-rtvi-vlm`** in this release. The RT-VLM pod loads the integrated Cosmos3 Nano checkpoint; the profile does **not** deploy a separate Cosmos VLM NIM by default. | `Cosmos3-Nano` |
 
 Switch to **external-service mode** only when the model endpoints already run outside this release. Setting **`global.llmBaseUrl`** or **`global.vlmBaseUrl`** (or the matching **`agent.vss-agent.*BaseUrl`** / **`vss-summarization.*BaseUrl`** overrides) makes those workloads call the supplied external service instead of the default in-cluster service. When both LLM and VLM are external, set **`nims.enabled=false`** and set **`rtvi.vss-rtvi-vlm.useSharedNim=true`** so RT-VLM proxies the external VLM instead of loading the integrated checkpoint.
 
@@ -69,8 +69,8 @@ Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` 
 |-----|---------|-------|
 | `rtvi.enabled` | `true` | Umbrella switch; set `false` only if you intentionally bypass RT-VLM. Also configure `vss-agent` `VLM_MODEL_TYPE=nim` and remove `vss-summarization.extraEnv` entries that target the RTVI service. |
 | `rtvi.vss-rtvi-vlm.enabled` | `true` | Deploy the RTVI-VLM pod. |
-| `rtvi.vss-rtvi-vlm.useSharedNim` | `false` | Load the integrated checkpoint in the RT-VLM pod. Sets `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` and `VLM_MODEL_TO_USE=cosmos-reason2`. |
-| `rtvi.vss-rtvi-vlm.modelPath` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Integrated RT-VLM checkpoint path used when `useSharedNim=false`. |
+| `rtvi.vss-rtvi-vlm.useSharedNim` | `false` | Load the integrated checkpoint in the RT-VLM pod. Sets `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos3-Nano` and `VLM_MODEL_TO_USE=cosmos-reason3`. |
+| `rtvi.vss-rtvi-vlm.modelPath` | `git:https://huggingface.co/nvidia/Cosmos3-Nano` | Integrated RT-VLM checkpoint path used when `useSharedNim=false`. Use `git:https://huggingface.co/nvidia/Cosmos3-Super` with `global.vlmName=Cosmos3-Super` to run Super instead. |
 | `infra.kafka.enabled` | `true` | Deploy Kafka for RTVI-VLM event publishing and create the default VSS topics, including `mdx-vlm` and `mdx-vlm-incidents`. |
 | `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `true` | The RTVI-VLM init container waits for Kafka and required RTVI topics before startup. |
 | `rtvi.vss-rtvi-vlm.env` | full list | Replaces the subchart default `env`. Override individual values (e.g. edge `VLM_INPUT_*`) by editing the list in your overlay. |
@@ -79,6 +79,21 @@ Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` 
 | `agent.vss-agent.env` → `VLM_MODEL_TYPE` | `rtvi` | Flip to `nim` only to bypass RTVI for the agent (video_understanding will then hit the VLM NIM directly). |
 
 Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmBaseUrl` is set, `nims.enabled=false`, and `rtvi.vss-rtvi-vlm.useSharedNim=true`; see `deploy/helm/services/rtvi/charts/rtvi-vlm/templates/deployment.yaml` for the selection logic.
+
+### Switching Cosmos3 Nano to Cosmos3 Super
+
+For the default local RT-VLM path, change both the API model id and the integrated checkpoint path in `values-lvs.yaml` or your Helm override:
+
+```yaml
+global:
+  vlmName: "Cosmos3-Super"
+
+rtvi:
+  vss-rtvi-vlm:
+    modelPath: "git:https://huggingface.co/nvidia/Cosmos3-Super"
+```
+
+Keep `VLM_MODEL_TO_USE` set to `cosmos-reason3`.
 
 
 ## Prerequisites
@@ -127,7 +142,7 @@ With defaults, the chart creates the two Kubernetes secrets when **`ngc.createSe
 | **`ngc-api`** | `Opaque` with **`NGC_API_KEY`** and **`NGC_CLI_API_KEY`** | NIM Operator resources and RT-VLM NGC access. | **`global.ngcApiSecret.name`** / **`global.ngcApiSecret.key`** |
 | **`ngc-secret`** | `kubernetes.io/dockerconfigjson` for **`nvcr.io`** | Image pulls from NGC. | **`global.imagePullSecrets`** |
 
-If **`ngc.createSecrets=false`**, create both secrets yourself in the release namespace before installing, then keep **`global.ngcApiSecret`** and **`global.imagePullSecrets`** aligned with the names and keys you chose.
+If **`ngc.createSecrets=false`**, create both secrets yourself in the release namespace before installing, then keep **`global.ngcApiSecret`** and **`global.imagePullSecrets`** aligned with the names and keys you chose. The public Cosmos3 Nano default does not configure a Hugging Face token secret; set **`rtvi.vss-rtvi-vlm.hfTokenSecret`** only if you switch **`modelPath`** to a gated/private Hugging Face repo.
 
 ```bash
 export NAMESPACE='<NAMESPACE>'
@@ -165,7 +180,7 @@ Edit **`values-lvs.yaml`** and set at least:
 | **`vlmNameSlug`** | Use **`none`** for the default LVS flow; RT-VLM loads the integrated checkpoint instead of deploying a VLM NIM subchart. |
 | **`nims`** | **`nims.enabled`**: umbrella for all NIM subcharts. Use **`nims.gpuType`** to select model tuning from **`gpuProfiles`** and **`nims.nemotron.enabled`** / **`nims.cosmos.enabled`** to choose the models to deploy. **`nims.cosmos.enabled`** is **`false`** by default because LVS uses the integrated RT-VLM checkpoint. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
 | **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) service-root base URLs when LLM/VLM are **not** deployed by this chart, for example **`http://host:31081`** without a trailing **`/v1`**. Use with **`nims.enabled: false`**. Shared by **vss-agent** and **vss-summarization**; must be reachable from those pods. Leave **`""`** for in-cluster **NIM** services. |
-| **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model ids for **both** **vss-agent** and **vss-summarization**; must match remote endpoints. Defaults in **`values-lvs.yaml`** match common NGC models. |
+| **`global.llmName`** / **`global.vlmName`** | Model ids for **both** **vss-agent** and **vss-summarization**; must match the serving endpoint. The default VLM id is the integrated RT-VLM `Cosmos3-Nano` model. |
 | **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana** and **Phoenix** on **`kibana.<host>`** / **`phoenix.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
 
 #### `values-lvs.yaml` vs chart `values.yaml`
@@ -189,6 +204,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`ngc.apiKey`** | **`""`** | With **`ngc.createSecrets: true`**, set your NGC API key here; it backs both created secrets. With **`createSecrets: false`**, omit (or leave empty) and install the Opaque + docker secrets out of band; align **`global.*`** below with those objects. Optional: **`ngc.apiKeySecretName`** / **`ngc.dockerSecretName`** rename the generated secrets—update **`global.ngcApiSecret.name`** and **`global.imagePullSecrets`** accordingly. Set in **`values-lvs.yaml`** (or your overlay). |
 | **`global.imagePullSecrets`** | **`[{ name: ngc-secret }]`** | Pod **image pull** credentials for nvcr.io. Must reference the **Docker registry** secret (default **`ngc-secret`**, i.e. **`ngc.dockerSecretName`**). This is separate from the NGC **API** key secret. |
 | **`global.ngcApiSecret`** | **`name: ngc-api`**, **`key: NGC_API_KEY`** | Tells NIM (**`NIMService`** / **`NIMCache`**) and related workloads which **Opaque** secret holds the NGC **API** key: **`name`** defaults to **`ngc-api`** (**`ngc.apiKeySecretName`**), **`key`** defaults to **`NGC_API_KEY`** (the key the chart writes in that secret). Change these if you use a different secret name or data key. |
+| **`rtvi.vss-rtvi-vlm.hfTokenSecret`** | unset | Optional. Set only for gated/private Hugging Face model paths; the public `Cosmos3-Nano` default does not need it. |
 | **`global.externalScheme`** | **`""`** | Set in **`values-lvs.yaml`** (e.g. **`http`** or **`https`**). With **`externalHost`** / **`externalPort`**, builds browser-facing URLs for **`vss-agent-ui`**, **`vss-agent`**, and **`vss-vios-ingress`** when their own URL fields are empty. |
 | **`global.externalHost`** | **`""`** | Hostname or IP clients use in the browser (e.g. **`vss.YOUR_IP.nip.io`**). |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs; use **`""`** so URLs omit **`:port`** when using default 80/443. Set only for non-default ports (e.g. **`8080`**). |
@@ -196,7 +212,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`global.llmBaseUrl`** | **`""`** | **Single place** for remote LLM base URL shared by **vss-agent** and **vss-summarization** ( **`LLM_BASE_URL`**, **`LVS_LLM_BASE_URL`** ). Use the service root without trailing **`/v1`** (e.g. **`http://host:31081`**): **vss-agent** appends **`/v1`** in its config, and **vss-summarization** adds **`/v1`** when missing. Subchart **`agent.vss-agent.llmBaseUrl`** or **`vss-summarization.llmBaseUrl`** overrides when set. |
 | **`global.vlmBaseUrl`** | **`""`** | Same for VLM (**`VLM_BASE_URL`**, **`VIA_VLM_ENDPOINT`**). Use the same service-root convention without trailing **`/v1`** for compatibility with **vss-agent** and RT-VLM proxying. |
 | **`global.llmName`** | **`nvidia/nvidia-nemotron-nano-9b-v2`** | NGC model id for **both** **vss-agent** (**`LLM_NAME`**) and **vss-summarization** (**`LVS_LLM_MODEL_NAME`**). Override with **`agent.vss-agent.llmName`** or **`vss-summarization.llmName`** when a workload needs a different id (e.g. remote NIM). |
-| **`global.vlmName`** | **`nim_nvidia_cosmos-reason2-8b_hf-1208`** | Same for VLM (**`VLM_NAME`**, **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
+| **`global.vlmName`** | **`Cosmos3-Nano`** | Same for VLM (**`VLM_NAME`**, **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). Use **`Cosmos3-Super`** when changing **`rtvi.vss-rtvi-vlm.modelPath`** to the Super checkpoint. |
 | **`global.storageClass`** | unset in repo **`values.yaml`** | Set in **`values-lvs.yaml`**; used for **Elasticsearch**, **`vios.vstStorage`** PVCs, and other subcharts that inherit **`global.storageClass`**. |
 | **`vios.vstStorage.createSharedPvcs`** | **`true`** | **`true`:** the **`vios`** umbrella creates **PersistentVolumeClaims** so **sensor** and **streamprocessing** share on-disk folders for VST data and video; data survives pod restarts but your cluster must have a working **StorageClass** (see **`global.storageClass`**). **`false`:** no shared PVCs from **`vios`**; behavior depends on **`vios.vss-vios-*`** persistence settings. |
 | **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs (see **`helm/services/vios/templates/vst-storage-pvc.yaml`**). |
@@ -323,7 +339,7 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
   --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
-  --set-string global.vlmName="nim_nvidia_cosmos-reason2-8b_hf-1208" \
+  --set-string global.vlmName="<remote-vlm-model-id>" \
   --set rtvi.vss-rtvi-vlm.useSharedNim=true
 ```
 

@@ -59,6 +59,7 @@ services:
       - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
       - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
       - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
+      - VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME=${VLM_NAME:-Cosmos3-Nano}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
 
       # Embedding configuration

@@ -42,9 +42,12 @@ global:
   # Remote LLM/VLM (optional): single place for both vss-agent and vss-summarization. Subchart llmBaseUrl/vlmBaseUrl overrides when set.
   llmBaseUrl: ""
   vlmBaseUrl: ""
-  # NGC model ids — shared by vss-agent (LLM_NAME / VLM_NAME) and vss-summarization (LVS_LLM_MODEL_NAME, VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME). Override per subchart if needed.
+  # Model ids shared by vss-agent (LLM_NAME / VLM_NAME) and vss-summarization
+  # (LVS_LLM_MODEL_NAME / VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME).
+  # For Cosmos3 Super, set vlmName to "Cosmos3-Super" and set
+  # rtvi.vss-rtvi-vlm.modelPath to git:https://huggingface.co/nvidia/Cosmos3-Super.
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+  vlmName: "Cosmos3-Nano"
 
 # Set global.external* and optional global.kibanaPublicUrl in values-lvs.yaml. Images/replicas: charts/<name>/values.yaml.
 
@@ -278,7 +281,7 @@ agent:
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos-reason2-8b_hf-1208") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "Cosmos3-Nano") }}'
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
@@ -458,7 +461,10 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
-    modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+    # Default integrated Cosmos3 Nano checkpoint. For Cosmos3 Super, set
+    # global.vlmName to "Cosmos3-Super" and this path to
+    # git:https://huggingface.co/nvidia/Cosmos3-Super.
+    modelPath: "git:https://huggingface.co/nvidia/Cosmos3-Nano"
     sharedNimPort: "8000"
     # Wait for the LVS Kafka broker and RTVI topics created by infra.kafka.topicJob.
     waitForKafka:
@@ -478,7 +484,7 @@ rtvi:
       - name: NVIDIA_VISIBLE_DEVICES
         value: "all"
       - name: VLM_MODEL_TO_USE
-        value: "cosmos-reason2"
+        value: "cosmos-reason3"
       - name: KAFKA_ENABLED
         value: "true"
       # Raw VLM event topic produced by rtvi-vlm; consumed by the shared

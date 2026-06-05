@@ -12,15 +12,12 @@
 enabled: true
 
 useSharedNim: false
-# NGC NIM model artifact path inside the vss-rtvi-vlm container (see deployment template when useSharedNim is false)
-modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+# Integrated CR3 Nano model artifact path inside the vss-rtvi-vlm container.
+# For Cosmos3 Super, use git:https://huggingface.co/nvidia/Cosmos3-Super.
+modelPath: "git:https://huggingface.co/nvidia/Cosmos3-Nano"
 
 waitForKafka:
   enabled: false
-
-hfTokenSecret:
-  name: hf-token-secret
-  key: HF_TOKEN
 
 global:
   useReleaseNamePrefix: false
@@ -50,7 +47,7 @@ env:
   - name: NVIDIA_VISIBLE_DEVICES
     value: "all"
   - name: VLM_MODEL_TO_USE
-    value: "cosmos-reason2"
+    value: "cosmos-reason3"
   - name: KAFKA_ENABLED
     value: "false"
   # Match Compose: docker-compose-out-alert-realtime.yaml

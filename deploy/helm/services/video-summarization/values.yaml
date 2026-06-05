@@ -31,14 +31,15 @@ resources:
     nvidia.com/gpu: "1"
   limits:
     nvidia.com/gpu: "1"
-# In-cluster: template builds http://<release>-<slug>:8000/v1 from llmService/vlmService (NIM subchart names).
+# In-cluster: template builds http://<release>-<slug>:8000/v1 from llmService/vlmService.
+# LVS profiles normally route VLM through vss-rtvi-vlm instead of a direct VLM NIM.
 # Remote NIM: prefer global.llmBaseUrl / global.vlmBaseUrl (same base as vss-agent). LVS deployment appends /v1 when missing.
-llmService: ""   # e.g. nvidia-nemotron-nano-9b-v2 — ignored when llmBaseUrl/global.llmBaseUrl resolves non-empty
-vlmService: ""  # e.g. nvidia-cosmos-reason2-8b — ignored when vlmBaseUrl/global.vlmBaseUrl resolves non-empty
+llmService: ""   # default nvidia-nemotron-nano-9b-v2 — ignored when llmBaseUrl/global.llmBaseUrl resolves non-empty
+vlmService: ""  # default vss-rtvi-vlm — ignored when vlmBaseUrl/global.vlmBaseUrl resolves non-empty
 llmBaseUrl: ""  # optional: overrides global.llmBaseUrl for LVS only
 vlmBaseUrl: ""  # optional: overrides global.vlmBaseUrl for LVS only
 llmName: ""  # optional: overrides global.llmName for LVS_LLM_MODEL_NAME
-vlmName: ""  # optional: overrides global.vlmName for VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME
+vlmName: ""  # optional: overrides global.vlmName for VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME; default Cosmos3-Nano
 elasticsearchHost: ""
 elasticsearchPort: "9200"
 elasticsearchTransportPort: "9300"
@@ -136,7 +137,8 @@ extraEnv: []
 # When set, LVS can fetch videos from the internal VST service. Default: http://<release>-vss-vios-ingress:30888
 vstInternalUrl: ""
 # ES_HOST, ES_PORT, ES_TRANSPORT_PORT, LVS_LLM_BASE_URL, LVS_LLM_MODEL_NAME, VIA_VLM_ENDPOINT, VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME set by template
-# Init: wait until VIA_VLM_ENDPOINT accepts HTTP (in-cluster NIM or remote); avoids crash-loop until Cosmos is up.
+# Init: wait until VIA_VLM_ENDPOINT /models returns 2xx or an auth challenge;
+# avoids crash-loop until VLM is reachable without blocking secured remote VLMs.
 waitForVlmEndpoint:
   enabled: true
   image:
