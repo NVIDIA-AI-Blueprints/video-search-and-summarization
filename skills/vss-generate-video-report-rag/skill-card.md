@@ -1,5 +1,5 @@
 ## Description: <br>
-Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline. <br>
+Use when the user wants to generate a video summary, report, or analysis using the frag/RAG pipeline. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers generating video summary reports with Enterprise RAG knowledge retrieval using the VSS frag pipeline. <br>
+Developers and engineers who need to generate video summary reports with Enterprise RAG knowledge retrieval, using the VSS frag extension for human-in-the-loop parameter collection and guided analysis. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,15 +19,24 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
 **Output Type(s):** [API Calls, Shell commands, Analysis] <br>
-**Output Format:** [Markdown with inline bash code blocks] <br>
+**Output Format:** [Markdown with inline bash code blocks and JSON responses] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [None] <br>
+**Other Properties Related to Output:** [Report generation takes 3-5 minutes for typical video length; includes PDF report download link when available] <br>
+
+## Evaluation Agents Used: <br>
+- claude-code <br>
+- codex <br>
+
+
+
+## Evaluation Tasks: <br>
+Evaluated against 1 evaluation task (positive skill-activation case) with 2 attempts per task in the astra-sandbox environment using the NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -37,7 +46,25 @@ Reported benchmark dimensions: <br>
 - Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
 - Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
 
+Underlying evaluation signals used in this run: <br>
+- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
+- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
+- `accuracy`: Grades final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
+- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
+- `token_efficiency`: Compares token usage with and without the skill. <br>
 
+
+
+## Evaluation Results: <br>
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | 2 | 100% (+0%) | 50% (-50%) |
+| Correctness | 2 | 80% (+55%) | 80% (+44%) |
+| Discoverability | 2 | 88% (+63%) | 87% (+34%) |
+| Effectiveness | 2 | 44% (+30%) | 49% (+35%) |
+| Efficiency | 2 | 71% (+48%) | 77% (+34%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

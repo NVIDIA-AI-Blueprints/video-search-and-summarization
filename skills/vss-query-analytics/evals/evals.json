@@ -1,0 +1,13 @@
+[
+  {
+    "id": "query-analytics",
+    "question": "Query recent video-analytics incidents and metrics via the VA-MCP server.",
+    "expected_skill": "vss-query-analytics",
+    "ground_truth": "Loads vss-query-analytics and reads video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901); not live VLM or incident-range narrative reports.",
+    "expected_behavior": [
+      "Loads vss-query-analytics and queries the VA-MCP server (port 9901) for analytics / incidents / metrics.",
+      "Does not route to live VLM or report-generation skills.",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]

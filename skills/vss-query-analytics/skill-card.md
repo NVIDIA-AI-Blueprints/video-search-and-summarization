@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901). Not for live VLM or incident-range narrative reports. <br>
+Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901). <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to query video-analytics incidents, alerts, metrics, and sensor data from a deployed VSS alerts stack via the VA-MCP server. <br>
+Developers and engineers query read-only video-analytics data (incidents, metrics, alerts, sensor information) from an Elasticsearch-backed VA-MCP server as part of the NVIDIA Video Search and Summarization platform. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,18 +19,24 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [Video Search and Summarization GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA Video Search and Summarization Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls] <br>
+**Output Type(s):** [Shell commands, API responses] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
+## Evaluation Agents Used: <br>
+- claude-code <br>
+- codex <br>
+
+
+
 ## Evaluation Tasks: <br>
-Evaluated against NVSkills-Eval `external` profile: 9 static validation checks (Tier 1) and 2 deduplication checks (Tier 2). Overall verdict: PASS. <br>
+1 evaluation task (positive skill-activation case), 2 attempts per task, pass threshold 50%. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -40,7 +46,25 @@ Reported benchmark dimensions: <br>
 - Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
 - Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
 
+Underlying evaluation signals used in this run: <br>
+- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
+- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
+- `accuracy`: Grades final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
+- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
+- `token_efficiency`: Compares token usage with and without the skill. <br>
 
+
+
+## Evaluation Results: <br>
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | 2 | 100% (+0%) | 100% (+0%) |
+| Correctness | 2 | 95% (+76%) | 97% (+61%) |
+| Discoverability | 2 | 100% (+78%) | 86% (+29%) |
+| Effectiveness | 2 | 63% (+39%) | 68% (+44%) |
+| Efficiency | 2 | 91% (+62%) | 75% (+24%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

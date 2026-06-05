@@ -1,0 +1,13 @@
+[
+  {
+    "id": "generate-video-report-rag",
+    "question": "Generate a video summary report using the FRAG/RAG pipeline.",
+    "expected_skill": "vss-generate-video-report-rag",
+    "ground_truth": "Loads vss-generate-video-report-rag and produces a video summary/report/analysis via the frag/RAG pipeline.",
+    "expected_behavior": [
+      "Loads vss-generate-video-report-rag and uses the FRAG/RAG pipeline.",
+      "Produces a video summary / report / analysis from the retrieved context.",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]
