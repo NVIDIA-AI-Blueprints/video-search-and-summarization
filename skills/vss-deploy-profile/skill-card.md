@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) profiles via Docker Compose workflows on GPU-equipped hosts. <br>
+Developers and engineers deploying NVIDIA AI Blueprint Video Search and Summarization profiles on GPU-equipped hosts using a compose-centric workflow. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,9 +19,9 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -30,8 +30,14 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
+## Evaluation Agents Used: <br>
+- `claude-code` <br>
+- `codex` <br>
+
+
+
 ## Evaluation Tasks: <br>
-NVSkills-Eval 3-tier evaluation (external profile): Tier 1 static validation (9 checks), Tier 2 deduplication (2 checks). Tier 3 live agent evaluation not available in this report. <br>
+Evaluated against 5 deployment tasks (all positive-activation) with 2 attempts per task in an astra-sandbox environment using the external NVSkills-Eval profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -41,7 +47,25 @@ Reported benchmark dimensions: <br>
 - Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
 - Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
 
+Underlying evaluation signals used in this run: <br>
+- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
+- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
+- `accuracy`: Grades final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
+- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
+- `token_efficiency`: Compares token usage with and without the skill. <br>
 
+
+
+## Evaluation Results: <br>
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | 8 | 100% (+0%) | 85% (+0%) |
+| Correctness | 8 | 97% (+66%) | 82% (+44%) |
+| Discoverability | 8 | 92% (+52%) | 85% (+30%) |
+| Effectiveness | 8 | 64% (+58%) | 55% (+48%) |
+| Efficiency | 8 | 76% (+39%) | 78% (+29%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

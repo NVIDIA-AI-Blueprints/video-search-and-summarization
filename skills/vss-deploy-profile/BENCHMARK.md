@@ -7,14 +7,19 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-profile`
-- Evaluation date: 2026-06-04
+- Evaluation date: 2026-06-05
 - NVSkills-Eval profile: `external`
+- Environment: `astra-sandbox`
+- Dataset: 5 evaluation tasks
+- Attempts per task: 2
+- Pass threshold: 50%
 - Overall verdict: FAIL
-- Tier 3 live agent evaluation: not available in this report
+The skill should be reviewed before NVSkills-Eval publication. **Skill owners should address the applicable findings below and rerun NVSkills-Eval to refresh this benchmark.**
 
 ## Agents Used
 
-- Tier 3 agent details were not available in this report.
+- `claude-code`
+- `codex`
 
 ## Metrics Used
 
@@ -28,15 +33,35 @@ Reported benchmark dimensions:
 
 Underlying evaluation signals used in this run:
 
-- No Tier 3 evaluation signal details were available in this report.
+- `security` (Security): checks for unsafe operations, secret leakage, and unauthorized access.
+- `skill_execution` (Skill Execution): verifies that the agent loaded the expected skill and workflow.
+- `skill_efficiency` (Efficiency): checks routing quality, decoy avoidance, and redundant tool usage.
+- `accuracy` (Accuracy): grades final-answer correctness against the reference answer.
+- `goal_accuracy` (Goal Accuracy): checks whether the overall user task completed successfully.
+- `behavior_check` (Behavior Check): verifies expected behavior steps, including safety expectations.
+- `token_efficiency` (Token Efficiency): compares token usage with and without the skill.
 
 ## Test Tasks
 
-Tier 3 evaluation task details were not available in this report.
+The benchmark dataset contained 5 evaluation tasks:
+
+- Positive tasks: 5 tasks where the skill was expected to activate.
+- Negative tasks: 0 tasks where no skill was expected.
+- Unlabeled tasks: 0 tasks where positive/negative intent could not be inferred.
+
+Task composition is derived from the evaluation dataset when possible. Entries with `expected_skill` set are treated as positive skill-activation cases, while entries with `expected_skill: null` are treated as negative activation cases.
 
 ## Results
 
-Tier 3 dimension rollup was not available in this report.
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | 8 | 100% (+0%) | 85% (+0%) |
+| Correctness | 8 | 97% (+66%) | 82% (+44%) |
+| Discoverability | 8 | 92% (+52%) | 85% (+30%) |
+| Effectiveness | 8 | 64% (+58%) | 55% (+48%) |
+| Efficiency | 8 | 76% (+39%) | 78% (+29%) |
+
+Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
@@ -68,7 +93,3 @@ Top findings:
 - HIGH DUPLICATE/duplicate: Duplicate content found across references/prerequisites.md and references/warehouse.md:
   "### 2. Docker" in references/prerequisites.md (lines 167-186)
   vs "#### 2.2 Docker" in references/warehouse.md (lines 476-490) (`references/prerequisites.md:167`)
-
-## Publication Recommendation
-
-The skill should be reviewed before NVSkills-Eval publication. Skill owners should address the findings above and rerun NVSkills-Eval to refresh this benchmark.
