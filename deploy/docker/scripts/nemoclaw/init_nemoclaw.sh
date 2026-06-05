@@ -40,6 +40,29 @@ have() {
   command -v "$1" >/dev/null 2>&1
 }
 
+allow_openshell_gateway_bridge() {
+  if [ "${NEMOCLAW_CONFIGURE_UFW_GATEWAY:-1}" != "1" ]; then
+    log "OpenShell gateway firewall preflight disabled"
+    return
+  fi
+  if ! have ufw; then
+    log "ufw not available; skipping OpenShell gateway firewall preflight"
+    return
+  fi
+  if ! have sudo || ! sudo -n true >/dev/null 2>&1; then
+    log "Passwordless sudo unavailable; skipping OpenShell gateway firewall preflight"
+    return
+  fi
+
+  local bridge_cidr bridge_ip
+  bridge_cidr="${OPENSHELL_GATEWAY_BRIDGE_CIDR:-172.18.0.0/16}"
+  bridge_ip="${OPENSHELL_GATEWAY_BRIDGE_IP:-172.18.0.1}"
+  log "Allowing OpenShell Docker bridge ${bridge_cidr} to reach gateway ${bridge_ip}:8080 via ufw"
+  if ! sudo -n ufw allow from "${bridge_cidr}" to "${bridge_ip}" port 8080 proto tcp; then
+    log "WARN: failed to add OpenShell gateway ufw rule; NemoClaw onboard may still fail gateway reachability"
+  fi
+}
+
 node_major_version() {
   node -e 'process.stdout.write(String(parseInt(process.versions.node, 10)))' 2>/dev/null || printf '0'
 }
@@ -695,6 +718,7 @@ run_install() {
 
 onboard_or_install_sandbox() {
   log "Start installing/onboarding NemoClaw"
+  allow_openshell_gateway_bridge
   if have nemoclaw; then
     run_onboard
   else
