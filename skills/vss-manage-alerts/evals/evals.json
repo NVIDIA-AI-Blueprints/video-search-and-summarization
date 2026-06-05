@@ -1,0 +1,13 @@
+[
+  {
+    "id": "manage-alerts",
+    "question": "Set up a real-time VSS alert subscription via Alert-Bridge and route its notifications.",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "Loads vss-manage-alerts and drives a real-time alert workflow (Alert-Bridge subscription, notifications such as Slack, incident queries, camera onboarding); not non-alert analytics.",
+    "expected_behavior": [
+      "Loads vss-manage-alerts for the real-time alert workflow (Alert-Bridge / notifications / incident queries).",
+      "Does not route to non-alert analytics skills.",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]
