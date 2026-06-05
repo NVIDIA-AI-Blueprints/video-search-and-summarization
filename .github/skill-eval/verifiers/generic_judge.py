@@ -34,7 +34,7 @@ Env (from `[verifier.env]` in task.toml, plumbed by Harbor):
     JUDGE_MODEL          explicit judge model (preferred; adapter sets
                          this via [verifier.env]); falls back to
                          ANTHROPIC_MODEL, then "claude-sonnet-4-6"
-    JUDGE_MAX_TURNS              per-check agent turn cap (default 25)
+    JUDGE_MAX_TURNS              per-check agent turn cap (default 100)
     JUDGE_PER_CHECK_TIMEOUT_S    per-check wall-clock cap (default 600s)
     JUDGE_PARALLELISM            concurrent checks per step
                                  (default 4, clamped to 1..8)
@@ -269,11 +269,13 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
         or "claude-sonnet-4-6"
     )
     # Judge agent runs Bash+Read+Grep to inspect trajectory + probe live
-    # stack per check. Specs with rich trajectories (vios PUT/GET flows)
-    # legitimately need >10 turns; observed timeouts at 180s on the
-    # default budget. Generous cap; the harbor verifier multiplier
-    # (3.0 → 1800s total) still bounds the full pass.
-    max_turns = int(os.environ.get("JUDGE_MAX_TURNS", "25"))
+    # stack per check. Large multi-step trajectories (a deploy + sensor
+    # onboard + alert flow can run 100+ agent turns, and trajectory.json is
+    # one long line) make grep/jq turn-hungry; too low a cap surfaces as a
+    # false `error_max_turns` verdict instead of a real pass/fail. Generous
+    # cap; the per-check wall-clock (JUDGE_PER_CHECK_TIMEOUT_S, 600s) and the
+    # harbor verifier multiplier (3.0 → 1800s total) still bound the run.
+    max_turns = int(os.environ.get("JUDGE_MAX_TURNS", "100"))
 
     options = ClaudeAgentOptions(
         system_prompt=_JUDGE_SYSTEM_PROMPT,
