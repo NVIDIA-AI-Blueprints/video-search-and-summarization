@@ -74,6 +74,7 @@ describe('useRealtimeAlertRules', () => {
           alert_type: 'collision',
           prompt: 'Detect any vehicle collisions',
           sensor_name: 'video1',
+          sensor_id: 'video1-stream-id',
         });
         return jsonResponse({
           status: 'success',
@@ -98,6 +99,7 @@ describe('useRealtimeAlertRules', () => {
         alert_type: 'collision',
         prompt: 'Detect any vehicle collisions',
         sensor_name: 'video1',
+        sensor_id: 'video1-stream-id',
       });
     });
 

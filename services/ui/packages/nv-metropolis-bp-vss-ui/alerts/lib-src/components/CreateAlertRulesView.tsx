@@ -347,6 +347,11 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
           alert_type,
           prompt,
           sensor_name: resolved?.sensor_name ?? sensorName,
+          // Forward the VST stream id so Alert Bridge can register the stream
+          // with RTVI-VLM and start alert generation. Omitting it creates the
+          // rule but no alerts are ever generated (until another path — e.g. the
+          // chat tool — registers the same stream).
+          sensor_id: resolved?.sensor_id,
         });
         // Drop the draft on success — the rule shows up in the rules list.
         setDrafts((prev) => prev.filter((d) => d.draftId !== draftId));

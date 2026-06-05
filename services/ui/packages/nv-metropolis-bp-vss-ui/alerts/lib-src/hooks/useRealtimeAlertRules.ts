@@ -24,6 +24,12 @@ export interface CreateRealtimeRuleInput {
   prompt: string;
   /** Friendly sensor name (VST `name`). Alert Bridge resolves the stream from this. */
   sensor_name: string;
+  /**
+   * VST sensor id (`streamId` in `/v1/live/streams`). Alert Bridge needs this to
+   * register the stream with RTVI-VLM and start caption/alert generation; without
+   * it the rule is created but no alerts are ever generated.
+   */
+  sensor_id?: string;
 }
 
 const REALTIME_PATH = '/realtime';

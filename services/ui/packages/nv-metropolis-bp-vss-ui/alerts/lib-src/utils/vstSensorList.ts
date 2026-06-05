@@ -25,6 +25,7 @@ export interface VstLiveStream {
 export interface ResolvedVstStream {
   sensor_name: string;
   live_stream_url: string;
+  sensor_id?: string;
 }
 
 // TTL ensures sensors registered elsewhere appear without a hard reload.
@@ -177,6 +178,11 @@ export const fetchVstLiveStreamCatalog = async (
  * when the catalog has no matching entry — callers can decide whether to
  * forward the name to Alert Bridge anyway (e.g. for a stream that hasn't been
  * registered yet).
+ *
+ * `sensor_id` is resolved from `/v1/sensor/list` (`name` → `sensorId`), the
+ * authoritative source for a sensor's id. It is left unset when the sensor isn't
+ * online there — the catalog's inner `streamId` is a different field and is not
+ * guaranteed to equal VST's `sensorId`.
  */
 export const resolveSensorByName = async (
   vstApiUrl: string,
@@ -189,8 +195,12 @@ export const resolveSensorByName = async (
   const match = catalog.find((entry) => entry.name === trimmed);
   if (!match) return undefined;
 
+  const sensorMap = await fetchSensorMap(vstApiUrl);
+  const sensor_id = sensorMap.get(match.name);
+
   return {
     sensor_name: match.name,
     live_stream_url: match.url,
+    sensor_id,
   };
 };

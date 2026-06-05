@@ -53,6 +53,15 @@ describe('CreateAlertRulesView realtime rules', () => {
             ),
         } as Response);
       }
+      if (url.includes('/v1/sensor/list')) {
+        return jsonResponse([
+          {
+            name: 'warehouse-cam-1',
+            sensorId: '8c7338ec-2266-4eea-aeb4-c568d8944b05',
+            state: 'online',
+          },
+        ]);
+      }
       if (init?.method === 'POST') {
         const body = JSON.parse(init.body as string);
         rules = [
@@ -131,6 +140,7 @@ describe('CreateAlertRulesView realtime rules', () => {
       alert_type: 'collision',
       prompt: 'Detect safety violations with ladder',
       sensor_name: 'warehouse-cam-1',
+      sensor_id: '8c7338ec-2266-4eea-aeb4-c568d8944b05',
     });
 
     expect(await screen.findByText('collision')).toBeInTheDocument();
