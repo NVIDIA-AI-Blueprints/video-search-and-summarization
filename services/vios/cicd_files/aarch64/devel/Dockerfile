@@ -23,9 +23,10 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 # ---------------------------------------------------------------------------
 # 1. Enable arm64 as a foreign architecture for Ubuntu multiarch and point
-#    the default sources at amd64/i386 only (so apt does not try to fetch
-#    arm64 binaries from x86 mirrors). arm64 packages are pulled from
-#    ports.ubuntu.com via a dedicated sources file.
+#    the default sources at amd64 only (so apt does not try to fetch arm64
+#    binaries from x86 mirrors, and does not pull unused i386 metadata).
+#    arm64 packages are pulled from ports.ubuntu.com via a dedicated
+#    sources file.
 #
 #    Ubuntu 24.04 uses /etc/apt/sources.list.d/ubuntu.sources (deb822
 #    format) rather than the legacy /etc/apt/sources.list, so the
@@ -33,10 +34,10 @@ ARG DEBIAN_FRONTEND=noninteractive
 # ---------------------------------------------------------------------------
 RUN dpkg --add-architecture arm64 && \
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
-        sed -i '/^Types:/a Architectures: amd64 i386' /etc/apt/sources.list.d/ubuntu.sources ; \
+        sed -i '/^Types:/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources ; \
     fi && \
     if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|^deb |deb [arch=amd64,i386] |g' /etc/apt/sources.list ; \
+        sed -i 's|^deb |deb [arch=amd64] |g' /etc/apt/sources.list ; \
     fi && \
     printf '%s\n' \
         'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse' \
