@@ -251,4 +251,4 @@ Downstream skill flow:
 
 Root `README.md` "Custom Dataset" and "Calibration Workflow (UI)" sections document input-video guidelines and the UI-driven alternative to this API flow.
 
-bump:1
+bump:2
