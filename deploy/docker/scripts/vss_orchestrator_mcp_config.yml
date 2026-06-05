@@ -64,7 +64,7 @@ function_groups:
     # package, out = destination under <mdx_data_dir>/models/).
     model_artifacts:
       search:
-      - package_ref: "nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2"
+      - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2"
         artifacts:
         - src: "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx"  # yamllint disable-line rule:line-length
           out: "rtdetr_warehouse_v1.0.2.fp16.onnx"
@@ -102,8 +102,8 @@ function_groups:
           RTXPRO6000BW:
           OTHER:
           DGX-SPARK:
-            PERCEPTION_TAG: "3.2.0-sbsa-26.05.1"
-            RTVI_VLM_IMAGE_TAG: "3.2.0-26.05.4-sbsa"
+            PERCEPTION_TAG: "3.2.0-sbsa"
+            RTVI_VLM_IMAGE_TAG: "3.2.0-sbsa"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
             alerts.verification:

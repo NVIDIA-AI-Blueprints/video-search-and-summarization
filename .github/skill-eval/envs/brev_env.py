@@ -242,6 +242,28 @@ class BrevEnvironment(BaseEnvironment):
         )
         await _run_brev_exec(self._instance_name, archive_cmd, timeout=30)
 
+        # Clear Claude Code's background-task scratch before the new
+        # `claude --print` starts. Session JSONL archival above handles stale
+        # `/logs/agent/sessions/projects/*`, but completed background tasks
+        # can also leave markers under `/tmp/claude-<uid>/.../tasks`. Claude
+        # Code may surface those as fresh `<task-notification>` messages in
+        # the next session, polluting the trajectory before the eval prompt.
+        claude_task_cleanup_result = await _run_brev_exec(
+            self._instance_name,
+            _claude_task_scratch_cleanup_command(),
+            timeout=30,
+        )
+        if claude_task_cleanup_result.return_code != 0:
+            tail = (
+                claude_task_cleanup_result.stderr
+                or claude_task_cleanup_result.stdout
+                or ""
+            )[-500:]
+            raise RuntimeError(
+                f"claude task scratch cleanup failed on {self._instance_name}: "
+                f"exit {claude_task_cleanup_result.return_code}; tail:\n{tail}"
+            )
+
         # Forward task-critical env vars from the local shell into the
         # instance's ~/.eval_env (sourced by ~/.profile, which every
         # brev exec then sources).  Harbor's claude-code agent only
@@ -731,6 +753,31 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 def _which(cmd: str) -> bool:
     import shutil
     return shutil.which(cmd) is not None
+
+
+def _claude_task_scratch_cleanup_command() -> str:
+    """Remove stale Claude Code background-task markers for this user.
+
+    Claude Code keys temp scratch by effective UID, e.g.
+    `/tmp/claude-1002/-home-shadeform/<session>/tasks/<id>.output`. Removing
+    the old `tasks/` dirs prevents completed background-command notifications
+    from being replayed into the next Harbor trial.
+    """
+    return (
+        "UID_NUM=$(id -u); "
+        'BASE="/tmp/claude-${UID_NUM}"; '
+        'if [ -d "$BASE" ]; then '
+        '  BEFORE=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
+        # No `2>/dev/null` on the rm step: a real cleanup failure's stderr must
+        # reach claude_task_cleanup_result.stderr so the RuntimeError tail isn't
+        # empty (the BEFORE/AFTER count-finds keep theirs — that noise is benign).
+        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || exit 1; '
+        '  AFTER=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
+        '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
+        'else '
+        '  echo "[claude-task-scratch] no scratch base $BASE"; '
+        "fi"
+    )
 
 
 def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:
@@ -1353,5 +1400,3 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
             "Instance '%s' driver: %s (>= required %s)",
             instance_name, actual, min_driver,
         )
-
-

@@ -216,8 +216,8 @@ rtvi:
     profileMode: search
     replicas: 1
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: 3.2.0-26.05.1
+      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+      tag: 3.2.0
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
@@ -238,37 +238,37 @@ rtvi:
         pullPolicy: IfNotPresent
     ngcApiKeySecretName: ngc-api-key-secret
     ngcApiKeySecretKey: NGC_API_KEY
-    ngcOrg: nvstaging
+    ngcOrg: nvidia
     # Vision encoder download entries follow the convention below; update model/version
     # here to match models.visionEncoder.model / .version when swapping encoders.
     ngcModelsToDownload:
-      - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+      - model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
         sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
-      - model: nvstaging/tao/siglip_v2:deployable_v1.1
+      - model: nvidia/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
         destPath: siglip_v2_v1.1.onnx
-      - model: nvstaging/tao/siglip_v2:deployable_v1.1
+      - model: nvidia/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
         destPath: siglip_v2_v1.1_weights.bin
-      - model: nvstaging/tao/siglip_v2:deployable_v1.1
+      - model: nvidia/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
         destPath: siglip_v2_v1.1_tokenizer
     models:
       authSecretName: ngc-api-key-secret
       authSecretKey: NGC_API_KEY
-      ngcOrg: nvstaging
+      ngcOrg: nvidia
       pgie:
         ngc:
           apiBaseUrl: https://api.ngc.nvidia.com
-          org: nvstaging
+          org: nvidia
           team: tao
           model: rtdetr_2d_warehouse
           version: deployable_rn50_v1.0.2
         onnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
         inferDims: 3;640;640
       # Vision encoder: only model + version needed; all paths derived by convention.
-      #   NGC model:  nvstaging/tao/{model}:deployable_{version}
+      #   NGC model:  nvidia/tao/{model}:deployable_{version}
       #   ONNX:       {model}_{version}.onnx
       #   Weights:    {model}_{version}_weights.bin
       #   Tokenizer:  {model}_{version}_tokenizer
@@ -288,8 +288,8 @@ rtvi:
     enabled: true
     replicas: 1
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-      tag: "3.2.0-26.05.4"
+      repository: nvcr.io/nvidia/vss-core/vss-rt-embed
+      tag: "3.2.0"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -482,7 +482,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.5-c777a8d34f70
+    vssAgentVersion: 3.2.0
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -582,7 +582,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.5-c777a8d34f70" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0" }}'
 
 vss-agent-ui:
   enabled: true
@@ -592,8 +592,8 @@ vss-agent-ui:
     externalHost: ''
     imagePullPolicy: IfNotPresent
   image:
-    repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.05.5-c777a8d34f70"
+    repository: nvcr.io/nvidia/vss-core/vss-agent-ui
+    tag: "3.2.0"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''

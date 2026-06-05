@@ -76,7 +76,7 @@ spec:
               mkdir -p "${DEST}/ngc-download-tmp"
               ngc registry resource download-version {{ .Values.ngcAppDataResourceVersion | quote }} \
                 --dest "${DEST}/ngc-download-tmp" \
-                --org {{ .Values.ngcAppDataOrg | default "nvstaging" | quote }}
+                --org {{ .Values.ngcAppDataOrg | default "nvidia" | quote }}
               echo "[INFO] Extracting tarball..."
               TAR="$(find "${DEST}/ngc-download-tmp" -name '*.tar.gz' -type f | head -1)"
               if [[ -z "${TAR}" ]]; then

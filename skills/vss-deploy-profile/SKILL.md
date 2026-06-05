@@ -64,39 +64,10 @@ The source `.env` is treated as **read-only defaults** committed to the repo. Th
 2. **Credential gates** — see [`references/credentials.md`](references/credentials.md): `NGC_CLI_API_KEY` for local/local_shared NIM pulls, `NVIDIA_API_KEY` for remote NIM endpoints, and `HF_TOKEN` for edge recipes that use gated HF models.
 3. **System prerequisites (GPU driver, Docker, NVIDIA Container Toolkit, kernel sysctls)** — full checks in [`references/prerequisites.md`](references/prerequisites.md). Canonical hardware/driver matrix is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html).
 
-```bash
-REPO="${REPO:-}"
-if [ -z "$REPO" ]; then
-  git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  candidates=()
-  [ -n "$git_root" ] && candidates+=("$git_root")
-  candidates+=(
-    "$PWD"
-    "$PWD/.."
-    "$PWD/../.."
-    "$HOME/video-search-and-summarization"
-    "$HOME/VSS/vss-oss/video-search-and-summarization"
-    "$HOME/VSS/video-search-and-summarization"
-  )
-
-  for candidate in "${candidates[@]}"; do
-    candidate="$(cd "$candidate" 2>/dev/null && pwd -P || true)"
-    if [ -n "$candidate" ] \
-      && [ -f "$candidate/deploy/docker/compose.yml" ] \
-      && [ -x "$candidate/deploy/docker/scripts/dev-profile.sh" ] \
-      && [ -d "$candidate/skills/vss-deploy-profile" ]; then
-      REPO="$candidate"
-      break
-    fi
-  done
-fi
-
-if [ -z "$REPO" ]; then
-  echo "Could not auto-detect video-search-and-summarization; ask the user for the checkout path."
-else
-  echo "REPO=$REPO"
-fi
-```
+The auto-detect snippet (git-root, then a common-path probe gated on
+`deploy/docker/compose.yml` + `dev-profile.sh` + `skills/vss-deploy-profile`)
+lives in [`references/prerequisites.md`](references/prerequisites.md#repo-detect).
+Export the resolved `$REPO`; if detection fails, ask the user for the checkout path.
 
 ### Pre-flight check
 
@@ -141,20 +112,14 @@ for the remediation tree.
 - `$LLM_REMOTE_URL` / `$VLM_REMOTE_URL` if the user asks for remote
 - `$NGC_CLI_API_KEY` (local NIMs) or `$NVIDIA_API_KEY` (remote)
 
-**Endpoint intent gate.** Do not infer remote placement from stray host
-environment variables alone. `LLM_ENDPOINT_URL`, `VLM_ENDPOINT_URL`,
-`LLM_BASE_URL`, or `VLM_BASE_URL` may be leftovers from an earlier run.
-Use remote LLM/VLM only when:
-
-1. the user explicitly requested a remote endpoint or supplied one,
-2. local sizing cannot satisfy the selected models and the user agrees to
-   remote placement, or
-3. an edge recipe requires a standalone local service that VSS treats as
-   `remote` (for example DGX Spark Nano 9B on `localhost:30081`).
-
-If any endpoint env var is already set but the user did not ask for remote,
-surface it in Step 1 and ask whether to use it or ignore it. Never silently
-deploy remote because an env var happened to exist.
+**Endpoint intent gate.** Don't infer remote placement from stray env vars
+(`LLM_ENDPOINT_URL`, `VLM_ENDPOINT_URL`, `LLM_BASE_URL`, `VLM_BASE_URL` may be
+leftovers). Use remote LLM/VLM only when (1) the user asked for / supplied a
+remote endpoint, (2) local sizing can't fit the selected models and the user
+agrees, or (3) an edge recipe needs a standalone local service VSS treats as
+`remote` (e.g. DGX Spark Nano 9B on `localhost:30081`). If an endpoint var is
+set but the user didn't ask for remote, surface it in Step 1 and ask — never
+silently deploy remote because a var happened to exist.
 
 If no combination on this host satisfies the profile's sizing requirements, **stop and report the blocker** — don't silently pick another shape.
 
@@ -203,9 +168,8 @@ Before `docker compose up`, verify `EXTERNAL_IP`, `HAPROXY_PORT`, `VSS_PUBLIC_HO
 
 Layout (asset paths, ownership, mount points, profile-specific subdirs) is documented in [`references/data-directory.md`](references/data-directory.md). Read that file before deploying for the first time on a host or when changing profiles.
 
-> **FORBIDDEN: `chown -R ubuntu:ubuntu $VSS_DATA_DIR` (or any recursive chown).**
->
-> This is "good housekeeping" to a shell-admin instinct but is **the** deploy-breaking command in this stack. You will observe a "healthy" deploy (containers Up, endpoints 200) while the video pipeline is silently broken. Use `chmod -R 777` on the specific subdirs documented in `data-directory.md` — nothing else.
+> **FORBIDDEN: recursive `chown` on `$VSS_DATA_DIR` (e.g. `chown -R ubuntu:ubuntu`).**
+> It feels like good housekeeping but is **the** deploy-breaker in this stack — the deploy looks healthy (containers Up, endpoints 200) while the video pipeline is silently broken. Use `chmod -R 777` only on the specific subdirs documented in `data-directory.md`.
 
 ### Step 1c — Initialize `generated.env`
 
@@ -245,11 +209,7 @@ reference has worked examples for that profile's common scenarios.
 
 **Working env file:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1c).
 
-> **Two env files, distinct roles.**
-> - `.env` — **read-only defaults**, checked in. Don't mutate it from the skill.
-> - `generated.env` — **the skill's per-deploy working copy**. All overrides (the dict from Step 2, plus the Brev `EXTERNAL_IP` from Step 1d) land here. `--env-file` always points at this file. Post-deploy verifiers should also read from `generated.env` for the actually-deployed values — see [Debugging a Deployment](#debugging-a-deployment).
->
-> `generated.env` matches the convention `dev-profile.sh` uses internally — it's a per-invocation scratchpad regenerated by `cp .env generated.env` each run.
+> **Two env files, distinct roles.** `.env` is read-only checked-in defaults (never mutate from the skill); `generated.env` is the skill's per-deploy working copy — all overrides (Step 2 dict + the Brev `EXTERNAL_IP`) land there, `--env-file` always points at it, and post-deploy verifiers read it for the actually-deployed values. It mirrors `dev-profile.sh`'s own `cp .env generated.env` scratchpad.
 
 ```bash
 # (Step 1c already ran: cp $ENV_SRC $ENV_GEN)
@@ -313,29 +273,19 @@ docker compose --env-file $ENV_GEN -f resolved.yml up -d
 
 > **`--env-file` is mandatory.** Without the same `generated.env` used in Step 3, `COMPOSE_PROFILES` may be unset and `up -d` can exit 0 with zero selected services.
 
-> **Avoid broad `--force-recreate` on ordinary retries.** It destroys
-> already-warm NIM containers, forcing another 3–5 min torch.compile +
-> CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix
-> the root cause (usually perms or an env typo) and just re-run `up -d` —
-> Docker will re-create only containers whose config changed or that are
-> down. Use targeted `--force-recreate --no-deps <service...>` only when a
-> profile reference documents it as the recovery path for a specific stale
-> service/config issue.
+> **Avoid broad `--force-recreate` on ordinary retries** — it destroys warm
+> NIM containers (another 3–5 min torch.compile + CUDA-graph capture each).
+> Fix the root cause (usually perms or an env typo) and just re-run `up -d`;
+> use targeted `--force-recreate --no-deps <service...>` only when a profile
+> reference documents it as the recovery path.
 
 `docker compose up -d` only creates containers; it does not wait for internal services to finish warming. Never declare deploy success until the readiness gates pass.
 
 ### Step 5b — Wait until the stack is actually healthy
 
-**Gate 0 — container count must be > 0.** Refuse to proceed past `up -d` until compose started the expected services:
+**Gate 0 — container count must be > 0.** Refuse to proceed past `up -d` until the started count (`docker compose -f resolved.yml ps -q | wc -l`) is non-zero and ≥ the expected count (`config --services | wc -l`); a zero/short count almost always means a missing `--env-file` in Step 5. The exact gate plus the full readiness procedure live in [`references/readiness.md`](references/readiness.md).
 
-```bash
-expected=$(docker compose --env-file "$ENV_GEN" -f resolved.yml config --services | wc -l)
-actual=$(docker compose -f resolved.yml ps -q | wc -l)
-[ "$expected" -gt 0 ] && [ "$actual" -gt 0 ] && [ "$actual" -ge "$expected" ] \
-  || { echo "FAIL: expected $expected services, got $actual — re-check Step 5 --env-file"; exit 1; }
-```
-
-Cold deploys can take 10–20 min. The full readiness procedure lives in [`references/readiness.md`](references/readiness.md), and each profile reference lists the required endpoints. **Never declare deploy done after `up -d`; only after every documented endpoint succeeds.**
+Cold deploys can take 10–20 min, and each profile reference lists the required endpoints. **Never declare deploy done after `up -d`; only after every documented endpoint succeeds.**
 
 ## Tear Down
 
@@ -361,38 +311,12 @@ docker ps --format 'table {{.Names}}\t{{.Status}}'
 # 2. Agent API + UI responding
 curl -sf http://localhost:8000/health >/dev/null && echo "agent OK"
 curl -sf http://localhost:3000/ >/dev/null && echo "ui OK"
-
-if [ -n "${ENV_GEN:-}" ] && [ -f "$ENV_GEN" ]; then
-  LLM_MODE="${LLM_MODE:-$(awk -F= '$1=="LLM_MODE"{print $2}' "$ENV_GEN" | tail -1)}"
-  VLM_MODE="${VLM_MODE:-$(awk -F= '$1=="VLM_MODE"{print $2}' "$ENV_GEN" | tail -1)}"
-  LLM_BASE_URL="${LLM_BASE_URL:-$(awk -F= '$1=="LLM_BASE_URL"{print $2}' "$ENV_GEN" | tail -1)}"
-  VLM_BASE_URL="${VLM_BASE_URL:-$(awk -F= '$1=="VLM_BASE_URL"{print $2}' "$ENV_GEN" | tail -1)}"
-  LLM_NAME="${LLM_NAME:-$(awk -F= '$1=="LLM_NAME"{print $2}' "$ENV_GEN" | tail -1)}"
-  VLM_NAME="${VLM_NAME:-$(awk -F= '$1=="VLM_NAME"{print $2}' "$ENV_GEN" | tail -1)}"
-fi
-
-# 3. VLM NIM responding (base/lvs profiles)
-# Skip localhost:30082 when VLM_MODE=remote; HTTP 000/connection refused is expected.
-# Probe the selected VLM_BASE_URL /v1/models endpoint instead.
-if [ "${VLM_MODE:-}" = "remote" ]; then
-  echo "VLM_MODE=remote — skip localhost:30082; probing ${VLM_BASE_URL:-<remote-vlm-base-url>}/v1/models"
-  REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
-    "$REPO/skills/vss-deploy-profile/scripts/probe_remote_models.sh" "$VLM_BASE_URL" "${VLM_NAME:-}"
-else
-  curl -sf http://localhost:30082/v1/models | python3 -m json.tool
-fi
-
-# 4. LLM NIM responding
-# Skip localhost:30081 when LLM_MODE=remote; HTTP 000/connection refused is expected.
-# Probe the selected LLM_BASE_URL /v1/models endpoint instead.
-if [ "${LLM_MODE:-}" = "remote" ]; then
-  echo "LLM_MODE=remote — skip localhost:30081; probing ${LLM_BASE_URL:-<remote-llm-base-url>}/v1/models"
-  REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
-    "$REPO/skills/vss-deploy-profile/scripts/probe_remote_models.sh" "$LLM_BASE_URL" "${LLM_NAME:-}"
-else
-  curl -sf http://localhost:30081/v1/models | python3 -m json.tool
-fi
 ```
+
+The LLM/VLM NIM probes — including the `*_MODE=remote` handling that skips
+`localhost:3008x` (where a connection refused is expected) and probes the
+selected `*_BASE_URL/v1/models` via `scripts/probe_remote_models.sh` — are in
+[`references/troubleshooting.md`](references/troubleshooting.md#nim-probes).
 
 ### End-to-end video sanity check
 

@@ -15,7 +15,7 @@
 
 apiVersion: v2
 name: vss-broker-health-check
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0"
 description: Job to verify Kafka and Redis are ready before dependent workloads
 maintainers: []
