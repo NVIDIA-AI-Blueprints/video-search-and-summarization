@@ -75,6 +75,7 @@ from .storage import ModelArtifact
 from .storage import ensure_alerts_engine_directories
 from .storage import ensure_data_directories
 from .storage import ensure_model_artifacts
+from .storage import resolve_config_path
 
 _COMPOSE_OPS_LOCK = threading.Lock()
 _COMPOSE_SPECS_LOCK = threading.Lock()
@@ -623,14 +624,14 @@ async def vss_orchestrator(
 ) -> AsyncGenerator[FunctionGroup]:
     """VSS Orchestrator function group for managing docker compose deployments."""
 
-    deployments_dir = Path(_config.deployments_dir).resolve()
+    deployments_dir = resolve_config_path(_config.deployments_dir)
 
     # ---------------------------------------------------------------------------
     # Shared helpers
     # ---------------------------------------------------------------------------
 
-    configured_output_dir = Path(_config.output_dir).expanduser().resolve()
-    mdx_data_dir = Path(_config.mdx_data_dir).expanduser().resolve()
+    configured_output_dir = resolve_config_path(_config.output_dir)
+    mdx_data_dir = resolve_config_path(_config.mdx_data_dir)
     configured_mdx_data_directories = tuple(_config.mdx_data_directories)
     configured_model_artifacts_by_profile: dict[str, tuple[ModelArtifact, ...]] = {
         profile: tuple(

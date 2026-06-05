@@ -1508,3 +1508,41 @@ class TestGenerateDryRunArtifacts:
             in env_path.read_text()
         )
         assert compose_path.read_text() == "services: {}\n"
+
+
+def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_path: Path):
+    fake_home = tmp_path / "home" / "user"
+    repo = fake_home / "video-search-and-summarization"
+    deploy_dir = repo / "deploy" / "docker"
+    profile_dir = deploy_dir / "developer-profiles" / "dev-profile-base"
+    deploy_dir.mkdir(parents=True)
+    profile_dir.mkdir(parents=True)
+    (deploy_dir / "compose.yml").write_text("services: {}\n")
+    (profile_dir / ".env").write_text("HOST_IP=\n")
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    model_resolution = {
+        "hardware": {
+            "edge_profiles": ["DGX-SPARK"],
+            "edge_allowed_profiles": ["base"],
+            "edge_device_ids": {"llm": "0", "vlm": "0", "rt_vlm": "0", "rt_cv": "0"},
+            "hardware_profiles": {"DGX-SPARK": {}},
+        }
+    }
+
+    recipe = dcu.create_dry_run_recipe(
+        profile=dcu.PROFILE_BASE,
+        env_overrides={},
+        model_resolution=model_resolution,
+        output_env_file=str(tmp_path / "generated.env"),
+        output_compose_file=str(tmp_path / "compose.generated.yml"),
+        deployments_dir="~/video-search-and-summarization/deploy/docker",
+        mdx_data_dir="~/video-search-and-summarization/deployments/data-dir",
+        profile_mode_to_env_modes={},
+        source_compose_yaml="~/video-search-and-summarization/deploy/docker/compose.yml",
+        source_env="~/video-search-and-summarization/deploy/docker/developer-profiles/dev-profile-{profile}/.env",
+    )
+
+    assert recipe.deployments_dir == deploy_dir.resolve()
+    assert recipe.compose_file == (deploy_dir / "compose.yml").resolve()
+    assert recipe.source_env_file == (profile_dir / ".env").resolve()

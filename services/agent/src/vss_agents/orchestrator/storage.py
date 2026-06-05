@@ -51,6 +51,11 @@ class ModelArtifact:
     artifact_kind: ArtifactKind
 
 
+def resolve_config_path(path_value: str | Path) -> Path:
+    """Expand ``~`` / ``~user`` and resolve symlinks for MCP YAML paths."""
+    return Path(path_value).expanduser().resolve()
+
+
 def resolve_required_absolute_file(
     path_value: str,
     *,

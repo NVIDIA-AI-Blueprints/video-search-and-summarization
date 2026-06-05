@@ -20,7 +20,6 @@ from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from dataclasses import field
 import os
-from pathlib import Path
 import re
 import subprocess
 from types import MappingProxyType
@@ -38,11 +37,13 @@ from .network_util import apply_brev_proxy_env
 from .network_util import detect_external_ip
 from .network_util import detect_internal_ip
 from .network_util import read_etc_environment
+from .storage import resolve_config_path
 from .storage import resolve_required_absolute_file
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from collections.abc import Mapping
+    from pathlib import Path
 
 SupportedProfile = Literal["base", "search", "lvs", "alerts"]
 PROFILE_BASE: Final[str] = "base"
@@ -195,7 +196,7 @@ def create_dry_run_recipe(
     if profile not in SUPPORTED_PROFILES:
         raise ValidationError(f"Unsupported profile '{profile}'. Supported: {sorted(SUPPORTED_PROFILES)}")
 
-    deployments_path = Path(deployments_dir).resolve()
+    deployments_path = resolve_config_path(deployments_dir)
     if not deployments_path.is_dir():
         raise ValidationError(f"Deployments directory does not exist: {deployments_path}")
 
@@ -240,10 +241,10 @@ def create_dry_run_recipe(
         nim_kvcache_percent=(nim_kvcache_percent or "").strip() or None,
         rtvi_vllm_gpu_memory_utilization=(rtvi_vllm_gpu_memory_utilization or "").strip() or None,
         profile_mode=(profile_mode or "").strip() or None,
-        output_env_file=Path(output_env_file).resolve(),
-        output_compose_file=Path(output_compose_file).resolve(),
+        output_env_file=resolve_config_path(output_env_file),
+        output_compose_file=resolve_config_path(output_compose_file),
         deployments_dir=deployments_path,
-        mdx_data_dir=Path(mdx_data_dir).expanduser().resolve(),
+        mdx_data_dir=resolve_config_path(mdx_data_dir),
         compose_file=compose_file,
         source_env_file=source_env_file,
         supported_hardware_profiles=frozenset(model_resolution.hardware.hardware_profiles.keys()),
