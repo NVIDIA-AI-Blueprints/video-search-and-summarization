@@ -187,7 +187,7 @@ mkdir -p "$PROJECTS_DIR"
 DEST=$(docker inspect vss-auto-calibration \
   --format '{{range .Mounts}}{{println .Source .Destination}}{{end}}' \
   | awk -v s="$PROJECTS_DIR" '$1==s {print $2}')
-DEST=${DEST:-/home/auto-calibration-ms/server/projects}
+DEST=${DEST:-/opt/nvidia/amc/projects}
 
 docker exec vss-auto-calibration sh -c \
   "touch '$DEST/.amc_write_test' && rm -f '$DEST/.amc_write_test'" \
@@ -195,7 +195,7 @@ docker exec vss-auto-calibration sh -c \
   || echo "projects directory is not writable by the container — apply the ACL below"
 ```
 
-> The container WorkingDir is `/home/auto-calibration-ms/server` and the projects dir mounts at `…/server/projects`, so a workdir-relative `server/projects` is wrong (it resolves to `server/server/projects` → "No such file or directory", which masks a real permission failure). Resolving the mount destination from `docker inspect` avoids this entirely.
+> Resolve the container projects directory from `docker inspect` instead of assuming a release-specific working directory. A workdir-relative fallback can point at the wrong nested path and mask the real permission failure.
 
 If the write test does not succeed (the common case on a fresh host — see above), grant the container user access with a narrow ACL (ask the user before changing host permissions). This adds write access for UID 1000 only and leaves existing ownership intact:
 

@@ -2,8 +2,6 @@
 
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under Apache-2.0 (full text: http://www.apache.org/licenses/LICENSE-2.0).
 
 # common.sh - Shared helpers for rtvicv-deploy scripts.
 # Source this file: source "$(dirname "$0")/common.sh"

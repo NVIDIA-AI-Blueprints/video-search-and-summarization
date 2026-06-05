@@ -59,6 +59,10 @@ MAPPING_TRAIL_ROWS = 2
 MAPPING_INLINE_THRESHOLD = MAPPING_LEAD_ROWS + MAPPING_TRAIL_ROWS
 # Minimum acceptable batch size.
 MIN_BATCH_SIZE = 1
+# Exit codes and serialized JSON formatting.
+EXIT_OK = 0
+EXIT_ERROR = 1
+JSON_INDENT = 4
 
 
 class CalibrationError(Exception):
@@ -142,31 +146,31 @@ def cmd_check(args: argparse.Namespace) -> int:
     filepath = Path(args.calibration_file)
     if not filepath.exists():
         print(f"error: file not found: {filepath}", file=sys.stderr)
-        return 1
+        return EXIT_ERROR
 
     try:
         data = load_calibration(filepath)
     except CalibrationError as e:
         print(f"error: {e}", file=sys.stderr)
-        return 1
+        return EXIT_ERROR
     count = get_sensor_count(data)
 
     if args.batch_size is not None:
         if count >= args.batch_size:
             print(count)
-            return 0
+            return EXIT_OK
         print(count)
-        return 1
+        return EXIT_ERROR
 
     print(count)
-    return 0
+    return EXIT_OK
 
 
 def cmd_ensure(args: argparse.Namespace) -> int:
     src_path = Path(args.calibration_file)
     if not src_path.exists():
         print(f"error: file not found: {src_path}", file=sys.stderr)
-        return 1
+        return EXIT_ERROR
 
     bs = args.batch_size
     if bs < MIN_BATCH_SIZE:
@@ -174,13 +178,13 @@ def cmd_ensure(args: argparse.Namespace) -> int:
             f"error: batch_size must be >= {MIN_BATCH_SIZE}, got {bs}",
             file=sys.stderr,
         )
-        return 1
+        return EXIT_ERROR
 
     try:
         data = load_calibration(src_path)
     except CalibrationError as e:
         print(f"error: {e}", file=sys.stderr)
-        return 1
+        return EXIT_ERROR
     count = get_sensor_count(data)
 
     if count >= bs:
@@ -190,7 +194,7 @@ def cmd_ensure(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         print(str(src_path))
-        return 0
+        return EXIT_OK
 
     cache_dir = Path(args.cache_dir) if args.cache_dir else src_path.parent
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -214,7 +218,7 @@ def cmd_ensure(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 print(str(cached))
-                return 0
+                return EXIT_OK
 
     print(
         f"[calibration] Generating: {cached} "
@@ -225,19 +229,19 @@ def cmd_ensure(args: argparse.Namespace) -> int:
         new_data = generate_calibration(data, bs)
     except CalibrationError as e:
         print(f"error: {e}", file=sys.stderr)
-        return 1
+        return EXIT_ERROR
 
     orig_names = _sensor_ids(data.get("sensors") or [])
     _print_mapping(new_data, orig_names, count, bs)
 
     with open(cached, "w") as f:
-        json.dump(new_data, f, indent=4)
+        json.dump(new_data, f, indent=JSON_INDENT)
     print(
         f"[calibration] Saved: {cached} ({bs} sensors)",
         file=sys.stderr,
     )
     print(str(cached))
-    return 0
+    return EXIT_OK
 
 
 def _print_mapping(
@@ -308,7 +312,7 @@ def main() -> int:
         return cmd_check(args)
     elif args.command == "ensure":
         return cmd_ensure(args)
-    return 1
+    return EXIT_ERROR
 
 
 if __name__ == "__main__":

@@ -2,8 +2,6 @@
 
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under Apache-2.0 (full text: http://www.apache.org/licenses/LICENSE-2.0).
 
 # update_output_sink.sh - Apply output-sink configuration for a given use case.
 # Updates [sink0], [sink2], [osd], [tiled-display] in the main config based on
