@@ -236,6 +236,19 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 
 ## Service Access Points
 
+Expected access points after a successful deploy (substitute your host IP or domain name — on Brev use the secure-link domain, on Ubuntu use the machine IP):
+
+```
+HAProxy:             http://<host_ip/domain_name>:7777
+Kibana:              http://<host_ip/domain_name>:7777/kibana
+VST:                 http://<host_ip/domain_name>:30888/vst
+Grafana:             http://<host_ip/domain_name>:3000
+NvStreamer:          http://<host_ip/domain_name>:31000
+Video Analytics API: http://<host_ip/domain_name>:7777/video-analytics-api
+```
+
+VST is accessed directly on port `30888` — it does not go through the HAProxy ingress.
+
 For the full HAProxy ingress route table, direct-port diagnostics table, and
 the `h_main` Host-header ACL rules, see
 [`warehouse.md` § Access Points](warehouse.md#access-points). The canonical
