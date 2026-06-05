@@ -91,6 +91,17 @@ PLATFORMS: dict[str, dict] = {
         "brev_search":      "L40S",
         "min_root_disk_gb": 220,
     },
+    # 4×L40S — for multi-GPU builds that need 4 GPUs (e.g. IN-2 with
+    # RT-CV + ELK + VIOS + perception-2d-fusion all needing GPU headroom).
+    # Pool member: vss-eval-l40s-4g (operator-provisioned 4×L40S box).
+    "4xL40S": {
+        "short_name":       "4xl40s",
+        "gpu_type":         "L40S",
+        "gpu_count":        4,
+        "min_vram_per_gpu": 48,
+        "brev_search":      "L40S",
+        "min_root_disk_gb": 220,
+    },
     "DGX-SPARK": {
         "short_name":       "spark",
         "gpu_type":         "DGX-SPARK",
