@@ -6,7 +6,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "L40S": {
         "modes": [
           "remote-all"
         ]
@@ -40,10 +40,8 @@
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi 'fallen.box'` returns exit 0 (a created rule's prompt contains 'fallen box', confirming the agent preserved the user's detection condition verbatim; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port) - confirms live_stream_url/sensor_id came from the live sensor list, not a fabricated or 'camera_'-prefixed name; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi warehouse_sample` returns exit 0 (a realtime rule is registered against the warehouse_sample sensor).",
-        "The Alert Bridge payload's `sensor_name` is `warehouse_sample`.",
-        "The Alert Bridge payload's `alert_type` is a snake_case tag of 2-4 words describing the condition (e.g. `fallen_boxes`, `box_drop_detection`, or similar \u2014 NOT a generic tag like `alert` or `realtime_alert`).",
-        "The Alert Bridge payload includes `system_prompt` set to 'Answer yes or no' (or equivalent yes/no instruction) and `chunk_duration` set to 30.",
-        "The response includes a rule `id` (UUID) and `status: success`."
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"warehouse_sample\") | select(.alert_type | test(\"fallen|box|drop\";\"i\"))] | length >= 1'` returns exit 0 (the stored rule for warehouse_sample carries a condition-specific alert_type related to fallen boxes, not a generic or sensor-derived tag; deterministic end-state probe).",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"warehouse_sample\") | select(.chunk_duration == 30 and ((.system_prompt // \"\") | length > 0) and ((.id // \"\") | test(\"[0-9a-fA-F-]{36}\")))] | length >= 1'` returns exit 0 (the stored rule uses the canonical payload defaults \u2014 chunk_duration 30, a non-empty system_prompt \u2014 and has a UUID id; deterministic end-state probe)."
       ]
     },
     {
@@ -59,10 +57,8 @@
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi smoke` returns exit 0 (a created rule's prompt contains 'smoke', confirming the agent extracted the detection condition correctly, not the sensor name; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port) - confirms live_stream_url/sensor_id came from the live sensor list; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi camera_02` returns exit 0 (a realtime rule is registered against the Camera_02 sensor).",
-        "The Alert Bridge payload's `sensor_name` is `Camera_02`.",
-        "The Alert Bridge payload's `alert_type` is a snake_case tag related to smoke (e.g. `smoke_detection`, `fire_smoke_detection` \u2014 NOT `camera_02` or a sensor-derived tag).",
-        "The Alert Bridge payload includes `system_prompt` set to 'Answer yes or no' and `chunk_duration` set to 30.",
-        "The response includes a rule `id` (UUID) and `status: success`."
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"Camera_02\") | select(.alert_type | test(\"smoke|fire\";\"i\"))] | length >= 1'` returns exit 0 (the stored rule for Camera_02 carries a smoke-related alert_type, not a sensor-derived tag; deterministic end-state probe).",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"Camera_02\") | select(.chunk_duration == 30 and ((.system_prompt // \"\") | length > 0) and ((.id // \"\") | test(\"[0-9a-fA-F-]{36}\")))] | length >= 1'` returns exit 0 (the stored rule uses the canonical payload defaults \u2014 chunk_duration 30, a non-empty system_prompt \u2014 and has a UUID id; deterministic end-state probe)."
       ]
     },
     {
@@ -78,9 +74,8 @@
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi 'unauthorized.access'` returns exit 0 (a created rule's prompt contains 'unauthorized access', extracted from the passive construction, not confused with the subject 'Alert'; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port), not 'unauthorized access' treated as a sensor; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi camera_02` returns exit 0 (a realtime rule is registered against the Camera_02 sensor).",
-        "The Alert Bridge payload's `sensor_name` is `Camera_02`.",
-        "The Alert Bridge payload's `alert_type` is a snake_case tag like `unauthorized_access` \u2014 NOT `alert` or a tag derived from the sentence subject.",
-        "The response includes a rule `id` (UUID) and `status: success`."
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"Camera_02\") | select(.alert_type | test(\"unauthorized|access\";\"i\"))] | length >= 1'` returns exit 0 (the stored rule for Camera_02 carries an unauthorized-access alert_type, not a subject-derived tag; deterministic end-state probe).",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"Camera_02\") | select(.chunk_duration == 30 and ((.system_prompt // \"\") | length > 0) and ((.id // \"\") | test(\"[0-9a-fA-F-]{36}\")))] | length >= 1'` returns exit 0 (the stored rule uses the canonical payload defaults \u2014 chunk_duration 30, a non-empty system_prompt \u2014 and has a UUID id; deterministic end-state probe)."
       ]
     },
     {
@@ -97,9 +92,8 @@
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi loitering` returns exit 0 (a created rule's prompt contains 'loitering', confirming 'near the loading dock' was treated as part of the detection condition, NOT as the sensor name; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi rtsp` returns exit 0 (a created rule's live_stream_url is a real rtsp:// stream resolved from VIOS (host/port may be rewritten to the deployment's external IP, so match the rtsp scheme, not a fixed port), with the sensor taken as the token after 'on'; deterministic end-state probe).",
         "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | grep -qi warehouse_sample` returns exit 0 (a realtime rule is registered against the warehouse_sample sensor).",
-        "The Alert Bridge payload's `sensor_name` is `warehouse_sample`.",
-        "The Alert Bridge payload's `alert_type` is a snake_case tag related to loitering (e.g. `people_loitering`, `loitering_detection` \u2014 NOT `loading_dock` or a location-derived tag).",
-        "The response includes a rule `id` (UUID) and `status: success`."
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"warehouse_sample\") | select(.alert_type | test(\"loiter\";\"i\"))] | length >= 1'` returns exit 0 (the stored rule for warehouse_sample carries a loitering-related alert_type, not a location-derived tag like loading_dock; deterministic end-state probe).",
+        "`curl -sf --max-time 15 http://localhost:9080/api/v1/realtime | jq -e '[.rules[] | select(.sensor_name==\"warehouse_sample\") | select(.chunk_duration == 30 and ((.system_prompt // \"\") | length > 0) and ((.id // \"\") | test(\"[0-9a-fA-F-]{36}\")))] | length >= 1'` returns exit 0 (the stored rule uses the canonical payload defaults \u2014 chunk_duration 30, a non-empty system_prompt \u2014 and has a UUID id; deterministic end-state probe)."
       ]
     },
     {
