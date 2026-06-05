@@ -189,6 +189,10 @@ DEST=$(docker inspect vss-auto-calibration \
   | awk -v s="$PROJECTS_DIR" '$1==s {print $2}')
 if [ -z "$DEST" ]; then
   WORKDIR=$(docker inspect vss-auto-calibration --format "{{.Config.WorkingDir}}")
+  if [ -z "$WORKDIR" ]; then
+    echo "ERROR: could not determine container working directory — is vss-auto-calibration running?" >&2
+    exit 1
+  fi
   DEST="${WORKDIR%/}/projects"
 fi
 
