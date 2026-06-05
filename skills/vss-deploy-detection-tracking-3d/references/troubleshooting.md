@@ -287,8 +287,8 @@ nc -zu stun.l.google.com 19302                                            # bloc
 ```bash
 docker inspect vss-vios-streamprocessing \
   --format '{{range .Mounts}}{{println .Destination " <- " .Source}}{{end}}' \
-  | grep "calibration.json"
-# If the source path contains "warehouse-4cams-20mx20m-synthetic" instead of your ${SAMPLE_VIDEO_DATASET}, update the mount sources.
+  | grep -E "calibration\.json|Top\.png"
+# If either source path contains "warehouse-4cams-20mx20m-synthetic" instead of your ${SAMPLE_VIDEO_DATASET}, update the mount sources.
 ```
 
 **Fix:** Apply the update from [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 0b so the sample-data path resolves through `${SAMPLE_VIDEO_DATASET}`. Then recreate `streamprocessing-ms-mv3dt` in place and hard-refresh the VST tab. Full stack restart is not required.

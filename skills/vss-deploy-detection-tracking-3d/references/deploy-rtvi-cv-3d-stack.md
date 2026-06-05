@@ -139,6 +139,8 @@ fi
 
 Under the `streamprocessing-ms-mv3dt:` service block (`streamprocessing-ms-3d:` mirrors the same pattern for MODE=3d), replace only these source fragments:
 
+The fragments appear embedded within the full `${VSS_APPS_DIR}/.../calibration/` source path; the sed block below handles this automatically.
+
 ```text
 sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
 sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png
