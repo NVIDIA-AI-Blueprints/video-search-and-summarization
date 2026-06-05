@@ -2,6 +2,8 @@
 
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under Apache-2.0 (full text: http://www.apache.org/licenses/LICENSE-2.0).
 
 # add_streams.sh - Add streams to a running rtvi-cv deployment via REST,
 # one at a time with a fixed delay between each add.

@@ -57,7 +57,7 @@ fi
 ## Step 2 — Collect Inputs From User
 
 ### Required
-1. **RTSP URLs** — one per camera. Example: `rtsp://<nvstreamer-host>:31556/stream/cam_00.mp4` or `rtsp://<cam-ip>:554/stream`. Do not embed credentials in RTSP URLs; use VIOS credential fields or a secret-backed camera configuration when authentication is required, and avoid logging full URLs that may contain secrets.
+1. **RTSP URLs** — one per camera. Example: `rtsp://<nvstreamer-host>:31556/stream/cam_00.mp4` or `rtsp://user:pass@<cam-ip>:554/stream`.
 2. **Camera names** — short label per stream (used as `camera_name` in the capture request), e.g. `cam_00`, `cam_01`, …
 3. **Duration seconds** — recording window (minimum `60`). Pick at least 2–3 min of moving objects for decent calibration.
 4. **Microservice URL** — e.g. `http://<HOST_IP>:8010`.
@@ -103,11 +103,9 @@ Content-Type: application/json
   ],
   "duration_seconds": 180,
   "vios_token": null,
-  "ssl_verify": true
+  "ssl_verify": false
 }
 ```
-
-Keep `ssl_verify` enabled for normal use. If a lab-only self-signed endpoint requires a temporary exception, first confirm the risk with the user and prefer installing the endpoint CA bundle over disabling certificate verification.
 
 Response shape: `{"code": 0, "message": "...", "session": {"session_id": "...", "status": "STARTING", ...}}`. Save `session.session_id`. The same nested-`session` shape is returned by `GET /v1/rtsp/capture/<project_id>/<session_id>`, so unwrap it on every poll too.
 
@@ -229,7 +227,7 @@ r = s.post(f"{BASE_URL}/rtsp/capture/{project_id}", json={
     "streams": STREAMS,
     "duration_seconds": DURATION_SECONDS,
     "vios_token": None,
-    "ssl_verify": True,
+    "ssl_verify": False,
 })
 r.raise_for_status()
 session = r.json().get("session") or r.json()  # response nests session_id/status under "session"

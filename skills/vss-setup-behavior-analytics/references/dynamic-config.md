@@ -1,4 +1,4 @@
-> See SKILL.md for the project overview.
+> See [`../SKILL.md`](../SKILL.md) for the project overview.
 
 # Dynamic Configuration
 

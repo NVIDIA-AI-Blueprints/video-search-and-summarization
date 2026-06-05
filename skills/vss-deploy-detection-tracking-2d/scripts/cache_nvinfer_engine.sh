@@ -2,6 +2,8 @@
 
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under Apache-2.0 (full text: http://www.apache.org/licenses/LICENSE-2.0).
 
 # cache_nvinfer_engine.sh - Symlink a DeepStream-auto-built nvinfer engine
 # into $ENGINE_CACHE_DIR so the model-engine-file path in the PGIE config

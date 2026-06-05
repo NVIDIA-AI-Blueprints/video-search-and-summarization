@@ -2,6 +2,8 @@
 
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under Apache-2.0 (full text: http://www.apache.org/licenses/LICENSE-2.0).
 
 # run_app_and_wait.sh — launch app, poll ready, cache engine, add streams, collect metrics.
 # ONE docker exec call covers everything after the container is up.

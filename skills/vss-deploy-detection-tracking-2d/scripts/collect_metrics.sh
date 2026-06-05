@@ -2,6 +2,8 @@
 
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under Apache-2.0 (full text: http://www.apache.org/licenses/LICENSE-2.0).
 
 # collect_metrics.sh - Sample RTVI-CV metrics N times with a fixed gap,
 # then print averaged results. Intended to run inside the RTVI-CV
