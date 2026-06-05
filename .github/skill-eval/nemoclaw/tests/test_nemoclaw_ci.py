@@ -756,10 +756,10 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         smoke_runner._try_acquire_lock = (
             lambda instance: None
             if instance == "vss-eval-rtx-1g-2"
-            else (123, object())
+            else smoke_runner.WorkerLock(123, object(), None)
         )
         try:
-            selected, _, _ = smoke_runner._select_and_lock_instance(
+            selected, _lock = smoke_runner._select_and_lock_instance(
                 "RTXPRO6000BW",
                 1,
                 None,
@@ -813,10 +813,12 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         smoke_runner._list_instances = fake_list_instances
         smoke_runner._reachable = lambda instance: True
-        smoke_runner._try_acquire_lock = lambda instance: (123, object())
+        smoke_runner._try_acquire_lock = lambda instance: smoke_runner.WorkerLock(
+            123, object(), None
+        )
         smoke_runner.time.sleep = lambda seconds: None
         try:
-            selected, _, _ = smoke_runner._select_and_lock_instance(
+            selected, _lock = smoke_runner._select_and_lock_instance(
                 "RTXPRO6000BW",
                 1,
                 None,
