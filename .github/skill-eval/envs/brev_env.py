@@ -644,6 +644,13 @@ stage() {{
   printf '[nemoclaw-setup] %s %s\n' "$(date -Is)" "$*"
 }}
 stage "begin setup on $(hostname)"
+if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  stage "installing system packages for uv sync"
+  sudo -n apt-get update -qq
+  sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libcairo2-dev pkg-config
+else
+  stage "apt/sudo unavailable; skipping system package preflight"
+fi
 python3 -m pip install --user --quiet nbformat nbclient ipykernel >/tmp/skill-eval/nemoclaw/pip-install.log 2>&1 || {{
   cat /tmp/skill-eval/nemoclaw/pip-install.log >&2
   exit 1
