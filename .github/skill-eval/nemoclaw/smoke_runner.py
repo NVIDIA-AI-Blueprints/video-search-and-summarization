@@ -18,6 +18,7 @@ import os
 import selectors
 import signal
 import shutil
+import shlex
 import subprocess
 import sys
 import time
@@ -90,6 +91,12 @@ class NemoClawScenario(NamedTuple):
 
 class InfrastructureBlocked(RuntimeError):
     """Raised when CI infra capacity prevents the smoke from running."""
+
+
+class WorkerLock(NamedTuple):
+    local_fd: int
+    local_handle: Any
+    remote_owner: str | None
 
 
 def _run(cmd: list[str], *, timeout: int = 60, env: dict[str, str] | None = None) -> CommandResult:
@@ -743,16 +750,107 @@ def _reachable(instance: str) -> bool:
     return result.returncode == 0 and "harbor-ready" in result.stdout
 
 
-def _try_acquire_lock(instance: str) -> tuple[int, Any] | None:
+def _try_acquire_lock(instance: str) -> WorkerLock | None:
     lock_dir = Path("/tmp/brev")
     lock_dir.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_dir / f"{instance}.lock", os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return fd, os.fdopen(fd, "w")
+        handle = os.fdopen(fd, "w")
     except BlockingIOError:
         os.close(fd)
         return None
+
+    remote_owner: str | None = None
+    try:
+        remote_lock_disabled = (
+            os.environ.get("NEMOCLAW_DISABLE_REMOTE_WORKER_LOCK", "").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        if not remote_lock_disabled:
+            remote_owner = _try_acquire_remote_worker_lock(instance)
+            if not remote_owner:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                handle.close()
+                return None
+        return WorkerLock(fd, handle, remote_owner)
+    except Exception:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        handle.close()
+        raise
+
+
+def _try_acquire_remote_worker_lock(instance: str) -> str | None:
+    """Acquire a lock on the Brev worker, not just on this runner host."""
+    owner = "__".join(
+        _safe_slug(part)
+        for part in (
+            os.environ.get("GITHUB_RUN_ID", "local"),
+            os.environ.get("GITHUB_JOB", "nemoclaw"),
+            str(os.getpid()),
+            str(int(time.time())),
+        )
+    )
+    stale_seconds = int(os.environ.get("NEMOCLAW_REMOTE_LOCK_STALE_SEC", "14400"))
+    command = f"""set -eu
+lock_root=/tmp/skill-eval/locks
+lock_dir="$lock_root/nemoclaw-worker.lockdir"
+owner={shlex.quote(owner)}
+now=$(date +%s)
+mkdir -p "$lock_root"
+if mkdir "$lock_dir" 2>/dev/null; then
+  printf '%s\n' "$owner" > "$lock_dir/owner"
+  printf '%s\n' "$now" > "$lock_dir/created"
+  exit 0
+fi
+created=$(cat "$lock_dir/created" 2>/dev/null || stat -c %Y "$lock_dir" 2>/dev/null || printf '%s\n' "$now")
+age=$((now - created))
+if [ "$age" -gt {stale_seconds} ]; then
+  echo "removing stale NemoClaw worker lock age=${{age}}s owner=$(cat "$lock_dir/owner" 2>/dev/null || true)"
+  rm -rf "$lock_dir"
+  if mkdir "$lock_dir" 2>/dev/null; then
+    printf '%s\n' "$owner" > "$lock_dir/owner"
+    printf '%s\n' "$now" > "$lock_dir/created"
+    exit 0
+  fi
+fi
+echo "NemoClaw worker is locked by $(cat "$lock_dir/owner" 2>/dev/null || echo unknown)"
+exit 1
+"""
+    try:
+        result = _run(["brev", "exec", instance, command], timeout=60)
+    except subprocess.TimeoutExpired:
+        print(f"[nemoclaw-ci] remote lock check timed out on {instance}", flush=True)
+        return None
+    if result.returncode == 0:
+        return owner
+    tail = ((result.stdout or "") + (result.stderr or ""))[-500:].strip()
+    if tail:
+        print(f"[nemoclaw-ci] {instance} remote lock unavailable: {tail}", flush=True)
+    return None
+
+
+def _release_lock(instance: str, lock: WorkerLock) -> None:
+    if lock.remote_owner:
+        owner = shlex.quote(lock.remote_owner)
+        command = f"""set -eu
+lock_dir=/tmp/skill-eval/locks/nemoclaw-worker.lockdir
+owner={owner}
+if [ -d "$lock_dir" ] && [ "$(cat "$lock_dir/owner" 2>/dev/null || true)" = "$owner" ]; then
+  rm -rf "$lock_dir"
+else
+  echo "NemoClaw worker lock not owned by this run; leaving it in place"
+fi
+"""
+        try:
+            result = _run(["brev", "exec", instance, command], timeout=60)
+            if result.returncode != 0:
+                tail = ((result.stdout or "") + (result.stderr or ""))[-500:].strip()
+                print(f"[nemoclaw-ci] WARN: failed to release remote lock on {instance}: {tail}", flush=True)
+        except subprocess.TimeoutExpired:
+            print(f"[nemoclaw-ci] WARN: remote lock release timed out on {instance}", flush=True)
+    fcntl.flock(lock.local_fd, fcntl.LOCK_UN)
+    lock.local_handle.close()
 
 
 def _select_and_lock_instance(
@@ -760,7 +858,7 @@ def _select_and_lock_instance(
     gpu_count: int,
     explicit: str | None,
     timeout_s: int,
-) -> tuple[str, int, Any]:
+) -> tuple[str, WorkerLock]:
     deadline = time.time() + timeout_s
     while True:
         if explicit:
@@ -806,8 +904,7 @@ def _select_and_lock_instance(
                 continue
             lock = _try_acquire_lock(candidate)
             if lock is not None:
-                fd, handle = lock
-                return candidate, fd, handle
+                return candidate, lock
             print(f"[nemoclaw-ci] skipping locked candidate {candidate}", flush=True)
 
         if time.time() >= deadline:
@@ -1421,7 +1518,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"{scenario.platform}/{scenario.task_name} gpu_count={gpu_count}",
                 flush=True,
             )
-            instance, lock_fd, lock_handle = _select_and_lock_instance(
+            instance, worker_lock = _select_and_lock_instance(
                 scenario.platform,
                 gpu_count,
                 args.instance,
@@ -1445,8 +1542,7 @@ def main(argv: list[str] | None = None) -> int:
                     log_path=log_path,
                 )
             finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                lock_handle.close()
+                _release_lock(instance, worker_lock)
 
             reward, _reward_path = _latest_reward(results_root, run_id, since=scenario_started)
             _append_harbor_report(
