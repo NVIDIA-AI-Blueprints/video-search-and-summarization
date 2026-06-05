@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2020-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,16 +15,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-JETSON_CC_BASE="jetson_cross_compiler_base"
-JETSON_CC_IMAGE_NAME="${1:-gitlab-master.nvidia.com:5005/l4tmm/vms_shim/cicd_images:jetson_cross_compiler}"
-docker build --network=host -t "${JETSON_CC_BASE}" .
+set -euo pipefail
 
-docker run --privileged --net=host -itd --name ${JETSON_CC_BASE} ${JETSON_CC_BASE}
+# Default tag matches the Makefile's AARCH64_CC_IMAGE default, so a plain
+# `./build_cross_compile_container.sh` produces the image used by `make cc=1`.
+IMAGE_NAME="${1:-vios-build:aarch64-cross-compiler}"
 
-docker exec "${JETSON_CC_BASE}" /root/install_target_packages.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-set -x
-docker commit "${JETSON_CC_BASE}" "${JETSON_CC_IMAGE_NAME}"
+docker build --network=host -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
 
-docker kill "${JETSON_CC_BASE}"
-docker rm "${JETSON_CC_BASE}"
+echo "Built ${IMAGE_NAME}"

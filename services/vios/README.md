@@ -28,14 +28,34 @@ docker build -t vios-build:x86-24.04-cuda13.0.0 \
   -f cicd_files/x86_64/devel/Dockerfile.devel cicd_files/x86_64/devel
 ```
 
-To use a prebuilt toolchain image instead, export `X86_BUILD_IMAGE` (or `AARCH64_CC_IMAGE` for Jetson cross-compile) to point at it.
+To use a prebuilt toolchain image instead, export `X86_BUILD_IMAGE` to point at it.
 
-### B) Build the runtime base container (x86_64)
+### A2) Build the compile toolchain image (aarch64 cross-compile)
+
+Required once before any `./build.sh arch=arm64` or `make cc=1` invocation:
+
+```bash
+cd cicd_files/aarch64/devel
+./build_cross_compile_container.sh
+cd -
+```
+
+This produces `vios-build:aarch64-cross-compiler`, the default tag `build.sh` and `make cc=1` expect via `AARCH64_CC_IMAGE`. To use a prebuilt image instead, export `AARCH64_CC_IMAGE` to point at it.
+
+### B) Build the runtime base container
 
 The base image carries the system packages shared by every service image. Build it once, then reuse it for all subsequent module/container builds.
 
+x86_64:
+
 ```bash
 ./build.sh base-container
+```
+
+aarch64:
+
+```bash
+./build.sh arch=arm64 base-container
 ```
 
 Optional: tag and push the base image to the registry.
@@ -48,21 +68,39 @@ Optional: tag and push the base image to the registry.
 
 Build the `sensor` and `streamprocessing` module containers (clean first for a fresh build):
 
+x86_64:
+
 ```bash
 ./build.sh clean
 ./build.sh container module=streamprocessing,sensor
 ```
 
+aarch64:
+
+```bash
+./build.sh arch=arm64 clean
+./build.sh arch=arm64 container module=streamprocessing,sensor
+```
+
 ### D) Build the NVStreamer container
+
+x86_64:
 
 ```bash
 ./build.sh clean
 ./build.sh nvstreamer container
 ```
 
+aarch64:
+
+```bash
+./build.sh arch=arm64 clean
+./build.sh arch=arm64 nvstreamer container
+```
+
 ### E) Run Media Service
 
-The compiled images are deployed via docker-compose. Pass the exact images you built to the one-click deployment (local builds are tagged `latest`). Use `--target all` so both the VST services and NVStreamer are deployed (the default `--target vios` brings up only the VST services and ignores the `--nvstreamer-*` flags):
+The compiled images are deployed via docker-compose. Pass the exact images you built to the one-click deployment (local builds are tagged `latest`). Use `--target all` so both the VST services and NVStreamer are deployed (the default `--target vios` brings up only the VST services and ignores the `--nvstreamer-*` flags). The command is identical for x86_64 and aarch64 — for aarch64, run it on the aarch64 target host where the arm64 images were built or loaded:
 
 ```bash
 python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target all \
