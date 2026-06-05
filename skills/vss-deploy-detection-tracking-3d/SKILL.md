@@ -222,3 +222,5 @@ SKILL.md (this file — Q0/Q1/Q2/Q3 routing)
 - [`vss-manage-video-io-storage`](../vss-manage-video-io-storage/SKILL.md) — VIOS / VST API skill. Useful for the VST video wall (overlay viz) and for sensor management referenced in `configure-cameras.md`.
 
 The repo's authoritative warehouse-blueprint reference at [`../vss-deploy-profile/references/warehouse.md`](../vss-deploy-profile/references/warehouse.md) covers 2D / 3D / MV3DT inside the full warehouse stack — this skill is the **MV3DT-only** companion that trims the agent / LLM / VLM layer.
+
+bump:1
