@@ -279,6 +279,7 @@ def _selected_specs(
     skills_filter: str,
     profile_filter: str | None,
     platform_filter: str | None,
+    spec_filter: str | None = None,
 ) -> tuple[list[tuple[str, Path, list[str]]], list[str]]:
     all_skills, requested = _skill_filters(skills_filter)
     if not all_skills and not requested:
@@ -303,6 +304,16 @@ def _selected_specs(
         specs = sorted(evals_dir.glob("*.json"))
         if skill == DEFAULT_SKILL and profile_filter and not all_skills:
             specs = [evals_dir / f"{profile_filter}.json"]
+        if spec_filter:
+            wanted = Path(spec_filter).stem
+            specs = [
+                spec_path
+                for spec_path in specs
+                if spec_path.stem == wanted or spec_path.name == spec_filter
+            ]
+            if not specs:
+                blockers.append(f"{skill}: no eval spec matching {spec_filter}")
+                continue
         for spec_path in specs:
             if not spec_path.exists():
                 blockers.append(f"{skill}: missing eval spec {spec_path.relative_to(REPO_ROOT)}")
@@ -594,6 +605,7 @@ def _discover_scenarios(
     skills_filter: str,
     profile_filter: str | None,
     platform_filter: str | None,
+    spec_filter: str | None,
     dataset_root: Path,
 ) -> tuple[list[NemoClawScenario], list[str]]:
     shutil.rmtree(dataset_root, ignore_errors=True)
@@ -601,6 +613,7 @@ def _discover_scenarios(
         skills_filter=skills_filter,
         profile_filter=profile_filter,
         platform_filter=platform_filter,
+        spec_filter=spec_filter,
     )
     scenarios: list[NemoClawScenario] = []
     for skill, spec_path, platforms in specs:
@@ -629,6 +642,65 @@ def _discover_scenarios(
                     )
                 )
     return scenarios, blockers
+
+
+def _preferred_platform(platforms: list[str], platform_filter: str | None) -> str:
+    if platform_filter and platform_filter in platforms:
+        return platform_filter
+    if DEFAULT_PLATFORM in platforms:
+        return DEFAULT_PLATFORM
+    if "ANY" in platforms:
+        return "ANY"
+    return platforms[0]
+
+
+def _build_matrix(
+    *,
+    skills_filter: str,
+    profile_filter: str | None,
+    platform_filter: str | None,
+    spec_filter: str | None,
+    representative_per_skill: bool,
+) -> tuple[list[dict[str, str]], list[str]]:
+    specs, blockers = _selected_specs(
+        skills_filter=skills_filter,
+        profile_filter=profile_filter,
+        platform_filter=platform_filter,
+        spec_filter=spec_filter,
+    )
+    rows: list[dict[str, str]] = []
+    seen_skills: set[str] = set()
+    for skill, spec_path, platforms in specs:
+        selected_platforms = (
+            [_preferred_platform(platforms, platform_filter)]
+            if representative_per_skill
+            else platforms
+        )
+        for platform in selected_platforms:
+            if representative_per_skill and skill in seen_skills:
+                continue
+            slug = "__".join(
+                _safe_slug(part)
+                for part in (skill, spec_path.stem, platform)
+            )
+            rows.append(
+                {
+                    "name": f"{skill}/{spec_path.stem}/{platform}",
+                    "skill": skill,
+                    "spec_stem": spec_path.stem,
+                    "spec_path": str(spec_path.relative_to(REPO_ROOT)),
+                    "platform": platform,
+                    "slug": slug,
+                }
+            )
+            seen_skills.add(skill)
+    return rows, blockers
+
+
+def _print_matrix(rows: list[dict[str, str]], blockers: list[str]) -> None:
+    for blocker in blockers:
+        print(f"[nemoclaw-ci] blocked coverage item: {blocker}", file=sys.stderr, flush=True)
+    print(json.dumps({"include": rows}, separators=(",", ":")), flush=True)
 
 
 def _list_instances() -> list[dict[str, Any]]:
@@ -1265,8 +1337,10 @@ def _ensure_uvx() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global SCRATCH_ROOT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skills", default=os.environ.get("MANUAL_SKILLS_FILTER", DEFAULT_SKILL))
+    parser.add_argument("--spec", default=os.environ.get("NEMOCLAW_EVAL_SPEC", ""))
     parser.add_argument("--profile", default=os.environ.get("NEMOCLAW_EVAL_PROFILE", DEFAULT_PROFILE))
     parser.add_argument("--platform", default=os.environ.get("NEMOCLAW_EVAL_PLATFORM", ""))
     parser.add_argument("--gpu-count", type=int, default=None)
@@ -1275,16 +1349,37 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--harbor-timeout", type=int, default=int(os.environ.get("NEMOCLAW_HARBOR_TIMEOUT_SEC", "4500")))
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("--results-root", default=str(DEFAULT_RESULTS_ROOT))
+    parser.add_argument("--scratch-root", default=os.environ.get("NEMOCLAW_SCRATCH_ROOT", str(SCRATCH_ROOT)))
+    parser.add_argument("--print-matrix", action="store_true")
+    parser.add_argument(
+        "--all-specs",
+        action="store_true",
+        default=os.environ.get("NEMOCLAW_ALL_SPECS", "").strip().lower() in {"1", "true", "yes"},
+        help="For skills='*', include every spec/platform instead of one representative scenario per skill.",
+    )
     args = parser.parse_args(argv)
 
     run_id = os.environ.get("GITHUB_RUN_ID", f"manual-{int(time.time())}")
     dataset_root = Path(args.dataset_root)
     results_root = Path(args.results_root)
+    SCRATCH_ROOT = Path(args.scratch_root)
 
     all_skills, requested_skills = _skill_filters(args.skills)
-    default_single_smoke = not all_skills and requested_skills in ([], [DEFAULT_SKILL])
+    spec_filter = args.spec.strip() or None
+    default_single_smoke = not spec_filter and not all_skills and requested_skills in ([], [DEFAULT_SKILL])
     platform_filter = args.platform or (DEFAULT_PLATFORM if default_single_smoke else None)
     profile_filter = args.profile if default_single_smoke else None
+
+    if args.print_matrix:
+        rows, blockers = _build_matrix(
+            skills_filter=args.skills,
+            profile_filter=profile_filter,
+            platform_filter=platform_filter,
+            spec_filter=spec_filter,
+            representative_per_skill=all_skills and not args.all_specs,
+        )
+        _print_matrix(rows, blockers)
+        return 0
 
     os.environ["SKILLS_EVAL_RUNNER"] = "nemoclaw"
     os.environ["PYTHONPATH"] = f"{SKILL_EVAL_ROOT}:{os.environ.get('PYTHONPATH', '')}"
@@ -1296,6 +1391,7 @@ def main(argv: list[str] | None = None) -> int:
             skills_filter=args.skills,
             profile_filter=profile_filter,
             platform_filter=platform_filter,
+            spec_filter=spec_filter,
             dataset_root=dataset_root,
         )
         for blocker in blockers:

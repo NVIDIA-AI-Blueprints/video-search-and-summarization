@@ -344,13 +344,57 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------
-  # nemoclaw-eval — deterministic manual NemoClaw/OpenClaw path.
+  # nemoclaw-plan — compute the manual NemoClaw/OpenClaw matrix.
   # ---------------------------------------------------------------------
-  nemoclaw-eval:
-    name: NemoClaw skills eval
+  nemoclaw_plan:
+    name: Plan NemoClaw eval matrix
     if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
     runs-on: [self-hosted, vss-skill-eval-runner]
-    timeout-minutes: 720
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_targets: ${{ steps.plan.outputs.has_targets }}
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute NemoClaw matrix
+        id: plan
+        env:
+          INPUT_SKILLS: ${{ inputs.skills || '*' }}
+        run: |
+          MATRIX=$(python3 .github/skill-eval/nemoclaw/smoke_runner.py \
+            --print-matrix \
+            --skills "${INPUT_SKILLS}")
+          COUNT=$(python3 -c 'import json,sys; print(len(json.loads(sys.stdin.read()).get("include", [])))' <<< "$MATRIX")
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "has_targets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_targets=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "## NemoClaw eval matrix"
+            echo ""
+            echo "- Selected rows: \`$COUNT\`"
+            echo "- Skills input: \`${INPUT_SKILLS}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------
+  # nemoclaw-eval — deterministic manual NemoClaw/OpenClaw matrix path.
+  # ---------------------------------------------------------------------
+  nemoclaw-eval:
+    name: NemoClaw / ${{ matrix.name }}
+    needs: nemoclaw_plan
+    if: needs.nemoclaw_plan.outputs.has_targets == 'true'
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
+    timeout-minutes: 240
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
@@ -367,11 +411,10 @@ jobs:
 
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
-        timeout-minutes: 720
+        timeout-minutes: 240
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
-          INPUT_SKILLS: ${{ inputs.skills }}
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           set -a
@@ -388,18 +431,10 @@ jobs:
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
-          if [ "${INPUT_SKILLS}" != "*" ] && [ -n "${INPUT_SKILLS}" ]; then
-            if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
-              echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-deploy-profile' or '*' to sweep all."
-              exit 1
-            fi
-            if [ ! -d "skills/${INPUT_SKILLS}" ]; then
-              echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref."
-              exit 1
-            fi
-          fi
           export MANUAL_FULL_SWEEP=1
-          export MANUAL_SKILLS_FILTER="${INPUT_SKILLS}"
+          export MANUAL_SKILLS_FILTER="${{ matrix.skill }}"
+          export NEMOCLAW_EVAL_SPEC="${{ matrix.spec_stem }}"
+          export NEMOCLAW_EVAL_PLATFORM="${{ matrix.platform }}"
           export SKILLS_EVAL_RUNNER="nemoclaw"
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
@@ -409,16 +444,23 @@ jobs:
           # The generic Claude meta-agent is intentionally not used here
           # because prior runs fanned out unpredictably and burned the full
           # generic 12-hour slot.
-          python3 .github/skill-eval/nemoclaw/smoke_runner.py
+          python3 .github/skill-eval/nemoclaw/smoke_runner.py \
+            --skills "${{ matrix.skill }}" \
+            --spec "${{ matrix.spec_stem }}" \
+            --platform "${{ matrix.platform }}" \
+            --dataset-root "/tmp/skill-eval/datasets/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}" \
+            --results-root "/tmp/skill-eval/results/${{ matrix.slug }}" \
+            --scratch-root "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}"
 
       - name: Collect results for workflow artifact
         if: always()
         env:
-          RUN_RESULTS: /tmp/skill-eval/results/${{ github.run_id }}
+          RUN_RESULTS: /tmp/skill-eval/results/${{ matrix.slug }}/${{ github.run_id }}
+          RUN_TARBALL: /tmp/skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
         run: |
           # Self-hosted runners reuse /tmp across jobs. Always remove a prior
           # archive first so a blocker run cannot upload stale results.
-          rm -f /tmp/skills-eval-results.tar.gz
+          rm -f "$RUN_TARBALL"
           # Agent writes harbor output to $RUN_RESULTS (runtime-only;
           # not tracked under the repo). Blocker paths
           # (missing_platforms_declaration, missing_probe, etc.) finish
@@ -429,11 +471,11 @@ jobs:
           fi
           RESULTS=$(find "$RUN_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
-            TAR_PATHS=("results/${{ github.run_id }}")
-            if [ -d /tmp/skill-eval/nemoclaw ]; then
-              TAR_PATHS+=("nemoclaw")
+            TAR_PATHS=("results/${{ matrix.slug }}/${{ github.run_id }}")
+            if [ -d "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}" ]; then
+              TAR_PATHS+=("nemoclaw/${{ matrix.slug }}")
             fi
-            tar czf /tmp/skills-eval-results.tar.gz \
+            tar czf "$RUN_TARBALL" \
               -C /tmp/skill-eval \
               --exclude='agent' \
               --exclude='hooks_token' \
@@ -448,8 +490,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: skills-eval-results-manual-${{ github.run_id }}
-          path: /tmp/skills-eval-results.tar.gz
+          name: skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 7
 
@@ -457,7 +499,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: skills-eval-benchmark-manual-${{ github.run_id }}
-          path: /tmp/skill-eval/${{ github.run_id }}/benchmark.md
+          name: skills-eval-benchmark-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}/benchmark.md
           if-no-files-found: ignore
           retention-days: 7

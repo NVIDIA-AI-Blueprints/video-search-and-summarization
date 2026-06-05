@@ -708,6 +708,38 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertCountEqual(candidates, ["vss-eval-l40s-1g", "vss-eval-rtx-1g"])
         self.assertNotIn("personal-l40s", candidates)
 
+    def test_all_skills_matrix_uses_one_representative_row_per_skill(self):
+        rows, blockers = smoke_runner._build_matrix(
+            skills_filter="*",
+            profile_filter=None,
+            platform_filter=None,
+            spec_filter=None,
+            representative_per_skill=True,
+        )
+
+        skills = [row["skill"] for row in rows]
+        self.assertEqual(len(skills), len(set(skills)))
+        self.assertIn("vss-deploy-profile", skills)
+        self.assertIn("vss-ask-video", skills)
+        self.assertTrue(
+            any("vss-generate-video-calibration: missing Harbor adapter" in item for item in blockers)
+        )
+
+    def test_focused_deploy_profile_matrix_keeps_base_smoke(self):
+        rows, blockers = smoke_runner._build_matrix(
+            skills_filter="vss-deploy-profile",
+            profile_filter="base",
+            platform_filter="RTXPRO6000BW",
+            spec_filter=None,
+            representative_per_skill=False,
+        )
+
+        self.assertEqual(blockers, [])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["skill"], "vss-deploy-profile")
+        self.assertEqual(rows[0]["spec_stem"], "base")
+        self.assertEqual(rows[0]["platform"], "RTXPRO6000BW")
+
     def test_worker_selection_skips_locked_candidate(self):
         previous = {
             "_list_instances": smoke_runner._list_instances,
