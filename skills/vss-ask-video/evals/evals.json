@@ -1,0 +1,13 @@
+[
+  {
+    "id": "ask-video-visual-question",
+    "question": "Ask the VSS agent a fresh visual question about a recorded video clip, e.g. \"what colour is the forklift in the warehouse_sample clip?\"",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Loads vss-ask-video and routes the question through the VSS agent's video_understanding tool (POST /generate with input_message) against a named recorded clip, not search hits or metadata.",
+    "expected_behavior": [
+      "Loads the vss-ask-video skill and uses the agent's video_understanding tool (not search or metadata).",
+      "Targets a named recorded clip and asks a genuinely visual question via the agent REST API.",
+      "Does not print plaintext API tokens or other secrets."
+    ]
+  }
+]
