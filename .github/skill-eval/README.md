@@ -6,8 +6,8 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
-3. Acquires a per-instance `flock` on an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
-4. Runs `uvx harbor run` against each dataset, one trial at a time, with the canonical invocation captured in [`AGENTS.md § Harbor invocation`](AGENTS.md).
+3. Selects an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
+4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes `uvx harbor run` with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
 
@@ -56,6 +56,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 ├── README.md              ← you are here
 ├── AGENTS.md              ← skills-eval agent's system prompt
 ├── skills_eval_agent.py   ← the CI entrypoint (spawns the agent)
+├── run_leg.py             ← structural per-box lock + Harbor launcher
 ├── adapters/              ← per-skill dataset generators
 │   ├── vss-deploy-profile/            ← profile × platform × mode matrix
 │   │   └── generate.py
@@ -170,29 +171,26 @@ python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
   --platform L40S
 
 # 2. Make sure you have a Brev instance for the target platform
-#    (or let the skills-eval agent manage it).
+#    (or let the skills-eval agent select one).
 #
 # ⚠️ On a spec's first trial the env provider WIPES the box's docker runtime
 #    (all containers, user-defined networks, and volumes; images are kept).
 #    NEVER point a manual run at a box a CI run currently holds — it will
-#    `docker rm -f` that run's deployment mid-trial. Use a demonstrably idle
-#    box, or hold the per-box flock (see AGENTS.md § 5b).
-export BREV_INSTANCE=vss-eval-l40s
+#    `docker rm -f` that run's deployment mid-trial. Use run_leg.py so the
+#    same per-box lock contract applies to manual runs.
+INSTANCE_NAME=vss-eval-l40s
 
-# 3. Run one trial. The flags here mirror the canonical invocation in
-#    AGENTS.md § Harbor invocation — don't improvise.
+# 3. Run one trial. run_leg.py discovers single-step vs multi-step task
+#    layouts, holds /tmp/brev/$INSTANCE_NAME.lock, and invokes Harbor.
 export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
 
-uvx harbor run \
-  --environment-import-path "envs.brev_env:BrevEnvironment" \
-  -p /tmp/skill-eval/datasets/vss-manage-video-io-storage/vios_ops \
-  --include-task-name "l40s" \
-  -a claude-code \
-  --model "$ANTHROPIC_MODEL" \
-  --ak api_base="$ANTHROPIC_BASE_URL/v1" \
-  --ae CLAUDE_CODE_DISABLE_THINKING=1 \
-  --max-retries 0 -n 1 --yes \
-  -o /tmp/skill-eval/results/manual-$(date +%Y%m%d-%H%M%S)
+python3 .github/skill-eval/run_leg.py \
+  --instance "$INSTANCE_NAME" \
+  --dataset-root /tmp/skill-eval/datasets/vss-manage-video-io-storage \
+  --results-root /tmp/skill-eval/results/manual-$(date +%Y%m%d-%H%M%S) \
+  --scratch /tmp/skill-eval/manual \
+  --spec-stem vios_ops \
+  --platform L40S
 ```
 
 `CLAUDE_CODE_DISABLE_THINKING=1` is required when routing through the NVIDIA Anthropic proxy — claude-code ≥ 2.1.x otherwise emits a `context_management` field the proxy rejects with HTTP 400.
@@ -240,7 +238,7 @@ disown
 
 **`AddTestsDirError` / `DownloadVerifierDirError`.** File upload/download to the Brev instance failed. Check `brev exec <instance> "echo ok"` works manually. Clear `/tests /logs /skills` on the instance and retry.
 
-**Pool exhausted for `<platform>`.** No `vss-eval-*` pool member matches the trial's `gpu_type` after the 28800s wait window (`brev ls` polled every 5 min). The agent emits `BLOCKED: pool exhausted for <platform>` and exits. Provisioning new pool members is the operator's job — `brev create vss-eval-<name>` with the matching instance type, then bring it online; the next CI run picks it up automatically via the `^vss-eval-*` fleet scan.
+**Pool exhausted for `<platform>`.** No `vss-eval-*` pool member matches the trial's `gpu_type` after the 21000s wait window (`brev ls` polled every 5 min). The agent emits `BLOCKED: pool exhausted for <platform>` and exits. Provisioning new pool members is the operator's job — `brev create vss-eval-<name>` with the matching instance type, then bring it online; the next CI run picks it up automatically via the `^vss-eval-*` fleet scan.
 
 **Brev auth expired mid-run.** The CI run emits `BLOCKED: brev auth expired`. The `brev-keepalive.timer` systemd user unit keeps the access token warm, but only an interactive `brev login --auth nvidia` can refresh a fully-expired refresh token.
 

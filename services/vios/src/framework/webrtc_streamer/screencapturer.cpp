@@ -1,0 +1,102 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* ---------------------------------------------------------------------------
+** This software is in the public domain, furnished "as is", without technical
+** support, and with no warranty, express or implied, as to its usefulness for
+** any purpose.
+**
+** screencapturer.cpp
+**
+** -------------------------------------------------------------------------*/
+
+#ifdef USE_X11
+
+#include "rtc_base/logging.h"
+
+#include "screencapturer.h"
+#include "logger.h"
+
+void DesktopCapturer::OnCaptureResult(webrtc::DesktopCapturer::Result result, std::unique_ptr<webrtc::DesktopFrame> frame) {
+	
+	LOG(info) << "DesktopCapturer:OnCaptureResult";
+	
+	if (result == webrtc::DesktopCapturer::Result::SUCCESS) {
+		int width = frame->rect().width();
+		int height = frame->rect().height();
+		rtc::scoped_refptr<webrtc::I420Buffer> I420buffer = webrtc::I420Buffer::Create(width, height);
+
+		const int conversionResult = libyuv::ConvertToI420(frame->data(), frame->stride()*webrtc::DesktopFrame::kBytesPerPixel,
+			I420buffer->MutableDataY(), I420buffer->StrideY(),
+			I420buffer->MutableDataU(), I420buffer->StrideU(),
+			I420buffer->MutableDataV(), I420buffer->StrideV(),
+			0, 0,
+			width, height,
+			width, height,
+			libyuv::kRotate0, ::libyuv::FOURCC_ARGB);									
+				
+		if (conversionResult >= 0) {
+			webrtc::VideoFrame videoFrame(I420buffer, webrtc::VideoRotation::kVideoRotation_0, rtc::TimeMicros());
+			if ( (m_height == 0) && (m_width == 0) ) {
+				broadcaster_.OnFrame(videoFrame);	
+
+			} else {
+				int height = m_height;
+				int width = m_width;
+				if (height == 0) {
+					height = (videoFrame.height() * width) / videoFrame.width();
+				}
+				else if (width == 0) {
+					width = (videoFrame.width() * height) / videoFrame.height();
+				}
+				int stride_y = width;
+				int stride_uv = (width + 1) / 2;
+				rtc::scoped_refptr<webrtc::I420Buffer> scaled_buffer = webrtc::I420Buffer::Create(width, height, stride_y, stride_uv, stride_uv);
+				scaled_buffer->ScaleFrom(*videoFrame.video_frame_buffer()->ToI420());
+				webrtc::VideoFrame frame = webrtc::VideoFrame(scaled_buffer, webrtc::kVideoRotation_0, rtc::TimeMicros());
+						
+				broadcaster_.OnFrame(frame);
+			}
+		} else {
+			LOG(error) << "DesktopCapturer:OnCaptureResult conversion error:" << conversionResult;
+		}				
+
+	} else {
+		LOG(info) << "DesktopCapturer:OnCaptureResult capture error:" << (int)result;
+	}
+}
+		
+void DesktopCapturer::CaptureThread() {
+	LOG(info) << "DesktopCapturer:Run start";
+	while (IsRunning()) {
+		m_capturer->CaptureFrame();
+	}
+	LOG(info) << "DesktopCapturer:Run exit";
+}
+bool DesktopCapturer::Start() {
+	m_isrunning = true;
+	m_capturethread = std::thread(&DesktopCapturer::CaptureThread, this); 
+	m_capturer->Start(this);
+	return true;
+}
+		
+void DesktopCapturer::Stop() {
+	m_isrunning = false;
+	m_capturethread.join(); 
+}
+		
+#endif

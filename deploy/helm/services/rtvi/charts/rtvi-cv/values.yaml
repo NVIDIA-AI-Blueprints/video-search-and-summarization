@@ -26,8 +26,8 @@ scripts:
   data: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-  tag: "3.2.0-26.05.1"
+  repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+  tag: "3.2.0"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -101,8 +101,8 @@ ngcModelsToDownload:
 # Download Job unpacks the .tar.gz onto the shared -models PVC under vss-warehouse-app-data/.
 downloadNgcAppData: false
 ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
-# Required with NGC_CLI_API_KEY: registry org for the resource (e.g. nvstaging for vss-warehouse).
-ngcAppDataOrg: "nvstaging"
+# Required with NGC_CLI_API_KEY: registry org for the resource (e.g. nvidia for vss-warehouse).
+ngcAppDataOrg: "nvidia"
 downloadNgcAppDataWaitSeconds: 3600
 
 # Used when profileMode is standalone-2d or standalone-3d (metropolis warehouse ds-start.sh paths).

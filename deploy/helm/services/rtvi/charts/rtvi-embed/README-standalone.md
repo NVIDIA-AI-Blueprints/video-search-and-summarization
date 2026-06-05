@@ -15,7 +15,7 @@ For chart internals (templates, values), see `charts/rtvi-embed/`.
 - **`ngc-image-pull-secret`** (or equivalent) if your cluster requires pull secrets for private images (`imagePullSecrets` in `overrides_rtvi_embed.yaml`). Base `values.yaml` defaults to **`ngc-docker-reg-secret`** instead—use one name consistently.
 - On **MicroK8s / GPU Operator** clusters, GPU scheduling may require extra node setup (device plugin, `nvidia.com/gpu` allocatable); this chart version does not expose `runtimeClassName` in `templates/deployment.yaml`.
 
-Default image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>` (see `Chart.yaml` / `values.yaml` for image `tag`).
+Default image: `nvcr.io/nvidia/vss-core/vss-rt-embed:<tag>` (see `Chart.yaml` / `values.yaml` for image `tag`).
 
 ---
 

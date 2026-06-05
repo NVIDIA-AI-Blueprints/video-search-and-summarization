@@ -59,6 +59,14 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # corrupting an artifact name or escaping a path.
 SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+# `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
+# scenarios, not a dispatchable spec object. It has no `resources.platforms`,
+# so spec_platforms() would choke on it (list has no .get), and the agent can't
+# run it as a single spec. Real specs are named per scenario (deploy.json,
+# routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
+# never becomes a matrix leg.
+EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
+
 
 def list_changed_files() -> list[str]:
     """Changed files in the cumulative PR diff (base...mirror head).
@@ -124,6 +132,8 @@ def specs_for_skill(skill: str) -> list[tuple[str, str, str]]:
         if not d.is_dir():
             continue
         for p in sorted(d.glob("*.json")):
+            if p.name in EXCLUDED_SPEC_NAMES:
+                continue
             rel = p.relative_to(REPO_ROOT).as_posix()
             found.append((rel, eval_dir, p.stem))
     return found
@@ -158,7 +168,10 @@ def build_matrix(changed: list[str]) -> list[dict]:
 
     for f in changed:
         m = SPEC_RE.match(f)
-        if m:
+        # A changed `evals.json` is not a spec; let it fall through to the
+        # whole-skill rule below (and specs_for_skill keeps it out of that
+        # expansion too) rather than dispatching it as its own leg.
+        if m and Path(f).name not in EXCLUDED_SPEC_NAMES:
             changed_specs.add(f)
             continue
         m = SKILL_FILE_RE.match(f)

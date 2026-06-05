@@ -15,6 +15,6 @@
 
 apiVersion: v2
 name: vss-agent
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0"
 maintainers: []

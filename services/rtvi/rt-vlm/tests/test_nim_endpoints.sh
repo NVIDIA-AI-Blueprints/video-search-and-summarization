@@ -83,7 +83,7 @@ if [ -z "$MODEL_NAME" ]; then
     MODEL_NAME=$(python3 "$CLI_SCRIPT" list-models --backend "$BACKEND" 2>/dev/null | grep -oP 'id:\s+\K[^\s,]+' | head -1)
     if [ -z "$MODEL_NAME" ]; then
         echo "Warning: Could not get model name. Using default."
-        MODEL_NAME="nvstaging_nim_cosmos-reason-2-8b_hf-v2"
+        MODEL_NAME="nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"
     fi
 fi
 echo "Using model: $MODEL_NAME"

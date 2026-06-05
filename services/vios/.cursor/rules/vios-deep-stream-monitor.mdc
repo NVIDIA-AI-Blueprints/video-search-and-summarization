@@ -1,0 +1,77 @@
+---
+description: "Deep reference: StreamMonitor framework -- RTSP connection mgmt, QoS, frame delivery, reconnection"
+globs: "src/framework/stream_monitor/**,src/framework/live555/**,src/framework/media/video_source/producers/**"
+alwaysApply: false
+---
+
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# StreamMonitor (Singleton)
+
+## Architecture
+
+Central RTSP stream manager. Singleton via `std::call_once`. Owns `QosRtspClient` instances and delivers frames to consumers (decoders, recorders).
+
+## Thread Model
+
+| Thread | Function | Role |
+|--------|----------|------|
+| `m_streamMonitorThread` | `livenessMonitorTask()` | CURL multi OPTIONS, liveness status |
+| `m_qosMeasurementThread` | `qosMeasurementTask()` | Create/remove QosRtspClient, reconnection, QoS |
+| `m_frameMonitorThread` (per client) | `frameMonitorTask()` | Dequeue frames, call onDataConsumer() |
+| live555 env thread | `CaptureThread()` | RTSP DESCRIBE/SETUP/PLAY, RTP receive |
+| `m_notifyThread` (StreamEventManager) | `notifyTask()` | Stream status events |
+
+## Frame Delivery Pipeline
+
+1. live555 RTP -> `SessionSink::afterGettingFrame()` -> `SessionCallback::onData()`
+2. `QosRtspClient::onData()`: parse NAL type, SEI, build `FrameInfo` -> push to `m_frameQueue`
+3. `frameMonitorTask()`: pop from queue -> `onDataConsumer()`
+4. `onDataConsumer()`: iterate consumers, send SPS/PPS before first IDR, call `consumer->onFrame()`
+
+## Consumer Registration
+
+- `registerDataCallback(url, consumer)`: adds consumer to `m_streamConsumers[url]`, starts `QosRtspClient` if needed
+- `deregisterDataCallback(consumer, url)`: removes consumer, removes stream if no consumers left
+- Used by recorder (`GstMux`), decoder (`GstNvVideoDecoder`), `PipelineBuilder`
+
+## QoS Measurement
+
+- `QosMeasurementRecord`: bitrate, packet loss, FPS from `RTPReceptionStats`
+- `qosDataCollector()`: scheduled on live555 via `scheduleDelayedTask()`
+- `printQoSData()`: CSV + JSON for API (`/api/v1/sensor/qos`)
+
+## Reconnection
+
+- `onConnectionTimeout/onDataTimeout/onError` -> `restartConnection()`
+- `restartConnection()`: waits `RTSP_CONNECTION_RETRY_INTERVAL_SEC`, sets `m_isRestartRequired`
+- `qosMeasurementTask()` checks `isRtspReconnectionRequired()`, recreates client
+- Blacklist after `RTSP_CONNECTION_MAX_RETRY_COUNT` (3) for `URL_BLACKLIST_PERIOD_SEC` (60s)
+- TCP fallback: `enableTcpStreaming(uri)` when UDP fails
+
+## Related Producers
+
+- **NativeStreamMonitor** (native_stream_monitor.h): manages CSI streams via `NativeStreamProducer`, no RTSP/QoS
+- **WebrtcStreamProducer** (webrtcstreamproducer.h): `IMediaDataProducer` for WebRTC input streams, used when URL contains `webrtc`
+
+## Integration Points
+
+| Module | How |
+|--------|-----|
+| Recorder | `registerDataCallback(live_proxy_url, m_mux)` |
+| RTSP Server | `removeStream()` on END_OF_STREAM |
+| Live WebRTC | `addStream()` when `needStreamMonitoring && !needRtspServer` |
+| PipelineBuilder | `StreamMonitor::getInstance()` for RTSP URLs |

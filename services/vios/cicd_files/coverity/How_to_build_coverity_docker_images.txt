@@ -1,0 +1,38 @@
+# Instructions to build coverity docker images:
+
+1) p4 setup:
+Add following p4 paths your p4 client spec:
+  - //sw/mobile/tools/coverity/coverity_2020.09-2/
+  - //sw/scripts/tools/CoverityAutomation/
+
+Sync above paths using the commands:
+	p4 sync //sw/mobile/tools/coverity/coverity_2020.09-2/ 
+	p4 sync //sw/scripts/tools/CoverityAutomation/
+
+2) Container image names are set currently as below:
+
+for x86 : gitlab-master.nvidia.com:5005/l4tmm/vms_shim/vms_shim_devel_coverity:x86_20.04_base_image
+for aarch64: gitlab-master.nvidia.com:5005/l4tmm/vms_shim/vms_shim_devel_coverity:jetson_cross_compiler_rel-34
+
+3) Run the following commands to build coverity container for
+a platform (x86 or aarch64).
+
+   cd vms_shim/cicd_files/coverity
+   cp -r ${P4ROOT}/sw/mobile/tools/coverity/coverity_2020.09-2/ .
+   cp -r ${P4ROOT}/sw/scripts/tools/CoverityAutomation/ . 
+   
+   docker build -t <container_image_name> .
+
+4) Running coverity script:
+
+You can run vms_shim/cicd_files/coverity_script.sh from inside above container images to run
+coverity on the synced branch.
+
+e.g.
+
+cd vms_shim
+docker run -it -v $(pwd):/root gitlab-master.nvidia.com:5005/l4tmm/vms_shim/vms_shim_devel_coverity:x86_20.04_base_image
+
+# Inside container
+cd /root/cicd_files/
+./converity_script.sh

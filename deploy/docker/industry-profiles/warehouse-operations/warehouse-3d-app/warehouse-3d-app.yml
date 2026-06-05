@@ -44,7 +44,7 @@ services:
 
   nvstreamer-3d:
     container_name: vss-vios-nvstreamer
-    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_auto_calib_3d"]
@@ -143,7 +143,7 @@ services:
         fi
 
   bp-configurator-3d:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
+    image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.0
     container_name: vss-configurator
     network_mode: "host"
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
@@ -220,7 +220,7 @@ services:
       start_period: 60s
 
   ds-configurator-3d:
-    image: nvcr.io/nvstaging/vss-core/vss-rt-config-adaptor:3.2-2026.05.15-3
+    image: nvcr.io/nvidia/vss-core/vss-rt-config-adaptor:3.2.0
     network_mode: "host"
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
     container_name: vss-rtvi-cv-config-adaptor

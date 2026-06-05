@@ -242,6 +242,28 @@ class BrevEnvironment(BaseEnvironment):
         )
         await _run_brev_exec(self._instance_name, archive_cmd, timeout=30)
 
+        # Clear Claude Code's background-task scratch before the new
+        # `claude --print` starts. Session JSONL archival above handles stale
+        # `/logs/agent/sessions/projects/*`, but completed background tasks
+        # can also leave markers under `/tmp/claude-<uid>/.../tasks`. Claude
+        # Code may surface those as fresh `<task-notification>` messages in
+        # the next session, polluting the trajectory before the eval prompt.
+        claude_task_cleanup_result = await _run_brev_exec(
+            self._instance_name,
+            _claude_task_scratch_cleanup_command(),
+            timeout=30,
+        )
+        if claude_task_cleanup_result.return_code != 0:
+            tail = (
+                claude_task_cleanup_result.stderr
+                or claude_task_cleanup_result.stdout
+                or ""
+            )[-500:]
+            raise RuntimeError(
+                f"claude task scratch cleanup failed on {self._instance_name}: "
+                f"exit {claude_task_cleanup_result.return_code}; tail:\n{tail}"
+            )
+
         # Forward task-critical env vars from the local shell into the
         # instance's ~/.eval_env (sourced by ~/.profile, which every
         # brev exec then sources).  Harbor's claude-code agent only
@@ -733,6 +755,31 @@ def _which(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+def _claude_task_scratch_cleanup_command() -> str:
+    """Remove stale Claude Code background-task markers for this user.
+
+    Claude Code keys temp scratch by effective UID, e.g.
+    `/tmp/claude-1002/-home-shadeform/<session>/tasks/<id>.output`. Removing
+    the old `tasks/` dirs prevents completed background-command notifications
+    from being replayed into the next Harbor trial.
+    """
+    return (
+        "UID_NUM=$(id -u); "
+        'BASE="/tmp/claude-${UID_NUM}"; '
+        'if [ -d "$BASE" ]; then '
+        '  BEFORE=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
+        # No `2>/dev/null` on the rm step: a real cleanup failure's stderr must
+        # reach claude_task_cleanup_result.stderr so the RuntimeError tail isn't
+        # empty (the BEFORE/AFTER count-finds keep theirs — that noise is benign).
+        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || exit 1; '
+        '  AFTER=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
+        '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
+        'else '
+        '  echo "[claude-task-scratch] no scratch base $BASE"; '
+        "fi"
+    )
+
+
 def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:
     """SIGKILL the child's whole process group.
 
@@ -1107,7 +1154,8 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
 
 
 async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
-    """SSH in and count GPUs via nvidia-smi. Raises on mismatch."""
+    """SSH in and count GPUs via nvidia-smi. Raises only if the box has
+    FEWER GPUs than required — over-provisioned boxes are accepted (>=)."""
     result = await _run_brev_exec(
         instance_name,
         "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
@@ -1128,16 +1176,21 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
             instance_name, result.stdout,
         )
         return
-    if actual != required_count:
+    # Over-provisioning is fine — a 1-GPU spec runs on a 2-GPU box with the
+    # 2nd GPU idle. Only UNDER-provisioning is fatal (a 2-GPU spec can't
+    # launch its second model on a 1-GPU box). The orchestrator still PREFERS
+    # an exact match for pool partitioning (AGENTS.md § 5a); this is the
+    # fallback gate. Returning (not raising) lets start() proceed to
+    # _reset_docker_runtime, so a fallback over-provisioned box still gets
+    # wiped before the trial deploys onto it.
+    if actual < required_count:
         raise RuntimeError(
             f"Brev instance '{instance_name}' has {actual} GPU(s) (live "
-            f"nvidia-smi); task requires exactly {required_count}. Pool "
-            f"partition mismatch — pick a fleet member with the matching "
-            f"GPU count (e.g. vss-eval-l40s-1g for 1-GPU, vss-eval-l40s* "
-            f"for 2-GPU)."
+            f"nvidia-smi); task requires at least {required_count}. Pick a "
+            f"fleet member with >= the required GPU count."
         )
     logger.info(
-        "Instance '%s' live gpu_count: %d (matches required %d)",
+        "Instance '%s' live gpu_count: %d (satisfies required >= %d)",
         instance_name, actual, required_count,
     )
 
@@ -1210,11 +1263,15 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
                 f"gpu_type: want tokens of {required_type!r} in {gpu!r}"
             )
 
-    # gpu_count check — strict equality so pool partitioning works.
-    # A 1-GPU task on a 2-GPU box wastes capacity (the other GPU could
-    # serve a sibling 1-GPU trial in parallel); a 2-GPU task on a 1-GPU
-    # box can't even launch the second LLM/VLM. Strict match makes both
-    # cases loud at validate time instead of mid-trial.
+    # gpu_count check — require >= (over-provisioned OK), NOT strict equality.
+    # A 1-GPU spec runs fine on a 2-GPU box (2nd GPU idles); only an
+    # UNDER-provisioned box (fewer GPUs than required) can't launch the spec's
+    # second model and must be rejected. Pool partitioning is preserved by the
+    # orchestrator PREFERRING an exact match (AGENTS.md § 5a) — this is the
+    # validate-time gate for the fallback case. Crucially, because we no longer
+    # raise here for an over-provisioned box, start() proceeds to
+    # _reset_docker_runtime, so a fallback 2-GPU box is wiped clean before the
+    # trial deploys onto it.
     required_count = int(req.get("gpu_count", 1) or 0)
     if required_count > 0:
         catalog_count = await _get_instance_gpu_count_from_catalog(
@@ -1231,9 +1288,9 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
                 await _check_live_gpu_count(instance.get("name"), required_count)
             except RuntimeError as exc:
                 errors.append(str(exc))
-        elif catalog_count != required_count:
+        elif catalog_count < required_count:
             errors.append(
-                f"gpu_count: want exactly {required_count}, instance has "
+                f"gpu_count: want at least {required_count}, instance has "
                 f"{catalog_count} (instance_type={instance.get('instance_type')})"
             )
 
@@ -1250,7 +1307,7 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
         require_clauses = []
         if required_type:
             require_clauses.append(f"gpu_type={required_type!r}")
-        require_clauses.append(f"gpu_count={required_count}")
+        require_clauses.append(f"gpu_count>={required_count}")
         require_phrase = " + ".join(require_clauses)
         hint = (
             f"\n\nTo find a matching pool member, scan vss-eval-* "
@@ -1343,5 +1400,3 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
             "Instance '%s' driver: %s (>= required %s)",
             instance_name, actual, min_driver,
         )
-
-
