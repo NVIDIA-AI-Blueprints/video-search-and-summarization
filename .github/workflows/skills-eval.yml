@@ -435,6 +435,7 @@ jobs:
           export MANUAL_SKILLS_FILTER="${{ matrix.skill }}"
           export NEMOCLAW_EVAL_SPEC="${{ matrix.spec_stem }}"
           export NEMOCLAW_EVAL_PLATFORM="${{ matrix.platform }}"
+          export NEMOCLAW_RECREATE_SANDBOX=1
           export SKILLS_EVAL_RUNNER="nemoclaw"
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
