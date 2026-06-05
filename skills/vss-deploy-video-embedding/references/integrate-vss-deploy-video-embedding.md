@@ -10,7 +10,7 @@ The Video Embedding microservice (legacy name: RT-Embed) generates dense vector 
 - **Redis** — Optional. Only required when error-message publishing is enabled (`ENABLE_REDIS_ERROR_MESSAGES=true`). Configure via `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, and `REDIS_PASSWORD`.
 - **Apache Kafka** — Optional. Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). The service publishes embedding messages to the topic named by `RTVI_EMBED_KAFKA_TOPIC` (injected as `KAFKA_TOPIC`; default `vision-embed-messages`) and errors to `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) using `KAFKA_BOOTSTRAP_SERVERS` (Compose builds this from `${HOST_IP}:9092`).
 - **OpenTelemetry collector** — Optional. Only required when `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` is set on the host (Compose injects this as `ENABLE_OTEL_MONITORING` inside the container). The service exports OTLP traces and metrics to `OTEL_EXPORTER_OTLP_ENDPOINT` (default `http://otel-collector:4318`).
-- **Upstream video source (VST or compatible clip writer)** — Optional. When you want to embed clips written by VST, mount `${VSS_DATA_DIR}/data_log/vst/clip_storage` at the service's `/opt/nvidia/vss/streamer_videos` path so the service can read clip files locally.
+- **Upstream video source (VST or compatible clip writer)** — Optional. When you want to embed clips written by VST, mount `${VSS_DATA_DIR}/data_log/vst/clip_storage` at the service's `/home/vst/vst_release/streamer_videos` path so the service can read clip files locally.
 
 ## Integration Interfaces
 
@@ -137,11 +137,6 @@ curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 | `REDIS_PORT` | Redis port. | `6379` | No |
 | `REDIS_DB` | Redis database index. | `0` | No |
 | `REDIS_PASSWORD` | Redis password. | (empty) | Yes when the Redis instance requires auth |
-
-Store `NGC_API_KEY`, `HF_TOKEN`, `NVIDIA_API_KEY`, `REDIS_PASSWORD`, and bearer
-tokens in Docker secrets, a secrets manager, or a restricted `.env` file that is
-ignored by git. Do not hardcode these values in Compose snippets, check them into
-version control, echo them in shell history, or include them in logs.
 | `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Maximum seconds for a URL asset download. | `300` | No |
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Connection timeout (seconds) for asset downloads. | `10` | No |
 | `ENABLE_REQUEST_PROFILING` | Per-request profiling. | `false` | No |
@@ -202,9 +197,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
       - "rtvi-triton-model-repo:/tmp/triton_model_repo"
-      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:/opt/nvidia/vss/streamer_videos"
-    # Required for CUDA/Triton shared-memory performance on this service. Use only
-    # on trusted hosts; otherwise test whether ipc: shareable is sufficient.
+      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos"
     ipc: host
     ulimits:
       memlock:

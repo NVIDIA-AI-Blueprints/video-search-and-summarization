@@ -3,7 +3,6 @@ name: vss-ask-video
 description: Use to ask the VSS agent's video_understanding tool a fresh visual question about a recorded clip. Not for prior tool output, search hits, or metadata-answerable questions.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team <vss-dev@nvidia.com>"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -11,21 +10,7 @@ metadata:
 
 # Video QnA using VLM through VSS Agent
 
-## Purpose
-
 Use this skill when you need details about the video which requires VLM to look at the video frames — for example the agent has **no** usable prior answer and needs a **fresh look at the pixels** for a specific clip.
-
-## Instructions
-
-Run the sensor-list check before every VLM request, resolve or upload the target
-clip, call the VSS agent's `video_understanding` tool via `/generate`, and return
-the agent's answer with the sensor id or filename used.
-
-## Examples
-
-- "What happens in `warehouse_safety_0001`?"
-- "Is anyone missing PPE in this uploaded clip?"
-- "What color is the forklift near the loading dock?"
 
 ---
 
@@ -110,24 +95,6 @@ curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
 
 - **vss-manage-video-io-storage** — VST storage/replay URLs so **`VIDEO_URL`** is valid for the VLM.
 - **vss-generate-video-report** — timestamped **reports** via the **VSS agent** (`/generate`); this skill is **direct VLM** for ad-hoc **video Q&A**.
-
-## Limitations
-
-- Requires a running VSS base or LVS profile with `video_understanding`.
-- Answers depend on clip availability in VST and the selected VLM's visual accuracy.
-- Do not use for questions already answerable from metadata, search results, or
-  analytics/MCP data unless the user asks for visual verification.
-
-## Troubleshooting
-
-- **Error**: VSS agent `/docs` is unreachable. **Cause**: no base/LVS profile is
-  running. **Solution**: ask whether to deploy with `vss-deploy-profile`.
-- **Error**: sensor list does not include the requested clip. **Cause**: video was
-  not uploaded or filename differs from the user's label. **Solution**: upload via
-  `vss-manage-video-io-storage`, then list sensors again.
-- **Error**: `/generate` returns an empty or irrelevant answer. **Cause**: wrong
-  sensor id, inaccessible clip URL, or VLM endpoint issue. **Solution**: verify
-  the sensor id and retry with a narrower visual question.
 
 
 
