@@ -33,7 +33,7 @@
 
 function_groups:
   vss_orchestrator:
-    mdx_data_dir: "~/video-search-and-summarization/deployments/data-dir"
+    mdx_data_dir: "~/video-search-and-summarization/.mdx_data"
     # Required output directory for docker_generate artifacts.
     output_dir: "~/video-search-and-summarization/.orchestrator-artifacts"
     # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
