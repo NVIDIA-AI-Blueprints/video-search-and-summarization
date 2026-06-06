@@ -31,6 +31,11 @@ Container names below are exactly what `docker ps` reports (sourced from the `co
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | nim |
 | VLM | `nvidia/cosmos-reason2-8b` | `cosmos-reason2-8b` | nim |
 
+The base `.env` defaults both sides to shared local deployment:
+`LLM_MODE=local_shared` and `VLM_MODE=local_shared`, with
+`LLM_DEVICE_ID=0` and `VLM_DEVICE_ID=0`. `dev-profile.sh` writes the same
+mode when LLM/VLM device IDs match and no remote flags are selected.
+
 **Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, `nvidia/nemotron-3-nano`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
 
 **Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `Qwen/Qwen3-VL-8B-Instruct`
@@ -349,8 +354,9 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 
 Fire this recipe when the user says *"deploy in remote-all mode"*,
 *"both LLM and VLM are remote"*, or supplies two endpoint URLs (one per
-role). Both mode vars MUST flip to `remote`; leaving either at `local`
-silently breaks `COMPOSE_PROFILES`.
+role). Both mode vars MUST flip from the `.env` defaults
+(`LLM_MODE=local_shared`, `VLM_MODE=local_shared`) to `remote`; leaving either
+at `local_shared` keeps the local shared NIM `COMPOSE_PROFILES` active.
 
 ```json
 {
@@ -379,8 +385,8 @@ grep -E '^(LLM_MODE|VLM_MODE|LLM_BASE_URL|VLM_BASE_URL|LLM_NAME|VLM_NAME)=' \
   deploy/docker/developer-profiles/dev-profile-base/generated.env
 ```
 Expect six lines, all non-empty; `LLM_MODE=remote` and `VLM_MODE=remote`
-must both appear. If either is `local`, you didn't overwrite the
-template placeholder — re-run the `sed` with the correct value.
+must both appear. If either is `local_shared` or `local`, you did not
+overwrite the template default — re-run the `sed` with the correct value.
 
 ### Dedicated GPUs (2-GPU system)
 
