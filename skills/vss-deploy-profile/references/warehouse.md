@@ -329,7 +329,11 @@ Work through phases in order; each must pass before moving to the next.
 
 ```bash
 ngc --version
-echo "NGC_CLI_API_KEY: ${NGC_CLI_API_KEY:+SET}${NGC_CLI_API_KEY:-NOT SET}"
+if [[ -n "${NGC_CLI_API_KEY:-}" ]]; then
+  echo "NGC_CLI_API_KEY: SET"
+else
+  echo "NGC_CLI_API_KEY: NOT SET"
+fi
 ngc config current 2>/dev/null | grep -q "apikey" && echo "NGC config: key present" || echo "NGC config: no key"
 ```
 
@@ -789,7 +793,11 @@ OPENAI_API_KEY=''                              # required for OpenAI remote endp
 nvidia-smi --query-gpu=index,name --format=csv,noheader
 docker info 2>/dev/null | grep -i "runtimes"
 docker run --rm --gpus all ubuntu:24.04 nvidia-smi 2>&1 | head -5
-echo "NGC_CLI_API_KEY: ${NGC_CLI_API_KEY:+SET}${NGC_CLI_API_KEY:-NOT SET}"
+if [[ -n "${NGC_CLI_API_KEY:-}" ]]; then
+  echo "NGC_CLI_API_KEY: SET"
+else
+  echo "NGC_CLI_API_KEY: NOT SET"
+fi
 ngc config current 2>/dev/null | grep -q "apikey" && echo "NGC config: key present" || echo "NGC config: no key"
 ```
 
