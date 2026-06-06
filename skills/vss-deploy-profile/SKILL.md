@@ -123,8 +123,6 @@ silently deploy remote because a var happened to exist.
 
 If no combination on this host satisfies the profile's sizing requirements, **stop and report the blocker** — don't silently pick another shape.
 
-> **Edge shared mode is platform-specific.** On DGX Spark, run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and point the agent at it with `LLM_MODE=remote`. On AGX/IGX Thor, keep using the Edge 4B standalone vLLM fallback with `HF_TOKEN`. Full recipes are in [`references/edge.md`](references/edge.md).
-
 ## Deployment Flow
 
 Always follow this sequence. Never skip the dry-run.
@@ -168,8 +166,6 @@ Before `docker compose up`, verify `EXTERNAL_IP`, `HAPROXY_PORT`, `VSS_PUBLIC_HO
 
 Layout (asset paths, ownership, mount points, profile-specific subdirs) is documented in [`references/data-directory.md`](references/data-directory.md). Read that file before deploying for the first time on a host or when changing profiles.
 
-> **FORBIDDEN: recursive `chown` on `$VSS_DATA_DIR` (e.g. `chown -R ubuntu:ubuntu`).**
-> It feels like good housekeeping but is **the** deploy-breaker in this stack — the deploy looks healthy (containers Up, endpoints 200) while the video pipeline is silently broken. Use `chmod -R 777` only on the specific subdirs documented in `data-directory.md`.
 
 ### Step 1c — Initialize `generated.env`
 
@@ -317,16 +313,6 @@ The LLM/VLM NIM probes — including the `*_MODE=remote` handling that skips
 `localhost:3008x` (where a connection refused is expected) and probes the
 selected `*_BASE_URL/v1/models` via `scripts/probe_remote_models.sh` — are in
 [`references/troubleshooting.md`](references/troubleshooting.md#nim-probes).
-
-### End-to-end video sanity check
-
-After the quick checks above pass, drive a real query through the agent — e.g. ask it over the REST API or UI to describe a video you've uploaded to VST. If the agent returns a non-empty answer, the upload → ingest → inference → reply path is healthy. If it fails, `docker logs vss-agent` shows which stage tripped.
-
-## Examples
-
-- Base profile, remote models: route to `base`, copy `dev-profile-base/.env` to `generated.env`, set `LLM_MODE=remote` / `VLM_MODE=remote`, dry-run, normalize, deploy, then verify `/docs` and UI.
-- Search profile on RTX: route to `search`, follow [`references/search.md`](references/search.md) for sizing and endpoints, seed videos, then run the search-profile readiness checks.
-- Edge target: route through [`references/edge.md`](references/edge.md), then use the same `generated.env` → dry-run → normalize → deploy flow.
 
 ## Limitations
 
