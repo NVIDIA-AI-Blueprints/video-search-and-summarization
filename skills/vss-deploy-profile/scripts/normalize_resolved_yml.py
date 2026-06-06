@@ -27,7 +27,7 @@ files. The dependencies are correctly marked optional in the source; profile
 filtering is what creates the dangling references in the resolved artifact.
 
 This MUST run after `docker compose ... config > resolved.yml` and before
-`docker compose --env-file <env> -f resolved.yml up -d`. The vss-deploy-profile skill (SKILL.md Step 3c)
+`docker compose --env-file <env> -f resolved.yml up -d`. The vss-deploy-profile skill (SKILL.md Step 3d)
 calls this as part of every deploy.
 
 Usage

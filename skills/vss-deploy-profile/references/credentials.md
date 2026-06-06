@@ -77,6 +77,12 @@ NGC_CLI_API_KEY="$ngc_deploy_api_key"
 NGC_API_KEY="$ngc_deploy_api_key"
 ```
 
+This token probe is not sufficient for local NIM / RT-VLM deployments. It
+proves the key authenticates, but it does not prove that the key's org/team can
+access the selected `nvcr.io/...` images or `ngc:...` model repositories. After
+`resolved.yml` exists, run `SKILL.md` Step 3c and verify access to every
+selected NGC artifact before starting Compose.
+
 ## Remote Endpoint Probes
 
 For every selected remote LLM/VLM endpoint, probe the endpoint before writing
@@ -109,8 +115,9 @@ the user for the correct endpoint/model before mutating `generated.env`.
 ## Decision Rule
 
 A key reported `invalid` that the chosen mode needs, a `skip` for a key the
-mode requires, conflicting `NGC_CLI_API_KEY` / `NGC_API_KEY` values, or a
-selected remote endpoint that fails `/v1/models` is a blocker. Prompt the
-user, re-probe, and do not proceed to env mutation until it resolves.
+mode requires, conflicting `NGC_CLI_API_KEY` / `NGC_API_KEY` values, selected
+NGC artifact access failure in `SKILL.md` Step 3c, or a selected remote
+endpoint that fails `/v1/models` is a blocker. Prompt the user, re-probe, and
+do not proceed to env mutation until it resolves.
 
 A `skip` for a key the mode does not use is fine.

@@ -231,9 +231,38 @@ The resolved YAML is saved to `<repo>/deploy/docker/resolved.yml`.
 Unexpanded `${VAR}` tokens in `resolved.yml` mean compose did not see those env values. Diagnostic procedure and common culprits live in [`references/troubleshooting.md`](references/troubleshooting.md).
 
 
-### Step 3c — Gather NIMs, model weights, artifacts that will be downloaded for the deployment(profile specific)
+### Step 3c — Verify access to selected NGC artifacts
 
-Check if the credentials you have have access to them, if not, promot user before moving to the next step.
+Do this after `resolved.yml` exists and before `docker compose up`. The NGC
+token probe in Step 0a proves only that the key authenticates; it does not
+prove the key's org/team can access the selected image or model repositories.
+
+Build the artifact list from the actual selected deployment:
+
+- `resolved.yml`: every `image:` under `nvcr.io/...` that Compose will pull.
+- `$ENV_GEN`: NGC-backed model/resource paths such as
+  `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208`. Skip
+  `none`, `git:...`, local paths, and remote endpoint URLs.
+- Profile staging steps: any NGC model/resource downloads documented in the
+  profile reference, such as alerts/search perception model staging.
+
+Probe each selected artifact with the normalized NGC key before continuing:
+
+- Container images: verify registry access with `docker manifest inspect
+  <nvcr.io/...>` after `docker login nvcr.io`, or the matching
+  `ngc registry image info ...` command when the artifact maps cleanly to an
+  NGC image path.
+- NGC model/resource paths: run the matching `ngc registry model info ...` or
+  `ngc registry resource info ...` for the exact repo/tag that the profile will
+  load or download.
+- Profile-staged TAO/perception models: run the corresponding `ngc registry
+  model info ...` / `resource info ...` for each repo/tag before the staging
+  block downloads files.
+
+If any probe returns `401`, `403`, `permission`, `not being a member of the
+organization that owns the repo`, missing org/repo, or a similar access error,
+stop and prompt the user for an NGC key from an org/team entitled to those
+artifacts. Do not start Compose and discover the failure during NIM cold start.
 
 ### Step 3d — Strip dangling optional `depends_on` from resolved.yml
 
