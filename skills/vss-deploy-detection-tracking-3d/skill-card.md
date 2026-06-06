@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying multi-view 3D tracking (RTVI-CV-3D / MV3DT) on bundled sample datasets, custom videos, or live RTSP streams for video analytics without the full warehouse agent / LLM / VLM stack. <br>
+Developers and engineers deploying NVIDIA’s RTVI-CV-3D / MV3DT multi-camera 3D tracking stack for video analytics applications over calibrated camera arrays. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,14 +19,14 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy RTVI-CV-3D Stack](references/deploy-rtvi-cv-3d-stack.md) <br>
 - [Calibration Workflow](references/calibration-workflow.md) <br>
 - [Configure Cameras](references/configure-cameras.md) <br>
 - [Verify and View](references/verify-and-view.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
 - [Teardown](references/teardown.md) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -42,7 +42,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 6 evaluation tasks (all positive skill-activation cases, 2 attempts per task, 50% pass threshold). <br>
+6 evaluation tasks (6 positive activation, 0 negative) via NVSkills-Eval external profile in astra-sandbox environment. 2 attempts per task, 50% pass threshold. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,11 +66,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 100% (+17%) |
-| Correctness | 8 | 90% (+2%) | 85% (+18%) |
-| Discoverability | 8 | 61% (+2%) | 69% (+10%) |
-| Effectiveness | 8 | 88% (+1%) | 66% (+19%) |
-| Efficiency | 8 | 46% (+3%) | 55% (+10%) |
+| Security | 8 | 100% (+0%) | 100% (+0%) |
+| Correctness | 8 | 90% (+51%) | 79% (+33%) |
+| Discoverability | 8 | 77% (+40%) | 73% (+31%) |
+| Effectiveness | 8 | 79% (+57%) | 65% (+38%) |
+| Efficiency | 8 | 71% (+39%) | 64% (+27%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
