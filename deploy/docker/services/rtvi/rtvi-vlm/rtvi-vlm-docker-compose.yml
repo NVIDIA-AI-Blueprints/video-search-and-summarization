@@ -17,8 +17,8 @@
 
 services:
   rtvi-vlm:
-    # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.1-26.06.1}
+    # 3.2.1-26.06.1 is staging-only until published under nvcr.io/nvidia.
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.1-26.06.1}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
