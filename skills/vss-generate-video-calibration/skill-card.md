@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to run AutoMagicCalib camera calibration on local video files, RTSP streams, or bundled sample datasets, and to deploy and manage the AMC microservice via its REST API. <br>
+Developers and engineers use this skill to run automated camera calibration (AutoMagicCalib) on video inputs from local files, RTSP streams, or bundled sample datasets, and to deploy the AMC microservice when needed. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,27 +20,27 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA AI Blueprints: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy Auto-Calibration Service](references/deploy-auto-calibration-service.md) <br>
-- [Videos Mode Reference](references/videos.md) <br>
-- [RTSP Mode Reference](references/rtsp.md) <br>
-- [Sample Dataset Reference](references/sample-dataset.md) <br>
+- [Video Input Mode](references/videos.md) <br>
+- [RTSP Input Mode](references/rtsp.md) <br>
+- [Sample Dataset](references/sample-dataset.md) <br>
 
 
 ## Skill Output: <br>
 **Output Type(s):** [API Calls, Shell commands, Configuration instructions] <br>
-**Output Format:** [Markdown with inline bash and Python code blocks] <br>
+**Output Format:** [Markdown with inline bash code blocks and REST API calls] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- claude-code <br>
+- codex <br>
 
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 6 internal skill tasks (positive activation cases) with 2 attempts per task, using NVSkills-Eval external profile. <br>
+Evaluated against 6 evaluation tasks (all positive skill-activation cases) with 2 attempts per task via the NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -64,11 +64,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 96% (+12%) | 79% (+12%) |
-| Correctness | 8 | 87% (+1%) | 82% (+26%) |
-| Discoverability | 8 | 89% (+9%) | 69% (+7%) |
-| Effectiveness | 8 | 57% (-3%) | 55% (+24%) |
-| Efficiency | 8 | 71% (+14%) | 53% (+6%) |
+| Security | 8 | 100% (+0%) | 83% (-17%) |
+| Correctness | 8 | 63% (+21%) | 71% (+27%) |
+| Discoverability | 8 | 60% (+2%) | 69% (+17%) |
+| Effectiveness | 8 | 42% (+32%) | 40% (+23%) |
+| Efficiency | 8 | 51% (+0%) | 56% (+8%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
