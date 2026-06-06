@@ -18,14 +18,15 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-vlm
+  repository: nvcr.io/nvidia/vss-core/vss-rt-vlm
   tag: "3.2.1-26.06.1"
   pullPolicy: IfNotPresent
 replicas: 1
 
 # When true, use a shared/remote VLM instead of loading the integrated model in this pod (MODEL_PATH=none, VIA_VLM_ENDPOINT set).
 useSharedNim: false
-# Integrated Cosmos Reason2 checkpoint used when useSharedNim=false.
+# Integrated Cosmos Reason2 (CR2) checkpoint used when useSharedNim=false.
+# LVS and standalone profiles override this to git:https://huggingface.co/nvidia/Cosmos3-Nano.
 modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
 # NIM VLM service for useSharedNim: default <release>-nvidia-cosmos-reason2-8b:8000
 sharedNimService: ""
