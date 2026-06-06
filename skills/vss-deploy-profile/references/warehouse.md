@@ -266,7 +266,7 @@ Pulls images and builds the perception container (~10–15 min first run). If `d
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
 
-docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
+printf '%s' "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
 
 nohup docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
