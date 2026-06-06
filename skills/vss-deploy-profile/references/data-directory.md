@@ -36,7 +36,6 @@ chmod -R 777 "$DATA/data_log" "$DATA/agent_eval"
 > (containers Up, endpoints 200) while the video pipeline is silently broken.
 > Use `chmod -R 777` on the specific subdirs above — nothing else.
 
-
 **If postgres is already broken** (common when redeploying without a clean
 `data-dir`):
 
