@@ -123,6 +123,8 @@ silently deploy remote because a var happened to exist.
 
 If no combination on this host satisfies the profile's sizing requirements, **stop and report the blocker** — don't silently pick another shape.
 
+> **Edge shared mode is platform-specific.** Full recipes are in [`references/edge.md`](references/edge.md).
+
 ## Deployment Flow
 
 Always follow this sequence. Never skip the dry-run.
@@ -201,6 +203,7 @@ override key, when it applies, defaults, profile-specific differences) lives
 in [`references/env-overrides.md`](references/env-overrides.md). Each profile
 reference has worked examples for that profile's common scenarios.
 
+
 ### Step 3 — Apply overrides + dry-run
 
 **Working env file:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1c).
@@ -227,7 +230,13 @@ The resolved YAML is saved to `<repo>/deploy/docker/resolved.yml`.
 
 Unexpanded `${VAR}` tokens in `resolved.yml` mean compose did not see those env values. Diagnostic procedure and common culprits live in [`references/troubleshooting.md`](references/troubleshooting.md).
 
-### Step 3c — Strip dangling optional `depends_on` from resolved.yml
+
+### Step 3c — Gather NIMs, model weights, artifacts that will be downloaded for the deployment(profile specific)
+
+Check if the credentials you have have access to them, if not, promot user before moving to the next step.
+
+### Step 3d — Strip dangling optional `depends_on` from resolved.yml
+
 
 **MUST run after Step 3, before Step 5.** Skipping this aborts the deploy:
 
