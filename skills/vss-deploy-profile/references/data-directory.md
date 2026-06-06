@@ -6,9 +6,7 @@
 
 The stack mounts several subdirs of `$VSS_DATA_DIR` into containers that each
 run as a different uid. Docker auto-creates empty bind-mount paths as
-`root:root`, which is read-only for the container processes. The reference
-`scripts/dev-profile.sh` uses `chmod -R 777` on the relevant subdirs — it
-does **not** `chown`.
+`root:root`, which is read-only for the container processes.
 
 Run this verbatim before `docker compose up`:
 
