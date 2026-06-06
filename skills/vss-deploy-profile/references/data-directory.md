@@ -42,20 +42,24 @@ chmod -R 777 "$DATA/data_log" "$DATA/agent_eval"
 
 | Container | Image | Runs as | Mount path | Symptom if permissions wrong |
 |---|---|---|---|---|
-| `vss-vios-postgres` | postgres:17.9-alpine | uid **70** | `$DATA/data_log/vst/postgres/db` | Can't read own PGDATA → VST `sensor_details` query fails → uploaded videos never appear in `/vst/api/v1/sensor/streams` → warehouse E2E check returns empty |
+| `vss-vios-postgres` | postgres:17.9-alpine | root (`0:0`) | named volume `vios_pg_data` for PGDATA; `$VST_DATA_PATH` only for the Unix socket | Postgres unhealthy or stale named volume → VST `sensor_details` query fails → uploaded videos never appear in `/vst/api/v1/sensor/streams` → warehouse E2E check returns empty |
 | `redis` | redis:8.2.2-alpine | uid **999** | `$DATA/data_log/redis/log`, `/redis/data` | "Can't open the log file: Permission denied" → redis dies → `sdr-controller` can't reach `WDM_WL_REDIS_SERVER` → SDRC never registers `vss-vios-streamprocessing` on the `:10000` Envoy listener → stream pipeline broken (legacy `envoy-streamprocessing` no longer exists; SDR + Envoy are now consolidated in `sdr-controller` from `services/infra/sdrc/`) |
 | `elasticsearch` | elasticsearch | uid **1000** | `$DATA/data_log/elastic/{data,logs}` | "AccessDeniedException" on startup → ES refuses to start |
 | `vss-vios-ingress` / `vss-vios-sensor` | vst | uid **1000** | `$DATA/data_log/vst/*` (videos, clips) | 403 on ingest or stream write |
 
 `chmod -R 777 $DATA/data_log` covers all of these. Do NOT chown them to
-individual uids — containers that init their own dirs on first start (like
-postgres) will then re-chown to their uid and a later chown back to ubuntu
-breaks them.
+individual uids — Redis, Elasticsearch, VIOS/VST, and other services run as
+different container users and share the same data root. Postgres is the
+exception: PGDATA lives in Docker's `vios_pg_data` named volume and is not
+repaired by deleting a `$DATA/data_log/vst/postgres` bind directory.
 
 **If postgres is already broken** (common when redeploying without a clean
 `data-dir`):
 
 ```bash
-sudo rm -rf "$DATA/data_log/vst/postgres"  # postgres re-initializes on next start
-docker restart centralizedb-dev
+docker logs vss-vios-postgres
+docker volume ls --format '{{.Name}}' | grep 'vios_pg_data$'
+# If the logs show a corrupted/stale PGDATA volume, stop the stack and remove
+# the matching compose project's vios_pg_data volume, then redeploy.
+docker volume rm <compose_project>_vios_pg_data
 ```

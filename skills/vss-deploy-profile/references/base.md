@@ -418,12 +418,12 @@ overwrite the template default — re-run the `sed` with the correct value.
 The `.env` file computes this from other variables:
 
 ```
-COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},${BP_PROFILE}_${MODE}_${PROXY_MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
+COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
 ```
 
 Example resolved value:
 ```
-bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,bp_developer_base_2d_no_proxy,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
+bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
 ```
 
 The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automatically.
@@ -476,9 +476,9 @@ Common failure modes and what they mean for base:
 | Symptom | Likely cause |
 |---|---|
 | `POST /api/v1/videos` HTTP 500 | Agent not finished starting — poll `/health` longer |
-| VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vst-ingress-dev` |
-| VST returns empty `sensor/streams` but VST container is healthy | `centralizedb-dev` (postgres) can't read PGDATA because `$VSS_DATA_DIR` was `chown`ed to ubuntu. See [SKILL.md § Step 1b](../SKILL.md#step-1b--prepare-the-data-directory) — use `chmod -R 777`, not `chown`. Fix: `sudo rm -rf $VSS_DATA_DIR/data_log/vst/postgres && redeploy` (postgres re-initializes on start) |
-| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2-shared-gpu` / `cosmos-reason2-8b-shared-gpu` |
+| VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vss-vios-ingress` |
+| VST returns empty `sensor/streams` but VST container is healthy | Check Postgres health/logs with `docker logs vss-vios-postgres`. Current compose uses the named volume `vios_pg_data` for PGDATA, not a `$VSS_DATA_DIR` Postgres bind mount. See [`data-directory.md`](data-directory.md) before removing any volume. |
+| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2` / `nvidia-cosmos-reason2-8b` |
 | HITL prompt never arrives | `vss-agent` misconfigured HITL config — check `config.yml` |
 | Empty report | VLM unreachable from inside `vss-agent` container — check `VLM_BASE_URL` in resolved compose env |
 
