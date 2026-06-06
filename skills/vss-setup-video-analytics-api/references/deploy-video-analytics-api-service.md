@@ -20,7 +20,7 @@ You only edit the existing service compose:
 1. **`command:`** — which config file the Node server loads at startup.
 2. **`volumes:`** — what config (required) and what data-log directory (optional) to mount.
 
-Walk steps 1-3 below to decide each one; the bring-it-up command lives in [Deploy + verify](#deploy--verify) at the end.
+Walk steps 1-3 below to decide each one; the bring-it-up command lives in [Deploy + verify](#deploy--verify) at the end. For a field-by-field JSON config reference, see the [Configuration Guide](configuration.md).
 
 ---
 
