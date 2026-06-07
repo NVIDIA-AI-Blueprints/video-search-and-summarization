@@ -43,7 +43,7 @@ services:
 
   nvstreamer-mv3dt:
     container_name: vss-vios-nvstreamer-mv3dt
-    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
@@ -120,7 +120,7 @@ services:
         fi
 
   bp-configurator-mv3dt:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
+    image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.0
     container_name: vss-configurator-mv3dt
     network_mode: "host"
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
@@ -240,7 +240,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: measurement-fusion
-    image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0-26.05.1}
+    image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0}
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
     depends_on:
       broker-health-check:
@@ -250,7 +250,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: perception
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.05.1}
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0}
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
     container_name: vss-rtvi-cv-mv3dt
 

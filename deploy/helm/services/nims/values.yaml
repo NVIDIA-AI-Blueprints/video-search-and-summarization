@@ -65,6 +65,7 @@ gpuProfiles:
       NIM_GPU_MEMORY_UTILIZATION: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+      NIM_DELETE_LAST_FRAMES: "1"
 
   L40S:
     nemotron:
@@ -87,6 +88,7 @@ gpuProfiles:
       NIM_MAX_MODEL_LEN: "32768"
       NIM_MAX_NUM_SEQS: "4"
       MAX_JOBS: "4"
+      NIM_DELETE_LAST_FRAMES: "1"
 
   # Matches live nim-env ConfigMaps when gpuType=RTXPRO6000BW (e.g. vss-summarization namespace).
   RTXPRO6000BW:
@@ -106,6 +108,7 @@ gpuProfiles:
       NIM_GPU_MEMORY_UTILIZATION: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+      NIM_DELETE_LAST_FRAMES: "1"
 
 # ---------------------------------------------------------------------------
 # Nemotron Nano 9B v2 – LLM NIM (alias: nemotron)
@@ -260,4 +263,4 @@ cosmos3:
     - NIM_GPU_MEMORY_UTILIZATION
     - NIM_PASSTHROUGH_ARGS
     - NIM_DISABLE_MM_PREPROCESSOR_CACHE
-  
+    - NIM_DELETE_LAST_FRAMES

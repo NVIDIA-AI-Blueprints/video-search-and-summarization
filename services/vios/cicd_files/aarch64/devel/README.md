@@ -1,16 +1,19 @@
-<!--- Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved. --->
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
 
-# Creating cross-compilation image:
+# aarch64 cross-compilation container
 
-1. cd "cicd_files/jetson_cross_compilation"
-2. Copy "full_linux_for_tegra.tbz2" L4T BSP package in current directory
-3. Run "./build_cross_compile_container.sh"
+## Build
 
-# Updating target packages:
+```
+cd cicd_files/aarch64/devel
+./build_cross_compile_container.sh
+```
 
-1. Modify "install_target_packages.sh" and create image using above steps
+Produces `vios-build:aarch64-cross-compiler`. Pass an argument to use a different tag:
 
-# Using container for build
-
-1. Run
-   docker run -it -v <source_tree>:/root <docker_image_name> bash -c "cd /root && make arm64 package -j8"
+```
+./build_cross_compile_container.sh <image-tag>
+```

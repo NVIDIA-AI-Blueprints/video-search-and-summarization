@@ -515,7 +515,7 @@ def get_model_name(backend: str) -> str:
                 return data["data"][0]["id"]
     except Exception:
         pass
-    return "nvstaging_nim_cosmos-reason-2-8b_hf-v2"  # Default fallback
+    return "nim_nvidia_cosmos-reason2-8b_0303-fp8-dynamic-kv8"  # Default fallback
 
 
 def test_runtime_version(backend: str) -> bool:
