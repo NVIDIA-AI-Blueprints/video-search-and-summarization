@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-detection-tracking-3d`
-- Evaluation date: 2026-06-06
+- Evaluation date: 2026-06-07
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 6 evaluation tasks
@@ -56,10 +56,10 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 8 | 100% (+0%) | 100% (+0%) |
-| Correctness | 8 | 90% (+51%) | 79% (+33%) |
-| Discoverability | 8 | 77% (+40%) | 73% (+31%) |
-| Effectiveness | 8 | 79% (+57%) | 65% (+38%) |
-| Efficiency | 8 | 71% (+39%) | 64% (+27%) |
+| Correctness | 8 | 84% (+40%) | 73% (+33%) |
+| Discoverability | 8 | 63% (+19%) | 55% (+11%) |
+| Effectiveness | 8 | 79% (+58%) | 61% (+40%) |
+| Efficiency | 8 | 58% (+22%) | 43% (+4%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -70,10 +70,10 @@ Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found
 Top findings:
 
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- MEDIUM QUALITY/quality_discoverability: Description uses first/second person (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in troubleshooting.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in teardown.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
+- LOW QUALITY/quality_discoverability: Description very long (417 chars, recommend 50-150) (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
