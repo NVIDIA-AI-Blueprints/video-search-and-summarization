@@ -48,10 +48,10 @@
     {
       "query": "Stop the PPE alert on warehouse_sample",
       "checks": [
-        "The trajectory calls Alert Bridge `GET /api/v1/realtime` to find the matching rule.",
-        "The agent asks a yes/no confirmation question before issuing DELETE \u2014 per the two-step stop protocol in references/alert-subscriptions.md.",
-        "The confirmation message includes the rule ID and the sensor name.",
-        "The agent does NOT immediately call `DELETE /api/v1/realtime/<id>` \u2014 deletion only happens after the user confirms."
+        "The trajectory calls Alert Bridge `GET /api/v1/realtime` to find the matching rule(s).",
+        "Before any DELETE, the agent prompts the user and waits \u2014 EITHER a yes/no confirmation question when exactly one rule matches, OR (when multiple PPE rules match `warehouse_sample`, e.g. leftover rules from earlier runs) a disambiguation question asking which rule to stop. Either branch satisfies the two-step stop protocol in references/alert-subscriptions.md; the key is that it does not delete without first asking the user.",
+        "The agent's confirmation/disambiguation message identifies the rule(s) by ID and names the sensor `warehouse_sample`.",
+        "The agent does NOT immediately call `DELETE /api/v1/realtime/<id>` \u2014 deletion only happens after the user replies (which never arrives in this non-interactive trial, so no DELETE should occur)."
       ]
     }
   ]
