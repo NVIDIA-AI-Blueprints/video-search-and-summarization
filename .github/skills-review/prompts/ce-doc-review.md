@@ -1,0 +1,2 @@
+# Paradigm: ce-doc-review (handled by the installed skill)
+This paradigm is NOT prompt-driven — review_agent.py's `ce_skill` engine invokes the installed compound-engineering `ce-doc-review` skill headless (`/ce-doc-review mode:headless <skill>/SKILL.md`), reviewing the SKILL.md as a document and emitting the canonical findings JSON. This file documents the lens for readers; the engine does not read it.
