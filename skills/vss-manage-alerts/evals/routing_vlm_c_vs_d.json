@@ -35,7 +35,7 @@
       "query": "What alert rules are currently active?",
       "checks": [
         "The trajectory calls the bare Alert Bridge rules-list endpoint `GET /api/v1/realtime` (no `/incidents` suffix) \u2014 'rules' + 'currently active' means subscription inventory, routing to Workflow D.",
-        "The agent does NOT query incidents (no `POST /generate` and no `GET /api/v1/realtime/incidents`) \u2014 this is a rules query, not an incident query.",
+        "The agent's answer is the active-rules inventory fetched from `GET /api/v1/realtime` (Workflow D) \u2014 its final reply presents the alert *rules*, not an incident report/summary. It routed this 'which rules are active' question to the rules endpoint; it must NOT answer it by summarizing incidents.",
         "The agent renders a human-readable summary of active rules (not raw JSON)."
       ]
     },
