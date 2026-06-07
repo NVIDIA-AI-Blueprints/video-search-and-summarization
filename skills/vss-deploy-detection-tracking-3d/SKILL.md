@@ -1,19 +1,12 @@
 ---
 name: vss-deploy-detection-tracking-3d
 description: >
-  Deploy and operate the RTVI-CV-3D stack (also known as MV3DT, Multi-View 3D
-  Tracking, or RTVI-CV-MV3DT) — per-camera DeepStream perception plus BEV
-  Fusion over multiple calibrated cameras. Applies to requests such as
-  "deploy RTVI-CV-3D", "deploy rtvi-cv-3d", "deploy MV3DT", "deploy multi-view
-  3D tracking", "deploy rtvi-cv-mv3dt", "enable multi-camera tracking",
-  "enable multi camera tracking", "set up multi-camera tracking", "multi-camera
-  tracking", "run RTVI-CV-3D on my videos", "run MV3DT on my videos", "run
-  RTVI-CV-3D / MV3DT on RTSP", "run on the sample dataset", "set up 3D
-  tracking", or provides a 4-camera warehouse video/RTSP set. Routes between
-  sample-data, custom-videos, and custom-RTSP flows; auto-chains to
-  `vss-generate-video-calibration` when calibration data is missing. Not for
-  the full warehouse blueprint with agents / LLM / VLM (use `vss-deploy-profile`)
-  or 2D single-camera detection (use `vss-deploy-detection-tracking-2d`).
+  Deploy and operate RTVI-CV-3D / MV3DT multi-camera 3D tracking: per-camera
+  DeepStream perception plus BEV Fusion over calibrated cameras. Supports the
+  bundled sample dataset, custom video files, and RTSP streams, and chains to
+  `vss-generate-video-calibration` when calibration is missing. Use
+  `vss-deploy-profile` for the full warehouse blueprint and
+  `vss-deploy-detection-tracking-2d` for single-camera 2D detection.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
