@@ -49,17 +49,28 @@ That host must have:
 1. **Anthropic coordinator `.env`** at `/home/ubuntu/eval-coordinator/.env` with
    `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`. The review legs
    source it and set `CLAUDE_CODE_DISABLE_THINKING=1` (the NVIDIA Anthropic proxy
-   rejects the `context_management` field otherwise). This `.env` currently lives
-   on the eval-coordinator host (`vss-skill-validator-v2`) — **provision/confirm
-   it on the brev pool host before the first run.** Legs whose creds are missing
-   record `status: failed` and contribute no findings (advisory — the job stays green).
-2. **`claude` CLI + the compound-engineering plugin** for the `ce-code-review` /
-   `ce-doc-review` legs. If absent, those two legs degrade to `status: skipped`.
+   rejects the `context_management` field otherwise). **Confirmed present on
+   `vss-skill-validator`.**
+2. **`claude` CLI** — the Claude Agent SDK *spawns* the `claude` binary, so it is
+   required for **every agentic leg**: `review` / `gstack-review` /
+   `best-practices` (via the SDK) and `ce-code-review` / `ce-doc-review` (which
+   call it directly). The two `ce-*` legs additionally need the
+   **compound-engineering plugin** installed. Missing `claude` → SDK legs record
+   `status: failed`, CE legs `status: skipped`.
 3. **`codex` CLI + auth** (`CODEX_HOME`) for the `codex` leg. If absent, that leg
-   degrades to `status: skipped` — it is net-new on this pool; install only if the
+   degrades to `status: skipped` — net-new on this pool; install only if the
    cross-model lens is wanted.
 4. `python3` 3.12 (provided by `actions/setup-python`); `claude-agent-sdk` is
-   `pip install`ed on demand by `review_agent.py`.
+   `pip install`ed on demand by `review_agent.py` (it still needs the `claude`
+   CLI from item 2 at runtime).
+
+> **Provisioning status (checked via `brev exec vss-skill-validator`):** the
+> `.env` + `ANTHROPIC_*` keys are present, but `claude`, the CE plugin, and
+> `codex` are **not installed** on the pool yet. Until `claude` is installed the
+> report is empty/skipped — the workflow still runs green (advisory). The eval
+> host `vss-skill-validator-v2` already has `claude`, but it is reserved for GPU
+> eval; install `claude` (+ CE plugin, codex) on `vss-skill-validator` to enable
+> the legs.
 
 ## Consolidation rules (`review_findings.py`)
 
