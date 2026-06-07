@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "skills-review canonical findings",
+  "description": "Schema shared by every review paradigm leg and the consolidated report. Adopted from compound-engineering ce-code-review's findings-schema so ce-code-review/ce-doc-review JSON passes through unchanged; the [P1]/[P2]-marker paradigms (gstack-review, codex) and the prompt-driven ones (review, best-practices) normalize into it via review_findings.canonical_finding().",
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["skill", "paradigm", "file", "title", "severity"],
+      "properties": {
+        "skill": {"type": "string", "description": "skill dir name, e.g. vss-manage-alerts"},
+        "paradigm": {"type": "string", "enum": ["review", "gstack-review", "codex", "ce-code-review", "ce-doc-review", "best-practices"]},
+        "file": {"type": "string", "description": "repo-relative path, e.g. skills/vss-manage-alerts/SKILL.md"},
+        "line": {"type": "integer", "minimum": 0, "description": "1-based line; 0 when not line-anchored"},
+        "title": {"type": "string", "description": "<= ~12 words"},
+        "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+        "category": {"type": "string", "enum": ["deploy-breaking", "api-contract", "security", "packaging-style", "tone"]},
+        "rationale": {"type": "string"},
+        "suggested_fix": {"type": "string"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1, "description": "the single paradigm's self-rated confidence"}
+      }
+    },
+    "leg_artifact": {
+      "type": "object",
+      "required": ["skill", "paradigm", "findings"],
+      "properties": {
+        "skill": {"type": "string"},
+        "paradigm": {"type": "string"},
+        "status": {"type": "string", "enum": ["ok", "skipped", "degraded", "failed"]},
+        "findings": {"type": "array", "items": {"$ref": "#/definitions/finding"}}
+      }
+    },
+    "consolidated_finding": {
+      "type": "object",
+      "required": ["key", "skill", "file", "title", "severity", "agreement", "paradigms", "needs_verification", "members"],
+      "properties": {
+        "key": {"type": "string"},
+        "skill": {"type": "string"},
+        "file": {"type": "string"},
+        "line": {"type": "integer"},
+        "title": {"type": "string"},
+        "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+        "category": {"type": "string"},
+        "agreement": {"type": "integer", "minimum": 1, "description": "count of DISTINCT paradigms that raised it"},
+        "paradigms": {"type": "array", "items": {"type": "string"}},
+        "confidence_tier": {"type": "string", "enum": ["high", "medium", "low"]},
+        "needs_verification": {"type": "boolean", "description": "true when severity==critical OR agreement==1"},
+        "rationale": {"type": "string"},
+        "suggested_fix": {"type": "string"},
+        "members": {"type": "array", "items": {"$ref": "#/definitions/finding"}}
+      }
+    }
+  }
+}
