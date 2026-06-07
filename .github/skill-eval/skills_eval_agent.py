@@ -372,7 +372,7 @@ ensure its adapter exists under `.github/skill-eval/adapters/{eval_skill}/`
 on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
 run harbor synchronously for this platform (§ Harbor invocation; never
 background it) → gather results →
-post ONE PR comment for this spec (§ Result comment format). Do NOT touch
+append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on). Do NOT touch
 any other spec or skill.
 
 End with `DONE: <reward summary>` after posting the comment, or
