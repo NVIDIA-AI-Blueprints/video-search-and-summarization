@@ -102,29 +102,61 @@ def extract_findings(text: str) -> list[dict]:
     return []
 
 
+def _git_diff(skill: str, base_ref: str) -> str:
+    """The PR diff for one skill, computed in Python (NOT via the agent's shell).
+
+    Precomputing here is what lets diff-based paradigms see the change while the
+    agent's tools stay read-only (Read/Grep/Glob) — no Bash surface for a crafted
+    SKILL.md to prompt-inject. Capped so the prompt stays bounded.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "diff", f"{base_ref}...HEAD",
+             "--", f"skills/{skill}/"],
+            capture_output=True, text=True, timeout=60,
+        ).stdout
+    except Exception:
+        return ""
+    return out[:20000]
+
+
 # ── engines (overridable for tests) ─────────────────────────────────────
 
 def _engine_claude(paradigm: str, skill: str, skill_dir: pathlib.Path,
                    base_ref: str) -> list[dict]:
     """Run a vendored-rubric paradigm via the Claude Agent SDK (one serial session)."""
     try:
-        from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions  # type: ignore
+        from claude_agent_sdk import (ClaudeSDKClient, ClaudeAgentOptions,  # type: ignore
+                                      AssistantMessage, TextBlock)
     except ImportError:
+        # >=0.0.5 matches the sibling skills_eval_agent.py; the runner is stateful.
         subprocess.run([sys.executable, "-m", "pip", "install", "-q",
                         "claude-agent-sdk>=0.0.5"], check=True)
-        from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions  # type: ignore
+        from claude_agent_sdk import (ClaudeSDKClient, ClaudeAgentOptions,  # type: ignore
+                                      AssistantMessage, TextBlock)
 
     os.environ.setdefault("CLAUDE_CODE_DISABLE_THINKING", "1")  # NVIDIA proxy rejects otherwise
     system = prompt_for(paradigm)
-    scope = (f"Diff this skill against {base_ref} and review the change."
-             if paradigm in DIFF_BASED else "Review the whole skill directory.")
-    user = (f"Skill: {skill}\nSkill dir: {skill_dir}\n{scope}\n"
-            f"Return ONLY a JSON object {{\"findings\": [...]}} per the schema.")
+    parts = [f"Skill: {skill}", f"Skill dir: {skill_dir}"]
+    if paradigm in DIFF_BASED:
+        diff = _git_diff(skill, base_ref)
+        parts.append(
+            f"Review the change below (diff vs {base_ref}); also Read the full "
+            f"files for context.\n\n```diff\n{diff}\n```" if diff
+            else f"Diff vs {base_ref} is empty — review the current files (Read/Grep/Glob).")
+    else:
+        parts.append("Review the whole skill directory (Read/Grep/Glob its files).")
+    parts.append('Return ONLY a JSON object {"findings": [...]} per the schema.')
+    user = "\n".join(parts)
     options = ClaudeAgentOptions(
         system_prompt=system,
-        allowed_tools=["Read", "Grep", "Glob", "Bash"],
-        disallowed_tools=["TaskCreate", "TaskUpdate", "TaskGet", "TaskList",
-                          "TaskOutput", "TaskStop", "BashOutput", "KillShell"],
+        # READ-ONLY tools only — no Bash/Edit/Write. The diff is precomputed and
+        # passed in (above), so a crafted SKILL.md can't prompt-inject shell
+        # access to the sourced .env credentials.
+        allowed_tools=["Read", "Grep", "Glob"],
+        disallowed_tools=["Bash", "Edit", "Write", "TaskCreate", "TaskUpdate",
+                          "TaskGet", "TaskList", "TaskOutput", "TaskStop",
+                          "BashOutput", "KillShell"],
         permission_mode="bypassPermissions",
         cwd=str(REPO_ROOT),
     )
@@ -132,13 +164,15 @@ def _engine_claude(paradigm: str, skill: str, skill_dir: pathlib.Path,
     import anyio  # claude-agent-sdk dependency
 
     async def _run():
+        # Same pattern as skills_eval_agent.py: query() then drain
+        # receive_response() (it replays the buffered response for the query).
         async with ClaudeSDKClient(options=options) as client:
             await client.query(user)
             async for msg in client.receive_response():
-                for block in getattr(msg, "content", []) or []:
-                    t = getattr(block, "text", None)
-                    if t:
-                        text_parts.append(t)
+                if isinstance(msg, AssistantMessage):
+                    for block in msg.content:
+                        if isinstance(block, TextBlock) and block.text:
+                            text_parts.append(block.text)
 
     anyio.run(_run)
     return extract_findings("\n".join(text_parts))
@@ -174,9 +208,17 @@ def _engine_codex(paradigm: str, skill: str, skill_dir: pathlib.Path,
     from shutil import which
     if which("codex") is None:
         raise SkippedLeg("codex CLI not installed on this runner")
-    prompt = prompt_for("codex")
+    # The prompt MUST name the skill + dir (codex runs read-only with no stdin,
+    # so it can't ask). Pass the precomputed diff too for the diff-based lens.
+    diff = _git_diff(skill, base_ref)
+    ctx = [f"\n\nSkill to review: {skill}", f"Skill dir (relative to cwd): skills/{skill}/"]
+    if diff:
+        ctx.append(f"Change under review (diff vs {base_ref}):\n```diff\n{diff}\n```")
+    else:
+        ctx.append("Review the current files under the skill dir.")
+    full_prompt = prompt_for("codex") + "\n".join(ctx)
     proc = subprocess.run(
-        ["codex", "exec", prompt, "-C", str(REPO_ROOT), "-s", "read-only",
+        ["codex", "exec", full_prompt, "-C", str(REPO_ROOT), "-s", "read-only",
          "--skip-git-repo-check", "-c", 'model_reasoning_effort="high"'],
         capture_output=True, text=True, env={**os.environ, "SPAWNED_SESSION": "1"},
         stdin=subprocess.DEVNULL,
