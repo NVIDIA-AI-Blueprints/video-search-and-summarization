@@ -20,19 +20,22 @@ if [ -f "$REPO/deploy/docker/resolved.yml" ]; then
   docker compose -f "$REPO/deploy/docker/resolved.yml" down --remove-orphans
 fi
 
-# Catch-all: remove every VSS-stack container the dev-profile compose
-# files bring up. Without this, leftovers from a prior deploy linger
-# (especially the *-smc set, which the alerts compose profile shares
-# with the *-dev set on host networking and port 30000) and either:
-#   - bind ports the new deploy needs → second sensor-ms fails to bind
-#     → /sensor/list returns 502 (issue #151), or
-#   - pass the new deploy's container-name health checks while serving
-#     stale data from the prior deploy's DB.
-# The patterns below cover everything declared under
-# deploy/docker/services/ (agent, vios, rtvi, infra, nim, video-summarization, …)
-# and deploy/docker/developer-profiles/dev-profile-*/compose files.
+# Catch-all for leftovers a `down` can miss (compose-profile services
+# sometimes start under a different project name, or get orphaned).
+# Scope by the compose project label FIRST — every VSS container carries
+# `com.docker.compose.project=mdx` (the stack sets COMPOSE_PROJECT_NAME=mdx),
+# so this is project-scoped and cannot touch unrelated containers:
+docker ps -aq --filter "label=com.docker.compose.project=mdx" | xargs -r docker rm -f
+
+# Fallback ONLY for known VSS leftovers that lost the project label (rare —
+# e.g. the *-smc set the alerts profile shares on host networking / port 30000,
+# which can bind ports the new deploy needs → /sensor/list 502, issue #151).
+# Name-patterns reach beyond the project scope, so prefer the label filter
+# above; run this only if `docker ps` still shows known VSS leftovers. No
+# generic names (e.g. `phoenix`) here — the label filter already catches them,
+# and a bare name match risks hitting unrelated containers.
 docker ps -a --format '{{.Names}}' \
-  | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-|sensor-ms-|vst-ingress-|vst-mcp-|vst-file-proxy|centralizedb-|storage-ms-|streamprocessing-ms-|sdr-(http|streamprocessing)-|envoy-(http|streamprocessing)-|rtspserver-ms-|recorder-ms-|replaystream-ms-|livestream-ms-|metropolis-vss-ui|phoenix)' \
+  | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-|sensor-ms-|vst-ingress-|vst-mcp-|vst-file-proxy|centralizedb-|storage-ms-|streamprocessing-ms-|sdr-(http|streamprocessing)-|envoy-(http|streamprocessing)-|rtspserver-ms-|recorder-ms-|replaystream-ms-|livestream-ms-|metropolis-vss-ui)' \
   | xargs -r docker rm -f
 ```
 
