@@ -41,8 +41,9 @@ chmod -R 777 "$DATA/data_log" "$DATA/agent_eval"
 
 ```bash
 docker logs vss-vios-postgres
-docker volume ls --format '{{.Name}}' | grep 'vios_pg_data$'
-# If the logs show a corrupted/stale PGDATA volume, stop the stack and remove
-# the matching compose project's vios_pg_data volume, then redeploy.
-docker volume rm <compose_project>_vios_pg_data
+# Resolve the actual volume (its name is <compose_project>_vios_pg_data — the
+# project prefix varies by deploy, so detect it rather than hard-coding it):
+vol=$(docker volume ls --format '{{.Name}}' | grep 'vios_pg_data$')
+# If the logs show a corrupted/stale PGDATA volume, stop the stack, then:
+docker volume rm "$vol"
 ```

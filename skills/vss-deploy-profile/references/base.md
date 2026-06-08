@@ -324,7 +324,7 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>"
@@ -340,7 +340,7 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",
@@ -361,7 +361,7 @@ at `local_shared` keeps the local shared NIM `COMPOSE_PROFILES` active.
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "LLM_MODE": "remote",
@@ -393,7 +393,7 @@ overwrite the template default — re-run the `sed` with the correct value.
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",

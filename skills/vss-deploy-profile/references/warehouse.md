@@ -45,7 +45,7 @@ The warehouse blueprint boots the **full VSS stack** (agent + UI + VST + RTVI be
 | Container | Purpose |
 |---|---|
 | `vss-vios-nvstreamer` | Streams sample video files via RTSP |
-| VST stack: `vss-vios-postgres`, `-sensor`, `-streamprocessing`, `-sdr`, `-mcp`, `-ingress`, `-envoy` | Video ingestion, recording, stream management |
+| VST stack: `vss-vios-postgres`, `-sensor`, `-streamprocessing`, `-ingress`, plus the SDRC `sdr-controller` | Video ingestion, recording, stream management (legacy `-sdr`/`-envoy` are gone — replaced by the SDRC; `vss-va-mcp` is the agent MCP, not part of VST) |
 | `vss-rtvi-cv` | DeepStream perception (RT-DETR for 2D, Sparse4D for 3D) |
 | `vss-rtvi-cv-sdr` | Stream data router — manages DeepStream lifecycle |
 | `vss-rtvi-cv-config-adaptor` | DeepStream config adaptor (3D only) |
