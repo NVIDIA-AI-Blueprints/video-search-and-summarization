@@ -279,8 +279,8 @@ In real-time mode the readiness signal is **RT-VLM continuously inspecting the l
 ## Env file location
 
 ```
-deploy/docker/developer-profiles/dev-profile-alerts/.env            # source defaults (read-only)
-deploy/docker/developer-profiles/dev-profile-alerts/generated.env   # skill's working copy (apply overrides here)
+deploy/docker/developer-profiles/dev-profile-alerts/.env
+deploy/docker/developer-profiles/dev-profile-alerts/generated.env
 ```
 
 ## Stage perception models (RTDETR-ITS + GDINO)

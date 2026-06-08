@@ -459,8 +459,8 @@ browser-reachable on Brev, never report these as the access URL):
 ## Env File Location
 
 ```
-<repo>/deploy/docker/developer-profiles/dev-profile-base/.env            # source defaults (read-only)
-<repo>/deploy/docker/developer-profiles/dev-profile-base/generated.env   # skill's working copy (apply overrides here)
+<repo>/deploy/docker/developer-profiles/dev-profile-base/.env
+<repo>/deploy/docker/developer-profiles/dev-profile-base/generated.env
 ```
 
 ## Debugging

@@ -54,7 +54,7 @@ The deployment flow is always: copy `.env` to `generated.env`, apply overrides, 
 # 5. docker compose --env-file generated.env -f resolved.yml up -d
 ```
 
-The source `.env` is treated as **read-only defaults** committed to the repo. The skill's per-deploy working copy is `generated.env` — same pattern `dev-profile.sh` uses internally. This keeps the checked-in `.env` clean across iterations.
+`.env` is read-only checked-in defaults; `generated.env` is the per-deploy working copy. Step 1c covers this in full.
 
 ## Prerequisites
 
@@ -215,7 +215,7 @@ reference has worked examples for that profile's common scenarios.
 
 **Working env file:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1c).
 
-> **Two env files, distinct roles.** `.env` is read-only checked-in defaults (never mutate from the skill); `generated.env` is the skill's per-deploy working copy — all overrides (Step 2 dict + the Brev `EXTERNAL_IP`) land there, `--env-file` always points at it, and post-deploy verifiers read it for the actually-deployed values. It mirrors `dev-profile.sh`'s own `cp .env generated.env` scratchpad.
+> **Reminder (see Step 1c):** apply all overrides (Step 2 dict + Brev `EXTERNAL_IP`) to `generated.env`; `--env-file` always points at it, and post-deploy verifiers read it for the actually-deployed values.
 
 ```bash
 # (Step 1c already ran: cp $ENV_SRC $ENV_GEN)
