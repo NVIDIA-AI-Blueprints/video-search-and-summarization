@@ -287,7 +287,7 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
       "max_count": 100,
       "includes": ["objectIds", "info"]
     }
-  }
+  },
   "id": 1
 }
 ```
