@@ -34,6 +34,7 @@ API keys.
 ### Step 1: Configure the generated env file
 
 ```bash
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
 cd "$REPO"
 cp deploy/docker/developer-profiles/dev-profile-lvs/.env \
   deploy/docker/developer-profiles/dev-profile-lvs/generated.env
@@ -48,7 +49,10 @@ Set these non-secret values in `generated.env`:
 Provide sensitive values (`NGC_CLI_API_KEY`, `NVIDIA_API_KEY`, `RAG_API_KEY`)
 through a secret manager or ephemeral shell environment immediately before the
 commands that need them. Do not echo token values, write them into checked-in
-files, or leave them in the shell after deployment.
+files, or leave them in the shell after deployment. Compose forwards
+`RAG_SERVER_URL`, `RAG_API_KEY`, and `KNOWLEDGE_COLLECTION` into `vss-agent`
+when `config_rag.yml` is selected; an exported `RAG_API_KEY` is enough and does
+not need to be written to `generated.env`.
 
 ### Step 2: Log in to NGC registry
 
@@ -63,6 +67,7 @@ unset NGC_CLI_API_KEY
 ### Step 3: Deploy the LVS profile with the RAG config
 
 ```bash
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
 cd "$REPO/deploy/docker"
 docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
   config > resolved.yml
@@ -87,6 +92,7 @@ curl -sf --max-time 5 "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health" >/dev/n
 ### Tear down
 
 ```bash
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
 cd "$REPO/deploy/docker"
 docker compose -f resolved.yml down
 ```
@@ -129,6 +135,12 @@ Required user-provided parameters:
    Example: "forklifts, pallets, workers"
 
 If any required value is missing, return a concise missing-fields message and stop; resume the workflow when the user supplies the missing values.
+
+There is no separate Enterprise RAG Query HITL prompt. Document grounding comes
+from the RAG-enabled agent config exposing `frag_retrieval`; if the user wants
+specific SOP, policy, or procedure context reflected in the report, capture that
+context in the original report request or resolve it as a document-grounding
+question before starting the HITL report flow.
 
 ### Step 3: Start the report (HTTP HITL)
 
