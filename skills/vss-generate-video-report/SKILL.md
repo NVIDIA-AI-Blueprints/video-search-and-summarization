@@ -37,6 +37,11 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 4. **Rewrite every user-facing clip URL** with the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` one-liner (*Browser-playable clip URL*) before embedding it in the report.
 5. **Return the rendered report markdown** to the user.
 
+Output contract for evaluators:
+- Mode A top title MUST be exactly `# Video Analysis Report`.
+- Mode B top title MUST be exactly `# Incident Range Report` (never `# Incident Report` or sensor-named variants).
+- Mode B MUST include `## Basic Information` with the exact required rows from the template (Report Identifier, Range, Scope, Total Incidents, Confirmed / Rejected / Unverified).
+
 ---
 
 ## Examples
@@ -112,7 +117,17 @@ Step 3 on the original internal URL when the VLM is local / in-cluster.
 : "${VSS_PUBLIC_HOST:?VSS_PUBLIC_HOST is required}"
 : "${VSS_PUBLIC_PORT:?VSS_PUBLIC_PORT is required}"
 
-BROWSER_CLIP_URL=$(echo "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
+BROWSER_CLIP_URL=$(
+python3 - <<'PY'
+import os
+import urllib.parse
+
+raw_url = os.environ["RAW_URL"]
+parts = urllib.parse.urlsplit(raw_url)
+public_netloc = f'{os.environ["VSS_PUBLIC_HOST"]}:{os.environ["VSS_PUBLIC_PORT"]}'
+print(urllib.parse.urlunsplit((os.environ["VSS_PUBLIC_HTTP_PROTOCOL"], public_netloc, parts.path, parts.query, parts.fragment)))
+PY
+)
 ```
 
 Apply it to **every clip URL surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B per-incident clip sub-bullet). The env guards above are required: do not run the rewrite when any `VSS_PUBLIC_*` value is unset. Leave the VLM `video_url` content block in Mode A Step 3 on the original internal URL — the VLM is in-cluster.
@@ -189,7 +204,7 @@ If the probe fails or the listed ids don't include `${VLM_MODEL}`, fall back to 
 
 Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
 
-The frame sampling and visual-token (pixel) budget below mirror the **base profile** `video_understanding` config (`deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml`): `max_fps=2`, `max_frames=30`, `min_pixels=3136`, `max_pixels=8388608`. **Send `mm_processor_kwargs` and `media_io_kwargs`** so the direct call uses the same frame sampling and pixel budget as the in-agent `video_understanding` tool — omitting them lets the VLM apply its own defaults, so the output diverges from the agent path.
+The frame sampling and visual-token (pixel) budget must mirror the **live** `video_understanding` settings for the active profile. **Send `mm_processor_kwargs` and `media_io_kwargs`** so the direct call uses the same frame sampling and pixel budget as the in-agent `video_understanding` tool — omitting them lets the VLM apply its own defaults, so the output diverges from the agent path.
 
 ```bash
 PROMPT='Describe in detail what happens in the video, with timestamps (start–end in seconds from clip start) for each segment or event. Cover scenes, objects, people, vehicles, and notable actions.'
@@ -210,8 +225,30 @@ Your reasoning.
 Write your final answer immediately after the </think> tag."
 fi
 
-# Multimodal settings — mirror the base-profile video_understanding config (config.yml).
-MAX_FPS=2; MAX_FRAMES=30; MIN_PIXELS=3136; MAX_PIXELS=8388608
+# Multimodal settings — resolve from the LIVE video_understanding config in the running container.
+# Do not hardcode profile-specific pixel/frame values.
+eval "$(
+docker exec vss-agent sh -lc 'python3 - <<'"'"'PY'"'"'
+import os
+import yaml
+
+candidates = ("/workspace/configs/config.yml", "/app/configs/config.yml", "/configs/config.yml")
+config = None
+for path in candidates:
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        break
+if config is None:
+    raise SystemExit("video_understanding config.yml not found in container")
+
+vu = (config.get("functions", {}) or {}).get("video_understanding", {}) or {}
+print(f"MAX_FPS={int(vu.get('max_fps', 2))}")
+print(f"MAX_FRAMES={int(vu.get('max_frames', 30))}")
+print(f"MIN_PIXELS={int(vu.get('min_pixels', 3136))}")
+print(f"MAX_PIXELS={int(vu.get('max_pixels', 8388608))}")
+PY'
+)"
 
 # num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
 # clip_seconds (Step 1 endTime-startTime) may be fractional; truncate to integer seconds — bash $((...))
@@ -242,7 +279,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
       "role": "user",
       "content": [
         {"type": "text", "text": $(jq -Rs . <<< "${PROMPT}")},
-        {"type": "video_url", "video_url": {"url": "${VIDEO_URL}"}}
+        {"type": "video_url", "video_url": {"url": $(jq -Rs . <<< "${VIDEO_URL}")}}
       ]
     }
   ],
@@ -292,13 +329,22 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
 }
 ```
 
+<<<<<<< HEAD
 For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` report-link rewrite (see *Clip URLs: VLM input vs browser report link* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
+=======
+Read-only boundary (mandatory):
+- Mode B is strictly read-only analytics retrieval. Never write, seed, backfill, or mutate Elasticsearch/VA data.
+- Forbidden examples: indexing synthetic incidents, replaying fixture payloads into ES, calling write/update/delete APIs to "make data available" for the report.
+- If no incidents exist for the requested range/scope, handle as empty results (see below); do not fabricate data.
+
+For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite (see *Browser-playable clip URL* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
+>>>>>>> a40309fd (high risk resoloved)
 
 ### Step 3 — Fill the Incident Range Report template
 
 Copy [`assets/incident-range-report.md`](assets/incident-range-report.md), then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Keep the source asset unchanged. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL. Never include template instructions in a filled cell.
 
-If `get_incidents` returns zero results, return a one-line report stating the range and scope produced no incidents — do not invent content and do not fall back to Mode A.
+If `get_incidents` returns zero results, STOP and return exactly a one-line empty-range statement naming the requested range and scope. Do not render the full Incident Range template, do not invent incidents, do not seed test data, and do not fall back to Mode A.
 
 ---
 
