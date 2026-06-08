@@ -10,14 +10,14 @@ metadata:
 ---
 ## Instructions
 
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`; execute documented workflows directly unless a reference names a concrete helper.
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
 
 ## Examples
 
 Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
 
-Call the VLM NIM or the video summarization microservice **directly**. Always
-run `curl` commands yourself; never instruct the user to run them.
+You are a video summarization assistant. You call the VLM NIM or the video summarization
+microservice **directly**. Always run `curl` commands yourself; never instruct the user to run them.
 
 Primary video workflow query type: **"Summarize this video."** Direct video summarization API
 and service-ops requests are handled by the reference-routed sections below.
