@@ -24,8 +24,12 @@ It is a superset of the default LVS config: regular caption retrieval remains
 enabled, and `frag_retrieval` adds Enterprise RAG document grounding.
 
 Use the normal `/vss-deploy-profile` workflow for deployment. The source
-`.env` remains read-only; apply overrides to
+`.env` remains read-only; apply non-secret overrides to
 `deploy/docker/developer-profiles/dev-profile-lvs/generated.env`.
+`generated.env` is ignored by the repository, but it is still a plaintext file:
+do not commit it, paste it into logs, or store long-lived credentials there.
+Prefer a vault, Docker secrets, or ephemeral shell environment variables for
+API keys.
 
 ### Step 1: Configure the generated env file
 
@@ -35,14 +39,16 @@ cp deploy/docker/developer-profiles/dev-profile-lvs/.env \
   deploy/docker/developer-profiles/dev-profile-lvs/generated.env
 ```
 
-Set at minimum in `generated.env`:
+Set these non-secret values in `generated.env`:
 - `HOST_IP` — host IP (`hostname -I | awk '{print $1}'`)
-- `NGC_CLI_API_KEY` — from https://ngc.nvidia.com/
-- `NVIDIA_API_KEY` — from https://build.nvidia.com/
 - `VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml`
 - `RAG_SERVER_URL` — Enterprise RAG server HTTP endpoint (defaults to `http://rag-server:8081/v1`)
-- `RAG_API_KEY` — API key when the RAG server requires one, otherwise leave empty
 - `KNOWLEDGE_COLLECTION` — default Enterprise RAG collection for `frag_retrieval`
+
+Provide sensitive values (`NGC_CLI_API_KEY`, `NVIDIA_API_KEY`, `RAG_API_KEY`)
+through a secret manager or ephemeral shell environment immediately before the
+commands that need them. Do not echo token values, write them into checked-in
+files, or leave them in the shell after deployment.
 
 ### Step 2: Log in to NGC registry
 
