@@ -252,14 +252,28 @@ Video Analytics API: http://<host_ip>:7777/video-analytics-api
 **Brev (secure-link domain):**
 
 ```
+Access Points (Brev):
+
 HAProxy:             https://7777-<BREV_ENV_ID>.brevlab.com
+VSS UI:              https://7777-<BREV_ENV_ID>.brevlab.com
 Kibana:              https://7777-<BREV_ENV_ID>.brevlab.com/kibana
 VST:                 https://30888-<BREV_ENV_ID>.brevlab.com/vst/
 NvStreamer:          https://31000-<BREV_ENV_ID>.brevlab.com
 Video Analytics API: https://7777-<BREV_ENV_ID>.brevlab.com/video-analytics-api
+
+Brev Secure Links — each exposed port requires its own secure-link hostname:
+  Port 7777  (HAProxy)    → https://7777-<BREV_ENV_ID>.brevlab.com
+  Port 30888 (VST)        → https://30888-<BREV_ENV_ID>.brevlab.com
+  Port 31000 (NvStreamer)  → https://31000-<BREV_ENV_ID>.brevlab.com
+  Port 3000  (Grafana)     → https://3000-<BREV_ENV_ID>.brevlab.com
+
+HAProxy-routed paths (/, /kibana, /api, /chat, /websocket, /alert-bridge,
+/video-analytics-api, /phoenix, /va-mcp, /static) all go through
+the port-7777 secure link. Direct-port services (VST, NvStreamer, Grafana)
+each need their own secure link opened in the Brev dashboard.
 ```
 
-On Brev, each direct port (VST `30888`, NvStreamer `31000`) gets its own secure-link hostname (`<port>-<BREV_ENV_ID>.brevlab.com`). HAProxy-routed paths all go through `7777-<BREV_ENV_ID>.brevlab.com`. This note should be printed alongside the Brev access points after deploy so the user knows which hostname maps to which service. If URLs still show the old `http://...:7777` form, the `VSS_PUBLIC_*` overrides were not applied — see [`warehouse.md` § Brev Secure Link Overrides](warehouse.md#brev-secure-link-overrides).
+If URLs still show the old `http://...:7777` form, the `VSS_PUBLIC_*` overrides were not applied — see [`warehouse.md` § Brev Secure Link Overrides](warehouse.md#brev-secure-link-overrides).
 
 VST is accessed directly on port `30888` — it does not go through the HAProxy ingress.
 
