@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying the VSS video-analytics-api REST service standalone with custom configuration, data-log binds, and Elasticsearch/Kafka connectivity for video analytics applications. <br>
+Developers and engineers deploying the VSS video-analytics-api REST service as a standalone microservice for video analytics workflows, independent of the full warehouse blueprint stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -21,8 +21,8 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [Configuration Guide](references/configuration.md) <br>
 - [Deploy Video Analytics API — Standalone Service](references/deploy-video-analytics-api-service.md) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
@@ -38,7 +38,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task (1 positive skill-activation case, 2 attempts per task, 50% pass threshold). <br>
+Evaluated against 1 task with 2 attempts per task in astra-sandbox environment using NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,10 +63,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 93% (+68%) | 91% (+53%) |
-| Discoverability | 2 | 87% (+62%) | 65% (+9%) |
-| Effectiveness | 2 | 55% (+41%) | 62% (+48%) |
-| Efficiency | 2 | 70% (+47%) | 50% (+6%) |
+| Correctness | 2 | 98% (+67%) | 97% (+62%) |
+| Discoverability | 2 | 92% (+48%) | 83% (+27%) |
+| Effectiveness | 2 | 67% (+56%) | 60% (+46%) |
+| Efficiency | 2 | 79% (+38%) | 69% (+19%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
