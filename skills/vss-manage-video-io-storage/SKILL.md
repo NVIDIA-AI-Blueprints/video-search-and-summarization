@@ -18,6 +18,13 @@ metadata:
 
 Call the VIOS REST API to manage cameras/sensors, RTSP streams, recordings, snapshots, and storage. Use when asked to: add a camera, add an RTSP stream, list sensors, show configured sensors/cameras/streams, check stream status, get a snapshot, download a clip, upload a video file, or manage video storage. Query the VIOS API directly using curl — do not navigate the UI.
 
+**Do NOT use this skill for:**
+- VLM inference or ad-hoc visual Q&A about a clip — use `vss-ask-video`.
+- Semantic search across the archive, or ingesting video for search — use `vss-search-archive`.
+- Narrative summaries of a recorded clip — use `vss-summarize-video`.
+- Incident-range or alert-window reports — use `vss-generate-video-report` Mode B.
+- Reading analytics metrics, incidents, or alerts — use `vss-query-analytics`.
+
 ## Reference contracts shipped with this skill
 
 This skill bundles four reference files under `references/`. Read whichever applies to the task in front of you:
