@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-setup-behavior-analytics`
-- Evaluation date: 2026-06-05
+- Evaluation date: 2026-06-08
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 1 evaluation tasks
@@ -55,10 +55,10 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 100% (+75%) | 91% (+55%) |
-| Discoverability | 2 | 88% (+62%) | 79% (+27%) |
-| Effectiveness | 2 | 72% (+52%) | 73% (+49%) |
-| Efficiency | 2 | 70% (+46%) | 71% (+28%) |
+| Correctness | 2 | 50% (+50%) | 50% (+50%) |
+| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
+| Effectiveness | 2 | 66% (+66%) | 50% (+50%) |
+| Efficiency | 2 | 27% (+0%) | 28% (+0%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -68,7 +68,7 @@ Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found
 
 Top findings:
 
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in configuration.md (`skills/vss-setup-behavior-analytics/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in dynamic-config.md (`skills/vss-setup-behavior-analytics/SKILL.md`)
 - LOW SCHEMA/author_format: Author must be of the form 'Name <email@host>' (`skills/vss-setup-behavior-analytics/SKILL.md`)
 
 ## Tier 2: Deduplication Summary

@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying the VSS behavior-analytics service standalone with a chosen entrypoint, configuration source, and optional calibration, outside the full warehouse blueprint stack. <br>
+Developers and engineers deploying the standalone behavior-analytics microservice for spatial-AI video analytics pipelines, independent of the full warehouse blueprint stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,12 +19,12 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Deploy Behavior Analytics Service](references/deploy-behavior-analytics-service.md) <br>
+- [Deploy Behavior Analytics — Standalone Service](references/deploy-behavior-analytics-service.md) <br>
 - [Configuration Guide](references/configuration.md) <br>
 - [Dynamic Config](references/dynamic-config.md) <br>
 - [Dynamic Calibration](references/dynamic-calibration.md) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -34,13 +34,13 @@ Mitigation: Review and scan skill before deployment. <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- Claude Code (`claude-code`) <br>
+- Codex (`codex`) <br>
 
 
 
 ## Evaluation Tasks: <br>
-1 evaluation task (1 positive, 0 negative) in NVSkills-Eval external profile, astra-sandbox environment, 2 attempts per task with 50% pass threshold. <br>
+Evaluated against 1 evaluation task (positive skill-activation case) with 2 attempts per task, using the NVSkills-Eval external profile in astra-sandbox environment. Pass threshold: 50%. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -65,10 +65,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 100% (+75%) | 91% (+55%) |
-| Discoverability | 2 | 88% (+62%) | 79% (+27%) |
-| Effectiveness | 2 | 72% (+52%) | 73% (+49%) |
-| Efficiency | 2 | 70% (+46%) | 71% (+28%) |
+| Correctness | 2 | 50% (+50%) | 50% (+50%) |
+| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
+| Effectiveness | 2 | 66% (+66%) | 50% (+50%) |
+| Efficiency | 2 | 27% (+0%) | 28% (+0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
