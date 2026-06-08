@@ -281,9 +281,9 @@ NVIDIA API Catalog):
 ```bash
 # .env:
 RTVI_VLM_MODEL_TO_USE=openai-compat
-RTVI_VLM_ENDPOINT=http://<nim-host>:8000/v1
+RTVI_VLM_ENDPOINT=http://nim-host.example.com:8000/v1
 VLM_NAME=cosmos-reason2-8b   # model name the NIM exposes
-RTVI_VLM_API_KEY=<ngc-or-nim-token>
+RTVI_VLM_API_KEY=${RTVI_VLM_API_KEY}
 ```
 
 ---
@@ -312,15 +312,15 @@ VRAM for the 8B models.
 # .env for cosmos-reason2 (source-backed default used by VSS alerts/LVS):
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
-NGC_CLI_API_KEY=<ngc-key>
+NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 
 # .env for cosmos-reason1:
 # Confirm the release-supported reason1 tag from VSS release notes or
 # deploy/docker/services/nim/cosmos-reason1-7b/compose.yml before use; do not
 # reuse the cosmos-reason2 hf-1208 tag.
 RTVI_VLM_MODEL_TO_USE=cosmos-reason1
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason1-7b:<release-supported-tag>
-NGC_CLI_API_KEY=<ngc-key>
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason1-7b:release-supported-tag
+NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 ```
 
 ---
@@ -352,8 +352,8 @@ For a custom NGC artifact, use `cosmos-reason2` (same NGC NIM loader):
 
 ```bash
 RTVI_VLM_MODEL_TO_USE=cosmos-reason2
-RTVI_VLM_MODEL_PATH=ngc:<org>/<team>/<model>:<version>
-NGC_CLI_API_KEY=<ngc-key>
+RTVI_VLM_MODEL_PATH=ngc:org/team/model:version
+NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 ```
 
 For a local directory containing a vLLM-compatible model, use `vllm-compatible`
@@ -494,10 +494,12 @@ fi
 # leaving the host. Rotate `NGC_CLI_API_KEY` if it ever leaves this
 # host's trust boundary.
 umask 077  # ensure the file is created mode 0600
+: "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before writing .env}"
+: "${HOST_IP:?Set HOST_IP to an address reachable from the RT-VLM container}"
 cat > .env <<EOF
-NGC_CLI_API_KEY=<your-ngc-key>
+NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 RTVI_VLM_PORT=8018
-HOST_IP=<host-ip>
+HOST_IP=${HOST_IP}
 VSS_DATA_DIR=${VSS_DATA_DIR}
 RTVI_VLM_IMAGE_TAG=${VLM_TAG}
 RT_VLM_DEVICE_ID=0
