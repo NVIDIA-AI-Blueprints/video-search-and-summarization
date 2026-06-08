@@ -553,7 +553,7 @@ docker_cmd compose --env-file .env -f rtvi-vlm-docker-compose.yml \
 #         Model weight download + vLLM warmup can take the full window.
 #         Do NOT kill as "stuck" before 20 minutes have elapsed.
 until [ "$(docker_cmd compose --env-file .env -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
-  | jq -r '[.[].Health] | all(. == "healthy")')" = "true" ]; do
+  | jq -r 'if length > 0 then ([.[].Health] | all(. == "healthy")) else false end')" = "true" ]; do
   echo "waiting for rtvi-vlm… (up to 20 minutes on first run)"
   sleep 15
 done

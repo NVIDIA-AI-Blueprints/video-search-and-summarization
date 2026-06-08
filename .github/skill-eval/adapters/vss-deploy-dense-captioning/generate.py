@@ -139,16 +139,6 @@ def _instruction_intro(spec: dict) -> str:
     )
 
 
-def _run_policy(expect: dict) -> str:
-    query = str(expect.get("query") or "")
-    if "require explicit human confirmation" in query and "pre-existing" in query:
-        return (
-            "Run autonomously for scratch resources created by this eval. "
-            "For pre-existing infrastructure, follow the confirmation and fail-safe policy in the query."
-        )
-    return "Run autonomously without prompting for confirmation."
-
-
 def generate_test_script(step: int, spec_name: str) -> str:
     return (
         "#!/bin/bash\n"
@@ -210,7 +200,7 @@ def generate_task(
             "",
             expect.get("query", ""),
             "",
-            _run_policy(expect),
+            "Run autonomously without prompting for confirmation.",
             "",
         ]
         (step_dir / "instruction.md").write_text("\n".join(instruction) + "\n")
