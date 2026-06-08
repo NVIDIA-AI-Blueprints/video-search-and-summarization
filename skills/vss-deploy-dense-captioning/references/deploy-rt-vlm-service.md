@@ -396,7 +396,7 @@ Generic VLM workflow → `bp_developer_alerts_2d_vlm`.
 ```bash
 # Step 0. Get compose (copy from checkout, or fetch the same path from VSS_REF)
 # Keep the checked-in compose read-only; mutate only this standalone copy.
-: "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to any writable standalone working directory, e.g. /colossus/tmp/rtvi_deploy}"
+: "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to any writable standalone working directory, e.g. /tmp/rtvi_deploy}"
 mkdir -p "$RTVI_DEPLOY_DIR" && cd "$RTVI_DEPLOY_DIR"
 VSS_CHECKOUT="${VSS_CHECKOUT:-}"
 if [ -n "$VSS_CHECKOUT" ] && [ -f "$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml" ]; then
