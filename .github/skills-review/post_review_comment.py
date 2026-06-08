@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Post or update the sticky Skills-Review PR comment.
 
-Thin fork of .github/skills-nv-base/post_comment.py: the comment body is
+Thin fork of the static compliance comment poster: the comment body is
 composed by consolidate.py (read from $COMMENT_BODY); this module only
 prepends the hidden marker and upserts it (PATCH the existing marked comment,
 else POST). Manual-mode (no PR) falls back to $GITHUB_STEP_SUMMARY.

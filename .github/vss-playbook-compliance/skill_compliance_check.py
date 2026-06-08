@@ -64,11 +64,11 @@ Playbook rule                                  Compliance code(s)
 Description: "Use when…" with ≥ 3 phrases       FM-010
 Description: not implementation-led             FM-011
 
-NV-BASE alignment
------------------
-SEC-001  Credential / secret scanning        (NV-BASE §2.1 — Gitleaks equivalent)
-SEC-002  PII detection (emails, IPs)         (NV-BASE §2.2 — data residency)
-SEC-003  Unicode / Trojan-Source smuggling   (NV-BASE §2.3 — supply-chain attack)
+Static security checks
+----------------------
+SEC-001  Credential / secret scanning
+SEC-002  PII detection (emails, IPs)
+SEC-003  Unicode / Trojan-Source smuggling
 """
 
 import argparse
@@ -746,7 +746,7 @@ def check_security(skill_path: Path, result: SkillResult) -> None:
                 WARNING, "SEC-002",
                 f"Possible {pii_type} found in skill file. "
                 f"Do not embed real PII in skills — use anonymised examples or env-var "
-                f"references instead (NV-BASE §2.2). Value: «{snippet}»",
+                f"references instead. Value: «{snippet}»",
                 file=str(rel),
                 line=lineno,
             ))
