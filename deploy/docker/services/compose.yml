@@ -17,7 +17,6 @@ include:
   - path: ./agent/compose.yml
   - path: ./alert/compose.yml
   - path: ./auto-calibration/compose.yml
-  - path: ./dt-based-calibration/compose.yml
   - path: ./infra/compose.yml
   - path: ./monitoring/compose.yml
   - path: ./nim/compose.yml

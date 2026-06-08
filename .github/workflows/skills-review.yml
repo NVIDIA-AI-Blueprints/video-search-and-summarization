@@ -1,0 +1,151 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Multi-paradigm skill review (ADVISORY). On a PR touching skills/**, or on
+# manual dispatch, fan out 6 review paradigms per changed skill (one matrix leg
+# each), consolidate by cross-paradigm agreement + severity, and post a sticky
+# PR comment + upload a full artifact. Never fails the merge; not a required
+# status check. See .github/skills-review/README.md for the runner prerequisites
+# (Anthropic coordinator .env + CE plugin on the vss-brev-runner host).
+#
+# No top-level `paths:` filter — GitHub evaluates `paths:` per-push, not over the
+# cumulative PR diff (the skills-eval PR #188 regression), so the changed-skill
+# gate lives inside the `plan` job (plan_review_matrix.py, FETCH_HEAD...HEAD).
+name: Skills Review
+
+on:
+  push:
+    branches: ["pull-request/[0-9]+"]   # copy-pr-bot mirror branches
+  workflow_dispatch:
+    inputs:
+      skills:
+        description: "Skills to review: * (all), a comma list, or a JSON array of skill dirs"
+        type: string          # NOT choice — choice caps at 10; the skills tree has >10
+        default: "*"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: >-
+    skills-review-${{ github.event_name == 'workflow_dispatch'
+      && format('manual-{0}', github.run_id) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  plan:
+    runs-on: [self-hosted, vss-brev-runner]
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_targets: ${{ steps.plan.outputs.has_targets }}
+      pr: ${{ steps.pr.outputs.number }}
+      base: ${{ steps.pr.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: pr
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PR="${REF##pull-request/}"
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "base=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)" >> "$GITHUB_OUTPUT"
+      - id: plan
+        env:
+          PR_BASE: ${{ steps.pr.outputs.base }}
+          MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && inputs.skills || '' }}
+        run: python3 .github/skills-review/plan_review_matrix.py
+
+  review:
+    needs: plan
+    if: needs.plan.outputs.has_targets == 'true'
+    runs-on: [self-hosted, vss-brev-runner]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 12        # LLM API legs (no GPU/box lock) — tune to the proxy rate limit
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run review leg (${{ matrix.skill }} · ${{ matrix.paradigm }})
+        env:
+          EVAL_SKILL: ${{ matrix.skill }}
+          EVAL_PARADIGM: ${{ matrix.paradigm }}
+          PR_BASE_BRANCH: ${{ needs.plan.outputs.base || 'develop' }}
+          REVIEW_OUT_DIR: ${{ runner.temp }}/review
+          GH_TOKEN: ${{ github.token }}
+          # per-leg gh config scratch so a host OAuth can't reauthor bot output
+          GH_CONFIG_DIR: ${{ runner.temp }}/ghcfg-${{ matrix.slug }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin "$PR_BASE_BRANCH" || true
+          export PR_BASE="origin/${PR_BASE_BRANCH}"
+          # Anthropic coordinator creds (ANTHROPIC_*, etc.). See README.md —
+          # this file must be provisioned on the vss-brev-runner host.
+          if [ -f /home/ubuntu/eval-coordinator/.env ]; then
+            set -a; source /home/ubuntu/eval-coordinator/.env; set +a
+          fi
+          export CLAUDE_CODE_DISABLE_THINKING=1   # NVIDIA Anthropic proxy rejects context_management
+          python3 .github/skills-review/review_agent.py
+      - name: Upload leg findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-review-leg-${{ matrix.slug }}
+          # ONLY the JSON findings — never agent trajectory dirs (PR #516 secret-leak lesson)
+          path: ${{ runner.temp }}/review/review-*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  report:
+    needs: [plan, review]
+    if: always() && needs.plan.outputs.has_targets == 'true'
+    runs-on: [self-hosted, vss-brev-runner]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download leg findings
+        uses: actions/download-artifact@v4
+        with:
+          pattern: skills-review-leg-*
+          path: ${{ runner.temp }}/legs
+          merge-multiple: true
+      - name: Consolidate
+        env:
+          REVIEW_ARTIFACTS_DIR: ${{ runner.temp }}/legs
+          CONSOLIDATED_JSON: ${{ runner.temp }}/skills-review-consolidated.json
+          CONSOLIDATED_MD: ${{ runner.temp }}/skills-review-consolidated.md
+          COMMENT_BODY: ${{ runner.temp }}/review-comment.md
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 .github/skills-review/consolidate.py
+      - name: Post sticky comment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.plan.outputs.pr }}
+          COMMENT_BODY: ${{ runner.temp }}/review-comment.md
+        run: python3 .github/skills-review/post_review_comment.py
+      - name: Upload consolidated report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-review-consolidated
+          path: |
+            ${{ runner.temp }}/skills-review-consolidated.json
+            ${{ runner.temp }}/skills-review-consolidated.md
+          if-no-files-found: ignore
+          retention-days: 14

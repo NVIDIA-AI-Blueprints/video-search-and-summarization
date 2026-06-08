@@ -734,15 +734,24 @@ slashes in `<model>` and `<task>` must be URL-encoded (`%2F`).
 
 ### Per-trial trajectory isolation
 
-`BrevEnvironment.start()` archives prior-trial session JSONLs
-(`mv /logs/agent/sessions/projects/* $HOME/.claude-archive/<ts>/`)
-before this trial's `claude --print` runs, because harbor's mapper
-merges **every** `*.jsonl` under `sessions/projects/<project>/` into one
-trajectory.json — on a warm box that would otherwise splice in every
-prior trial (observed: 7549 steps spanning 50 h). So when debugging:
-each trial's copy-back at `$RES/<date>/<trial>/agent/` is clean and
-independently visitable in the viewer; box-side history is at
-`$HOME/.claude-archive/<ts>/` (`ssh <box> "ls .claude-archive/"`).
+`BrevEnvironment.start()` performs two cleanups before this trial's
+`claude --print` runs:
+
+- archives prior-trial session JSONLs (`mv
+  /logs/agent/sessions/projects/* $HOME/.claude-archive/<ts>/`), because
+  harbor's mapper merges **every** `*.jsonl` under
+  `sessions/projects/<project>/` into one `trajectory.json` — on a warm box
+  that would otherwise splice in every prior trial (observed: 7549 steps
+  spanning 50 h).
+- removes stale Claude Code background-task scratch under
+  `/tmp/claude-<uid>/.../tasks`, because completed background command
+  markers can be replayed as fresh `<task-notification>` messages before
+  the eval prompt even when old session JSONLs were archived.
+
+So when debugging: each trial's copy-back at
+`$RES/<date>/<trial>/agent/` is clean and independently visitable in the
+viewer; box-side session history is at `$HOME/.claude-archive/<ts>/`
+(`ssh <box> "ls .claude-archive/"`).
 
 ## Result comment format
 

@@ -17,15 +17,15 @@ apiVersion: v2
 name: agent
 description: VSS agent stack (vss-agent, vss-va-mcp) for developer-profile umbrella charts
 type: application
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0"
 dependencies:
   - name: vss-agent
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/agent"
     condition: vss-agent.enabled
   - name: vss-va-mcp
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/va-mcp"
     condition: vss-va-mcp.enabled
 maintainers: []

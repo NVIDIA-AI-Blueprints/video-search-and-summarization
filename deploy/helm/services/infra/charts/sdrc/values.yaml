@@ -5,8 +5,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
-  tag: 3.0.0-prd.8
+  repository: nvcr.io/nvidia/vss-core/sdr-mw-l
+  tag: 3.2.0
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 

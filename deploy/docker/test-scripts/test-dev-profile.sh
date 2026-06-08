@@ -691,9 +691,14 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU disables ENABLE_CRITIC" "search" \
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 2 GPU rejects default local critic" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_negative_test "search Brev 2 GPU rejects explicitly enabled local critic" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows explicit ENABLE_CRITIC=false" "search" \
   -i 127.0.0.1 -d -- \
   "ENABLE_CRITIC" "false" "VLM_NAME_SLUG" "none" "VLM_DEVICE_ID" "2"
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote critic VLM" "search" \
+  -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
+  "ENABLE_CRITIC" "true" "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_BASE_URL" "http://127.0.0.1:9998"
 _mock_brev_three_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_three_gpu_dir}")
 cat > "${_mock_brev_three_gpu_dir}/nvidia-smi" <<'EOF'
@@ -774,14 +779,14 @@ else
 fi
 rm -f "${_out_alerts}"
 
-# Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvstaging TAO).
+# Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvidia TAO).
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvstaging/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvstaging" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
+if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvidia/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvidia" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
   echo "PASS: search dry-run output includes NGC model download steps"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvstaging/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvstaging, ngc registry model)"
+  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvidia/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvidia, ngc registry model)"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"

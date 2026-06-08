@@ -281,7 +281,10 @@ add_common_files() {
 	if [[ -z ${PROJECT} ]]; then
 		mappings+=("configs/rtsp_streams.json=${PACKAGE_DIR}/configs/rtsp_streams.json")
 	fi
-	mappings+=("webroot/*=${PACKAGE_DIR}/webroot/")
+	# Copy the webroot directory contents (including a bare .gitkeep when the
+	# web UI assets are not present in the source tree). Using "webroot/." keeps
+	# the copy from failing under "set -e" when "webroot/*" would match nothing.
+	mappings+=("webroot/.=${PACKAGE_DIR}/webroot/")
 }
 
 create_rel_package() {

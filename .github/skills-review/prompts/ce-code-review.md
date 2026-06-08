@@ -1,0 +1,2 @@
+# Paradigm: ce-code-review (handled by the installed skill)
+This paradigm is NOT prompt-driven — review_agent.py's `ce_skill` engine invokes the installed compound-engineering `ce-code-review` skill headless (`/ce-code-review mode:agent base:<ref>`), which emits the canonical findings JSON directly. This file documents the lens (structured multi-persona correctness/quality code review over the PR diff) for readers; the engine does not read it.

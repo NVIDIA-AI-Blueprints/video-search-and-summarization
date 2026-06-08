@@ -17,7 +17,7 @@ apiVersion: v2
 name: vss-behavior-analytics
 description: VSS behavior analytics — parent charts must set command and config.kafkaConfigJson when enabled
 type: application
-version: 26.04.2
-appVersion: "3.2-26.05.30"
+version: 3.2.0
+appVersion: "3.2.0"
 maintainers:
   - name: NVIDIA

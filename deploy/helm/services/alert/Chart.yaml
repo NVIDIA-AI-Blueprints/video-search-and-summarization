@@ -15,7 +15,7 @@
 
 apiVersion: v2
 name: vss-alert-bridge
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0"
 description: VLM-based alert verification (alerts profile)
 maintainers: []

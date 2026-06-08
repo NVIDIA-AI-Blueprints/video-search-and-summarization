@@ -15,7 +15,7 @@
 
 services:
   vss-auto-calibration:
-    image: nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-2
+    image: nvcr.io/nvidia/vss-core/vss-auto-calibration:3.2.0
 
     container_name: vss-auto-calibration
     profiles: ["auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]

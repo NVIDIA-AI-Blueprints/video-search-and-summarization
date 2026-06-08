@@ -119,6 +119,9 @@ class DeploymentConfig:
         self.tag_overrides = {}
         self.image_registry = ""
         self.nvstreamer_image = ""
+        # Full-image overrides keyed by compose.env var (e.g. VST_STREAM_PROCESSOR_IMAGE);
+        # replace the entire image reference verbatim rather than swapping only the prefix.
+        self.image_overrides = {}
     
     @property
     def vst_compose_dir(self) -> Path:
@@ -488,12 +491,33 @@ class ConfigurationManager:
                           'VST_LIVESTREAM_IMAGE', 'VST_MCP_IMAGE']
         
         for image_var in vst_image_vars:
+            full_image = self.config.image_overrides.get(image_var, "")
             org = self.config.image_registry
             tag = self.config.tag_overrides.get(image_var, "")
-            if not org and not tag:
+            if not full_image and not org and not tag:
                 continue
             current_image = self._read_env_value(self.config.main_compose_env, image_var)
-            new_image = self._retarget_image(current_image, org=org, tag=tag, org_is_prefix=True)
+            if full_image:
+                # Full-image override: replace the entire image reference verbatim
+                # (org_is_prefix=False) so the deploy uses exactly the built image,
+                # instead of swapping only the registry prefix.
+                new_image = self._retarget_image(current_image, org=full_image, tag=tag, org_is_prefix=False)
+                if not tag:
+                    # No paired tag override: the tag falls back to the compose.env value,
+                    # which almost never matches a local build (those default to ':latest'),
+                    # so Docker will try to pull the missing reference and fail.
+                    tag_flag = {
+                        'VST_STREAM_PROCESSOR_IMAGE': '--streamprocessor-tag',
+                        'VST_SENSOR_IMAGE': '--sensor-tag',
+                    }.get(image_var, 'the matching --*-tag flag')
+                    Logger.warning(
+                        f"{image_var}: image override '{full_image}' was given without a paired tag; "
+                        f"falling back to the compose.env tag -> {new_image}. Local builds default to "
+                        f"':latest', so this reference may not exist locally and Docker will try to pull it. "
+                        f"Pass {tag_flag} to pin the tag explicitly."
+                    )
+            else:
+                new_image = self._retarget_image(current_image, org=org, tag=tag, org_is_prefix=True)
             if new_image:
                 updates[image_var] = new_image
                 Logger.info(f"Applying image override: {image_var} = {new_image}")
@@ -1603,7 +1627,7 @@ class DeploymentManager:
             try:
                 SystemUtils.run_command(
                     "docker compose -f docker-compose.yaml --env-file ./compose.env down --remove-orphans",
-                    cwd=str(self.config.script_dir / "scaling" / "docker-compose" / "nvstreamer")
+                    cwd=str(self.config.script_dir / "stream-processing" / "docker-compose" / "nvstreamer")
                 )
                 Logger.success("NVStreamer services stopped successfully")
             except subprocess.CalledProcessError:
@@ -1669,7 +1693,7 @@ class DeploymentManager:
         Logger.info("Deploying NVStreamer instances...")
         Logger.info(f"{self.config.script_dir}")
         
-        nvstreamer_dir = self.config.script_dir / "scaling" / "docker-compose" / "nvstreamer"
+        nvstreamer_dir = self.config.script_dir / "stream-processing" / "docker-compose" / "nvstreamer"
         
         # Pull images only if --pull-always is specified
         if self.config.pull_always:
@@ -1707,11 +1731,26 @@ class DeploymentManager:
         Logger.info("Waiting for NVStreamer services to be ready...")
         time.sleep(10)
         
-        # Check service health
+        # Determine which instances are configured via COMPOSE_PROFILES in compose.env
+        compose_profiles_raw = self.config_manager._read_env_value(
+            self.config.nvstreamer_compose_env, "COMPOSE_PROFILES"
+        )
+        active_instances = []
+        for profile in compose_profiles_raw.split(","):
+            profile = profile.strip()
+            if profile.startswith("nvstreamer-"):
+                try:
+                    active_instances.append(int(profile.split("-")[1]))
+                except ValueError:
+                    pass
+        if not active_instances:
+            active_instances = [1]  # fallback to instance 1 if COMPOSE_PROFILES is unset
+
+        # Check service health for configured instances only
         healthy_services = 0
-        for i in range(1, 6):
+        for i in active_instances:
             port = 31000 + i - 1
-        
+
             try:
                 response = requests.get(f"http://{self.config.host_ip}:{port}", timeout=5)
                 Logger.info(f"NVStreamer-{i} response: {response.status_code}")
@@ -1723,8 +1762,8 @@ class DeploymentManager:
                     continue # Don't retry for bad status codes, move to next service
             except:
                 Logger.warning(f"NVStreamer-{i} may not be ready on port {port}")
-        
-        Logger.info(f"NVStreamer health check: {healthy_services}/5 services responding")
+
+        Logger.info(f"NVStreamer health check: {healthy_services}/{len(active_instances)} services responding")
     
     def deploy_vst(self):
         """Deploy VST services"""
@@ -1923,7 +1962,6 @@ class DeploymentManager:
             
             for compose_dir in [
                 self.config.script_dir / "stream-processing" / "docker-compose",
-                self.config.script_dir / "scaling" / "docker-compose",
             ]:
                 for cmd in stop_commands:
                     Logger.info(f"Trying ({compose_dir.parent.name}): {cmd}")
@@ -1933,7 +1971,7 @@ class DeploymentManager:
             Logger.info("Attempting to stop NVStreamer services...")
             SystemUtils.run_command(
                 "docker compose -f docker-compose.yaml --env-file ./compose.env down --remove-orphans -v",
-                cwd=str(self.config.script_dir / "scaling" / "docker-compose" / "nvstreamer"),
+                cwd=str(self.config.script_dir / "stream-processing" / "docker-compose" / "nvstreamer"),
                 check=False
             )
         
@@ -2006,7 +2044,7 @@ class DeploymentManager:
         try:
             SystemUtils.run_command(
                 "docker compose -f docker-compose.yaml --env-file ./compose.env down --remove-orphans",
-                cwd=str(self.config.script_dir / "scaling" / "docker-compose" / "nvstreamer")
+                cwd=str(self.config.script_dir / "stream-processing" / "docker-compose" / "nvstreamer")
             )
             Logger.success("NVStreamer services stopped successfully")
         except subprocess.CalledProcessError:
@@ -2048,7 +2086,6 @@ class DeploymentManager:
         
         for compose_dir in [
             self.config.script_dir / "stream-processing" / "docker-compose",
-            self.config.script_dir / "scaling" / "docker-compose",
         ]:
             for cmd in stop_commands:
                 Logger.info(f"Executing ({compose_dir.parent.name}): {cmd}")
@@ -2230,7 +2267,7 @@ DEPLOYMENT OPTIONS:
     --auto              Use auto-detected values without user confirmation
     --fresh-start       Stop existing deployments and remove VST volume data for clean start
     --pull-always       Pull latest Docker images before deployment (default: use local images)
-    --path PATH         Copy scaling folder from specified path
+    --path PATH         Copy stream-processing folder from specified path
     --help              Show this help message
 
 CONFIGURATION OVERRIDES:
@@ -2240,8 +2277,9 @@ CONFIGURATION OVERRIDES:
     --nvstreamer-path PATH  Override NVStreamer base path
 
 IMAGE TAG OVERRIDES:
-    --all-tag TAG           Override tag for all VST service images including stream-processor (except MCP and NVStreamer)
-    --sensor-tag TAG        Override sensor service image tag
+    --all-tag TAG               Override tag for all VST service images including stream-processor (except MCP and NVStreamer)
+    --streamprocessor-tag TAG   Override stream-processor service image tag
+    --sensor-tag TAG            Override sensor service image tag
     --rtsp-tag TAG          Override RTSP server service image tag
     --recorder-tag TAG      Override recorder service image tag
     --livestream-tag TAG    Override livestream service image tag
@@ -2251,8 +2289,10 @@ IMAGE TAG OVERRIDES:
     --nvstreamer-tag TAG    Override NVStreamer service image tag
 
 IMAGE REGISTRY / REPOSITORY OVERRIDES:
-    --image-registry REGISTRY   Override the registry/org prefix for all VST service images including MCP (keeps name and tag), e.g. vios -> vios/vst-sensor:<tag>
-    --nvstreamer-image REPO     Override the NVStreamer image repository (keeps tag), e.g. nvstreamer or my-registry/nvstreamer
+    --image-registry REGISTRY      Override the registry/org prefix for all VST service images including MCP (keeps name and tag), e.g. vios -> vios/vss-vios-sensor:<tag>
+    --streamprocessor-image REPO   Override the stream-processor image with a complete reference (e.g. vios/vst-streamprocessing); pair with --streamprocessor-tag
+    --sensor-image REPO            Override the sensor image with a complete reference (e.g. vios/vst-sensor); pair with --sensor-tag
+    --nvstreamer-image REPO        Override the NVStreamer image repository (keeps tag), e.g. nvstreamer or my-registry/nvstreamer
 
 EXAMPLES:
     # Deploy VIOS stream-processor (default target)
@@ -2270,7 +2310,10 @@ EXAMPLES:
     python3 oneclick_dc_deployment_for_dev.py --auto --force --pull-always
 
     # Deploy locally built images (built with IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE=nvstreamer)
-    python3 oneclick_dc_deployment_for_dev.py --auto --force --image-registry vios --nvstreamer-image nvstreamer
+    python3 oneclick_dc_deployment_for_dev.py deploy --target all --auto --force \
+        --streamprocessor-image vios/vst-streamprocessing --streamprocessor-tag latest \
+        --sensor-image vios/vst-sensor --sensor-tag latest \
+        --nvstreamer-image nvstreamer --nvstreamer-tag latest
 
     # Fresh start (removes existing data)
     python3 oneclick_dc_deployment_for_dev.py --fresh-start --auto --force
@@ -2306,8 +2349,8 @@ PREREQUISITES:
     - Python packages: requests
 
 ACCESS URLS (after deployment):
-    - NVStreamer instances: http://<HOST_IP>:31000-31004/#/dashboard
-    - VIOS UI: http://<HOST_IP>:30888/vios/#/dashboard
+    - NVStreamer instance 1 (default): http://<HOST_IP>:31000/#/dashboard
+    - VIOS UI: http://<HOST_IP>:30888/vst/#/dashboard
     - Grafana: http://<HOST_IP>:3000 (if --with-monitoring used)
     - MinIO Console: http://<HOST_IP>:9001 (if --with-minio used)
 """
@@ -2346,7 +2389,16 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
         Logger.info(f"Using command line image registry override: {config.image_registry}")
     if config.nvstreamer_image:
         Logger.info(f"Using command line NVStreamer image override: {config.nvstreamer_image}")
-    
+
+    # Full-image overrides (complete reference, replaces the whole image verbatim)
+    config.image_overrides = {}
+    if args.streamprocessor_image:
+        config.image_overrides['VST_STREAM_PROCESSOR_IMAGE'] = args.streamprocessor_image
+        Logger.info(f"Using command line stream-processor image override: {args.streamprocessor_image}")
+    if args.sensor_image:
+        config.image_overrides['VST_SENSOR_IMAGE'] = args.sensor_image
+        Logger.info(f"Using command line sensor image override: {args.sensor_image}")
+
     if args.all_tag:
         # Apply to all VST service images except MCP and NVStreamer.
         # MCP is intentionally excluded: it is never built locally (pre-built image always used).
@@ -2361,6 +2413,10 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
         Logger.info(f"Using command line all-tag override: {args.all_tag}")
     
     # Individual tag overrides (these take precedence over --all-tag)
+    if args.streamprocessor_tag:
+        config.tag_overrides['VST_STREAM_PROCESSOR_IMAGE'] = args.streamprocessor_tag
+        Logger.info(f"Using command line stream-processor tag override: {args.streamprocessor_tag}")
+
     if args.sensor_tag:
         config.tag_overrides['VST_SENSOR_IMAGE'] = args.sensor_tag
         Logger.info(f"Using command line sensor tag override: {args.sensor_tag}")
@@ -2429,6 +2485,7 @@ def main():
 
     # Image tag overrides
     parser.add_argument('--all-tag', type=str, help='Override tag for all VST service images including stream-processor (except MCP and NVStreamer)')
+    parser.add_argument('--streamprocessor-tag', type=str, help='Override stream-processor service image tag')
     parser.add_argument('--sensor-tag', type=str, help='Override sensor service image tag')
     parser.add_argument('--rtsp-tag', type=str, help='Override RTSP server service image tag')
     parser.add_argument('--recorder-tag', type=str, help='Override recorder service image tag')
@@ -2439,7 +2496,9 @@ def main():
     parser.add_argument('--nvstreamer-tag', type=str, help='Override NVStreamer service image tag')
 
     # Image registry / repository overrides
-    parser.add_argument('--image-registry', type=str, help='Override registry/org prefix for all VST service images, keeping name and tag (e.g. vios -> vios/vst-sensor:<tag>)')
+    parser.add_argument('--image-registry', type=str, help='Override registry/org prefix for all VST service images, keeping name and tag (e.g. vios -> vios/vss-vios-sensor:<tag>)')
+    parser.add_argument('--streamprocessor-image', type=str, help='Override the stream-processor image with a complete reference (e.g. vios/vst-streamprocessing); pair with --streamprocessor-tag')
+    parser.add_argument('--sensor-image', type=str, help='Override the sensor image with a complete reference (e.g. vios/vst-sensor); pair with --sensor-tag')
     parser.add_argument('--nvstreamer-image', type=str, help='Override the NVStreamer image repository, keeping the tag (e.g. nvstreamer or my-registry/nvstreamer)')
 
     parser.add_argument('--help', action='store_true', help='Show this help message')
@@ -2460,30 +2519,30 @@ def main():
             Logger.error(f"Specified path does not exist: {source_path}")
             sys.exit(1)
 
-        # Check if the provided path is directly a scaling folder
-        if source_path.name == "scaling" and source_path.is_dir():
-            source_scaling_folder = source_path
-            Logger.info(f"Using provided scaling folder directly: {source_scaling_folder}")
+        # Check if the provided path is directly a stream-processing folder
+        if source_path.name == "stream-processing" and source_path.is_dir():
+            source_stream_processing_folder = source_path
+            Logger.info(f"Using provided stream-processing folder directly: {source_stream_processing_folder}")
         else:
-            source_scaling_folder = source_path / "scaling"
-            if not source_scaling_folder.exists():
-                Logger.error(f"Scaling folder not found in specified path: {source_scaling_folder}")
+            source_stream_processing_folder = source_path / "stream-processing"
+            if not source_stream_processing_folder.exists():
+                Logger.error(f"stream-processing folder not found in specified path: {source_stream_processing_folder}")
                 sys.exit(1)
 
         current_dir = Path(__file__).parent.absolute()
-        target_scaling_folder = current_dir / "scaling"
+        target_stream_processing_folder = current_dir / "stream-processing"
 
-        Logger.info(f"Copying scaling folder from {source_scaling_folder} to {target_scaling_folder}")
+        Logger.info(f"Copying stream-processing folder from {source_stream_processing_folder} to {target_stream_processing_folder}")
 
-        if target_scaling_folder.exists():
-            Logger.info("Removing existing scaling folder")
-            shutil.rmtree(target_scaling_folder)
+        if target_stream_processing_folder.exists():
+            Logger.info("Removing existing stream-processing folder")
+            shutil.rmtree(target_stream_processing_folder)
 
         try:
-            shutil.copytree(source_scaling_folder, target_scaling_folder)
-            Logger.success("Successfully copied scaling folder to current directory")
+            shutil.copytree(source_stream_processing_folder, target_stream_processing_folder)
+            Logger.success("Successfully copied stream-processing folder to current directory")
         except Exception as e:
-            Logger.error(f"Failed to copy scaling folder: {e}")
+            Logger.error(f"Failed to copy stream-processing folder: {e}")
             sys.exit(1)
 
     # Initialize configuration

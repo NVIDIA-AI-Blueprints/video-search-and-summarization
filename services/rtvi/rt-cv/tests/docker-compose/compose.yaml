@@ -19,7 +19,7 @@
 # pull_policy: if_not_present avoids pulls when the image is already local.
 #
 #   docker pull apache/kafka:3.9.0
-#   ngc registry login && docker pull --platform linux/amd64 nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.0-26.05.1
+#   ngc registry login && docker pull --platform linux/amd64 nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0
 # Or build RT-CV: cd ../.. && docker build -f docker/x86.Dockerfile -t rtvi-cv:3.2.0-custom-x86 .
 #
 # Usage:
@@ -63,7 +63,7 @@ services:
       - rtcv-test
 
   rt-cv:
-    image: ${RTVI_CV_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.0-26.05.1}
+    image: ${RTVI_CV_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0}
     pull_policy: if_not_present
     platform: ${RTVI_CV_PLATFORM:-linux/amd64}
     container_name: rtcv-test-perception
