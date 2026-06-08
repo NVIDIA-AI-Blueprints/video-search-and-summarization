@@ -198,7 +198,7 @@ grep -qE '^BREV_ENV_ID=' /etc/environment && echo "on Brev" || echo "not Brev"
 ```
 
 - **not Brev** → skip the rest of this step and **do not read [`references/brev.md`](references/brev.md)**; keep the normal `${HOST_IP}`-based `EXTERNAL_IP`.
-- **on Brev** → apply the Brev secure-link overrides from [`references/brev.md` § Setup flow](references/brev.md#setup-flow) to `generated.env` (NOT `.env`). The setup flow writes `BREV_ENV_ID`, sets `HAPROXY_PORT` from the `${PROXY_PORT:-7777}` template, sets `EXTERNAL_IP` / `VSS_PUBLIC_HOST` to the Brev secure-link template, and sets `VSS_PUBLIC_HTTP_PROTOCOL=https` / `VSS_PUBLIC_WS_PROTOCOL=wss` / `VSS_PUBLIC_PORT=443`; it also verifies `generated.env` exists and appends missing keys when needed. Setting `EXTERNAL_IP` alone leaves `http://…:7777` UI/API/WS links that the browser blocks as mixed content.
+- **on Brev** → apply the Brev secure-link overrides from [`references/brev.md` § Setup flow](references/brev.md#setup-flow) to `generated.env` (NOT `.env`). The setup flow writes `BREV_ENV_ID`, resolves the ingress port from `PROXY_PORT`, then `HAPROXY_PORT` in `generated.env`, then `7777`, sets `EXTERNAL_IP` / `VSS_PUBLIC_HOST` to the resolved Brev secure-link host, and sets `VSS_PUBLIC_HTTP_PROTOCOL=https` / `VSS_PUBLIC_WS_PROTOCOL=wss` / `VSS_PUBLIC_PORT=443`; it also verifies `generated.env` exists and appends missing keys when needed. Setting `EXTERNAL_IP` alone leaves `http://…:7777` UI/API/WS links that the browser blocks as mixed content.
 
 ### Step 2 — Build env_overrides
 

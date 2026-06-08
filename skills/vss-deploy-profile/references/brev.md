@@ -59,8 +59,8 @@ the Brev secure link is served over **HTTPS on 443**, but the profile `.env` shi
 `VSS_PUBLIC_HTTP_PROTOCOL=http`, `VSS_PUBLIC_WS_PROTOCOL=ws`, and
 `VSS_PUBLIC_PORT=${HAPROXY_PORT}` (7777). Leaving those at the defaults makes the
 agent emit `http://…:7777` UI/API/WS URLs from an `https://` page → the browser
-blocks them as mixed content. Set `BREV_ENV_ID`, `HAPROXY_PORT`, the public
-host template, protocol, and public port together; the helper below updates
+blocks them as mixed content. Set `BREV_ENV_ID`, `HAPROXY_PORT`, the resolved
+public host, protocol, and public port together; the helper below updates
 existing keys or appends missing keys.
 
 ```bash
@@ -70,7 +70,12 @@ test -f "$ENV_GEN" || { echo "generated.env missing; run SKILL.md Step 1c first"
 
 brev_env_id=$(sed -n 's/^BREV_ENV_ID=//p' /etc/environment | tr -d '"' | head -n 1)
 test -n "$brev_env_id" || { echo "BREV_ENV_ID missing from /etc/environment"; exit 1; }
-brev_public_host_template='${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
+haproxy_port="${PROXY_PORT:-}"
+if [ -z "$haproxy_port" ]; then
+  haproxy_port=$(sed -n 's/^HAPROXY_PORT=//p' "$ENV_GEN" | tr -d '"' | head -n 1)
+fi
+haproxy_port="${haproxy_port:-7777}"
+brev_public_host="${haproxy_port}-${brev_env_id}.brevlab.com"
 
 set_env() {
   key="$1"
@@ -85,9 +90,9 @@ set_env() {
 }
 
 set_env BREV_ENV_ID "$brev_env_id"
-set_env HAPROXY_PORT '${PROXY_PORT:-7777}'
-set_env EXTERNAL_IP "$brev_public_host_template"
-set_env VSS_PUBLIC_HOST "$brev_public_host_template"
+set_env HAPROXY_PORT "$haproxy_port"
+set_env EXTERNAL_IP "$brev_public_host"
+set_env VSS_PUBLIC_HOST "$brev_public_host"
 set_env VSS_PUBLIC_HTTP_PROTOCOL https
 set_env VSS_PUBLIC_WS_PROTOCOL wss
 set_env VSS_PUBLIC_PORT 443
