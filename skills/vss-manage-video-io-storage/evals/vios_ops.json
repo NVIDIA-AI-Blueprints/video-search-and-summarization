@@ -54,7 +54,7 @@
       "checks": [
         "GET /vst/api/v1/sensor/<sensorId>/info returns a JSON object with non-empty `sensorId` and `name`, and no `state` field",
         "GET /vst/api/v1/sensor/<sensorId>/status returns a JSON object whose `state` is `online`",
-        "GET /vst/api/v1/sensor/<sensorId>/streams returns a streams array whose main stream's `url` is a local file path under /home/vst/... (NOT rtsp://)",
+        "GET /vst/api/v1/sensor/<sensorId>/streams returns a streams array whose main stream's `url` is a local file path under ${VST_CONTAINER_ROOT}/... (NOT rtsp://)",
         "GET /vst/api/v1/sensor/<sensorId>/settings returns `null`"
       ]
     },
