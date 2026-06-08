@@ -279,8 +279,8 @@ In real-time mode the readiness signal is **RT-VLM continuously inspecting the l
 ## Env file location
 
 ```
-deploy/docker/developer-profiles/dev-profile-alerts/.env            # source defaults (read-only)
-deploy/docker/developer-profiles/dev-profile-alerts/generated.env   # skill's working copy (apply overrides here)
+deploy/docker/developer-profiles/dev-profile-alerts/.env
+deploy/docker/developer-profiles/dev-profile-alerts/generated.env
 ```
 
 ## Stage perception models (RTDETR-ITS + GDINO)
@@ -348,7 +348,7 @@ RT-VLM downloads `cosmos-reason2-8b:hf-1208` from NGC on first start (~10–20 m
 ## Debugging
 
 - **`docker logs vss-rtvi-vlm`** — confirms model load and `Maximum concurrency for X tokens per GPU: Y x` line. OOM → lower `RTVI_VLLM_GPU_MEMORY_UTILIZATION` by 0.05 or drop `RTVI_VLM_MAX_MODEL_LEN` / `RTVI_VLLM_MAX_NUM_SEQS`.
-- **`docker logs alert-bridge`** — if it logs HTTP 400 "No such model: …", check `VLM_NAME` matches RT-VLM's `/v1/models` basename. `curl http://${HOST_IP}:8018/v1/models | jq` confirms what's actually advertised.
+- **`docker logs vss-alert-bridge`** — if it logs HTTP 400 "No such model: …", check `VLM_NAME` matches RT-VLM's `/v1/models` basename. `curl http://${HOST_IP}:8018/v1/models | jq` confirms what's actually advertised.
 - **2d_cv: alerts never fire** — check `vss-behavior-analytics` is consuming RT-CV metadata: `docker logs vss-behavior-analytics`. RT-CV side: `curl http://${HOST_IP}:9000/v1/health`.
 - **2d_vlm: VLM not running over live streams** — confirm `MODE=2d_vlm` (not `2d_cv`) in `resolved.yml` and that nvstreamer-alerts is publishing streams.
 - **OOM on shared GPU 1** — drop `NIM_KVCACHE_PERCENT` for the LLM by 0.05; if RT-VLM is the OOM, raise its `RTVI_VLLM_GPU_MEMORY_UTILIZATION` ceiling and re-tune the LLM down (the 0.35/0.50 split assumes Nano 9B FP16; larger LLMs need different ratios).
