@@ -215,7 +215,7 @@ Minimum standalone self-hosted Cosmos deployment:
 
 - **vLLM tuning** (compose defaults): `VLLM_MAX_NUM_SEQS=256`,
   `VLLM_MAX_NUM_BATCHED_TOKENS=5120`, `VLM_MAX_MODEL_LEN=32768`,
-  `VLLM_NUM_SCHEDULER_STEPS=8`, `VLLM_ENABLE_PREFIX_CACHING=true`,
+  `VLLM_NUM_SCHEDULER_STEPS=8`, `VLLM_ENABLE_PREFIX_CACHING=false`,
   `VLLM_GPU_MEMORY_UTILIZATION=""` (auto-tuned)
 - **Feature toggles**: `ENABLE_OTEL_MONITORING=false`,
   `INSTALL_PROPRIETARY_CODECS=false`, `FORCE_SW_AV1_DECODER=""`,
