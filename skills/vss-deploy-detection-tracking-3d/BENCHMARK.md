@@ -7,14 +7,13 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-detection-tracking-3d`
-- Evaluation date: 2026-06-07
+- Evaluation date: 2026-06-08
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
-- Dataset: 6 evaluation tasks
+- Dataset: 3 evaluation tasks
 - Attempts per task: 2
 - Pass threshold: 50%
-- Overall verdict: FAIL
-The skill should be reviewed before NVSkills-Eval publication. **Skill owners should address the applicable findings below and rerun NVSkills-Eval to refresh this benchmark.**
+- Overall verdict: PASS
 
 ## Agents Used
 
@@ -43,9 +42,9 @@ Underlying evaluation signals used in this run:
 
 ## Test Tasks
 
-The benchmark dataset contained 6 evaluation tasks:
+The benchmark dataset contained 3 evaluation tasks:
 
-- Positive tasks: 6 tasks where the skill was expected to activate.
+- Positive tasks: 3 tasks where the skill was expected to activate.
 - Negative tasks: 0 tasks where no skill was expected.
 - Unlabeled tasks: 0 tasks where positive/negative intent could not be inferred.
 
@@ -55,17 +54,17 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 100% (+0%) |
-| Correctness | 8 | 84% (+40%) | 73% (+33%) |
-| Discoverability | 8 | 63% (+19%) | 55% (+11%) |
-| Effectiveness | 8 | 79% (+58%) | 61% (+40%) |
-| Efficiency | 8 | 58% (+22%) | 43% (+4%) |
+| Security | 6 | 100% (+0%) | 100% (+0%) |
+| Correctness | 6 | 96% (+12%) | 88% (+11%) |
+| Discoverability | 6 | 81% (+23%) | 64% (+2%) |
+| Effectiveness | 6 | 80% (+9%) | 70% (+2%) |
+| Efficiency | 6 | 64% (+22%) | 46% (+1%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 9 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 12 total findings.
 
 Top findings:
 
@@ -73,15 +72,17 @@ Top findings:
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in teardown.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- LOW QUALITY/quality_discoverability: Description very long (417 chars, recommend 50-150) (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
+- MEDIUM SECURITY/Unknown (SQP-2): The Python block in Step 0 performs file renames on video files, camInfo YAML files, and rewrites calibration.json in-pl (`references/configure-cameras.md:38`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 1 total findings.
+Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
 
-Top findings:
+Notable observations:
 
-- HIGH DUPLICATE/duplicate: Duplicate content found across SKILL.md and references/configure-cameras.md and references/deploy-rtvi-cv-3d-stack.md:
-  "### Q2 — Calibration coverage (skip for `sample`)" in SKILL.md (lines 39-46)
-  vs "## Step 1 — Count cameras from `calibration.json`" in references/configure-cameras.md (lines 103-108)
-  vs "# 3. Calibration mount" in references/deploy-rtvi-cv-3d-stack.md (lines 65-70) (`SKILL.md:39`)
+- Context Deduplication: Collected 7 file(s)
+- Inter-Skill Deduplication: Parsed skill 'vss-deploy-detection-tracking-3d': 418 char description
+
+## Publication Recommendation
+
+The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.
