@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers deploying the VSS video-analytics-api REST service standalone with custom configuration, data-log binds, and Elasticsearch/Kafka connectivity for video analytics applications. <br>
+Developers and engineers deploying the VSS video-analytics-api REST service standalone to serve calibration, sensor, behavior, alerts, and events data backed by Elasticsearch and optionally Kafka. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,10 +19,11 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [Deploy Video Analytics API Service](references/deploy-video-analytics-api-service.md) <br>
 - [Configuration Guide](references/configuration.md) <br>
-- [Deploy Video Analytics API — Standalone Service](references/deploy-video-analytics-api-service.md) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [NGC Credentials](references/ngc.md) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
@@ -38,7 +39,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task (1 positive skill-activation case, 2 attempts per task, 50% pass threshold). <br>
+Evaluated against 1 task (positive skill-activation case) with 2 attempts per task in the astra-sandbox environment using the NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,10 +64,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 93% (+68%) | 91% (+53%) |
-| Discoverability | 2 | 87% (+62%) | 65% (+9%) |
-| Effectiveness | 2 | 55% (+41%) | 62% (+48%) |
-| Efficiency | 2 | 70% (+47%) | 50% (+6%) |
+| Correctness | 2 | 70% (+45%) | 79% (+41%) |
+| Discoverability | 2 | 92% (+67%) | 83% (+28%) |
+| Effectiveness | 2 | 54% (+40%) | 56% (+42%) |
+| Efficiency | 2 | 78% (+54%) | 71% (+27%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
