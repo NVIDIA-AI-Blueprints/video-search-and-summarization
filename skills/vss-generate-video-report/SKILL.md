@@ -40,9 +40,16 @@ If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or
 
 ---
 
-## Browser-playable clip URL (always do this before embedding any clip in the report)
+## Clip URLs: VLM input vs browser report link
 
-VST returns clip URLs using the agent-internal `${HOST_IP}:30888` host:port. Those work in-cluster (VLM frame pulls, agent backend) but the user's browser cannot reach them. The deploy layer already exports the browser-facing host:port as `$VSS_PUBLIC_HOST` / `$VSS_PUBLIC_PORT` (and scheme as `$VSS_PUBLIC_HTTP_PROTOCOL`) in every profile `.env` — Brev or bare-metal — so the rewrite is a one-liner:
+VST returns clip URLs using the agent-internal `${HOST_IP}:30888` host:port.
+Keep that original URL as `VIDEO_URL` for local / in-cluster VLM frame pulls.
+Do **not** rewrite the VLM input URL just to make it browser-playable.
+
+Only create `BROWSER_CLIP_URL` for URLs shown in the rendered report. The
+deploy layer exports the browser-facing host:port as `$VSS_PUBLIC_HOST` /
+`$VSS_PUBLIC_PORT` (and scheme as `$VSS_PUBLIC_HTTP_PROTOCOL`) in every
+profile `.env` — Brev or bare-metal — so the report-link rewrite is:
 
 ```bash
 : "${VSS_PUBLIC_HOST:?Set VSS_PUBLIC_HOST before rewriting clip URLs}"
@@ -51,7 +58,12 @@ VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
 BROWSER_CLIP_URL=$(echo "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
 ```
 
-If either required public host value is missing, stop and report the missing variable instead of producing a report with an internal or unchanged URL. Apply the rewrite to **every clip URL surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A Step 3 on the original internal URL — the VLM is in-cluster.
+If either required public host value is missing, omit the report-facing clip
+link and call out that a browser-playable URL could not be produced; do not
+block the local VLM analysis path. Apply the rewrite to **every clip URL
+surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B
+per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A
+Step 3 on the original internal URL when the VLM is local / in-cluster.
 
 ---
 
@@ -71,7 +83,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
-   That gives a direct `mp4` URL that the VLM can pull frames from. Bind it to `VIDEO_URL` (used in-cluster by the VLM in Step 3) **and** rewrite to `BROWSER_CLIP_URL` for the Step 4 report template using the one-liner from *Browser-playable clip URL* above — the user's browser cannot reach `$VIDEO_URL` directly.
+   That gives a direct `mp4` URL that the local / in-cluster VLM can pull frames from. Bind it to `VIDEO_URL` (used by the VLM in Step 3) **and** separately rewrite to `BROWSER_CLIP_URL` for the Step 4 report template using the report-link rewrite from *Clip URLs: VLM input vs browser report link* above — the user's browser cannot reach `$VIDEO_URL` directly.
    Mode A requires the selected VLM endpoint to be able to fetch `VIDEO_URL`.
    Local NIM/RT-VLM deployments normally can; remote endpoints generally cannot
    fetch `localhost`, private `HOST_IP`, or VST-internal URLs. If the live
@@ -215,7 +227,7 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
 }
 ```
 
-For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite (see *Browser-playable clip URL* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
+For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` report-link rewrite (see *Clip URLs: VLM input vs browser report link* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
 
 ### Step 3 — Fill the Incident Range Report template
 
