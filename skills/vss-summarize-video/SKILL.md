@@ -238,7 +238,8 @@ curl -s --max-time 300 -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
         --arg scenario "$SCENARIO" \
         --argjson events "$EVENTS_JSON" \
         --arg objects_json "$OBJECTS_JSON" '
-    ($objects_json | if length == 0 then null else fromjson end) as $objects
+    ($objects_json | gsub("^[[:space:]]+|[[:space:]]+$"; "")) as $objects_text
+    | ($objects_text | if length == 0 then null else fromjson end) as $objects
     | {
     url: $url,
     model: $model,
