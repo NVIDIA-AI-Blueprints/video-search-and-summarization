@@ -49,6 +49,20 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 ---
 
+## Negative Triggers
+
+Do **not** use this skill when the request is one of the following:
+
+- Ad-hoc visual Q&A on a clip ("what color is the truck?", "what happens at 00:12?") → use `/vss-ask-video`.
+- Archive/semantic similarity retrieval ("find forklifts", "search all videos for tailgating") → use `/vss-search-archive`.
+- Read-only incident/metrics lookup without report rendering needs → use `/vss-query-analytics`.
+- Deploy/teardown/profile changes ("deploy alerts", "switch profile", "bring up base") → use `/vss-deploy-profile`.
+- Real-time alert/rule management requests → use `/vss-manage-alerts`.
+
+Never route reports through VSS-agent `POST /generate`.
+
+---
+
 ## Deployment prerequisite
 
 **Mode A** needs the VSS **base** profile (VST + VLM NIM).
@@ -80,6 +94,7 @@ deploy layer exports the browser-facing host:port as `$VSS_PUBLIC_HOST` /
 profile `.env` — Brev or bare-metal — so the report-link rewrite is:
 
 ```bash
+<<<<<<< HEAD
 : "${VSS_PUBLIC_HOST:?Set VSS_PUBLIC_HOST before rewriting clip URLs}"
 : "${VSS_PUBLIC_PORT:?Set VSS_PUBLIC_PORT before rewriting clip URLs}"
 VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
@@ -92,6 +107,16 @@ block the local VLM analysis path. Apply the rewrite to **every clip URL
 surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B
 per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A
 Step 3 on the original internal URL when the VLM is local / in-cluster.
+=======
+: "${VSS_PUBLIC_HTTP_PROTOCOL:?VSS_PUBLIC_HTTP_PROTOCOL is required}"
+: "${VSS_PUBLIC_HOST:?VSS_PUBLIC_HOST is required}"
+: "${VSS_PUBLIC_PORT:?VSS_PUBLIC_PORT is required}"
+
+BROWSER_CLIP_URL=$(echo "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
+```
+
+Apply it to **every clip URL surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B per-incident clip sub-bullet). The env guards above are required: do not run the rewrite when any `VSS_PUBLIC_*` value is unset. Leave the VLM `video_url` content block in Mode A Step 3 on the original internal URL — the VLM is in-cluster.
+>>>>>>> 662fb1dc (Resolve high risk and missing sections in skills)
 
 ---
 
@@ -189,14 +214,13 @@ NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 [ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
 [ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
 
-# num_frames (media_io_kwargs) applies to any Cosmos VLM. The pixel budget (mm_processor_kwargs) below is
-# Cosmos Reason 2-SPECIFIC: both the size{shortest_edge,longest_edge} shape and the 3136/8388608 values come
-# from the CR2 base config. Do NOT reuse these for Cosmos Reason 1 — CR1 takes videos_kwargs{min_pixels,
-# max_pixels}, whose max_pixels is a different quantity than CR2's longest_edge (see the Cosmos Reason NIM
-# docs). For CR1/other VLMs, add that model's own mm_processor_kwargs per its docs. Build the JSON fragment:
+# num_frames (media_io_kwargs) applies to any Cosmos VLM.
+# mm_processor_kwargs mirrors video_understanding.py:
+# - Cosmos Reason 2 uses size{shortest_edge,longest_edge} from the base config.
+# - Other Cosmos models (including CR1) use videos_kwargs{min_pixels,max_pixels}.
 case "$VLM_MODEL" in
   *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
-  *cosmos*)         MM_KWARGS=", \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;  # CR1/other Cosmos: also add mm_processor_kwargs per the model's NIM docs
+  *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
   *)                MM_KWARGS="" ;;
 esac
 
@@ -220,7 +244,7 @@ curl -s -X POST "${VLM_ENDPOINT}/chat/completions" \
 EOF
 ```
 
-> The `case "$VLM_MODEL"` block sends the Cosmos Reason 2 pixel budget (`size:{shortest_edge:3136, longest_edge:8388608}`, from `config.yml`) **only for Cosmos Reason 2**, plus `num_frames` for any Cosmos VLM. **Do not reuse these pixel values for other VLMs:** Cosmos Reason 1 takes `videos_kwargs:{min_pixels, max_pixels}`, and its `max_pixels` is **not** the same quantity as CR2's `longest_edge` — set CR1/other-VLM `mm_processor_kwargs` per that model's [Cosmos Reason NIM docs](https://docs.nvidia.com/nim/vision-language-models/1.6.0/introduction.html). Non-Cosmos VLMs need no extra kwargs.
+> The `case "$VLM_MODEL"` block mirrors `video_understanding.py`: Cosmos Reason 2 sends `mm_processor_kwargs.size{shortest_edge,longest_edge}`; other Cosmos models (including CR1) send `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; all Cosmos models send `media_io_kwargs.video.num_frames`. Non-Cosmos VLMs need no extra kwargs.
 
 If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), keep only the text after `</think>` as the report body.
 
@@ -267,10 +291,18 @@ If `get_incidents` returns zero results, return a one-line report stating the ra
 
 ## Error Handling
 
+<<<<<<< HEAD
 - If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step. Do not fabricate a report from partial or missing data.
 - If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
 - If a clip URL cannot be rewritten to the public host/port, omit it from the rendered report and call out that the browser-playable URL could not be produced.
 - For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.
+=======
+- **Probe failure (Mode A/Mode B prerequisites)** — if `curl` probes fail, stop query execution and ask the user to deploy the required profile via `/vss-deploy-profile` (`base` for Mode A, `alerts` for Mode B).
+- **Missing browser URL env for rewrite** — if any of `VSS_PUBLIC_HTTP_PROTOCOL`, `VSS_PUBLIC_HOST`, or `VSS_PUBLIC_PORT` is unset, fail fast and surface the missing variable instead of producing a malformed `BROWSER_CLIP_URL`.
+- **VLM endpoint/model mismatch** — if `${VLM_ENDPOINT}/models` fails or `${VLM_MODEL}` is absent, try the alternate backend once; if still failing, return the concrete probe error and stop.
+- **Remote VLM cannot fetch `VIDEO_URL`** — if endpoint reachability constraints indicate the VLM cannot access the internal clip URL, do not issue `chat/completions`; tell the user the endpoint must reach `VIDEO_URL` (or use a local in-cluster endpoint).
+- **No incidents in Mode B** — return the explicit zero-results report for the requested range/scope; do not invent incidents and do not switch to Mode A automatically.
+>>>>>>> 662fb1dc (Resolve high risk and missing sections in skills)
 
 ---
 
