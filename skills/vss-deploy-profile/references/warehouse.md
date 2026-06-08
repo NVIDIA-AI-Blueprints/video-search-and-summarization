@@ -265,7 +265,7 @@ Pulls images and builds the perception container (~10–15 min first run). If `d
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
 
-docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
+printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 
 nohup docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
@@ -347,13 +347,19 @@ If no key: go to https://ngc.nvidia.com → **Setup → API Keys → Generate Pe
 > **Important:** NGC API keys may look like base64. Use the key exactly as provided — **do not base64-decode it.**
 
 ```bash
-export NGC_CLI_API_KEY='<key>'
-echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
+read -rsp "NGC API key: " NGC_CLI_API_KEY
+echo
+export NGC_CLI_API_KEY
 ```
 
 Or configure interactively: `ngc config set`
 
-> Never commit the NGC API key to version control.
+> Security note: Prefer a current-session handoff: enter the key with `read -rs`,
+> inject it from a secrets manager, and pass it to `docker login` with
+> `--password-stdin`. Do not pass the raw key as a CLI argument, write it to any
+> workspace file or shell profile such as `~/.bashrc`, or commit it to version
+> control. If an env file is unavoidable, keep it outside the repo and restrict
+> it with `chmod 600`.
 
 #### 1.4 Verify NGC Access
 
