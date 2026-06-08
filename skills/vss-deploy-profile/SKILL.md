@@ -159,7 +159,7 @@ Before building env overrides, confirm:
 | **LLM/VLM placement** | Explicitly decide local / local_shared / remote. Cross-reference available GPUs against the chosen profile's **Minimum GPU count** table. If endpoint env vars are present but the user did not request remote, ask whether to use or ignore them. |
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
 | **`HOST_IP`** | `hostname -I \| awk '{print $1}'` — the host's primary internal IP |
-| **`EXTERNAL_IP`** | Browser-reachable host/IP. On Brev, use the secure-link domain (see [`references/brev.md`](references/brev.md)). |
+| **`EXTERNAL_IP`** | Browser-reachable host/IP. On Brev, the secure-link domain — Step 1d detects Brev and (only then) reads `references/brev.md` to set it. |
 | **`HAPROXY_PORT`** | Browser-facing ingress port. Default `7777`; ensure it is free. |
 
 Before `docker compose up`, verify `EXTERNAL_IP`, `HAPROXY_PORT`, `VSS_PUBLIC_HOST`, and `VSS_PUBLIC_PORT` are populated with browser-reachable values. Otherwise the stack may appear healthy while UI/API/VST links 404 or loop through Cloudflare Access.
@@ -183,9 +183,16 @@ cp "$ENV_SRC" "$ENV_GEN"
 
 All subsequent writes (Brev `EXTERNAL_IP`, the env_overrides dict from Step 2) go to `$ENV_GEN`. `$ENV_SRC` is read-only from here on.
 
-### Step 1d — If deploying on Brev, set `EXTERNAL_IP` to the secure-link domain
+### Step 1d — Brev only: detect first, then set `EXTERNAL_IP` to the secure-link domain
 
-Read `BREV_ENV_ID` from `/etc/environment` and write `EXTERNAL_IP` into `generated.env` (NOT `.env`). Full secure-link behavior and troubleshooting are in [`references/brev.md`](references/brev.md).
+**Detect Brev before anything else** — a Brev-provisioned instance sets `BREV_ENV_ID` in `/etc/environment`; nothing else does:
+
+```bash
+grep -qE '^BREV_ENV_ID=' /etc/environment && echo "on Brev" || echo "not Brev"
+```
+
+- **not Brev** → skip the rest of this step and **do not read [`references/brev.md`](references/brev.md)**; keep the normal `${HOST_IP}`-based `EXTERNAL_IP`.
+- **on Brev** → read [`references/brev.md`](references/brev.md) for the secure-link behavior, then write `EXTERNAL_IP` into `generated.env` (NOT `.env`):
 
 ```bash
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
