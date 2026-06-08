@@ -37,7 +37,7 @@ Run AutoMagicCalib over one of three input sources and drive the calibration thr
 
 Shared helper references are loaded only when needed:
 - Read [`references/common-steps.md`](references/common-steps.md) when a mode reference needs the shared `create_project`, video-upload, or handoff snippets.
-- Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the verify -> calibrate -> poll -> results tail.
+- Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the verify → calibrate → poll → results tail.
 
 ## Input Routing
 
