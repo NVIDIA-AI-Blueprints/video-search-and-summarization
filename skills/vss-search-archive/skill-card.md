@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers use this skill to search archived video content using natural-language queries and to ingest video files or RTSP streams for search indexing via the NVIDIA VSS platform. <br>
+Developers and engineers use this skill to run natural-language semantic search across archived video content and to ingest video files or RTSP streams for search indexing via the NVIDIA VSS platform. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,10 +19,10 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Discovery Modes](references/discovery_modes.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
-- [NVIDIA VSS GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
@@ -38,7 +38,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-1 evaluation task (1 positive skill-activation case) with 2 attempts per task, evaluated in the astra-sandbox environment using the NVSkills-Eval external profile. <br>
+1 evaluation task from NVSkills-Eval external profile (1 positive skill-activation case, 2 attempts per task, 50% pass threshold). Environment: astra-sandbox. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -62,11 +62,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 100% (+75%) | 97% (+59%) |
-| Discoverability | 2 | 92% (+67%) | 93% (+39%) |
-| Effectiveness | 2 | 61% (+37%) | 69% (+45%) |
-| Efficiency | 2 | 80% (+58%) | 88% (+45%) |
+| Security | 2 | 100% (+0%) | 100% (+100%) |
+| Correctness | 2 | 85% (+60%) | 97% (+62%) |
+| Discoverability | 2 | 100% (+75%) | 90% (+37%) |
+| Effectiveness | 2 | 55% (+31%) | 64% (+40%) |
+| Efficiency | 2 | 93% (+71%) | 82% (+43%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
