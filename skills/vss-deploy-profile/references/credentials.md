@@ -36,7 +36,7 @@ Run the credential-probe script. It validates each key that is set (`ok` /
 Compare each result with the chosen deployment mode before continuing.
 
 ```bash
-skills/vss-deploy-profile/scripts/check_credentials.sh
+bash skills/vss-deploy-profile/scripts/check_credentials.sh
 ```
 
 After the NGC key validates, set **both** `NGC_CLI_API_KEY` and `NGC_API_KEY` to

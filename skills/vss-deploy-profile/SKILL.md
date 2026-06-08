@@ -255,10 +255,11 @@ Build the artifact list from the actual selected deployment:
 
 Probe each selected artifact with the normalized NGC key before continuing:
 
-- Container images: verify registry access with `docker manifest inspect
-  <nvcr.io/...>` after `docker login nvcr.io`, or the matching
-  `ngc registry image info ...` command when the artifact maps cleanly to an
-  NGC image path.
+- Container images: `docker manifest inspect <nvcr.io/...>` after `docker
+  login nvcr.io` — for gated `nvcr.io` repos a `401`/`403` here is a definitive
+  no-entitlement signal (manifest read requires the same org/team grant as the
+  layer pull); or the matching `ngc registry image info ...` when the artifact
+  maps cleanly to an NGC image path.
 - NGC model/resource paths: run the matching `ngc registry model info ...` or
   `ngc registry resource info ...` for the exact repo/tag that the profile will
   load or download.
