@@ -58,8 +58,10 @@ if sudo -n true 2>/dev/null; then
     SUDO="sudo"                       # passwordless sudo → proceed as-is
 elif [ "$(id -u)" -eq 0 ]; then
     SUDO=""                           # already root → no sudo needed
-elif docker info >/dev/null 2>&1; then
-    SUDO=""                           # docker usable without sudo (docker group / rootless)
+elif docker info >/dev/null 2>&1 && [ "${IS_JETSON:-0}" -eq 0 ]; then
+    SUDO=""                           # docker-group / rootless (x86/SBSA only — Jetson perf commands
+                                      # nvpmodel, jetson_clocks, and governor writes require real root,
+                                      # so Jetson docker-group hosts fall through to the recovery below)
 else
     echo "✖ sudo requires a password and the agent cannot enter it." >&2
     echo "  Run this once in your terminal, then re-run the skill:" >&2
