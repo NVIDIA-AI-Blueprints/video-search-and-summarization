@@ -8,8 +8,9 @@ and posts a **sticky PR comment** + uploads a full **artifact**. It is the CI
 realization of the manual 6-paradigm review. It is **advisory** — it never fails
 the merge and is not a required status check.
 
-Complements, does not replace: `skills-nv-base.yml` (schema/secrets/PII lint) and
-`skills-eval.yml` (GPU behavioral eval). This is static, LLM-only review.
+Complements, does not replace: `vss-playbook-compliance.yml` (static skill
+compliance) and `skills-eval.yml` (GPU behavioral eval). This is static,
+LLM-only review.
 
 ## Flow
 
