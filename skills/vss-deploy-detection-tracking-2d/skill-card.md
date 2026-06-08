@@ -1,14 +1,15 @@
 ## Description: <br>
-Use to deploy, run, debug, or tear down the RTVI-CV 2D detection / tracking microservice and call its REST API. <br>
+Use this skill when the user wants to deploy, run, debug, tear down, or call the REST API of the RTVI-CV 2D detection / tracking microservice. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
-## Owner: NVIDIA <br>
+## Owner
+NVIDIA <br>
 
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to deploy, operate, debug, and tear down the NVIDIA RTVI-CV 2D detection and tracking microservice and drive its REST API for real-time video intelligence workloads such as warehouse automation and smart city surveillance. <br>
+Developers and engineers deploying, operating, debugging, and calling the REST API of the RTVI-CV 2D detection and tracking microservice for video analytics applications. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -18,13 +19,14 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Deploy RTVI-CV Detection Tracking 2D](references/deploy-vss-detection-tracking-2d.md) <br>
-- [API Usage](references/usage-vss-detection-tracking-2d.md) <br>
+- [Deploy VSS Detection Tracking 2D](references/deploy-vss-detection-tracking-2d.md) <br>
+- [Usage — VSS Detection Tracking 2D](references/usage-vss-detection-tracking-2d.md) <br>
 - [API Reference](references/api-reference.md) <br>
 - [Pipeline Configuration](references/pipeline-config.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Platforms](references/platforms.md) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -32,6 +34,43 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Agents Used: <br>
+- Claude Code (`claude-code`) <br>
+- Codex (`codex`) <br>
+
+
+
+## Evaluation Tasks: <br>
+Evaluated against 6 internal evaluation tasks (4 positive skill-activation, 2 negative activation). Environment: astra-sandbox, NVSkills-Eval profile: external, 2 attempts per task. <br>
+
+## Evaluation Metrics Used: <br>
+Reported benchmark dimensions: <br>
+- Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
+- Correctness: Checks whether the agent follows the expected workflow and produces the correct final output. <br>
+- Discoverability: Checks whether the agent loads the skill when relevant and avoids using it when irrelevant. <br>
+- Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
+- Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
+
+Underlying evaluation signals used in this run: <br>
+- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
+- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
+- `accuracy`: Grades final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
+- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
+- `token_efficiency`: Compares token usage with and without the skill. <br>
+
+
+
+## Evaluation Results: <br>
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | 8 | 75% (-8%) | 88% (-4%) |
+| Correctness | 8 | 92% (+4%) | 92% (+29%) |
+| Discoverability | 8 | 93% (+10%) | 80% (+12%) |
+| Effectiveness | 8 | 76% (+4%) | 77% (+27%) |
+| Efficiency | 8 | 80% (+15%) | 65% (+6%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
