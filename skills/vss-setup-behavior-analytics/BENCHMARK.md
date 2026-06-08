@@ -55,20 +55,22 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 75% (+75%) | 50% (+50%) |
-| Discoverability | 2 | 50% (+50%) | 0% (+0%) |
-| Effectiveness | 2 | 79% (+79%) | 50% (+50%) |
-| Efficiency | 2 | 61% (+34%) | 28% (+0%) |
+| Correctness | 2 | 50% (+50%) | 50% (+50%) |
+| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
+| Effectiveness | 2 | 62% (+62%) | 50% (+50%) |
+| Efficiency | 2 | 27% (+0%) | 28% (-0%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 2 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 4 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in configuration.md (`skills/vss-setup-behavior-analytics/SKILL.md`)
+- MEDIUM SECURITY/Unknown (SQP-2): The document does tell users to optionally persist the NGC API key to ~/.bashrc but lacks a strong warning about the sec (`references/ngc.md:28`)
+- LOW QUALITY/quality_efficiency: Non-descriptive filename: ngc.md (`skills/vss-setup-behavior-analytics/SKILL.md`)
 - LOW SCHEMA/author_format: Author must be of the form 'Name <email@host>' (`skills/vss-setup-behavior-analytics/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
@@ -77,7 +79,7 @@ Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
 
 Notable observations:
 
-- Context Deduplication: Collected 5 file(s)
+- Context Deduplication: Collected 6 file(s)
 - Inter-Skill Deduplication: Parsed skill 'vss-setup-behavior-analytics': 145 char description
 
 ## Publication Recommendation
