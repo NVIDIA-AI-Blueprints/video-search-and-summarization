@@ -65,12 +65,17 @@ If the user doesn't have a key yet, guide them:
 Once they have the key:
 
 ```bash
-export NGC_CLI_API_KEY='<key>'
-# Optionally persist in shell profile:
-echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
+read -rsp "NGC API key: " NGC_CLI_API_KEY
+echo
+export NGC_CLI_API_KEY
 ```
 
-> Do not store the raw key in any workspace file.
+> Security note: Prefer a current-session handoff: enter the key with `read -rs`,
+> inject it from a secrets manager, and pass it to `docker login` with
+> `--password-stdin`. Do not pass the raw key as a CLI argument, write it to any
+> workspace file or shell profile such as `~/.bashrc`, or commit it to version
+> control. If an env file is unavoidable, keep it outside the repo and restrict
+> it with `chmod 600`.
 
 ---
 

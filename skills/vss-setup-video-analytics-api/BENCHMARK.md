@@ -56,20 +56,22 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 98% (+67%) | 97% (+62%) |
-| Discoverability | 2 | 92% (+48%) | 83% (+27%) |
-| Effectiveness | 2 | 67% (+56%) | 60% (+46%) |
-| Efficiency | 2 | 79% (+38%) | 69% (+19%) |
+| Correctness | 2 | 70% (+45%) | 79% (+41%) |
+| Discoverability | 2 | 92% (+67%) | 83% (+28%) |
+| Effectiveness | 2 | 54% (+40%) | 56% (+42%) |
+| Efficiency | 2 | 78% (+54%) | 71% (+27%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 2 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 4 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in deploy-video-analytics-api-service.md (`skills/vss-setup-video-analytics-api/SKILL.md`)
+- MEDIUM SECURITY/Unknown (SQP-2): The skill instructs users to persist a sensitive NGC API key to ~/.bashrc without adequately warning about the security  (`references/ngc.md:28`)
+- LOW QUALITY/quality_efficiency: Non-descriptive filename: ngc.md (`skills/vss-setup-video-analytics-api/SKILL.md`)
 - LOW SCHEMA/author_format: Author must be of the form 'Name <email@host>' (`skills/vss-setup-video-analytics-api/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
