@@ -367,4 +367,18 @@ selected `*_BASE_URL/v1/models` via `scripts/probe_remote_models.sh` — are in
 
 ## Troubleshooting
 
-Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
+Quick triage for the most common cross-profile errors. This is a summary — the
+full symptom table (with `grep`/log checks and profile-specific cases) lives in
+[`references/agent-failure-modes.md`](references/agent-failure-modes.md); start
+there for anything not listed here.
+
+| Error | Cause | Solution |
+|---|---|---|
+| REST call returns connection refused | Target microservice not running | Probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill |
+| HTTP 401/403 from NGC pulls | Missing/expired `NGC_CLI_API_KEY` | `docker login nvcr.io` and re-export the key before retrying |
+| Container OOM or model fails to load | Insufficient GPU memory for the selected profile | Switch to a smaller variant or free GPUs via `docker compose down` |
+
+For NIM cold-start timeouts, remote endpoint 5xx, `HF_TOKEN` gating, unexpanded
+`${...}` in `resolved.yml`, and profile-specific failures, see
+[`references/agent-failure-modes.md`](references/agent-failure-modes.md) and the
+per-profile reference's Debugging section.
