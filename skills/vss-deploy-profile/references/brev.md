@@ -65,13 +65,22 @@ blocks them as mixed content. Set the host, protocol, and port together:
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
 ENV_GEN="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env"
 host="7777-${brev_env_id}.brevlab.com"
-sed -i \
-  -e "s|^EXTERNAL_IP=.*|EXTERNAL_IP=${host}|" \
-  -e "s|^VSS_PUBLIC_HOST=.*|VSS_PUBLIC_HOST=${host}|" \
-  -e "s|^VSS_PUBLIC_HTTP_PROTOCOL=.*|VSS_PUBLIC_HTTP_PROTOCOL=https|" \
-  -e "s|^VSS_PUBLIC_WS_PROTOCOL=.*|VSS_PUBLIC_WS_PROTOCOL=wss|" \
-  -e "s|^VSS_PUBLIC_PORT=.*|VSS_PUBLIC_PORT=443|" \
-  "$ENV_GEN"
+
+set_env() {
+  key="$1"
+  value="$2"
+  if grep -q "^${key}=" "$ENV_GEN"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_GEN"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$ENV_GEN"
+  fi
+}
+
+set_env EXTERNAL_IP "$host"
+set_env VSS_PUBLIC_HOST "$host"
+set_env VSS_PUBLIC_HTTP_PROTOCOL https
+set_env VSS_PUBLIC_WS_PROTOCOL wss
+set_env VSS_PUBLIC_PORT 443
 ```
 
 ## Verifying the deploy is reachable externally
@@ -79,8 +88,8 @@ sed -i \
 After `docker compose up -d`:
 
 ```bash
-# 1. Nginx proxy is up and routing
-curl -sf http://localhost:7777/health >/dev/null && echo "proxy OK"
+# 1. HAProxy ingress is routing (there is no /health handler)
+curl -sfI http://localhost:7777/ >/dev/null && echo "proxy OK"
 
 # 2. UI reachable through the proxy (internally)
 curl -sfI http://localhost:7777/ | head -1

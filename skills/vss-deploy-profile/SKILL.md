@@ -39,8 +39,6 @@ Match the user's request to a profile, then load that profile's reference for si
 
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the Spark Nano 9B standalone local LLM on port `30081`; AGX/IGX Thor uses the Edge 4B standalone vLLM fallback.
 
-**Knowledge retrieval / RAG routing**: see [`references/knowledge-retrieval.md`](references/knowledge-retrieval.md) when enabling document grounding, LVS caption Q&A, or both retrieval paths side-by-side.
-
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
 
 
@@ -194,7 +192,7 @@ grep -qE '^BREV_ENV_ID=' /etc/environment && echo "on Brev" || echo "not Brev"
 ```
 
 - **not Brev** → skip the rest of this step and **do not read [`references/brev.md`](references/brev.md)**; keep the normal `${HOST_IP}`-based `EXTERNAL_IP`.
-- **on Brev** → apply the Brev secure-link overrides from [`references/brev.md` § Setup flow](references/brev.md#setup-flow) to `generated.env` (NOT `.env`). Those set `EXTERNAL_IP` / `VSS_PUBLIC_HOST` to the secure-link domain **and** `VSS_PUBLIC_HTTP_PROTOCOL=https` / `VSS_PUBLIC_WS_PROTOCOL=wss` / `VSS_PUBLIC_PORT=443` — setting `EXTERNAL_IP` alone leaves `http://…:7777` UI/API/WS links that the browser blocks as mixed content.
+- **on Brev** → apply the Brev secure-link overrides from [`references/brev.md` § Setup flow](references/brev.md#setup-flow) to `generated.env` (NOT `.env`). Those set `EXTERNAL_IP` / `VSS_PUBLIC_HOST` to the secure-link domain **and** `VSS_PUBLIC_HTTP_PROTOCOL=https` / `VSS_PUBLIC_WS_PROTOCOL=wss` / `VSS_PUBLIC_PORT=443`; the setup flow appends missing keys when needed. Setting `EXTERNAL_IP` alone leaves `http://…:7777` UI/API/WS links that the browser blocks as mixed content.
 
 ### Step 2 — Build env_overrides
 

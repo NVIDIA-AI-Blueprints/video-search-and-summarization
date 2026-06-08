@@ -29,7 +29,7 @@ timestamped events when the LVS microservice path is reachable.
 
 **Do NOT use this skill for:**
 - Live RTSP captioning — use `vss-deploy-dense-captioning`.
-- Incident-range or alert-window reports — use `vss-generate-video-report` Mode B.
+- Report generation, including incident or alert-window reports — use `vss-generate-video-report` Mode B.
 - Semantic search across the archive — use `vss-search-archive`.
 
 ## Prerequisites
