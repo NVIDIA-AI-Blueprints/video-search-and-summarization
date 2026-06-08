@@ -13,6 +13,7 @@
 set -euo pipefail
 
 NVIDIA_ROOT_CERT_URL="https://raw.githubusercontent.com/NVIDIA/skills/main/nv-agent-root-cert.pem"
+MODEL_SIGNING_UVX_SPEC="model-signing==1.1.1"
 
 usage() {
   cat <<'EOF'
@@ -32,7 +33,8 @@ Options:
   --private-key PATH           PEM private key for the signing certificate. Required for sign.
   --signing-certificate PATH   PEM signing certificate. Required for sign.
   --model-signing-bin PATH     model_signing executable. Defaults to MODEL_SIGNING_BIN,
-                               then model_signing on PATH, then uvx --from model-signing.
+                               then model_signing on PATH, then uvx with pinned
+                               model-signing==1.1.1.
   -h, --help                   Show this help.
 
 Examples:
@@ -66,7 +68,7 @@ run_model_signing() {
   elif command -v model_signing >/dev/null 2>&1; then
     model_signing "$@"
   elif command -v uvx >/dev/null 2>&1; then
-    uvx --from model-signing model_signing "$@"
+    uvx --from "$MODEL_SIGNING_UVX_SPEC" model_signing "$@"
   else
     die "model_signing is not installed and uvx is unavailable"
   fi
