@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-profile`
-- Evaluation date: 2026-06-05
+- Evaluation date: 2026-06-08
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 5 evaluation tasks
@@ -55,11 +55,11 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 85% (+0%) |
-| Correctness | 8 | 97% (+66%) | 82% (+44%) |
-| Discoverability | 8 | 92% (+52%) | 85% (+30%) |
-| Effectiveness | 8 | 64% (+58%) | 55% (+48%) |
-| Efficiency | 8 | 76% (+39%) | 78% (+29%) |
+| Security | 8 | 100% (+0%) | 95% (+10%) |
+| Correctness | 8 | 96% (+77%) | 91% (+54%) |
+| Discoverability | 8 | 93% (+72%) | 85% (+28%) |
+| Effectiveness | 8 | 64% (+59%) | 61% (+54%) |
+| Efficiency | 8 | 77% (+51%) | 76% (+22%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -71,13 +71,13 @@ Top findings:
 
 - MEDIUM QUALITY/quality_correctness: Instructions don't mention 'run_script' (`skills/vss-deploy-profile/SKILL.md`)
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-deploy-profile/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in edge.md (`skills/vss-deploy-profile/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in search.md (`skills/vss-deploy-profile/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-profile/SKILL.md`)
 - LOW QUALITY/quality_efficiency: Non-descriptive filename: ngc.md (`skills/vss-deploy-profile/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 2 total findings.
+Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 1 total findings.
 
 Top findings:
 
@@ -90,6 +90,3 @@ Top findings:
   vs "## Env File Location" in references/base.md (lines 453-459)
   vs "## Env file location" in references/lvs-profile.md (lines 205-211)
   vs "## Env file location" in references/search.md (lines 278-284) (`SKILL.md:41`)
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/prerequisites.md and references/warehouse.md:
-  "### 2. Docker" in references/prerequisites.md (lines 167-186)
-  vs "#### 2.2 Docker" in references/warehouse.md (lines 476-490) (`references/prerequisites.md:167`)
