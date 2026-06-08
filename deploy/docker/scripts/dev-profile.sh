@@ -348,6 +348,29 @@ function set_vss_linux_kernel_settings() {
   $_sudo sysctl --system
 }
 
+function run_required_step() {
+  local _message="${1}"
+  local _exit_code
+  shift
+
+  "$@"
+  _exit_code=$?
+  if [[ ${_exit_code} -ne 0 ]]; then
+    echo "[ERROR] ${_message} (exit ${_exit_code})"
+    exit 1
+  fi
+}
+
+function require_downloaded_model_file() {
+  local _file_path="${1}"
+  local _description="${2}"
+
+  if [[ ! -f "${_file_path}" ]]; then
+    echo "[ERROR] Expected ${_description} after model download, but file was not found: ${_file_path}"
+    exit 1
+  fi
+}
+
 function usage() {
   echo "Usage: ${0} (up|down) [options]"
   echo "   or: ${0} (-h|--help)"
@@ -955,6 +978,18 @@ function process_args() {
         fi
       fi
 
+      # Search critic requires a local VLM unless --use-remote-vlm is provided.
+      # On 2-GPU Brev launchables the configured local VLM device is unavailable,
+      # so fail fast instead of silently deploying without the critic service.
+      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]] && ! ([[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]); then
+        local _brev_gpu_count
+        _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
+        if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
+          echo "[ERROR] Search critic requires a local VLM GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Set ENABLE_CRITIC=false to deploy search without critic, or pass --use-remote-vlm with VLM_ENDPOINT_URL."
+          ((_all_good++))
+        fi
+      fi
+
       # Fail fast: VLM_CUSTOM_WEIGHTS must be an absolute path and the directory must exist (even in dry-run)
       if [[ "${vlm_mode}" != "remote" ]]; then
         if [[ -n "${vlm_custom_weights}" ]]; then
@@ -1284,22 +1319,12 @@ function state_up() {
   fi
 
   # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
-  # Brev 2-GPU launchables do not have enough local devices for the Search critic VLM assignment, so disable critic there as well.
   # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
+  # Brev 2-GPU local-VLM critic deployments are rejected during argument validation.
   if [[ "${profile}" == "search" ]]; then
     if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]; then
       set_env_var "ENABLE_CRITIC" "false"
       set_env_var "VLM_NAME_SLUG" "none"
-    elif [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
-      local _brev_gpu_count
-      _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
-      if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
-        echo "[WARN] Brev environment has ${_brev_gpu_count} GPU(s). Disabling Search critic to avoid starting the local VLM on GPU ${vlm_device_id}."
-        set_env_var "ENABLE_CRITIC" "false"
-        set_env_var "VLM_NAME_SLUG" "none"
-      else
-        set_env_var "ENABLE_CRITIC" "true"
-      fi
     else
       set_env_var "ENABLE_CRITIC" "true"
     fi
@@ -1439,25 +1464,35 @@ function state_up() {
       mkdir -p "${data_directory}/models/gdino"
 
       # Download and install trafficcamnet RT-DETR model
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      run_required_step "Failed to download trafficcamnet RT-DETR model from NGC" \
+        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
         registry \
         model \
         download-version \
         nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
 
-      mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
+      require_downloaded_model_file \
+        "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx" \
+        "trafficcamnet RT-DETR ONNX artifact"
+      run_required_step "Failed to install trafficcamnet RT-DETR model" \
+        mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
         "${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
 
       rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
 
       # Download and install grounding DINO model
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      run_required_step "Failed to download grounding DINO model from NGC" \
+        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
         registry \
         model \
         download-version \
         nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
 
-      mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
+      require_downloaded_model_file \
+        "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx" \
+        "grounding DINO ONNX artifact"
+      run_required_step "Failed to install grounding DINO model" \
+        mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
         "${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
 
       rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
@@ -1488,14 +1523,19 @@ function state_up() {
     else
       mkdir -p "${data_directory}/models"
 
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      run_required_step "Failed to download RT-DETR model from NGC" \
+        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
         registry \
         model \
         download-version \
         nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
         --org nvidia
 
-      mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
+      require_downloaded_model_file \
+        "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx" \
+        "RT-DETR warehouse ONNX artifact"
+      run_required_step "Failed to install RT-DETR model" \
+        mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
 
       rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
 

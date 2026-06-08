@@ -31,6 +31,11 @@ Container names below are exactly what `docker ps` reports (sourced from the `co
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | nim |
 | VLM | `nvidia/cosmos-reason2-8b` | `cosmos-reason2-8b` | nim |
 
+The base `.env` defaults both sides to shared local deployment:
+`LLM_MODE=local_shared` and `VLM_MODE=local_shared`, with
+`LLM_DEVICE_ID=0` and `VLM_DEVICE_ID=0`. `dev-profile.sh` writes the same
+mode when LLM/VLM device IDs match and no remote flags are selected.
+
 **Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, `nvidia/nemotron-3-nano`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
 
 **Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `Qwen/Qwen3-VL-8B-Instruct`
@@ -319,7 +324,7 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>"
@@ -335,7 +340,7 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",
@@ -349,13 +354,14 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 
 Fire this recipe when the user says *"deploy in remote-all mode"*,
 *"both LLM and VLM are remote"*, or supplies two endpoint URLs (one per
-role). Both mode vars MUST flip to `remote`; leaving either at `local`
-silently breaks `COMPOSE_PROFILES`.
+role). Both mode vars MUST flip from the `.env` defaults
+(`LLM_MODE=local_shared`, `VLM_MODE=local_shared`) to `remote`; leaving either
+at `local_shared` keeps the local shared NIM `COMPOSE_PROFILES` active.
 
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "LLM_MODE": "remote",
@@ -379,15 +385,15 @@ grep -E '^(LLM_MODE|VLM_MODE|LLM_BASE_URL|VLM_BASE_URL|LLM_NAME|VLM_NAME)=' \
   deploy/docker/developer-profiles/dev-profile-base/generated.env
 ```
 Expect six lines, all non-empty; `LLM_MODE=remote` and `VLM_MODE=remote`
-must both appear. If either is `local`, you didn't overwrite the
-template placeholder — re-run the `sed` with the correct value.
+must both appear. If either is `local_shared` or `local`, you did not
+overwrite the template default — re-run the `sed` with the correct value.
 
 ### Dedicated GPUs (2-GPU system)
 
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",
@@ -412,12 +418,12 @@ template placeholder — re-run the `sed` with the correct value.
 The `.env` file computes this from other variables:
 
 ```
-COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},${BP_PROFILE}_${MODE}_${PROXY_MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
+COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
 ```
 
 Example resolved value:
 ```
-bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,bp_developer_base_2d_no_proxy,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
+bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
 ```
 
 The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automatically.
@@ -453,8 +459,8 @@ browser-reachable on Brev, never report these as the access URL):
 ## Env File Location
 
 ```
-<repo>/deploy/docker/developer-profiles/dev-profile-base/.env            # source defaults (read-only)
-<repo>/deploy/docker/developer-profiles/dev-profile-base/generated.env   # skill's working copy (apply overrides here)
+<repo>/deploy/docker/developer-profiles/dev-profile-base/.env
+<repo>/deploy/docker/developer-profiles/dev-profile-base/generated.env
 ```
 
 ## Debugging
@@ -470,9 +476,9 @@ Common failure modes and what they mean for base:
 | Symptom | Likely cause |
 |---|---|
 | `POST /api/v1/videos` HTTP 500 | Agent not finished starting — poll `/health` longer |
-| VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vst-ingress-dev` |
-| VST returns empty `sensor/streams` but VST container is healthy | `centralizedb-dev` (postgres) can't read PGDATA because `$VSS_DATA_DIR` was `chown`ed to ubuntu. See [SKILL.md § Step 1b](../SKILL.md#step-1b--prepare-the-data-directory) — use `chmod -R 777`, not `chown`. Fix: `sudo rm -rf $VSS_DATA_DIR/data_log/vst/postgres && redeploy` (postgres re-initializes on start) |
-| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2-shared-gpu` / `cosmos-reason2-8b-shared-gpu` |
+| VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vss-vios-ingress` |
+| VST returns empty `sensor/streams` but VST container is healthy | Check Postgres health/logs with `docker logs vss-vios-postgres`. Current compose uses the named volume `vios_pg_data` for PGDATA, not a `$VSS_DATA_DIR` Postgres bind mount. See [`data-directory.md`](data-directory.md) before removing any volume. |
+| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2` / `nvidia-cosmos-reason2-8b` |
 | HITL prompt never arrives | `vss-agent` misconfigured HITL config — check `config.yml` |
 | Empty report | VLM unreachable from inside `vss-agent` container — check `VLM_BASE_URL` in resolved compose env |
 

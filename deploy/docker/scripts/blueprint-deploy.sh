@@ -37,6 +37,7 @@ vlm_model_type=""
 llm_env_file=""
 vlm_env_file=""
 hardware_profile=""
+use_sbsa_images="false"
 
 # Flags to track explicitly provided options
 options_provided=()
@@ -251,6 +252,9 @@ function usage() {
   echo "  --vlm-model-type               nim or openai (when --use-remote-vlm)"
   echo "  --llm-env-file                 Path to LLM env file"
   echo "  --vlm-env-file                 Path to VLM env file"
+  echo "  --use-sbsa-images              Use SBSA-tagged image variants (e.g. RTVI CV) from commented lines in .env"
+  echo "                                   • Enabled automatically for -H DGX-SPARK"
+  echo "                                   • Use with -H OTHER on GB300/Spark-class hosts that need SBSA images"
   echo ""
   echo "Options for 'up' and 'down':"
   echo "  -n, --dry-run                    Print commands without executing them"
@@ -271,12 +275,25 @@ function contains_element() {
   return 1
 }
 
+# Swap non-SBSA image tag lines for commented *sbsa* variants in generated.env (DGX-SPARK or --use-sbsa-images).
+function apply_sbsa_image_tags_to_env() {
+  local _generated_env="${1}"
+  local _reason="${2}"
+  local _key
+  while IFS= read -r _key; do
+    [[ -z "${_key}" ]] && continue
+    sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
+    sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
+    echo "[INFO] Swapped to SBSA (${_reason}): ${_key}"
+  done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
+}
+
 function validate_args() {
   local _args _valid_args _all_good
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -315,7 +332,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   while true; do
@@ -400,6 +417,11 @@ function process_args() {
         shift
         vlm_env_file="${1}"
         options_provided+=("vlm-env-file")
+        shift
+        ;;
+      --use-sbsa-images)
+        use_sbsa_images="true"
+        options_provided+=("use-sbsa-images")
         shift
         ;;
       -i | --host-ip)
@@ -636,6 +658,13 @@ function print_args() {
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${hardware_profile}" ]]; then
       echo "hardware-profile:          ${hardware_profile}"
     fi
+    if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${use_sbsa_images}" == "true" ]]; then
+      if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
+        echo "use-sbsa-images:           true (DGX-SPARK)"
+      else
+        echo "use-sbsa-images:           true (--use-sbsa-images)"
+      fi
+    fi
     if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
       [[ -n "${llm}" ]] && echo "llm:                       ${llm}"
       [[ -n "${vlm}" ]] && echo "vlm:                       ${vlm}"
@@ -839,19 +868,10 @@ function state_up() {
     set_env_var "NUM_STREAMS" "${_num_streams}"
   fi
 
-  # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,
-  # comment the uncommented line (non-sbsa) and uncomment the sbsa line. Discover keys from the file.
-  # Comment format may be "# VAR=..." or "#VAR=..." (optional space after #).
   if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
-    local _key
-    while IFS= read -r _key; do
-      [[ -z "${_key}" ]] && continue
-      # Comment the uncommented line for this key when value does not contain sbsa
-      sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
-      # Uncomment the commented line for this key when value contains sbsa
-      sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-      echo "[INFO] Swapped to SBSA (DGX-SPARK): ${_key}"
-    done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
+    apply_sbsa_image_tags_to_env "${_generated_env}" "DGX-SPARK"
+  elif [[ "${use_sbsa_images}" == "true" ]]; then
+    apply_sbsa_image_tags_to_env "${_generated_env}" "${hardware_profile:-OTHER} (--use-sbsa-images)"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
