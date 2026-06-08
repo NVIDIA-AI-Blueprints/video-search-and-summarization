@@ -195,6 +195,7 @@ def _engine_ce_skill(paradigm: str, skill: str, skill_dir: pathlib.Path,
         ["claude", "-p", f"/{paradigm} {args}"],
         cwd=str(REPO_ROOT), capture_output=True, text=True,
         env={**os.environ, "CLAUDE_CODE_DISABLE_THINKING": "1"},
+        timeout=1200,  # bound the leg so a stalled CLI can't hold the runner slot
     )
     if proc.returncode != 0 and not proc.stdout.strip():
         raise SkippedLeg(f"{paradigm} returned {proc.returncode}: "
@@ -222,6 +223,7 @@ def _engine_codex(paradigm: str, skill: str, skill_dir: pathlib.Path,
          "--skip-git-repo-check", "-c", 'model_reasoning_effort="high"'],
         capture_output=True, text=True, env={**os.environ, "SPAWNED_SESSION": "1"},
         stdin=subprocess.DEVNULL,
+        timeout=1200,  # bound the leg so a stalled codex can't hold the runner slot
     )
     return extract_findings(proc.stdout)
 
@@ -241,6 +243,10 @@ def run_leg(skill: str, paradigm: str, *, base_ref: str = "origin/develop") -> d
     except SkippedLeg as exc:
         status = "skipped"
         print(f"::warning::skills-review {skill}·{paradigm}: skipped — {exc}", flush=True)
+    except subprocess.TimeoutExpired:
+        status = "skipped"
+        print(f"::warning::skills-review {skill}·{paradigm}: skipped — engine timed out",
+              flush=True)
     except Exception as exc:  # advisory: a broken leg never fails the job
         status = "failed"
         print(f"::warning::skills-review {skill}·{paradigm}: failed — {exc!r}", flush=True)
