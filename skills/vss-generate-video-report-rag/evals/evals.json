@@ -1,0 +1,28 @@
+[
+  {
+    "id": "rag-report-routing",
+    "question": "Generate a knowledge-enhanced report for warehouse_safety_0001 using Enterprise RAG context.",
+    "expected_skill": "vss-generate-video-report-rag",
+    "ground_truth": "Loads vss-generate-video-report-rag for a knowledge-enhanced LVS report. The agent lists available videos when needed, requires a selected video plus scenario/events/optional objects, starts the LVS report through /v1/chat, responds to the actual HITL prompts in config_rag.yml, polls execution status, and presents the completed report with Enterprise RAG context when present.",
+    "expected_behavior": [
+      "Loads vss-generate-video-report-rag for Enterprise RAG or knowledge-enhanced report wording.",
+      "Requires a selected video, scenario, events, and optional objects before starting report generation.",
+      "Responds only to the actual HITL prompt sequence: scenario, events, objects of interest, and confirmation.",
+      "Does not invent a separate Enterprise RAG Query HITL prompt.",
+      "Reports failures with execution_id, interaction_id, response_url, or execution status details when available."
+    ]
+  },
+  {
+    "id": "rag-config-deploy",
+    "question": "Enable Enterprise RAG document grounding for LVS reports.",
+    "expected_skill": "vss-generate-video-report-rag",
+    "ground_truth": "Loads vss-generate-video-report-rag and uses the shipped LVS config_rag.yml through the normal vss-deploy-profile generated.env workflow. It sets VSS_AGENT_CONFIG_FILE to deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml, includes RAG_SERVER_URL, RAG_API_KEY, and KNOWLEDGE_COLLECTION as needed, and avoids stale app/video_search_frag or deployments/developer-workflow paths.",
+    "expected_behavior": [
+      "Uses deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml.",
+      "Uses generated.env rather than mutating the checked-in .env.",
+      "Documents RAG_SERVER_URL, RAG_API_KEY, and KNOWLEDGE_COLLECTION for frag_retrieval.",
+      "Does not reference app/video_search_frag/docker-compose.yml or ./configs/video_search_frag/config.yml.",
+      "Does not print plaintext API tokens."
+    ]
+  }
+]

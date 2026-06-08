@@ -9,7 +9,7 @@
 | **Time of Analysis** | <HH:MM:SS> |
 | **Video Source** | <sensor_id or filename> |
 | **Clip Range** | <startTime> - <endTime> |
-| **Clip URL** | `<BROWSER_CLIP_URL>` (apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite - NEVER paste the raw `HOST_IP:30888` URL here) |
+| **Clip URL** | `<BROWSER_CLIP_URL>` |
 | **VLM** | <VLM_MODEL (NIM or RT-VLM)> |
 | **Analysis Request** | <user's request> |
 

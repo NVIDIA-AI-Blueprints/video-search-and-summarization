@@ -12,21 +12,12 @@ metadata:
 
 Generate a video analysis report by routing to one of two backends — **never via** `POST /generate` on the VSS agent.
 
-| Mode | Trigger | Backend |
+| Mode | Trigger examples | Backend |
 |---|---|---|
-| **A. Video clip** | "report on `<sensor>`", "report on this video", "analyze warehouse_01.mp4" | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
-| **B. Incident range** | "report on incidents from `<t1>` to `<t2>`", "report on alerts today", "what incidents happened on `<sensor>` last hour" | `/vss-query-analytics` → incident list → narrative report |
+| **A. Video clip** | "report on `<sensor>`", "report on this video", "analyze warehouse_01.mp4", "generate a report for `<sensor-id>`" | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
+| **B. Incident range** | "report on incidents from `<t1>` to `<t2>`", "report on alerts today", "what incidents happened on `<sensor>` last hour", "summarize alerts on `<sensor>` between `<t1>` and `<t2>`" | `/vss-query-analytics` → incident list → narrative report |
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range.
-
----
-
-## When to Use
-
-- "Generate a report for this video" / "for `<sensor-id>`" — **Mode A**
-- "Create an analysis report on the uploaded video" — **Mode A**
-- "Report on incidents from 12:31Z to 12:32Z" — **Mode B**
-- "Summarize alerts on `<sensor>` between `<t1>` and `<t2>`" — **Mode B**
 
 ---
 
@@ -195,7 +186,7 @@ If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), 
 
 ### Step 4 — Fill the Video Analysis Report template
 
-Copy [`assets/video-analysis-report.md`](assets/video-analysis-report.md), fill every placeholder, and return the rendered markdown to the user. Keep the source asset unchanged. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never leave the placeholder in the output, and never use the raw `HOST_IP:30888` URL.
+Copy [`assets/video-analysis-report.md`](assets/video-analysis-report.md), fill every placeholder, and return the rendered markdown to the user. Keep the source asset unchanged. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never leave the placeholder in the output, never include template instructions in a filled cell, and never use the raw `HOST_IP:30888` URL.
 
 ---
 
@@ -228,7 +219,7 @@ For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place
 
 ### Step 3 — Fill the Incident Range Report template
 
-Copy [`assets/incident-range-report.md`](assets/incident-range-report.md), then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Keep the source asset unchanged. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL.
+Copy [`assets/incident-range-report.md`](assets/incident-range-report.md), then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Keep the source asset unchanged. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL. Never include template instructions in a filled cell.
 
 If `get_incidents` returns zero results, return a one-line report stating the range and scope produced no incidents — do not invent content and do not fall back to Mode A.
 

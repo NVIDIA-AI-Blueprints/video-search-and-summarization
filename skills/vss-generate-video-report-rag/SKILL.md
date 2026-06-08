@@ -42,11 +42,16 @@ Set at minimum in `generated.env`:
 - `VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml`
 - `RAG_SERVER_URL` — Enterprise RAG server HTTP endpoint (defaults to `http://rag-server:8081/v1`)
 - `RAG_API_KEY` — API key when the RAG server requires one, otherwise leave empty
+- `KNOWLEDGE_COLLECTION` — default Enterprise RAG collection for `frag_retrieval`
 
 ### Step 2: Log in to NGC registry
 
+Prefer an existing authenticated Docker session or a secret-managed login. If a login is required, use `--password-stdin` without printing token values:
+
 ```bash
-echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+read -rsp "NGC API key: " NGC_CLI_API_KEY
+printf '%s\n' "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+unset NGC_CLI_API_KEY
 ```
 
 ### Step 3: Deploy the LVS profile with the RAG config
@@ -116,9 +121,6 @@ Required user-provided parameters:
    Example: "accident, forklift stuck, workers not wearing PPE, person entering restricted area"
 3. **Objects of Interest** — focus objects, or "skip".
    Example: "forklifts, pallets, workers"
-4. **Enterprise RAG Query** — An optional question to search the enterprise knowledge base
-   for additional context to include in the report. Or "skip" to skip.
-   Example: "What are the principles of STCC?"
 
 If any required value is missing, return a concise missing-fields message and stop; resume the workflow when the user supplies the missing values.
 
@@ -161,8 +163,7 @@ The HITL prompts come in this order:
 1. **Scenario** — respond with the scenario from Step 2
 2. **Events** — respond with the events from Step 2
 3. **Objects of Interest** — respond with the objects from Step 2, or "skip"
-4. **Enterprise RAG Query** — respond with the query from Step 2, or "skip"
-5. **Confirmation** — respond with empty string "" to confirm and start processing
+4. **Confirmation** — respond with empty string "" to confirm and start processing
 
 Repeat the POST-then-poll cycle for each prompt.
 
@@ -210,10 +211,10 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 ## Notes
 
 - LVS reports take 3-5 minutes for a ~3.5 minute video; set that expectation before polling
-- Enterprise RAG requires a reachable RAG server with data already ingested
-- If objects or rag_query are not needed, respond with "skip"
+- Enterprise RAG requires a reachable RAG server with data already ingested in `KNOWLEDGE_COLLECTION`
+- If objects are not needed, respond with "skip"
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
-- `enable_interactive_extensions: true` must be set in the RAG-enabled agent config for HTTP HITL to work
+- The RAG-enabled agent config must keep its HITL templates and `hitl_enabled: true` settings for HTTP HITL to work
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
 
 
