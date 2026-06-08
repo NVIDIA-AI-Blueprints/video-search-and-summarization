@@ -4,6 +4,7 @@ description: Use this skill when deploying standalone RT-VLM dense captioning or
 license: Apache-2.0
 metadata:
   version: "3.2.0"
+  author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
@@ -346,11 +347,8 @@ curl -X DELETE "$BASE_URL/v1/files/$FILE_ID" -H "Authorization: Bearer $API_KEY"
 ### 2. Dense captions from an RTSP live stream
 
 ```bash
-# Register the stream
-STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
-  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
-  | jq -r '.results[0].id')
+# Register a probed RTSP source with POST /v1/streams/add, then export its id.
+: "${STREAM_ID:?set from /v1/streams/add results[0].id}"
 
 # Start continuous caption generation
 curl -N -X POST "$BASE_URL/v1/generate_captions" \
@@ -372,74 +370,11 @@ curl -X DELETE "$BASE_URL/v1/streams/delete/$STREAM_ID"  -H "Authorization: Bear
 
 ### 3. Dense captions with alerts from an RTSP stream
 
-```bash
-# Pre-req: Kafka is enabled and topics match the deployment source.
-# The checked-in rtvi-vlm/.env and VSS alerts profiles use:
-#   RTVI_VLM_KAFKA_ENABLED=true
-#   RTVI_VLM_KAFKA_TOPIC=mdx-vlm
-#   RTVI_VLM_KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
-#   RTVI_VLM_ERROR_MESSAGE_TOPIC=vision-llm-errors
-#   HOST_IP=<kafka-host>
-# A copied compose without those env overrides falls back to vision-llm-* topics.
-# Confirm the live container before consuming:
-#   docker exec vss-rtvi-vlm printenv KAFKA_TOPIC KAFKA_INCIDENT_TOPIC ERROR_MESSAGE_TOPIC
-
-STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
-  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
-  | jq -r '.results[0].id')
-
-curl -N -X POST "$BASE_URL/v1/generate_captions" \
-  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
-  -d "{
-    \"id\": \"$STREAM_ID\",
-    \"prompt\": \"You are a warehouse monitoring system. Describe the scene in one sentence, then on a new line output exactly:\\nAnomaly Detected: Yes/No\\nReason: <one sentence>\\nFlag an anomaly if any worker is missing a hard hat or high-vis vest.\",
-    \"system_prompt\": \"Answer the user's question correctly in yes or no.\",
-    \"model\": \"$MODEL_ID\",
-    \"chunk_duration\": 60,
-    \"chunk_overlap_duration\": 10,
-    \"stream\": true
-  }"
-```
-
-**Consume alerts from Kafka**. Kafka values are NvSchema protobuf payloads, so
-use `print.value=false` for a clean validation pass that shows timestamp, key,
-and headers without dumping binary payload bytes. The VSS alerts/profile source
-uses `mdx-vlm-incidents`; a bare copied compose may fall back to
-`vision-llm-events-incidents` if no `RTVI_VLM_KAFKA_INCIDENT_TOPIC` override is
-loaded. Prefer the live container environment over hard-coded topic names.
-```bash
-INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
-INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
-
-docker exec mdx-kafka kafka-console-consumer \
-  --bootstrap-server 127.0.0.1:9092 \
-  --topic "$INCIDENT_TOPIC" \
-  --from-beginning \
-  --timeout-ms 5000 \
-  --max-messages 10 \
-  --property print.timestamp=true \
-  --property print.key=true \
-  --property print.headers=true \
-  --property print.value=false
-```
-
-If Kafka is not running in the VSS `mdx-kafka` container, use the Kafka CLI from
-the host or container running the broker:
-```bash
-INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
-
-kafka-console-consumer \
-  --bootstrap-server "$HOST_IP:9092" \
-  --topic "$INCIDENT_TOPIC" \
-  --from-beginning \
-  --timeout-ms 5000 \
-  --max-messages 10 \
-  --property print.timestamp=true \
-  --property print.key=true \
-  --property print.headers=true \
-  --property print.value=false
-```
+Use the RTSP captioning flow above with an alert-oriented prompt that emits a
+deterministic `Anomaly Detected: Yes/No` line. Kafka enablement, standalone
+broker setup, source-backed topic names, metadata-only consumers, and incident
+key matching are documented in
+[`references/kafka-workflows.md`](references/kafka-workflows.md).
 
 For standalone validation, remember that the RT-VLM compose maps Kafka through
 `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; setting `KAFKA_BOOTSTRAP_SERVERS`

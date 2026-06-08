@@ -126,32 +126,12 @@ merge this feature setting into `/etc/docker/daemon.json`, then restart Docker
 sudo systemctl restart docker
 ```
 
-## 5. Required Secrets & Credentials
+## 5. Security / Credential Handling
 
-All values are `${VAR:-}` placeholders — nothing hardcoded. Use a gitignored `.env`.
-
+All values are `${VAR:-}` placeholders; keep secrets in a gitignored `.env`.
 Host-side vars in this compose use the `RTVI_VLM_*` / `RTVI_VLLM_*` prefix and
-rewrite to canonical container-side names at the compose boundary.
-
-| Host env var | → Container env | Purpose | Where to get |
-|---|---|---|---|
-| `NGC_CLI_API_KEY` | `NGC_API_KEY` | NGC registry image pull and NGC model/artifact downloads | <https://ngc.nvidia.com/setup/api-key> |
-| `RTVI_VLM_API_KEY` or `NGC_CLI_API_KEY` | `VIA_VLM_API_KEY` | RT-VLM bearer auth / OpenAI-compatible backend auth after the service is running | Deployment owner |
-| `HF_TOKEN` | `HF_TOKEN` | Gated HF models (Qwen3-VL) | <https://huggingface.co/settings/tokens> |
-| `NVIDIA_API_KEY` | `NVIDIA_API_KEY` | Generic NVIDIA API (defaults to `NOAPIKEYSET`) | NVIDIA dev portal |
-| `OPENAI_API_KEY` | `OPENAI_API_KEY` | OpenAI directly when `openai-compat` (defaults `NOAPIKEYSET`) | <https://platform.openai.com/api-keys> |
-| `OPENAI_API_VERSION` | `OPENAI_API_VERSION` | Azure OpenAI version pin | — |
-| `RTVI_VLM_ENDPOINT` | `VIA_VLM_ENDPOINT` | Custom OpenAI-compat endpoint URL | Your backend |
-| `VLM_NAME` | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | Remote model name | Your backend |
-| `REDIS_PASSWORD` | `REDIS_PASSWORD` | Only when `ENABLE_REDIS_ERROR_MESSAGES=true` | Your Redis |
-
-> ⚠️ **Minimum to boot standalone with the documented pull path**:
-> `NGC_CLI_API_KEY`, `RTVI_VLM_PORT`, `HOST_IP`, `VSS_DATA_DIR`, plus either
-> `RTVI_VLM_ENDPOINT` + `VLM_NAME` for `openai-compat` or
-> `RTVI_VLM_MODEL_TO_USE` + `RTVI_VLM_MODEL_PATH` for local self-hosted model
-> loading. `RTVI_VLM_API_KEY` can satisfy RT-VLM bearer/backend auth, but it
-> does **not** replace `NGC_CLI_API_KEY` for `docker login nvcr.io`, image
-> pulls, or NGC model/artifact downloads.
+rewrite to canonical container-side names at the compose boundary. See §7 for
+the authoritative variable table and required/conditional fields.
 
 For agent-driven validation, provision `NGC_CLI_API_KEY` through the agent
 process environment, a secret manager, or the local `.env` file with mode
@@ -168,7 +148,7 @@ Use the `.env` block in §12 as the starting point.
 |---|---|---|---|
 | 108 | `${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}` (optional bind over tmpfs) | yes (if set) | yes (host bind) |
 | 109 | `${RTVI_VLM_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface` (named by default, multi-GB) | **yes** | **YES — multi-GB re-download** |
-| 110 | `${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos` — **no default → required** | yes | yes (host bind) |
+| 110 | `${VSS_DATA_DIR}/data_log/vst/clip_storage:<container VST streamer video dir>` — **no default → required** | yes | yes (host bind) |
 | 111 | `${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache` (named) | **yes** | **YES — re-download weights** |
 | 112 | `${RTVI_VLM_LOG_DIR:-/dummy}${RTVI_VLM_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}` (optional bind) | no | no |
 
@@ -202,6 +182,11 @@ mkdir -p ./rtvi-logs && sudo chown 1001:1001 ./rtvi-logs
 | `RTVI_VLM_ENDPOINT` | if `openai-compat` | — | Remote/sibling OpenAI-compatible VLM endpoint |
 | `VLM_NAME` | if `openai-compat` | — | Model name exposed by the remote/sibling VLM endpoint |
 | `RTVI_VLM_MODEL_PATH` | conditional | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Needed when not `openai-compat`. Keep the source-backed `:hf-1208` default unless the deployment source explicitly overrides it. |
+| `HF_TOKEN` | only for gated HF models | — | Hugging Face token for gated Qwen3-VL or other HF downloads |
+| `NVIDIA_API_KEY` | backend-dependent | `NOAPIKEYSET` | Generic NVIDIA API token for non-NGC backends |
+| `OPENAI_API_KEY` | backend-dependent | `NOAPIKEYSET` | OpenAI-compatible backend token |
+| `OPENAI_API_VERSION` | Azure only | — | Azure OpenAI version pin |
+| `REDIS_PASSWORD` | only with Redis error messages | — | Required when `ENABLE_REDIS_ERROR_MESSAGES=true` |
 
 The most important host-side variables use the `RTVI_VLM_*` or `RTVI_VLLM_*`
 prefix and are rewritten to canonical container-side names by compose.
@@ -376,9 +361,8 @@ volumes:
 
 ## 12. Deployment Flow
 
-This mirrors the compose-centric workflow used by
-[`../../vss-deploy-profile/SKILL.md`](../../vss-deploy-profile/SKILL.md): work
-from a local copy, build a deploy-specific `.env`, dry-run, review, deploy, and
+This mirrors the compose-centric workflow used by the VSS deploy-profile skill:
+work from a local copy, build a deploy-specific `.env`, dry-run, review, deploy, and
 wait for health. Always follow this sequence. Never skip the dry-run.
 
 This compose declares **6 blueprint profiles**. Service will NOT start under
