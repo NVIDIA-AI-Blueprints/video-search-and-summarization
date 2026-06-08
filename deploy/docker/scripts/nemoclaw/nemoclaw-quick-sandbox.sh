@@ -40,6 +40,7 @@ SCRIPT_START="$(date +%s)"
 DOCKER_BRIDGE_POOL_CIDR="172.16.0.0/12"
 OPENSHELL_GATEWAY_PORT="8080"
 OLLAMA_AUTH_PROXY_PORT="11435"
+NEMOCLAW_SANDBOX_IMAGE="nemoclaw-sandbox:local"
 
 usage() {
   cat <<'EOF'
@@ -101,17 +102,8 @@ resolve_sandbox_base_image() {
   printf '%s' "$image"
 }
 
-resolve_sandbox_image_name() {
-  if [[ "${NEMOCLAW_AGENT:-openclaw}" == "hermes" ]]; then
-    printf '%s' "nemoclaw-hermes-sandbox:local"
-  else
-    printf '%s' "nemoclaw-sandbox:local"
-  fi
-}
-
 run_build_phase() {
-  local image start end
-  image="$(resolve_sandbox_image_name)"
+  local image="$NEMOCLAW_SANDBOX_IMAGE" start end
   start="$(date +%s)"
   if [[ "${NEMOCLAW_FORCE_SANDBOX_BUILD:-}" == "1" ]]; then
     docker rmi "$image" 2>/dev/null || true
@@ -234,7 +226,7 @@ build_local_sandbox_image() {
     "${NEMOCLAW_DIR}/Dockerfile" 2>/dev/null || true)"
 
   case "$image" in
-    nemoclaw-sandbox:local)
+    "$NEMOCLAW_SANDBOX_IMAGE")
       info "Building ${image} from ${NEMOCLAW_DIR}/Dockerfile (first run — may take several minutes)..."
       info "Using sandbox base image: ${base_image}"
       cp "$NEMOCLAW_DIR/Dockerfile" "$build_ctx/"
@@ -249,25 +241,6 @@ build_local_sandbox_image() {
         --build-arg "BASE_IMAGE=${base_image}" \
         --build-arg NEMOCLAW_DISABLE_DEVICE_AUTH=1 \
         ${openclaw_version:+--build-arg "OPENCLAW_VERSION=${openclaw_version}"} \
-        -t "$image" \
-        "$build_ctx"; then
-        rm -rf "$build_ctx"
-        warn "docker build failed for ${image}"
-        return 1
-      fi
-      ;;
-    nemoclaw-hermes-sandbox:local)
-      info "Building ${image} from ${NEMOCLAW_DIR}/agents/hermes/Dockerfile (first run — may take several minutes)..."
-      mkdir -p "$build_ctx/agents" "$build_ctx/scripts"
-      cp -r "$NEMOCLAW_DIR/agents/hermes" "$build_ctx/agents/hermes"
-      cp -r "$NEMOCLAW_DIR/nemoclaw-blueprint" "$build_ctx/nemoclaw-blueprint"
-      cp -r "$NEMOCLAW_DIR/scripts/lib" "$build_ctx/scripts/lib"
-      if ! docker build \
-        -f "$build_ctx/agents/hermes/Dockerfile" \
-        --build-arg "NEMOCLAW_MODEL=${NEMOCLAW_MODEL}" \
-        --build-arg NEMOCLAW_PROVIDER_KEY=custom \
-        --build-arg NEMOCLAW_INFERENCE_BASE_URL=https://inference.local/v1 \
-        --build-arg "CHAT_UI_URL=${CHAT_UI_URL:-http://127.0.0.1:8642}" \
         -t "$image" \
         "$build_ctx"; then
         rm -rf "$build_ctx"
@@ -318,12 +291,9 @@ detect_brev_tunnel() {
   [[ -n "${CHAT_UI_URL:-}" ]] && return 0
   command -v journalctl >/dev/null 2>&1 || return 0
 
-  local agent_port=18789
-  [[ "${NEMOCLAW_AGENT:-openclaw}" == "hermes" ]] && agent_port=8642
-
   local svc tunnel_port hostname
   for svc in cloudflared cloudflared-ingress-tunnel; do
-    for tunnel_port in 80 "$agent_port"; do
+    for tunnel_port in 80 18789; do
       hostname="$(journalctl -u "$svc" --no-pager -o cat 2>/dev/null \
         | sed 's/\\"/"/g' \
         | grep -o '"hostname":"[^"]*","service":"http://localhost:'"$tunnel_port"'"' \
@@ -360,8 +330,7 @@ ensure_local_sandbox_image() {
 
   local tar=""
   case "$image" in
-    nemoclaw-sandbox:local) tar="/var/cache/nemoclaw/sandbox-image.tar" ;;
-    nemoclaw-hermes-sandbox:local) tar="/var/cache/nemoclaw/hermes-sandbox-image.tar" ;;
+    "$NEMOCLAW_SANDBOX_IMAGE") tar="/var/cache/nemoclaw/sandbox-image.tar" ;;
   esac
 
   if [[ -n "$tar" && -f "$tar" ]]; then
@@ -394,16 +363,11 @@ NEMOCLAW_DIR="$(resolve_nemoclaw_dir)" || fail "NemoClaw source not found — ru
 export NEMOCLAW_SRC="${NEMOCLAW_SRC:-$NEMOCLAW_DIR}"
 
 SANDBOX_NAME="${1:-${NEMOCLAW_SANDBOX_NAME:-demo}}"
-NEMOCLAW_AGENT="${NEMOCLAW_AGENT:-openclaw}"
 
 if [[ "$QUICK_SANDBOX_MODE" == "build" ]]; then
   run_build_phase
   exit 0
 fi
-case "$NEMOCLAW_AGENT" in
-  openclaw | hermes) ;;
-  *) fail "Unsupported NEMOCLAW_AGENT '$NEMOCLAW_AGENT'" ;;
-esac
 
 if [[ -z "${NEMOCLAW_PROVIDER:-}" ]]; then
   if [[ -n "${NEMOCLAW_ENDPOINT_URL:-}" ]]; then
@@ -431,7 +395,6 @@ NEMOCLAW_OPENCLAW_COMPAT=""
 case "$NEMOCLAW_PROVIDER" in
   build)
     DEFAULT_NEMOCLAW_MODEL="nvidia/nemotron-3-super-120b-a12b"
-    [[ "$NEMOCLAW_AGENT" == "hermes" ]] && DEFAULT_NEMOCLAW_MODEL="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     GATEWAY_PROVIDER_NAME="nvidia-nim"
     PROVIDER_TYPE="openai"
     CREDENTIAL_ENV="NVIDIA_API_KEY"
@@ -489,12 +452,7 @@ fi
 NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-$DEFAULT_NEMOCLAW_MODEL}"
 [[ -n "$NEMOCLAW_MODEL" ]] || fail "NEMOCLAW_MODEL is required for custom provider"
 
-if [[ "$NEMOCLAW_AGENT" == "hermes" ]]; then
-  NEMOCLAW_PROVIDER_KEY="custom"
-  NEMOCLAW_PRIMARY_MODEL_REF="$NEMOCLAW_MODEL"
-else
-  NEMOCLAW_PRIMARY_MODEL_REF="${NEMOCLAW_PROVIDER_KEY}/${NEMOCLAW_MODEL}"
-fi
+NEMOCLAW_PRIMARY_MODEL_REF="${NEMOCLAW_PROVIDER_KEY}/${NEMOCLAW_MODEL}"
 
 info "Source:   $NEMOCLAW_DIR"
 info "Sandbox:  $SANDBOX_NAME"
@@ -505,7 +463,7 @@ configure_openshell_bridge_firewall
 
 ensure_gateway_ready
 
-SANDBOX_IMAGE="$(resolve_sandbox_image_name)"
+SANDBOX_IMAGE="$NEMOCLAW_SANDBOX_IMAGE"
 if [[ "$QUICK_SANDBOX_MODE" == "create" ]]; then
   docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1 \
     || fail "Missing ${SANDBOX_IMAGE} — run: NEMOCLAW_QUICK_SANDBOX=1 bash nemoclaw-install.sh 4"
@@ -561,35 +519,20 @@ if [[ "$IMAGE_IN_CTR" == true ]]; then
   SANDBOX_SOURCE="$SANDBOX_IMAGE"
 else
   BUILD_CTX="$(mktemp -d)"
-  if [[ "$NEMOCLAW_AGENT" == "hermes" ]]; then
-    mkdir -p "$BUILD_CTX/agents" "$BUILD_CTX/scripts"
-    cp -r "$NEMOCLAW_DIR/agents/hermes" "$BUILD_CTX/agents/hermes"
-    cp "$NEMOCLAW_DIR/agents/hermes/Dockerfile" "$BUILD_CTX/Dockerfile"
-    cp -r "$NEMOCLAW_DIR/nemoclaw-blueprint" "$BUILD_CTX/nemoclaw-blueprint"
-    cp -r "$NEMOCLAW_DIR/scripts/lib" "$BUILD_CTX/scripts/lib"
-    sed -i "s|ARG NEMOCLAW_MODEL=.*|ARG NEMOCLAW_MODEL=$NEMOCLAW_MODEL|" "$BUILD_CTX/Dockerfile"
-    sed -i "s|ARG NEMOCLAW_PROVIDER_KEY=.*|ARG NEMOCLAW_PROVIDER_KEY=custom|" "$BUILD_CTX/Dockerfile"
-    sed -i "s|ARG NEMOCLAW_INFERENCE_BASE_URL=.*|ARG NEMOCLAW_INFERENCE_BASE_URL=https://inference.local/v1|" "$BUILD_CTX/Dockerfile"
-    [[ -n "${CHAT_UI_URL:-}" ]] && sed -i "s|ARG CHAT_UI_URL=.*|ARG CHAT_UI_URL=$CHAT_UI_URL|" "$BUILD_CTX/Dockerfile"
-    SANDBOX_SOURCE="$BUILD_CTX/Dockerfile"
-  else
-    cp "$NEMOCLAW_DIR/Dockerfile" "$BUILD_CTX/"
-    cp -r "$NEMOCLAW_DIR/nemoclaw" "$BUILD_CTX/nemoclaw"
-    cp -r "$NEMOCLAW_DIR/nemoclaw-blueprint" "$BUILD_CTX/nemoclaw-blueprint"
-    cp -r "$NEMOCLAW_DIR/scripts" "$BUILD_CTX/scripts"
-    rm -rf "$BUILD_CTX/nemoclaw/node_modules"
-    [[ -n "${CHAT_UI_URL:-}" ]] && sed -i "s|ARG CHAT_UI_URL=http://127.0.0.1:18789|ARG CHAT_UI_URL=$CHAT_UI_URL|" "$BUILD_CTX/Dockerfile"
-    sed -i "s|ARG NEMOCLAW_MODEL=.*|ARG NEMOCLAW_MODEL=$NEMOCLAW_MODEL|" "$BUILD_CTX/Dockerfile"
-    sed -i "s|ARG NEMOCLAW_PROVIDER_KEY=.*|ARG NEMOCLAW_PROVIDER_KEY=$NEMOCLAW_PROVIDER_KEY|" "$BUILD_CTX/Dockerfile"
-    sed -i "s|ARG NEMOCLAW_PRIMARY_MODEL_REF=.*|ARG NEMOCLAW_PRIMARY_MODEL_REF=$NEMOCLAW_PRIMARY_MODEL_REF|" "$BUILD_CTX/Dockerfile"
-    sed -i "s|ARG NEMOCLAW_DISABLE_DEVICE_AUTH=.*|ARG NEMOCLAW_DISABLE_DEVICE_AUTH=1|" "$BUILD_CTX/Dockerfile"
-    SANDBOX_SOURCE="$BUILD_CTX/Dockerfile"
-  fi
+  cp "$NEMOCLAW_DIR/Dockerfile" "$BUILD_CTX/"
+  cp -r "$NEMOCLAW_DIR/nemoclaw" "$BUILD_CTX/nemoclaw"
+  cp -r "$NEMOCLAW_DIR/nemoclaw-blueprint" "$BUILD_CTX/nemoclaw-blueprint"
+  cp -r "$NEMOCLAW_DIR/scripts" "$BUILD_CTX/scripts"
+  rm -rf "$BUILD_CTX/nemoclaw/node_modules"
+  [[ -n "${CHAT_UI_URL:-}" ]] && sed -i "s|ARG CHAT_UI_URL=http://127.0.0.1:18789|ARG CHAT_UI_URL=$CHAT_UI_URL|" "$BUILD_CTX/Dockerfile"
+  sed -i "s|ARG NEMOCLAW_MODEL=.*|ARG NEMOCLAW_MODEL=$NEMOCLAW_MODEL|" "$BUILD_CTX/Dockerfile"
+  sed -i "s|ARG NEMOCLAW_PROVIDER_KEY=.*|ARG NEMOCLAW_PROVIDER_KEY=$NEMOCLAW_PROVIDER_KEY|" "$BUILD_CTX/Dockerfile"
+  sed -i "s|ARG NEMOCLAW_PRIMARY_MODEL_REF=.*|ARG NEMOCLAW_PRIMARY_MODEL_REF=$NEMOCLAW_PRIMARY_MODEL_REF|" "$BUILD_CTX/Dockerfile"
+  sed -i "s|ARG NEMOCLAW_DISABLE_DEVICE_AUTH=.*|ARG NEMOCLAW_DISABLE_DEVICE_AUTH=1|" "$BUILD_CTX/Dockerfile"
+  SANDBOX_SOURCE="$BUILD_CTX/Dockerfile"
 fi
 
-if [[ "$NEMOCLAW_AGENT" == "hermes" ]]; then
-  SANDBOX_POLICY="$NEMOCLAW_DIR/agents/hermes/policy-additions.yaml"
-elif [[ -f "$NEMOCLAW_DIR/nemoclaw-blueprint/policies/openclaw-sandbox.yaml" ]]; then
+if [[ -f "$NEMOCLAW_DIR/nemoclaw-blueprint/policies/openclaw-sandbox.yaml" ]]; then
   SANDBOX_POLICY="$NEMOCLAW_DIR/nemoclaw-blueprint/policies/openclaw-sandbox.yaml"
 fi
 
@@ -628,7 +571,7 @@ cat >"${HOME}/.nemoclaw/sandboxes.json" <<JSON
       "name": "${SANDBOX_NAME}",
       "model": "${NEMOCLAW_MODEL}",
       "provider": "${GATEWAY_PROVIDER_NAME}",
-      "agent": "${NEMOCLAW_AGENT}"
+      "agent": "openclaw"
     }
   },
   "defaultSandbox": "${SANDBOX_NAME}"
@@ -637,9 +580,8 @@ JSON
 chmod 600 "${HOME}/.nemoclaw/sandboxes.json"
 
 DASHBOARD_TOKEN=""
-if [[ "$NEMOCLAW_AGENT" == "openclaw" ]]; then
-  TMPCONF="$(mktemp -d /tmp/nemoclaw-conf-XXXXXX)"
-  if openshell sandbox download "$SANDBOX_NAME" /sandbox/.openclaw/openclaw.json "$TMPCONF" 2>/dev/null; then
+TMPCONF="$(mktemp -d /tmp/nemoclaw-conf-XXXXXX)"
+if openshell sandbox download "$SANDBOX_NAME" /sandbox/.openclaw/openclaw.json "$TMPCONF" 2>/dev/null; then
     TMPCONF="$TMPCONF" \
     NEMOCLAW_MODEL="$NEMOCLAW_MODEL" \
     NEMOCLAW_PROVIDER_KEY="$NEMOCLAW_PROVIDER_KEY" \
@@ -688,9 +630,8 @@ PY
     DASHBOARD_TOKEN="$(python3 -c "import json; print(json.load(open('$TMPCONF/openclaw.json')).get('gateway',{}).get('auth',{}).get('token',''))" 2>/dev/null || true)"
     openshell sandbox upload "$SANDBOX_NAME" "$TMPCONF/openclaw.json" /sandbox/.openclaw/openclaw.json 2>/dev/null \
       || warn "Could not upload patched openclaw.json"
-  fi
-  rm -rf "$TMPCONF"
 fi
+rm -rf "$TMPCONF"
 
 info "Starting agent inside sandbox..."
 openshell sandbox ssh-config "$SANDBOX_NAME" >/tmp/nemoclaw-ssh-config
@@ -699,15 +640,12 @@ ssh $SSH_OPTS "openshell-${SANDBOX_NAME}" "nohup nemoclaw-start > /tmp/nemoclaw-
 rm -f /tmp/nemoclaw-ssh-config
 
 DASHBOARD_PORT=18789
-[[ "$NEMOCLAW_AGENT" == "hermes" ]] && DASHBOARD_PORT=8642
 openshell forward stop "$DASHBOARD_PORT" 2>/dev/null || true
 openshell forward start --background "$DASHBOARD_PORT" "$SANDBOX_NAME"
 sleep 2
 
 DASHBOARD_BASE="${CHAT_UI_URL:-http://127.0.0.1:$DASHBOARD_PORT}"
-if [[ "$NEMOCLAW_AGENT" == "hermes" ]]; then
-  DASHBOARD_URL="${DASHBOARD_BASE%/}/v1"
-elif [[ -n "$DASHBOARD_TOKEN" ]]; then
+if [[ -n "$DASHBOARD_TOKEN" ]]; then
   DASHBOARD_URL="${DASHBOARD_BASE}/#token=${DASHBOARD_TOKEN}"
 else
   DASHBOARD_URL="${DASHBOARD_BASE}/"
@@ -716,7 +654,7 @@ fi
 ELAPSED=$(( $(date +%s) - SCRIPT_START ))
 echo ""
 info "Ready in ${ELAPSED}s"
-[[ "$NEMOCLAW_AGENT" == "hermes" ]] && info "API_URL=${DASHBOARD_URL}" || info "DASHBOARD_URL=${DASHBOARD_URL}"
+info "DASHBOARD_URL=${DASHBOARD_URL}"
 echo "  nemoclaw status"
 echo "  nemoclaw chat"
 echo ""
