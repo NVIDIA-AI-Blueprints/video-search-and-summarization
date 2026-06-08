@@ -16,9 +16,9 @@
 services:
   nvidia-nemotron-nano-9b-v2:
     image: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
-    container_name: nvidia-nemotron-nano-9b-v2
     profiles:
     - llm_local_nvidia-nemotron-nano-9b-v2
+    networks: [app-network]
     runtime: nvidia
     shm_size: 16GB
     ports:
@@ -49,9 +49,9 @@ services:
       retries: 2
   nvidia-nemotron-nano-9b-v2-shared-gpu:
     image: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
-    container_name: nvidia-nemotron-nano-9b-v2
     profiles:
     - llm_local_shared_nvidia-nemotron-nano-9b-v2
+    networks: [app-network]
     runtime: nvidia
     shm_size: 16GB
     ports:
@@ -99,5 +99,9 @@ services:
       rtvi-embed:
         condition: service_healthy
         required: false
+networks:
+  app-network:
+    driver: bridge
+
 volumes:
   nvidia_nemotron_nano_9b_v2_cache:

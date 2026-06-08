@@ -22,7 +22,6 @@
 services:
   cosmos3-reasoner:
     image: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
-    container_name: nvidia-cosmos3-reasoner
     profiles:
     - vlm_local_cosmos3-reasoner
     runtime: nvidia
@@ -63,7 +62,6 @@ services:
 
   cosmos3-reasoner-shared-gpu:
     image: nvcr.io/nim/nvidia/cosmos3-reasoner:1.7
-    container_name: nvidia-cosmos3-reasoner
     profiles:
     - vlm_local_shared_cosmos3-reasoner
     runtime: nvidia
