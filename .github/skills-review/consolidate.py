@@ -85,7 +85,11 @@ def _row(f: dict) -> str:
 def build_comment(consolidated: list[dict], run_url: str | None = None) -> str:
     """Compact sticky-comment body — corroborated rows + verify list; tail stays in artifact."""
     cnt = _counts(consolidated)
-    n_verify = sum(1 for f in consolidated if f["needs_verification"])
+    # Count only what the Verify table below actually shows (critical/high). Low
+    # single-lens findings are needs_verification too, but they stay in the
+    # artifact, so counting them here would overstate the displayed list.
+    n_verify = sum(1 for f in consolidated
+                   if f["needs_verification"] and f["severity"] in ("critical", "high"))
     n_skills = len({f["skill"] for f in consolidated})
     lines = [
         "## 🔬 Skills Review — 6-paradigm consolidation",
