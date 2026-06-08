@@ -3,15 +3,16 @@
 ## 1. Overview
 
 **Service**: `rtvi-vlm` (container name `vss-rtvi-vlm`)
-**Image (x86 / Jetson-Tegra)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0` (multiarch)
-**Image (SBSA / DGX Spark / Grace)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0-sbsa`
+**Image (default multiarch: x86 / Jetson-Tegra / non-Spark non-SBSA)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0`
+**Image (Spark / GB10 / SBSA / Grace)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0-sbsa`
 **Primary port**: `${RTVI_VLM_PORT}` → container `8000` (FastAPI REST, `/v1`)
 **Validated GPUs**: H100 · RTX PRO 6000 Blackwell · L40S · DGX SPARK · IGX Thor · AGX Thor
 
 Derive `<compose-default>` from the checked-out
 `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` instead of
 hardcoding it in commands. The current `develop` compose default is
-`3.2.0`; SBSA server-ARM platforms append `-sbsa`.
+`3.2.0`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All other
+platforms use the normal multiarch tag.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
@@ -73,14 +74,29 @@ docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 export NGC_CLI_API_KEY="<YOUR_NGC_KEY>"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 
-# Derive the default tag from the compose file in this checkout/copy.
+# Derive the default tag from the compose file in this checkout/copy, then
+# select the platform variant. Spark/GB10/SBSA uses -sbsa; everything else uses
+# the normal multiarch tag.
 COMPOSE_FILE="${COMPOSE_FILE:-rtvi-vlm-docker-compose.yml}"
 if [ ! -f "$COMPOSE_FILE" ]; then
   COMPOSE_FILE="deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
 fi
 COMPOSE_DEFAULT_TAG=$(sed -nE 's/.*RTVI_VLM_IMAGE_TAG:-([^}]+).*/\1/p' "$COMPOSE_FILE" | head -n1)
 : "${COMPOSE_DEFAULT_TAG:?Could not derive RTVI_VLM_IMAGE_TAG default from $COMPOSE_FILE}"
-export RTVI_VLM_IMAGE_TAG="${RTVI_VLM_IMAGE_TAG:-$COMPOSE_DEFAULT_TAG}"
+RTVI_VLM_IMAGE_TAG="${RTVI_VLM_IMAGE_TAG:-$COMPOSE_DEFAULT_TAG}"
+RTVI_VLM_BASE_TAG="${RTVI_VLM_IMAGE_TAG%-sbsa}"
+ARCH=$(uname -m)
+PROFILE=$(printf '%s' "${HARDWARE_PROFILE:-}" | tr '[:lower:]' '[:upper:]')
+if printf '%s' "$PROFILE" | grep -Eq 'DGX-SPARK|SPARK|GB10|SBSA'; then
+  RTVI_VLM_IMAGE_TAG="${RTVI_VLM_BASE_TAG}-sbsa"
+elif [ "$ARCH" = "aarch64" ] && ! grep -qi tegra /proc/cpuinfo 2>/dev/null && [ ! -f /etc/nv_tegra_release ]; then
+  RTVI_VLM_IMAGE_TAG="${RTVI_VLM_BASE_TAG}-sbsa"
+elif [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "aarch64" ]; then
+  RTVI_VLM_IMAGE_TAG="$RTVI_VLM_BASE_TAG"
+else
+  echo "Unsupported architecture: $ARCH" && exit 1
+fi
+export RTVI_VLM_IMAGE_TAG
 
 # Verify pull for the exact image this compose will use.
 docker pull "nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG}"
@@ -394,19 +410,23 @@ else
 fi
 
 # Step 0a. Derive the compose default tag, then select the platform variant.
-#          x86_64 and Tegra-based Jetson/AGX/IGX Thor use the multiarch image.
-#          SBSA server-ARM (DGX Spark, Grace Hopper) requires the -sbsa variant.
+#          Spark/GB10/SBSA requires the -sbsa tag.
+#          x86_64 and Tegra-based Jetson/AGX/IGX Thor use the normal multiarch tag.
 COMPOSE_DEFAULT_TAG=$(sed -nE 's/.*RTVI_VLM_IMAGE_TAG:-([^}]+).*/\1/p' rtvi-vlm-docker-compose.yml | head -n1)
 : "${COMPOSE_DEFAULT_TAG:?Could not derive RTVI_VLM_IMAGE_TAG default}"
 RTVI_VLM_IMAGE_TAG="${RTVI_VLM_IMAGE_TAG:-$COMPOSE_DEFAULT_TAG}"
+RTVI_VLM_BASE_TAG="${RTVI_VLM_IMAGE_TAG%-sbsa}"
 ARCH=$(uname -m)
-if [ "$ARCH" = "x86_64" ]; then
-  VLM_TAG="$RTVI_VLM_IMAGE_TAG"
+PROFILE=$(printf '%s' "${HARDWARE_PROFILE:-}" | tr '[:lower:]' '[:upper:]')
+if printf '%s' "$PROFILE" | grep -Eq 'DGX-SPARK|SPARK|GB10|SBSA'; then
+  VLM_TAG="${RTVI_VLM_BASE_TAG}-sbsa" # Spark / GB10 / SBSA
+elif [ "$ARCH" = "x86_64" ]; then
+  VLM_TAG="$RTVI_VLM_BASE_TAG"
 elif [ "$ARCH" = "aarch64" ]; then
   if grep -qi tegra /proc/cpuinfo 2>/dev/null || [ -f /etc/nv_tegra_release ]; then
-    VLM_TAG="$RTVI_VLM_IMAGE_TAG"       # Jetson / AGX Thor / IGX Thor (Tegra)
+    VLM_TAG="$RTVI_VLM_BASE_TAG"        # Jetson / AGX Thor / IGX Thor (Tegra)
   else
-    VLM_TAG="${RTVI_VLM_IMAGE_TAG%-sbsa}-sbsa" # DGX Spark / Grace Hopper (SBSA server-ARM)
+    VLM_TAG="${RTVI_VLM_BASE_TAG}-sbsa" # SBSA server-ARM, including DGX Spark / GB10 / Grace
   fi
 else
   echo "Unsupported architecture: $ARCH" && exit 1
