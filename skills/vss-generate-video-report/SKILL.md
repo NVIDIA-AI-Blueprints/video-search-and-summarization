@@ -167,9 +167,11 @@ Selection rule:
 
 ```bash
 if [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
+  VLM_BACKEND="nim_cosmos"
   VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
   VLM_MODEL="${VLM_NAME}"
 else
+  VLM_BACKEND="rtvlm"
   VLM_ENDPOINT="${RTVI_VLM_ENDPOINT:-${RTVI_VLM_BASE_URL%/}/v1}"
   VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
 fi
@@ -219,15 +221,16 @@ NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 [ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
 [ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
 
-# num_frames (media_io_kwargs) applies to any Cosmos VLM.
-# mm_processor_kwargs mirrors video_understanding.py:
-# - NIM Cosmos Reason 2 (`nvidia/cosmos-reason2-8b`) uses size{shortest_edge,longest_edge}.
-# - Other Cosmos models (including CR1) use videos_kwargs{min_pixels,max_pixels}.
-case "$VLM_MODEL" in
-  nvidia/cosmos-reason2-8b) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
-  *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
-  *)                MM_KWARGS="" ;;
-esac
+# Only apply Cosmos mm/media kwargs on the NIM Cosmos path.
+# RT-VLM mode uses its own server-side preprocessing and should not receive these kwargs.
+MM_KWARGS=""
+if [ "${VLM_BACKEND}" = "nim_cosmos" ]; then
+  case "$VLM_MODEL" in
+    nvidia/cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+    nvidia/cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+    *)                      MM_KWARGS="" ;;
+  esac
+fi
 
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
@@ -249,7 +252,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
 EOF
 ```
 
-> The `case "$VLM_MODEL"` block mirrors `video_understanding.py`: Cosmos Reason 2 sends `mm_processor_kwargs.size{shortest_edge,longest_edge}`; other Cosmos models (including CR1) send `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; all Cosmos models send `media_io_kwargs.video.num_frames`. Non-Cosmos VLMs need no extra kwargs.
+> The kwargs block is backend-aware: on `nim_cosmos`, Reason2 variants (`nvidia/cosmos-reason2*`) use `mm_processor_kwargs.size{shortest_edge,longest_edge}` and other NIM Cosmos variants (`nvidia/cosmos*`) use `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; both also send `media_io_kwargs.video.num_frames`. On `rtvlm`, no Cosmos kwargs are sent.
 
 If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), keep only the text after `</think>` as the report body.
 
@@ -272,15 +275,20 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
 
 ```json
 {
-  "name": "video_analytics__get_incidents",
-  "arguments": {
-    "source": "<sensor-id-or-omit>",
-    "source_type": "sensor",
-    "start_time": "<ISO>",
-    "end_time": "<ISO>",
-    "max_count": 100,
-    "includes": ["objectIds", "info"]
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "video_analytics__get_incidents",
+    "arguments": {
+      "source": "<sensor-id-or-omit>",
+      "source_type": "sensor",
+      "start_time": "<ISO>",
+      "end_time": "<ISO>",
+      "max_count": 100,
+      "includes": ["objectIds", "info"]
+    }
   }
+  "id": 1
 }
 ```
 
