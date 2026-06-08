@@ -13,7 +13,7 @@ VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 # Retry on 503 (warmup) for up to ~30s before concluding the service is unavailable.
 video_sum_code=000
 for i in $(seq 1 10); do
-  video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$VIDEO_SUMMARIZATION_URL/v1/ready")
+  video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 10 "$VIDEO_SUMMARIZATION_URL/v1/ready")
   case "$video_sum_code" in 200) break ;; 503) sleep 3 ;; *) break ;; esac
 done
 

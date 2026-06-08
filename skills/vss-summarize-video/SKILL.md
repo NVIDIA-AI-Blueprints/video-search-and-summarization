@@ -157,7 +157,7 @@ VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
 
 # VLM / RT-VLM: 200 on /v1/models
-vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
+vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 10 \
   "$VLM/v1/models")
 [ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
 
@@ -165,7 +165,7 @@ vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
 VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 video_sum_code=000
 for i in $(seq 1 10); do
-  video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$VIDEO_SUMMARIZATION_URL/v1/ready")
+  video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 10 "$VIDEO_SUMMARIZATION_URL/v1/ready")
   case "$video_sum_code" in
     200) echo "video summarization OK"; break ;;
     503) sleep 3 ;;                 # warming up; keep polling
