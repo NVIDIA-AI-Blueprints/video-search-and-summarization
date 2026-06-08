@@ -30,52 +30,19 @@ Surface discovered credentials to the user; do not auto-source them without conf
 
 ## Probes
 
-Run each probe only when the corresponding key is set. An unset key prints `skip`; compare the result with the chosen deployment mode before continuing.
+Run the credential-probe script. It validates each key that is set (`ok` /
+`invalid`), prints `skip` for unset keys, resolves `NGC_CLI_API_KEY` /
+`NGC_API_KEY` to one key, and reports a conflict when both are set and differ.
+Compare each result with the chosen deployment mode before continuing.
 
 ```bash
-# NGC — local NIM image pulls
-if [[ -n "${NGC_CLI_API_KEY:-}" && -n "${NGC_API_KEY:-}" && "$NGC_CLI_API_KEY" != "$NGC_API_KEY" ]]; then
-  echo "NGC_CLI_API_KEY and NGC_API_KEY differ — choose one NGC personal API key"
-elif [[ -n "${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}" ]]; then
-  ngc_deploy_api_key="${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}"
-  export NGC_CLI_API_KEY="$ngc_deploy_api_key"
-  export NGC_API_KEY="$ngc_deploy_api_key"
-  curl -sf -u "\$oauthtoken:$ngc_deploy_api_key" \
-    "https://authn.nvidia.com/token?service=ngc" >/dev/null \
-    && echo "NGC key ok" || echo "NGC key invalid (401/403)"
-else
-  echo "NGC_CLI_API_KEY / NGC_API_KEY not set — skip (required for any local NIM)"
-fi
-
-# build.nvidia.com — remote NIM endpoints
-if [[ -n "$NVIDIA_API_KEY" ]]; then
-  curl -sf -H "Authorization: Bearer $NVIDIA_API_KEY" \
-    "https://integrate.api.nvidia.com/v1/models" >/dev/null \
-    && echo "NVIDIA_API_KEY ok" || echo "NVIDIA_API_KEY invalid (401/403)"
-else
-  echo "NVIDIA_API_KEY not set — skip (required only for remote NIM)"
-fi
-
-# HF — edge only (gated Edge 4B)
-if [[ -n "$HF_TOKEN" ]]; then
-  status=$(curl -sf -o /dev/null -w '%{http_code}' \
-    -H "Authorization: Bearer $HF_TOKEN" \
-    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")
-  [[ "$status" = "200" ]] \
-    && echo "HF_TOKEN ok" \
-    || echo "HF_TOKEN invalid or no access to gated Edge 4B (HTTP $status)"
-else
-  echo "HF_TOKEN not set — skip (required only on edge with Edge 4B)"
-fi
+skills/vss-deploy-profile/scripts/check_credentials.sh
 ```
 
-After a successful NGC normalization, write both aliases to the generated env
-used by compose:
-
-```bash
-NGC_CLI_API_KEY="$ngc_deploy_api_key"
-NGC_API_KEY="$ngc_deploy_api_key"
-```
+After the NGC key validates, set **both** `NGC_CLI_API_KEY` and `NGC_API_KEY` to
+that one resolved key in `generated.env` — the NGC CLI and VSS env read
+`NGC_CLI_API_KEY`; NIM / RT-VLM containers read `NGC_API_KEY`. Do not leave only
+one set.
 
 This token probe is not sufficient for local NIM / RT-VLM deployments. It
 proves the key authenticates, but it does not prove that the key's org/team can
