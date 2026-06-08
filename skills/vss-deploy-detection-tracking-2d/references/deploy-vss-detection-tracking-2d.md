@@ -653,40 +653,18 @@ See § "Step ordering invariants — DO NOT skip ahead" rule 5 above for the
 ordering rule; the full bucket table and forbidden-patterns list live in
 `next-steps.md` § "11.c".
 
-Per-step exit template (title centered, 128 wide — use the pre-rendered
-borders in § "Pre-rendered top + bottom borders — COPY VERBATIM" below):
+Render each per-step exit box with a centered title and 128-character width.
+Use only the canonical pre-rendered border table in § "Pre-rendered top +
+bottom borders — COPY VERBATIM" below for the exact top and bottom border
+strings.
 
-```
-┌─────────────────────────────────────────────────────── Deploy targets ───────────────────────────────────────────────────────┐
-│                                                                                                                              │
-│   ✔ Use case    warehouse-2d                                                                                                 │
-│   ✔ Platform    x86-dgpu (RTX 3050, 8 GB VRAM)                                                                               │
-│   ✔ Image       nvcr.io/<org>/<repo>:<tag>  (amd64 ✓)                                                                        │
-│   ✔ NGC creds   reusing ~/.ngc/config (mode 0600)                                                                            │
-│                                                                                                                              │
-│   ✔ Model       <DEFAULT_MODEL_BASENAME>                                                                                     │
-│                 from  <DEFAULT_MODEL_NGC_REF>                                                                                │
-│                                                                                                                              │
-│   ✔ Videos      <DEFAULT_VIDEOS_BASENAME>  (<N> cams)                                                                        │
-│                 from  <DEFAULT_VIDEOS_NGC_REF>                                                                               │
-│                                                                                                                              │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-For smartcity use cases the two `from` rows show **different** NGC refs
-(model from `rtdetr_model` / `gdino_model`, videos from
-`smartcity_dataset`). For warehouse use cases both `from` rows show the
-same `warehouse_dataset` ref.
-
-Other step exit titles, same centering rule:
-
-```
-┌─────────────────────────────────────────────────── Pipeline configuration ───────────────────────────────────────────────────┐
-┌───────────────────────────────────────────────────────── Container ──────────────────────────────────────────────────────────┐
-┌──────────────────────────────────────────────────── Apply configuration ─────────────────────────────────────────────────────┐
-┌──────────────────────────────────────────────── Perception Application — Plan ───────────────────────────────────────────────┐
-┌────────────────────────────────────────────── Perception Application — Results ──────────────────────────────────────────────┐
-```
+The Step 1 `Deploy targets` box body includes the selected use case, platform,
+image, NGC credential status, model asset, and video asset. For smartcity use
+cases the model rows cite `rtdetr_model` / `gdino_model` and the video rows cite
+`smartcity_dataset`; for warehouse use cases both asset groups cite the
+`warehouse_dataset` ref. The other standard exit titles are `Pipeline
+configuration`, `Container`, `Apply configuration`, `Perception Application —
+Plan`, and `Perception Application — Results`.
 
 > **No intermediate substep boxes — but keep the legitimate multi-box
 > flows.**

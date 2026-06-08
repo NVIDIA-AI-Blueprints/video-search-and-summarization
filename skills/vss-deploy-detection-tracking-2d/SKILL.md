@@ -4,7 +4,6 @@ description: "Use this skill when the user wants to deploy, run, debug, tear dow
 license: Apache-2.0
 metadata:
   version: "3.2.0"
-  author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia rtvi-cv deployment rest-api docker deepstream ngc warehouse smartcity sparse4d gdino rt-detr metropolis stream-management health-check metrics"
 ---
