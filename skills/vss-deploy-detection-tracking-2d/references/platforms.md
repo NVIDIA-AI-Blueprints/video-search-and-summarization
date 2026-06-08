@@ -54,6 +54,12 @@ commands hang or fail silently. Detect sudo capability up front and capture
 the result in `$SUDO`:
 
 ```bash
+# Self-contained: this snippet may run in a different shell than the Platform
+# Detection block above, so re-derive IS_JETSON here (env vars don't persist
+# across separate bash invocations) before the docker-group guard reads it.
+IS_JETSON=0
+[[ -f /etc/nv_tegra_release ]] && IS_JETSON=1
+
 if sudo -n true 2>/dev/null; then
     SUDO="sudo"                       # passwordless sudo → proceed as-is
 elif [ "$(id -u)" -eq 0 ]; then

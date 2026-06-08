@@ -650,7 +650,8 @@ GPU, log path, REST endpoints).
 
 **Step 6 — post-deploy AskQuestion is REQUIRED.**
 See § "Step ordering invariants — DO NOT skip ahead" rule 5 above for the
-full bucket table and forbidden-patterns list.
+ordering rule; the full bucket table and forbidden-patterns list live in
+`next-steps.md` § "11.c".
 
 Per-step exit template (title centered, 128 wide — use the pre-rendered
 borders in § "Pre-rendered top + bottom borders — COPY VERBATIM" below):
