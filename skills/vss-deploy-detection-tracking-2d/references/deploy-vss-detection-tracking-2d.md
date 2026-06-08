@@ -597,22 +597,10 @@ edit followed by a plain-English `— annotation`.** No `Edited` prefix
 (Pad the key=value column so all `—` separators line up vertically
 within a section.)
 
-**Forbidden patterns — these are the abbreviations the agent falls
-back to and they're banned:**
-
-| ❌ Forbidden                                                            | ✅ Required                                                                                                |
-|-------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| `✔ Edited <file> <key>=<value>` (with the word "Edited")                 | Drop "Edited" — every row inside the box is an edit. Just `✔ <key>=<value>  — <annotation>`.              |
-| `✔ Updated to 3 in ds-main-config.txt ([streammux] [primary-gie] [source-list])` | Three separate rows: `[streammux] batch-size=3`, `[primary-gie] batch-size=3`, `[source-list] max-batch-size=3`. |
-| `✔ eglsink applied to ds-main-config.txt`                               | Four rows for the four sink keys plus their annotations.                                                   |
-| `✔ Tile grid  1 rows × 3 columns` (single row)                          | Two rows: `[tiled-display] rows=1` and `[tiled-display] columns=3` (each annotated).                       |
-| Stream sources section listing only the source URLs                     | Six `[source-list]` rows, each annotated.                                                                  |
-
-The complete per-use-case key list **with the canonical
-plain-English annotation per key** lives in
-`apply-config.md` § "Per-use-case complete
-edit list". The agent reads that table for the active use case +
-chosen settings, then emits one annotated row per key.
+The forbidden-patterns table and the complete per-use-case key list
+(with canonical annotations) both live in
+`apply-config.md` — § "Forbidden patterns" and § "Per-use-case complete
+edit list". Read that file for the active use case before emitting Step 4 rows.
 
 If a section's table has 6 keys for the active settings, the section
 shows 6 `✔` rows. **Never** collapse to fewer rows than the table
@@ -660,34 +648,12 @@ NOT add a second "deployment summary" box; the Results box already
 carries every value (use case, container, image, batch/sink, FPS,
 GPU, log path, REST endpoints).
 
-**Step 6 — post-deploy AskQuestion is REQUIRED, never free-form
-bullets.** Right after the "Perception Application — Results" box,
-the agent MUST issue the Step 6 `AskQuestion` from
-`next-steps.md` § "11.c". The user picks
-one of these buckets:
+**Step 6 — post-deploy AskQuestion is REQUIRED.**
+See § "Step ordering invariants — DO NOT skip ahead" rule 5 above for the
+full bucket table and forbidden-patterns list.
 
-| Bucket                  | What it does                                                                                            |
-|-------------------------|---------------------------------------------------------------------------------------------------------|
-| **Check metrics & FPS** | Re-runs `collect_metrics.sh` (3 samples) against `/api/v1/metrics` and prints averaged FPS + GPU + RAM. |
-| **Manage streams**      | Add a stream (`POST /api/v1/stream/add`), remove a stream (`POST /api/v1/stream/remove`), or list active streams (`GET /api/v1/stream/get-stream-info`). |
-| **Check liveness / readiness** | Probes the three RTVI-CV health endpoints — `GET /api/v1/live` (process up), `GET /api/v1/ready` (pipeline ready, returns `ds-ready=YES`), `GET /api/v1/startup` (init complete) — plus `GET /api/v1/stream/get-stream-info` for active streams. **There is no `/api/v1/health` endpoint** — never curl it. |
-| **Stop the deployment** | Stop the perception app (keep container), stop the container (`docker stop`), or full teardown (the 5-step teardown flow with explicit cleanup-scope confirmation). |
-
-**Forbidden after the Results box:**
-
-- ❌ Free-form "Next steps:" bullet list with raw `curl` / `docker stop`
-  examples. Those examples already live inside `next-steps.md`'s
-  bucket descriptions; the user picks a bucket and the skill emits
-  the concrete command for them.
-- ❌ Skipping Step 6 entirely on the assumption "the user knows what
-  to do next". The menu is the deploy's exit handle — without it
-  the user has to remember which curl URL to type next.
-
-If the user picks `Stop the deployment → Full teardown`, the skill
-jumps to the Teardown Flow at
-`teardown-flow.md`.
-
-Per-step exit template (title centered, 96 wide, NGC source rows shown):
+Per-step exit template (title centered, 128 wide — use the pre-rendered
+borders in § "Pre-rendered top + bottom borders — COPY VERBATIM" below):
 
 ```
 ┌─────────────────────────────────────────────────────── Deploy targets ───────────────────────────────────────────────────────┐
