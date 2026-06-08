@@ -23,7 +23,8 @@
 #   SKIP_CLONE=1           keep existing NEMOCLAW_SRC checkout
 #   SKIP_ONBOARD=1         skip step 5 (onboard / sandbox create)
 #   SKIP_TUNNEL=1          skip cloudflared tunnel start at end of step 5
-#   NEMOCLAW_QUICK_SANDBOX=1  step 4 builds image; step 5 creates sandbox (auto-starts gateway)
+#   NO_SANDBOX_CACHE=0     use nemoclaw-quick-sandbox.sh for steps 4–5 (default)
+#   NO_SANDBOX_CACHE=1     use install.sh onboard path instead of quick sandbox
 
 set -euo pipefail
 
@@ -38,6 +39,7 @@ export NEMOCLAW_NON_INTERACTIVE="${NEMOCLAW_NON_INTERACTIVE:-1}"
 export NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE="${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE:-1}"
 export NEMOCLAW_SHIM_DIR="${NEMOCLAW_SHIM_DIR:-$HOME/.local/bin}"
 export NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
+export NO_SANDBOX_CACHE="${NO_SANDBOX_CACHE:-0}"
 export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-nvidia/nemotron-3-super-120b-a12b}"
 export NVIDIA_API_KEY="${NVIDIA_API_KEY:-${NGC_CLI_API_KEY:-}}"
 # Match init_nemoclaw / VSS notebook: custom when an endpoint URL is provided.
@@ -624,15 +626,15 @@ step3_install_nemoclaw() {
 resolve_quick_sandbox_script() {
   local quick_script="${NEMOCLAW_QUICK_SANDBOX_SCRIPT:-$(dirname "$0")/nemoclaw-quick-sandbox.sh}"
   [[ -f "$quick_script" ]] || quick_script="$(dirname "$0")/nemoclaw-quick-sandbox.sh"
-  [[ -f "$quick_script" ]] || die "NEMOCLAW_QUICK_SANDBOX=1 but missing ${quick_script}"
+  [[ -f "$quick_script" ]] || die "Quick sandbox enabled but missing ${quick_script}"
   printf '%s' "$quick_script"
 }
 
 step4_build_sandbox_image() {
   [[ -d "$NEMOCLAW_SRC" ]] || die "Missing ${NEMOCLAW_SRC} — run step 1 first"
   refresh_path
-  if [[ "${NEMOCLAW_QUICK_SANDBOX:-}" != "1" ]]; then
-    log "STEP 4 — skipped (set NEMOCLAW_QUICK_SANDBOX=1 to build nemoclaw-sandbox:local here)"
+  if [[ "${NO_SANDBOX_CACHE:-0}" == "1" ]]; then
+    log "STEP 4 — skipped (NO_SANDBOX_CACHE=1 — using install.sh onboard instead of quick sandbox)"
     return 0
   fi
   log "STEP 4 — build nemoclaw-sandbox:local"
@@ -644,14 +646,14 @@ step5_create_sandbox() {
   refresh_path
   validate_provider_env
 
-  if [[ "${NEMOCLAW_QUICK_SANDBOX:-}" == "1" ]]; then
-    log "STEP 5 — create sandbox (nemoclaw-quick-sandbox.sh)"
+  if [[ "${NO_SANDBOX_CACHE:-0}" != "1" ]]; then
+    log "STEP 5 — create sandbox from quick sandbox script"
     bash "$(resolve_quick_sandbox_script)" --create-only "${NEMOCLAW_SANDBOX_NAME:-demo}"
   else
-    log "STEP 5 — create sandbox (install.sh onboard)"
+    log "STEP 5 — create sandbox from NemoClaw onboard"
     [[ "${SKIP_ONBOARD:-}" == "1" ]] && { log "SKIP_ONBOARD=1 — skipping"; return 0; }
     run_step "host preflight" run_host_preflight
-    run_step "nemoclaw onboard (install.sh)" run_installer_onboard
+    run_step "nemoclaw onboard" run_installer_onboard
   fi
 
   run_step "dashboard port-forward" ensure_dashboard_forward || true
@@ -668,7 +670,7 @@ resolve_steps() {
     printf '%s\n' "$STEP"
     return
   fi
-  if [[ "${NEMOCLAW_QUICK_SANDBOX:-}" == "1" ]]; then
+  if [[ "${NO_SANDBOX_CACHE:-0}" != "1" ]]; then
     printf '1\n2\n3\n4\n5\n'
     return
   fi
@@ -694,7 +696,7 @@ main() {
         step1_pull
         step2_presteps
         step3_install_nemoclaw
-        [[ "${NEMOCLAW_QUICK_SANDBOX:-}" == "1" ]] && step4_build_sandbox_image
+        [[ "${NO_SANDBOX_CACHE:-0}" != "1" ]] && step4_build_sandbox_image
         step5_create_sandbox
         ;;
       *) die "Unknown step: ${step} (use 1, 2, 3, 4, 5, or all)" ;;

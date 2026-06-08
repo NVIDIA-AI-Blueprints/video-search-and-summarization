@@ -9,7 +9,7 @@
 # Intended after:  bash nemoclaw-install.sh 1 2 3
 #
 # Usage:
-#   bash nemoclaw-install.sh 4              # build image only (NEMOCLAW_QUICK_SANDBOX=1)
+#   bash nemoclaw-install.sh 4              # build image only (default quick path)
 #   bash nemoclaw-install.sh 5              # create sandbox (starts gateway automatically)
 #   ./nemoclaw-quick-sandbox.sh --build-only [sandbox-name]
 #   ./nemoclaw-quick-sandbox.sh --create-only [sandbox-name]
@@ -466,7 +466,7 @@ ensure_gateway_ready
 SANDBOX_IMAGE="$NEMOCLAW_SANDBOX_IMAGE"
 if [[ "$QUICK_SANDBOX_MODE" == "create" ]]; then
   docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1 \
-    || fail "Missing ${SANDBOX_IMAGE} — run: NEMOCLAW_QUICK_SANDBOX=1 bash nemoclaw-install.sh 4"
+    || fail "Missing ${SANDBOX_IMAGE} — run: bash nemoclaw-install.sh 4"
 elif ! docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then
   ensure_local_sandbox_image "$SANDBOX_IMAGE" || fail "Could not load or build ${SANDBOX_IMAGE}"
 fi
