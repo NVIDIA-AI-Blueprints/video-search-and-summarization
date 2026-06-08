@@ -15,6 +15,7 @@ Run the top-level VSS fusion search across archived video and ingest new clips /
 ## Prerequisites
 
 - Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
+- `vss-manage-video-io-storage` skill installed (used to list and manage video sources before search).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
 - `curl`, `jq`, and Docker available on the caller.
 
@@ -159,11 +160,7 @@ When using this skill, ALWAYS follow this high-level workflow:
    If the user query references a specific video / sensor name
    (e.g. "the airport video", "warehouse_cam_3", "sample warehouse"),
    verify it's actually registered in VIOS **before** firing
-   `POST .../generate`:
-
-   ```bash
-   curl -s "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
-   ```
+   `POST .../generate`. List sources via the `vss-manage-video-io-storage` skill.
 
    Then:
    - **If the named source (or a clearly substring-matching name) IS in the list** → proceed to step 3. Forward the user's natural-language query verbatim — the agent's own search tool decomposer (`services/agent/src/vss_agents/tools/search.py`) extracts `video_sources` from the prose given the available sources, so the skill does NOT need to construct a structured `video sources` payload.
