@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying the VSS behavior-analytics container as a standalone service for spatial-AI video analytics pipelines. <br>
+Developers and engineers deploying the standalone behavior-analytics microservice for spatial-AI video analytics pipelines, independent of the full warehouse blueprint stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -24,7 +24,7 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Dynamic Config](references/dynamic-config.md) <br>
 - [Dynamic Calibration](references/dynamic-calibration.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -32,6 +32,15 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
+
+## Evaluation Agents Used: <br>
+- Claude Code (`claude-code`) <br>
+- Codex (`codex`) <br>
+
+
+
+## Evaluation Tasks: <br>
+Evaluated against 1 evaluation task (positive skill-activation case) with 2 attempts per task, using the NVSkills-Eval external profile in astra-sandbox environment. Pass threshold: 50%. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -41,7 +50,25 @@ Reported benchmark dimensions: <br>
 - Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
 - Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
 
+Underlying evaluation signals used in this run: <br>
+- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
+- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
+- `accuracy`: Grades final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
+- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
+- `token_efficiency`: Compares token usage with and without the skill. <br>
 
+
+
+## Evaluation Results: <br>
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | 2 | 100% (+0%) | 100% (+0%) |
+| Correctness | 2 | 50% (+50%) | 50% (+50%) |
+| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
+| Effectiveness | 2 | 66% (+66%) | 50% (+50%) |
+| Efficiency | 2 | 27% (+0%) | 28% (+0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
