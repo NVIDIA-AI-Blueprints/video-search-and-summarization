@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901). <br>
+Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via the VA-MCP server (port 9901). Not for live VLM or incident-range narrative reports. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers query read-only video-analytics data (incidents, metrics, alerts, sensor information) from an Elasticsearch-backed VA-MCP server as part of the NVIDIA Video Search and Summarization platform. <br>
+Developers and engineers querying read-only video-analytics metrics, incidents, alerts, and sensor data from deployed VSS stacks via the VA-MCP server. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,12 +19,12 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA Video Search and Summarization Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API responses] <br>
+**Output Type(s):** [Shell commands, API Calls] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
@@ -36,7 +36,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-1 evaluation task (positive skill-activation case), 2 attempts per task, pass threshold 50%. <br>
+1 evaluation task (positive skill-activation routing case), 2 attempts per task, 50% pass threshold. NVSkills-Eval profile: external. Environment: astra-sandbox. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -61,10 +61,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 95% (+76%) | 97% (+61%) |
-| Discoverability | 2 | 100% (+78%) | 86% (+29%) |
-| Effectiveness | 2 | 63% (+39%) | 68% (+44%) |
-| Efficiency | 2 | 91% (+62%) | 75% (+24%) |
+| Correctness | 2 | 50% (+50%) | 50% (+50%) |
+| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
+| Effectiveness | 2 | 66% (+66%) | 60% (+60%) |
+| Efficiency | 2 | 27% (+0%) | 28% (-0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
