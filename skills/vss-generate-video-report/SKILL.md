@@ -53,7 +53,7 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 Do **not** use this skill when the request is one of the following:
 
-- Ad-hoc visual Q&A on a clip ("what color is the truck?", "what happens at 00:12?") → use `/vss-ask-video`.
+- Ad-hoc visual Q&A on a clip that do not ask explicitly for a report ("what color is the truck?", "what happens at 00:12?") → use `/vss-ask-video`.
 - Archive/semantic similarity retrieval ("find forklifts", "search all videos for tailgating") → use `/vss-search-archive`.
 - Read-only incident/metrics lookup without report rendering needs → use `/vss-query-analytics`.
 - Deploy/teardown/profile changes ("deploy alerts", "switch profile", "bring up base") → use `/vss-deploy-profile`.
@@ -155,7 +155,12 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 Read the live values off the running agent container — do not guess:
 
 ```bash
-docker exec vss-agent env | grep -E '^(VLM_BASE_URL|VLM_NAME|VLM_MODE|RTVI_VLM_BASE_URL|RTVI_VLM_ENDPOINT|RTVI_VLM_MODEL_TO_USE)='
+docker exec vss-agent sh -lc '
+for k in VLM_BASE_URL VLM_NAME VLM_MODE RTVI_VLM_BASE_URL RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE; do
+  v="$(printenv "$k")"
+  [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
+done
+'
 ```
 
 Selection rule:
@@ -216,15 +221,15 @@ NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 
 # num_frames (media_io_kwargs) applies to any Cosmos VLM.
 # mm_processor_kwargs mirrors video_understanding.py:
-# - Cosmos Reason 2 uses size{shortest_edge,longest_edge} from the base config.
+# - NIM Cosmos Reason 2 (`nvidia/cosmos-reason2-8b`) uses size{shortest_edge,longest_edge}.
 # - Other Cosmos models (including CR1) use videos_kwargs{min_pixels,max_pixels}.
 case "$VLM_MODEL" in
-  *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+  nvidia/cosmos-reason2-8b) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
   *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
   *)                MM_KWARGS="" ;;
 esac
 
-curl -s -X POST "${VLM_ENDPOINT}/chat/completions" \
+curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
 {
