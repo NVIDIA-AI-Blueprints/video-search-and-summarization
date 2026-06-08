@@ -116,6 +116,7 @@ Step 3 on the original internal URL when the VLM is local / in-cluster.
 : "${VSS_PUBLIC_HTTP_PROTOCOL:?VSS_PUBLIC_HTTP_PROTOCOL is required}"
 : "${VSS_PUBLIC_HOST:?VSS_PUBLIC_HOST is required}"
 : "${VSS_PUBLIC_PORT:?VSS_PUBLIC_PORT is required}"
+: "${RAW_URL:?Set RAW_URL to the clip URL before rewriting}"
 
 BROWSER_CLIP_URL=$(
 python3 - <<'PY'
@@ -151,7 +152,11 @@ Hand off to `/vss-manage-video-io-storage` to:
    curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
+<<<<<<< HEAD
    That gives a direct `mp4` URL that the local / in-cluster VLM can pull frames from. Bind it to `VIDEO_URL` (used by the VLM in Step 3) **and** separately rewrite to `BROWSER_CLIP_URL` for the Step 4 report template using the report-link rewrite from *Clip URLs: VLM input vs browser report link* above — the user's browser cannot reach `$VIDEO_URL` directly.
+=======
+   That gives a direct `mp4` URL that the local / in-cluster VLM can pull frames from. Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite to produce `BROWSER_CLIP_URL` for Step 4 — the user's browser cannot reach `$VIDEO_URL` directly.
+>>>>>>> d6059485 (Resolve high risk issues)
    Mode A requires the selected VLM endpoint to be able to fetch `VIDEO_URL`.
    Local NIM/RT-VLM deployments normally can; remote endpoints generally cannot
    fetch `localhost`, private `HOST_IP`, or VST-internal URLs. If the live
@@ -164,14 +169,14 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 
 | Backend | Env vars | Typical host endpoint | Picked when |
 |---|---|---|---|
-| **NIM Cosmos** | `VLM_BASE_URL`, `VLM_NAME` | `${VLM_BASE_URL}/v1` (no trailing `/v1` on the env var; the agent appends it) | `VLM_MODE` ∈ {`local`, `local_shared`, `remote`} **and** `VLM_BASE_URL` is non-empty |
-| **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE` (model identifier on the RT-VLM side, e.g. `cosmos-reason2`) | `${RTVI_VLM_BASE_URL}/v1` — alerts default `http://${HOST_IP}:8018/v1`, base default `http://${HOST_IP}:30082/v1` (`RTVI_VLM_ENDPOINT`) | `VLM_MODE=none` **or** `VLM_BASE_URL` empty; also the only path for `warehouse` |
+| **NIM Cosmos** | `VLM_BASE_URL`, `VLM_NAME`, `VLM_MODE`, `VLM_MODEL_TYPE` | `${VLM_BASE_URL}/v1` (no trailing `/v1` on the env var; the agent appends it) | `VLM_MODEL_TYPE != rtvi` **and** `VLM_MODE` ∈ {`local`, `local_shared`, `remote`} **and** `VLM_BASE_URL` is non-empty |
+| **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_ENDPOINT`, `RTVI_VLM_MODEL_TO_USE`, `VLM_MODEL_TYPE` | `${RTVI_VLM_BASE_URL}/v1` (or `RTVI_VLM_ENDPOINT` when set) — alerts default `http://${HOST_IP}:8018/v1`, base default `http://${HOST_IP}:30082/v1` | `VLM_MODEL_TYPE = rtvi`, or `VLM_MODE=none`, or `VLM_BASE_URL` empty; also the only path for `warehouse` |
 
 Read the live values off the running agent container — do not guess:
 
 ```bash
 docker exec vss-agent sh -lc '
-for k in VLM_BASE_URL VLM_NAME VLM_MODE RTVI_VLM_BASE_URL RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE; do
+for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE; do
   v="$(printenv "$k")"
   [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
 done
@@ -181,7 +186,11 @@ done
 Selection rule:
 
 ```bash
-if [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
+if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
+  VLM_BACKEND="rtvlm"
+  VLM_ENDPOINT="${RTVI_VLM_ENDPOINT:-${RTVI_VLM_BASE_URL%/}/v1}"
+  VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
+elif [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
   VLM_BACKEND="nim_cosmos"
   VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
   VLM_MODEL="${VLM_NAME}"
@@ -225,30 +234,43 @@ Your reasoning.
 Write your final answer immediately after the </think> tag."
 fi
 
-# Multimodal settings — resolve from the LIVE video_understanding config in the running container.
-# Do not hardcode profile-specific pixel/frame values.
-eval "$(
-docker exec vss-agent sh -lc 'python3 - <<'"'"'PY'"'"'
-import os
-import yaml
+# If Step 3 is run standalone, derive missing backend from current env/model.
+[ -z "${VLM_BACKEND:-}" ] && {
+  if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
+    VLM_BACKEND="rtvlm"
+  elif [[ "${VLM_MODEL:-}" == nvidia/cosmos* ]]; then
+    VLM_BACKEND="nim_cosmos"
+  else
+    VLM_BACKEND="rtvlm"
+  fi
+}
 
-candidates = ("/workspace/configs/config.yml", "/app/configs/config.yml", "/configs/config.yml")
-config = None
-for path in candidates:
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-        break
-if config is None:
-    raise SystemExit("video_understanding config.yml not found in container")
-
-vu = (config.get("functions", {}) or {}).get("video_understanding", {}) or {}
-print(f"MAX_FPS={int(vu.get('max_fps', 2))}")
-print(f"MAX_FRAMES={int(vu.get('max_frames', 30))}")
-print(f"MIN_PIXELS={int(vu.get('min_pixels', 3136))}")
-print(f"MAX_PIXELS={int(vu.get('max_pixels', 8388608))}")
-PY'
-)"
+# Multimodal settings — resolve from the live agent config file path, not hardcoded candidates.
+CFG_JSON=$(
+docker exec vss-agent python3 -c '
+import json, os, yaml
+p = os.getenv("VSS_AGENT_CONFIG_FILE")
+if not p:
+    raise SystemExit("VSS_AGENT_CONFIG_FILE is not set in vss-agent")
+if not os.path.isabs(p):
+    p = os.path.join("/vss-agent", p.lstrip("./"))
+with open(p, encoding="utf-8") as f:
+    cfg = yaml.safe_load(f) or {}
+vu = (cfg.get("functions", {}) or {}).get("video_understanding", {}) or {}
+print(json.dumps({
+    "max_fps": int(vu.get("max_fps", 2)),
+    "max_frames": int(vu.get("max_frames", 30)),
+    "min_pixels": int(vu.get("min_pixels", 3136)),
+    "max_pixels": int(vu.get("max_pixels", 8388608)),
+}))
+')
+)
+[ -n "${CFG_JSON}" ] || { echo "Failed to read video_understanding config from vss-agent"; exit 1; }
+jq -e . >/dev/null <<< "${CFG_JSON}" || { echo "Invalid config JSON from vss-agent"; exit 1; }
+MAX_FPS="$(jq -r '.max_fps' <<< "${CFG_JSON}")"
+MAX_FRAMES="$(jq -r '.max_frames' <<< "${CFG_JSON}")"
+MIN_PIXELS="$(jq -r '.min_pixels' <<< "${CFG_JSON}")"
+MAX_PIXELS="$(jq -r '.max_pixels' <<< "${CFG_JSON}")"
 
 # num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
 # clip_seconds (Step 1 endTime-startTime) may be fractional; truncate to integer seconds — bash $((...))
@@ -263,8 +285,8 @@ NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 MM_KWARGS=""
 if [ "${VLM_BACKEND}" = "nim_cosmos" ]; then
   case "$VLM_MODEL" in
-    nvidia/cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
-    nvidia/cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+    *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+    *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
     *)                      MM_KWARGS="" ;;
   esac
 fi
@@ -273,7 +295,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
 {
-  "model": "${VLM_MODEL}",
+  "model": $(jq -Rs . <<< "${VLM_MODEL}"),
   "messages": [
     {
       "role": "user",
