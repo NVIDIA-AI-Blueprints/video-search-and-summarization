@@ -70,7 +70,10 @@ export NGC_CLI_API_KEY='<key>'
 echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
 ```
 
-> Do not store the raw key in any workspace file.
+> Security note: Do not store the raw key in any workspace file or commit it to version control.
+> Persisting to `~/.bashrc` makes the key readable by anyone with access to your home
+> directory or any backup/image that includes it. Prefer a secrets manager or a
+> `.env` file outside the repo with restricted permissions (`chmod 600`).
 
 ---
 
