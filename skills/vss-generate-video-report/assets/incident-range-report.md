@@ -16,7 +16,7 @@
 
 - **<timestamp>** - <category> - verdict: **<confirmed|rejected|unverified>**
   - <info.reasoning (1-2 lines)>
-  - clip: `<rewritten URL>` (omit row when the incident carries no clip URL - never paste a raw `HOST_IP:30888` URL)
+  - clip: `<rewritten URL>` (omit row when the incident carries no clip URL - NEVER paste a raw `HOST_IP:30888` URL)
   - objects: <objectIds joined>
 - ...
 
