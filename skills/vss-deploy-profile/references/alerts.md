@@ -129,8 +129,9 @@ The skill writes these env vars to `dev-profile-alerts/generated.env` itself; th
 
 | Layout | Hardware | Value |
 |---|---|---|
-| RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | any | **0.35** |
-| RT-VLM on its own GPU (`VLM_MODE=local`) | DGX-SPARK or L40S | **0.8** |
+| RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | DGX-SPARK (always local_shared) | **0.4** |
+| RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | any other GPU | **0.35** |
+| RT-VLM on its own GPU (`VLM_MODE=local`) | L40S | **0.8** |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | RTX 4500 (32 GB) — `HARDWARE_PROFILE=RTX4500` | **0.8** with `RTVI_VLM_MAX_MODEL_LEN=20480` for the smaller VRAM target (see [§ RTX 4500](#rtx-4500-32-gb)) |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | H100 / RTXPRO6000BW | leave blank → RT-VLM's hardcoded 0.7 fallback applies |
 | RT-VLM on its own GPU on edge | OTHER / IGX-THOR / AGX-THOR | leave blank |
