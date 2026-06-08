@@ -23,8 +23,9 @@ _SPEC = importlib.util.spec_from_file_location("review_agent", _DIR / "review_ag
 ra = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(ra)
 
-# a real skill dir exists in the checkout; use it for the happy path
-REAL_SKILL = "vss-ask-video"
+# created under a temp REPO_ROOT in setUp — the contract test must not depend on
+# which skills exist on the current branch (main's skills/ tree differs from develop's).
+FAKE_SKILL = "vss-test-skill"
 
 
 class ExtractFindings(unittest.TestCase):
@@ -47,10 +48,20 @@ class ExtractFindings(unittest.TestCase):
 class RunLegContract(unittest.TestCase):
     def setUp(self):
         self._orig = dict(ra.ENGINE_FN)
+        # point REPO_ROOT at a temp tree with a fake skill so the contract test
+        # doesn't depend on which skills exist on the current branch.
+        self._orig_root = ra.REPO_ROOT
+        self._tmp = tempfile.TemporaryDirectory()
+        d = Path(self._tmp.name) / "skills" / FAKE_SKILL
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text("# fake skill\n")
+        ra.REPO_ROOT = Path(self._tmp.name)
 
     def tearDown(self):
         ra.ENGINE_FN.clear()
         ra.ENGINE_FN.update(self._orig)
+        ra.REPO_ROOT = self._orig_root
+        self._tmp.cleanup()
 
     def _patch(self, fn):
         for k in ra.ENGINE_FN:
@@ -59,7 +70,7 @@ class RunLegContract(unittest.TestCase):
     def test_ok(self):
         self._patch(lambda *a, **k: [
             {"file": "skills/x/SKILL.md", "line": 3, "title": "bug", "severity": "P0"}])
-        art = ra.run_leg(REAL_SKILL, "review")
+        art = ra.run_leg(FAKE_SKILL, "review")
         self.assertEqual(art["status"], "ok")
         self.assertEqual(len(art["findings"]), 1)
         self.assertEqual(art["findings"][0]["severity"], "critical")  # normalized
@@ -68,7 +79,7 @@ class RunLegContract(unittest.TestCase):
         def boom(*a, **k):
             raise ra.SkippedLeg("codex not installed")
         self._patch(boom)
-        art = ra.run_leg(REAL_SKILL, "codex")
+        art = ra.run_leg(FAKE_SKILL, "codex")
         self.assertEqual(art["status"], "skipped")
         self.assertEqual(art["findings"], [])
 
@@ -76,7 +87,7 @@ class RunLegContract(unittest.TestCase):
         def boom(*a, **k):
             raise RuntimeError("sdk exploded")
         self._patch(boom)
-        art = ra.run_leg(REAL_SKILL, "best-practices")
+        art = ra.run_leg(FAKE_SKILL, "best-practices")
         self.assertEqual(art["status"], "failed")
         self.assertEqual(art["findings"], [])
 
@@ -89,7 +100,7 @@ class RunLegContract(unittest.TestCase):
         self._patch(lambda *a, **k: [
             {"file": "skills/x/SKILL.md", "title": "t", "severity": "medium"}])
         with tempfile.TemporaryDirectory() as d:
-            os.environ.update(EVAL_SKILL=REAL_SKILL, EVAL_PARADIGM="review",
+            os.environ.update(EVAL_SKILL=FAKE_SKILL, EVAL_PARADIGM="review",
                               REVIEW_OUT_DIR=d, PR_BASE="origin/develop")
             try:
                 rc = ra.main()
@@ -97,9 +108,9 @@ class RunLegContract(unittest.TestCase):
                 for k in ("EVAL_SKILL", "EVAL_PARADIGM", "REVIEW_OUT_DIR", "PR_BASE"):
                     os.environ.pop(k, None)
             self.assertEqual(rc, 0)
-            art = json.loads((Path(d) / f"review-{REAL_SKILL}__review.json").read_text())
+            art = json.loads((Path(d) / f"review-{FAKE_SKILL}__review.json").read_text())
             self.assertEqual(set(art) >= {"skill", "paradigm", "status", "findings"}, True)
-            self.assertEqual(art["skill"], REAL_SKILL)
+            self.assertEqual(art["skill"], FAKE_SKILL)
             self.assertEqual(art["findings"][0]["paradigm"], "review")
 
 

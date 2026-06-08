@@ -101,6 +101,7 @@ class Reports(unittest.TestCase):
         self.assertFalse(eh["needs_verification"])         # medium + agreement 2
 
     def test_comment_compact(self):
+        import re
         body = con.build_comment(self._consolidated(), run_url="http://run")
         self.assertIn("6-paradigm consolidation", body)
         self.assertIn("Critical / high", body)
@@ -108,6 +109,14 @@ class Reports(unittest.TestCase):
         self.assertIn("http://run", body)
         # the low singleton stays OUT of the compact comment (corroborated>=2 only)
         self.assertNotIn("redis tag stale", body)
+        # headline "N need verification" must equal what the Verify list shows
+        # (2 criticals here; the low single-lens redis is needs_verification too
+        # but is not displayed, so it must not be counted).
+        m = re.search(r"\*\*(\d+) need verification\*\*", body)
+        self.assertIsNotNone(m)
+        shown = body.split("Verify before acting")[1].count("\n- ")
+        self.assertEqual(int(m.group(1)), shown)
+        self.assertEqual(shown, 2)
 
     def test_markdown_buckets_and_verify(self):
         md = con.build_markdown(self._consolidated())
