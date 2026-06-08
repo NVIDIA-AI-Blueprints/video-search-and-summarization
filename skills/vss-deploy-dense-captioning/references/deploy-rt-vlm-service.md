@@ -74,31 +74,9 @@ docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 export NGC_CLI_API_KEY="<YOUR_NGC_KEY>"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 
-# Derive the default tag from the compose file in this checkout/copy, then
-# select the platform variant. Spark/GB10/SBSA uses -sbsa; everything else uses
-# the normal multiarch tag.
-COMPOSE_FILE="${COMPOSE_FILE:-rtvi-vlm-docker-compose.yml}"
-if [ ! -f "$COMPOSE_FILE" ]; then
-  COMPOSE_FILE="deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
-fi
-COMPOSE_DEFAULT_TAG=$(sed -nE 's/.*RTVI_VLM_IMAGE_TAG:-([^}]+).*/\1/p' "$COMPOSE_FILE" | head -n1)
-: "${COMPOSE_DEFAULT_TAG:?Could not derive RTVI_VLM_IMAGE_TAG default from $COMPOSE_FILE}"
-RTVI_VLM_IMAGE_TAG="${RTVI_VLM_IMAGE_TAG:-$COMPOSE_DEFAULT_TAG}"
-RTVI_VLM_BASE_TAG="${RTVI_VLM_IMAGE_TAG%-sbsa}"
-ARCH=$(uname -m)
-PROFILE=$(printf '%s' "${HARDWARE_PROFILE:-}" | tr '[:lower:]' '[:upper:]')
-if printf '%s' "$PROFILE" | grep -Eq 'DGX-SPARK|SPARK|GB10|SBSA'; then
-  RTVI_VLM_IMAGE_TAG="${RTVI_VLM_BASE_TAG}-sbsa"
-elif [ "$ARCH" = "aarch64" ] && ! grep -qi tegra /proc/cpuinfo 2>/dev/null && [ ! -f /etc/nv_tegra_release ]; then
-  RTVI_VLM_IMAGE_TAG="${RTVI_VLM_BASE_TAG}-sbsa"
-elif [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "aarch64" ]; then
-  RTVI_VLM_IMAGE_TAG="$RTVI_VLM_BASE_TAG"
-else
-  echo "Unsupported architecture: $ARCH" && exit 1
-fi
-export RTVI_VLM_IMAGE_TAG
-
-# Verify pull for the exact image this compose will use.
+# Run the Step 0a tag-selection snippet in the standalone copy flow below, then
+# verify pull access for the exact image this compose will use.
+: "${RTVI_VLM_IMAGE_TAG:?Run Step 0a below to set RTVI_VLM_IMAGE_TAG first}"
 docker pull "nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG}"
 ```
 
