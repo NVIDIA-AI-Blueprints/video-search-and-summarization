@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-profile`
-- Evaluation date: 2026-06-05
+- Evaluation date: 2026-06-08
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 5 evaluation tasks
@@ -56,24 +56,24 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 8 | 100% (+0%) | 85% (+0%) |
-| Correctness | 8 | 97% (+66%) | 82% (+44%) |
-| Discoverability | 8 | 92% (+52%) | 85% (+30%) |
-| Effectiveness | 8 | 64% (+58%) | 55% (+48%) |
-| Efficiency | 8 | 76% (+39%) | 78% (+29%) |
+| Correctness | 8 | 94% (+71%) | 85% (+50%) |
+| Discoverability | 8 | 93% (+66%) | 85% (+31%) |
+| Effectiveness | 8 | 64% (+58%) | 54% (+48%) |
+| Efficiency | 8 | 77% (+48%) | 77% (+30%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 5 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 6 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_correctness: Instructions don't mention 'run_script' (`skills/vss-deploy-profile/SKILL.md`)
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-deploy-profile/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in edge.md (`skills/vss-deploy-profile/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in search.md (`skills/vss-deploy-profile/SKILL.md`)
+- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-deploy-profile/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-profile/SKILL.md`)
-- LOW QUALITY/quality_efficiency: Non-descriptive filename: ngc.md (`skills/vss-deploy-profile/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
@@ -84,12 +84,14 @@ Top findings:
 - HIGH DUPLICATE/duplicate: Duplicate content found across SKILL.md and references/alerts.md and references/base.md and references/lvs-profile.md and references/search.md:
   "# 1. cp dev-profile-<profile>/.env dev-profile-<profile>/generated.env  (clean copy)" in SKILL.md (lines 41-41)
   vs "# 5. docker compose --env-file generated.env -f resolved.yml up -d" in SKILL.md (lines 45-49)
-  vs "### Step 1c — Initialize `generated.env`" in SKILL.md (lines 165-178)
-  vs "### Step 3 — Apply overrides + dry-run" in SKILL.md (lines 199-205)
+  vs "### Step 1c — Initialize `generated.env`" in SKILL.md (lines 163-176)
+  vs "### Step 3 — Apply overrides + dry-run" in SKILL.md (lines 205-211)
   vs "## Env file location" in references/alerts.md (lines 279-285)
-  vs "## Env File Location" in references/base.md (lines 453-459)
+  vs "## Env File Location" in references/base.md (lines 459-465)
   vs "## Env file location" in references/lvs-profile.md (lines 205-211)
   vs "## Env file location" in references/search.md (lines 278-284) (`SKILL.md:41`)
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/prerequisites.md and references/warehouse.md:
-  "### 2. Docker" in references/prerequisites.md (lines 167-186)
-  vs "#### 2.2 Docker" in references/warehouse.md (lines 476-490) (`references/prerequisites.md:167`)
+- HIGH DUPLICATE/duplicate: Duplicate content found across references/ngc.md and references/warehouse.md:
+  "# Is key in environment?" in references/ngc.md (lines 20-29)
+  vs "## Configure NGC API Key" in references/ngc.md (lines 55-67)
+  vs "#### 1.1 Check" in references/warehouse.md (lines 328-341)
+  vs "#### 1.3 Configure API Key" in references/warehouse.md (lines 348-362) (`references/ngc.md:20`)

@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers deploying NVIDIA AI Blueprint Video Search and Summarization profiles on GPU-equipped hosts using a compose-centric workflow. <br>
+Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) blueprint profiles for AI-powered video analytics applications. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,8 +20,14 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
+- [Base Profile Reference](references/base.md) <br>
+- [Search Profile Reference](references/search.md) <br>
+- [LVS Profile Reference](references/lvs-profile.md) <br>
+- [Warehouse Profile Reference](references/warehouse.md) <br>
+- [Edge Profile Reference](references/edge.md) <br>
+- [Alerts Profile Reference](references/alerts.md) <br>
 
 
 ## Skill Output: <br>
@@ -37,7 +43,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 5 deployment tasks (all positive-activation) with 2 attempts per task in an astra-sandbox environment using the external NVSkills-Eval profile. <br>
+Evaluated against 5 evaluation tasks (5 positive skill-activation cases) in the astra-sandbox environment using the external NVSkills-Eval profile, with 2 attempts per task and a 50% pass threshold. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -62,10 +68,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 8 | 100% (+0%) | 85% (+0%) |
-| Correctness | 8 | 97% (+66%) | 82% (+44%) |
-| Discoverability | 8 | 92% (+52%) | 85% (+30%) |
-| Effectiveness | 8 | 64% (+58%) | 55% (+48%) |
-| Efficiency | 8 | 76% (+39%) | 78% (+29%) |
+| Correctness | 8 | 94% (+71%) | 85% (+50%) |
+| Discoverability | 8 | 93% (+66%) | 85% (+31%) |
+| Effectiveness | 8 | 64% (+58%) | 54% (+48%) |
+| Efficiency | 8 | 77% (+48%) | 77% (+30%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
