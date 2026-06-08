@@ -177,7 +177,7 @@ export RTVI_VLM_URL=http://rtvi-vlm:8000     # URL of the RT-VLM service
 # Optional: set if RT-VLM should use a different NGC credential than NGC_CLI_API_KEY
 # export RTVI_VLM_API_KEY=<>
 # Optional: override the default local RT-VLM image
-# export RTVI_VLM_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.3
+# export RTVI_VLM_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0
 
 # Optional — Secrets
 export HF_TOKEN=<>                 # HuggingFace token for gated models

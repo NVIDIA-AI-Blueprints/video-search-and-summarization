@@ -19,5 +19,5 @@ description: >
   NVIDIA Nemotron Nano 9B v2 LLM NIM deployed via NIMCache + NIMService CRDs.
   Requires NVIDIA NIM Operator (apps.nvidia.com/v1alpha1).
 type: application
-version: 26.04.2
+version: 3.2.0
 appVersion: "latest"

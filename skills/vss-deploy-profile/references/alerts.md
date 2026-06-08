@@ -222,16 +222,22 @@ Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GP
 
 ## Endpoints (after deploy)
 
-| Service | URL |
+`PUBLIC` = the deployed public origin (`docker inspect vss-agent` →
+`VSS_AGENT_EXTERNAL_URL`; on Brev the `https://7777-<id>.brevlab.com` secure
+link). Report the ingress URLs, not raw ports — see
+[`base.md`](base.md#endpoints-after-deploy) / [`brev.md`](brev.md). Rows marked
+*(direct)* are internal service ports: on-host `curl` only, not browser-reachable on Brev.
+
+| Service | URL to report (through ingress) |
 |---|---|
-| Agent UI | `http://<HOST_IP>:3000/` (Alerts tab) |
-| Agent REST API | `http://<HOST_IP>:8000/` |
-| Alert-bridge realtime API | `http://<HOST_IP>:9080/api/v1/realtime` |
-| RT-VLM | `http://<HOST_IP>:8018/v1/` (or remote if `VLM_MODE=remote`) |
-| Video-Analytics MCP | `http://<HOST_IP>:9901/` |
-| Kibana | `http://<HOST_IP>:5601/` |
-| nvstreamer | `http://<HOST_IP>:31000/` |
-| Phoenix | `http://<HOST_IP>:6006/` |
+| Agent UI | `${PUBLIC}/` (Alerts tab) |
+| Agent REST API | `${PUBLIC}/api` |
+| Kibana | `${PUBLIC}/kibana` |
+| Phoenix | `${PUBLIC}/phoenix` |
+| nvstreamer | own secure link `https://31000-<id>.brevlab.com` on Brev (see [`brev.md`](brev.md)); else `http://<HOST_IP>:31000/` |
+| Alert-bridge realtime API (direct) | `http://<HOST_IP>:9080/api/v1/realtime` |
+| RT-VLM (direct) | `http://<HOST_IP>:8018/v1/` (or remote if `VLM_MODE=remote`) |
+| Video-Analytics MCP (direct) | `http://<HOST_IP>:9901/` |
 
 ## Readiness checks (per mode)
 
@@ -273,8 +279,8 @@ In real-time mode the readiness signal is **RT-VLM continuously inspecting the l
 ## Env file location
 
 ```
-deploy/docker/developer-profiles/dev-profile-alerts/.env            # source defaults (read-only)
-deploy/docker/developer-profiles/dev-profile-alerts/generated.env   # skill's working copy (apply overrides here)
+deploy/docker/developer-profiles/dev-profile-alerts/.env
+deploy/docker/developer-profiles/dev-profile-alerts/generated.env
 ```
 
 ## Stage perception models (RTDETR-ITS + GDINO)
@@ -342,7 +348,7 @@ RT-VLM downloads `cosmos-reason2-8b:hf-1208` from NGC on first start (~10–20 m
 ## Debugging
 
 - **`docker logs vss-rtvi-vlm`** — confirms model load and `Maximum concurrency for X tokens per GPU: Y x` line. OOM → lower `RTVI_VLLM_GPU_MEMORY_UTILIZATION` by 0.05 or drop `RTVI_VLM_MAX_MODEL_LEN` / `RTVI_VLLM_MAX_NUM_SEQS`.
-- **`docker logs alert-bridge`** — if it logs HTTP 400 "No such model: …", check `VLM_NAME` matches RT-VLM's `/v1/models` basename. `curl http://${HOST_IP}:8018/v1/models | jq` confirms what's actually advertised.
+- **`docker logs vss-alert-bridge`** — if it logs HTTP 400 "No such model: …", check `VLM_NAME` matches RT-VLM's `/v1/models` basename. `curl http://${HOST_IP}:8018/v1/models | jq` confirms what's actually advertised.
 - **2d_cv: alerts never fire** — check `vss-behavior-analytics` is consuming RT-CV metadata: `docker logs vss-behavior-analytics`. RT-CV side: `curl http://${HOST_IP}:9000/v1/health`.
 - **2d_vlm: VLM not running over live streams** — confirm `MODE=2d_vlm` (not `2d_cv`) in `resolved.yml` and that nvstreamer-alerts is publishing streams.
 - **OOM on shared GPU 1** — drop `NIM_KVCACHE_PERCENT` for the LLM by 0.05; if RT-VLM is the OOM, raise its `RTVI_VLLM_GPU_MEMORY_UTILIZATION` ceiling and re-tune the LLM down (the 0.35/0.50 split assumes Nano 9B FP16; larger LLMs need different ratios).

@@ -199,12 +199,12 @@ After successful deployment, services are accessible at:
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| VIOS UI | `http://<HOST_IP>:30888/vios/#/dashboard` | Main VIOS interface |
-| NVStreamer 1 | `http://<HOST_IP>:31000/#/dashboard` | NVStreamer instance 1 |
-| NVStreamer 2 | `http://<HOST_IP>:31001/#/dashboard` | NVStreamer instance 2 |
-| NVStreamer 3 | `http://<HOST_IP>:31002/#/dashboard` | NVStreamer instance 3 |
-| NVStreamer 4 | `http://<HOST_IP>:31003/#/dashboard` | NVStreamer instance 4 |
-| NVStreamer 5 | `http://<HOST_IP>:31004/#/dashboard` | NVStreamer instance 5 |
+| VIOS UI | `http://<HOST_IP>:30888/vst/#/dashboard` | Main VIOS interface |
+| NVStreamer 1 | `http://<HOST_IP>:31000/#/dashboard` | NVStreamer instance 1 (default) |
+| NVStreamer 2 | `http://<HOST_IP>:31001/#/dashboard` | NVStreamer instance 2 (if enabled) |
+| NVStreamer 3 | `http://<HOST_IP>:31002/#/dashboard` | NVStreamer instance 3 (if enabled) |
+| NVStreamer 4 | `http://<HOST_IP>:31003/#/dashboard` | NVStreamer instance 4 (if enabled) |
+| NVStreamer 5 | `http://<HOST_IP>:31004/#/dashboard` | NVStreamer instance 5 (if enabled) |
 | Grafana | `http://<HOST_IP>:3000` | Monitoring dashboard (if enabled) |
 | MinIO Console | `http://<HOST_IP>:9001` | Object storage console (if enabled) |
 

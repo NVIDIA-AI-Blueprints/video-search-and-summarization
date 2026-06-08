@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to deploy, configure, verify, debug, and tear down NVIDIA Video Search and Summarization (VSS) profiles on GPU-equipped hosts. <br>
+Developers and engineers deploying, configuring, verifying, debugging, or tearing down NVIDIA Video Search and Summarization (VSS) compose-based profiles on GPU-equipped hosts. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,13 +20,14 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [Base Profile Reference](references/base.md) <br>
-- [Search Profile Reference](references/search.md) <br>
-- [LVS Profile Reference](references/lvs-profile.md) <br>
-- [Warehouse Profile Reference](references/warehouse.md) <br>
-- [Edge Deployment Reference](references/edge.md) <br>
-- [Prerequisites](references/prerequisites.md) <br>
+- [Profile reference: base](references/base.md) <br>
+- [Profile reference: search](references/search.md) <br>
+- [Profile reference: lvs](references/lvs-profile.md) <br>
+- [Profile reference: warehouse](references/warehouse.md) <br>
+- [Profile reference: alerts](references/alerts.md) <br>
+- [Profile reference: edge](references/edge.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
 
 
@@ -36,8 +37,14 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
+## Evaluation Agents Used: <br>
+- `claude-code` <br>
+- `codex` <br>
+
+
+
 ## Evaluation Tasks: <br>
-Evaluated with NVSkills-Eval (external profile): 9 Tier-1 static validation checks and 2 Tier-2 deduplication checks completed. Overall verdict: PASS. Tier-3 live agent evaluation not available. <br>
+Evaluated against 5 evaluation tasks in astra-sandbox environment using NVSkills-Eval external profile with 2 attempts per task and a 50% pass threshold. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -47,7 +54,25 @@ Reported benchmark dimensions: <br>
 - Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
 - Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
 
+Underlying evaluation signals used in this run: <br>
+- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
+- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
+- `accuracy`: Grades final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
+- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
+- `token_efficiency`: Compares token usage with and without the skill. <br>
 
+
+
+## Evaluation Results: <br>
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | 8 | 100% (+0%) | 85% (-15%) |
+| Correctness | 8 | 93% (+68%) | 87% (+52%) |
+| Discoverability | 8 | 92% (+58%) | 84% (+30%) |
+| Effectiveness | 8 | 65% (+59%) | 64% (+58%) |
+| Efficiency | 8 | 75% (+40%) | 77% (+27%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

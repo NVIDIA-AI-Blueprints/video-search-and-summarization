@@ -17,38 +17,38 @@ apiVersion: v2
 name: infra
 description: Shared infrastructure components (Phoenix, Redis, Elasticsearch, Kibana, Kafka, Logstash, optional broker readiness Job, etc.) for developer-profile umbrella charts
 type: application
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0"
 dependencies:
   - name: phoenix
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/phoenix"
     condition: phoenix.enabled
   - name: redis
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/redis"
     condition: redis.enabled
   - name: sdrc
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/sdrc"
     condition: sdrc.enabled
   - name: elasticsearch
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/elasticsearch"
     condition: elasticsearch.enabled
   - name: kibana
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/kibana"
     condition: kibana.enabled
   - name: kafka
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/kafka"
     condition: kafka.enabled
   - name: logstash
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/logstash"
     condition: logstash.enabled
   - name: vss-broker-health-check
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/broker-health-check"
     condition: vss-broker-health-check.enabled
