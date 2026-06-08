@@ -143,6 +143,18 @@ def adapter_exists(skill: str) -> bool:
     return (ADAPTERS_DIR / skill / "generate.py").is_file()
 
 
+def list_skill_file_paths(skills_dir: Path | None = None) -> list[str]:
+    """Repo-relative paths to every SKILL.md file under the skills directory."""
+    root = skills_dir or (REPO_ROOT / "skills")
+    if not root.is_dir():
+        return []
+    return [
+        p.relative_to(root.parent).as_posix()
+        for p in sorted(root.rglob("SKILL.md"))
+        if p.is_file()
+    ]
+
+
 def spec_platforms(spec_path: str) -> list[str]:
     """Sorted platform keys from a spec's resources.platforms.
 
@@ -294,7 +306,11 @@ def emit(include: list[dict]) -> None:
 
 
 def main() -> int:
-    changed = list_changed_files()
+    DAILY_RUN = os.environ.get("DAILY_RUN")
+    if DAILY_RUN:
+        changed = list_skill_file_paths()
+    else:
+        changed = list_changed_files()
     print(f"changed files ({len(changed)}):", file=sys.stderr)
     for f in changed:
         print(f"  {f}", file=sys.stderr)

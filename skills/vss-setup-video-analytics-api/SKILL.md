@@ -36,8 +36,9 @@ docker compose -f services/analytics/video-analytics-api/compose.yml up -d vss-v
 curl -sf http://localhost:8081/livez
 ```
 
-Follow `references/deploy-video-analytics-api-service.md` for the full
+Follow [`references/deploy-video-analytics-api-service.md`](references/deploy-video-analytics-api-service.md) for the full
 workflow (config source, data-log bind, infrastructure dependencies, REST endpoints).
+For the field-by-field JSON config reference, see [`references/configuration.md`](references/configuration.md).
 
 ## Limitations
 
@@ -55,7 +56,7 @@ workflow (config source, data-log bind, infrastructure dependencies, REST endpoi
 
 Deploy **just** the `vss-video-analytics-api` container (the Node.js REST API from the upstream `video-analytics-api` repo), not as part of the full warehouse blueprint stack.
 
-The full operational walkthrough — config-source options, data-log volume behavior, infrastructure dependencies, REST API endpoints, deploy + verify, troubleshooting — is [`references/deploy-video-analytics-api-service.md`](references/deploy-video-analytics-api-service.md). This SKILL.md only handles routing and prerequisites.
+The full operational walkthrough — config-source options, data-log volume behavior, infrastructure dependencies, REST API endpoints, deploy + verify, troubleshooting — lives in [`references/deploy-video-analytics-api-service.md`](references/deploy-video-analytics-api-service.md). The field-by-field JSON config reference lives in [`references/configuration.md`](references/configuration.md). This SKILL.md only handles routing and prerequisites.
 
 ## When to use
 
