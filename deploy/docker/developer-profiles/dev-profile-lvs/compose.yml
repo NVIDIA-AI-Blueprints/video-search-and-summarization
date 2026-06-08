@@ -18,9 +18,8 @@ services:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-lvs
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/Dockerfiles/kibana-dashboard.Dockerfile
-    network_mode: "host"
+    networks: [app-network]
     profiles: ["bp_developer_lvs_2d"]
-    container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     restart: on-failure
 
@@ -33,12 +32,13 @@ services:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
-    network_mode: "host"
+    networks: [app-network]
+    ports:
+      - "${NVSTREAMER_HTTP_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}"
     deploy:
       restart_policy:
         condition: on-failure
         max_attempts: 2
-    container_name: vss-vios-nvstreamer-lvs
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
@@ -48,3 +48,7 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+
+networks:
+  app-network:
+    driver: bridge

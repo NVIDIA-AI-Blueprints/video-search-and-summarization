@@ -19,7 +19,6 @@ services:
     command: python3 -m vllm.entrypoints.openai.api_server --model
       Qwen/Qwen3-VL-8B-Instruct --trust-remote-code --tensor-parallel-size
       1 --gpu-memory-utilization 0.85 --port 8000
-    container_name: qwen3-vl-8b-instruct
     profiles:
     - vlm_local_qwen3-vl-8b-instruct
     runtime: nvidia
@@ -55,7 +54,6 @@ services:
     command: python3 -m vllm.entrypoints.openai.api_server --model
       Qwen/Qwen3-VL-8B-Instruct --trust-remote-code --tensor-parallel-size
       1 --gpu-memory-utilization 0.4 --port 8000 --max-model-len 32768
-    container_name: qwen3-vl-8b-instruct
     profiles:
     - vlm_local_shared_qwen3-vl-8b-instruct
     runtime: nvidia

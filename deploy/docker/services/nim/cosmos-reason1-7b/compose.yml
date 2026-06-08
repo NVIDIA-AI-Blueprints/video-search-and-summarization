@@ -16,7 +16,6 @@
 services:
   cosmos-reason1-7b:
     image: nvcr.io/nim/nvidia/cosmos-reason1-7b:1.4.1
-    container_name: cosmos-reason1-7b
     profiles:
     - vlm_local_cosmos-reason1-7b
     runtime: nvidia
@@ -58,7 +57,6 @@ services:
 
   cosmos-reason1-7b-shared-gpu:
     image: nvcr.io/nim/nvidia/cosmos-reason1-7b:1.4.1
-    container_name: cosmos-reason1-7b
     profiles:
     - vlm_local_shared_cosmos-reason1-7b
     runtime: nvidia
