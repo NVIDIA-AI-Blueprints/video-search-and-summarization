@@ -1,0 +1,236 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Verifies detached OpenSSF Model Signing / OMS signatures for agent skills.
+#
+# This workflow follows the same mirror-branch trigger shape as the other
+# skill gates: `/ok to test` causes copy-pr-bot to update pull-request/<N>,
+# and that push runs this check. Branch protection/rulesets can make
+# `Skills Signatures / signature-check` a required status check.
+
+name: Skills Signatures
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+  workflow_dispatch:
+    inputs:
+      skills:
+        # `type: string` rather than `type: choice` because the skills/
+        # tree has more than 10 entries.
+        description: "Which skill signature to verify. `*` sweeps all. Otherwise type a bare skill-dir name."
+        required: false
+        default: "*"
+        type: string
+      blocking:
+        description: "Fail the workflow on invalid signatures. Manual runs can turn this off for advisory sweeps."
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: >-
+    skills-signatures-${{ github.event_name == 'workflow_dispatch'
+      && format('manual-{0}', github.run_id) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  signature-check:
+    name: signature-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.6.2"
+
+      - name: Resolve PR number + base
+        id: pr
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PR="${REF_NAME##pull-request/}"
+          BASE="$(gh pr view "$PR" --json baseRefName --jq .baseRefName)"
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR, base=$BASE"
+
+      - name: Resolve target skills
+        id: targets
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_SKILLS: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          PR_BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          set -euo pipefail
+
+          targets_file="${RUNNER_TEMP}/signature-targets.txt"
+          : > "$targets_file"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -z "$MANUAL_SKILLS" ] || [ "$MANUAL_SKILLS" = "*" ]; then
+              find skills -mindepth 1 -maxdepth 1 -type d -print \
+                | sed 's#^skills/##' \
+                | sort > "$targets_file"
+            else
+              if ! [[ "$MANUAL_SKILLS" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
+                echo "::error::skills='$MANUAL_SKILLS' is not a valid skill-dir name. Use a bare name like 'vss-deploy-profile' or '*'."
+                exit 1
+              fi
+              if [ ! -d "skills/$MANUAL_SKILLS" ]; then
+                echo "::error::skills/$MANUAL_SKILLS does not exist on this ref."
+                exit 1
+              fi
+              printf '%s\n' "$MANUAL_SKILLS" > "$targets_file"
+            fi
+          else
+            git fetch --no-tags --quiet origin "${PR_BASE}:refs/remotes/origin/${PR_BASE}"
+            git diff --name-only "origin/${PR_BASE}...HEAD" \
+              | awk -F/ '$1 == "skills" && $2 != "" {print $2}' \
+              | sort -u > "$targets_file"
+          fi
+
+          count="$(grep -cve '^[[:space:]]*$' "$targets_file" || true)"
+          {
+            echo "targets_file=$targets_file"
+            echo "count=$count"
+            if [ "$count" -gt 0 ]; then
+              echo "skills<<EOF"
+              cat "$targets_file"
+              echo "EOF"
+            else
+              echo "skills="
+            fi
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$count" -eq 0 ]; then
+            echo "No changed skill directories need signature verification."
+          else
+            echo "Signature targets:"
+            sed 's/^/- /' "$targets_file"
+          fi
+
+      - name: Resolve blocking mode
+        id: blocking
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_BLOCKING: ${{ inputs.blocking }}
+          # PR mirror runs are blocking by default. Set repository variable
+          # SKILLS_SIGNATURE_CHECK_BLOCKING=false to make the status advisory
+          # while keeping the same `/ok to test` trigger.
+          PR_BLOCKING: ${{ vars.SKILLS_SIGNATURE_CHECK_BLOCKING != 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            blocking="$MANUAL_BLOCKING"
+          else
+            blocking="$PR_BLOCKING"
+          fi
+          echo "value=$blocking" >> "$GITHUB_OUTPUT"
+          echo "Signature failures blocking: $blocking"
+
+      - name: Verify skill signatures
+        id: verify
+        if: steps.targets.outputs.count != '0'
+        env:
+          TARGETS_FILE: ${{ steps.targets.outputs.targets_file }}
+          BLOCKING: ${{ steps.blocking.outputs.value }}
+          REPORT_MD: ${{ runner.temp }}/signature-results.md
+          LOG_DIR: ${{ runner.temp }}/signature-logs
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$LOG_DIR"
+          fail_count=0
+          pass_count=0
+
+          {
+            echo "# Agent skill signature check"
+            echo
+            echo "Blocking mode: \`$BLOCKING\`"
+            echo
+            echo "| Skill | Result | Detail |"
+            echo "|---|---|---|"
+          } > "$REPORT_MD"
+
+          while IFS= read -r skill; do
+            [ -n "$skill" ] || continue
+            skill_dir="skills/$skill"
+            signature="$skill_dir/skill.oms.sig"
+            log_file="$LOG_DIR/${skill}.log"
+
+            if [ ! -f "$signature" ]; then
+              echo "::error file=$signature::Missing skill.oms.sig"
+              printf '| `%s` | FAIL | Missing `skill.oms.sig` |\n' "$skill" >> "$REPORT_MD"
+              fail_count=$((fail_count + 1))
+              continue
+            fi
+
+            if .github/scripts/sign-agent-skill.sh verify "$skill_dir" > "$log_file" 2>&1; then
+              printf '| `%s` | PASS | Signature verified |\n' "$skill" >> "$REPORT_MD"
+              pass_count=$((pass_count + 1))
+            else
+              detail="$(grep -E 'Verification failed|Hash mismatch|Missing|error:' "$log_file" | tail -n 1 || true)"
+              if [ -z "$detail" ]; then
+                detail="Verification failed; see artifact log"
+              fi
+              detail="${detail//$'\r'/ }"
+              detail="${detail//$'\n'/ }"
+              detail="${detail//|/\\|}"
+              echo "::error file=$signature::Signature verification failed for $skill"
+              printf '| `%s` | FAIL | %s |\n' "$skill" "$detail" >> "$REPORT_MD"
+              fail_count=$((fail_count + 1))
+            fi
+          done < "$TARGETS_FILE"
+
+          {
+            echo
+            echo "Summary: ${pass_count} passed, ${fail_count} failed."
+          } >> "$REPORT_MD"
+
+          cat "$REPORT_MD" >> "$GITHUB_STEP_SUMMARY"
+          echo "pass_count=$pass_count" >> "$GITHUB_OUTPUT"
+          echo "fail_count=$fail_count" >> "$GITHUB_OUTPUT"
+
+          if [ "$fail_count" -gt 0 ] && [ "$BLOCKING" = "true" ]; then
+            exit 1
+          fi
+
+      - name: No signature targets
+        if: steps.targets.outputs.count == '0'
+        run: |
+          {
+            echo "# Agent skill signature check"
+            echo
+            echo "No changed skill directories need signature verification."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload signature report
+        if: always() && steps.targets.outputs.count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: skill-signature-results
+          path: |
+            ${{ runner.temp }}/signature-results.md
+            ${{ runner.temp }}/signature-logs/*.log
+          if-no-files-found: ignore
+          retention-days: 14
