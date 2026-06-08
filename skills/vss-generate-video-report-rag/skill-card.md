@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers who need to generate video summary reports enhanced with Enterprise RAG document grounding for video search and summarization applications. <br>
+Developers and engineers who need to generate video summary reports enhanced with Enterprise RAG document grounding using the NVIDIA VSS blueprint's LVS profile. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,24 +19,24 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
+**Output Type(s):** [API Calls, Shell commands, Configuration instructions] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- claude-code <br>
+- codex <br>
 
 
 
 ## Evaluation Tasks: <br>
-2 evaluation tasks (positive skill-activation cases, 2 attempts per task) via NVSkills-Eval external profile in astra-sandbox environment. <br>
+Evaluated against 2 evaluation tasks in the astra-sandbox environment using the external NVSkills-Eval profile with 2 attempts per task and a 50% pass threshold. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -60,11 +60,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 4 | 100% (+0%) | 75% (-25%) |
-| Correctness | 4 | 97% (+66%) | 80% (+43%) |
-| Discoverability | 4 | 93% (+49%) | 78% (+24%) |
-| Effectiveness | 4 | 63% (+53%) | 58% (+47%) |
-| Efficiency | 4 | 79% (+41%) | 66% (+22%) |
+| Security | 4 | 100% (+0%) | 100% (+0%) |
+| Correctness | 4 | 69% (-22%) | 73% (+32%) |
+| Discoverability | 4 | 30% (-43%) | 30% (+1%) |
+| Effectiveness | 4 | 65% (-9%) | 75% (+40%) |
+| Efficiency | 4 | 37% (-18%) | 33% (-2%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

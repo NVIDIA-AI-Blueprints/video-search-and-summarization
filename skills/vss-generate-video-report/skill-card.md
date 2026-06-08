@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. Not for real-time alerts or ad-hoc Q&A. <br>
+Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers producing structured video analysis reports from NVIDIA VSS deployments, either by routing a recorded clip through a Vision Language Model (Mode A) or by summarizing incident-range analytics (Mode B). <br>
+Developers and engineers use this skill to generate structured video analysis reports from recorded video clips (Mode A via VLM) or incident time ranges (Mode B via video-analytics), as part of the NVIDIA VSS Blueprint. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,14 +19,14 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [Video Search and Summarization GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [NVIDIA NIM Vision Language Models Documentation](https://docs.nvidia.com/nim/vision-language-models/1.6.0/introduction.html) <br>
+- [NVIDIA VSS Blueprint Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA Vision Language Models NIM Documentation](https://docs.nvidia.com/nim/vision-language-models/1.6.0/introduction.html) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Analysis, Markdown reports] <br>
-**Output Format:** [Markdown] <br>
+**Output Type(s):** [Analysis, Shell commands] <br>
+**Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
@@ -37,7 +37,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 3 evaluation tasks (all positive skill-activation cases) with 2 attempts per task using NVSkills-Eval external profile in astra-sandbox environment. <br>
+Evaluated against 3 evaluation tasks (all positive skill-activation cases) with 2 attempts per task in the `astra-sandbox` environment using the NVSkills-Eval `external` profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -61,11 +61,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 6 | 92% (-8%) | 75% (-25%) |
-| Correctness | 6 | 72% (+40%) | 65% (+31%) |
-| Discoverability | 6 | 100% (+58%) | 76% (+22%) |
-| Effectiveness | 6 | 31% (+20%) | 30% (+19%) |
-| Efficiency | 6 | 88% (+51%) | 65% (+16%) |
+| Security | 6 | 100% (+0%) | 100% (+17%) |
+| Correctness | 6 | 61% (-11%) | 52% (+15%) |
+| Discoverability | 6 | 20% (-8%) | 28% (+9%) |
+| Effectiveness | 6 | 69% (-13%) | 62% (+26%) |
+| Efficiency | 6 | 34% (+10%) | 44% (+12%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

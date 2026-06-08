@@ -54,17 +54,17 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 6 | 92% (-8%) | 75% (-25%) |
-| Correctness | 6 | 72% (+40%) | 65% (+31%) |
-| Discoverability | 6 | 100% (+58%) | 76% (+22%) |
-| Effectiveness | 6 | 31% (+20%) | 30% (+19%) |
-| Efficiency | 6 | 88% (+51%) | 65% (+16%) |
+| Security | 6 | 100% (+0%) | 100% (+17%) |
+| Correctness | 6 | 61% (-11%) | 52% (+15%) |
+| Discoverability | 6 | 20% (-8%) | 28% (+9%) |
+| Effectiveness | 6 | 69% (-13%) | 62% (+26%) |
+| Efficiency | 6 | 34% (+10%) | 44% (+12%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 10 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 9 total findings.
 
 Top findings:
 
@@ -72,7 +72,7 @@ Top findings:
 - MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Instructions' (`skills/vss-generate-video-report/SKILL.md`)
 - MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-generate-video-report/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-report/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SDI-2): The skill executes 'docker exec vss-agent env' to read environment variables from a running container. While this is fun (`SKILL.md:93`)
+- MEDIUM SECURITY/Unknown (SDI-2): The skill uses `docker exec vss-agent env` to read environment variables from a running container. While the purpose is  (`SKILL.md:105`)
 
 ## Tier 2: Deduplication Summary
 
@@ -81,8 +81,8 @@ Tier 2 validation passed with observations. NVSkills-Eval ran 2 checks and found
 Top findings:
 
 - LOW DUPLICATE/duplicate: Duplicate content found within SKILL.md:
-  "# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`)." in SKILL.md (lines 115-115)
-  vs "# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning." in SKILL.md (lines 116-116) (`SKILL.md:115`)
+  "# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`)." in SKILL.md (lines 127-127)
+  vs "# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning." in SKILL.md (lines 128-128) (`SKILL.md:127`)
 
 ## Publication Recommendation
 
