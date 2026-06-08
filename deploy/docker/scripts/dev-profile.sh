@@ -348,6 +348,29 @@ function set_vss_linux_kernel_settings() {
   $_sudo sysctl --system
 }
 
+function run_required_step() {
+  local _message="${1}"
+  local _exit_code
+  shift
+
+  "$@"
+  _exit_code=$?
+  if [[ ${_exit_code} -ne 0 ]]; then
+    echo "[ERROR] ${_message} (exit ${_exit_code})"
+    exit 1
+  fi
+}
+
+function require_downloaded_model_file() {
+  local _file_path="${1}"
+  local _description="${2}"
+
+  if [[ ! -f "${_file_path}" ]]; then
+    echo "[ERROR] Expected ${_description} after model download, but file was not found: ${_file_path}"
+    exit 1
+  fi
+}
+
 function usage() {
   echo "Usage: ${0} (up|down) [options]"
   echo "   or: ${0} (-h|--help)"
@@ -1441,25 +1464,35 @@ function state_up() {
       mkdir -p "${data_directory}/models/gdino"
 
       # Download and install trafficcamnet RT-DETR model
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      run_required_step "Failed to download trafficcamnet RT-DETR model from NGC" \
+        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
         registry \
         model \
         download-version \
         nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
 
-      mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
+      require_downloaded_model_file \
+        "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx" \
+        "trafficcamnet RT-DETR ONNX artifact"
+      run_required_step "Failed to install trafficcamnet RT-DETR model" \
+        mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
         "${data_directory}/models/rtdetr-its/model_epoch_035.fp16.onnx"
 
       rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
 
       # Download and install grounding DINO model
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      run_required_step "Failed to download grounding DINO model from NGC" \
+        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
         registry \
         model \
         download-version \
         nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
 
-      mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
+      require_downloaded_model_file \
+        "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx" \
+        "grounding DINO ONNX artifact"
+      run_required_step "Failed to install grounding DINO model" \
+        mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
         "${data_directory}/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
 
       rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
@@ -1490,14 +1523,19 @@ function state_up() {
     else
       mkdir -p "${data_directory}/models"
 
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
+      run_required_step "Failed to download RT-DETR model from NGC" \
+        env NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
         registry \
         model \
         download-version \
         nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
         --org nvidia
 
-      mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
+      require_downloaded_model_file \
+        "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx" \
+        "RT-DETR warehouse ONNX artifact"
+      run_required_step "Failed to install RT-DETR model" \
+        mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
 
       rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
 
