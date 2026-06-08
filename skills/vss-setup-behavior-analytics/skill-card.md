@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying the standalone behavior-analytics microservice for spatial-AI video analytics pipelines, independent of the full warehouse blueprint stack. <br>
+Developers and engineers deploying the NVIDIA VSS behavior-analytics service as a standalone container with custom entrypoints, configuration, and calibration. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -23,8 +23,8 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Configuration Guide](references/configuration.md) <br>
 - [Dynamic Config](references/dynamic-config.md) <br>
 - [Dynamic Calibration](references/dynamic-calibration.md) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -34,13 +34,13 @@ Mitigation: Review and scan skill before deployment. <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- Claude Code (`claude-code`) <br>
-- Codex (`codex`) <br>
+- `claude-code` <br>
+- `codex` <br>
 
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task (positive skill-activation case) with 2 attempts per task, using the NVSkills-Eval external profile in astra-sandbox environment. Pass threshold: 50%. <br>
+Evaluated against 1 evaluation task (1 positive activation case) with 2 attempts per task using NVSkills-Eval `external` profile in `astra-sandbox` environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -65,10 +65,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 50% (+50%) | 50% (+50%) |
-| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
-| Effectiveness | 2 | 66% (+66%) | 50% (+50%) |
-| Efficiency | 2 | 27% (+0%) | 28% (+0%) |
+| Correctness | 2 | 75% (+75%) | 50% (+50%) |
+| Discoverability | 2 | 50% (+50%) | 0% (+0%) |
+| Effectiveness | 2 | 79% (+79%) | 50% (+50%) |
+| Efficiency | 2 | 61% (+34%) | 28% (+0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

@@ -144,7 +144,6 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Path | Backend | Profile |
 |---|---|---|
 | `/` | `vss-agent-ui` (Next.js) | `bp_wh` (returns 503 in `bp_wh_kafka`/`bp_wh_redis` — no UI backend) |
-| `/vst`, `/vst/...` | `vss-vios-ingress` (VST / VIOS UI) | All |
 | `/storage`, `/storage/...` | `vst-storage` (compat → `/vst/storage/...`) | All |
 | `/kibana`, `/kibana/...` | `kibana` | `bp_wh`, or kafka/redis extended (2D or 3D) |
 | `/video-analytics-api`, `.../...` | `vss-video-analytics-api` | `bp_wh`, or kafka/redis extended |
@@ -169,7 +168,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Phoenix (direct) | `http://<HOST_IP>:6006` | `bp_wh` only (prefer `/phoenix` via HAProxy) |
 | Kibana (direct) | `http://<HOST_IP>:5601` | Prefer `/kibana` via HAProxy |
 | Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
-| VST UI (direct) | `http://<HOST_IP>:30888/vst` | Prefer `/vst` via HAProxy |
+| VST UI | `http://<HOST_IP>:30888/vst/` | All — direct port, not proxied via HAProxy |
 
 `EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, follow the same secure-link pattern as the other VSS profiles (`SKILL.md` Step 1c). The HAProxy `h_main` ACL only routes when the `Host:` header matches `${VSS_PUBLIC_HOST}`, `${EXTERNAL_IP}`, `${HOST_IP}`, `localhost`, or `127.0.0.1` (with or without `:${HAPROXY_PORT}`) — wrong Host headers get a 404 from haproxy.
 
@@ -822,7 +821,22 @@ Run **[Lifecycle: Monitor](#lifecycle-monitor)** using the same `LOG` as Phase 8
 
 ## After deploy
 
-See [Access Points](#access-points) for service URLs.
+The deploy script prints the actual access points once the stack is up. Expected output (substitute your host IP or domain name — on Brev use the secure-link domain, on Ubuntu use the machine IP):
+
+```
+Access Points:
+
+HAProxy:             http://<host_ip/domain_name>:7777
+Kibana:              http://<host_ip/domain_name>:7777/kibana
+VST:                 http://<host_ip/domain_name>:30888/vst/
+Grafana:             http://<host_ip/domain_name>:3000
+NvStreamer:          http://<host_ip/domain_name>:31000
+Video Analytics API: http://<host_ip/domain_name>:7777/video-analytics-api
+```
+
+VST is accessed directly on port `30888` — it does not go through the HAProxy ingress.
+
+See [Access Points](#access-points) for the full HAProxy route table and direct-port diagnostics table.
 
 ---
 
