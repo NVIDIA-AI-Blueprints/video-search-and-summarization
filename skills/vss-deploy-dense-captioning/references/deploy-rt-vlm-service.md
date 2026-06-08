@@ -315,8 +315,11 @@ RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
 NGC_CLI_API_KEY=<ngc-key>
 
 # .env for cosmos-reason1:
+# Confirm the release-supported reason1 tag from VSS release notes or
+# deploy/docker/services/nim/cosmos-reason1-7b/compose.yml before use; do not
+# reuse the cosmos-reason2 hf-1208 tag.
 RTVI_VLM_MODEL_TO_USE=cosmos-reason1
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason1-7b:hf-1208
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason1-7b:<release-supported-tag>
 NGC_CLI_API_KEY=<ngc-key>
 ```
 
@@ -506,14 +509,12 @@ chmod 600 .env
 grep -qxF .env .gitignore 2>/dev/null || printf '.env\n' >> .gitignore
 
 # Step 1b. Select Docker command without interactive sudo.
-# NOTE: run this quick-start snippet with bash, not POSIX sh. The Docker
-# command wrapper below uses bash arrays.
 # Prefer direct Docker access. If the host requires sudo, use `sudo -n` so
 # agent sessions fail fast instead of hanging on a password prompt.
 if docker ps >/dev/null 2>&1; then
-  DOCKER=(docker)
+  docker_cmd() { docker "$@"; }
 elif sudo -n docker ps >/dev/null 2>&1; then
-  DOCKER=(sudo -n docker)
+  docker_cmd() { sudo -n docker "$@"; }
 else
   echo "ERROR: Docker is not accessible as this user and passwordless sudo is unavailable." >&2
   echo "Ask the host owner to add this user to the docker group, enable passwordless sudo for Docker, or run the Docker commands manually." >&2
@@ -533,25 +534,25 @@ if ! sudo -n chown -R 1001:1001 "$CLIP_STORAGE_DIR"; then
 fi
 
 # Step 3. Validate the standalone compose before creating containers.
-"${DOCKER[@]}" compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+docker_cmd compose --env-file .env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm config --quiet
 
 # Step 4. NGC auth. Pipe the key from the user shell; do not rely on sudo
 # preserving environment variables.
 : "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before docker login}"
-printf '%s' "$NGC_CLI_API_KEY" | "${DOCKER[@]}" login nvcr.io -u '$oauthtoken' --password-stdin
+printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login nvcr.io -u '$oauthtoken' --password-stdin
 
 # Step 5. Pull image directly (docker compose pull fails on standalone — see §4)
-"${DOCKER[@]}" pull "nvcr.io/nvidia/vss-core/vss-rt-vlm:${VLM_TAG}"
+docker_cmd pull "nvcr.io/nvidia/vss-core/vss-rt-vlm:${VLM_TAG}"
 
 # Step 6. Bring up — plain `up` (no profile) starts nothing
-"${DOCKER[@]}" compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+docker_cmd compose --env-file .env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm up -d
 
 # Step 7. Wait for healthy — start_period is 1200s (20 MIN) on first boot.
 #         Model weight download + vLLM warmup can take the full window.
 #         Do NOT kill as "stuck" before 20 minutes have elapsed.
-until [ "$("${DOCKER[@]}" compose --env-file .env -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
+until [ "$(docker_cmd compose --env-file .env -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
   | jq -r '[.[].Health] | all(. == "healthy")')" = "true" ]; do
   echo "waiting for rtvi-vlm… (up to 20 minutes on first run)"
   sleep 15
@@ -667,7 +668,7 @@ once the service is up):
 | `service "X" depends on undefined service "Y": invalid compose project` | Recent Docker Compose rejects `depends_on` refs to sibling NIM services not defined in this single-file project — even with `required: false`. | Remove the `depends_on` block from the local compose copy (§12 step 0b). Only needed for standalone deploys without the full met-blueprints project. |
 | `docker compose pull` → `invalid compose project` | Same `depends_on` validation runs before pull | Use `docker pull nvcr.io/nvidia/vss-core/vss-rt-vlm:<tag>` directly (§4) |
 | `docker compose pull --no-deps` → `unknown flag: --no-deps` | Compose 2.38 does not support `--no-deps` on `pull` | Use direct `docker pull` (§4), or strip `depends_on` and validate before `up` (§12 step 0b). |
-| `password is empty` on Docker login | `$NGC_CLI_API_KEY` is not set in the invoking shell, or a previous sudo shell dropped the environment | Export `NGC_CLI_API_KEY` in the user shell and pipe it through the §12 Docker wrapper: `printf '%s' "$NGC_CLI_API_KEY" \| "${DOCKER[@]}" login nvcr.io -u '$oauthtoken' --password-stdin` |
+| `password is empty` on Docker login | `$NGC_CLI_API_KEY` is not set in the invoking shell, or a previous sudo shell dropped the environment | Export `NGC_CLI_API_KEY` in the user shell and pipe it through the §12 Docker wrapper: `printf '%s' "$NGC_CLI_API_KEY" \| docker_cmd login nvcr.io -u '$oauthtoken' --password-stdin` |
 | `unauthorized` on `docker compose pull` | Missing NGC auth or no org access | `docker login nvcr.io` with a key that has `nvidia/vss-core` access |
 | `Exited (1)` "Error: No GPUs were found" | Container can't see GPUs | Install NVIDIA Container Toolkit; `docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` must work |
 | `Exited (137)` OOM | VRAM pressure | Lower `RTVI_VLLM_GPU_MEMORY_UTILIZATION`; drop `RTVI_VLLM_MAX_NUM_SEQS` below 256; bigger GPU via `RT_VLM_DEVICE_ID`; drop `RTVI_VLM_MAX_MODEL_LEN` |
@@ -743,8 +744,8 @@ docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
   defined.
 - **`sudo docker` drops environment variables**: `NGC_CLI_API_KEY` and other
   vars set in the user shell are invisible to `sudo docker`. Prefer the §12
-  `DOCKER=(docker)` / `DOCKER=(sudo -n docker)` wrapper and pipe secrets through
-  stdin (`printf '%s' "$NGC_CLI_API_KEY" | "${DOCKER[@]}" login ...`). Never let
+  `docker_cmd` wrapper and pipe secrets through
+  stdin (`printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login ...`). Never let
   `sudo` prompt interactively in an agent session.
 - **External Kafka required**: `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` — if
   `HOST_IP` isn't set, the container tries `:9092` and fails.
