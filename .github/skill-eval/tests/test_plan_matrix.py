@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -40,6 +41,36 @@ FAKE_SPECS = {
     ],
 }
 SKILLS_WITH_ADAPTERS = {"vss-summarize-video", "vss-search-archive"}
+
+
+class SkillFilePaths(unittest.TestCase):
+    def test_returns_sorted_paths_starting_from_skills_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            skills_dir = Path(td) / "skills"
+            alpha = skills_dir / "alpha" / "SKILL.md"
+            beta = skills_dir / "beta" / "SKILL.md"
+            nested = skills_dir / "gamma" / "nested" / "SKILL.md"
+            noise = skills_dir / "delta" / "README.md"
+
+            for p in (alpha, beta, nested, noise):
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text("test\n")
+
+            self.assertEqual(
+                plan_matrix.list_skill_file_paths(skills_dir),
+                [
+                    "skills/alpha/SKILL.md",
+                    "skills/beta/SKILL.md",
+                    "skills/gamma/nested/SKILL.md",
+                ],
+            )
+
+    def test_returns_empty_list_when_skills_dir_is_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(
+                plan_matrix.list_skill_file_paths(Path(td) / "missing-skills"),
+                [],
+            )
 
 
 class BuildMatrix(unittest.TestCase):
