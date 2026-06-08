@@ -39,6 +39,8 @@ Match the user's request to a profile, then load that profile's reference for si
 
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the Spark Nano 9B standalone local LLM on port `30081`; AGX/IGX Thor uses the Edge 4B standalone vLLM fallback.
 
+**Knowledge retrieval / RAG routing**: see [`references/knowledge-retrieval.md`](references/knowledge-retrieval.md) when enabling document grounding, LVS caption Q&A, or both retrieval paths side-by-side.
+
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
 
 
