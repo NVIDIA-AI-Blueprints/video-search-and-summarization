@@ -245,8 +245,8 @@ for i in $(seq 1 60); do
   [ "$i" = 60 ] && { docker logs --tail 80 "$KAFKA_CONTAINER"; exit 1; }
 done
 
-Override `CAPTION_TOPIC`, `INCIDENT_TOPIC`, and `ERROR_TOPIC` before creating
-topics if your copied compose uses non-default names such as `vision-llm-*`.
+# Override CAPTION_TOPIC, INCIDENT_TOPIC, and ERROR_TOPIC before creating
+# topics if your copied compose uses non-default names such as vision-llm-*.
 
 for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
   kafka_cli kafka-topics \
