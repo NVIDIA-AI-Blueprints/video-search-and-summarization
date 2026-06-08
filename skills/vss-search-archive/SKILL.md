@@ -93,20 +93,34 @@ Confirm the source exists in VIOS first (Mandatory workflow Step 2). If it is mi
 ### File upload — universal three-step flow
 
 ```bash
-# 1. Ask the agent for the chunked-upload URL
-URL=$(curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos" \
-  -H "Content-Type: application/json" \
-  -d '{"filename": "<filename.mp4>"}' | jq -r .url)
+FILENAME="<filename.mp4>"
+FILE_PATH="/path/to/${FILENAME}"
 
-# 2. Chunked POST the file to that VST URL (the UI streams chunks; from a shell,
-#    a single multipart POST is fine). The final-chunk response carries sensorId.
-SENSOR=$(curl -s -X POST "$URL" \
-  -F "file=@/path/to/<filename.mp4>;type=video/mp4" | jq -r .sensorId)
+# 1. Ask the agent for the chunked-upload URL
+UPLOAD_URL=$(curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos" \
+  -H "Content-Type: application/json" \
+  -d "{\"filename\":\"${FILENAME}\"}" | jq -r .url)
+
+# 2. Chunked POST the file to that VST URL (nvstreamer protocol).
+#    The final-chunk response carries sensorId.
+IDENTIFIER=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+UPLOAD_RESPONSE=$(curl -s -X POST "${UPLOAD_URL}" \
+  -H "nvstreamer-chunk-number: 1" \
+  -H "nvstreamer-total-chunks: 1" \
+  -H "nvstreamer-is-last-chunk: true" \
+  -H "nvstreamer-identifier: ${IDENTIFIER}" \
+  -H "nvstreamer-file-name: ${FILENAME}" \
+  -F "mediaFile=@${FILE_PATH};filename=${FILENAME}" \
+  -F "filename=${FILENAME}" \
+  -F 'metadata={"timestamp":"2025-01-01T00:00:00"}')
 
 # 3. Tell the agent the upload finished — this fans out to RTVI-CV + RTVI-embed
-curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos/${SENSOR}/complete" \
-  -H "Content-Type: application/json" \
-  -d '{"filename": "<filename.mp4>"}' | jq .
+SENSOR=$(printf '%s' "${UPLOAD_RESPONSE}" | jq -r .sensorId)
+printf '%s' "${UPLOAD_RESPONSE}" \
+  | jq --arg filename "${FILENAME}" '. + {filename: $filename}' \
+  | curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos/${SENSOR}/complete" \
+      -H "Content-Type: application/json" \
+      -d @- | jq .
 ```
 
 Wait for the `/complete` response (it returns `chunks_processed > 0` once embeddings land). Only then is the video searchable.
