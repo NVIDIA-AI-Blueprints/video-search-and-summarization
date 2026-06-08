@@ -191,7 +191,7 @@ API failures return JSON with `code` and `message` fields:
 
 ```json
 {
-  "code": "BadParameters",
+  "code": "BadParameter",
   "message": "chunk_duration must be greater than 0"
 }
 ```
@@ -200,11 +200,12 @@ Pydantic / OpenAPI validation failures use HTTP `422` with `code: "InvalidParame
 
 | Code | Meaning | Common Cause |
 |------|---------|--------------|
-| 400 | Bad Request | Missing `text_input`; unknown `file_id` / `stream_id` / `model`; unsupported `url` scheme; live stream called without `stream: true`; `chunk_duration: 0` on a live-stream embed request; `chunk_overlap_duration >= chunk_duration` |
+| 400 | Bad Request | Missing `text_input`; unknown `file_id` / `stream_id` / `model`; live stream called without `stream: true`; `chunk_duration: 0` on a live-stream embed request; `chunk_overlap_duration >= chunk_duration` |
 | 401 | Unauthorized | Missing or invalid `Authorization: Bearer <token>` when the deployment enforces auth |
+| 403 | Forbidden | `file://` URLs disabled (`FILE_URL_ALLOWED_DIRS` unset) or resolved path outside the allow-list (`code: "Forbidden"`) |
 | 409 | Conflict | `DELETE /v1/files/{file_id}` while the file is in use (`ResourceInUse`); another client already connected to the same live stream (`Conflict`) |
 | 413 | Payload Too Large | Uploaded file or decoded `data:` URI exceeds server size limits |
-| 422 | Unprocessable Entity | Schema validation failure — malformed UUID, wrong multipart field types, invalid enum values; unsupported `file://` path outside `FILE_URL_ALLOWED_DIRS` |
+| 422 | Unprocessable Entity | Schema validation failure — malformed UUID, wrong multipart field types, invalid enum values; invalid URL format for supported schemes |
 | 429 | Rate Limited | Request rate exceeded — retry with exponential backoff |
 | 500 | Internal Server Error | Unexpected inference or I/O failure — inspect `docker compose -f rtvi-embed-docker-compose.yml logs -f rtvi-embed` |
 | 503 | Service Unavailable | `/v1/ready` still warming up (model download / Triton repo build); embedding endpoint busy with another file or text query; max live streams reached; CUDA OOM during inference |
