@@ -236,16 +236,30 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 
 ## Service Access Points
 
-Expected access points after a successful deploy (substitute your host IP or domain name — on Brev use the secure-link domain, on Ubuntu use the machine IP):
+Expected access points after a successful deploy.
+
+**Standard (bare-metal / VM with reachable IP):**
 
 ```
-HAProxy:             http://<host_ip/domain_name>:7777
-Kibana:              http://<host_ip/domain_name>:7777/kibana
-VST:                 http://<host_ip/domain_name>:30888/vst/
-Grafana:             http://<host_ip/domain_name>:3000
-NvStreamer:          http://<host_ip/domain_name>:31000
-Video Analytics API: http://<host_ip/domain_name>:7777/video-analytics-api
+HAProxy:             http://<host_ip>:7777
+Kibana:              http://<host_ip>:7777/kibana
+VST:                 http://<host_ip>:30888/vst/
+Grafana:             http://<host_ip>:3000
+NvStreamer:          http://<host_ip>:31000
+Video Analytics API: http://<host_ip>:7777/video-analytics-api
 ```
+
+**Brev (secure-link domain):**
+
+```
+HAProxy:             https://7777-<BREV_ENV_ID>.brevlab.com
+Kibana:              https://7777-<BREV_ENV_ID>.brevlab.com/kibana
+VST:                 https://30888-<BREV_ENV_ID>.brevlab.com/vst/
+NvStreamer:          https://31000-<BREV_ENV_ID>.brevlab.com
+Video Analytics API: https://7777-<BREV_ENV_ID>.brevlab.com/video-analytics-api
+```
+
+On Brev, each direct port (VST `30888`, NvStreamer `31000`) gets its own secure-link hostname (`<port>-<BREV_ENV_ID>.brevlab.com`). HAProxy-routed paths all go through `7777-<BREV_ENV_ID>.brevlab.com`. This note should be printed alongside the Brev access points after deploy so the user knows which hostname maps to which service. If URLs still show the old `http://...:7777` form, the `VSS_PUBLIC_*` overrides were not applied — see [`warehouse.md` § Brev Secure Link Overrides](warehouse.md#brev-secure-link-overrides).
 
 VST is accessed directly on port `30888` — it does not go through the HAProxy ingress.
 
@@ -573,6 +587,9 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
 | `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify `.env` values; redeploy |
 | `vss-haproxy-ingress` up but UI 502 / report links broken | `EXTERNAL_IP` / `HAPROXY_PORT` not browser-reachable | Set `EXTERNAL_IP` to a real reachable hostname (see `warehouse.md` Phase 5); redeploy |
+| Brev: UI loads but API calls fail / mixed-content errors in browser console | `VSS_PUBLIC_*` overrides not applied — browser-facing URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com` | Apply [Brev secure link overrides](warehouse.md#brev-secure-link-overrides): set `VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss`, `VSS_PUBLIC_HOST=7777-<BREV_ENV_ID>.brevlab.com`, `VSS_PUBLIC_PORT=443`; redeploy |
+| Brev: HAProxy returns 404 on all paths | `Host:` header in the request doesn't match HAProxy `h_main` ACL | Verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`); redeploy |
+| Brev: WebSocket chat connection refused / falls back to HTTP | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not `443` | Fix the `.env` overrides and redeploy |
 | `error from registry: Incorrect Repository Format` during `docker compose up` | Docker 29.x multi-arch pull regression | Pin to Docker 28.3.3 and Docker Compose v2.39.1+ (warehouse.md §2.2). |
 
 Present the summary in this format:

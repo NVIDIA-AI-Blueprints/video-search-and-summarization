@@ -170,7 +170,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
 | VST UI | `http://<HOST_IP>:30888/vst/` | All — direct port, not proxied via HAProxy |
 
-`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, follow the same secure-link pattern as the other VSS profiles (`SKILL.md` Step 1c). The HAProxy `h_main` ACL only routes when the `Host:` header matches `${VSS_PUBLIC_HOST}`, `${EXTERNAL_IP}`, `${HOST_IP}`, `localhost`, or `127.0.0.1` (with or without `:${HAPROXY_PORT}`) — wrong Host headers get a 404 from haproxy.
+`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. The HAProxy `h_main` ACL only routes when the `Host:` header matches `${VSS_PUBLIC_HOST}`, `${EXTERNAL_IP}`, `${HOST_IP}`, `localhost`, or `127.0.0.1` (with or without `:${HAPROXY_PORT}`) — wrong Host headers get a 404 from haproxy.
 
 ## Compose File Structure
 
@@ -767,6 +767,83 @@ NVIDIA_API_KEY=''                              # required for build.nvidia.com r
 OPENAI_API_KEY=''                              # required for OpenAI remote endpoints
 ```
 
+#### Brev Secure Link Overrides
+
+Brev secure links use a hostname of the form `<port>-<env>.brevlab.com` (e.g. `7777-abc123.brevlab.com`) — the HAProxy port is prefixed directly to the Brev environment ID. The Brev reverse proxy terminates TLS and forwards to the container's HAProxy port, so browser-facing URLs must use `https`/`wss` on port `443` (the standard HTTPS port, which can be omitted from URLs).
+
+After editing the main `.env` variables above, apply these overrides in the **same** `.env` file when deploying on Brev:
+
+```ini
+# --- Brev secure link overrides ---
+# Replace <BREV_ENV_ID> with your Brev environment ID (e.g. vbi9qjb1x).
+# Find it via: echo "$BREV_ENV_ID" or from the Brev dashboard URL.
+HAPROXY_PORT=7777
+VSS_PUBLIC_HTTP_PROTOCOL=https
+VSS_PUBLIC_WS_PROTOCOL=wss
+VSS_PUBLIC_HOST=7777-<BREV_ENV_ID>.brevlab.com
+VSS_PUBLIC_PORT=443
+```
+
+##### Browser-facing URLs (automatically covered by VSS_PUBLIC_* overrides)
+
+These compose template variables all use `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}` (or the `wss` variant) and resolve correctly once the overrides above are applied:
+
+| Compose variable | Resolves to (Brev) | Compose file |
+|---|---|---|
+| `VSS_AGENT_EXTERNAL_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com` | `services/agent/compose.yml` |
+| `VSS_AGENT_REPORTS_BASE_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/static/` | `services/agent/compose.yml` |
+| `VST_EXTERNAL_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com` | `services/agent/compose.yml` |
+| `NEXT_PUBLIC_AGENT_API_URL_BASE` | `https://7777-<BREV_ENV_ID>.brevlab.com/api/v1` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_SIDEBAR_CHAT_AGENT_API_URL_BASE` | `https://7777-<BREV_ENV_ID>.brevlab.com/api/v1` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_VST_API_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/vst/api` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_MDX_WEB_API_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/video-analytics-api` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_ALERTS_API_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/alert-bridge/api/v1` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL` | `wss://7777-<BREV_ENV_ID>.brevlab.com/websocket` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_SIDEBAR_CHAT_WEBSOCKET_CHAT_COMPLETION_URL` | `wss://7777-<BREV_ENV_ID>.brevlab.com/websocket` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/kibana` | `services/ui/compose.yml` |
+
+##### Internal service-to-service URLs (no Brev override needed)
+
+These URLs stay on the internal host network — containers talk to each other via `HOST_IP` or `localhost`, never through the Brev reverse proxy:
+
+| Variable | Template | Compose file |
+|---|---|---|
+| `VIDEO_ANALYSIS_MCP_URL` | `http://${VSS_AGENT_HOST}:${VSS_VA_MCP_PORT}` (0.0.0.0:9901) | `services/agent/compose.yml` |
+| `LLM_BASE_URL` | `http://${HOST_IP}:${LLM_PORT}` | `services/agent/compose.yml` |
+| `VLM_BASE_URL` | `http://${HOST_IP}:${VLM_PORT}` | `services/agent/compose.yml` |
+| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | `services/agent/compose.yml` |
+| `ALERT_BRIDGE_URL` | `http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}` | `services/agent/compose.yml` |
+| `PHOENIX_ENDPOINT` | `http://${HOST_IP}:6006` | `services/agent/compose.yml` |
+| `VST_INTERNAL_URL` | `http://${HOST_IP}:30888` | `services/agent/compose.yml` |
+| `EVAL_LLM_JUDGE_BASE_URL` | `http://${HOST_IP}:${LLM_PORT}` | `services/agent/compose.yml` |
+| `VST_INGRESS_ENDPOINT` | `${HOST_IP}:30888/vst` (no scheme) | `services/vios/vst.env` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` | `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
+| Healthcheck endpoints | `http://localhost:8000/...` | all compose files |
+
+`vss-rtvi-vlm` (`services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`) has **no browser-facing URLs** — it consumes RTSP streams and publishes to Kafka/Redis. All its URLs (Kafka bootstrap, OTEL, Redis, healthcheck) are internal.
+
+##### HTTP chat completion URLs (use HOST_IP directly)
+
+Two UI variables bypass the `VSS_PUBLIC_*` template and use `HOST_IP` directly:
+
+| Variable | Template | Compose file |
+|---|---|---|
+| `NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL` | `http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/chat/stream` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_SIDEBAR_CHAT_HTTP_CHAT_COMPLETION_URL` | `http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/chat/stream` | `services/ui/compose.yml` |
+
+In HTTP chat mode, the browser posts to the UI's same-origin `/api/chat` route. The Next.js API handler then uses these `HOST_IP` URLs server-side to reach `vss-agent` on the host network. The `vss-agent-ui` container runs in bridge mode (`ports: 3000:3000`), so `HOST_IP` is the reachable route from UI server to agent. For browser-visible chat traffic, HAProxy routes `/api/chat` to `vss-agent-ui`, and routes `/chat` / `/websocket` to `vss-agent` (see [Access Points](#access-points)).
+
+##### Map URL (disabled by default)
+
+| Variable | Template | Compose file |
+|---|---|---|
+| `NEXT_PUBLIC_MAP_URL` | `${NEXT_PUBLIC_MAP_URL:-http://${EXTERNAL_IP}:3002}` | `services/ui/compose.yml` |
+
+Uses `EXTERNAL_IP:3002` directly (not `VSS_PUBLIC_*`). The map tab is **disabled by default** for warehouse (`NEXT_PUBLIC_ENABLE_MAP_TAB=false`). If enabled on Brev, create a secure link for port `3002` and override explicitly: `NEXT_PUBLIC_MAP_URL=https://3002-<BREV_ENV_ID>.brevlab.com`.
+
+> **Do not** use the old `http://7777-<BREV_ENV_ID>.brevlab.com:7777` form — the Brev reverse proxy does not expose the raw HAProxy port. Using `http` with `:7777` will fail with connection refused or mixed-content errors in the browser.
+
 > **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.2.0"` and uncomment `PERCEPTION_TAG="3.2.0-sbsa"`. Apply the same pattern to `BEV_FUSION_MV3DT_TAG` (mv3dt only), `RTVI_VLM_IMAGE_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG`.
 
 ---
@@ -812,18 +889,34 @@ Run **[Lifecycle: Monitor](#lifecycle-monitor)** using the same `LOG` as Phase 8
 
 ## After deploy
 
-The deploy script prints the actual access points once the stack is up. Expected output (substitute your host IP or domain name — on Brev use the secure-link domain, on Ubuntu use the machine IP):
+The deploy script prints the actual access points once the stack is up.
+
+**Standard (bare-metal / VM with reachable IP):**
 
 ```
 Access Points:
 
-HAProxy:             http://<host_ip/domain_name>:7777
-Kibana:              http://<host_ip/domain_name>:7777/kibana
-VST:                 http://<host_ip/domain_name>:30888/vst/
-Grafana:             http://<host_ip/domain_name>:3000
-NvStreamer:          http://<host_ip/domain_name>:31000
-Video Analytics API: http://<host_ip/domain_name>:7777/video-analytics-api
+HAProxy:             http://<host_ip>:7777
+Kibana:              http://<host_ip>:7777/kibana
+VST:                 http://<host_ip>:30888/vst/
+Grafana:             http://<host_ip>:3000
+NvStreamer:          http://<host_ip>:31000
+Video Analytics API: http://<host_ip>:7777/video-analytics-api
 ```
+
+**Brev (secure-link domain):**
+
+```
+Access Points:
+
+HAProxy:             https://7777-<BREV_ENV_ID>.brevlab.com
+Kibana:              https://7777-<BREV_ENV_ID>.brevlab.com/kibana
+VST:                 https://30888-<BREV_ENV_ID>.brevlab.com/vst/
+NvStreamer:          https://31000-<BREV_ENV_ID>.brevlab.com
+Video Analytics API: https://7777-<BREV_ENV_ID>.brevlab.com/video-analytics-api
+```
+
+On Brev, each direct port (VST `30888`, NvStreamer `31000`) gets its own secure-link hostname (`<port>-<BREV_ENV_ID>.brevlab.com`). HAProxy-routed paths all go through `7777-<BREV_ENV_ID>.brevlab.com`. This note should be printed alongside the Brev access points after deploy so the user knows which hostname maps to which service.
 
 VST is accessed directly on port `30888` — it does not go through the HAProxy ingress.
 
@@ -890,4 +983,7 @@ When adding new cameras to the MV3DT profile, run the MV3DT utility scripts unde
 | `vss-configurator` health check failing | Wait 60s and recheck (60s start period) |
 | Low FPS | GPU oversaturated — reduce `NUM_STREAMS` and redeploy |
 | Dataset/mode mismatch | `nv-warehouse-4cams` → `bp_wh` + `MODE=2d`; `warehouse-4cams-20mx20m-synthetic` → `MODE=3d` or `MODE=mv3dt` |
+| Brev: UI loads but API calls fail / mixed-content errors | `VSS_PUBLIC_*` overrides not applied — URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com`. Apply [Brev secure link overrides](#brev-secure-link-overrides) and redeploy |
+| Brev: HAProxy returns 404 | `Host:` header doesn't match `h_main` ACL — verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`) |
+| Brev: WebSocket connection refused | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not set to `443` |
 | Redeploy / reset without reinstall | [Redeploy](#redeploy) |
