@@ -128,6 +128,6 @@ request as 404 from the browser even though `curl localhost:7777` works).
 |---|---|
 | User says the Brev link won't load at all | Ask how the secure link was exposed. The skill's default assumes the current Brev secure-link convention: `7777-<id>.brevlab.com` (no trailing `0`). An older inherited launchable may still serve `77770-<id>.brevlab.com` (legacy trailing-`0` form), or a manually-created link may use a different port entirely — in that case set `EXTERNAL_IP` to whatever the actual secure-link domain is and redeploy. |
 | UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; the UI should use the proxy only. |
-| `curl https://7777-...brevlab.com` → 502 | nginx container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
+| `curl https://7777-...brevlab.com` → 502 | HAProxy ingress container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
 | `curl https://7777-...brevlab.com` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
 | Agent-generated report URLs don't open | Brev public URL overrides are incomplete or not applied → reports hard-code internal IPs or emit `http://...:7777` links. Apply the full [Setup flow](#setup-flow) overrides (`HAPROXY_PORT`, `EXTERNAL_IP`, `VSS_PUBLIC_HOST`, `VSS_PUBLIC_HTTP_PROTOCOL`, `VSS_PUBLIC_WS_PROTOCOL`, `VSS_PUBLIC_PORT`) in `generated.env` and redeploy. |
