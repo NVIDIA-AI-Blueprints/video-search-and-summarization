@@ -291,6 +291,7 @@ async def run_agent() -> int:
         HookMatcher, ResultMessage, TextBlock, ToolUseBlock,
     )
 
+    daily_run = os.environ.get("DAILY_RUN") == "true"
     pr_head = _require("PR_HEAD_SHA")
     pr_repo = _require("PR_REPO")
     run_id = os.environ.get("GITHUB_RUN_ID", f"local-{int(time.time())}")
@@ -347,6 +348,35 @@ End with `BLOCKED: missing adapter for {eval_skill} auto-committed (<sha>)`
 once pushed, `BLOCKED: fork PR — adapter must be added by the contributor`
 for a fork, `BLOCKED: missing adapter for {eval_skill} (manual sweep)` for a
 manual run, or `BLOCKED: <reason>` if you could not commit.
+"""
+    elif daily_run:
+        user_prompt = f"""
+Develop: evaluate exactly ONE spec on ONE platform —
+`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
+
+Context:
+  repo         = {pr_repo}
+  base branch  = develop
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
+  spec         = {eval_spec_path}
+  platform     = {eval_platform or "(read from spec)"}
+  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
+
+Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
+already selected this (spec, platform). Run steps 2–7 for it only:
+ensure its adapter exists under `.github/skill-eval/adapters/{eval_skill}/`
+(missing/stale → just skip this spec)
+→ generate the dataset → acquire a per-box flock
+on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run harbor synchronously for this platform (§ Harbor invocation; never
+background it) → gather results →
+append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on). Do NOT touch
+any other spec or skill.
+
+End with `DONE: <reward summary>` after posting the comment, or
+`BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
 """
     else:
         target = f"PR #{pr_number}" if pr_number else "Manual sweep"

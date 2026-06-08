@@ -791,6 +791,171 @@ else
 fi
 rm -f "${_out_search}"
 
+# NGC download failures must stop before kernel setup, docker login, or compose.
+run_ngc_download_fail_fast_test() {
+  local name="${1}"
+  local scenario="${2}"
+  local expected_error="${3}"
+  shift 3
+  local args=("$@")
+  local mock_dir
+  mock_dir="$(mktemp -d)"
+  CLEANUP_DIRS+=("${mock_dir}")
+  local ngc_state_file="${mock_dir}/ngc-state"
+
+  cat > "${mock_dir}/ngc" <<'EOF'
+#!/bin/bash
+scenario="${NGC_FAIL_SCENARIO:-}"
+state_file="${NGC_MOCK_STATE_FILE:-}"
+case "${scenario}" in
+  search)
+    echo "mock ngc RT-DETR warehouse failure" >&2
+    exit 42
+    ;;
+  alerts-first)
+    echo "mock ngc trafficcamnet failure" >&2
+    exit 42
+    ;;
+  alerts-second)
+    count=0
+    if [[ -n "${state_file}" && -f "${state_file}" ]]; then
+      count="$(cat "${state_file}")"
+    fi
+    count=$((count + 1))
+    if [[ -n "${state_file}" ]]; then
+      echo "${count}" > "${state_file}"
+    fi
+    if [[ ${count} -eq 1 ]]; then
+      mkdir -p trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
+      printf 'mock trafficcamnet onnx\n' > trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx
+      exit 0
+    fi
+    echo "mock ngc grounding DINO failure" >&2
+    exit 43
+    ;;
+  *)
+    echo "unknown NGC mock scenario: ${scenario}" >&2
+    exit 44
+    ;;
+esac
+EOF
+  cat > "${mock_dir}/docker" <<'EOF'
+#!/bin/bash
+echo "MOCK_DOCKER_REACHED $*" >&2
+exit 0
+EOF
+  cat > "${mock_dir}/sudo" <<'EOF'
+#!/bin/bash
+echo "MOCK_SUDO_REACHED $*" >&2
+exit 0
+EOF
+  cat > "${mock_dir}/sysctl" <<'EOF'
+#!/bin/bash
+echo "MOCK_SYSCTL_REACHED $*" >&2
+exit 0
+EOF
+  cat > "${mock_dir}/bash" <<'EOF'
+#!/bin/bash
+echo "MOCK_BASH_REACHED $*" >&2
+exit 0
+EOF
+  cat > "${mock_dir}/chmod" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+  cat > "${mock_dir}/id" <<'EOF'
+#!/bin/bash
+if [[ "${1:-}" == "-u" ]]; then
+  echo 1000
+else
+  /usr/bin/id "$@"
+fi
+EOF
+  chmod +x "${mock_dir}"/*
+
+  local ngc_profiles=(base lvs search alerts)
+  local ngc_gen_envs=()
+  local ngc_backups=()
+  local ngc_profile ngc_gen_env ngc_backup
+  for ngc_profile in "${ngc_profiles[@]}"; do
+    ngc_gen_env="$(generated_env_path "${ngc_profile}")"
+    ngc_gen_envs+=("${ngc_gen_env}")
+    if [[ -f "${ngc_gen_env}" ]]; then
+      ngc_backup="$(mktemp)"
+      cp "${ngc_gen_env}" "${ngc_backup}"
+      CLEANUP_RESTORES+=("${ngc_backup}|${ngc_gen_env}")
+    else
+      ngc_backup=""
+    fi
+    ngc_backups+=("${ngc_backup}")
+  done
+
+  local out_file err_file exit_code failed
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  cd "${REPO_ROOT}"
+  set +e
+  NGC_FAIL_SCENARIO="${scenario}" NGC_MOCK_STATE_FILE="${ngc_state_file}" PATH="${mock_dir}:${PATH}" timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up "${args[@]}" > "${out_file}" 2> "${err_file}"
+  exit_code=$?
+  set -e
+  failed=0
+
+  if [[ ${exit_code} -eq 124 ]]; then
+    echo "FAIL: ${name} (timed out)"
+    ((failed++)) || true
+  elif [[ ${exit_code} -ne 1 ]]; then
+    echo "FAIL: ${name} (expected exit 1, got ${exit_code})"
+    ((failed++)) || true
+  fi
+  if ! grep -q "${expected_error}" "${out_file}" "${err_file}"; then
+    echo "FAIL: ${name} (missing download failure error: ${expected_error})"
+    ((failed++)) || true
+  fi
+  if grep -q "Logging into nvcr.io" "${out_file}" "${err_file}" || grep -q "Starting docker compose" "${out_file}" "${err_file}" || grep -q "MOCK_DOCKER_REACHED login" "${out_file}" "${err_file}" || grep -q "MOCK_DOCKER_REACHED compose --env-file" "${out_file}" "${err_file}"; then
+    echo "FAIL: ${name} (docker login/compose up path was reached)"
+    ((failed++)) || true
+  fi
+  if grep -q "Applying VSS Linux kernel settings" "${out_file}" "${err_file}" || grep -q "MOCK_SUDO_REACHED bash -c" "${out_file}" "${err_file}" || grep -q "MOCK_SUDO_REACHED sysctl" "${out_file}" "${err_file}" || grep -q "MOCK_BASH_REACHED" "${out_file}" "${err_file}" || grep -q "MOCK_SYSCTL_REACHED" "${out_file}" "${err_file}"; then
+    echo "FAIL: ${name} (kernel settings path was reached)"
+    ((failed++)) || true
+  fi
+
+  local ngc_idx
+  for ngc_idx in "${!ngc_gen_envs[@]}"; do
+    ngc_gen_env="${ngc_gen_envs[${ngc_idx}]}"
+    ngc_backup="${ngc_backups[${ngc_idx}]}"
+    if [[ -n "${ngc_backup}" && -f "${ngc_backup}" ]]; then
+      mv "${ngc_backup}" "${ngc_gen_env}"
+    else
+      rm -f "${ngc_gen_env}"
+    fi
+  done
+  rm -f "${out_file}" "${err_file}"
+
+  if [[ ${failed} -gt 0 ]]; then
+    ((TESTS_FAILED++)) || true
+  else
+    echo "PASS: ${name}"
+    ((TESTS_PASSED++)) || true
+  fi
+}
+
+run_ngc_download_fail_fast_test \
+  "NGC search RT-DETR download failure fails fast" \
+  "search" \
+  "\\[ERROR\\] Failed to download RT-DETR model from NGC (exit 42)" \
+  -p search -i 127.0.0.1 -H OTHER
+run_ngc_download_fail_fast_test \
+  "NGC alerts trafficcamnet download failure fails fast" \
+  "alerts-first" \
+  "\\[ERROR\\] Failed to download trafficcamnet RT-DETR model from NGC (exit 42)" \
+  -p alerts -i 127.0.0.1 -m verification -H OTHER
+run_ngc_download_fail_fast_test \
+  "NGC alerts grounding DINO download failure fails fast" \
+  "alerts-second" \
+  "\\[ERROR\\] Failed to download grounding DINO model from NGC (exit 43)" \
+  -p alerts -i 127.0.0.1 -m verification -H OTHER
+
 # --- generated.env content: dry-run up still writes/updates the file ---
 # Run up with specific options and assert generated.env contains expected vars, then restore.
 run_dry_run_up_and_check_generated_env "generated.env HOST_IP and HARDWARE_PROFILE from options" "base" \
