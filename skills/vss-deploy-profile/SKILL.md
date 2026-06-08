@@ -17,6 +17,12 @@ Helper scripts normalize `docker compose config` output and probe selected
 remote model endpoints before env mutation. All other deployment work goes
 through `compose` / `dev-profile.sh`.
 
+## When Not To Use
+
+- Standalone microservice deployment or debugging — use the matching `vss-deploy-*` skill.
+- Video content workflows after deployment (ask, summarize, search, report, alert queries) — use the matching operational skill.
+- Profile-specific sizing or env recipes without opening the relevant profile reference.
+
 ## Available Scripts
 
 | Script | Purpose | Arguments |
@@ -192,7 +198,7 @@ grep -qE '^BREV_ENV_ID=' /etc/environment && echo "on Brev" || echo "not Brev"
 ```
 
 - **not Brev** → skip the rest of this step and **do not read [`references/brev.md`](references/brev.md)**; keep the normal `${HOST_IP}`-based `EXTERNAL_IP`.
-- **on Brev** → apply the Brev secure-link overrides from [`references/brev.md` § Setup flow](references/brev.md#setup-flow) to `generated.env` (NOT `.env`). The setup flow reads `HAPROXY_PORT` from `generated.env` by default, supports `PROXY_PORT` / `BREV_LINK_PREFIX` overrides, sets `EXTERNAL_IP` / `VSS_PUBLIC_HOST` to the secure-link domain, and sets `VSS_PUBLIC_HTTP_PROTOCOL=https` / `VSS_PUBLIC_WS_PROTOCOL=wss` / `VSS_PUBLIC_PORT=443`; it also verifies `generated.env` exists and appends missing keys when needed. Setting `EXTERNAL_IP` alone leaves `http://…:7777` UI/API/WS links that the browser blocks as mixed content.
+- **on Brev** → apply the Brev secure-link overrides from [`references/brev.md` § Setup flow](references/brev.md#setup-flow) to `generated.env` (NOT `.env`). The setup flow writes `BREV_ENV_ID`, sets `HAPROXY_PORT` from the `${PROXY_PORT:-7777}` template, sets `EXTERNAL_IP` / `VSS_PUBLIC_HOST` to the Brev secure-link template, and sets `VSS_PUBLIC_HTTP_PROTOCOL=https` / `VSS_PUBLIC_WS_PROTOCOL=wss` / `VSS_PUBLIC_PORT=443`; it also verifies `generated.env` exists and appends missing keys when needed. Setting `EXTERNAL_IP` alone leaves `http://…:7777` UI/API/WS links that the browser blocks as mixed content.
 
 ### Step 2 — Build env_overrides
 

@@ -59,20 +59,18 @@ the Brev secure link is served over **HTTPS on 443**, but the profile `.env` shi
 `VSS_PUBLIC_HTTP_PROTOCOL=http`, `VSS_PUBLIC_WS_PROTOCOL=ws`, and
 `VSS_PUBLIC_PORT=${HAPROXY_PORT}` (7777). Leaving those at the defaults makes the
 agent emit `http://…:7777` UI/API/WS URLs from an `https://` page → the browser
-blocks them as mixed content. Set `HAPROXY_PORT`, the public host, protocol,
-and public port together; the helper below updates existing keys or appends
-missing keys.
+blocks them as mixed content. Set `BREV_ENV_ID`, `HAPROXY_PORT`, the public
+host template, protocol, and public port together; the helper below updates
+existing keys or appends missing keys.
 
 ```bash
 REPO=${REPO:-$(git rev-parse --show-toplevel)}
 ENV_GEN="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env"
 test -f "$ENV_GEN" || { echo "generated.env missing; run SKILL.md Step 1c first"; exit 1; }
 
-brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-haproxy_port_from_env=$(awk -F= '$1=="HAPROXY_PORT"{sub(/^[^=]*=/,""); print; exit}' "$ENV_GEN")
-proxy_port="${PROXY_PORT:-${haproxy_port_from_env:-7777}}"
-brev_link_prefix="${BREV_LINK_PREFIX:-$proxy_port}"
-brev_public_host="${brev_link_prefix}-${brev_env_id}.brevlab.com"
+brev_env_id=$(sed -n 's/^BREV_ENV_ID=//p' /etc/environment | tr -d '"' | head -n 1)
+test -n "$brev_env_id" || { echo "BREV_ENV_ID missing from /etc/environment"; exit 1; }
+brev_public_host_template='${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
 
 set_env() {
   key="$1"
@@ -86,9 +84,10 @@ set_env() {
   ' "$ENV_GEN" > "$tmp" && mv "$tmp" "$ENV_GEN"
 }
 
-set_env HAPROXY_PORT "$proxy_port"
-set_env EXTERNAL_IP "$brev_public_host"
-set_env VSS_PUBLIC_HOST "$brev_public_host"
+set_env BREV_ENV_ID "$brev_env_id"
+set_env HAPROXY_PORT '${PROXY_PORT:-7777}'
+set_env EXTERNAL_IP "$brev_public_host_template"
+set_env VSS_PUBLIC_HOST "$brev_public_host_template"
 set_env VSS_PUBLIC_HTTP_PROTOCOL https
 set_env VSS_PUBLIC_WS_PROTOCOL wss
 set_env VSS_PUBLIC_PORT 443
@@ -99,10 +98,7 @@ set_env VSS_PUBLIC_PORT 443
 After `docker compose up -d`:
 
 ```bash
-REPO=${REPO:-$(git rev-parse --show-toplevel)}
-ENV_GEN="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env"
-haproxy_port_from_env=$(awk -F= '$1=="HAPROXY_PORT"{sub(/^[^=]*=/,""); print; exit}' "$ENV_GEN")
-proxy_port="${PROXY_PORT:-${haproxy_port_from_env:-7777}}"
+proxy_port="${PROXY_PORT:-7777}"
 
 # 1. HAProxy ingress is routing (there is no /health handler)
 curl -sfI "http://localhost:${proxy_port}/" >/dev/null && echo "proxy OK"
@@ -111,7 +107,8 @@ curl -sfI "http://localhost:${proxy_port}/" >/dev/null && echo "proxy OK"
 curl -sfI "http://localhost:${proxy_port}/" | head -1
 
 # 3. Print the browser URL the user should open
-brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
+brev_env_id=$(sed -n 's/^BREV_ENV_ID=//p' /etc/environment | tr -d '"' | head -n 1)
+test -n "$brev_env_id" || { echo "BREV_ENV_ID missing from /etc/environment"; exit 1; }
 brev_link_prefix="${BREV_LINK_PREFIX:-$proxy_port}"
 echo "https://${brev_link_prefix}-${brev_env_id}.brevlab.com"
 ```
