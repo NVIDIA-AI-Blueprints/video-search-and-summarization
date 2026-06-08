@@ -54,11 +54,11 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 85% (-15%) |
-| Correctness | 8 | 93% (+68%) | 87% (+52%) |
-| Discoverability | 8 | 92% (+58%) | 84% (+30%) |
-| Effectiveness | 8 | 65% (+59%) | 64% (+58%) |
-| Efficiency | 8 | 75% (+40%) | 77% (+27%) |
+| Security | 8 | 100% (+0%) | 95% (+5%) |
+| Correctness | 8 | 97% (+72%) | 88% (+51%) |
+| Discoverability | 8 | 93% (+63%) | 87% (+34%) |
+| Effectiveness | 8 | 68% (+61%) | 65% (+57%) |
+| Efficiency | 8 | 76% (+45%) | 83% (+34%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
