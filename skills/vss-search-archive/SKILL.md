@@ -116,6 +116,8 @@ UPLOAD_RESPONSE=$(curl -s -X POST "${UPLOAD_URL}" \
 
 # 3. Tell the agent the upload finished — this fans out to RTVI-CV + RTVI-embed
 SENSOR=$(printf '%s' "${UPLOAD_RESPONSE}" | jq -r .sensorId)
+[ -z "${SENSOR}" ] || [ "${SENSOR}" = "null" ] \
+  && { echo "Upload failed: no sensorId in response: ${UPLOAD_RESPONSE}"; exit 1; }
 printf '%s' "${UPLOAD_RESPONSE}" \
   | jq --arg filename "${FILENAME}" '. + {filename: $filename}' \
   | curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos/${SENSOR}/complete" \
