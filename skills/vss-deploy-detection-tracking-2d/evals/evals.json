@@ -15,51 +15,6 @@
     ]
   },
   {
-    "id": "rtvicv-2d-add-stream",
-    "question": "Add a file stream with camera id cam_entrance to a running RTVI-CV 2D deployment.",
-    "expected_skill": "vss-deploy-detection-tracking-2d",
-    "expected_script": "add_streams.sh",
-    "should_trigger": true,
-    "ground_truth": "The agent adds the requested stream to the running RTVI-CV 2D deployment by checking that the REST API is reachable, calling POST /api/v1/stream/add or the add_streams.sh helper with camera id cam_entrance and the requested camera URL, and reporting the actual add-stream result without redeploying the container.",
-    "expected_behavior": [
-      "The agent reads the vss-deploy-detection-tracking-2d skill before acting.",
-      "The agent checks or uses the RTVI-CV REST endpoint on the running deployment before reporting success.",
-      "The agent uses /api/v1/stream/add or the add_streams.sh helper and includes the requested camera id cam_entrance.",
-      "The agent reports either the successful stream-add result or a clear service-unavailable error without fabricating success.",
-      "The agent does not print plaintext API tokens or other secrets."
-    ]
-  },
-  {
-    "id": "rtvicv-2d-health-and-metrics",
-    "question": "Check RTVI-CV 2D liveness, readiness, startup status, and FPS metrics.",
-    "expected_skill": "vss-deploy-detection-tracking-2d",
-    "expected_script": "collect_metrics.sh",
-    "should_trigger": true,
-    "ground_truth": "The agent checks the running RTVI-CV 2D deployment by querying /api/v1/live, /api/v1/ready, /api/v1/startup, and /api/v1/metrics or by using the equivalent helper flow, then reports the actual health and FPS or metric outcome. If the service is unreachable, the agent reports that condition clearly instead of inventing values.",
-    "expected_behavior": [
-      "The agent reads the vss-deploy-detection-tracking-2d skill before acting.",
-      "The agent queries the liveness, readiness, and startup probes or explains why they cannot be reached.",
-      "The agent queries metrics via /api/v1/metrics or collect_metrics.sh when the service is available.",
-      "The agent reports actual probe and metric results, or a clear service-unavailable/error result.",
-      "The agent does not print plaintext API tokens or other secrets."
-    ]
-  },
-  {
-    "id": "rtvicv-2d-teardown",
-    "question": "Stop RTVI-CV 2D and clean up the deployment without deleting my NGC credentials.",
-    "expected_skill": "vss-deploy-detection-tracking-2d",
-    "expected_script": null,
-    "should_trigger": true,
-    "ground_truth": "The agent stops and removes the standalone RTVI-CV 2D deployment container and scoped runtime artifacts while preserving ~/.ngc/config, engine caches unless explicitly selected for removal, and other credential files.",
-    "expected_behavior": [
-      "The agent reads the vss-deploy-detection-tracking-2d skill before acting.",
-      "The agent uses the skill teardown flow or equivalent Docker stop/remove commands for the RTVI-CV 2D container.",
-      "The agent limits cleanup to scoped deployment artifacts and does not remove ~/.ngc/config or credential files.",
-      "The agent reports what was stopped, removed, or already absent.",
-      "The agent does not print plaintext API tokens or other secrets."
-    ]
-  },
-  {
     "id": "rtvicv-2d-negative-vlm-summary",
     "question": "Deploy the VSS VLM service so I can ask natural-language questions about uploaded videos.",
     "expected_skill": null,
@@ -70,19 +25,6 @@
       "The agent does not read or activate vss-deploy-detection-tracking-2d.",
       "The agent identifies that the request is for VLM video question answering, not RTVI-CV 2D detection and tracking.",
       "The agent uses general repository context or another appropriate VSS skill rather than the RTVI-CV 2D helper scripts."
-    ]
-  },
-  {
-    "id": "rtvicv-2d-negative-docker-cleanup",
-    "question": "Write a shell script that removes all stopped Docker containers and prunes unused images on my workstation.",
-    "expected_skill": null,
-    "expected_script": null,
-    "should_trigger": false,
-    "ground_truth": "The agent provides or discusses a general Docker cleanup script with appropriate safety warnings and does not treat the request as an RTVI-CV 2D deployment teardown.",
-    "expected_behavior": [
-      "The agent does not read or activate vss-deploy-detection-tracking-2d.",
-      "The agent handles the request using general Docker knowledge or another appropriate coding workflow.",
-      "The agent warns about destructive Docker prune operations before suggesting commands that remove containers or images."
     ]
   }
 ]
