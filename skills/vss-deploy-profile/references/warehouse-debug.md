@@ -613,7 +613,7 @@ bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/
 ```bash
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
-docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
+printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 nohup docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
   up --detach --pull always --force-recreate --build \

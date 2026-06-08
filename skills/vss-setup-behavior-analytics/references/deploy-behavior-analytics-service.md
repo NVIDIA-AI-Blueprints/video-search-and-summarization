@@ -139,7 +139,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
     --calibration /resources/calibration.json
   ```
 
-The schema for the calibration JSON is vendored from `vss-analytics-api/web-api-core/schemas/ajv/calibration.json` and lives at `behavior-analytics/src/mdx/analytics/core/transform/calibration/schemas/calibration.schema.json`.
+The schema for the calibration JSON is vendored from `video-analytics-api/src/web-api-core/schemas/ajv/calibration.json` and lives at `behavior-analytics/src/mdx/analytics/core/transform/calibration/schemas/calibration.schema.json`.
 
 ---
 
