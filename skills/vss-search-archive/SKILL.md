@@ -118,7 +118,7 @@ Wait for the `/complete` response (it returns `chunks_processed > 0` once embedd
 curl -s -X POST "http://${HOST_IP}:8000/api/v1/rtsp-streams/add" \
   -H "Content-Type: application/json" \
   -d '{
-    "sensor_url": "rtsp://<host>:<port>/<path>",
+    "sensorUrl": "rtsp://<host>:<port>/<path>",
     "name": "<sensor-name>",
     "username": "",
     "password": "",
