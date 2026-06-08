@@ -231,7 +231,7 @@ SCENARIO='warehouse monitoring'
 EVENTS_JSON='["notable activity"]'
 OBJECTS_JSON=''  # '' to omit, else '["forklifts","pallets","workers"]'
 
-curl -s -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
+curl -s --max-time 300 -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
   -H "Content-Type: application/json" \
   -d "$(jq -n --arg url "<clip_url_from_vss_manage_video_io_storage>" \
         --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
@@ -276,7 +276,7 @@ EXAMPLE:
 [0.0s-4.0s] <description of the first event>
 [4.0s-12.0s] <description of the second event>'
 
-curl -s -X POST "$VLM/v1/chat/completions" \
+curl -s --max-time 300 -X POST "$VLM/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d "$(jq -n \
         --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \

@@ -27,7 +27,7 @@ if [ "$video_sum_code" = "200" ]; then
   EVENTS_JSON='["notable activity"]'         # jq-compatible JSON array
   OBJECTS_JSON=''                            # '' to omit, else '["cars","trucks"]'
 
-  curl -s -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
+  curl -s --max-time 300 -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg url "$CLIP" \
           --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
@@ -59,7 +59,7 @@ EXAMPLE:
 [0.0s-4.0s] <description of the first event>
 [4.0s-12.0s] <description of the second event>'
 
-  curl -s -X POST "$VLM/v1/chat/completions" \
+  curl -s --max-time 300 -X POST "$VLM/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg url "$CLIP" --arg text "$PROMPT" \
           --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" '{
