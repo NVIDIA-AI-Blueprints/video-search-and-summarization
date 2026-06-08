@@ -13,10 +13,10 @@ set -u
 # NGC — local NIM image pulls. NGC_CLI_API_KEY (NGC CLI / VSS env) and
 # NGC_API_KEY (NIM / RT-VLM containers) are the SAME personal NGC key under two
 # names; resolve to one. Refuse to proceed if both are set and differ.
-if [ -n "${NGC_CLI_API_KEY:-}" ] && [ -n "${NGC_API_KEY:-}" ] && \
-   [ "$NGC_CLI_API_KEY" != "$NGC_API_KEY" ]; then
+if [[ -n "${NGC_CLI_API_KEY:-}" ]] && [[ -n "${NGC_API_KEY:-}" ]] && \
+   [[ "$NGC_CLI_API_KEY" != "$NGC_API_KEY" ]]; then
   echo "NGC: NGC_CLI_API_KEY and NGC_API_KEY differ — choose one NGC personal API key"
-elif [ -n "${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}" ]; then
+elif [[ -n "${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}" ]]; then
   ngc_resolved="${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}"
   curl -sf -u "\$oauthtoken:${ngc_resolved}" \
     "https://authn.nvidia.com/token?service=ngc" >/dev/null \
@@ -26,7 +26,7 @@ else
 fi
 
 # build.nvidia.com — remote NIM endpoints
-if [ -n "${NVIDIA_API_KEY:-}" ]; then
+if [[ -n "${NVIDIA_API_KEY:-}" ]]; then
   curl -sf -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
     "https://integrate.api.nvidia.com/v1/models" >/dev/null \
     && echo "NVIDIA_API_KEY ok" || echo "NVIDIA_API_KEY invalid (401/403)"
@@ -35,11 +35,11 @@ else
 fi
 
 # HF — edge only (gated Edge 4B)
-if [ -n "${HF_TOKEN:-}" ]; then
+if [[ -n "${HF_TOKEN:-}" ]]; then
   status=$(curl -sf -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${HF_TOKEN}" \
     "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")
-  [ "$status" = "200" ] \
+  [[ "$status" = "200" ]] \
     && echo "HF_TOKEN ok" \
     || echo "HF_TOKEN invalid or no access to gated Edge 4B (HTTP $status)"
 else
