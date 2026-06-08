@@ -1,39 +1,41 @@
 [
   {
-    "id": "video-report-mode-a",
-    "question": "Give me a report for warehouse_safety_0001.",
+    "id": "video-report-routing-mode-a",
+    "question": "Which skill should I use to generate a structured report for a recorded video clip?",
     "expected_skill": "vss-generate-video-report",
-    "ground_truth": "Loads vss-generate-video-report and routes to Mode A because the request names a video/sensor without incident wording or a time range. The agent resolves a VST clip URL through /vss-manage-video-io-storage, calls the selected VLM chat/completions endpoint with a video_url block, copies assets/video-analysis-report.md, replaces every placeholder including BROWSER_CLIP_URL, and never uses POST /generate.",
+    "ground_truth": "Loads vss-generate-video-report and explains that recorded video or sensor report requests use Mode A: /vss-manage-video-io-storage to resolve a clip URL, a VLM chat/completions call for analysis, and assets/video-analysis-report.md for the final report. It should mention that /generate is not used.",
     "expected_behavior": [
-      "Routes to Mode A without asking the user to choose a mode.",
-      "Obtains a clip URL via /vss-manage-video-io-storage and rewrites only the report-facing URL to BROWSER_CLIP_URL.",
-      "Calls the resolved VLM chat/completions endpoint with text plus video_url content.",
-      "Returns a filled # Video Analysis Report from assets/video-analysis-report.md with no raw placeholders or template instructions.",
-      "Does not POST to /generate."
+      "Loads vss-generate-video-report.",
+      "Identifies Mode A for recorded video clip reports.",
+      "Mentions the clip URL plus VLM chat/completions path.",
+      "Mentions assets/video-analysis-report.md as the output template.",
+      "States that POST /generate is not the report path."
     ]
   },
   {
-    "id": "video-report-mode-b-incidents",
-    "question": "Give me a report on incidents on warehouse_safety_0001 between 2025-01-01T00:00:00.000Z and 2025-01-01T01:00:00.000Z.",
+    "id": "video-report-routing-mode-b",
+    "question": "Which skill should handle a report on incidents for a sensor between two timestamps?",
     "expected_skill": "vss-generate-video-report",
-    "ground_truth": "Loads vss-generate-video-report and routes to Mode B because the request asks for incidents in an explicit time range. The agent calls /vss-query-analytics with video_analytics__get_incidents, copies assets/incident-range-report.md, fills the incident summary from analytics data, rewrites any clip URLs before displaying them, and does not call the VLM or POST /generate.",
+    "ground_truth": "Loads vss-generate-video-report and explains that incident-range report requests use Mode B: /vss-query-analytics with video_analytics__get_incidents, then assets/incident-range-report.md for the final report. It should note that Mode B does not call the VLM and does not use POST /generate.",
     "expected_behavior": [
-      "Routes to Mode B and calls video_analytics__get_incidents with the requested source and time range.",
-      "Does not call the VLM chat/completions endpoint for an incident-range report.",
-      "Returns a filled # Incident Range Report or a one-line no-incidents report when analytics returns zero results.",
-      "Omits incident clip lines when no rewritten browser-playable URL is available.",
-      "Does not POST to /generate."
+      "Loads vss-generate-video-report.",
+      "Identifies Mode B for incident range reports.",
+      "Mentions /vss-query-analytics and video_analytics__get_incidents.",
+      "Mentions assets/incident-range-report.md as the output template.",
+      "States that Mode B does not use the VLM chat path or POST /generate."
     ]
   },
   {
-    "id": "video-report-empty-incident-range",
-    "question": "Report on incidents on warehouse_safety_0001 between 1900-01-01T00:00:00.000Z and 1900-01-01T01:00:00.000Z.",
+    "id": "video-report-empty-range-policy",
+    "question": "How should a video incident report behave when analytics returns zero incidents?",
     "expected_skill": "vss-generate-video-report",
-    "ground_truth": "Loads vss-generate-video-report, routes to Mode B, calls video_analytics__get_incidents for the exact historical range, and if no incidents are returned responds with a concise one-line no-incidents report instead of inventing content or falling back to Mode A.",
+    "ground_truth": "Loads vss-generate-video-report and states that a zero-result Mode B analytics query should produce a concise one-line no-incidents report naming the range and scope. It should not invent incidents and should not fall back to Mode A.",
     "expected_behavior": [
-      "Queries analytics with the exact requested source and time range.",
+      "Loads vss-generate-video-report.",
+      "Identifies this as the Mode B empty-result policy.",
       "Returns a one-line no-incidents report when the result set is empty.",
-      "Does not fall back to Mode A or call the VLM for an empty incident range."
+      "States not to invent incidents.",
+      "States not to fall back to Mode A or call the VLM for an empty incident range."
     ]
   }
 ]

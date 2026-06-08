@@ -46,13 +46,12 @@ Set these non-secret values in `generated.env`:
 - `RAG_SERVER_URL` — Enterprise RAG server HTTP endpoint (defaults to `http://rag-server:8081/v1`)
 - `KNOWLEDGE_COLLECTION` — default Enterprise RAG collection for `frag_retrieval`
 
-Provide sensitive values (`NGC_CLI_API_KEY`, `NVIDIA_API_KEY`, `RAG_API_KEY`)
-through a secret manager or ephemeral shell environment immediately before the
-commands that need them. Do not echo token values, write them into checked-in
-files, or leave them in the shell after deployment. Compose forwards
-`RAG_SERVER_URL`, `RAG_API_KEY`, and `KNOWLEDGE_COLLECTION` into `vss-agent`
-when `config_rag.yml` is selected; an exported `RAG_API_KEY` is enough and does
-not need to be written to `generated.env`.
+Keep sensitive values (`NGC_CLI_API_KEY`, `NVIDIA_API_KEY`, `RAG_API_KEY`) out
+of `generated.env` and out of `resolved.yml`. Do not export them before running
+`docker compose config > resolved.yml`, because Compose expands environment
+variables into that file. Use a secret manager, an existing authenticated Docker
+session, or a local override file that references an ephemeral shell variable at
+`up` time.
 
 ### Step 2: Log in to NGC registry
 
@@ -66,6 +65,18 @@ unset NGC_CLI_API_KEY
 
 ### Step 3: Deploy the LVS profile with the RAG config
 
+Do not export `RAG_API_KEY` for the dry-run below. If the RAG server requires an
+API key, create this untracked local override after `resolved.yml` is generated:
+
+```bash
+cat > rag-secret.override.yml <<'EOF'
+services:
+  vss-agent:
+    environment:
+      RAG_API_KEY: ${RAG_API_KEY:?Set RAG_API_KEY only for docker compose up}
+EOF
+```
+
 ```bash
 REPO=${REPO:-$(git rev-parse --show-toplevel)}
 cd "$REPO/deploy/docker"
@@ -75,6 +86,16 @@ uv run "$REPO/skills/vss-deploy-profile/scripts/normalize_resolved_yml.py" \
   "$REPO/deploy/docker/resolved.yml"
 docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
   -f resolved.yml up -d
+```
+
+When `rag-secret.override.yml` is needed, use:
+
+```bash
+read -rsp "RAG API key: " RAG_API_KEY
+RAG_API_KEY="$RAG_API_KEY" docker compose \
+  --env-file developer-profiles/dev-profile-lvs/generated.env \
+  -f resolved.yml -f rag-secret.override.yml up -d
+unset RAG_API_KEY
 ```
 
 ### Step 4: Verify deployment

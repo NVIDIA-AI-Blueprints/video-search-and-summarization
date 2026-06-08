@@ -1,26 +1,28 @@
 [
   {
     "id": "rag-report-routing",
-    "question": "Generate a knowledge-enhanced report for warehouse_safety_0001 using Enterprise RAG context.",
+    "question": "Which skill should I use for a knowledge-enhanced video report that uses Enterprise RAG context?",
     "expected_skill": "vss-generate-video-report-rag",
-    "ground_truth": "Loads vss-generate-video-report-rag for a knowledge-enhanced LVS report. The agent lists available videos when needed, requires a selected video plus scenario/events/optional objects, starts the LVS report through /v1/chat, responds to the actual HITL prompts in config_rag.yml, polls execution status, and presents the completed report with Enterprise RAG context when present.",
+    "ground_truth": "Loads vss-generate-video-report-rag for Enterprise RAG or knowledge-enhanced report requests. It should explain that the skill uses the LVS profile's RAG-enabled config, requires a selected video plus scenario/events/optional objects, and follows the actual HITL sequence from config_rag.yml.",
     "expected_behavior": [
       "Loads vss-generate-video-report-rag for Enterprise RAG or knowledge-enhanced report wording.",
-      "Requires a selected video, scenario, events, and optional objects before starting report generation.",
-      "Responds only to the actual HITL prompt sequence: scenario, events, objects of interest, and confirmation.",
+      "Mentions that a selected video, scenario, events, and optional objects are needed.",
+      "Describes the actual HITL prompt sequence: scenario, events, objects of interest, and confirmation.",
       "Does not invent a separate Enterprise RAG Query HITL prompt.",
-      "Reports failures with execution_id, interaction_id, response_url, or execution status details when available."
+      "Mentions that document grounding comes from the configured frag_retrieval context."
     ]
   },
   {
     "id": "rag-config-deploy",
-    "question": "Enable Enterprise RAG document grounding for LVS reports.",
+    "question": "What deployment configuration enables Enterprise RAG document grounding for LVS reports?",
     "expected_skill": "vss-generate-video-report-rag",
-    "ground_truth": "Loads vss-generate-video-report-rag and uses the shipped LVS config_rag.yml through the normal vss-deploy-profile generated.env workflow. It sets VSS_AGENT_CONFIG_FILE to deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml, includes RAG_SERVER_URL, RAG_API_KEY, and KNOWLEDGE_COLLECTION as needed, and avoids stale app/video_search_frag or deployments/developer-workflow paths.",
+    "ground_truth": "Loads vss-generate-video-report-rag and describes the shipped LVS config_rag.yml path plus the normal generated.env workflow. It should list the non-secret settings RAG_SERVER_URL and KNOWLEDGE_COLLECTION, explain that RAG_API_KEY must be supplied securely without writing it to generated.env or resolved.yml, and avoid stale app/video_search_frag or deployments/developer-workflow paths.",
     "expected_behavior": [
+      "Loads vss-generate-video-report-rag.",
       "Uses deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml.",
       "Uses generated.env rather than mutating the checked-in .env.",
-      "Documents RAG_SERVER_URL, RAG_API_KEY, and KNOWLEDGE_COLLECTION for frag_retrieval.",
+      "Documents RAG_SERVER_URL and KNOWLEDGE_COLLECTION for frag_retrieval.",
+      "Warns that RAG_API_KEY is sensitive and should not be written to generated.env or resolved.yml.",
       "Does not reference app/video_search_frag/docker-compose.yml or ./configs/video_search_frag/config.yml.",
       "Does not print plaintext API tokens."
     ]
