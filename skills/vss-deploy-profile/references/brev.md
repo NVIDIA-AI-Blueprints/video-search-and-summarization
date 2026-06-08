@@ -59,8 +59,9 @@ the Brev secure link is served over **HTTPS on 443**, but the profile `.env` shi
 `VSS_PUBLIC_HTTP_PROTOCOL=http`, `VSS_PUBLIC_WS_PROTOCOL=ws`, and
 `VSS_PUBLIC_PORT=${HAPROXY_PORT}` (7777). Leaving those at the defaults makes the
 agent emit `http://…:7777` UI/API/WS URLs from an `https://` page → the browser
-blocks them as mixed content. Set the host, protocol, and port together; the
-helper below updates existing keys or appends missing keys.
+blocks them as mixed content. Set `HAPROXY_PORT`, the public host, protocol,
+and public port together; the helper below updates existing keys or appends
+missing keys.
 
 ```bash
 REPO=${REPO:-$(git rev-parse --show-toplevel)}
@@ -68,7 +69,9 @@ ENV_GEN="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/generated.
 test -f "$ENV_GEN" || { echo "generated.env missing; run SKILL.md Step 1c first"; exit 1; }
 
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-brev_public_host="7777-${brev_env_id}.brevlab.com"
+proxy_port="${PROXY_PORT:-${HAPROXY_PORT:-7777}}"
+brev_link_prefix="${BREV_LINK_PREFIX:-$proxy_port}"
+brev_public_host="${brev_link_prefix}-${brev_env_id}.brevlab.com"
 
 set_env() {
   key="$1"
@@ -76,12 +79,13 @@ set_env() {
   tmp="${ENV_GEN}.tmp"
   awk -v key="$key" -v value="$value" '
     BEGIN { found = 0 }
-    $0 ~ "^" key "=" { print key "=" value; found = 1; next }
+    index($0, key "=") == 1 { print key "=" value; found = 1; next }
     { print }
     END { if (!found) print key "=" value }
   ' "$ENV_GEN" > "$tmp" && mv "$tmp" "$ENV_GEN"
 }
 
+set_env HAPROXY_PORT "$proxy_port"
 set_env EXTERNAL_IP "$brev_public_host"
 set_env VSS_PUBLIC_HOST "$brev_public_host"
 set_env VSS_PUBLIC_HTTP_PROTOCOL https
@@ -102,7 +106,9 @@ curl -sfI http://localhost:7777/ | head -1
 
 # 3. Print the browser URL the user should open
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-echo "https://7777-${brev_env_id}.brevlab.com"
+proxy_port="${PROXY_PORT:-${HAPROXY_PORT:-7777}}"
+brev_link_prefix="${BREV_LINK_PREFIX:-$proxy_port}"
+echo "https://${brev_link_prefix}-${brev_env_id}.brevlab.com"
 ```
 
 If step 1 fails, the haproxy container (`vss-haproxy-ingress`) hasn't come up — check
@@ -119,4 +125,4 @@ request as 404 from the browser even though `curl localhost:7777` works).
 | UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; the UI should use the proxy only. |
 | `curl https://7777-...brevlab.com` → 502 | nginx container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
 | `curl https://7777-...brevlab.com` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
-| Agent-generated report URLs don't open | Brev public URL overrides are incomplete or not applied → reports hard-code internal IPs or emit `http://...:7777` links. Apply the full [Setup flow](#setup-flow) overrides (`EXTERNAL_IP`, `VSS_PUBLIC_HOST`, `VSS_PUBLIC_HTTP_PROTOCOL`, `VSS_PUBLIC_WS_PROTOCOL`, `VSS_PUBLIC_PORT`) in `generated.env` and redeploy. |
+| Agent-generated report URLs don't open | Brev public URL overrides are incomplete or not applied → reports hard-code internal IPs or emit `http://...:7777` links. Apply the full [Setup flow](#setup-flow) overrides (`HAPROXY_PORT`, `EXTERNAL_IP`, `VSS_PUBLIC_HOST`, `VSS_PUBLIC_HTTP_PROTOCOL`, `VSS_PUBLIC_WS_PROTOCOL`, `VSS_PUBLIC_PORT`) in `generated.env` and redeploy. |
