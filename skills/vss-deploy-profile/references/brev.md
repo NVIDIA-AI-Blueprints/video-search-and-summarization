@@ -69,7 +69,8 @@ ENV_GEN="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/generated.
 test -f "$ENV_GEN" || { echo "generated.env missing; run SKILL.md Step 1c first"; exit 1; }
 
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-proxy_port="${PROXY_PORT:-${HAPROXY_PORT:-7777}}"
+haproxy_port_from_env=$(awk -F= '$1=="HAPROXY_PORT"{sub(/^[^=]*=/,""); print; exit}' "$ENV_GEN")
+proxy_port="${PROXY_PORT:-${haproxy_port_from_env:-7777}}"
 brev_link_prefix="${BREV_LINK_PREFIX:-$proxy_port}"
 brev_public_host="${brev_link_prefix}-${brev_env_id}.brevlab.com"
 
@@ -98,15 +99,19 @@ set_env VSS_PUBLIC_PORT 443
 After `docker compose up -d`:
 
 ```bash
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
+ENV_GEN="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env"
+haproxy_port_from_env=$(awk -F= '$1=="HAPROXY_PORT"{sub(/^[^=]*=/,""); print; exit}' "$ENV_GEN")
+proxy_port="${PROXY_PORT:-${haproxy_port_from_env:-7777}}"
+
 # 1. HAProxy ingress is routing (there is no /health handler)
-curl -sfI http://localhost:7777/ >/dev/null && echo "proxy OK"
+curl -sfI "http://localhost:${proxy_port}/" >/dev/null && echo "proxy OK"
 
 # 2. UI reachable through the proxy (internally)
-curl -sfI http://localhost:7777/ | head -1
+curl -sfI "http://localhost:${proxy_port}/" | head -1
 
 # 3. Print the browser URL the user should open
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-proxy_port="${PROXY_PORT:-${HAPROXY_PORT:-7777}}"
 brev_link_prefix="${BREV_LINK_PREFIX:-$proxy_port}"
 echo "https://${brev_link_prefix}-${brev_env_id}.brevlab.com"
 ```
