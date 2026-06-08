@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-generate-video-calibration`
-- Evaluation date: 2026-06-06
+- Evaluation date: 2026-06-08
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 6 evaluation tasks
@@ -54,25 +54,25 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 83% (-17%) |
-| Correctness | 8 | 63% (+21%) | 71% (+27%) |
-| Discoverability | 8 | 60% (+2%) | 69% (+17%) |
-| Effectiveness | 8 | 42% (+32%) | 40% (+23%) |
-| Efficiency | 8 | 51% (+0%) | 56% (+8%) |
+| Security | 8 | 100% (+0%) | 88% (-12%) |
+| Correctness | 8 | 72% (+31%) | 71% (+29%) |
+| Discoverability | 8 | 67% (+13%) | 68% (+13%) |
+| Effectiveness | 8 | 47% (+37%) | 45% (+32%) |
+| Efficiency | 8 | 56% (+10%) | 54% (+6%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 7 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 5 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-generate-video-calibration/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-calibration/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SQP-2): The `ssl_verify: false` flag in the RTSP capture request disables TLS certificate verification, meaning the connection t (`references/rtsp.md:105`)
-- MEDIUM SECURITY/Unknown (SQP-2): The example RTSP URL `rtsp://user:pass@<cam-ip>:554/stream` demonstrates embedding plaintext credentials directly in URL (`references/rtsp.md:60`)
-- MEDIUM SECURITY/Unknown (SQP-2): The inline script silently downloads and executes an external shell script (uv installer) via curl-pipe-to-shell without (`references/sample-dataset.md:132`)
+- MEDIUM SECURITY/Unknown (SQP-2): The RTSP capture request hardcodes `ssl_verify: false`, which disables TLS certificate verification. This exposes the co (`references/rtsp.md:105`)
+- MEDIUM SECURITY/Unknown (SQP-2): The skill documentation instructs the agent to silently auto-detect and upload local files (videos, config, alignment JS (`references/videos.md:16`)
+- MEDIUM SECURITY/Unknown (SQP-2): The Python script performs directory scanning (VIDEO_DIR and its parent) and uploads discovered files to a remote HTTP e (`references/videos.md:156`)
 
 ## Tier 2: Deduplication Summary
 
