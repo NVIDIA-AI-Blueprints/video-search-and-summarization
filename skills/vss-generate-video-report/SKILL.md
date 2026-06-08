@@ -192,28 +192,7 @@ If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), 
 
 ### Step 4 — Fill the Video Analysis Report template
 
-```markdown
-# Video Analysis Report
-
-## Basic Information
-
-| Field | Value |
-|-------|-------|
-| **Report Identifier** | vss_report_<YYYYMMDD_HHMMSS> |
-| **Date of Analysis** | <YYYY-MM-DD> |
-| **Time of Analysis** | <HH:MM:SS> |
-| **Video Source** | <sensor_id or filename> |
-| **Clip Range** | <startTime> – <endTime> |
-| **Clip URL** | `<BROWSER_CLIP_URL>` (apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite — NEVER paste the raw `HOST_IP:30888` URL here) |
-| **VLM** | <VLM_MODEL (NIM or RT-VLM)> |
-| **Analysis Request** | <user's request> |
-
-## Analysis Results
-
-<VLM output: timestamped caption / summary>
-```
-
-Return the rendered markdown to the user.
+Copy [`assets/video-analysis-report.md`](assets/video-analysis-report.md), fill every placeholder, and return the rendered markdown to the user. Keep the source asset unchanged. The `Clip URL` value must be `BROWSER_CLIP_URL`, not the raw `HOST_IP:30888` URL.
 
 ---
 
@@ -246,37 +225,18 @@ For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place
 
 ### Step 3 — Fill the Incident Range Report template
 
-Group by sensor (or by category if no sensor scope), tally verdicts, list each incident as a bullet with timestamp / category / verdict / reasoning.
-
-```markdown
-# Incident Range Report
-
-## Basic Information
-
-| Field | Value |
-|-------|-------|
-| **Report Identifier** | vss_report_<YYYYMMDD_HHMMSS> |
-| **Range** | <start_time> – <end_time> |
-| **Scope** | <sensor_id> | all sensors |
-| **Total Incidents** | <N> |
-| **Confirmed / Rejected / Unverified** | <c> / <r> / <u> |
-
-## Incidents
-
-### <sensor_id_or_category>
-
-- **<timestamp>** — <category> — verdict: **<confirmed|rejected|unverified>**
-  - <info.reasoning (1–2 lines)>
-  - clip: `<rewritten URL>` (omit row when the incident carries no clip URL — never paste a raw `HOST_IP:30888` URL)
-  - objects: <objectIds joined>
-- …
-
-## Summary
-
-<2–4 sentences synthesizing what dominates the range — top categories, sensors with the most confirmed incidents, any clusters in time.>
-```
+Copy [`assets/incident-range-report.md`](assets/incident-range-report.md), then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Keep the source asset unchanged. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL.
 
 If `get_incidents` returns zero results, return a one-line report stating the range and scope produced no incidents — do not invent content and do not fall back to Mode A.
+
+---
+
+## Error Handling
+
+- If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step. Do not fabricate a report from partial or missing data.
+- If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
+- If a clip URL cannot be rewritten to the public host/port, omit it from the rendered report and call out that the browser-playable URL could not be produced.
+- For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.
 
 ---
 

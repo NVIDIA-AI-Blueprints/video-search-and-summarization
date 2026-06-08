@@ -151,11 +151,11 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])"
 ```
 
-Show the user the video list and ask which one they want to analyze.
+After retrieving the list, present the available videos in a short message and ask which one the user would like analyzed.
 
 ### Step 2: Collect parameters from the user
 
-Ask the user for these four inputs one at a time:
+Collect these four inputs conversationally, pausing for the user's answer before moving to the next prompt:
 
 1. **Scenario** — What type of scenario is the video about?
    Example: "warehouse monitoring", "traffic monitoring", "retail store activity"
@@ -220,7 +220,7 @@ Keep polling until the status changes from "running" to "completed":
 curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/executions/EXECUTION_ID" | python3 -m json.tool
 ```
 
-Tell the user to wait — this takes 3-5 minutes. Poll every 30 seconds.
+Set the expectation that processing usually takes 3-5 minutes, then poll every 30 seconds.
 
 ### Step 6: Present the results
 
@@ -231,6 +231,13 @@ When status is "completed", the response contains the full report with:
 - PDF report download link (if available)
 
 Present the report content to the user in a readable format.
+
+## Error Handling
+
+- If a deployment, health, or chat request fails, report the failing endpoint, HTTP status or command error, and the most useful next check. Do not continue into HITL without a valid `execution_id`, `interaction_id`, and `response_url`.
+- If a HITL response is rejected or the next execution poll omits the expected prompt, stop and show the execution status plus any error payload instead of guessing the next prompt.
+- If the execution status becomes `failed`, `cancelled`, or stays `running` without progress beyond the expected processing window, surface the status and recommend checking the `vss-agent` logs before retrying.
+- If the final response lacks report text or a PDF link, return the available response fields and clearly state which output was missing.
 
 ## Quick Commands
 
@@ -247,7 +254,7 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 
 ## Notes
 
-- LVS reports take 3-5 minutes for a ~3.5 minute video — always tell the user to wait
+- LVS reports take 3-5 minutes for a ~3.5 minute video; set that expectation before polling
 - Enterprise RAG requires a Milvus vector database with data ingested
 - If objects or rag_query are not needed, respond with "skip"
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
