@@ -224,7 +224,7 @@ The process retries until ES is reachable, up to the configured `elasticsearch.r
 docker compose -f services/analytics/video-analytics-api/compose.yml down
 ```
 
-For a multi-service teardown (broker, ES, etc.) see ``teardown.md`` (see `../../vss-deploy-profile/references/teardown.md`).
+For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` teardown workflow.
 
 ---
 
