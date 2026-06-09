@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-report-rag
-description: "Use when: user wants to generate a video summary, report, or analysis using the frag/RAG pipeline."
+description: Generates VSS video summary reports with LVS HITL and optional Enterprise RAG document grounding. Trigger when the user asks for a frag/RAG-assisted video report, knowledge-enhanced analysis, or Enterprise RAG context in a video summary.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -10,76 +10,95 @@ metadata:
 
 # VSS Generate Video Report RAG — Video Analysis with Enterprise RAG
 
-Generate video summary reports using the VSS `video_search_frag` extension.
-This skill adds Enterprise RAG (Milvus) knowledge retrieval and guided
-human-in-the-loop (HITL) parameter collection on top of the base VSS agent.
+Generate video summary reports using the LVS profile's RAG-enabled agent config.
+This skill adds Enterprise RAG document grounding and guided human-in-the-loop
+(HITL) parameter collection on top of the VSS agent.
 
 Always run `curl` commands yourself; never instruct the user to run them.
 
-## Deploying the Frag Extension
+## Enable Enterprise RAG on the LVS Profile
 
-The frag extension layers Enterprise RAG and HITL LVS tools on top of the base
-VSS agent image. Deployment is a two-step Docker build followed by compose up.
+The repository ships the RAG-enabled LVS agent config at
+`deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml`.
+It is a superset of the default LVS config: regular caption retrieval remains
+enabled, and `frag_retrieval` adds Enterprise RAG document grounding.
 
-> **Environment variables:** All commands use values from the `.env` file at
-> `deployments/developer-workflow/dev-profile-lvs/.env`. Edit it before deploying.
-> Key variables: `HOST_IP`, `VSS_AGENT_PORT` (default `8000`), `NGC_CLI_API_KEY`,
-> `NVIDIA_API_KEY`, `ENTERPRISE_RAG_*`.
+Use the normal `/vss-deploy-profile` workflow for deployment. The source
+`.env` remains read-only; apply non-secret overrides to
+`deploy/docker/developer-profiles/dev-profile-lvs/generated.env`.
+`generated.env` is ignored by the repository, but it is still a plaintext file:
+do not commit it, paste it into logs, or store long-lived credentials there.
+Prefer a vault, Docker secrets, or ephemeral shell environment variables for
+API keys.
 
-### Step 1: Configure the .env file
+### Step 1: Configure the generated env file
 
 ```bash
-nano deployments/developer-workflow/dev-profile-lvs/.env
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
+cd "$REPO"
+cp deploy/docker/developer-profiles/dev-profile-lvs/.env \
+  deploy/docker/developer-profiles/dev-profile-lvs/generated.env
 ```
 
-Set at minimum:
-- `HOST_IP` — your machine's IP (`hostname -I | awk '{print $1}'`)
-- `NGC_CLI_API_KEY` — from https://ngc.nvidia.com/
-- `NVIDIA_API_KEY` — from https://build.nvidia.com/
-- `VSS_AGENT_CONFIG_FILE=./configs/video_search_frag/config.yml`
-- `ENTERPRISE_RAG_VDB_ENDPOINT` — your Milvus endpoint (e.g., `tcp://127.0.0.1:19530`)
-- `ENTERPRISE_RAG_COLLECTION_NAMES` — your Milvus collection name
+Set these non-secret values in `generated.env`:
+- `HOST_IP` — host IP (`hostname -I | awk '{print $1}'`)
+- `VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml`
+- `RAG_SERVER_URL` — Enterprise RAG server HTTP endpoint (defaults to `http://rag-server:8081/v1`)
+- `KNOWLEDGE_COLLECTION` — default Enterprise RAG collection for `frag_retrieval`
+
+Keep sensitive values (`NGC_CLI_API_KEY`, `NVIDIA_API_KEY`, `RAG_API_KEY`) out
+of `generated.env` and out of `resolved.yml`. Do not export them before running
+`docker compose config > resolved.yml`, because Compose expands environment
+variables into that file. Use a secret manager, an existing authenticated Docker
+session, or a local override file that references an ephemeral shell variable at
+`up` time.
 
 ### Step 2: Log in to NGC registry
 
-```bash
-echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
-```
-
-### Step 3: Build the base agent image
+Prefer an existing authenticated Docker session or a secret-managed login. If a login is required, use `--password-stdin` without printing token values:
 
 ```bash
-cd agent
-docker build -f docker/Dockerfile -t vss-agent-base .
+read -rsp "NGC API key: " NGC_CLI_API_KEY
+printf '%s\n' "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+unset NGC_CLI_API_KEY
 ```
 
-### Step 4: Build the frag extension image
+### Step 3: Deploy the LVS profile with the RAG config
+
+Do not export `RAG_API_KEY` for the dry-run below. If the RAG server requires an
+API key, create this untracked local override after `resolved.yml` is generated:
 
 ```bash
-docker compose \
-  -f app/video_search_frag/docker-compose.yml \
-  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
-  build
+cat > rag-secret.override.yml <<'EOF'
+services:
+  vss-agent:
+    environment:
+      RAG_API_KEY: ${RAG_API_KEY:?Set RAG_API_KEY only for docker compose up}
+EOF
 ```
-
-This produces `vss-agent-frag:latest` — the base agent extended with
-`video_search_frag` (Enterprise RAG, HITL LVS, PDF report generation).
-
-### Step 5: Deploy with docker compose
 
 ```bash
-docker compose \
-  -f app/video_search_frag/docker-compose.yml \
-  -f ../deployments/agents/agent_ui/compose.yml \
-  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
-  --profile bp_developer_lvs_2d \
-  up -d
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
+cd "$REPO/deploy/docker"
+docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
+  config > resolved.yml
+uv run "$REPO/skills/vss-deploy-profile/scripts/normalize_resolved_yml.py" \
+  "$REPO/deploy/docker/resolved.yml"
+docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
+  -f resolved.yml up -d
 ```
 
-Two `-f` flags: the frag compose defines `vss-agent`, the UI compose defines
-`metropolis-vss-ui`. They merge into a single deployment.
+When `rag-secret.override.yml` is needed, use:
 
-### Step 6: Verify deployment
+```bash
+read -rsp "RAG API key: " RAG_API_KEY
+RAG_API_KEY="$RAG_API_KEY" docker compose \
+  --env-file developer-profiles/dev-profile-lvs/generated.env \
+  -f resolved.yml -f rag-secret.override.yml up -d
+unset RAG_API_KEY
+```
+
+### Step 4: Verify deployment
 
 ```bash
 # Check containers are running
@@ -87,49 +106,21 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 
 # Health check
 curl -sf --max-time 5 "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health" >/dev/null \
-  && echo "VSS frag agent is running" \
-  || echo "VSS frag agent is NOT reachable"
+  && echo "VSS LVS RAG agent is running" \
+  || echo "VSS LVS RAG agent is NOT reachable"
 ```
 
 ### Tear down
 
 ```bash
-docker compose \
-  -f app/video_search_frag/docker-compose.yml \
-  -f ../deployments/agents/agent_ui/compose.yml \
-  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
-  --profile bp_developer_lvs_2d \
-  down
-```
-
-### Rebuild after code changes
-
-Always `down` then rebuild and `up` — never just `up -d` alone after changes.
-
-```bash
-docker compose \
-  -f app/video_search_frag/docker-compose.yml \
-  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
-  build
-
-docker compose \
-  -f app/video_search_frag/docker-compose.yml \
-  -f ../deployments/agents/agent_ui/compose.yml \
-  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
-  --profile bp_developer_lvs_2d \
-  down
-
-docker compose \
-  -f app/video_search_frag/docker-compose.yml \
-  -f ../deployments/agents/agent_ui/compose.yml \
-  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
-  --profile bp_developer_lvs_2d \
-  up -d
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
+cd "$REPO/deploy/docker"
+docker compose -f resolved.yml down
 ```
 
 ## When to Use
 
-- User wants to generate a video summary or report using the frag pipeline
+- User wants to generate a video summary or report using the RAG-enabled LVS pipeline
 - User asks to analyze a video with Enterprise RAG knowledge context
 - User mentions "frag", "enterprise RAG", or "knowledge-enhanced report"
 
@@ -151,21 +142,26 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])"
 ```
 
-Show the user the video list and ask which one they want to analyze.
+A selected video is required before Step 2. If the user has not already named one, return the short list and stop; resume when the user supplies the video name.
 
 ### Step 2: Collect parameters from the user
 
-Ask the user for these four inputs one at a time:
+Required user-provided parameters:
 
-1. **Scenario** — What type of scenario is the video about?
+1. **Scenario** — scenario label for the video.
    Example: "warehouse monitoring", "traffic monitoring", "retail store activity"
-2. **Events** — What events should be detected? Comma-separated.
+2. **Events** — comma-separated event names to detect.
    Example: "accident, forklift stuck, workers not wearing PPE, person entering restricted area"
-3. **Objects of Interest** — What objects should the analysis focus on? Or "skip" to skip.
+3. **Objects of Interest** — focus objects, or "skip".
    Example: "forklifts, pallets, workers"
-4. **Enterprise RAG Query** — An optional question to search the enterprise knowledge base
-   for additional context to include in the report. Or "skip" to skip.
-   Example: "What are the principles of STCC?"
+
+If any required value is missing, return a concise missing-fields message and stop; resume the workflow when the user supplies the missing values.
+
+There is no separate Enterprise RAG Query HITL prompt. Document grounding comes
+from the RAG-enabled agent config exposing `frag_retrieval`; if the user wants
+specific SOP, policy, or procedure context reflected in the report, capture that
+context in the original report request or resolve it as a document-grounding
+question before starting the HITL report flow.
 
 ### Step 3: Start the report (HTTP HITL)
 
@@ -206,8 +202,7 @@ The HITL prompts come in this order:
 1. **Scenario** — respond with the scenario from Step 2
 2. **Events** — respond with the events from Step 2
 3. **Objects of Interest** — respond with the objects from Step 2, or "skip"
-4. **Enterprise RAG Query** — respond with the query from Step 2, or "skip"
-5. **Confirmation** — respond with empty string "" to confirm and start processing
+4. **Confirmation** — respond with empty string "" to confirm and start processing
 
 Repeat the POST-then-poll cycle for each prompt.
 
@@ -220,7 +215,7 @@ Keep polling until the status changes from "running" to "completed":
 curl -sS "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/executions/EXECUTION_ID" | python3 -m json.tool
 ```
 
-Tell the user to wait — this takes 3-5 minutes. Poll every 30 seconds.
+Set the expectation that processing usually takes 3-5 minutes, then poll every 30 seconds.
 
 ### Step 6: Present the results
 
@@ -231,6 +226,13 @@ When status is "completed", the response contains the full report with:
 - PDF report download link (if available)
 
 Present the report content to the user in a readable format.
+
+## Error Handling
+
+- If a deployment, health, or chat request fails, report the failing endpoint, HTTP status or command error, and the most useful next check. Do not continue into HITL without a valid `execution_id`, `interaction_id`, and `response_url`.
+- If a HITL response is rejected or the next execution poll omits the expected prompt, stop and show the execution status plus any error payload instead of guessing the next prompt.
+- If the execution status becomes `failed`, `cancelled`, or stays `running` without progress beyond the expected processing window, surface the status and recommend checking the `vss-agent` logs before retrying.
+- If the final response lacks report text or a PDF link, return the available response fields and clearly state which output was missing.
 
 ## Quick Commands
 
@@ -247,11 +249,11 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 
 ## Notes
 
-- LVS reports take 3-5 minutes for a ~3.5 minute video — always tell the user to wait
-- Enterprise RAG requires a Milvus vector database with data ingested
-- If objects or rag_query are not needed, respond with "skip"
+- LVS reports take 3-5 minutes for a ~3.5 minute video; set that expectation before polling
+- Enterprise RAG requires a reachable RAG server with data already ingested in `KNOWLEDGE_COLLECTION`
+- If objects are not needed, respond with "skip"
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
-- `enable_interactive_extensions: true` must be set in the frag config for HTTP HITL to work
+- The RAG-enabled agent config must keep its HITL templates and `hitl_enabled: true` settings for HTTP HITL to work
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
 
 
