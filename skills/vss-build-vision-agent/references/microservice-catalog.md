@@ -44,11 +44,11 @@ Index of every VSS microservice that has reference files the `build-vision-agent
 
 > **NvStreamer is NOT a catalog microservice.** `vss-vios-nvstreamer` (NvStreamer, `ADAPTOR=streamer`) is a **validation-harness component** the skill adds to exercise a deployment's live/streaming RTSP path when no real external camera/RTSP URL is supplied — it replaces the legacy `mediamtx + ffmpeg` dummy-stream sidecar. It is **NOT** a user-selectable ingestion microservice, **NOT** a `sensor_topology` variant, and is **NOT** declared in any `integrate-*.md` `component_services:` block (do not add it to `integrate-vios-service.md`'s block or capability-tag tables). It has no `integrate-/deploy-` pair files and is not tag-matched in Step 1. The skill emits it directly in Step 6 per `references/validation-harness.md` (which also documents the inclusion rule and the NvStreamer → VIOS → RT-VLM smoke sequence); its REST surface is documented read-only in `skills/vss-manage-video-io-storage/references/nvstreamer-api-reference.md`.
 
-### Phase 1b — Planned
+### Phase 1b
 
-| Microservice | Skill folder | Integration ref (current ⇢ target) | Deployment ref (current ⇢ target) |
-|---|---|---|---|
-| RT-CV (DeepStream) | `skills/vss-deploy-detection-tracking-2d/` | — ⇢ `integrate-vss-detection-tracking-2d.md` *(pending — author under the upstream long-form name to match the deploy companion; upstream has `api-reference.md`, `pipeline-config.md`, `workflow-reference.md`, etc. as additional refs)* | `deploy-vss-detection-tracking-2d.md` ✓ *(canonical; upstream long-form retained)* |
+| Microservice | Skill folder | Integration ref (current ⇢ target) | Deployment ref (current ⇢ target) | Capability tags |
+|---|---|---|---|---|
+| RT-CV (DeepStream) | `skills/vss-deploy-detection-tracking-2d/` | `integrate-vss-detection-tracking-2d.md` ✓ *(canonical; authored under the upstream long-form name to match the deploy companion)* | `deploy-vss-detection-tracking-2d.md` ✓ *(canonical; upstream long-form retained)* | `person-detection`, `object-detection`, `multi-object-tracking`, `bounding-box-metadata`, `frame-metadata`, `rtdetr`, `streaming-inference` |
 
 ### Phase 1c — Planned
 
@@ -95,5 +95,11 @@ Tags used to match user prompts to microservices. Keep tags consistent across ca
 | `dashboard` | Visual dashboards over indexed data | ELK (Kibana) |
 | `kafka-ingestion` | Consumes Kafka topics and writes to a sink | ELK (Logstash) |
 | `redis-ingestion` | Consumes Redis streams and writes to a sink | ELK (Logstash) |
+| `person-detection` | Detects people / objects in video frames | RT-CV (DeepStream) |
+| `object-detection` | General object detection over video streams | RT-CV (DeepStream) |
+| `multi-object-tracking` | Multi-object tracking over video streams | RT-CV (DeepStream) |
+| `bounding-box-metadata` | Emits per-frame bounding boxes and class metadata | RT-CV (DeepStream) |
+| `frame-metadata` | Emits frame-level structured detection records | RT-CV (DeepStream) |
+| `rtdetr` | RT-DETR-based detection pipeline | RT-CV (DeepStream) |
 
 When you add a new tag, list it here with the services that carry it.
