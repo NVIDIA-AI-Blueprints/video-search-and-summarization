@@ -11,7 +11,7 @@ metadata:
 
 # Report
 
-Generate a video analysis report by routing to one of two backends — **never via** `POST /generate` on the VSS agent.
+Generate a video analysis report by routing to one of two backends — **never via** `POST /generate` on the VSS agent. 
 
 | Mode | Backend |
 |---|---|
