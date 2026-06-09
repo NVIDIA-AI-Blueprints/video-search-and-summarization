@@ -308,6 +308,7 @@ def parse_frontmatter(content: str) -> Optional[dict]:
     result: dict = {}
     current_key: Optional[str] = None
     collecting: List[str] = []
+    block_scalar = False
 
     def flush():
         if current_key is not None:
@@ -317,17 +318,33 @@ def parse_frontmatter(content: str) -> Optional[dict]:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        # Continuation of a block scalar (indented line under a key ending with >)
-        if current_key and line.startswith((" ", "\t")) and ":" not in line:
-            collecting.append(stripped)
+
+        if current_key and block_scalar:
+            if line.startswith((" ", "\t")):
+                collecting.append(stripped)
+                continue
+            flush()
+            collecting = []
+            current_key = None
+            block_scalar = False
+
+        # Ignore nested mapping entries such as metadata.version; this parser
+        # only needs top-level scalar fields like name and description.
+        if line.startswith((" ", "\t")):
             continue
+
         flush()
         collecting = []
         current_key = None
+        block_scalar = False
         if ":" in stripped:
             key, _, val = stripped.partition(":")
             current_key = key.strip()
-            val = val.strip().lstrip(">").strip().strip("\"'")
+            val = val.strip().strip("\"'")
+            if val in {">", "|", ">-", "|-", ">+", "|+"}:
+                block_scalar = True
+                continue
+            val = val.lstrip(">").strip().strip("\"'")
             if val:
                 collecting.append(val)
 
