@@ -89,14 +89,6 @@ PLATFORMS: dict[str, dict] = {
         "brev_search":      "L40S",
         "min_root_disk_gb": 220,
     },
-    "DGX-SPARK": {
-        "short_name":       "spark",
-        "gpu_type":         "DGX-SPARK",
-        "gpu_count":        1,
-        "min_vram_per_gpu": 120,
-        "brev_search":      "DGX-SPARK",
-        "min_root_disk_gb": 220,
-    },
 }
 
 DEFAULT_PLATFORM = "RTXPRO6000BW"
@@ -335,11 +327,13 @@ def generate_task(
             skills_to_copy.append((rtvi_skill_dir, "vss-deploy-dense-captioning"))
         if wants_rt_cv:
             skills_to_copy.append((rtcv_skill_dir, "vss-deploy-detection-tracking-2d"))
+        skills_root = step_dir / "skills"
+        if skills_root.exists():
+            shutil.rmtree(skills_root)
+        skills_root.mkdir(exist_ok=True)
         for src, name in skills_to_copy:
             if src and src.exists():
-                dst = step_dir / "skills" / name
-                if dst.exists():
-                    shutil.rmtree(dst)
+                dst = skills_root / name
                 shutil.copytree(src, dst)
 
 

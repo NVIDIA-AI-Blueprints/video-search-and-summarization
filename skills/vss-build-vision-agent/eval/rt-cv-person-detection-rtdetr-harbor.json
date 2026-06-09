@@ -5,8 +5,8 @@
   "profile": "rt-cv-person-detection-rtdetr-harbor",
   "resources": {
     "platforms": {
-      "DGX-SPARK": {
-        "gpu_count": 1,
+      "RTXPRO6000BW": {
+        "gpu_count": 2,
         "modes": [
           "harbor",
           "shared"
@@ -14,17 +14,17 @@
       }
     }
   },
-  "env": "A Harbor-hosted DGX Spark environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, and NGC access to `nvcr.io/nvstaging/vss-core/vss-rt-cv` plus `nvstaging/vss-warehouse/vss-warehouse-app-data`. The VSS repository is checked out at `{{repo_root}}`, and the build skill writes to a fresh self-contained build directory under `{{repo_root}}/_builds/rt-cv-person-detection-rtdetr-harbor/` (or the next suffixed collision-resolved folder). This is a generation-focused eval for edge hardware: the generated output must stay self-contained under `_builds/`, must not modify upstream compose files under `deploy/docker/`, and must account for DGX-SPARK SBSA image-tag requirements when preparing the RT-CV detection/tracking deployment with the same warehouse video sets.",
+  "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, and NGC access to `nvcr.io/nvstaging/vss-core/vss-rt-cv` plus `nvstaging/vss-warehouse/vss-warehouse-app-data`. The VSS repository is checked out at `{{repo_root}}`, and the build skill writes to a fresh self-contained build directory under `{{repo_root}}/_builds/rt-cv-person-detection-rtdetr-harbor/` (or the next suffixed collision-resolved folder). This is a generation-focused eval using the same Harbor hardware setup as the upstream Harbor eval: the generated output must stay self-contained under `_builds/`, must not modify upstream compose files under `deploy/docker/`, and must prepare the RT-CV detection/tracking deployment with the same warehouse video sets.",
   "expects": [
     {
-      "query": "Use the `/vss-build-vision-agent` skill to generate an RT-CV detection/tracking deployment on Harbor for `{{platform}}` from `{{repo_root}}`. Submit this exact prompt to the skill: \"Create a profile for generating bounding box cv metadata (object detection and tracking) of persons using RT-DETR. Use the same warehouse video sets and expose the RT-CV API for health and metrics.\" Choose a new build under `_builds/`, keep the generated output self-contained, and target the Harbor / DGX-SPARK environment.",
+      "query": "Use the `/vss-build-vision-agent` skill to generate an RT-CV detection/tracking deployment on Harbor for `{{platform}}` from `{{repo_root}}`. Submit this exact prompt to the skill: \"Create a profile for generating bounding box cv metadata (object detection and tracking) of persons using RT-DETR. Use the same warehouse video sets and expose the RT-CV API for health and metrics.\" Choose a new build under `_builds/`, keep the generated output self-contained, and target the Harbor RTX PRO 6000 Blackwell environment.",
       "checks": [
         "`{{repo_root}}/_builds/` contains a new Harbor-targeted RT-CV detection/tracking build folder with `compose.yml`, `.env.template`, `MANIFEST.md`, and `allow-list.yml`.",
         "The generated architecture and allow-list resolve to the required components: VIOS + RT-CV + ELK + Kafka.",
         "The generated allow-list includes the RT-CV services contributed by `integrate-vss-detection-tracking-2d.md`, including `perception-2d-fusion`.",
         "The generated output references patched copies under `_builds/<name>/patched/`, not upstream compose files directly.",
         "No upstream compose file under `{{repo_root}}/deploy/docker/` is modified by generation.",
-        "The generated manifest or env output explicitly handles DGX-SPARK SBSA image requirements for the Harbor target. At minimum it must either (a) preselect SBSA tags such as `PERCEPTION_TAG=*sbsa*` for RT-CV and the corresponding SBSA-capable VIOS / nvstreamer image tags, OR (b) document the DGX-SPARK-specific SBSA tag swap the operator must apply before deploy.",
+        "The generated manifest or env output targets the Harbor `RTXPRO6000BW` platform with the same 2x RTX PRO 6000 Blackwell hardware shape used by the upstream Harbor eval.",
         "The architecture proposal or manifest describes RT-DETR detection / tracking metadata flowing to Kafka and Elasticsearch while using the warehouse sample video set."
       ]
     }
