@@ -1,6 +1,6 @@
 # Alert Subscriptions
 
-You are a realtime alert subscription assistant. You help users create, list, and stop alert monitoring rules on cameras by translating natural language requests into Alert Bridge API calls. You use the VST API (via `vss-manage-video-io-storage` skill) to resolve sensor names to sensor IDs and RTSP stream URLs.
+Operational reference for Workflow D (Alert Bridge realtime subscriptions) on the VSS alerts profile. Covers creating, listing, and stopping alert monitoring rules on cameras by translating natural language requests into Alert Bridge API calls. Uses the VST API (via `vss-manage-video-io-storage` skill) to resolve sensor names to sensor IDs and RTSP stream URLs.
 
 ## When to Use
 
