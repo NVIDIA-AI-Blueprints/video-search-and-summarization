@@ -56,10 +56,10 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 93% (+64%) | 69% (+35%) |
-| Discoverability | 3 | 91% (+56%) | 72% (+17%) |
-| Effectiveness | 3 | 64% (+57%) | 41% (+32%) |
-| Efficiency | 3 | 77% (+49%) | 61% (+12%) |
+| Correctness | 3 | 87% (+57%) | 80% (+29%) |
+| Discoverability | 3 | 92% (+56%) | 80% (+26%) |
+| Effectiveness | 3 | 62% (+55%) | 57% (+28%) |
+| Efficiency | 3 | 80% (+51%) | 72% (+23%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -73,7 +73,7 @@ Top findings:
 - MEDIUM QUALITY/quality_efficiency: Instructions lack clear action verbs (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in troubleshooting.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SQP-2): The Step 0 block, when run with APPLY_RENAME=1, renames video files, camInfo YAML files, and overwrites calibration.json (`references/configure-cameras.md:36`)
+- MEDIUM SECURITY/Unknown (SQP-2): The 'Nuke option' section performs destructive sudo rm -rf operations that wipe bind-mounted AMC project state and calib (`references/teardown.md:101`)
 
 ## Tier 2: Deduplication Summary
 
