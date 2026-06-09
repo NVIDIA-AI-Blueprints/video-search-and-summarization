@@ -190,10 +190,10 @@ if [ "${MINIMAL_PROFILE_VAL}" != "true" ]; then
   echo "Import container: ${IMPORT_STATE}"
   if printf '%s\n%s\n' "${IMPORT_LOG}" "${API_LOG}" | grep -qiE 'EACCES|permission denied|"error"|"success":false|Something broke|imageMetadata\.json not found'; then
     echo "  calibration/image import FAILED — inspect importer and video-analytics-api logs"
-  elif printf '%s\n' "${IMPORT_LOG}" | grep -q 'done'; then
+  elif printf '%s\n' "${IMPORT_LOG}" | grep -qiE 'import done|upload.*complete|calibration.*imported'; then
     echo "  calibration/image import completed without known error markers"
   else
-    echo "  calibration/image import not confirmed — importer log did not reach done"
+    echo "  calibration/image import not confirmed — importer log did not show a known success marker"
   fi
 else
   echo "Import check skipped under minimal profile"
