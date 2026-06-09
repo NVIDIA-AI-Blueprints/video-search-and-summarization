@@ -142,7 +142,14 @@ ls "${CAL_DIR}/images/" 2>/dev/null
 docker logs vss-import-calibration-output-mv3dt 2>&1 | tail -10
 ```
 
-**Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4b** — synthesize `Top.png` from the user's `layout.png` (or any project-output PNG) and write a matching `imageMetadata.json` with a `place` string mirroring `sensors[0].place`. Then `docker start vss-import-calibration-output-mv3dt` to retry the one-shot — no full redeploy needed.
+**Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4b** — synthesize `Top.png` from the user's `layout.png` (or any project-output PNG) and write a matching `imageMetadata.json` with a `place` string mirroring `sensors[0].place`. Then force-recreate the one-shot importer so logs reflect only the retry — no full redeploy needed.
+
+```bash
+cd "${VSS_APPS_DIR}"
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  up --no-deps --force-recreate import-calibration-output-container-mv3dt
+```
 
 ### `vss-import-calibration-output-mv3dt` exits 0 but overlays are missing
 
@@ -166,7 +173,11 @@ setfacl -R    -m u:1000:rwx "${API_UPLOAD_DIR}"
 setfacl -R -d -m u:1000:rwx "${API_UPLOAD_DIR}"
 
 docker restart vss-video-analytics-api-mv3dt
-docker start vss-import-calibration-output-mv3dt
+
+cd "${VSS_APPS_DIR}"
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  up --no-deps --force-recreate import-calibration-output-container-mv3dt
 ```
 
 Re-run [`verify-and-view.md`](verify-and-view.md) Step 4b. Do not report success until the import check is clean.

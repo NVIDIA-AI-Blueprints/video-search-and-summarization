@@ -2,7 +2,7 @@
 
 Parent: [`../SKILL.md`](../SKILL.md). Load this reference **only when** the user picked `videos` or `rtsp` in Q1 AND the calibration check in Q2 found `calibration.json` + `camInfo/` missing or incomplete.
 
-**Skip when:** Q1 = `sample` (calibration ships with the repo) or the user has supplied a calibration path themselves — go straight to [`configure-cameras.md`](configure-cameras.md) → [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).
+**Skip when:** Q1 = `sample` (calibration ships with the repo and is already normalized) — go straight to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md). If the user supplied a calibration path, go to [`configure-cameras.md`](configure-cameras.md) first so camera names and `NUM_STREAMS` are validated before deploy.
 
 This reference drives AMC end-to-end via its REST API — the user does **not** open the AMC UI. Hand-back to SKILL.md happens once calibration files are landed at the MV3DT mount path.
 
