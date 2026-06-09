@@ -26,6 +26,7 @@
 #   BREV_DETECT_TUNNEL=0      Disable Brev cloudflared FQDN detection
 #   NEMOCLAW_SANDBOX_BASE_TAG Optional pin for ghcr.io/nvidia/nemoclaw/sandbox-base
 #   NEMOCLAW_FORCE_SANDBOX_BUILD=1  Rebuild nemoclaw-sandbox:local even if present
+#   NEMOCLAW_SANDBOX_POLICY_FILE  Policy YAML for openshell sandbox create (default: openclaw-sandbox.yaml)
 
 set -euo pipefail
 
@@ -51,11 +52,12 @@ Fast NemoClaw sandbox creation (nemoclaw-quickstart sandbox path).
 Run after:  bash nemoclaw-install.sh 1 2 3 4
 
 Usage:
-  nemoclaw-quick-sandbox.sh [--build-only | --create-only] [sandbox-name]
+  nemoclaw-quick-sandbox.sh [--build-only | --create-only] [--policy-file PATH] [sandbox-name]
 
 Modes:
   --build-only   Build nemoclaw-sandbox:local only (nemoclaw-install.sh step 4)
   --create-only  Create sandbox; starts OpenShell gateway if needed (step 5)
+  --policy-file  Policy YAML for openshell sandbox create (or NEMOCLAW_SANDBOX_POLICY_FILE)
   (default)      Build/load image if needed, then create sandbox
 
 Providers (NEMOCLAW_PROVIDER):
@@ -351,6 +353,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --build-only) QUICK_SANDBOX_MODE=build; shift ;;
     --create-only) QUICK_SANDBOX_MODE=create; shift ;;
+    --policy-file)
+      [[ -n "${2:-}" ]] || fail "--policy-file requires a path"
+      NEMOCLAW_SANDBOX_POLICY_FILE="$2"
+      shift 2
+      ;;
     *) break ;;
   esac
 done
@@ -536,9 +543,14 @@ else
   SANDBOX_SOURCE="$BUILD_CTX/Dockerfile"
 fi
 
-if [[ -f "$NEMOCLAW_DIR/nemoclaw-blueprint/policies/openclaw-sandbox.yaml" ]]; then
+if [[ -n "${NEMOCLAW_SANDBOX_POLICY_FILE:-}" ]]; then
+  [[ -f "${NEMOCLAW_SANDBOX_POLICY_FILE}" ]] \
+    || fail "NEMOCLAW_SANDBOX_POLICY_FILE not found: ${NEMOCLAW_SANDBOX_POLICY_FILE}"
+  SANDBOX_POLICY="${NEMOCLAW_SANDBOX_POLICY_FILE}"
+elif [[ -f "$NEMOCLAW_DIR/nemoclaw-blueprint/policies/openclaw-sandbox.yaml" ]]; then
   SANDBOX_POLICY="$NEMOCLAW_DIR/nemoclaw-blueprint/policies/openclaw-sandbox.yaml"
 fi
+[[ -n "$SANDBOX_POLICY" ]] && info "Sandbox policy: ${SANDBOX_POLICY}"
 
 CREATE_RC=1
 for attempt in 1 2 3; do
