@@ -291,17 +291,22 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ]; then
   esac
 fi
 
+# Use jq --arg (not here-strings) to avoid appending trailing newlines.
+JSON_MODEL=$(jq -n --arg v "${VLM_MODEL}" '$v')
+JSON_PROMPT=$(jq -n --arg v "${PROMPT}" '$v')
+JSON_VIDEO_URL=$(jq -n --arg v "${VIDEO_URL}" '$v')
+
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
 {
-  "model": $(jq -Rs . <<< "${VLM_MODEL}"),
+  "model": ${JSON_MODEL},
   "messages": [
     {
       "role": "user",
       "content": [
-        {"type": "text", "text": $(jq -Rs . <<< "${PROMPT}")},
-        {"type": "video_url", "video_url": {"url": $(jq -Rs . <<< "${VIDEO_URL}")}}
+        {"type": "text", "text": ${JSON_PROMPT}},
+        {"type": "video_url", "video_url": {"url": ${JSON_VIDEO_URL}}}
       ]
     }
   ],
