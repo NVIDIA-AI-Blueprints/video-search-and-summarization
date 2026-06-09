@@ -73,7 +73,9 @@ operations = []
 
 def plan_rename(src, dst, label):
     if src.exists():
-        if dst.exists() and src != dst:
+        if src == dst:
+            return
+        if dst.exists():
             raise SystemExit(f"refusing to overwrite existing {label}: {dst}")
         operations.append((label, src, dst))
 
