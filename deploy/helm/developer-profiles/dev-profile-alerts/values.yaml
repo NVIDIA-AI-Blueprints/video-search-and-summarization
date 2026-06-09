@@ -427,8 +427,12 @@ rtvi:
   vss-rtvi-cv:
     enabled: true
     profileMode: alerts
+    # Primary detector: env.MODEL_NAME_2D=GDINO (default) or RTDETR; NUM_SENSORS must match TensorRT batch.
+    # Configs/scripts come from this profile (ConfigMap); workload is the shared rtvi-cv subchart.
     downloadModelsFromNgc: true
     downloadModelsFromNgcWaitSeconds: 900
+    waitForKafka:
+      enabled: true
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcOrg: nvidia
@@ -439,6 +443,9 @@ rtvi:
       - model: nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
         sourcePath: mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx
         destPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
+    engineCache:
+      enabled: true
+      subPath: engines
   vss-rtvi-vlm:
     enabled: false
     useSharedNim: false
