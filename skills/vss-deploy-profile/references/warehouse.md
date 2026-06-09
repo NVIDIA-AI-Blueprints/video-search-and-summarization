@@ -992,7 +992,7 @@ Access Points:
 HAProxy:             http://<host_ip>:7777
 Kibana:              http://<host_ip>:7777/kibana
 VST:                 http://<host_ip>:30888/vst/
-Grafana:             http://<host_ip>:3000
+Grafana:             http://<host_ip>:35000
 NvStreamer:          http://<host_ip>:31000
 Video Analytics API: http://<host_ip>:7777/video-analytics-api
 ```
@@ -1013,7 +1013,7 @@ Brev Secure Links — each exposed port requires its own secure-link hostname:
   Port 7777  (HAProxy)    → https://7777-<BREV_ENV_ID>.brevlab.com
   Port 30888 (VST)        → https://30888-<BREV_ENV_ID>.brevlab.com
   Port 31000 (NvStreamer)  → https://31000-<BREV_ENV_ID>.brevlab.com
-  Port 3000  (Grafana)     → https://3000-<BREV_ENV_ID>.brevlab.com
+  Port 35000  (Grafana)     → https://35000-<BREV_ENV_ID>.brevlab.com
 
 HAProxy-routed paths (/, /kibana, /api, /chat, /websocket, /alert-bridge,
 /video-analytics-api, /phoenix, /va-mcp, /static) all go through
