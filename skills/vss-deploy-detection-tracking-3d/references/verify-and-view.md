@@ -192,6 +192,8 @@ If any fails, the deploy is not actually processing streams — go to [`troubles
 http://<HOST_IP>:30888/vst
 ```
 
+Report the `/vst` route as the launch URL. Opening the base port without `/vst` can show the default nginx landing page and is not the VST UI.
+
 Use `HOST_IP` from the `.env` (or whatever the user can actually reach from a browser — see "Browser reachability" below for cloud VMs / corp VPN).
 
 ### Bounding-box overlays (extended profile only)
