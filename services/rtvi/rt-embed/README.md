@@ -445,7 +445,7 @@ Ensure the LVS instance is started with these additional environment variables:
 
 If the MinIO is hosted locally or remotely, set the following environment variables:
 - `AWS_ENDPOINT_URL_S3` (OR) `S3_ENDPOINT_URL` - MinIO endpoint URL (like `http://minio:9000`)
-- `AWS_SECRET_ACCESS_KEY` - MinIO password (like `minio123`)
+- `AWS_SECRET_ACCESS_KEY` - MinIO password
 - `AWS_ACCESS_KEY_ID` - MinIO username (like `minio`)
 
 

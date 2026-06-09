@@ -7,13 +7,14 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-profile`
-- Evaluation date: 2026-06-08
+- Evaluation date: 2026-06-09
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 5 evaluation tasks
-- Attempts per task: 2
+- Attempts per task: 1
 - Pass threshold: 50%
-- Overall verdict: PASS
+- Overall verdict: FAIL
+The skill should be reviewed before NVSkills-Eval publication. **Skill owners should address the applicable findings below and rerun NVSkills-Eval to refresh this benchmark.**
 
 ## Agents Used
 
@@ -54,11 +55,11 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 85% (-15%) |
-| Correctness | 8 | 93% (+68%) | 87% (+52%) |
-| Discoverability | 8 | 92% (+58%) | 84% (+30%) |
-| Effectiveness | 8 | 65% (+59%) | 64% (+58%) |
-| Efficiency | 8 | 75% (+40%) | 77% (+27%) |
+| Security | 5 | 90% (+10%) | 80% (+0%) |
+| Correctness | 5 | 92% (+11%) | 82% (+32%) |
+| Discoverability | 5 | 92% (+15%) | 75% (+24%) |
+| Effectiveness | 5 | 64% (+10%) | 56% (+35%) |
+| Efficiency | 5 | 67% (+15%) | 59% (+20%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -76,13 +77,21 @@ Top findings:
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
+Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 2 total findings.
 
-Notable observations:
+Top findings:
 
-- Context Deduplication: Collected 20 file(s)
-- Inter-Skill Deduplication: Parsed skill 'vss-deploy-profile': 176 char description
-
-## Publication Recommendation
-
-The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.
+- HIGH DUPLICATE/duplicate: Duplicate content found across references/alerts.md and references/base.md and references/lvs-profile.md and references/search.md and references/warehouse-debug.md and references/warehouse.md:
+  "## Endpoints (after deploy)" in references/alerts.md (lines 204-222)
+  vs "## Endpoints (after deploy)" in references/base.md (lines 431-458)
+  vs "## Endpoints (after deploy)" in references/lvs-profile.md (lines 189-204)
+  vs "## Endpoints (after deploy)" in references/search.md (lines 259-277)
+  vs "## Service Access Points" in references/warehouse-debug.md (lines 237-284)
+  vs "### Agent + UI + ingress (`bp_wh` only)" in references/warehouse.md (lines 84-93)
+  vs "### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_PORT>` — default `<EXTERNAL_IP>:7777`)" in references/warehouse.md (lines 140-156)
+  vs "### Direct ports (no HAProxy route — diagnostics only)" in references/warehouse.md (lines 157-172)
+  vs "##### Internal service-to-service URLs (no Brev override needed)" in references/warehouse.md (lines 874-894)
+  vs "## After deploy" in references/warehouse.md (lines 983-1029) (`references/alerts.md:204`)
+- HIGH DUPLICATE/duplicate: Duplicate content found across references/prerequisites.md and references/warehouse.md:
+  "### 2. Docker" in references/prerequisites.md (lines 167-186)
+  vs "#### 2.2 Docker" in references/warehouse.md (lines 478-492) (`references/prerequisites.md:167`)
