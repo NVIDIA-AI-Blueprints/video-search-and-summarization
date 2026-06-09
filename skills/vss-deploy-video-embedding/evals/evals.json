@@ -1,17 +1,27 @@
 [
   {
-    "id": "rtvi-embed-standalone-routing",
-    "question": "I need Cosmos-Embed1 video embeddings without bringing up the full VSS search profile. Which skill applies, and what standalone compose steps, env vars, and profile should I use? Do not run docker compose or pull containers.",
+    "id": "rtvi-embed-routing-deploy",
+    "question": "What skill should I use to deploy video embedding services?",
     "expected_skill": "vss-deploy-video-embedding",
     "expected_script": null,
     "should_trigger": true,
-    "ground_truth": "The agent loads vss-deploy-video-embedding, identifies rtvi-embed-docker-compose.yml with profile bp_developer_search_2d, lists RTVI_EMBED_PORT, VSS_DATA_DIR with data_log/vst/clip_storage, NGC_API_KEY, standalone Kafka/Redis disabled, and the 1200s readiness window — without routing to vss-deploy-profile or other skills.",
+    "ground_truth": "vss-deploy-video-embedding is the skill for deploying and operating the RT-Embed video embedding microservice; the agent should identify and load it rather than vss-deploy-profile or other VSS skills.",
     "expected_behavior": [
-      "The agent reads the vss-deploy-video-embedding skill before answering.",
-      "The agent names rtvi-embed-docker-compose.yml, service rtvi-embed, profile bp_developer_search_2d, and container port 8000 mapped via RTVI_EMBED_PORT.",
-      "The agent mentions staging VSS_DATA_DIR with data_log/vst/clip_storage and disabling Kafka/Redis error paths for standalone mode unless peers are started.",
-      "The agent does not invoke vss-deploy-profile, scripts/dev-profile.sh, vss-search-archive, or captioning/CV skills.",
-      "The agent does not run docker compose up, docker pull, or other deploy commands in the ACES sandbox."
+      "Loads (activates) the vss-deploy-video-embedding skill in response to the question.",
+      "Does not route to vss-deploy-profile, vss-deploy-dense-captioning, vss-search-archive, or detection-tracking skills."
+    ]
+  },
+  {
+    "id": "rtvi-embed-routing-standalone",
+    "question": "Which skill covers standalone RT-Embed or Cosmos-Embed1 deployment without the full VSS search profile?",
+    "expected_skill": "vss-deploy-video-embedding",
+    "expected_script": null,
+    "should_trigger": true,
+    "ground_truth": "vss-deploy-video-embedding covers standalone RT-Embed / Cosmos-Embed1 deployment; the agent should load it and distinguish it from the integrated search profile stack.",
+    "expected_behavior": [
+      "Loads (activates) the vss-deploy-video-embedding skill in response to the question.",
+      "Identifies RT-Embed or Cosmos-Embed1 as the embedding microservice, not the full Elasticsearch search profile.",
+      "Does not invoke vss-deploy-profile for this standalone embedding request."
     ]
   }
 ]
