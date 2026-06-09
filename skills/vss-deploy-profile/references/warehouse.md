@@ -740,6 +740,8 @@ For `bp_wh`, **always ask explicitly** — do not default to `local`:
 > - **remote** — point at an external LLM endpoint via `LLM_BASE_URL` (e.g. `https://integrate.api.nvidia.com/v1`). No LLM NIM deployed. Requires `NVIDIA_API_KEY`.
 > - **none** — disable LLM entirely."
 
+`vst-rtvi-vlm` (RTVI VLM) is **always** deployed locally for `bp_wh_2d`.
+
 ```bash
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
 ```
@@ -935,7 +937,7 @@ COMPOSE_PROFILES=bp_wh_2d,llm_local_nvidia-nemotron-nano-9b-v2
 
 > **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse `.env`. The variable is defined as a template inside `.env` and is not expanded by `--env-file` in all Docker Compose versions. Set it as a literal value directly in `.env` (e.g. `COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2`) and also `export COMPOSE_PROFILES=bp_wh_2d,...` in the shell before running `docker compose up`.
 
-> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.2.0"` and uncomment `PERCEPTION_TAG="3.2.0-sbsa"`. Apply the same pattern to `BEV_FUSION_MV3DT_TAG` (mv3dt only), `RTVI_VLM_IMAGE_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG`.
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.2.0"` and uncomment `PERCEPTION_TAG="3.2.0-sbsa"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
 
 ---
 
