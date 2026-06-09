@@ -15,10 +15,10 @@ Two specs ship with the skill:
                              DEPLOY trial first in the same execution
                              group)
 
-Both specs target `L40S` with mode `standalone`. Each spec's `expects`
-list contains multiple steps; the adapter emits a `step-<N>/` subdir
-per step so Harbor's dispatch loop runs them in order with
-skip-on-prior-fail.
+The current CI specs target `RTXPRO6000BW` with mode `standalone`. Each
+spec's `expects` list contains multiple steps; the adapter emits a
+`step-<N>/` subdir per step so Harbor's dispatch loop runs them in order
+with skip-on-prior-fail.
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-2d/generate.py \\
