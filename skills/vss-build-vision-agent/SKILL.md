@@ -381,7 +381,6 @@ skills/vss-build-vision-agent/
 ├── CONTRIBUTING.md                                    # (planned) how to add a new microservice (see Phase 0 deliverables)
 ├── eval/
 │   ├── in-1-streaming-dense-captioning.json      # priority eval — gates Phase 4 rollout
-│   ├── rt-cv-person-detection-rtdetr.json             # RT-CV detection/tracking eval
 │   ├── rt-cv-person-detection-rtdetr-harbor.json      # Harbor RT-CV eval
 │   └── ...                                            # follow-on evals as Phase 1c services land
 ├── references/
