@@ -54,19 +54,20 @@ Ports that should NOT get their own secure link (they're behind the nginx proxy)
 
 Before `docker compose up`, set the Brev secure-link overrides in the profile
 `generated.env` (the skill's per-deploy working copy — see ``SKILL.md`` (see
-`../SKILL.md`) Step 1c/1d). **`EXTERNAL_IP` alone is not enough.** Only
-`VSS_PUBLIC_HOST` derives from `EXTERNAL_IP`; the profile `.env` ships
+`../SKILL.md`) Step 1c/1d). **`EXTERNAL_IP` alone is not enough** — the Brev secure
+link is served over **HTTPS on 443**, but the profile `.env` ships
 `VSS_PUBLIC_HTTP_PROTOCOL=http`, `VSS_PUBLIC_WS_PROTOCOL=ws`, and
-`VSS_PUBLIC_PORT=${HAPROXY_PORT}` (7777) — but the Brev secure link is served over
-**HTTPS on 443**. Leaving those at the defaults makes the agent emit
-`http://…:7777` API/WS URLs from an `https://` page → the browser blocks them as
-mixed content. So override the protocol and port too:
+`VSS_PUBLIC_PORT=${HAPROXY_PORT}` (7777). Leaving those at the defaults makes the
+agent emit `http://…:7777` UI/API/WS URLs from an `https://` page → the browser
+blocks them as mixed content. Set the host, protocol, and port together:
 
 ```bash
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
 GEN=deploy/docker/developer-profiles/dev-profile-<profile>/generated.env
+host="7777-${brev_env_id}.brevlab.com"
 sed -i \
-  -e "s|^EXTERNAL_IP=.*|EXTERNAL_IP=7777-${brev_env_id}.brevlab.com|" \
+  -e "s|^EXTERNAL_IP=.*|EXTERNAL_IP=${host}|" \
+  -e "s|^VSS_PUBLIC_HOST=.*|VSS_PUBLIC_HOST=${host}|" \
   -e "s|^VSS_PUBLIC_HTTP_PROTOCOL=.*|VSS_PUBLIC_HTTP_PROTOCOL=https|" \
   -e "s|^VSS_PUBLIC_WS_PROTOCOL=.*|VSS_PUBLIC_WS_PROTOCOL=wss|" \
   -e "s|^VSS_PUBLIC_PORT=.*|VSS_PUBLIC_PORT=443|" \
