@@ -33,15 +33,15 @@ If further investigation is required, refer to the full components from the `vss
   If not, offer the user the option to ingest them via the full pipeline video ingest handshake below if they are video files (or `rtsp-streams/add` for RTSP streams).
 
 - If a video source in the system has no embeddings, it means it has not been ingested through the full pipeline. STOP and ask user if video can be re-ingested and if user can provide video source. If yes, carefully follow:
-    - First delete it (avoid two copies) with indexes cleanup:
-```bash
-# For video files
-# video_id = sensor / video UUID, same ID as in VST
-curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/videos/<video_id>" | jq .
+    - First delete it through the agent backend (avoid two copies; cleans indexes/embeddings too):
+      ```bash
+      # For video files
+      # video_id = sensor / video UUID, same ID as in VST
+      curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/videos/<video_id>" | jq .
 
-# For RTSP streams
-curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | jq .
-```
+      # For RTSP streams
+      curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | jq .
+      ```
     - Then re-ingest the video source using the **File upload** or **RTSP stream** flow in the main SKILL.md under *Ingestion prerequisite*. Follow those steps exactly — they include the required nvstreamer chunked-upload headers and metadata.
 
 - Further verifications to determine if returned video sources match the user query. Each step to go deeper:
