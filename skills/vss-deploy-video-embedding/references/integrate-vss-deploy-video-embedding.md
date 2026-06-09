@@ -197,7 +197,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
       - "rtvi-triton-model-repo:/tmp/triton_model_repo"
-      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:<container-clip-storage-mount>"
+      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos"
     ipc: host
     ulimits:
       memlock:
@@ -220,6 +220,8 @@ volumes:
   rtvi-ngc-model-cache:
   rtvi-triton-model-repo:
 ```
+
+The clip-storage volume line matches `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 ## Authentication & Authorization
 

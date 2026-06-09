@@ -8,6 +8,7 @@
       "Loads vss-deploy-video-embedding and works from deploy/docker/services/rtvi/rtvi-embed.",
       "Uses rtvi-embed-docker-compose.yml with profile bp_developer_search_2d to start only rtvi-embed.",
       "Sets VSS_DATA_DIR with data_log/vst/clip_storage pre-created, disables Kafka and Redis error messages for standalone mode, and does not invoke vss-deploy-profile or scripts/dev-profile.sh.",
+      "Uses sudo -n for the chown ownership step on CLIP_STORAGE_DIR and stops with the printed manual command if passwordless sudo is unavailable, without falling back to interactive sudo or world-writable permissions.",
       "Does not print plaintext API tokens or other secrets."
     ]
   },
