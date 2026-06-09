@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Use to ask the VSS agent's video_understanding tool a fresh visual question about a recorded clip. Not for prior tool output, search hits, or metadata-answerable questions.
+description: Use this skill to ask the VSS agent's video_understanding tool a fresh visual question about a recorded clip. Not for prior tool output, search hits, or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -10,7 +10,7 @@ metadata:
 
 # Video QnA using VLM through VSS Agent
 
-Use this skill when you need details about the video which requires VLM to look at the video frames — for example the agent has **no** usable prior answer and needs a **fresh look at the pixels** for a specific clip. 
+Use this skill when you need details about the video which requires VLM to look at the video frames — for example the agent has **no** usable prior answer and needs a **fresh look at the pixels** for a specific clip.
 
 ---
 
