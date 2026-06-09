@@ -21,7 +21,7 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [Deploy Video Analytics API Service](references/deploy-video-analytics-api-service.md) <br>
 - [Configuration Guide](references/configuration.md) <br>
-- [NGC Credentials](references/ngc.md) <br>
+- [NGC API Key and Registry Login](references/ngc-api-key-registry-login.md) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
