@@ -33,19 +33,21 @@ Skip when:
 - Q1 = `sample` (calibration ships with the correct names already).
 - The user supplied a calibration that already uses `Camera, Camera_01..N`.
 
-Idempotent — the block below is a no-op when the first sensor is already named `Camera`.
+Idempotent and guarded: the block below is a no-op when the first sensor is already named `Camera`. It defaults to **dry-run** and prints the planned changes. Review the plan first; to apply the rename, re-run it with `APPLY_RENAME=1`. When applied, it writes `calibration.pre-normalize.json` and `camera-normalization-manifest.json` under `CAL_DIR` before changing files in place.
 
 ```bash
 DATASET="${SAMPLE_VIDEO_DATASET:?}"
 CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
 VIDEO_DIR="${VSS_DATA_DIR}/videos/${DATASET}"
 
+APPLY_RENAME="${APPLY_RENAME:-0}" \
 VSS_APPS_DIR="${VSS_APPS_DIR}" VSS_DATA_DIR="${VSS_DATA_DIR}" \
   SAMPLE_VIDEO_DATASET="${DATASET}" python3 - <<'PY'
-import json, os
+import json, os, shutil
 from pathlib import Path
 
 DATASET = os.environ["SAMPLE_VIDEO_DATASET"]
+APPLY = os.environ.get("APPLY_RENAME") == "1"
 CAL_DIR = Path(os.environ["VSS_APPS_DIR"]) / "industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data" / DATASET
 VID_DIR = Path(os.environ["VSS_DATA_DIR"]) / "videos" / DATASET
 
@@ -67,13 +69,19 @@ for i, s in enumerate(d["sensors"]):
     new = "Camera" if i == 0 else f"Camera_{i:02d}"
     remap[s["id"]] = new
 
+operations = []
+
+def plan_rename(src, dst, label):
+    if src.exists():
+        if dst.exists() and src != dst:
+            raise SystemExit(f"refusing to overwrite existing {label}: {dst}")
+        operations.append((label, src, dst))
+
 # 1. Rename video files (extension-agnostic)
 for old_name, new_name in remap.items():
     for ext in ("mp4", "m4v", "mkv", "MP4"):
-        p = VID_DIR / f"{old_name}.{ext}"
-        if p.exists():
-            p.rename(VID_DIR / f"{new_name}.{ext}")
-            print(f"video: {p.name} -> {new_name}.{ext}")
+        src = VID_DIR / f"{old_name}.{ext}"
+        plan_rename(src, VID_DIR / f"{new_name}.{ext}", "video")
 
 # 2. Rename camInfo files — AMC default (camInfo_NN.yml), sensor-id-named (<id>.yml),
 #    or extension variants. Pick the first that exists per sensor index.
@@ -83,18 +91,37 @@ for i, (old_name, new_name) in enumerate(remap.items()):
         f"camInfo_{i:02d}.yml", f"camInfo_{i:02d}.yaml",
         f"{old_name}.yml",     f"{old_name}.yaml",
     ):
-        p = caminfo / cand
-        if p.exists():
-            p.rename(caminfo / f"{new_name}.yml")
-            print(f"camInfo: {cand} -> {new_name}.yml")
+        src = caminfo / cand
+        if src.exists():
+            plan_rename(src, caminfo / f"{new_name}.yml", "camInfo")
             break
+
+print("camera name remap:", remap)
+for label, src, dst in operations:
+    print(f"{label}: {src.name} -> {dst.name}")
+print("calibration.json: sensor IDs will be rewritten")
+
+if not APPLY:
+    print("dry-run only — re-run with APPLY_RENAME=1 to apply these changes")
+    raise SystemExit(0)
+
+backup = CAL_DIR / "calibration.pre-normalize.json"
+if not backup.exists():
+    shutil.copy2(cal_path, backup)
+manifest = CAL_DIR / "camera-normalization-manifest.json"
+manifest.write_text(json.dumps({"dataset": DATASET, "remap": remap, "cal_dir": str(CAL_DIR), "video_dir": str(VID_DIR)}, indent=2))
+
+for label, src, dst in operations:
+    src.rename(dst)
 
 # 3. Rewrite sensor IDs and any cross-references (e.g. globalCoordinates sibling refs)
 txt = json.dumps(d, indent=2)
-for old, new in remap.items():
-    txt = txt.replace(f'"{old}"', f'"{new}"')
+for old, new_name in remap.items():
+    txt = txt.replace(f'"{old}"', f'"{new_name}"')
 cal_path.write_text(txt)
 print("renamed sensor IDs to:", [s["id"] for s in json.loads(txt)["sensors"]])
+print(f"backup: {backup}")
+print(f"manifest: {manifest}")
 PY
 ```
 

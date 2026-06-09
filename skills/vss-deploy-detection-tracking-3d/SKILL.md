@@ -1,19 +1,12 @@
 ---
 name: vss-deploy-detection-tracking-3d
 description: >
-  Deploy and operate the RTVI-CV-3D stack (also known as MV3DT, Multi-View 3D
-  Tracking, or RTVI-CV-MV3DT) — per-camera DeepStream perception plus BEV
-  Fusion over multiple calibrated cameras. Applies to requests such as
-  "deploy RTVI-CV-3D", "deploy rtvi-cv-3d", "deploy MV3DT", "deploy multi-view
-  3D tracking", "deploy rtvi-cv-mv3dt", "enable multi-camera tracking",
-  "enable multi camera tracking", "set up multi-camera tracking", "multi-camera
-  tracking", "run RTVI-CV-3D on my videos", "run MV3DT on my videos", "run
-  RTVI-CV-3D / MV3DT on RTSP", "run on the sample dataset", "set up 3D
-  tracking", or provides a 4-camera warehouse video/RTSP set. Routes between
-  sample-data, custom-videos, and custom-RTSP flows; auto-chains to
-  `vss-generate-video-calibration` when calibration data is missing. Not for
-  the full warehouse blueprint with agents / LLM / VLM (use `vss-deploy-profile`)
-  or 2D single-camera detection (use `vss-deploy-detection-tracking-2d`).
+  Deploy and operate RTVI-CV-3D / MV3DT multi-camera 3D tracking: per-camera
+  DeepStream perception plus BEV Fusion over calibrated cameras. Supports the
+  bundled sample dataset, custom video files, and RTSP streams, and chains to
+  `vss-generate-video-calibration` when calibration is missing. Use
+  `vss-deploy-profile` for the full warehouse blueprint and
+  `vss-deploy-detection-tracking-2d` for single-camera 2D detection.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -28,6 +21,12 @@ Deploy and operate the RTVI-CV-3D / MV3DT stack — per-camera DeepStream percep
 ## Instructions
 
 Work top-to-bottom: answer the routing questions (Q0–Q3) under [Routing](#routing), then follow the reference for the chosen path. Detailed step-by-step procedures live in `references/` (deploy, calibration chain, camera configuration, verification, teardown, troubleshooting).
+
+## Examples
+
+- Enable multi-camera tracking on the sample dataset.
+- Deploy RTVI-CV-3D on my videos here: `<path/to/videos>`.
+- Run MV3DT on RTSP streams after calibration.
 
 # VSS Deploy Detection & Tracking — 3D (RTVI-CV-3D)
 
@@ -103,7 +102,7 @@ Locate `video-search-and-summarization/` on disk. All compose commands run from 
 
 ### 2. NGC CLI + key
 
-`$NGC_CLI_API_KEY` must be set. Both `nvidia/vss-core/*` and `nvidia/vss-core/*` are valid orgs depending on which the user's key resolves to. See `vss-deploy-profile/references/ngc.md` for setup if missing.
+`$NGC_CLI_API_KEY` must be set and must have access to `nvidia/vss-core/*` images. See `vss-deploy-profile/references/ngc.md` for setup if missing.
 
 If the user previously ran `ngc config set` but `$NGC_CLI_API_KEY` isn't exported in this shell, the key is already on disk:
 
