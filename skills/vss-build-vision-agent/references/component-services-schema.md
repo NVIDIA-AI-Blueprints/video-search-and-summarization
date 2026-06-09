@@ -43,7 +43,7 @@ component_services:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `key` | yes | Exact upstream compose service-key as it appears in the upstream YAML (the dict-key under `services:`). Must match the literal upstream string — Step 6.5 string-matches against compose service-keys when applying Patch 1. |
+| `key` | yes | Exact upstream compose service-key as it appears in the upstream YAML (the dict-key under `services:`). Must match the literal upstream string — Step 6.5 string-matches against compose service-keys when applying Patch 1. Do not abbreviate or derive this from `container_name`; e.g. `perception-2d-fusion` is valid, but `perception-2d` is not. |
 | `file` | yes | Repo-root-relative path to the upstream compose file that defines this service. Used by Step 6.5 to scope the patch to one file. |
 | `role` | recommended | One-line description for human readers. Not parsed. |
 | `required` | optional (default `true`) | When `false`, Step 6.5 of the skill MAY drop the service from the allow-list if Step 4 architecture choices exclude it. Use sparingly. |
@@ -70,6 +70,8 @@ services:
 ```
 
 The sidecar is the **single source of truth** for which services get patched in Step 6.5. It is generated, committed nowhere, and overwritten on every generation.
+
+Before patching, validate each sidecar entry by loading the referenced compose file and confirming `services.<key>` exists. A missing key is a generation error, not an invitation to patch the closest-looking service. Stop and correct the sidecar.
 
 ## Patcher behavior (Step 6.5)
 

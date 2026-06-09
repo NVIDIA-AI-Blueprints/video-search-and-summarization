@@ -4,6 +4,8 @@ Once the user confirms the architecture, Step 4 synthesizes a flat allow-list of
 
 Write the result to `<BUILD_DIR>/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time.
 
+Every `services[].key` value must be copied exactly from the selected `component_services:` block and must exist as a literal `services.<key>` entry in the referenced compose file. Do not shorten or infer keys from prose or `container_name`; for RT-CV, `perception-2d-fusion` must remain `perception-2d-fusion`, not `perception-2d`.
+
 The full sidecar schema lives in [[component-services-schema]] (`references/component-services-schema.md`).
 
 ## Sidecar example (IN-1)
@@ -82,6 +84,7 @@ When the harness is not included, omit the key entirely.
 - For each `variants:` block, exactly one `cases:` entry is contributed — the case-name matching the chosen `deployment_shape` for that variant's selector key. If no case matches, the synthesizer errors and reports the variant + the chosen shape.
 - If two microservices both contribute the same `(key, file)` pair, the entry is deduplicated to one row.
 - If two microservices contribute the same `key` with **different** `file:` paths, that is a catalog inconsistency — error and stop.
+- Any `(key, file)` pair that does not resolve to an actual service key in the referenced upstream compose file is a generation error — stop and correct the sidecar before Step 6.5.
 - `container_name` collisions are impossible by construction as long as each `variants:` block resolves to at most one service-key per `container_name`. The synthesizer does NOT need a separate dedup pass.
 
 Persist the sidecar before invoking Step 6 (which expects the flag chosen here to be reused).
