@@ -83,7 +83,7 @@ When a sensor returns 503 (No Cluster) on recorder/livestream endpoints or 504 (
 Container : centralizedb
 DB        : nvcentralizedb
 User      : vios
-Password  : nvidia123
+Password  : changeme
 ```
 
 ```bash

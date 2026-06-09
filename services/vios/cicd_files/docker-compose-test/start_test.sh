@@ -413,7 +413,7 @@ update_docker_compose() {
     cat > "$test_compose_file" << 'EOL'
 services:
   test:
-    image: gitlab-master.nvidia.com:5005/l4tmm/vms_shim/bdd_tests:v1.9.5_x86
+    image: ${BDD_TEST_IMAGE:-bdd_tests:v1.9.5_x86}
     network_mode: host
     container_name: bdd_test
     group_add:
@@ -433,16 +433,16 @@ services:
       sensor-ms:
         condition: service_healthy
     environment:
-      - DASHBOARD_API_ENDPOINT=${DASHBOARD_API_ENDPOINT:-http://10.111.53.164:8000}
+      - DASHBOARD_API_ENDPOINT=${DASHBOARD_API_ENDPOINT:-http://localhost:8000}
       - GIT_BRANCH=${GIT_BRANCH:-unknown}
       - GIT_COMMIT=${GIT_COMMIT:-}
       - MICROSERVICE_NAME=${MICROSERVICE_NAME:-VIOS}
       - DASHBOARD_METADATA=${DASHBOARD_METADATA:-{}}
       - PERF_CONFIG_ID=${PERF_CONFIG_ID:-rtx6000pro-file}
       - PERF_RELEASE=${PERF_RELEASE:-}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-10.111.52.248:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-admin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-vss_automation}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-localhost:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
     entrypoint: []
     command:
       - /bin/bash

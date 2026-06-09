@@ -641,7 +641,7 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.cloud_storage_type = data.get("cloud_storage_type", StorageConstants::MINIO_TYPE).asString();
         m_vmsConfig.cloud_storage_endpoint = data.get("cloud_storage_endpoint", "http://127.0.0.1:9000").asString();
         m_vmsConfig.cloud_storage_access_key = data.get("cloud_storage_access_key", "admin").asString();
-        m_vmsConfig.cloud_storage_secret_key = data.get("cloud_storage_secret_key", "nvidia123!").asString();
+        m_vmsConfig.cloud_storage_secret_key = data.get("cloud_storage_secret_key", "").asString();
         m_vmsConfig.cloud_storage_bucket = data.get("cloud_storage_bucket", "videos").asString();
         m_vmsConfig.cloud_storage_region = data.get("cloud_storage_region", "").asString();
         m_vmsConfig.cloud_storage_use_ssl = data.get("cloud_storage_use_ssl", false).asBool();

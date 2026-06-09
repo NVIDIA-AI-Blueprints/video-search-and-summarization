@@ -52,7 +52,7 @@ MCP_GATEWAY_ENABLE_JSONRPC_LOGGING=false
 # Host validation is disabled by default for ease of use
 # For production, enable host validation:
 # MCP_GATEWAY_DISABLE_HOST_CHECK=false
-# MCP_GATEWAY_ALLOWED_HOSTS=10.41.26.58,192.168.1.100
+# MCP_GATEWAY_ALLOWED_HOSTS=<HOST>,192.168.1.100
 ```
 
 ### Configuration Options
@@ -67,7 +67,7 @@ MCP_GATEWAY_ENABLE_JSONRPC_LOGGING=false
 | `MCP_GATEWAY_SERVER_PORT` | Port for MCP server (HTTP mode) | `8000` |
 | `MCP_GATEWAY_LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
 | `MCP_GATEWAY_ENABLE_JSONRPC_LOGGING` | Enable detailed JSON RPC message logging | `false` |
-| `MCP_GATEWAY_ALLOWED_HOSTS` | Comma-separated list of allowed IP addresses/hostnames for HTTP transport (e.g., `10.41.26.58,192.168.1.100`). Only used when `DISABLE_HOST_CHECK=false`. | `None` |
+| `MCP_GATEWAY_ALLOWED_HOSTS` | Comma-separated list of allowed IP addresses/hostnames for HTTP transport (e.g., `<HOST>,192.168.1.100`). Only used when `DISABLE_HOST_CHECK=false`. | `None` |
 | `MCP_GATEWAY_DISABLE_HOST_CHECK` | Disable Host header validation. Set to `false` and configure `ALLOWED_HOSTS` for production. | `true` |
 | `MCP_GATEWAY_SENSOR_LIST_FORCE_REFRESH` | Add `forceRefresh=true` to sensor list API calls | `true` |
 | `MCP_GATEWAY_VIDEO_URL_DISABLE_AUDIO` | Add `disableAudio=true` to video URL API calls | `true` |

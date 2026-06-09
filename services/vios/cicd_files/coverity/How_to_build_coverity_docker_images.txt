@@ -11,8 +11,8 @@ Sync above paths using the commands:
 
 2) Container image names are set currently as below:
 
-for x86 : gitlab-master.nvidia.com:5005/l4tmm/vms_shim/vms_shim_devel_coverity:x86_20.04_base_image
-for aarch64: gitlab-master.nvidia.com:5005/l4tmm/vms_shim/vms_shim_devel_coverity:jetson_cross_compiler_rel-34
+for x86 : <INTERNAL_REGISTRY>/vms_shim_devel_coverity:x86_20.04_base_image
+for aarch64: <INTERNAL_REGISTRY>/vms_shim_devel_coverity:jetson_cross_compiler_rel-34
 
 3) Run the following commands to build coverity container for
 a platform (x86 or aarch64).
@@ -31,7 +31,7 @@ coverity on the synced branch.
 e.g.
 
 cd vms_shim
-docker run -it -v $(pwd):/root gitlab-master.nvidia.com:5005/l4tmm/vms_shim/vms_shim_devel_coverity:x86_20.04_base_image
+docker run -it -v $(pwd):/root <INTERNAL_REGISTRY>/vms_shim_devel_coverity:x86_20.04_base_image
 
 # Inside container
 cd /root/cicd_files/
