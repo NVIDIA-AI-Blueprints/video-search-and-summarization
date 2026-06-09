@@ -44,7 +44,7 @@ curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/s
 sudo apt-get install gitlab-runner
 
 sudo gitlab-runner register  \
-	--url https://gitlab-master.nvidia.com  \
+	--url https://<INTERNAL_GITLAB_HOST>  \
 	--token <TOKEN>
 ```
 
@@ -56,23 +56,23 @@ If needed to run more concurrent jobs, change settings in "/etc/gitlab-runner/co
 * Gitlab runners are running on following machines:
 
 1. VM machine
-    - server : hqnvumberlin150.nvidia.com
-    - Username: svcumber
-    - Password: fKny+w6$
+    - server : <build-server-host>
+    - Username: <username>
+    - Password: <password>
     - gitlab-runners : 
         1. docker -  
         2. host - 
 
 2. Dev Sanity machine
-    - IP address : 10.24.217.28
-    - Username : rbhagwat
-    - passowrd : l4tmm
+    - IP address : <HOST>
+    - Username : <username>
+    - passowrd : <password>
     - gitlab-runners
         1. host1
 
 3. VST Dev machine
-    - IP address : 10.24.140.196
-    - Username : vst-dev
-    - passowrd : nvidia
+    - IP address : <HOST>
+    - Username : <username>
+    - passowrd : <password>
     - gitlab-runners
         1. docker

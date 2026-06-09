@@ -37,7 +37,7 @@ The agent reads the test plan **dynamically from the xlsx at runtime** — it do
 ```
 /vios-dev-sanity                                               # parse xlsx, show test plan, await instruction
 /vios-dev-sanity run all                                       # auto-detect deployment, execute all tests
-/vios-dev-sanity run all --url http://10.41.26.58:30888/vst   # run against a specific deployment
+/vios-dev-sanity run all --url http://<HOST>:30888/vst   # run against a specific deployment
 /vios-dev-sanity run all --filter WebRTC                       # run only WebRTC category tests
 /vios-dev-sanity run all --filter "Sensor Management"          # run only Sensor Management tests
 /vios-dev-sanity run all --xlsx /path/to/custom.xlsx           # use a different xlsx file
@@ -49,8 +49,8 @@ The agent reads the test plan **dynamically from the xlsx at runtime** — it do
 
 Explicitly target a specific VIOS deployment. The agent normalizes it automatically (strips hash fragment and trailing slash):
 ```
---url http://10.41.26.58:30888/vst/#/dashboard   # accepted
---url http://10.41.26.58:30888/vst               # accepted
+--url http://<HOST>:30888/vst/#/dashboard   # accepted
+--url http://<HOST>:30888/vst               # accepted
 ```
 
 **If omitted**: the agent auto-detects a running local deployment by probing `localhost`, `127.0.0.1`, and all local IPv4 addresses on port 30888. If nothing is found, it starts a deployment automatically using the `vios-deployment` skill.

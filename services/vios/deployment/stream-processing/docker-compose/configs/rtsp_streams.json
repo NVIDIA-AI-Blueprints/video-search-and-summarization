@@ -3,7 +3,7 @@
     [
         {
             "enabled":false,
-            "stream_in":"rtsp://admin:nvidia123@10.24.217.246:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif",
+            "stream_in":"rtsp://<user>:<password>@<camera-ip>:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif",
             "name":"Amcrest"
         },
         {
