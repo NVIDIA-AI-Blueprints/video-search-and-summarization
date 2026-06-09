@@ -45,7 +45,7 @@
       "query": "Find a person wearing a white jacket climbing a ladder in sample-warehouse-ladder. Agent backend is on localhost. You are pre-authorized to run the Verification Step autonomously, without asking for confirmation.",
       "checks": [
         "The agent issued exactly one `POST http://localhost:8000/generate` call AND no parallel calls with separate underlying embed / attribute endpoints",
-        "The POST /generate request body contained an `input_message` that preserves both halves of the fused query \u2014 it contains the appearance attribute (`red jacket`) AND the action (`running`) \u2014 the agent did NOT silently drop one half to simplify the search",
+        "The POST /generate request body contained an `input_message` that preserves both halves of the fused query \u2014 it contains the appearance attribute (`white jacket`) AND the action (`climbing a ladder`) \u2014 the agent did NOT silently drop one half to simplify the search",
         "The /generate response returned HTTP 200 with a body that contains a non-empty array of search hits (each hit has similarity score and timestamped clip metadata)",
         "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers \u2014 not a raw JSON dump, not a chat-style bullet list",
         "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the /generate response \u2014 no fabricated timestamps, no paraphrased similarity scores",
