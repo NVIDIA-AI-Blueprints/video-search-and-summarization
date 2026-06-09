@@ -7,11 +7,11 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-generate-video-report`
-- Evaluation date: 2026-06-08
+- Evaluation date: 2026-06-09
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 3 evaluation tasks
-- Attempts per task: 2
+- Attempts per task: 1
 - Pass threshold: 50%
 - Overall verdict: PASS
 
@@ -54,25 +54,25 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 6 | 100% (+0%) | 100% (+17%) |
-| Correctness | 6 | 61% (-11%) | 52% (+15%) |
-| Discoverability | 6 | 20% (-8%) | 28% (+9%) |
-| Effectiveness | 6 | 69% (-13%) | 62% (+26%) |
-| Efficiency | 6 | 34% (+10%) | 44% (+12%) |
+| Security | 3 | 100% (+33%) | 100% (+0%) |
+| Correctness | 3 | 60% (-17%) | 59% (+23%) |
+| Discoverability | 3 | 29% (-31%) | 22% (+3%) |
+| Effectiveness | 3 | 67% (-9%) | 67% (+37%) |
+| Efficiency | 3 | 42% (-12%) | 33% (-0%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 9 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 7 total findings.
 
 Top findings:
 
-- MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-generate-video-report/SKILL.md`)
-- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Instructions' (`skills/vss-generate-video-report/SKILL.md`)
-- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-generate-video-report/SKILL.md`)
-- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-report/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SDI-2): The skill uses `docker exec vss-agent env` to read environment variables from a running container. While the purpose is  (`SKILL.md:105`)
+- MEDIUM SECURITY/Unknown (SDI-2): The skill executes `docker exec vss-agent sh -lc '...'` to read environment variables from a running container. While th (`SKILL.md:145`)
+- MEDIUM SECURITY/Unknown (SDI-2): The skill executes arbitrary Python code inside the `vss-agent` Docker container via `docker exec vss-agent python3 -c ' (`SKILL.md:221`)
+- LOW QUALITY/quality_discoverability: No '## Purpose' section (`skills/vss-generate-video-report/SKILL.md`)
+- LOW QUALITY/quality_reliability: No prerequisites/requirements documented (`skills/vss-generate-video-report/SKILL.md`)
+- LOW QUALITY/quality_reliability: No limitations documented (`skills/vss-generate-video-report/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
@@ -81,8 +81,8 @@ Tier 2 validation passed with observations. NVSkills-Eval ran 2 checks and found
 Top findings:
 
 - LOW DUPLICATE/duplicate: Duplicate content found within SKILL.md:
-  "# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`)." in SKILL.md (lines 127-127)
-  vs "# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning." in SKILL.md (lines 128-128) (`SKILL.md:127`)
+  "# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`)." in SKILL.md (lines 181-181)
+  vs "# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning." in SKILL.md (lines 182-182) (`SKILL.md:181`)
 
 ## Publication Recommendation
 
