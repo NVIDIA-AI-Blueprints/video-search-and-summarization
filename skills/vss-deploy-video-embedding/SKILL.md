@@ -88,7 +88,7 @@ if ! sudo -n chown -R 1001:1001 "$CLIP_STORAGE_DIR"; then
   echo "ERROR: passwordless sudo is unavailable for host-path ownership." >&2
   echo "Ask the host owner to run: sudo chown -R 1001:1001 \"$CLIP_STORAGE_DIR\"" >&2
   echo "Do not work around this with chmod 777 or world-writable permissions." >&2
-  exit 1
+  return 1 2>/dev/null || exit 1
 fi
 ```
 
