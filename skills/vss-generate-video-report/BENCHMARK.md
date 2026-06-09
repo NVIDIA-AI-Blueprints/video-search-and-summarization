@@ -64,7 +64,7 @@ Score values show skill-assisted performance. Values in parentheses show uplift 
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 9 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 7 total findings.
 
 Top findings:
 
@@ -81,8 +81,8 @@ Tier 2 validation passed with observations. NVSkills-Eval ran 2 checks and found
 Top findings:
 
 - LOW DUPLICATE/duplicate: Duplicate content found within SKILL.md:
-  "# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`)." in SKILL.md (lines 127-127)
-  vs "# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning." in SKILL.md (lines 128-128) (`SKILL.md:127`)
+  "# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`)." in SKILL.md (lines 181-181)
+  vs "# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning." in SKILL.md (lines 182-182) (`SKILL.md:181`)
 
 ## Publication Recommendation
 
