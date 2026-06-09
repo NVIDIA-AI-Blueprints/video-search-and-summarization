@@ -206,7 +206,7 @@ In the VST UI, enable overlays via the player's options menu — by default the 
 
 ### Tune BEV `group` / `region` for better overlays
 
-If the BEV top-view floor map looks **stretched or squished**, or overlays sit off to one side, the `group`/`region` values in `calibration.json` (and/or the `Top.png` aspect) need refining. For API-only AMC runs these were set to schema-valid **placeholders** by [`calibration-workflow.md` § 4a](calibration-workflow.md) — enough to boot the stack, but not geometrically accurate. This is expected; tune them now that everything is deployed.
+If the BEV top-view floor map looks **stretched or squished**, or overlays sit off to one side, the `group`/`region` values in `calibration.json` (and/or the `Top.png` aspect) need refining. For API-only AMC/VGGT runs these were set to schema-valid **placeholders** by [`calibration-workflow.md` § 4a](calibration-workflow.md) — enough to boot the stack, but not geometrically accurate. This is expected; tune them now that everything is deployed.
 
 Surface the current values to the user first:
 
