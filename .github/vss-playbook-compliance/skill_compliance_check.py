@@ -64,11 +64,11 @@ Playbook rule                                  Compliance code(s)
 Description: "Use when…" with ≥ 3 phrases       FM-010
 Description: not implementation-led             FM-011
 
-NV-BASE alignment
------------------
-SEC-001  Credential / secret scanning        (NV-BASE §2.1 — Gitleaks equivalent)
-SEC-002  PII detection (emails, IPs)         (NV-BASE §2.2 — data residency)
-SEC-003  Unicode / Trojan-Source smuggling   (NV-BASE §2.3 — supply-chain attack)
+Static security checks
+----------------------
+SEC-001  Credential / secret scanning
+SEC-002  PII detection (emails, IPs)
+SEC-003  Unicode / Trojan-Source smuggling
 """
 
 import argparse
@@ -308,6 +308,7 @@ def parse_frontmatter(content: str) -> Optional[dict]:
     result: dict = {}
     current_key: Optional[str] = None
     collecting: List[str] = []
+    block_scalar = False
 
     def flush():
         if current_key is not None:
@@ -317,17 +318,33 @@ def parse_frontmatter(content: str) -> Optional[dict]:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        # Continuation of a block scalar (indented line under a key ending with >)
-        if current_key and line.startswith((" ", "\t")) and ":" not in line:
-            collecting.append(stripped)
+
+        if current_key and block_scalar:
+            if line.startswith((" ", "\t")):
+                collecting.append(stripped)
+                continue
+            flush()
+            collecting = []
+            current_key = None
+            block_scalar = False
+
+        # Ignore nested mapping entries such as metadata.version; this parser
+        # only needs top-level scalar fields like name and description.
+        if line.startswith((" ", "\t")):
             continue
+
         flush()
         collecting = []
         current_key = None
+        block_scalar = False
         if ":" in stripped:
             key, _, val = stripped.partition(":")
             current_key = key.strip()
-            val = val.strip().lstrip(">").strip().strip("\"'")
+            val = val.strip().strip("\"'")
+            if val in {">", "|", ">-", "|-", ">+", "|+"}:
+                block_scalar = True
+                continue
+            val = val.lstrip(">").strip().strip("\"'")
             if val:
                 collecting.append(val)
 
@@ -746,7 +763,7 @@ def check_security(skill_path: Path, result: SkillResult) -> None:
                 WARNING, "SEC-002",
                 f"Possible {pii_type} found in skill file. "
                 f"Do not embed real PII in skills — use anonymised examples or env-var "
-                f"references instead (NV-BASE §2.2). Value: «{snippet}»",
+                f"references instead. Value: «{snippet}»",
                 file=str(rel),
                 line=lineno,
             ))

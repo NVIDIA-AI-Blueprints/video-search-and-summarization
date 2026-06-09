@@ -220,6 +220,14 @@ agent:
         value: ''
       - name: OPENAI_API_KEY
         value: ''
+      # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
+      # deploy/docker/services/agent/compose.yml.
+      - name: RAG_SERVER_URL
+        value: 'http://rag-server:8081/v1'
+      - name: RAG_API_KEY
+        value: ''
+      - name: KNOWLEDGE_COLLECTION
+        value: 'default'
       - name: COSMOS_EMBED_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-embed:8000" .Release.Name) "http://vss-rtvi-embed:8000" $pfx }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
       - name: ELASTIC_SEARCH_ENDPOINT

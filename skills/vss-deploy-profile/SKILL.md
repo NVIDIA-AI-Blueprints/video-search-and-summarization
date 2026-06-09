@@ -192,12 +192,7 @@ grep -qE '^BREV_ENV_ID=' /etc/environment && echo "on Brev" || echo "not Brev"
 ```
 
 - **not Brev** → skip the rest of this step and **do not read [`references/brev.md`](references/brev.md)**; keep the normal `${HOST_IP}`-based `EXTERNAL_IP`.
-- **on Brev** → read [`references/brev.md`](references/brev.md) for the secure-link behavior, then write `EXTERNAL_IP` into `generated.env` (NOT `.env`):
-
-```bash
-brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=7777-${brev_env_id}.brevlab.com|" "$ENV_GEN"
-```
+- **on Brev** → apply the Brev secure-link overrides from [`references/brev.md` § Setup flow](references/brev.md#setup-flow) to `generated.env` (NOT `.env`). Those set `EXTERNAL_IP` / `VSS_PUBLIC_HOST` to the secure-link domain **and** `VSS_PUBLIC_HTTP_PROTOCOL=https` / `VSS_PUBLIC_WS_PROTOCOL=wss` / `VSS_PUBLIC_PORT=443` — setting `EXTERNAL_IP` alone leaves `http://…:7777` UI/API/WS links that the browser blocks as mixed content.
 
 ### Step 2 — Build env_overrides
 

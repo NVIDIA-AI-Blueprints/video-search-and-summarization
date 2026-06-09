@@ -7,13 +7,14 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-profile`
-- Evaluation date: 2026-06-08
+- Evaluation date: 2026-06-09
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 5 evaluation tasks
 - Attempts per task: 2
 - Pass threshold: 50%
-- Overall verdict: PASS
+- Overall verdict: FAIL
+The skill should be reviewed before NVSkills-Eval publication. **Skill owners should address the applicable findings below and rerun NVSkills-Eval to refresh this benchmark.**
 
 ## Agents Used
 
@@ -54,11 +55,11 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 85% (-15%) |
-| Correctness | 8 | 93% (+68%) | 87% (+52%) |
-| Discoverability | 8 | 92% (+58%) | 84% (+30%) |
-| Effectiveness | 8 | 65% (+59%) | 64% (+58%) |
-| Efficiency | 8 | 75% (+40%) | 77% (+27%) |
+| Security | 8 | 100% (+0%) | 90% (+5%) |
+| Correctness | 8 | 97% (+74%) | 86% (+52%) |
+| Discoverability | 8 | 92% (+66%) | 90% (+36%) |
+| Effectiveness | 8 | 65% (+59%) | 61% (+55%) |
+| Efficiency | 8 | 76% (+47%) | 85% (+35%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -76,13 +77,10 @@ Top findings:
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
+Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 1 total findings.
 
-Notable observations:
+Top findings:
 
-- Context Deduplication: Collected 20 file(s)
-- Inter-Skill Deduplication: Parsed skill 'vss-deploy-profile': 176 char description
-
-## Publication Recommendation
-
-The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.
+- HIGH DUPLICATE/duplicate: Duplicate content found across references/prerequisites.md and references/warehouse.md:
+  "### 2. Docker" in references/prerequisites.md (lines 167-186)
+  vs "#### 2.2 Docker" in references/warehouse.md (lines 466-480) (`references/prerequisites.md:167`)
