@@ -1,8 +1,8 @@
 ---
 name: vss-deploy-video-embedding
 description: >
-  Deploy, operate, and integrate the VSS 3.2 GA RT-Embed Video Embedding
-  microservice. Covers Docker Compose bring-up,
+  Use this skill when deploying, operating, or integrating the VSS 3.2 GA
+  RT-Embed Video Embedding microservice. Covers Docker Compose bring-up,
   GPU and storage prerequisites, the `/v1` REST API (file uploads,
   text and video embeddings, live RTSP streams, health and metrics),
   Redis/Kafka/OTel integration, common failure modes, and teardown.
@@ -250,22 +250,15 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 
 ## Upgrade And Rollback
 
-1. Update `RTVI_EMBED_IMAGE` and `RTVI_EMBED_TAG` to the target build.
-2. `docker compose -f rtvi-embed-docker-compose.yml pull rtvi-embed`.
-3. `docker compose -f rtvi-embed-docker-compose.yml --profile bp_developer_search_2d up -d rtvi-embed`.
-4. Watch `/v1/ready` until it returns 200.
-5. To roll back, re-pin `RTVI_EMBED_TAG` to the previous build and repeat. Named volumes persist across the swap.
+Pin `RTVI_EMBED_IMAGE` / `RTVI_EMBED_TAG`, pull, recreate with `--profile bp_developer_search_2d`, and wait for `/v1/ready` before cutover. Named volumes persist across image swaps.
+
+Full steps: [Upgrade & Rollback](references/deploy-vss-deploy-video-embedding.md#upgrade--rollback).
 
 ## Tear Down
 
-```bash
-# Preserve caches (named volumes survive).
-docker compose -f rtvi-embed-docker-compose.yml down
+Stop the standalone stack with `docker compose -f rtvi-embed-docker-compose.yml down`. Use `down -v` only when you intend to destroy named model caches.
 
-# WARNING: removes rtvi-hf-cache, rtvi-ngc-model-cache, rtvi-triton-model-repo.
-# Next start will re-download the model and rebuild the Triton repo (20+ min).
-docker compose -f rtvi-embed-docker-compose.yml down -v
-```
+Full steps and cache warnings: [Tear Down](references/deploy-vss-deploy-video-embedding.md#tear-down).
 
 ## References
 
