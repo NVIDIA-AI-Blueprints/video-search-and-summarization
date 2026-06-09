@@ -1,6 +1,6 @@
 ---
 name: vss-search-archive
-description: Use to run top-level VSS fusion search on archived video, or to ingest video files / RTSP streams for search. Not for ad-hoc Q&A or live captioning.
+description: Use to run top-level VSS fusion search on archived video, or to ingest/delete video files / RTSP streams for search. Not for ad-hoc Q&A or live captioning.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
@@ -10,7 +10,7 @@ metadata:
 ---
 ## Purpose
 
-Run the top-level VSS fusion search across archived video and ingest new clips / RTSP streams for search.
+Run the top-level VSS fusion search across archived video, ingest new clips / RTSP streams for search, and delete search-ingested sources.
 
 ## Prerequisites
 
@@ -53,6 +53,7 @@ Search video archives by natural language using Cosmos Embed1 embeddings. Requir
 - Any natural-language search across video archives
 - "Ingest `<file>` for search" / "upload this video for search"
 - "Add this RTSP stream for search" / "register `<rtsp_url>` for search"
+- "Delete `<file>` from search" / "remove this video and embeddings"
 
 ---
 
@@ -138,6 +139,18 @@ curl -s -X POST "http://${HOST_IP}:8000/api/v1/rtsp-streams/add" \
 ```
 
 The response shape is `{status, message, error}` — no `sensorId` (the agent keys the stream by the `name` you provided). On any step's failure earlier steps roll back. The `start_embedding_generation` step is fire-and-verify: a 2xx confirms the request was accepted and the embedding pipeline is running in the background, **not** that the stream is searchable yet. Search hits will start appearing only after enough chunks land in Elasticsearch — poll with a low-`top_k` query a few seconds in if you need a readiness signal.
+
+### Delete source — agent-backed cleanup
+
+Delete through the agent backend, not bare VIOS, so VIOS storage and search embeddings are cleaned up together.
+
+```bash
+# For video files: video_id is the VIOS sensor/video UUID
+curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/videos/<video_id>" | jq .
+
+# For RTSP streams: name is the registered source name
+curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | jq .
+```
 
 ---
 

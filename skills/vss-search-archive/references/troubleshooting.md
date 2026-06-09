@@ -33,7 +33,7 @@ If further investigation is required, refer to the full components from the `vss
   If not, offer the user the option to ingest them via the full pipeline video ingest handshake below if they are video files (or `rtsp-streams/add` for RTSP streams).
 
 - If a video source in the system has no embeddings, it means it has not been ingested through the full pipeline. STOP and ask user if video can be re-ingested and if user can provide video source. If yes, carefully follow:
-    - First delete it (avoid two copies) with indexes cleanup:
+    - First delete it through the agent backend (avoid two copies; cleans indexes/embeddings too):
 ```bash
 # For video files
 # video_id = sensor / video UUID, same ID as in VST
