@@ -75,7 +75,6 @@ functions:
     max_pixels: 12845056
     reasoning: true
     video_url_tool: vst_video_url
-    use_base64: true
     vlm_mode: ${VLM_MODE}
     internal_ip: ${INTERNAL_IP}
     external_ip: ${EXTERNAL_IP}

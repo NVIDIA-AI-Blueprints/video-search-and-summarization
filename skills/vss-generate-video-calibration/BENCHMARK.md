@@ -7,13 +7,13 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-generate-video-calibration`
-- Evaluation date: 2026-06-01
+- Evaluation date: 2026-06-08
 - NVSkills-Eval profile: `external`
-- Environment: `local`
-- Dataset: 6 evaluation tasks
+- Environment: `astra-sandbox`
+- Dataset: 3 evaluation tasks
 - Attempts per task: 2
 - Pass threshold: 50%
-- Overall verdict: FAIL
+- Overall verdict: PASS
 
 ## Agents Used
 
@@ -42,9 +42,9 @@ Underlying evaluation signals used in this run:
 
 ## Test Tasks
 
-The benchmark dataset contained 6 evaluation tasks:
+The benchmark dataset contained 3 evaluation tasks:
 
-- Positive tasks: 6 tasks where the skill was expected to activate.
+- Positive tasks: 3 tasks where the skill was expected to activate.
 - Negative tasks: 0 tasks where no skill was expected.
 - Unlabeled tasks: 0 tasks where positive/negative intent could not be inferred.
 
@@ -54,49 +54,35 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 96% (+12%) | 79% (+12%) |
-| Correctness | 8 | 87% (+1%) | 82% (+26%) |
-| Discoverability | 8 | 89% (+9%) | 69% (+7%) |
-| Effectiveness | 8 | 57% (-3%) | 55% (+24%) |
-| Efficiency | 8 | 71% (+14%) | 53% (+6%) |
+| Security | 6 | 100% (+58%) | 75% (+0%) |
+| Correctness | 6 | 92% (+3%) | 75% (+32%) |
+| Discoverability | 6 | 91% (+13%) | 64% (+4%) |
+| Effectiveness | 6 | 50% (-10%) | 38% (+28%) |
+| Efficiency | 6 | 70% (+16%) | 47% (-2%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 4 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 5 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-generate-video-calibration/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in common-steps.md (`skills/vss-generate-video-calibration/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-calibration/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SDI-2): The script uses a curl-pipe-sh pattern to download and execute the `uv` installer from astral.sh without any integrity v (`references/sample-dataset.md:132`)
-- MEDIUM SECURITY/Unknown (SQP-2): SSL verification is explicitly disabled (`ssl_verify: false`) in the RTSP capture request, and the Python script also im (`references/rtsp.md:106`)
+- MEDIUM SECURITY/Unknown (SQP-2): The RTSP capture request hardcodes ssl_verify=false, disabling TLS certificate verification. This exposes the connection (`references/rtsp.md:105`)
+- MEDIUM SECURITY/Unknown (SQP-2): The inline bash script automatically creates virtual environments and installs Python packages (requests) without explic (`references/sample-dataset.md:122`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 4 total findings.
+Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
 
-Top findings:
+Notable observations:
 
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/sample-dataset.md and references/videos.md:
-  "# iterating over this script's `videos` (the bundled cam_*.mp4)." in references/sample-dataset.md (lines 222-231)
-  vs "# Step 2 — Upload videos (sorted)" in references/videos.md (lines 168-177) (`references/sample-dataset.md:222`)
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/rtsp.md and references/videos.md:
-  "# (verify_project → calibrate → poll get_project_info → fetch evaluation_statistics)" in references/rtsp.md (lines 300-302)
-  vs "# (verify_project → calibrate → poll get_project_info → fetch evaluation_statistics)" in references/videos.md (lines 243-244) (`references/rtsp.md:300`)
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/calibration-tail.md and references/common-steps.md and references/rtsp.md and references/sample-dataset.md and references/videos.md:
-  "# Step A — Verify project" in references/calibration-tail.md (lines 15-17)
-  vs "## Create project" in references/common-steps.md (lines 7-25)
-  vs "## Step 3 — Create Project" in references/rtsp.md (lines 88-92)
-  vs "# Step 3 — Create project" in references/rtsp.md (lines 219-224)
-  vs "# Step 1 — Create project" in references/sample-dataset.md (lines 213-219)
-  vs "### Step 1 — Create Project" in references/videos.md (lines 41-44)
-  vs "# Step 1 — Create project" in references/videos.md (lines 162-167) (`references/calibration-tail.md:15`)
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/rtsp.md and references/videos.md:
-  "## Complete Python Script" in references/rtsp.md (lines 167-175)
-  vs "## Complete Python Script" in references/videos.md (lines 105-113) (`references/rtsp.md:167`)
+- Context Deduplication: Collected 7 file(s)
+- Inter-Skill Deduplication: Parsed skill 'vss-generate-video-calibration': 175 char description
 
 ## Publication Recommendation
 
-The skill should be reviewed before NVSkills-Eval publication. Skill owners should address the findings above and rerun NVSkills-Eval to refresh this benchmark.
+The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.
