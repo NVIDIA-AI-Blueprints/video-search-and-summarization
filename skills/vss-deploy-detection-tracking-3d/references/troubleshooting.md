@@ -91,7 +91,7 @@ If the VST sensor names and calibration sensor IDs don't match `Camera / Camera_
 [ERROR] calibration 'upsert-all' payload failed schema validation: sensors/0/group/alias: '' should be non-empty; sensors/0/group/dimensions: [] is too short; sensors/0/group/name: '' should be non-empty; sensors/0/group/origin: [] is too short; sensors/0/group/type: '' should be non-empty (+ N more ...)
 ```
 
-**Cause:** AMC's API-only `export_calibration?calibration_type=cartesian` leaves `sensors[].group`, `sensors[].region`, and `sensors[].place` as empty objects/arrays when the user didn't define ROIs / regions in the AMC UI Parameters step. The schema validator rejects these and the container exits 1.
+**Cause:** API-only AMC/VGGT `export_calibration?calibration_type=cartesian` can leave `sensors[].group`, `sensors[].region`, or `sensors[].place` as empty objects/arrays when the user didn't define ROIs / regions in the AMC UI Parameters step. The schema validator rejects these and the container exits 1.
 
 **Diagnose:**
 ```bash
@@ -99,7 +99,7 @@ jq '.sensors[0] | {group, region, place}' "${CAL_DIR}/calibration.json"
 # Empty group.name / region.placeLevel / place=[] confirm the cause.
 ```
 
-**Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4a** — the inline `jq` block patches placeholder values into the empty fields so the validator passes. For metric BEV bounds, populate these in the AMC UI Parameters step before export instead.
+**Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4a** — the inline `jq` block patches placeholder values into the empty fields so the validator passes. For metric BEV bounds, populate these in the AMC UI Parameters step before export or tune them after deploy using [`verify-and-view.md`](verify-and-view.md) **Tune BEV `group` / `region` for better overlays**.
 
 ### `vss-import-calibration-output-mv3dt` exits 1 with `imageMetadata.json not found`
 

@@ -183,7 +183,7 @@ curl -sfL \
 
 `calibration_type=cartesian` produces the full schema (BA results — same shape as the shipped sample). Use `calibration_type=image` only as a fallback for projects that didn't complete the full BA pass — it produces a pixel-ROI-only file behavior-analytics can still load.
 
-ROI / tripwire arrays defined via the AMC UI Parameters dialog are included in the export; empty arrays don't block deploy (behavior-analytics just runs without those rules). **But** `group`, `region`, and `place` per sensor are a different story — when the API-only path leaves them blank, `vss-behavior-analytics-mv3dt`'s schema validator rejects the file at startup with `calibration 'upsert-all' payload failed schema validation: sensors/0/group/alias: '' should be non-empty; sensors/0/group/dimensions: [] is too short; ...` and the container enters a restart loop. Step 4 below patches these fields with placeholder values when they're empty so deploy can proceed; for metrically meaningful values, populate them in the AMC UI Parameters step before export.
+ROI / tripwire arrays defined via the AMC UI Parameters dialog are included in the export; empty arrays don't block deploy (behavior-analytics just runs without those rules). **But** `group`, `region`, and `place` per sensor are a different story — when the API-only AMC/VGGT path leaves them blank, `vss-behavior-analytics-mv3dt`'s schema validator rejects the file at startup with `calibration 'upsert-all' payload failed schema validation: sensors/0/group/alias: '' should be non-empty; sensors/0/group/dimensions: [] is too short; ...` and the container enters a restart loop. Step 4 below patches these fields with placeholder values when they're empty so deploy can proceed; for metrically meaningful values, populate them in the AMC UI Parameters step before export.
 
 ## Step 4 — Land everything at the MV3DT mount path
 
@@ -216,18 +216,29 @@ fi
 
 > **Permission rule:** always `chmod`, never `chown`. Containers run as varied UIDs; world-readable is the safe baseline. This matches the convention in `vss-deploy-profile/references/data-directory.md`.
 
-### 4a — Patch empty `group` / `region` / `place` (only needed for API-only AMC runs)
+### 4a — Patch empty `group` / `region` / `place` (custom-data exports)
 
-`vss-behavior-analytics-mv3dt` validates `sensors[].group`, `sensors[].region`, and `sensors[].place` at startup and crashes when they're empty (typical for API-only AMC exports — see Step 3d note above). Inject placeholder values that pass the validator so deploy can proceed.
+`vss-behavior-analytics-mv3dt` validates `sensors[].group`, `sensors[].region`, and `sensors[].place` at startup. API-only AMC or VGGT exports can leave one of these sections empty, so inject placeholder values that pass the validator and let deploy proceed.
 
 > These placeholders only satisfy the schema so the stack starts — they are **not** geometrically meaningful. The square `dimensions` will make the BEV top-view floor map look squished/stretched and any region-scoped analytics use the wrong bounds. Getting accurate values is a **post-deploy tuning step**, not a blocker: leave the placeholders here and point the user to [`verify-and-view.md` § "Tune BEV `group`/`region` for better overlays"](verify-and-view.md) after the stack is up. (The BEV `origin`/`dimensions` are normally derived from camera FOV coverage by the VSS Configurator / `spatial-ai-data-utils`'s `calculate_origin.py`, or set per the NVIDIA 3D-profile customization docs.)
 
 Idempotent — re-running this block is safe and does nothing once values are populated.
 
 ```bash
-# `// ""` makes this null-safe: AMC may emit group as an empty-string object, as
-# null, or omit the key entirely — all three mean "needs patching".
-if jq -e '(.sensors[0].group.name // "") == ""' "${CAL_DIR}/calibration.json" >/dev/null 2>&1; then
+# `//` makes this null-safe. VGGT can populate group while leaving region
+# empty, so test every schema-required group/region/place field before deploy.
+if jq -e '
+  any(.sensors[]?;
+    ((.group.name // "") == "")
+    or ((.group.alias // "") == "")
+    or ((.group.dimensions // []) | length < 4)
+    or ((.region.placeLevel // "") == "")
+    or ((.region.origin // []) | length < 2)
+    or (((.region.dimensions.length // 0) | tonumber? // 0) <= 0)
+    or (((.region.dimensions.width // 0) | tonumber? // 0) <= 0)
+    or ((.place // []) | length < 3)
+  )
+' "${CAL_DIR}/calibration.json" >/dev/null 2>&1; then
   jq '
     .sensors |= map(
         .group = {
