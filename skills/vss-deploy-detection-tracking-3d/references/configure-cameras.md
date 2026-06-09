@@ -164,16 +164,14 @@ Before propagating `NUM_STREAMS`, confirm the GPU can actually run that many MV3
 HARDWARE_PROFILE_VAL=$(grep '^HARDWARE_PROFILE=' "${ENV_FILE:-${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env}" | cut -d= -f2)
 echo "HARDWARE_PROFILE=${HARDWARE_PROFILE_VAL}"
 
-# Lookup mv3dt cap (from blueprint_config.yml lines 592-642)
+# Lookup public MV3DT supported stream count from the Warehouse Quickstart Guide.
 case "${HARDWARE_PROFILE_VAL}" in
   RTXPRO6000BW)  CAP=18 ;;
   H100)          CAP=13 ;;
-  RTXA6000ADA)   CAP=6  ;;
   L40S)          CAP=7  ;;
-  L4|RTXA6000)   CAP=2  ;;
-  IGX-THOR)      CAP=7  ;;
+  IGX-THOR)      CAP=4  ;;
   DGX-SPARK)     CAP=4  ;;
-  *)             CAP="?"; echo "WARN: HARDWARE_PROFILE=${HARDWARE_PROFILE_VAL} unknown to this skill" ;;
+  *)             CAP="?"; echo "WARN: HARDWARE_PROFILE=${HARDWARE_PROFILE_VAL} is not in the public MV3DT table; check .env and blueprint_config.yml before proceeding" ;;
 esac
 
 echo "GPU cap for mv3dt: ${CAP}"
@@ -184,7 +182,7 @@ echo "Effective stream count = min(${CAM_COUNT}, ${CAP})"
 If `CAP < CAM_COUNT`, the user has more cameras than the GPU can process at MV3DT batch size. The configurator's `keep_count` file_management op will trim `.mp4` files at `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` down to `CAP`. Decide:
 
 - **Accept the cap.** Continue — perception will run with `CAP` streams, fusion will see `CAP` cameras. Tell the user explicitly so they're not surprised.
-- **Move to a larger GPU.** Re-check `HARDWARE_PROFILE` against the actual hardware (see SKILL.md Prerequisites §3 for the canonical slugs — e.g. `RTXA6000` for Ampere, `RTXA6000ADA` for Ada).
+- **Move to a larger GPU.** Re-check `HARDWARE_PROFILE` against the actual hardware (see SKILL.md Prerequisites §3 for the supported MV3DT hardware slugs).
 - **Override the cap.** Add a hardware-profile override in `blueprint-configurator/blueprint_config.yml` (advanced, requires understanding the trade-off — FPS will drop).
 
 ## Step 3 — Sync NUM_STREAMS in .env
