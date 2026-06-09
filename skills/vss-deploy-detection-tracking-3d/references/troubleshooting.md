@@ -83,6 +83,26 @@ If the VST sensor names and calibration sensor IDs don't match `Camera / Camera_
 
 **Fix:** Tear down (`down -v` to clear VST sensor state), then walk [`configure-cameras.md`](configure-cameras.md) **Step 0** — rename videos, `camInfo/*.yml`, and `sensors[].id` in `calibration.json` to the `Camera, Camera_NN` convention together. Redeploy.
 
+### VST streamprocessing logs `No calibration data found for sensor: Camera...`
+
+**Symptom:** VST video streams are present, but overlays are missing. `vss-vios-streamprocessing` logs show:
+
+```
+No calibration data found for sensor: Camera
+No calibration data found for sensor: Camera_01
+```
+
+**Cause:** The VST runtime stream names are `Camera, Camera_01, ...`, but the deployed `calibration.json` still has AMC/VGGT IDs such as `cam_00, cam_01, ...`. Streamprocessing matches by sensor name and cannot find the calibration entries.
+
+**Diagnose:**
+```bash
+docker logs vss-vios-streamprocessing 2>&1 | grep 'No calibration data found' | tail
+jq -r '.sensors[].id' "${CAL_DIR}/calibration.json"
+curl -sf "http://${HOST_IP:-localhost}:30888/vst/api/v1/sensor/list" | jq -r '.[].name' | sort
+```
+
+**Fix:** Walk [`configure-cameras.md`](configure-cameras.md) **Step 0** and apply the normalization (`APPLY_RENAME=1`) so videos, `camInfo/*.yml`, and `sensors[].id` all use `Camera, Camera_01, ...`. Then recreate streamprocessing or do a clean redeploy if VST already registered stale sensors. Re-run [`verify-and-view.md`](verify-and-view.md) Step 4b before reporting success.
+
 ### `vss-behavior-analytics-mv3dt` restart loop with `calibration 'upsert-all' payload failed schema validation`
 
 **Symptom:** `vss-behavior-analytics-mv3dt` is in `Restarting` state. Logs show:
