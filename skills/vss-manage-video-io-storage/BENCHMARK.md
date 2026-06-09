@@ -11,7 +11,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 2 evaluation tasks
-- Attempts per task: 2
+- Attempts per task: 1
 - Pass threshold: 50%
 - Overall verdict: PASS
 
@@ -54,11 +54,11 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 4 | 100% (+0%) | 88% (+12%) |
-| Correctness | 4 | 95% (+57%) | 88% (+39%) |
-| Discoverability | 4 | 93% (+68%) | 70% (+13%) |
-| Effectiveness | 4 | 69% (+48%) | 67% (+38%) |
-| Efficiency | 4 | 80% (+60%) | 54% (+5%) |
+| Security | 2 | 100% (+0%) | 100% (+0%) |
+| Correctness | 2 | 92% (+67%) | 97% (+34%) |
+| Discoverability | 2 | 73% (+48%) | 81% (+35%) |
+| Effectiveness | 2 | 67% (+48%) | 81% (+47%) |
+| Efficiency | 2 | 64% (+48%) | 67% (+37%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
