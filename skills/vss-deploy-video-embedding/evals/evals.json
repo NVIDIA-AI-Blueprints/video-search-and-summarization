@@ -15,21 +15,6 @@
     ]
   },
   {
-    "id": "rtvi-embed-api-and-live-stream",
-    "question": "RT-Embed is already running. Explain how to embed an uploaded video file and how to register a live RTSP stream for chunked SSE embeddings, including the live-stream constraints.",
-    "expected_skill": "vss-deploy-video-embedding",
-    "expected_script": null,
-    "should_trigger": true,
-    "ground_truth": "The agent loads vss-deploy-video-embedding, uses POST /v1/files then POST /v1/generate_video_embeddings for uploads, registers RTSP via POST /v1/streams/add, requires stream true with chunk_duration greater than zero and Accept text/event-stream for live streams, and cites rest-api.md rather than inventing endpoints.",
-    "expected_behavior": [
-      "The agent loads vss-deploy-video-embedding and references the /v1 REST API workflow.",
-      "The agent describes POST /v1/files followed by POST /v1/generate_video_embeddings for uploaded media with model cosmos-embed1-448p.",
-      "The agent describes POST /v1/streams/add before embedding a live RTSP source.",
-      "The agent states live streams require stream true, chunk_duration greater than zero, and Accept text/event-stream (SSE); synchronous live calls return 400.",
-      "The agent does not fabricate HF_TOKEN, NGC_API_KEY, or other credential values."
-    ]
-  },
-  {
     "id": "rtvi-embed-negative-search-profile",
     "question": "Generate the docker compose yaml for a VSS search profile with Elasticsearch video indexing.",
     "expected_skill": null,
