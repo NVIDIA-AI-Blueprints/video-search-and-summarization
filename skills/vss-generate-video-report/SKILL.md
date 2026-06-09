@@ -13,17 +13,10 @@ metadata:
 
 Generate a video analysis report by routing to one of two backends — **never via** `POST /generate` on the VSS agent.
 
-<<<<<<< HEAD
-| Mode | Trigger examples | Backend |
-|---|---|---|
-| **A. Video clip** | "report on `<sensor>`", "report on this video", "analyze warehouse_01.mp4", "generate a report for `<sensor-id>`" | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
-| **B. Incident range** | "report on incidents from `<t1>` to `<t2>`", "report on alerts today", "what incidents happened on `<sensor>` last hour", "summarize alerts on `<sensor>` between `<t1>` and `<t2>`" | `/vss-query-analytics` → incident list → narrative report |
-=======
 | Mode | Backend |
 |---|---|
 | **A. Video clip** | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
 | **B. Incident range** | `/vss-query-analytics` → incident list → narrative report |
->>>>>>> 319a97ad (Restructure skill and regenerate benchmark)
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range. See **Examples** below for the request phrasings that route to each mode.
 
@@ -99,7 +92,6 @@ deploy layer exports the browser-facing host:port as `$VSS_PUBLIC_HOST` /
 profile `.env` — Brev or bare-metal — so the report-link rewrite is:
 
 ```bash
-<<<<<<< HEAD
 : "${VSS_PUBLIC_HOST:?Set VSS_PUBLIC_HOST before rewriting clip URLs}"
 : "${VSS_PUBLIC_PORT:?Set VSS_PUBLIC_PORT before rewriting clip URLs}"
 VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
@@ -112,27 +104,6 @@ block the local VLM analysis path. Apply the rewrite to **every clip URL
 surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B
 per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A
 Step 3 on the original internal URL when the VLM is local / in-cluster.
-=======
-: "${VSS_PUBLIC_HTTP_PROTOCOL:?VSS_PUBLIC_HTTP_PROTOCOL is required}"
-: "${VSS_PUBLIC_HOST:?VSS_PUBLIC_HOST is required}"
-: "${VSS_PUBLIC_PORT:?VSS_PUBLIC_PORT is required}"
-: "${RAW_URL:?Set RAW_URL to the clip URL before rewriting}"
-
-BROWSER_CLIP_URL=$(
-python3 - <<'PY'
-import os
-import urllib.parse
-
-raw_url = os.environ["RAW_URL"]
-parts = urllib.parse.urlsplit(raw_url)
-public_netloc = f'{os.environ["VSS_PUBLIC_HOST"]}:{os.environ["VSS_PUBLIC_PORT"]}'
-print(urllib.parse.urlunsplit((os.environ["VSS_PUBLIC_HTTP_PROTOCOL"], public_netloc, parts.path, parts.query, parts.fragment)))
-PY
-)
-```
-
-Apply it to **every clip URL surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B per-incident clip sub-bullet). The env guards above are required: do not run the rewrite when any `VSS_PUBLIC_*` value is unset. Leave the VLM `video_url` content block in Mode A Step 3 on the original internal URL — the VLM is in-cluster.
->>>>>>> 662fb1dc (Resolve high risk and missing sections in skills)
 
 ---
 
@@ -152,11 +123,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
-<<<<<<< HEAD
-   That gives a direct `mp4` URL that the local / in-cluster VLM can pull frames from. Bind it to `VIDEO_URL` (used by the VLM in Step 3) **and** separately rewrite to `BROWSER_CLIP_URL` for the Step 4 report template using the report-link rewrite from *Clip URLs: VLM input vs browser report link* above — the user's browser cannot reach `$VIDEO_URL` directly.
-=======
    That gives a direct `mp4` URL that the local / in-cluster VLM can pull frames from. Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite to produce `BROWSER_CLIP_URL` for Step 4 — the user's browser cannot reach `$VIDEO_URL` directly.
->>>>>>> d6059485 (Resolve high risk issues)
    Mode A requires the selected VLM endpoint to be able to fetch `VIDEO_URL`.
    Local NIM/RT-VLM deployments normally can; remote endpoints generally cannot
    fetch `localhost`, private `HOST_IP`, or VST-internal URLs. If the live
@@ -291,22 +258,17 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ]; then
   esac
 fi
 
-# Use jq --arg (not here-strings) to avoid appending trailing newlines.
-JSON_MODEL=$(jq -n --arg v "${VLM_MODEL}" '$v')
-JSON_PROMPT=$(jq -n --arg v "${PROMPT}" '$v')
-JSON_VIDEO_URL=$(jq -n --arg v "${VIDEO_URL}" '$v')
-
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
 {
-  "model": ${JSON_MODEL},
+  "model": $(jq -Rs . <<< "${VLM_MODEL}"),
   "messages": [
     {
       "role": "user",
       "content": [
-        {"type": "text", "text": ${JSON_PROMPT}},
-        {"type": "video_url", "video_url": {"url": ${JSON_VIDEO_URL}}}
+        {"type": "text", "text": $(jq -Rs . <<< "${PROMPT}")},
+        {"type": "video_url", "video_url": {"url": $(jq -Rs . <<< "${VIDEO_URL}")}}
       ]
     }
   ],
@@ -356,16 +318,12 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
 }
 ```
 
-<<<<<<< HEAD
-For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` report-link rewrite (see *Clip URLs: VLM input vs browser report link* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
-=======
 Read-only boundary (mandatory):
 - Mode B is strictly read-only analytics retrieval. Never write, seed, backfill, or mutate Elasticsearch/VA data.
 - Forbidden examples: indexing synthetic incidents, replaying fixture payloads into ES, calling write/update/delete APIs to "make data available" for the report.
 - If no incidents exist for the requested range/scope, handle as empty results (see below); do not fabricate data.
 
 For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite (see *Browser-playable clip URL* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
->>>>>>> a40309fd (high risk resoloved)
 
 ### Step 3 — Fill the Incident Range Report template
 
@@ -377,18 +335,10 @@ If `get_incidents` returns zero results, STOP and return exactly a one-line empt
 
 ## Error Handling
 
-<<<<<<< HEAD
 - If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step. Do not fabricate a report from partial or missing data.
 - If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
 - If a clip URL cannot be rewritten to the public host/port, omit it from the rendered report and call out that the browser-playable URL could not be produced.
 - For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.
-=======
-- **Probe failure (Mode A/Mode B prerequisites)** — if `curl` probes fail, stop query execution and ask the user to deploy the required profile via `/vss-deploy-profile` (`base` for Mode A, `alerts` for Mode B).
-- **Missing browser URL env for rewrite** — if any of `VSS_PUBLIC_HTTP_PROTOCOL`, `VSS_PUBLIC_HOST`, or `VSS_PUBLIC_PORT` is unset, fail fast and surface the missing variable instead of producing a malformed `BROWSER_CLIP_URL`.
-- **VLM endpoint/model mismatch** — if `${VLM_ENDPOINT}/models` fails or `${VLM_MODEL}` is absent, try the alternate backend once; if still failing, return the concrete probe error and stop.
-- **Remote VLM cannot fetch `VIDEO_URL`** — if endpoint reachability constraints indicate the VLM cannot access the internal clip URL, do not issue `chat/completions`; tell the user the endpoint must reach `VIDEO_URL` (or use a local in-cluster endpoint).
-- **No incidents in Mode B** — return the explicit zero-results report for the requested range/scope; do not invent incidents and do not switch to Mode A automatically.
->>>>>>> 662fb1dc (Resolve high risk and missing sections in skills)
 
 ---
 
