@@ -1,41 +1,42 @@
 ---
-description: Build the VST UI and deploy the static files into the VIOS/vms_shim repo (both ingress/vst-ui and webroot), then commit the vms_shim repo.
-argument-hint: [/path/to/vms_shim]
+description: Build the VST UI and deploy the static files into the vios tree (services/vios of the video-search-and-summarization repo), both ingress/vst-ui and webroot, then commit.
+argument-hint: [/path/to/services/vios]
 allowed-tools: AskUserQuestion, Read, Bash, Bash(git clone *), Bash(git -C * status), Bash(git -C * add *), Bash(git -C * commit *), Bash(git -C * log *), Bash(npm run install:link), Bash(npm run build), Bash(rm -rf *), Bash(cp -r *)
 ---
 
 ## Task
 
-Build the VST UI and deploy the compiled static assets into the VIOS/vms_shim repository, replacing the old files in both deployment locations, then commit the vms_shim repo.
+Build the VST UI and deploy the compiled static assets into the vios component (`services/vios`) of the video-search-and-summarization repository, replacing the old files in both deployment locations, then commit the repo.
 
 **Arguments provided:** $ARGUMENTS
 
 ---
 
-## Step 1 — Locate or clone the vms_shim repo
+## Step 1 — Locate or clone the vios tree
 
-Resolve `VMS_SHIM_DIR` using this priority order:
+The VST UI deploys into the `vios` component, which lives at `services/vios/` inside the `video-search-and-summarization` monorepo. Resolve `VIOS_DIR` (the path to that `services/vios` directory) using this priority order:
 
-1. **Argument provided** — if `$ARGUMENTS` is non-empty, use that path directly. Skip all further checks and go straight to verifying the directory exists.
-2. **Current directory** — check whether a `vms_shim` directory exists inside the current working directory (`./vms_shim`).
-3. **Default location** — check `~/work/vms_shim` (i.e. `/home/$USER/work/vms_shim`).
+1. **Argument provided** — if `$ARGUMENTS` is non-empty, use that path directly (it should point at the `services/vios` directory). Skip all further checks and go straight to verifying the directory exists.
+2. **Current directory** — if `./services/vios` exists (you are at the monorepo root), use it; if the current directory is itself a vios tree (contains `webroot` and `deployment/scaling/ingress`), use `.`.
+3. **Default location** — check `~/work/video-search-and-summarization/services/vios`.
 
-If neither location (2) nor (3) exists, use `AskUserQuestion` to ask:
+If none of (1)–(3) resolves, use `AskUserQuestion` to ask:
 
-> "I couldn't find the vms_shim repo. Would you like to provide a path to an existing clone, or should I clone it from GitLab? (reply with a path, or type 'clone')"
+> "I couldn't find the vios tree (services/vios). Would you like to provide a path to an existing checkout, or should I clone the video-search-and-summarization monorepo from GitHub? (reply with a path, or type 'clone')"
 
-- If the user supplies a path, use that as `VMS_SHIM_DIR`.
-- If the user says `clone` (or any variant meaning "go ahead and clone"), clone into `~/work/vms_shim`:
+- If the user supplies a path, use that as `VIOS_DIR`.
+- If the user says `clone` (or any variant meaning "go ahead and clone"), clone the monorepo and point `VIOS_DIR` at its `services/vios` directory:
 
 ```bash
-git clone ssh://git@<INTERNAL_GITLAB_SSH>/L4TMM/vms_shim.git ~/work/vms_shim
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git ~/work/video-search-and-summarization
+# VIOS_DIR=~/work/video-search-and-summarization/services/vios
 ```
 
-Store the resolved path as `VMS_SHIM_DIR` for subsequent steps.
+Store the resolved path as `VIOS_DIR` for subsequent steps.
 
-The two deployment targets inside `VMS_SHIM_DIR` are:
-- `TARGET_INGRESS = $VMS_SHIM_DIR/deployment/scaling/ingress/vst-ui`
-- `TARGET_WEBROOT = $VMS_SHIM_DIR/webroot`
+The two deployment targets inside `VIOS_DIR` are:
+- `TARGET_INGRESS = $VIOS_DIR/deployment/scaling/ingress/vst-ui`
+- `TARGET_WEBROOT = $VIOS_DIR/webroot`
 
 ---
 
@@ -100,7 +101,7 @@ ls $TARGET_WEBROOT/assets/ 2>/dev/null | head -5
 
 ---
 
-## Step 6 — Commit the vms_shim repo
+## Step 6 — Commit the repo
 
 Get the current VST UI version or latest git commit short SHA from the VST UI repo to use in the commit message:
 
@@ -108,15 +109,15 @@ Get the current VST UI version or latest git commit short SHA from the VST UI re
 git log -1 --format="%h %s"
 ```
 
-Then stage and commit the changed files in vms_shim:
+Then stage and commit the changed files. Paths are relative to `VIOS_DIR` (i.e. `services/vios`):
 
 ```bash
-git -C $VMS_SHIM_DIR add deployment/scaling/ingress/vst-ui/ webroot/assets webroot/favicon webroot/index.html
-git -C $VMS_SHIM_DIR status
-git -C $VMS_SHIM_DIR log --oneline -3
+git -C $VIOS_DIR add deployment/scaling/ingress/vst-ui/ webroot/assets webroot/favicon webroot/index.html
+git -C $VIOS_DIR status
+git -C $VIOS_DIR log --oneline -3
 ```
 
-Construct the commit message in this style (matching the vms_shim commit history):
+Construct the commit message in this style (matching the repo's commit history):
 
 ```
 Update VST web UI static assets
@@ -131,7 +132,7 @@ Update VST web UI static assets from vst-ui-ts <SHORT_SHA>
 Create the commit:
 
 ```bash
-git -C $VMS_SHIM_DIR commit -m "<COMMIT_MESSAGE>"
+git -C $VIOS_DIR commit -m "<COMMIT_MESSAGE>"
 ```
 
 ---
@@ -139,10 +140,10 @@ git -C $VMS_SHIM_DIR commit -m "<COMMIT_MESSAGE>"
 ## Step 7 — Report results
 
 Report to the user:
-- Whether the vms_shim repo was cloned or already present, and its path
+- Whether the vios tree was found locally or the monorepo was cloned, and the resolved `VIOS_DIR` path
 - The VST UI build commit/version used
 - Confirmation that old assets were removed from both targets
 - Confirmation that new dist files were copied to both targets
-- The vms_shim git commit SHA and message created
+- The git commit SHA and message created
 - Any warnings or errors encountered
-- Reminder that the commit has **not** been pushed — run `git -C $VMS_SHIM_DIR push` when ready
+- Reminder that the commit has **not** been pushed — run `git -C $VIOS_DIR push` when ready

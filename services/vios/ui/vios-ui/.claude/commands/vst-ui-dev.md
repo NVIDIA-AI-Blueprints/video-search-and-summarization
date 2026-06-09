@@ -1,6 +1,6 @@
 ---
 name: vst-ui-dev
-description: This skill should be used when the user asks to "add a feature", "fix a bug", "create a component", "implement UI", "update the VST UI", "change the dashboard", "modify the video player", or any other development task on the VST web client (vst-ui-ts TypeScript/React codebase). Covers the full development loop: plan → implement → lint/format → dev server → user review → commit → branch → MR.
+description: This skill should be used when the user asks to "add a feature", "fix a bug", "create a component", "implement UI", "update the VST UI", "change the dashboard", "modify the video player", or any other development task on the VST web client (vst-ui-ts TypeScript/React codebase). Covers the full development loop: plan → implement → lint/format → dev server → user review → commit → branch → PR.
 argument-hint: <feature description>
 allowed-tools: AskUserQuestion, Read, Edit, Write, Bash, Bash(npm run format), Bash(npm run lint), Bash(npm run install:link), Bash(git *)
 ---
@@ -94,7 +94,7 @@ src/
 ### Key Architectural Facts
 
 - **Three adaptor types:** At startup `AdaptorWrapper.tsx` detects whether the backend is `vst`, `mms`, or `streamer`. This switches the route tree and controls which features are visible.
-- **WebRTC library:** `vst-streaming-lib` is not an npm registry package. It comes from the `vst-web-streamer` repo (`ssh://git@<INTERNAL_GITLAB_SSH>/L4TMM/vst-web-streamer.git`) and is sym-linked locally by `npm run install:link`. Never import it by relative path — always use `import { StreamManager } from 'vst-streaming-lib'`.
+- **WebRTC library:** `vst-streaming-lib` is not an npm registry package. It lives in this repo as the sibling `ui/streaming-lib` directory and is sym-linked locally by `npm run install:link`. Never import it by relative path — always use `import { StreamManager } from 'vst-streaming-lib'`.
 - **Backend endpoints:** All configured in `src/config.tsx`. In development they point to a live backend; the `/update-vst-ui` skill handles production deployment.
 - **State:** Zustand store in `services/StateManagement.tsx`. Prefer reading state via store selectors; avoid prop-drilling through more than two levels.
 - **Styling:** MUI v5 with `sx` prop or `styled`. Theme lives in `theme/themeContextProvider.tsx`. Dark/light toggle is context-driven. Use theme tokens, not hard-coded colours.
@@ -203,7 +203,7 @@ EOF
 )"
 ```
 
-### Step 9 — Report and prompt for MR
+### Step 9 — Report and prompt for PR
 
 Tell the user:
 - Branch name created
@@ -213,11 +213,11 @@ Tell the user:
 
 Then say:
 
-> "To open a merge request, push the branch and create an MR on GitLab:
+> "To open a pull request, push the branch and create a PR on GitHub:
 > ```
 > git push -u origin <branch-name>
 > ```
-> Then visit the GitLab project to open the MR, or I can do it for you if you have the MaaS GitLab MCP server configured."
+> Then visit the GitHub project to open the PR, or I can do it for you using the GitHub CLI (`gh pr create`)."
 
 ---
 
