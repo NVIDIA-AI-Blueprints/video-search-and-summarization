@@ -1134,3 +1134,4 @@ When adding new cameras to the MV3DT profile, run the MV3DT utility scripts unde
 | Brev: HAProxy returns 404 | `Host:` header doesn't match `h_main` ACL — verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`) |
 | Brev: WebSocket connection refused | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not set to `443` |
 | Redeploy / reset without reinstall | [Redeploy](#redeploy) |
+
