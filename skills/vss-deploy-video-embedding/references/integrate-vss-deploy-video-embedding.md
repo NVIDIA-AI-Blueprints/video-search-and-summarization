@@ -49,20 +49,7 @@ The service exposes a v1 REST API. Set `BASE_URL=http://<host>:${RTVI_EMBED_PORT
 - **Metadata / NIM-compatible** — `GET /v1/metadata`, `GET /v1/version`, `GET /v1/license`, `GET /v1/manifest`.
 - **Metrics** — `GET /v1/metrics` (Prometheus text format).
 
-Example: embed an uploaded video.
-
-```bash
-# 1. Upload the media file.
-FILE_ID=$(curl -fsS -X POST "$BASE_URL/v1/files" \
-  -F purpose=vision \
-  -F media_type=video \
-  -F file=@/path/to/clip.mp4 | jq -r .id)
-
-# 2. Generate embeddings.
-curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
-  -H "Content-Type: application/json" \
-  -d "{\"id\": \"$FILE_ID\", \"model\": \"cosmos-embed1-448p\", \"chunk_duration\": 60}"
-```
+Example: embed an uploaded video. See [Upload a file and embed it](rest-api.md#upload-a-file-and-embed-it) in `rest-api.md` for the canonical upload-and-embed `curl` sequence.
 
 Example: embed a text query.
 
@@ -72,30 +59,7 @@ curl -fsS -X POST "$BASE_URL/v1/generate_text_embeddings" \
   -d '{"text_input": "a forklift moving pallets", "model": "cosmos-embed1-448p"}'
 ```
 
-Example: register and embed a live RTSP stream. Live-stream requests **require** `stream: true` and `chunk_duration > 0`; a synchronous call returns `400 BadParameters: "Only streaming output is supported for live-streams"` and an unset/zero `chunk_duration` returns `400 BadParameter: "chunk_duration must be greater than 0"`. Send `Accept: text/event-stream` and use `curl -N` so SSE events stream immediately.
-
-```bash
-# 1. Add the live stream.
-STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
-  -H "Content-Type: application/json" \
-  -d '{"streams":[{"liveStreamUrl":"rtsp://host:port/live/video","description":"camera-001"}]}' \
-  | jq -r '.results[0].id')
-
-# 2. Start embedding for that stream (SSE).
-curl -N -X POST "$BASE_URL/v1/generate_video_embeddings" \
-  -H "Content-Type: application/json" \
-  -H "Accept: text/event-stream" \
-  -d "{
-    \"id\": \"$STREAM_ID\",
-    \"model\": \"cosmos-embed1-448p\",
-    \"stream\": true,
-    \"chunk_duration\": 10,
-    \"chunk_overlap_duration\": 2
-  }"
-
-# 3. Stop embedding for that stream when done (terminates SSE with data: [DONE]).
-curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
-```
+Example: register and embed a live RTSP stream. Live-stream requests **require** `stream: true` and `chunk_duration > 0`; a synchronous call returns `400 BadParameters: "Only streaming output is supported for live-streams"` and an unset/zero `chunk_duration` returns `400 BadParameter: "chunk_duration must be greater than 0"`. Send `Accept: text/event-stream` and use `curl -N` so SSE events stream immediately. See [Register, embed, and stop a live RTSP stream](rest-api.md#register-embed-and-stop-a-live-rtsp-stream) in `rest-api.md` for the canonical add / SSE / stop sequence.
 
 ## Environment Variables
 
@@ -145,6 +109,7 @@ curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 | `ASSET_STORAGE_DIR` | Optional host directory bound to `/tmp/assets` inside the container. | (unset; mount is skipped) | No |
 | `RTVI_EMBED_LOG_DIR` | Optional host directory bound to `/opt/nvidia/rtvi/log/rtvi/`. | (unset; mount is skipped) | No |
 | `VSS_DATA_DIR` | Host root for VSS data; `data_log/vst/clip_storage` under this path is mounted into the container. | (unset) | Yes |
+| `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` | Container-side clip reader mount for the VST `clip_storage` bind (matches `rtvi-embed-docker-compose.yml`). | (see compose export below) | Yes when binding clip storage |
 
 ## Network Requirements
 
@@ -165,6 +130,12 @@ curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 - Embedding model defaults to `cosmos-embed1-448p`. Callers must use the model id returned by `GET /v1/models` in their request bodies.
 
 ## Example Compose Snippet
+
+Set the container-side clip reader mount before validating or starting this snippet (value from `rtvi-embed-docker-compose.yml` line 81):
+
+```bash
+export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH=/home/vst/vst_release/streamer_videos
+```
 
 ```yaml
 services:
@@ -197,7 +168,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
       - "rtvi-triton-model-repo:/tmp/triton_model_repo"
-      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos"
+      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:${RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH}"
     ipc: host
     ulimits:
       memlock:
@@ -221,7 +192,7 @@ volumes:
   rtvi-triton-model-repo:
 ```
 
-The clip-storage volume line matches `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Set `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` in the export above to match the container-side mount in `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 ## Authentication & Authorization
 
