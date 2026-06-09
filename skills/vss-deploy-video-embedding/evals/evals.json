@@ -1,16 +1,32 @@
 [
   {
-    "id": "rtvi-embed-standalone-deploy",
-    "question": "Deploy RT-Embed standalone on port 8017 without bringing up a full VSS profile.",
+    "id": "rtvi-embed-standalone-routing",
+    "question": "I need Cosmos-Embed1 video embeddings without bringing up the full VSS search profile. Which skill applies, and what standalone compose steps, env vars, and profile should I use? Do not run docker compose or pull containers.",
     "expected_skill": "vss-deploy-video-embedding",
     "expected_script": null,
     "should_trigger": true,
-    "ground_truth": "The agent deploys the standalone RT-Embed (rtvi-embed) microservice from rtvi-embed-docker-compose.yml with profile bp_developer_search_2d, stages VSS_DATA_DIR with clip_storage pre-created, disables Kafka and Redis error messages for standalone mode, and reports the deploy result without routing to the full VSS profile stack.",
+    "ground_truth": "The agent loads vss-deploy-video-embedding, identifies rtvi-embed-docker-compose.yml with profile bp_developer_search_2d, lists RTVI_EMBED_PORT, VSS_DATA_DIR with data_log/vst/clip_storage, NGC_API_KEY, standalone Kafka/Redis disabled, and the 1200s readiness window — without routing to vss-deploy-profile or other skills.",
     "expected_behavior": [
-      "The agent reads the vss-deploy-video-embedding skill before acting.",
-      "The agent uses rtvi-embed-docker-compose.yml with profile bp_developer_search_2d to start only rtvi-embed on port 8017.",
-      "The agent uses the skill's standalone deploy flow rather than routing to vss-deploy-profile, vss-search-archive, CV, or captioning skills.",
-      "The agent does not print plaintext API tokens or other secrets."
+      "The agent reads the vss-deploy-video-embedding skill before answering.",
+      "The agent names rtvi-embed-docker-compose.yml, service rtvi-embed, profile bp_developer_search_2d, and container port 8000 mapped via RTVI_EMBED_PORT.",
+      "The agent mentions staging VSS_DATA_DIR with data_log/vst/clip_storage and disabling Kafka/Redis error paths for standalone mode unless peers are started.",
+      "The agent does not invoke vss-deploy-profile, scripts/dev-profile.sh, vss-search-archive, or captioning/CV skills.",
+      "The agent does not run docker compose up, docker pull, or other deploy commands in the ACES sandbox."
+    ]
+  },
+  {
+    "id": "rtvi-embed-api-and-live-stream",
+    "question": "RT-Embed is already running. Explain how to embed an uploaded video file and how to register a live RTSP stream for chunked SSE embeddings, including the live-stream constraints.",
+    "expected_skill": "vss-deploy-video-embedding",
+    "expected_script": null,
+    "should_trigger": true,
+    "ground_truth": "The agent loads vss-deploy-video-embedding, uses POST /v1/files then POST /v1/generate_video_embeddings for uploads, registers RTSP via POST /v1/streams/add, requires stream true with chunk_duration greater than zero and Accept text/event-stream for live streams, and cites rest-api.md rather than inventing endpoints.",
+    "expected_behavior": [
+      "The agent loads vss-deploy-video-embedding and references the /v1 REST API workflow.",
+      "The agent describes POST /v1/files followed by POST /v1/generate_video_embeddings for uploaded media with model cosmos-embed1-448p.",
+      "The agent describes POST /v1/streams/add before embedding a live RTSP source.",
+      "The agent states live streams require stream true, chunk_duration greater than zero, and Accept text/event-stream (SSE); synchronous live calls return 400.",
+      "The agent does not fabricate HF_TOKEN, NGC_API_KEY, or other credential values."
     ]
   },
   {
