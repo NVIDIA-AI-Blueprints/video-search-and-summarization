@@ -342,24 +342,9 @@ canonical reference.
 
 #### 1.3 Configure API Key
 
-If no key: go to https://ngc.nvidia.com → **Setup → API Keys → Generate Personal Key** (set **NGC Catalog** permission). Copy immediately.
+Generate and export the key as in [`ngc.md` § Configure NGC API Key](ngc.md#configure-ngc-api-key) — the same `read -rs` handoff and security guidance apply. Or configure interactively: `ngc config set`.
 
 > **Important:** NGC API keys may look like base64. Use the key exactly as provided — **do not base64-decode it.**
-
-```bash
-read -rsp "NGC API key: " NGC_CLI_API_KEY
-echo
-export NGC_CLI_API_KEY
-```
-
-Or configure interactively: `ngc config set`
-
-> Security note: Prefer a current-session handoff: enter the key with `read -rs`,
-> inject it from a secrets manager, and pass it to `docker login` with
-> `--password-stdin`. Do not pass the raw key as a CLI argument, write it to any
-> workspace file or shell profile such as `~/.bashrc`, or commit it to version
-> control. If an env file is unavoidable, keep it outside the repo and restrict
-> it with `chmod 600`.
 
 #### 1.4 Verify NGC Access
 

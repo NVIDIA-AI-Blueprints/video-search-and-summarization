@@ -328,20 +328,6 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
-        # Sync ~/video-search-and-summarization on the box to the PR's
-        # actual head SHA before any deploy/agent step reads it.
-        #
-        # Without this, every trial runs against whatever happened to be
-        # checked out on the box from a prior session — often a stale
-        # tarball-style checkout (no `.git`) with an obsolete directory
-        # layout (`deployments/` instead of `deploy/docker/`) and the
-        # pre-rename container names. The pre-deploy script generated
-        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
-        # only syncs on the *gold-solution* path; the trial's agent invokes
-        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
-        # PR_HEAD_SHA forwarded above never actually lands on disk.
-        await self._sync_repo_to_pr_head()
-
         # Wipe the warm-pool box's docker runtime to a clean slate so no
         # prior trial's deployment state can contaminate this one. Images are
         # preserved (re-pulling the image set is slow); all containers,
@@ -360,6 +346,12 @@ class BrevEnvironment(BaseEnvironment):
         # skips the reset and inherits whatever is on the box — run `step-1`
         # first, or reset by hand. Normal CI always runs `step-1` first on a
         # freshly reset box, so the gate is correct there.
+        #
+        # NOTE: docker reset runs BEFORE repo sync because running containers
+        # may have bind-mounted host paths inside $REPO (e.g.
+        # deploy/docker/data-dir/) and written root-owned files there. Without
+        # stopping them first, `git clean` in the repo sync step fails with
+        # "Permission denied" on those root-owned files/dirs.
         task_dir_name = self.environment_dir.parent.name
         if task_dir_name.startswith("step-") and task_dir_name != "step-1":
             logger.info(
@@ -369,6 +361,20 @@ class BrevEnvironment(BaseEnvironment):
             )
         else:
             await self._reset_docker_runtime()
+
+        # Sync ~/video-search-and-summarization on the box to the PR's
+        # actual head SHA before any deploy/agent step reads it.
+        #
+        # Without this, every trial runs against whatever happened to be
+        # checked out on the box from a prior session — often a stale
+        # tarball-style checkout (no `.git`) with an obsolete directory
+        # layout (`deployments/` instead of `deploy/docker/`) and the
+        # pre-rename container names. The pre-deploy script generated
+        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
+        # only syncs on the *gold-solution* path; the trial's agent invokes
+        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
+        # PR_HEAD_SHA forwarded above never actually lands on disk.
+        await self._sync_repo_to_pr_head()
 
         # The harness intentionally does NOT pre-deploy any VSS profile
         # here. Each eval spec's first `expects[]` query is responsible
@@ -518,7 +524,10 @@ fi
 # Drop leftover working-tree state from a prior trial, but keep data/
 # (sample-data extract — slow to re-pull from NGC) and any .env tweaks
 # the active trial may have placed.
-git clean -fdx -e data/ -e .env
+# Use sudo git clean as a fallback: prior docker containers may have created
+# root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
+# a non-root git clean cannot remove ("Permission denied").
+git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)

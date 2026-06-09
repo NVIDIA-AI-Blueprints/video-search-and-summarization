@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Normalize + consolidate skills-review findings across paradigms.
 
-Stdlib only (mirrors the skills-nv-base post_comment.py constraint). Two jobs:
+Stdlib only (mirrors the static compliance comment poster constraint). Two jobs:
 
   canonical_finding(raw, skill, paradigm)
       Coerce one paradigm's raw finding into the canonical schema
