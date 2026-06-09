@@ -48,6 +48,7 @@ curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | j
 # For video files
 FILENAME="<filename.mp4>"
 FILE_PATH="/path/to/${FILENAME}"
+START_TS="2025-01-01T00:00:00.000Z"
 
 UPLOAD_URL=$(curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos" \
   -H "Content-Type: application/json" \
@@ -62,7 +63,7 @@ UPLOAD_RESPONSE=$(curl -s -X POST "${UPLOAD_URL}" \
   -H "nvstreamer-file-name: ${FILENAME}" \
   -F "mediaFile=@${FILE_PATH};filename=${FILENAME}" \
   -F "filename=${FILENAME}" \
-  -F 'metadata={"timestamp":"2025-01-01T00:00:00"}')
+  -F "metadata={\"timestamp\":\"${START_TS}\"}")
 
 VIDEO_ID=$(printf '%s' "${UPLOAD_RESPONSE}" | jq -r .sensorId)
 printf '%s' "${UPLOAD_RESPONSE}" \

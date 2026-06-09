@@ -91,21 +91,31 @@ Confirm the source exists in VIOS first (Mandatory workflow Step 2). If it is mi
 
 ### File upload — universal three-step flow
 
+Use the timestamped upload form below. The VSS agent/search profile uses
+`2025-01-01T00:00:00.000Z` as the uploaded `video_file` base timestamp;
+VIOS storage and embeddings must share that timeline, otherwise
+screenshot URLs and critic frame fetches can fail.
+
 ```bash
+FILENAME="<filename.mp4>"
+FILE_PATH="/path/to/${FILENAME}"
+START_TS="2025-01-01T00:00:00.000Z"
+
 # 1. Ask the agent for the chunked-upload URL
 URL=$(curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos" \
   -H "Content-Type: application/json" \
-  -d '{"filename": "<filename.mp4>"}' | jq -r .url)
+  -d "{\"filename\":\"${FILENAME}\"}" | jq -r .url)
 
 # 2. Chunked POST the file to that VST URL (the UI streams chunks; from a shell,
 #    a single multipart POST is fine). The final-chunk response carries sensorId.
 SENSOR=$(curl -s -X POST "$URL" \
-  -F "file=@/path/to/<filename.mp4>;type=video/mp4" | jq -r .sensorId)
+  -F "file=@${FILE_PATH};filename=${FILENAME};type=video/mp4" \
+  -F "metadata={\"timestamp\":\"${START_TS}\"}" | jq -r .sensorId)
 
 # 3. Tell the agent the upload finished — this fans out to RTVI-CV + RTVI-embed
 curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos/${SENSOR}/complete" \
   -H "Content-Type: application/json" \
-  -d '{"filename": "<filename.mp4>"}' | jq .
+  -d "{\"filename\":\"${FILENAME}\"}" | jq .
 ```
 
 Wait for the `/complete` response (it returns `chunks_processed > 0` once embeddings land). Only then is the video searchable.
