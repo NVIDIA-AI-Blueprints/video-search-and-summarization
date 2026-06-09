@@ -185,11 +185,42 @@ If `RTVI_EMBED_LOG_DIR` is bound to a host directory, log files are also availab
 
 `references/integrate-vss-deploy-video-embedding.md` documents the full integration contract.
 
+## Error Handling
+
+API failures return JSON with `code` and `message` fields:
+
+```json
+{
+  "code": "BadParameter",
+  "message": "chunk_duration must be greater than 0"
+}
+```
+
+Pydantic / OpenAPI validation failures use HTTP `422` with `code: "InvalidParameters"` and a field-level `message`.
+
+| Code | Meaning | Common Cause |
+|------|---------|--------------|
+| 400 | Bad Request | Missing `text_input`; unknown `file_id` / `stream_id` / `model`; live stream called without `stream: true`; `chunk_duration: 0` on a live-stream embed request; `chunk_overlap_duration >= chunk_duration` |
+| 401 | Unauthorized | Missing or invalid `Authorization: Bearer <token>` when the deployment enforces auth |
+| 403 | Forbidden | `file://` URLs disabled (`FILE_URL_ALLOWED_DIRS` unset) or resolved path outside the allow-list (`code: "Forbidden"`) |
+| 409 | Conflict | `DELETE /v1/files/{file_id}` while the file is in use (`ResourceInUse`); another client already connected to the same live stream (`Conflict`) |
+| 413 | Payload Too Large | Uploaded file or decoded `data:` URI exceeds server size limits |
+| 422 | Unprocessable Entity | Schema validation failure — malformed UUID, wrong multipart field types, invalid enum values; invalid URL format for supported schemes |
+| 429 | Rate Limited | Request rate exceeded — retry with exponential backoff |
+| 500 | Internal Server Error | Unexpected inference or I/O failure — inspect `docker compose -f rtvi-embed-docker-compose.yml logs -f rtvi-embed` |
+| 503 | Service Unavailable | `/v1/ready` still warming up (model download / Triton repo build); embedding endpoint busy with another file or text query; max live streams reached; CUDA OOM during inference |
+
+**503 on `/v1/ready` during first boot is expected** until Cosmos-Embed1 finishes downloading and the Triton model repo is built (up to ~20 minutes). Do not treat it as an application error until after the healthcheck `start_period: 1200s` elapses.
+
+**503 on embedding endpoints** with message `"Server is busy processing another file or text"` or `"Server is busy processing another file / live-stream."` means the service handles one synchronous embed job at a time — retry with backoff or shard work across instances.
+
+For endpoint-specific constraints (live-stream SSE requirements, URL schemes, response schemas), see [`references/rest-api.md`](references/rest-api.md). For Compose startup, cache, and permission failures, see [`references/troubleshooting.md`](references/troubleshooting.md).
+
 ## Troubleshooting
 
-For common failure patterns and resolutions, see `references/troubleshooting.md`. Frequent issues:
+For deployment and operational failure patterns, see `references/troubleshooting.md`. Frequent issues:
 
-- `/v1/ready` stuck at 503 → check for missing `NGC_API_KEY`, Hugging Face 429 rate-limit failures during the first-boot model download (set `HF_TOKEN` to avoid), or unreachable Redis/Kafka peers when those flags are enabled.
+- `/v1/ready` stuck at 503 after warmup → check for missing `NGC_API_KEY`, Hugging Face 429 rate-limit failures during the first-boot model download (set `HF_TOKEN` to avoid), or unreachable Redis/Kafka peers when those flags are enabled.
 - Healthcheck flipping unhealthy in the first 20 minutes → restore `start_period: 1200s`.
 - Permission errors on bind-mounted cache directories → `chown -R 1001:1001` on the host paths.
 

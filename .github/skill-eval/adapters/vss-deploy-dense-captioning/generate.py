@@ -7,6 +7,7 @@ The vss-deploy-dense-captioning skill tests the RTVI VLM microservice API direct
 cover either the standalone RT-VLM compose service or RT-VLM as part of
 the full VSS alerts real-time profile.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -16,16 +17,36 @@ import sys
 from pathlib import Path
 
 PLATFORMS: dict[str, dict] = {
-    "H100": {"short_name": "h100", "gpu_type": "H100", "min_vram_per_gpu": 80, "brev_search": "H100"},
-    "L40S": {"short_name": "l40s", "gpu_type": "L40S", "min_vram_per_gpu": 48, "brev_search": "L40S"},
+    "H100": {
+        "short_name": "h100",
+        "gpu_type": "H100",
+        "min_vram_per_gpu": 80,
+        "brev_search": "H100",
+    },
+    "L40S": {
+        "short_name": "l40s",
+        "gpu_type": "L40S",
+        "min_vram_per_gpu": 48,
+        "brev_search": "L40S",
+    },
     "RTXPRO6000BW": {
         "short_name": "rtxpro6000bw",
         "gpu_type": "RTX PRO 6000",
         "min_vram_per_gpu": 96,
         "brev_search": "RTX PRO",
     },
-    "DGX-SPARK": {"short_name": "spark", "gpu_type": "GB10", "min_vram_per_gpu": 96, "brev_search": "GB10"},
-    "IGX-THOR": {"short_name": "thor", "gpu_type": "Thor", "min_vram_per_gpu": 64, "brev_search": "Thor"},
+    "DGX-SPARK": {
+        "short_name": "spark",
+        "gpu_type": "GB10",
+        "min_vram_per_gpu": 96,
+        "brev_search": "GB10",
+    },
+    "IGX-THOR": {
+        "short_name": "thor",
+        "gpu_type": "Thor",
+        "min_vram_per_gpu": 64,
+        "brev_search": "Thor",
+    },
 }
 
 DEFAULT_PLATFORM = "L40S"
@@ -35,8 +56,9 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
-    "You are pre-authorized to run required setup actions autonomously — "
-    "do not pause to ask for confirmation on setup actions the trial requires."
+    "You are pre-authorized to deploy prerequisites autonomously — "
+    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "setup action the trial requires."
 )
 
 
@@ -52,7 +74,9 @@ def _substitute_spec(spec: dict, platform: str, mode: str) -> dict:
 
     def _sub(value):
         if isinstance(value, str):
-            return pattern.sub(lambda m: str(substitutions.get(m.group(1), m.group(0))), value)
+            return pattern.sub(
+                lambda m: str(substitutions.get(m.group(1), m.group(0))), value
+            )
         if isinstance(value, list):
             return [_sub(v) for v in value]
         if isinstance(value, dict):
@@ -69,8 +93,10 @@ def _is_profile_spec(spec: dict) -> bool:
     return "vss-deploy-profile" in (spec.get("skills") or [])
 
 
-def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[tuple[str, str]]:
-    declared = ((spec.get("resources") or {}).get("platforms") or {})
+def _platform_modes_from_spec(
+    spec: dict, platform_filter: str | None
+) -> list[tuple[str, str]]:
+    declared = (spec.get("resources") or {}).get("platforms") or {}
     if not declared:
         default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
         declared = {DEFAULT_PLATFORM: {"modes": [default_mode]}}
@@ -204,7 +230,7 @@ def generate_task(
             # RT-VLM alerts real-time in remote-all still needs one local GPU
             # for the continuous video processor.
             "gpu_count = 1",
-            f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            f"min_vram_gb_per_gpu = {pspec['min_vram_per_gpu']}",
             "min_root_disk_gb = 160",
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
@@ -218,7 +244,10 @@ def generate_task(
                     f'deploy_mode = "{spec.get("deploy_mode")}"',
                 )
         else:
-            meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'compose_profile = "{COMPOSE_PROFILE}"')
+            meta_lines.insert(
+                meta_lines.index(f'platform = "{platform}"'),
+                f'compose_profile = "{COMPOSE_PROFILE}"',
+            )
         (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
         env_dir = step_dir / "environment"
@@ -248,7 +277,9 @@ def generate_task(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--skill-dir", required=True)
     parser.add_argument("--deploy-skill-dir", default=None)
@@ -282,11 +313,15 @@ def main() -> None:
     print(f"  spec         : {spec_path}")
     print(f"  tasks        : {tasks}")
     print(f"  queries      : {len(spec.get('expects', []))}")
-    print(f"  total checks : {sum(len(q.get('checks', [])) for q in spec.get('expects', []))}")
+    print(
+        f"  total checks : {sum(len(q.get('checks', [])) for q in spec.get('expects', []))}"
+    )
     print()
 
     for platform, mode in tasks:
-        print(f"  GEN  vss-deploy-dense-captioning/{_dataset_group(spec)}/{PLATFORMS[platform]['short_name']}-{mode}")
+        print(
+            f"  GEN  vss-deploy-dense-captioning/{_dataset_group(spec)}/{PLATFORMS[platform]['short_name']}-{mode}"
+        )
         generate_task(platform, mode, spec, output_root, skill_dir, deploy_skill_dir)
 
     print()

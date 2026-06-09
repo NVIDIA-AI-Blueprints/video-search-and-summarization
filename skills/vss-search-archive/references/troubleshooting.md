@@ -33,7 +33,7 @@ If further investigation is required, refer to the full components from the `vss
   If not, offer the user the option to ingest them via the full pipeline video ingest handshake below if they are video files (or `rtsp-streams/add` for RTSP streams).
 
 - If a video source in the system has no embeddings, it means it has not been ingested through the full pipeline. STOP and ask user if video can be re-ingested and if user can provide video source. If yes, carefully follow:
-    - First delete it (avoid two copies) with indexes cleanup:
+    - First delete it through the agent backend (avoid two copies; cleans indexes/embeddings too):
 ```bash
 # For video files
 # video_id = sensor / video UUID, same ID as in VST
@@ -48,6 +48,7 @@ curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | j
 # For video files
 FILENAME="<filename.mp4>"
 FILE_PATH="/path/to/${FILENAME}"
+START_TS="2025-01-01T00:00:00.000Z"
 
 UPLOAD_URL=$(curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos" \
   -H "Content-Type: application/json" \
@@ -62,7 +63,7 @@ UPLOAD_RESPONSE=$(curl -s -X POST "${UPLOAD_URL}" \
   -H "nvstreamer-file-name: ${FILENAME}" \
   -F "mediaFile=@${FILE_PATH};filename=${FILENAME}" \
   -F "filename=${FILENAME}" \
-  -F 'metadata={"timestamp":"2025-01-01T00:00:00"}')
+  -F "metadata={\"timestamp\":\"${START_TS}\"}")
 
 VIDEO_ID=$(printf '%s' "${UPLOAD_RESPONSE}" | jq -r .sensorId)
 printf '%s' "${UPLOAD_RESPONSE}" \
