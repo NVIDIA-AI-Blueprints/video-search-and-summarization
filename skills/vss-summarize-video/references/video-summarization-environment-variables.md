@@ -13,6 +13,10 @@ overrides to the generated profile env and resolve compose from that file:
 deploy/docker/developer-profiles/dev-profile-lvs/generated.env
 ```
 
+Password values should be supplied by that profile env or deployment-specific
+overrides; the service compose file intentionally does not define password
+defaults.
+
 Core deployment:
 
 | Var | Purpose |

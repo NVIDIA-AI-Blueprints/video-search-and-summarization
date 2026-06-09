@@ -65,6 +65,8 @@ The checked-in profile env file,
 For a deployment, follow `vss-deploy-profile` and apply overrides to
 `deploy/docker/developer-profiles/dev-profile-lvs/generated.env`, then resolve
 `deploy/docker/resolved.yml`. Do not edit the service compose directly.
+Password values should come from the profile env or deployment overrides; do
+not add password defaults to the service compose file.
 
 Core required values:
 
