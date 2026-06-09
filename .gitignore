@@ -14,6 +14,7 @@ __pycache__/
 # vss-deploy-profile skill on every deploy.
 **/generated.env
 deploy/docker/resolved.yml
+deploy/docker/rag-secret.override.yml
 
 *.log
 *checkpoint.*

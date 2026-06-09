@@ -12,21 +12,12 @@ metadata:
 
 Generate a video analysis report by routing to one of two backends — **never via** `POST /generate` on the VSS agent.
 
-| Mode | Trigger | Backend |
+| Mode | Trigger examples | Backend |
 |---|---|---|
-| **A. Video clip** | "report on `<sensor>`", "report on this video", "analyze warehouse_01.mp4" | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
-| **B. Incident range** | "report on incidents from `<t1>` to `<t2>`", "report on alerts today", "what incidents happened on `<sensor>` last hour" | `/vss-query-analytics` → incident list → narrative report |
+| **A. Video clip** | "report on `<sensor>`", "report on this video", "analyze warehouse_01.mp4", "generate a report for `<sensor-id>`" | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
+| **B. Incident range** | "report on incidents from `<t1>` to `<t2>`", "report on alerts today", "what incidents happened on `<sensor>` last hour", "summarize alerts on `<sensor>` between `<t1>` and `<t2>`" | `/vss-query-analytics` → incident list → narrative report |
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range.
-
----
-
-## When to Use
-
-- "Generate a report for this video" / "for `<sensor-id>`" — **Mode A**
-- "Create an analysis report on the uploaded video" — **Mode A**
-- "Report on incidents from 12:31Z to 12:32Z" — **Mode B**
-- "Summarize alerts on `<sensor>` between `<t1>` and `<t2>`" — **Mode B**
 
 ---
 
@@ -49,15 +40,30 @@ If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or
 
 ---
 
-## Browser-playable clip URL (always do this before embedding any clip in the report)
+## Clip URLs: VLM input vs browser report link
 
-VST returns clip URLs using the agent-internal `${HOST_IP}:30888` host:port. Those work in-cluster (VLM frame pulls, agent backend) but the user's browser cannot reach them. The deploy layer already exports the browser-facing host:port as `$VSS_PUBLIC_HOST` / `$VSS_PUBLIC_PORT` (and scheme as `$VSS_PUBLIC_HTTP_PROTOCOL`) in every profile `.env` — Brev or bare-metal — so the rewrite is a one-liner:
+VST returns clip URLs using the agent-internal `${HOST_IP}:30888` host:port.
+Keep that original URL as `VIDEO_URL` for local / in-cluster VLM frame pulls.
+Do **not** rewrite the VLM input URL just to make it browser-playable.
+
+Only create `BROWSER_CLIP_URL` for URLs shown in the rendered report. The
+deploy layer exports the browser-facing host:port as `$VSS_PUBLIC_HOST` /
+`$VSS_PUBLIC_PORT` (and scheme as `$VSS_PUBLIC_HTTP_PROTOCOL`) in every
+profile `.env` — Brev or bare-metal — so the report-link rewrite is:
 
 ```bash
+: "${VSS_PUBLIC_HOST:?Set VSS_PUBLIC_HOST before rewriting clip URLs}"
+: "${VSS_PUBLIC_PORT:?Set VSS_PUBLIC_PORT before rewriting clip URLs}"
+VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
 BROWSER_CLIP_URL=$(echo "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
 ```
 
-Apply it to **every clip URL surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A Step 3 on the original internal URL — the VLM is in-cluster.
+If either required public host value is missing, omit the report-facing clip
+link and call out that a browser-playable URL could not be produced; do not
+block the local VLM analysis path. Apply the rewrite to **every clip URL
+surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B
+per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A
+Step 3 on the original internal URL when the VLM is local / in-cluster.
 
 ---
 
@@ -77,7 +83,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
-   That gives a direct `mp4` URL that the VLM can pull frames from. Bind it to `VIDEO_URL` (used in-cluster by the VLM in Step 3) **and** rewrite to `BROWSER_CLIP_URL` for the Step 4 report template using the one-liner from *Browser-playable clip URL* above — the user's browser cannot reach `$VIDEO_URL` directly.
+   That gives a direct `mp4` URL that the local / in-cluster VLM can pull frames from. Bind it to `VIDEO_URL` (used by the VLM in Step 3) **and** separately rewrite to `BROWSER_CLIP_URL` for the Step 4 report template using the report-link rewrite from *Clip URLs: VLM input vs browser report link* above — the user's browser cannot reach `$VIDEO_URL` directly.
    Mode A requires the selected VLM endpoint to be able to fetch `VIDEO_URL`.
    Local NIM/RT-VLM deployments normally can; remote endpoints generally cannot
    fetch `localhost`, private `HOST_IP`, or VST-internal URLs. If the live
@@ -192,28 +198,7 @@ If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), 
 
 ### Step 4 — Fill the Video Analysis Report template
 
-```markdown
-# Video Analysis Report
-
-## Basic Information
-
-| Field | Value |
-|-------|-------|
-| **Report Identifier** | vss_report_<YYYYMMDD_HHMMSS> |
-| **Date of Analysis** | <YYYY-MM-DD> |
-| **Time of Analysis** | <HH:MM:SS> |
-| **Video Source** | <sensor_id or filename> |
-| **Clip Range** | <startTime> – <endTime> |
-| **Clip URL** | `<BROWSER_CLIP_URL>` (apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite — NEVER paste the raw `HOST_IP:30888` URL here) |
-| **VLM** | <VLM_MODEL (NIM or RT-VLM)> |
-| **Analysis Request** | <user's request> |
-
-## Analysis Results
-
-<VLM output: timestamped caption / summary>
-```
-
-Return the rendered markdown to the user.
+Copy [`assets/video-analysis-report.md`](assets/video-analysis-report.md), fill every placeholder, and return the rendered markdown to the user. Keep the source asset unchanged. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never leave the placeholder in the output, never include template instructions in a filled cell, and never use the raw `HOST_IP:30888` URL.
 
 ---
 
@@ -242,41 +227,22 @@ Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
 }
 ```
 
-For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` rewrite (see *Browser-playable clip URL* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
+For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` report-link rewrite (see *Clip URLs: VLM input vs browser report link* above) to every clip URL before pasting it into the report** — the raw value is a `HOST_IP:30888` URL the user's browser cannot reach.
 
 ### Step 3 — Fill the Incident Range Report template
 
-Group by sensor (or by category if no sensor scope), tally verdicts, list each incident as a bullet with timestamp / category / verdict / reasoning.
-
-```markdown
-# Incident Range Report
-
-## Basic Information
-
-| Field | Value |
-|-------|-------|
-| **Report Identifier** | vss_report_<YYYYMMDD_HHMMSS> |
-| **Range** | <start_time> – <end_time> |
-| **Scope** | <sensor_id> | all sensors |
-| **Total Incidents** | <N> |
-| **Confirmed / Rejected / Unverified** | <c> / <r> / <u> |
-
-## Incidents
-
-### <sensor_id_or_category>
-
-- **<timestamp>** — <category> — verdict: **<confirmed|rejected|unverified>**
-  - <info.reasoning (1–2 lines)>
-  - clip: `<rewritten URL>` (omit row when the incident carries no clip URL — never paste a raw `HOST_IP:30888` URL)
-  - objects: <objectIds joined>
-- …
-
-## Summary
-
-<2–4 sentences synthesizing what dominates the range — top categories, sensors with the most confirmed incidents, any clusters in time.>
-```
+Copy [`assets/incident-range-report.md`](assets/incident-range-report.md), then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Keep the source asset unchanged. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL. Never include template instructions in a filled cell.
 
 If `get_incidents` returns zero results, return a one-line report stating the range and scope produced no incidents — do not invent content and do not fall back to Mode A.
+
+---
+
+## Error Handling
+
+- If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step. Do not fabricate a report from partial or missing data.
+- If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
+- If a clip URL cannot be rewritten to the public host/port, omit it from the rendered report and call out that the browser-playable URL could not be produced.
+- For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.
 
 ---
 
