@@ -116,22 +116,21 @@ Make sure the key value also lands in `industry-profiles/warehouse-operations/.e
 
 ### 3. `HARDWARE_PROFILE` slug
 
-> The canonical `HARDWARE_PROFILE` keys live in `industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml` (lines 592–642). Use the slug from the table below — e.g. on an RTX A6000 (Ampere) host the value is `RTXA6000`.
+> The public MV3DT supported stream counts are listed in the Warehouse Quickstart Guide under "MV3DT Vision AI Profile Supported Deployment Options." Use the matching `HARDWARE_PROFILE` slug below.
 
 Pick from `nvidia-smi --query-gpu=name --format=csv,noheader`:
 
-| GPU name | `HARDWARE_PROFILE` | MV3DT `max_streams_supported` |
+| GPU name | `HARDWARE_PROFILE` | MV3DT supported streams |
 |---|---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` | 18 |
 | H100 (NVL, SXM HBM3) | `H100` | 13 |
-| RTX A6000 Ada Generation | `RTXA6000ADA` | 6 |
 | L40S | `L40S` | 7 |
-| L4 | `L4` | 2 |
-| RTX A6000 (Ampere) | `RTXA6000` | 2 |
-| IGX Thor | `IGX-THOR` | 7 |
+| IGX Thor | `IGX-THOR` | 4 |
 | DGX Spark | `DGX-SPARK` | 4 |
 
-**The per-GPU MV3DT cap is enforced at deploy time.** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported)` and applies a `keep_count` file-management op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` so only `final_stream_count` `.mp4` files remain (sorted lexicographically, last N kept). If your GPU's `mv3dt` cap (above table) is below your camera count, perception / `mdx-raw` / `mdx-bev` run with the cap's worth of streams. Either pick a GPU with a higher cap or surface the cap explicitly to the user so they're aware which streams will be processed.
+If the user's GPU is not listed here, check `industry-profiles/warehouse-operations/.env` for available `HARDWARE_PROFILE` values, then confirm the matching profile exists in `blueprint-configurator/blueprint_config.yml` before using it. Do not infer a stream count from the slug alone.
+
+**The per-GPU MV3DT cap is enforced at deploy time.** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported)` and applies a `keep_count` file-management op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` so only `final_stream_count` `.mp4` files remain (sorted lexicographically, last N kept). If your GPU's MV3DT supported stream count (above table) is below your camera count, perception / `mdx-raw` / `mdx-bev` run with the supported stream count. Either pick a GPU with a higher supported stream count or surface the cap explicitly to the user so they're aware which streams will be processed.
 
 ### 4. App data on disk
 
