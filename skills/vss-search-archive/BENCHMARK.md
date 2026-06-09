@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-search-archive`
-- Evaluation date: 2026-06-05
+- Evaluation date: 2026-06-08
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 1 evaluation tasks
@@ -54,11 +54,11 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 100% (+75%) | 97% (+59%) |
-| Discoverability | 2 | 92% (+67%) | 93% (+39%) |
-| Effectiveness | 2 | 61% (+37%) | 69% (+45%) |
-| Efficiency | 2 | 80% (+58%) | 88% (+45%) |
+| Security | 2 | 100% (+0%) | 100% (+100%) |
+| Correctness | 2 | 85% (+60%) | 97% (+62%) |
+| Discoverability | 2 | 100% (+75%) | 90% (+37%) |
+| Effectiveness | 2 | 55% (+31%) | 64% (+40%) |
+| Efficiency | 2 | 93% (+71%) | 82% (+43%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -68,10 +68,10 @@ Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found
 
 Top findings:
 
-- MEDIUM SECURITY/Unknown (SQP-2): The skill references sensitive environment variables $NGC_CLI_API_KEY and $NVIDIA_API_KEY without warning users about cr (`SKILL.md:18`)
-- MEDIUM SECURITY/Unknown (SQP-2): The documentation describes DELETE operations that remove video sources and their index data without adequately warning  (`references/troubleshooting.md:36`)
-- MEDIUM SECURITY/Unknown (SQP-2): The RTSP stream example includes plaintext username and password fields ('admin', 'your_rtsp_password') in a curl comman (`references/troubleshooting.md:79`)
+- MEDIUM SECURITY/Unknown (SQP-2): The RTSP stream ingestion workflow accepts username and password fields in a JSON payload sent over HTTP (not HTTPS). Cr (`SKILL.md:134`)
+- LOW QUALITY/quality_discoverability: Description very long (276 chars, recommend 50-150) (`skills/vss-search-archive/SKILL.md`)
 - LOW SCHEMA/author_format: Author must be of the form 'Name <email@host>' (`skills/vss-search-archive/SKILL.md`)
+- LOW SECURITY/Unknown (SQP-2): The skill references sensitive environment variables NGC_CLI_API_KEY and NVIDIA_API_KEY in instructions without warning  (`SKILL.md:19`)
 
 ## Tier 2: Deduplication Summary
 
@@ -80,7 +80,7 @@ Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
 Notable observations:
 
 - Context Deduplication: Collected 3 file(s)
-- Inter-Skill Deduplication: Parsed skill 'vss-search-archive': 148 char description
+- Inter-Skill Deduplication: Parsed skill 'vss-search-archive': 276 char description
 
 ## Publication Recommendation
 
