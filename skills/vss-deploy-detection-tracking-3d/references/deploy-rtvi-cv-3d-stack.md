@@ -25,7 +25,7 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 | `vss-vios-nvstreamer-mv3dt` | nvstreamer | RTSP server for sample/videos data |
 | **`vss-behavior-analytics-mv3dt`** | analytics | 3D spatial analytics — always under `bp_wh_*_mv3dt`, **not** gated by `MINIMAL_PROFILE` |
 
-> **Auto-calibration is not part of this deploy.** AMC (`vss-auto-calibration` / `-ui`) is **not** in the `bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt` profile — those differ from the `bp_wh_auto_calib_mv3dt` / `auto_calib` profiles that enable AMC. When calibration is missing, the [`calibration-workflow.md`](calibration-workflow.md) chain brings AMC up separately (the `auto_calib` profile) and tears it down before this deploy. If you see `vss-auto-calibration` running alongside MV3DT, it's from that separate flow, not this one.
+> **Auto-calibration is not part of this deploy.** AMC (`vss-auto-calibration` / `-ui`) is **not** in the `bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt` final MV3DT profile. When calibration is missing, [`calibration-workflow.md`](calibration-workflow.md) delegates AMC setup and RTSP capture to the `vss-generate-video-calibration` skill, then tears AMC down before this deploy. If you see `vss-auto-calibration` running alongside MV3DT, it's from that separate calibration flow, not this one.
 
 ### Extra under extended (`MINIMAL_PROFILE=""`) — needed for VST overlays
 
@@ -51,31 +51,57 @@ ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
 # Re-source key vars from .env so we can check them
 set -a; . "${ENV_FILE}"; set +a
 
-# 1. App-data layout
-for sub in videos models data_log; do
+# 1. App-data layout. RTSP still needs models and data_log, but not dataset MP4s.
+for sub in models data_log videos; do
   test -d "${VSS_DATA_DIR}/${sub}" || { echo "ERROR: ${VSS_DATA_DIR}/${sub} missing — VSS_DATA_DIR is not pointing at extracted vss-warehouse-app-data"; exit 1; }
 done
 
-# 2. Dataset videos
-test -d "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}" \
-  || { echo "ERROR: ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET} missing"; exit 1; }
-VIDEO_COUNT=$(ls "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"*.mp4 2>/dev/null | wc -l)
-echo "Found ${VIDEO_COUNT} videos under ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"
+# 2. Source-specific input check
+if [ "${SENSOR_INFO_SOURCE:-nvstreamer}" = "file" ]; then
+  SENSOR_FILE="${SENSOR_FILE_PATH:-${VSS_APPS_DIR}/industry-profiles/warehouse-operations/camera_configs/camera_info.json}"
+  test -f "${SENSOR_FILE}" || { echo "ERROR: SENSOR_FILE_PATH=${SENSOR_FILE} missing"; exit 1; }
+
+  if ! jq -e '.sensors | type == "array" and length > 0' "${SENSOR_FILE}" >/dev/null; then
+    echo "ERROR: ${SENSOR_FILE} must contain sensors[]"
+    exit 1
+  fi
+  if ! jq -e '.sensors[] | (.camera_name // "") != "" and (.rtsp_url // "") != "" and (.group_id // "") != "" and (.region // "") != ""' "${SENSOR_FILE}" >/dev/null; then
+    echo "ERROR: each RTSP sensor needs camera_name, rtsp_url, group_id, and region"
+    exit 1
+  fi
+
+  SENSOR_COUNT=$(jq '.sensors | length' "${SENSOR_FILE}")
+  if [ "${SENSOR_COUNT}" != "${NUM_STREAMS}" ]; then
+    echo "ERROR: camera_info sensors (${SENSOR_COUNT}) must equal NUM_STREAMS (${NUM_STREAMS})"
+    exit 1
+  fi
+
+  # Keeps the compose bind mount explicit even for external RTSP.
+  mkdir -p "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+  echo "RTSP sensor file OK: ${SENSOR_FILE} (${SENSOR_COUNT} sensors)"
+else
+  if [ ! -d "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}" ]; then
+    echo "ERROR: ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET} missing"
+    exit 1
+  fi
+  VIDEO_COUNT=$(ls "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"*.mp4 2>/dev/null | wc -l)
+  echo "Found ${VIDEO_COUNT} videos under ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"
+fi
 
 # 3. Calibration mount
 CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}"
 test -f "${CAL_DIR}/calibration.json" || { echo "ERROR: ${CAL_DIR}/calibration.json missing"; exit 1; }
 CAM_COUNT=$(ls "${CAL_DIR}/camInfo/"*.{yml,yaml} 2>/dev/null | wc -l)
 echo "Found ${CAM_COUNT} calibration files under ${CAL_DIR}/camInfo/"
+[ "${CAM_COUNT}" = "${NUM_STREAMS}" ] || { echo "ERROR: camInfo count (${CAM_COUNT}) must equal NUM_STREAMS (${NUM_STREAMS})"; exit 1; }
 
-# 4. The configurator enforces min(NUM_STREAMS, HARDWARE_PROFILE.max_streams_supported)
-#    and trims excess videos to match. See SKILL.md Prerequisites §3.
+# 4. The configurator enforces min(NUM_STREAMS, HARDWARE_PROFILE.max_streams_supported).
+#    For sample/videos it may trim dataset MP4s; for RTSP keep camera_info.json,
+#    calibration, and NUM_STREAMS already aligned before deploy.
 echo "NUM_STREAMS=${NUM_STREAMS}, HARDWARE_PROFILE=${HARDWARE_PROFILE}"
-echo "If max_streams_supported for ${HARDWARE_PROFILE}.mv3dt is < ${NUM_STREAMS},"
-echo "the configurator will trim videos to that cap at deploy time."
 ```
 
-If videos < camera count and `HARDWARE_PROFILE.mv3dt.max_streams_supported` < camera count, the deploy will appear to succeed but you'll only get a subset of streams. Fix one of: source missing videos, raise `HARDWARE_PROFILE`-supported cap, or lower expectations.
+If `NUM_STREAMS` is above the supported MV3DT stream count for the hardware, the deploy may process only a subset of streams. For sample/videos, fix one of: source missing videos, raise the hardware-supported cap, or lower expectations. For RTSP, keep `camera_info.json`, calibration, and `NUM_STREAMS` at the supported count before deploy.
 
 ### Step 0a — Detect stale state from a prior deploy (redeploys only)
 
@@ -202,7 +228,11 @@ MINIMAL_PROFILE=""                          # EXTENDED (default for overlays)
 
 # Dataset + stream count
 SAMPLE_VIDEO_DATASET="<your-dataset-slug>"  # see "Slug" note below
-NUM_STREAMS=4                               # must equal camInfo count
+NUM_STREAMS=4                               # must equal camInfo count, and RTSP sensor count when used
+
+# RTSP input only. Leave unset/default for sample or local videos.
+# SENSOR_INFO_SOURCE=file
+# SENSOR_FILE_PATH="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/camera_configs/camera_info.json"
 
 # Hardware — use the slug from SKILL.md Prerequisites §3 (canonical keys live in blueprint_config.yml)
 HARDWARE_PROFILE=H100                       # see SKILL.md Prerequisites §3 table
@@ -225,6 +255,33 @@ NGC_CLI_API_KEY='<your-ngc-key>'
 ```
 
 `COMPOSE_PROFILES` is computed automatically by the .env (search for `^COMPOSE_PROFILES=`): `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}` → for MV3DT this resolves to `bp_wh_kafka_mv3dt,llm_none_none`.
+
+### RTSP input — Sensor Info File
+
+For Q1 = `rtsp`, create a Sensor Info File and point `.env` at it before `docker compose up`. If calibration just ran through [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md), reuse that ordered stream list; only translate `camera_name` to the normalized MV3DT sensor IDs:
+
+```json
+{
+  "sensors": [
+    {
+      "camera_name": "Camera",
+      "rtsp_url": "rtsp://<host>:<port>/<stream>",
+      "group_id": "bev-sensor-1",
+      "region": "warehouse"
+    },
+    {
+      "camera_name": "Camera_01",
+      "rtsp_url": "rtsp://<host>:<port>/<stream>",
+      "group_id": "bev-sensor-1",
+      "region": "warehouse"
+    }
+  ]
+}
+```
+
+Required fields per sensor: `camera_name`, `rtsp_url`, `group_id`, and `region`. Use the same `camera_name` values that are in the normalized `calibration.json` (`Camera`, `Camera_01`, ...). `NUM_STREAMS`, `camera_info.json` sensor count, `calibration.json` sensor count, and `camInfo/` count must match. Static `NUM_STREAMS` is required for RTSP; the dynamic video-file counting path is for recorded videos only.
+
+For `sample` or `videos`, leave `SENSOR_INFO_SOURCE` unset/default (`nvstreamer`) and keep using the dataset video directory checks below.
 
 ### `VSS_DATA_DIR` — what to point it at
 
@@ -266,7 +323,7 @@ fi
 
 After extraction, run the `mkdir -p` + scoped-ACL `data_log` permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it.
 
-> Always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's `mv3dt` cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying.
+> For `sample` / `videos`, always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's MV3DT cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying. For `rtsp`, validate `camera_info.json` instead of video count.
 
 ### `SAMPLE_VIDEO_DATASET` slug
 

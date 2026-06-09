@@ -57,7 +57,7 @@ like "deploy rtvi-cv-3d" routes to this MV3DT skill (`MODE=mv3dt`), but does
 
 - **sample** — the bundled 4-camera synthetic dataset (`warehouse-4cams-20mx20m-synthetic`). Calibration ships in-tree; no AMC run needed.
 - **videos** — the user has local video files (any `*.mp4` named after their cameras). Standalone AMC (`auto_calib` profile) will run if calibration is missing.
-- **rtsp** — the user has live RTSP URLs. Calibration via VIOS-driven AMC.
+- **rtsp** — the user has live RTSP URLs. Calibration via VIOS-driven AMC; final deploy also needs a Sensor Info File (`camera_info.json`) with those RTSP URLs.
 
 ### Q2 — Calibration coverage (skip for `sample`)
 
@@ -233,7 +233,7 @@ SKILL.md (this file — Q0/Q1/Q2/Q3 routing)
 
 ## Related Skills
 
-- [`vss-generate-video-calibration`](../vss-generate-video-calibration/SKILL.md) — the AMC skill. Owns the `auto_calib` compose profile, calibration API, and the `/v1/result/.../mv3dt_result` export hook this skill consumes. `calibration-workflow.md` chains into it.
+- [`vss-generate-video-calibration`](../vss-generate-video-calibration/SKILL.md) — the AMC skill. Owns AMC deployment, RTSP capture, calibration API, and the `/v1/result/.../mv3dt_result` export hook this skill consumes. `calibration-workflow.md` chains into it.
 - [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md) — cross-profile umbrella. Use that instead when the user wants the **full warehouse blueprint** (with agents / LLM / VLM), not just MV3DT.
 - [`vss-manage-video-io-storage`](../vss-manage-video-io-storage/SKILL.md) — VIOS / VST API skill. Useful for the VST video wall (overlay viz) and for sensor management referenced in `configure-cameras.md`.
 

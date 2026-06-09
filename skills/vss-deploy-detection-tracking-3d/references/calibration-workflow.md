@@ -21,7 +21,7 @@ The user's Q3 slug becomes the `${SAMPLE_VIDEO_DATASET}` directory name.
 
 ## Step 1 — Hand off to the AMC skill for setup
 
-**Do not reinvent AMC setup here.** Walk the full deploy flow in [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) end-to-end. For MV3DT chaining, follow Path B (standalone `COMPOSE_PROFILES=auto_calib`). The AMC skill owns the canonical procedure and will stay in sync with the AMC microservice as it evolves.
+**Do not reinvent AMC setup here.** Walk the full deploy flow in [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) end-to-end. The AMC skill owns its deploy profile, VIOS prerequisites, RTSP capture flow, and API contract; this MV3DT skill only adds the MV3DT export and final-deploy handoff.
 
 The MV3DT chain has two skill-specific requirements on top of the AMC skill's defaults:
 
@@ -31,20 +31,13 @@ The AMC skill marks VGGT as **optional Step 2** ("Skip unless the user explicitl
 
 Follow `deploy-auto-calibration-service.md` **Step 2** verbatim — HuggingFace license-accept, `HF_TOKEN`, `hf download facebook/VGGT-1B-Commercial`, place at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt`, `chmod a+r`. Skip only if the user explicitly opts out of VGGT (small accuracy hit, but still works).
 
-### 1b. VIOS preflight (rtsp mode only)
+### 1b. RTSP preflight (rtsp mode only)
 
-If Q1 was `rtsp`, walk `deploy-auto-calibration-service.md` **Step 2b** — VIOS needs to be reachable at `${VST_INTERNAL_URL}` so AMC can ingest live streams. For `videos` mode, VIOS is not needed and you can skip 2b.
+If Q1 was `rtsp`, follow [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md) for the VIOS probe, capture request, polling, ingest, and alignment/layout upload flow. For `videos` mode, use the AMC `videos.md` reference instead.
 
-### 1c. Deploy
+### 1c. Deploy AMC
 
-Per `deploy-auto-calibration-service.md` **Step 3 (Path B)**:
-
-```bash
-cd "${VSS_APPS_DIR}"
-COMPOSE_PROFILES=auto_calib docker compose \
-  --env-file industry-profiles/warehouse-operations/.env \
-  up -d
-```
+Use [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) as the source of truth for bringing up AMC. Do not hardcode an RTSP-specific compose profile in this MV3DT reference; use whatever deployment/profile that AMC skill selects for the user's calibration mode.
 
 ### 1d. Verify
 
@@ -55,7 +48,7 @@ curl -sf "http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready"
 # Expected: {"code":0,"message":"VSS Auto Calibration Microservice is ready"}
 ```
 
-This brings up `vss-auto-calibration` + `vss-auto-calibration-ui` without perception, BEV Fusion, mosquitto, nvstreamer-mv3dt, or VST. The `auto_calib` compose profile shares only `redis` with MV3DT — teardown later won't collide with anything MV3DT will deploy.
+AMC readiness, VIOS configuration, and RTSP capture prerequisites are owned by the AMC skill. Confirm AMC is ready here, then continue with the mode-specific AMC reference in Step 2.
 
 Even though this flow drives AMC via the API, **tell the user they can watch live calibration progress in the AMC UI** at `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}` (open the project created in Step 2).
 
@@ -96,6 +89,8 @@ Inputs the AMC flow needs from the parent SKILL.md's Q3:
 - `project_name` — short slug
 - `detector_type` — `resnet` or `transformer`, passed at the AMC shared-tail Step B (`POST /v1/calibrate/<id>`)
 - `VIDEO_DIR` (videos mode) or RTSP URLs (rtsp mode)
+
+For `rtsp`, keep the ordered RTSP URL list from the AMC capture request. After calibration export and camera-name normalization, final MV3DT deployment needs the same URLs in `camera_info.json`, with camera names matching the normalized `calibration.json` sensor IDs (`Camera`, `Camera_01`, ...).
 
 Capture the `project_id` from the AMC flow's project-creation step — you'll need it in Step 3 to fetch the MV3DT export. Wait until `project_state == COMPLETED` before proceeding.
 
@@ -328,14 +323,7 @@ All checks should pass (or be N/A under `MINIMAL_PROFILE="true"`). If `camInfo/`
 
 ## Step 5 — Tear down AMC
 
-Leave the host clean before MV3DT comes up. AMC runs under `auto_calib` / `bp_wh_auto_calib_*` profiles, not the normal `bp_wh_*_mv3dt` profiles used for MV3DT deployment.
-
-```bash
-cd "${VSS_APPS_DIR}"
-COMPOSE_PROFILES=auto_calib docker compose \
-  --env-file industry-profiles/warehouse-operations/.env \
-  down
-```
+Leave the host clean before MV3DT comes up. Use the stopping/teardown command from [`../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md`](../../vss-generate-video-calibration/references/deploy-auto-calibration-service.md) for the AMC deployment path that was used. Do not tear down the final MV3DT profile here.
 
 Project state under `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/` is bind-mounted, so it survives the down. You can re-run AMC later without losing work.
 
@@ -344,8 +332,9 @@ Project state under `${VSS_APPS_DIR}/services/auto-calibration/projects/project_
 Calibration is now on disk at `${CAL_DIR}`. Hand back to the parent flow:
 
 1. Walk [`configure-cameras.md`](configure-cameras.md) — run Step 0 to normalize AMC/VGGT sensor IDs and video names to `Camera, Camera_01, ...`, then set `NUM_STREAMS` to the `camInfo/*.yaml` count and sync DeepStream batch sizes.
-2. Walk [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) — `docker compose up` with `MODE=mv3dt` + `BP_PROFILE=bp_wh_kafka` + `MINIMAL_PROFILE=""` (extended, the Q0 default — overlays enabled). Use `MINIMAL_PROFILE="true"` only if the user explicitly chose minimal in Q0.
-3. Walk [`verify-and-view.md`](verify-and-view.md) — confirm perception FPS, BEV ready, VST video wall.
+2. For `rtsp`, create or update `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/camera_configs/camera_info.json` before final deploy. Use the ordered RTSP URLs from AMC capture, and use the normalized sensor IDs from `${CAL_DIR}/calibration.json` as each `camera_name`. Set `SENSOR_INFO_SOURCE=file` and `SENSOR_FILE_PATH` in `.env`; [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) shows the schema and validates it.
+3. Walk [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) — `docker compose up` with `MODE=mv3dt` + `BP_PROFILE=bp_wh_kafka` + `MINIMAL_PROFILE=""` (extended, the Q0 default — overlays enabled). Use `MINIMAL_PROFILE="true"` only if the user explicitly chose minimal in Q0.
+4. Walk [`verify-and-view.md`](verify-and-view.md) — confirm perception FPS, BEV ready, VST video wall.
 
 ## Failure modes specific to this chain
 
