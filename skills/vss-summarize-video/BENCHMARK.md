@@ -70,7 +70,7 @@ Top findings:
 
 - MEDIUM SECURITY/Unknown (SQP-2): The deployment reference document contains hardcoded default credentials for database services (Neo4j: username 'neo4j'/ (`references/video-summarization-deployment.md:152`)
 - MEDIUM SECURITY/Unknown (SQP-2): The credentials table lists sensitive environment variables (NGC_CLI_API_KEY, NVIDIA_API_KEY, OPENAI_API_KEY, HF_TOKEN)  (`references/video-summarization-environment-variables.md:39`)
-- MEDIUM SECURITY/Unknown (SQP-2): The database backend recipes contain hardcoded default passwords (e.g., GRAPH_DB_PASSWORD=passneo4j, ARANGO_DB_PASSWORD= (`references/video-summarization-environment-variables.md:139`)
+- MEDIUM SECURITY/Unknown (SQP-2): The database backend recipes contain hardcoded default passwords (e.g., GRAPH_DB_PASSWORD=, ARANGO_DB_PASSWORD=) (`references/video-summarization-environment-variables.md:139`)
 - LOW SCHEMA/author_format: Author must be of the form 'Name <email@host>' (`skills/vss-summarize-video/SKILL.md`)
 
 ## Tier 2: Deduplication Summary

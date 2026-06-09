@@ -149,7 +149,7 @@ services:
     image: neo4j:5.26.4
     container_name: graph-db
     environment:
-      NEO4J_AUTH: ${GRAPH_DB_USERNAME:-neo4j}/${GRAPH_DB_PASSWORD:-passneo4j}
+      NEO4J_AUTH: ${GRAPH_DB_USERNAME:-neo4j}/${GRAPH_DB_PASSWORD:?GRAPH_DB_PASSWORD_required}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_server_bolt_listen__address: 0.0.0.0:${GRAPH_DB_BOLT_PORT:-7687}
       NEO4J_server_http_listen__address: 0.0.0.0:${GRAPH_DB_HTTP_PORT:-7474}
@@ -163,7 +163,7 @@ services:
       LVS_DATABASE_BACKEND: graph_db
       GRAPH_DB_HOST: 127.0.0.1
       GRAPH_DB_USERNAME: ${GRAPH_DB_USERNAME:-neo4j}
-      GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD:-passneo4j}
+      GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD:?GRAPH_DB_PASSWORD_required}
       GRAPH_DB_HTTP_PORT: ${GRAPH_DB_HTTP_PORT:-7474}
       GRAPH_DB_BOLT_PORT: ${GRAPH_DB_BOLT_PORT:-7687}
       LVS_EMB_ENABLE: "true"
@@ -180,7 +180,7 @@ services:
     image: arangodb/arangodb:3.12.4
     container_name: arango-db
     environment:
-      ARANGO_ROOT_PASSWORD: ${ARANGO_DB_PASSWORD:-passroot}
+      ARANGO_ROOT_PASSWORD: ${ARANGO_DB_PASSWORD:?ARANGO_DB_PASSWORD_required}
     ports:
       - ${ARANGO_DB_PORT:-8529}:${ARANGO_DB_PORT:-8529}
     command:
@@ -195,7 +195,7 @@ services:
       LVS_DATABASE_BACKEND: graph_db_arango
       ARANGO_DB_HOST: 127.0.0.1
       ARANGO_DB_USERNAME: ${ARANGO_DB_USERNAME:-root}
-      ARANGO_DB_PASSWORD: ${ARANGO_DB_PASSWORD:-passroot}
+      ARANGO_DB_PASSWORD: ${ARANGO_DB_PASSWORD:?ARANGO_DB_PASSWORD_required}
       ARANGO_DB_PORT: ${ARANGO_DB_PORT:-8529}
       LVS_EMB_ENABLE: "true"
       LVS_EMB_MODEL_NAME: ${LVS_EMB_MODEL_NAME}
