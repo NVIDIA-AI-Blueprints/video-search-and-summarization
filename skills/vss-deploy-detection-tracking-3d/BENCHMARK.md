@@ -56,16 +56,16 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 50% (+21%) | 79% (+26%) |
-| Discoverability | 3 | 59% (+22%) | 77% (+26%) |
-| Effectiveness | 3 | 35% (+28%) | 60% (+22%) |
-| Efficiency | 3 | 58% (+23%) | 68% (+26%) |
+| Correctness | 3 | 93% (+64%) | 69% (+35%) |
+| Discoverability | 3 | 91% (+56%) | 72% (+17%) |
+| Effectiveness | 3 | 64% (+57%) | 41% (+32%) |
+| Efficiency | 3 | 77% (+49%) | 61% (+12%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 8 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 10 total findings.
 
 Top findings:
 
@@ -73,7 +73,7 @@ Top findings:
 - MEDIUM QUALITY/quality_efficiency: Instructions lack clear action verbs (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in troubleshooting.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- LOW QUALITY/quality_discoverability: Description very long (425 chars, recommend 50-150) (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
+- MEDIUM SECURITY/Unknown (SQP-2): The Step 0 block, when run with APPLY_RENAME=1, renames video files, camInfo YAML files, and overwrites calibration.json (`references/configure-cameras.md:36`)
 
 ## Tier 2: Deduplication Summary
 
