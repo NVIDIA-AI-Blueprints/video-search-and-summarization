@@ -131,7 +131,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 
 ## Example Compose Snippet
 
-Set the container-side clip reader mount before validating or starting this snippet. Read the target from the shipped compose file (same value as line 81 in `rtvi-embed-docker-compose.yml`):
+Set the container-side clip reader mount before validating or starting this snippet. Run from the VSS repo root so the relative compose path resolves. Read the target from the shipped compose file (same value as in `rtvi-embed-docker-compose.yml`):
 
 ```bash
 RTVI_EMBED_COMPOSE=deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml
@@ -140,6 +140,10 @@ export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH="$(
     | head -1 \
     | sed -E 's/.*clip_storage:([^[:space:]]+).*/\1/'
 )"
+[ -z "$RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH" ] && {
+  echo "ERROR: could not extract container clip-storage path from $RTVI_EMBED_COMPOSE" >&2
+  return 1 2>/dev/null || exit 1
+}
 ```
 
 ```yaml
