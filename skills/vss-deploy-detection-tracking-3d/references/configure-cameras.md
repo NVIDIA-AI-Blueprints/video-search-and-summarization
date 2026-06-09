@@ -27,7 +27,7 @@ ERROR from tracking_tracker: Failed to submit input to tracker
 gstnvtracker: Low-level tracker lib returned error 1
 ```
 
-VST infers sensor names from the video filename, so the rename must touch videos, `camInfo/*.yml`, and the `sensors[].id` field in `calibration.json` together. Run **once** before deploy — once VST has registered sensors with the old names, you'd need `down -v` to redo it (see [`troubleshooting.md`](troubleshooting.md) "Perception reports `Active sources : 0`").
+VST infers sensor names from the video filename, so the rename must touch videos, `camInfo/*.yml`, and the `sensors[].id` field in `calibration.json` together. Run **once** before deploy — once VST has registered sensors with the old names, use Step 5 below to reconcile VST state before redeploy (see [`troubleshooting.md`](troubleshooting.md) "Perception reports `Active sources : 0`").
 
 Skip when:
 - Q1 = `sample` (calibration ships with the correct names already).
@@ -221,21 +221,11 @@ Expected: lines show `${BATCH_SIZE}` / `${NUM_STREAMS}` (good — env-driven) or
 
 Relevant only when this is a **re-deploy** after the camera set changed (e.g. user re-calibrated with a different camera count, switched dataset slugs, or renamed cameras). On a fresh deploy, VST is empty — skip.
 
-`vss-configurator-mv3dt` registers cameras with VST on start; it expects the VST sensor list and the new calibration to align by camera **name** (`Camera`, `Camera_01`, …). The cleanest, most reliable way to reconcile when the camera set changes is to reset VST state via teardown:
+`vss-configurator-mv3dt` registers cameras with VST on start; it expects the VST sensor list and the new calibration to align by camera **name** (`Camera`, `Camera_01`, …). Default to the targeted VST API path below when the user wants to preserve existing broker, database, and overlay history.
 
-```bash
-# Recommended path — fully resets VST sensor records so configurator re-registers from the new calibration
-cd "${VSS_APPS_DIR}"
-docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
-  down -v
-```
+### Default — targeted sensor trim via the VST API
 
-Then proceed straight to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md). See [`teardown.md`](teardown.md) for the full discussion of `down -v` semantics.
-
-### Alternate — targeted sensor trim via the VST API
-
-When you want to keep most VST state and only remove sensors that no longer appear in the new calibration:
+Use this path when you only need to remove sensors that no longer appear in the new calibration:
 
 ```bash
 VST_HOST="${HOST_IP:-localhost}"
@@ -259,7 +249,20 @@ curl -sf "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/list" \
 curl -sf "http://${VST_HOST}:${VST_PORT}/vst/api/v1/sensor/list" | jq -r '.[].name' | sort
 ```
 
-The targeted path works when each sensor record is reachable via the public DELETE API. If you see HTTP 404 responses for some records, or the configurator reports `Sensors count limit reached` on the next start, switch to the `down -v` path above — it guarantees all sensor state resets together with the rest of VST.
+Then proceed straight to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md). If the API returns HTTP 404 for some records, or the next start reports `Sensors count limit reached`, use the clean-reset path below after confirming the user accepts the volume reset.
+
+### Last resort — reset compose volumes with `down -v`
+
+> **WARNING:** `docker compose down -v` removes the containers and named volumes for this MV3DT compose project, not just VST sensor records. That resets data such as VST Postgres sensor metadata (`mdx_vios_pg_data`), broker/Kafka state and offsets (`mdx_mdx-kafka`), Elasticsearch overlay/index data, Logstash state, and any anonymous volumes created by compose. Use this only when the targeted VST API path does not fully reconcile the sensor set, or when the user explicitly wants a clean redeploy.
+
+```bash
+cd "${VSS_APPS_DIR}"
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  down -v
+```
+
+After the reset, proceed to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md). See [`teardown.md`](teardown.md) for the full discussion of `down -v` semantics.
 
 ## Step 6 — Sanity check before deploy
 
