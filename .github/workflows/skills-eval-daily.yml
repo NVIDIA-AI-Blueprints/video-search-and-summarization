@@ -1,32 +1,29 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Runs the skills eval agent (.github/skill-eval/skills_eval_agent.py) on
-# every push to a pull-request/<N> mirror branch that touches anything
-# under skills/ or the eval harness. See .github/skill-eval/AGENTS.md
-# for the agent's system prompt and behaviour.
+# Runs the skills eval agent (.github/skill-eval/skills_eval_agent.py) as a
+# nightly full sweep of every skill — the `schedule` cron below, with
+# DAILY_RUN=1 making plan_matrix.py enumerate all skills — or on demand via
+# workflow_dispatch. It deliberately does NOT run per-PR: a full GPU sweep is
+# far too heavy to fire on every pull-request mirror push. See
+# .github/skill-eval/AGENTS.md for the agent's system prompt and behaviour.
 
 name: Skills Eval Daily
 
 on:
+  # Nightly full sweep of all skills (DAILY_RUN below makes plan_matrix.py
+  # enumerate every skill). This is the only automatic trigger — there is
+  # deliberately no per-PR `push:` trigger, because a full GPU sweep is far
+  # too heavy to run on every pull-request mirror push.
   schedule:
     - cron: "30 1 * * *"
       timezone: "America/Los_Angeles"
-  # The "Run workflow" button in the Actions UI only appears when
-  # `workflow_dispatch:` is configured on the repo's default branch
-  # (`main`). The full manual-sweep harness — skills dropdown input,
-  # agent prompt overrides, $GITHUB_STEP_SUMMARY result table — lives
-  # on `develop` (PR #524). When the operator clicks "Run workflow"
-  # and picks `develop` in the ref dropdown, GitHub runs develop's
-  # version of this file (inputs, env passthrough, agent invocation
-  # all come from develop). No other harness state needs to be ported
-  # back to main; the skills/ tree, adapter names, and agent script
-  # have diverged enough that a full backport would create more churn
-  # than value. If anyone accidentally dispatches against `main`
-  # itself, the job's `if:` guard below (only true for
-  # `pull-request/<N>` refs) makes the job a clean no-op.
+  # On-demand sweep. The "Run workflow" button only appears when
+  # `workflow_dispatch:` is configured on the repo's default branch (`main`),
+  # but the full harness lives on `develop`: click "Run workflow", pick
+  # `develop` in the ref dropdown, and GitHub runs develop's version of this
+  # file (env passthrough + agent invocation all come from develop).
   workflow_dispatch:
-  push:
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -39,8 +36,8 @@ permissions:
   contents: write
   pull-requests: write
 
-# Only one eval runs per PR (or per manual sweep) at a time. A fresh push
-# cancels the in-flight run; the per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock)
+# Only one sweep runs at a time per ref. A fresh run cancels the in-flight
+# one; the per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock)
 # release automatically when the agent process dies (POSIX flock(2) semantics —
 # no userspace trap needed). Any stale containers / volumes / marker that the
 # cancelled run left on a box are reconciled by the NEXT run's
@@ -59,7 +56,8 @@ defaults:
 
 jobs:
   # ---------------------------------------------------------------------
-  # plan — compute the dispatch matrix from the PR diff (push only).
+  # plan — enumerate every skill into the dispatch matrix (full sweep:
+  # DAILY_RUN=1 -> plan_matrix.py list_skill_file_paths()).
   # Lightweight: gh + python3, no GPU, no brev, no flock.
   # ---------------------------------------------------------------------
   plan:

@@ -1,0 +1,206 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the Tier-1 VSS playbook compliance check on the pull-request/<N>
+# mirror branch whenever the cumulative PR diff touches skills/ or this
+# harness. Mirrors the helm-sync pattern: no top-level `paths:` filter
+# because that evaluates per push, not across the cumulative PR diff.
+#
+# Required-status-check note: `vss-playbook-compliance / skills-check`
+# must be added as a required status check on `develop` and `main` for
+# this gate to block merging.
+
+name: vss-playbook-compliance
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+  workflow_dispatch:
+    inputs:
+      skills:
+        # `type: string` rather than `type: choice` because the skills/
+        # tree has more than 10 entries. The scope-resolution step below
+        # validates the free-form value before passing it to the checker.
+        #
+        # Valid values are `*` or a bare skill directory name from
+        # skills/<name>/ on the current ref.
+        description: "Which skill to check. `*` sweeps every skill; otherwise type a bare skill dir name such as `vss-deploy-profile`."
+        required: false
+        default: "*"
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: vss-playbook-compliance-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  skills-check:
+    name: skills-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract PR number + base
+        id: pr
+        if: github.event_name == 'push'
+        run: |
+          REF="${{ github.ref_name }}"
+          PR="${REF##pull-request/}"
+          BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR, base=$BASE"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Resolve target skill scope
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SKILLS: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          PR_BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          set -euo pipefail
+
+          targets_file="${RUNNER_TEMP}/playbook-target-skills.txt"
+          changed_files="${RUNNER_TEMP}/playbook-changed-files.txt"
+          : > "$targets_file"
+          mode="none"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "${INPUT_SKILLS}" = "*" ] || [ -z "${INPUT_SKILLS}" ]; then
+              mode="all"
+              echo "manual: scanning entire skills/ tree"
+            else
+              if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
+                echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-deploy-profile' or '*' to sweep all."
+                exit 1
+              fi
+              if [ ! -d "skills/${INPUT_SKILLS}" ]; then
+                echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref. Check skills/ for the current set of valid names."
+                exit 1
+              fi
+              mode="skills"
+              printf '%s\n' "$INPUT_SKILLS" > "$targets_file"
+              echo "manual: scoping to skills/${INPUT_SKILLS}"
+            fi
+          else
+            git fetch --no-tags --quiet origin "${PR_BASE}:refs/remotes/origin/${PR_BASE}"
+            git diff --name-only "origin/${PR_BASE}...HEAD" > "$changed_files"
+
+            awk -F/ '$1 == "skills" && $2 != "" {print $2}' "$changed_files" \
+              | sort -u \
+              | while IFS= read -r skill; do
+                  if [ -d "skills/$skill" ]; then
+                    printf '%s\n' "$skill"
+                  else
+                    echo "::notice::skills/$skill no longer exists on this ref; skipping."
+                  fi
+                done > "$targets_file"
+
+            if grep -qve '^[[:space:]]*$' "$targets_file"; then
+              mode="skills"
+              echo "PR changed skill directories:"
+              sed 's/^/- /' "$targets_file"
+            elif grep -Eq '^\.github/(vss-playbook-compliance/|workflows/vss-playbook-compliance\.yml$)' "$changed_files"; then
+              mode="all"
+              echo "Compliance harness changed and no skills/ directory changed; scanning entire skills/ tree."
+            else
+              mode="none"
+              echo "No changed skills or vss-playbook-compliance harness files; check skipped."
+            fi
+          fi
+
+          count="$(grep -cve '^[[:space:]]*$' "$targets_file" || true)"
+          {
+            echo "mode=$mode"
+            echo "targets_file=$targets_file"
+            echo "count=$count"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Step 1 - playbook compliance
+        if: steps.scope.outputs.mode != 'none'
+        env:
+          TARGET_MODE: ${{ steps.scope.outputs.mode }}
+          TARGETS_FILE: ${{ steps.scope.outputs.targets_file }}
+          PLAYBOOK_FINDINGS_JSON: ${{ runner.temp }}/playbook-findings.json
+        run: |
+          set -euo pipefail
+
+          if [ "$TARGET_MODE" = "all" ]; then
+            echo "scanning entire skills/ tree"
+            python3 .github/vss-playbook-compliance/skill_compliance_check.py \
+              --skills-dir skills/ --no-color \
+              --json-out "$PLAYBOOK_FINDINGS_JSON"
+            exit $?
+          fi
+
+          tmp_dir="$(mktemp -d)"
+          rc=0
+
+          while IFS= read -r skill; do
+            [ -n "$skill" ] || continue
+            out="$tmp_dir/${skill}.json"
+            echo "::group::playbook compliance: $skill"
+            if ! python3 .github/vss-playbook-compliance/skill_compliance_check.py \
+              --skills-dir skills/ --skill "$skill" --no-color \
+              --json-out "$out"; then
+              rc=1
+            fi
+            echo "::endgroup::"
+          done < "$TARGETS_FILE"
+
+          python3 - "$PLAYBOOK_FINDINGS_JSON" "$tmp_dir"/*.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          output = Path(sys.argv[1])
+          findings = []
+          skills_checked = 0
+          for path in sys.argv[2:]:
+              data = json.loads(Path(path).read_text())
+              skills_checked += int(data.get("skills_checked", 0))
+              findings.extend(data.get("findings", []))
+          output.write_text(json.dumps({
+              "skills_checked": skills_checked,
+              "findings": findings,
+          }, indent=2))
+          PY
+
+          exit "$rc"
+
+      - name: Step 2 - post findings
+        if: steps.scope.outputs.mode != 'none' && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PLAYBOOK_FINDINGS_JSON: ${{ runner.temp }}/playbook-findings.json
+        run: |
+          python3 .github/vss-playbook-compliance/post_comment.py
+
+      - name: Skip note when no skills/ changes
+        if: steps.scope.outputs.mode == 'none'
+        run: |
+          echo "::notice::No skills/ or vss-playbook-compliance changes in this PR; check skipped."

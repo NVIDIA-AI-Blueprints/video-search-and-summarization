@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and DevOps engineers use this skill to select, configure, deploy, verify, debug, or tear down NVIDIA Video Search and Summarization (VSS) compose-based profiles on GPU-equipped hosts. <br>
+Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) blueprint profiles using Docker Compose on GPU-equipped hosts. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,9 +19,9 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Prerequisites Documentation](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
+- [VSS Documentation (latest)](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
@@ -37,7 +37,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 5 tasks (5 positive skill-activation cases, 2 attempts per task, 50% pass threshold) in the NVSkills-Eval external profile on astra-sandbox environment. <br>
+Evaluated against 5 deployment tasks using the NVSkills-Eval `external` profile with 2 attempts per task and a 50% pass threshold. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -61,11 +61,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+0%) | 95% (+10%) |
-| Correctness | 8 | 96% (+77%) | 91% (+54%) |
-| Discoverability | 8 | 93% (+72%) | 85% (+28%) |
-| Effectiveness | 8 | 64% (+59%) | 61% (+54%) |
-| Efficiency | 8 | 77% (+51%) | 76% (+22%) |
+| Security | 8 | 100% (+0%) | 90% (+5%) |
+| Correctness | 8 | 97% (+74%) | 86% (+52%) |
+| Discoverability | 8 | 92% (+66%) | 90% (+36%) |
+| Effectiveness | 8 | 65% (+59%) | 61% (+55%) |
+| Efficiency | 8 | 76% (+47%) | 85% (+35%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

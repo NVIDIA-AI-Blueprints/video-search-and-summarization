@@ -110,6 +110,13 @@ jobs:
             echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml" >> sonar-project.properties
           fi
 
+          if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-skills" ]; then
+            # Skills helper scripts (skills/**/scripts/**) have no unit-test or
+            # coverage harness in CI, so exclude them from the new-code coverage
+            # gate. They are still analyzed for bugs, code smells, and duplication.
+            echo "sonar.coverage.exclusions=skills/**/scripts/**" >> sonar-project.properties
+          fi
+
           if [ "$EVENT_NAME" = "pull_request" ]; then
             {
               echo "sonar.pullrequest.key=${PR_NUMBER}"
