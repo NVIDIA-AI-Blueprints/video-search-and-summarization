@@ -137,25 +137,28 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 | Backend | Env vars | Typical host endpoint | Picked when |
 |---|---|---|---|
 | **NIM Cosmos** | `VLM_BASE_URL`, `VLM_NAME`, `VLM_MODE`, `VLM_MODEL_TYPE` | `${VLM_BASE_URL}/v1` (no trailing `/v1` on the env var; the agent appends it) | `VLM_MODEL_TYPE != rtvi` **and** `VLM_MODE` ∈ {`local`, `local_shared`, `remote`} **and** `VLM_BASE_URL` is non-empty |
-| **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_ENDPOINT`, `RTVI_VLM_MODEL_TO_USE`, `VLM_MODEL_TYPE` | `${RTVI_VLM_BASE_URL}/v1` (or `RTVI_VLM_ENDPOINT` when set) — alerts default `http://${HOST_IP}:8018/v1`, base default `http://${HOST_IP}:30082/v1` | `VLM_MODEL_TYPE = rtvi`, or `VLM_MODE=none`, or `VLM_BASE_URL` empty; also the only path for `warehouse` |
+| **RT-VLM Cosmos** | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE`, `VLM_MODEL_TYPE` | `${RTVI_VLM_BASE_URL}/v1` — if unset, derive from `${HOST_IP}` (`http://${HOST_IP}:8018/v1` for alerts, `http://${HOST_IP}:30082/v1` for base) | `VLM_MODEL_TYPE = rtvi`, or `VLM_MODE=none`, or `VLM_BASE_URL` empty; also the only path for `warehouse` |
 
 Read the live values off the running agent container — do not guess:
 
 ```bash
 docker exec vss-agent sh -lc '
-for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE; do
+for k in HOST_IP VLM_MODE VLM_MODEL_TYPE VLM_BASE_URL VLM_NAME RTVI_VLM_BASE_URL RTVI_VLM_MODEL_TO_USE; do
   v="$(printenv "$k")"
   [ -n "$v" ] && printf "%s=%s\n" "$k" "$v"
 done
 '
 ```
 
+Do not require `RTVI_VLM_ENDPOINT` from `vss-agent` env; several profiles do not inject it.
+
 Selection rule:
 
 ```bash
 if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
   VLM_BACKEND="rtvlm"
-  VLM_ENDPOINT="${RTVI_VLM_ENDPOINT:-${RTVI_VLM_BASE_URL%/}/v1}"
+  VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
+  [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:8018/v1"   # alerts default
   VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
 elif [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
   VLM_BACKEND="nim_cosmos"
@@ -163,7 +166,8 @@ elif [ -n "${VLM_BASE_URL}" ] && [ "${VLM_MODE}" != "none" ]; then
   VLM_MODEL="${VLM_NAME}"
 else
   VLM_BACKEND="rtvlm"
-  VLM_ENDPOINT="${RTVI_VLM_ENDPOINT:-${RTVI_VLM_BASE_URL%/}/v1}"
+  VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
+  [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default
   VLM_MODEL="${RTVI_VLM_MODEL_TO_USE}"
 fi
 ```
