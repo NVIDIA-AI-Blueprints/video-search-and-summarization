@@ -13,7 +13,7 @@ Work through **one path** under [Choose your path](#choose-your-path). Reference
 | Profile Name | MODE | BP_PROFILE | SAMPLE_VIDEO_DATASET | NUM_STREAMS | LLM | RTVI VLM |
 |---|---|---|---|---|---|---|
 | 2D Vision AI Profile | `2d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-loading-dock-3cams-synthetic` | 3 | none | none |
-| 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | `local` / `local_shared` / `remote` / `none` | **always local** |
+| 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | `local` / `remote` / `none` | **always local** |
 | 3D Vision AI Profile | `3d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
 | MV3DT Vision AI Profile | `mv3dt` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
 | Warehouse Auto-Calibration | `2d` / `3d` / `mv3dt` | `bp_wh_auto_calib` | (same as mode default) | (same as mode default) | none | none |
@@ -104,7 +104,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 
 | Container | Port | When |
 |---|---|---|
-| LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) | `LLM_MODE=local` or `local_shared` |
+| LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) | `LLM_MODE=local` |
 | `vss-rtvi-vlm` (real-time VLM) | 8018 | **Always** deployed for `bp_wh` — hardcoded in compose profile `bp_wh_2d` |
 | `vss-alert-bridge` | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
 
@@ -125,11 +125,9 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | RT-CV perception (DeepStream — RT-DETR for 2D, Sparse4D for 3D, MV3DT for mv3dt) — always local | `RT_CV_DEVICE_ID` (default: `0`) | All warehouse profiles |
 | RTVI VLM — always local | `RT_VLM_DEVICE_ID` (default: `1`) | `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local` |
-| LLM NIM sharing the RTVI VLM device | `SHARED_LLM_VLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local_shared` |
 
-`LLM_MODE` accepts `local`, `local_shared`, `remote`, or `none`:
+`LLM_MODE` accepts `local`, `remote`, or `none`:
 - `local` — LLM NIM on its own GPU (`LLM_DEVICE_ID`)
-- `local_shared` — LLM NIM colocated with RTVI VLM on `SHARED_LLM_VLM_DEVICE_ID` (use when GPU count is limited)
 - `remote` — point at an external LLM endpoint via `LLM_BASE_URL` (no LLM NIM deployed)
 - `none` — no LLM, for `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`
 
@@ -294,7 +292,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 - 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
 - 3D extra: `vss-rtvi-cv-config-adaptor`
 - MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
-- `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
+- `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local`
 - Extended extra (kafka/redis, any mode): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`)
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode)
 - `bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration, and VST subset
@@ -739,13 +737,8 @@ For `bp_wh`, **always ask explicitly** — do not default to `local`:
 
 > "How should the LLM be deployed?
 > - **local** — LLM NIM on its own GPU (`LLM_DEVICE_ID`, default `2`). Requires a third GPU.
-> - **local_shared** — LLM NIM colocated with RTVI VLM on `SHARED_LLM_VLM_DEVICE_ID` (default `2`). Requires 2 GPUs but both models share one.
 > - **remote** — point at an external LLM endpoint via `LLM_BASE_URL` (e.g. `https://integrate.api.nvidia.com/v1`). No LLM NIM deployed. Requires `NVIDIA_API_KEY`.
 > - **none** — disable LLM entirely."
-
-**GPU memory check before choosing `local` or `local_shared`:**
-
-`vss-rtvi-vlm` (RTVI VLM) is **always** deployed locally for `bp_wh` and typically consumes 60–70 GB of VRAM on the GPU assigned to `RT_VLM_DEVICE_ID`. At the default `gpu_memory_utilization=0.40`, the LLM NIM pre-allocates 40 % of total GPU memory (e.g. ~38 GB on a 96 GB GPU). If the RTVI VLM and LLM NIM share a GPU, the combined allocation must fit within that GPU's VRAM.
 
 ```bash
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
@@ -754,7 +747,6 @@ nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
 | GPU count | Recommended LLM mode |
 |---|---|
 | ≥ 3 GPUs | `local` — dedicated GPU for LLM NIM |
-| 2 GPUs, RTVI VLM uses < 50 % of GPU 1 VRAM | `local_shared` — colocate on GPU 1 |
 | 2 GPUs, RTVI VLM uses > 50 % of GPU 1 VRAM | `remote` — RTVI VLM leaves insufficient room for LLM NIM |
 | 1 GPU | `remote` or `none` |
 
@@ -808,11 +800,10 @@ HARDWARE_PROFILE=H100
 RT_CV_DEVICE_ID='0'                 # perception (always local)
 RT_VLM_DEVICE_ID='1'                # RTVI VLM, bp_wh only (always local)
 LLM_DEVICE_ID='2'                   # bp_wh + LLM_MODE=local
-SHARED_LLM_VLM_DEVICE_ID='2'        # bp_wh + LLM_MODE=local_shared (LLM colocated with RTVI VLM)
 
 # --- LLM (bp_wh only; set LLM_MODE=none for bp_wh_kafka / bp_wh_redis / bp_wh_auto_calib) ---
 # RTVI VLM has no mode — it is always deployed locally for bp_wh.
-LLM_MODE=local                      # local | local_shared | remote | none
+LLM_MODE=local                      # local | remote | none
 LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2
 LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
 # LLM_BASE_URL — only when LLM_MODE=remote
