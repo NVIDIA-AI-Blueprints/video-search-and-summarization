@@ -195,6 +195,15 @@ if [ "${MINIMAL_PROFILE_VAL}" != "true" ]; then
   else
     echo "  calibration/image import not confirmed — importer log did not show a known success marker"
   fi
+
+  KIBANA_URL="http://${VST_HOST}:5601/kibana/app/dashboards"
+  KIBANA_CODE=$(curl -s -o /dev/null -w '%{http_code}' "${KIBANA_URL}" || true)
+  if [ "${KIBANA_CODE}" = "200" ]; then
+    echo "  Kibana dashboards reachable at ${KIBANA_URL}"
+  else
+    echo "  Kibana dashboards not confirmed at ${KIBANA_URL} (HTTP ${KIBANA_CODE:-000})"
+  fi
+  echo "  note: http://${VST_HOST}:5601/ can return 404 because Kibana is served under /kibana"
 else
   echo "Import check skipped under minimal profile"
 fi
@@ -217,7 +226,8 @@ fi
 4. Both `mdx-raw` and `mdx-bev` offsets grew between the two samples.
 5. Under extended profile, the video-analytics upload-dir write test passes.
 6. Under extended profile, importer logs reach `done` and neither importer nor video-analytics-api logs contain `EACCES`, permission errors, `{"error":...}`, or `Something broke`.
-7. `vss-vios-streamprocessing` logs do not contain `No calibration data found for sensor` for the runtime camera names.
+7. Under extended profile, `http://<HOST_IP>:5601/kibana/app/dashboards` returns HTTP 200; bare `http://<HOST_IP>:5601/` can return 404 because Kibana is served under `/kibana`.
+8. `vss-vios-streamprocessing` logs do not contain `No calibration data found for sensor` for the runtime camera names.
 
 If any core stream check fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. If the extended-profile import check or streamprocessing calibration lookup check fails, the deploy may process streams but overlays are not ready; fix the issue in [`troubleshooting.md`](troubleshooting.md) before reporting success. A sensor-set mismatch, stale/offline record, or `Active sources : 0` on healthy containers is the stale-state case — the fix is a **full clean redeploy** (`down -v` **and** clearing host-side `data_log`, then redeploy), not `down -v` alone. See the redeploy note in [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 3.
 
@@ -309,7 +319,7 @@ If the user is on a host without these restrictions (LAN, public IP with permiss
 | Auto-Calibration UI | `http://<HOST_IP>:5000` | Only if AMC was deployed via the separate `auto_calib` flow ([`calibration-workflow.md`](calibration-workflow.md)) — **not** part of the MV3DT deploy itself |
 | VST sensor list (API) | `http://<HOST_IP>:30888/vst/api/v1/sensor/list` | `jq` it to confirm `NUM_STREAMS` sensors are registered |
 | VST MCP | `http://<HOST_IP>:8001` | Read-only diagnostics |
-| Kibana (extended only) | `http://<HOST_IP>:5601` | Dashboards for `mdx-bev` and friends |
+| Kibana (extended only) | `http://<HOST_IP>:5601/kibana/app/dashboards` | Dashboards for `mdx-bev` and friends. Bare `:5601/` may return 404 because Kibana uses base path `/kibana`. |
 
 `vss-haproxy-ingress` does come up under MV3DT, but there's no path-based ingress routing for the MV3DT surfaces — access the services on their direct ports as listed above (the agent UI / `:7777` path routing belongs to the full `bp_wh` agents profile, not `MODE=mv3dt`).
 
