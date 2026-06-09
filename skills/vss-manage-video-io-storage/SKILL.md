@@ -3,20 +3,34 @@ name: vss-manage-video-io-storage
 description: Use to call the VIOS REST API (sensor list, timelines, clip extraction, snapshots, add/delete sensors and streams). Not for VLM inference or search.
 license: Apache-2.0
 metadata:
-  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+## Purpose
+
+Manage VIOS and NvStreamer API operations for VSS video input/output and
+storage workflows: sensors, streams, uploads, snapshots, clips, timelines, and
+recording status.
+
 ## Prerequisites
 
 - Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
 - `curl`, `jq`, and Docker available on the caller.
 
+## Instructions
+
 # VIOS Operations
 
-You are a VIOS API assistant. Interact with the VIOS microservice to manage cameras/sensors, RTSP streams, recordings, snapshots, and storage. Use when asked to: add a camera, add an RTSP stream, list sensors, show configured sensors/cameras/streams, check stream status, get a snapshot, download a clip, upload a video file, or manage video storage. Always query the VIOS API directly using curl — do not navigate the UI.
+Call the VIOS REST API to manage cameras/sensors, RTSP streams, recordings, snapshots, and storage. Use when asked to: add a camera, add an RTSP stream, list sensors, show configured sensors/cameras/streams, check stream status, get a snapshot, download a clip, upload a video file, or manage video storage. Query the VIOS API directly using curl — do not navigate the UI.
+
+**Do NOT use this skill for:**
+- VLM inference or ad-hoc visual Q&A about a clip — use `vss-ask-video`.
+- Semantic search across the archive, or ingesting video for search — use `vss-search-archive`.
+- Narrative summaries of a recorded clip — use `vss-summarize-video`.
+- Incident-range or alert-window reports — use `vss-generate-video-report` Mode B.
+- Reading analytics metrics, incidents, or alerts — use `vss-query-analytics`.
 
 ## Reference contracts shipped with this skill
 
@@ -184,6 +198,40 @@ If you see double-`http://` prefixes in `imageUrl` or `videoUrl` fields on `/url
 
 ---
 
+## Examples
+
+Example operation prompts:
+- "List the active VIOS sensors and show their stream status."
+- "Upload this sample video to VIOS and return the generated stream id."
+- "Download a two-second clip from this sensor's recording timeline."
+- "Use NvStreamer to upload a file and retrieve its generated RTSP URL."
+
+## Limitations
+
+- VIOS operations require a reachable VST backend; stop or deploy prerequisites
+  when the health probe fails.
+- Most deployments do not require auth, but a deployment can add an external
+  auth layer.
+- Container-side paths in examples use `${VST_CONTAINER_ROOT}` as a neutral
+  placeholder for the VST install root inside the container. Resolve it from the
+  active deployment before using path examples.
+- Do not print API keys, bearer tokens, or generated credentials in logs or
+  final responses.
+
+## Troubleshooting
+
+- **Error**: health probe fails. **Cause**: VIOS is not deployed or the endpoint
+  is wrong. **Solution**: follow the deployment prerequisite flow or ask for the
+  correct VST endpoint.
+- **Error**: uploads fail with `Failed to get media information`. **Cause**:
+  libav packages were not installed in the VIOS container. **Solution**: set
+  `VST_INSTALL_ADDITIONAL_PACKAGES=true` and redeploy.
+- **Error**: `/url` responses contain `http://http://...`. **Cause**: known URL
+  construction defect. **Solution**: use binary direct endpoints or strip the
+  duplicated prefix.
+
+---
+
 ## Tips
 
 - **jq:** All JSON responses are piped through `jq .` for readability. Binary responses (clip download, snapshot) are not — they use `-o <file>` instead.
@@ -191,6 +239,6 @@ If you see double-`http://` prefixes in `imageUrl` or `videoUrl` fields on `/url
 - **streamId header:** Live/replay/recorder endpoints require `streamId` as BOTH a path parameter AND a request header — include both.
 - **Large clips:** Use the binary direct `/storage/file/<id>?...&container=mp4` endpoint with `-o clip.mp4` for direct streaming. The `/url` envelope variant has the Finding 8 double-`http://` defect — avoid until upstream fixes it or use client-side prefix stripping.
 - **Sensor vs stream ID:** `sensorId` identifies a camera; `streamId` identifies a specific video stream from that camera (a sensor can have a main stream and sub-streams).
-- **Identifying sensor type (RTSP vs uploaded file):** Call `GET /sensor/<sensorId>/streams` and inspect the `url` field of each stream. If `url` starts with `rtsp://` it is a live RTSP/IP camera stream. If `url` is a file path (e.g. `"/home/vst/vst_release/streamer_videos/TruckAccident.mp4"`) it is an uploaded file sensor. This determines which delete flow to use — see Section 8.
+- **Identifying sensor type (RTSP vs uploaded file):** Call `GET /sensor/<sensorId>/streams` and inspect the `url` field of each stream. If `url` starts with `rtsp://` it is a live RTSP/IP camera stream. If `url` is a file path (e.g. `"${VST_CONTAINER_ROOT}/streamer_videos/TruckAccident.mp4"`) it is an uploaded file sensor. This determines which delete flow to use — see Section 8.
 - **Upload timestamp is honored for the recorded timeline:** When uploading a file via `PUT /vst/api/v1/storage/file/<filename>?timestamp=<iso>`, the timeline returned by `GET /storage/<streamId>/timelines` is anchored at the supplied timestamp, not the upload wall-clock time. Subsequent snapshot / clip queries MUST use timestamps within this range — fetch the timeline first. See `references/api-reference.md § 8` and `references/integrate-vios-service.md § Integration Interfaces > Inputs > Upload video file` for the authoritative contract.
 - **Endpoint resolution:** The VST endpoint is provided by the VSS deployment context. Do not attempt manual IP/port discovery. If unavailable, ask the user. All curl examples use `<VST_ENDPOINT>` as a placeholder — substitute the resolved endpoint before executing.
