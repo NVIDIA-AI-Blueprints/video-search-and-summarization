@@ -94,7 +94,7 @@ src/
 ### Key Architectural Facts
 
 - **Three adaptor types:** At startup `AdaptorWrapper.tsx` detects whether the backend is `vst`, `mms`, or `streamer`. This switches the route tree and controls which features are visible.
-- **WebRTC library:** `vst-streaming-lib` is not an npm registry package. It comes from the `vst-web-streamer` repo (`ssh://git@gitlab-master.nvidia.com:12051/L4TMM/vst-web-streamer.git`) and is sym-linked locally by `npm run install:link`. Never import it by relative path — always use `import { StreamManager } from 'vst-streaming-lib'`.
+- **WebRTC library:** `vst-streaming-lib` is not an npm registry package. It comes from the `vst-web-streamer` repo (`ssh://git@<INTERNAL_GITLAB_SSH>/L4TMM/vst-web-streamer.git`) and is sym-linked locally by `npm run install:link`. Never import it by relative path — always use `import { StreamManager } from 'vst-streaming-lib'`.
 - **Backend endpoints:** All configured in `src/config.tsx`. In development they point to a live backend; the `/update-vst-ui` skill handles production deployment.
 - **State:** Zustand store in `services/StateManagement.tsx`. Prefer reading state via store selectors; avoid prop-drilling through more than two levels.
 - **Styling:** MUI v5 with `sx` prop or `styled`. Theme lives in `theme/themeContextProvider.tsx`. Dark/light toggle is context-driven. Use theme tokens, not hard-coded colours.

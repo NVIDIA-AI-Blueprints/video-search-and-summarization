@@ -49,7 +49,7 @@ Accept any of these argument forms:
 
 | Argument form | Example |
 |---|---|
-| Full URL | `https://gitlab-master.nvidia.com/L4TMM/vms_shim/-/merge_requests/2416` |
+| Full URL | `https://<INTERNAL_GITLAB_HOST>/L4TMM/vms_shim/-/merge_requests/2416` |
 | MR IID only | `2416` |
 | (none) | Auto-detect from current branch (see below) |
 
@@ -62,8 +62,8 @@ Accept any of these argument forms:
 **Derive host and project path from git remote:**
 ```bash
 git remote get-url origin
-# e.g. https://gitlab-master.nvidia.com/L4TMM/vms_shim.git
-# → host: gitlab-master.nvidia.com
+# e.g. https://<INTERNAL_GITLAB_HOST>/L4TMM/vms_shim.git
+# → host: <INTERNAL_GITLAB_HOST>
 # → project_path: L4TMM/vms_shim
 ```
 

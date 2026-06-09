@@ -45,9 +45,9 @@ if [[ "${PUSH_TO_NGC}" = "1" ]]; then
 	if [[ "${PROJECT}" = "mms" ]]; then
 		REGISTRY_REPO="nvcr.io/metropolis/metropolis-analytic/mms"
 	elif [[ "${PROJECT}" = "vst" ]]; then
-		REGISTRY_REPO="nvcr.io/rxczgrvsg8nx/vst-dev/vst"
+		REGISTRY_REPO="${VST_DEV_REPO:-nvcr.io/<ngc-org>/vst-dev/vst}"
 		if [[ "${PUSH_TO_PROD}" = "1" ]]; then
-			REGISTRY_REPO="nvcr.io/rxczgrvsg8nx/vst-1-0/vst"
+			REGISTRY_REPO="${VST_PROD_REPO:-nvcr.io/<ngc-org>/vst-1-0/vst}"
 		fi
 	elif [[ "${PROJECT}" = "nvstreamer" ]]; then
 		REGISTRY_REPO="nvcr.io/metropolis/metropolis-analytic/nvstreamer"
@@ -57,13 +57,13 @@ if [[ "${PUSH_TO_NGC}" = "1" ]]; then
 	        echo "{ vst , mms, nvstreamer, all}"
 	        echo "Using default project { vst }"
 
-		REGISTRY_REPO="nvcr.io/rxczgrvsg8nx/vst-dev/vst"
+		REGISTRY_REPO="${VST_DEV_REPO:-nvcr.io/<ngc-org>/vst-dev/vst}"
 		if [[ "${PUSH_TO_PROD}" = "1" ]]; then
-			REGISTRY_REPO="nvcr.io/rxczgrvsg8nx/vst-1-0/vst"
+			REGISTRY_REPO="${VST_PROD_REPO:-nvcr.io/<ngc-org>/vst-1-0/vst}"
 		fi
 	fi
 else
-	REGISTRY_REPO="gitlab-master.nvidia.com:5005/l4tmm/vms_shim/vms_shim_release"
+	REGISTRY_REPO="${CI_RELEASE_REPO:-<INTERNAL_REGISTRY>/vms_shim_release}"
 	REGISTRY_USER="${CI_REGISTRY_USER}"
 	REGISTRY_PASSWORD="${CI_REGISTRY_PASSWORD}"
 	REGISTRY="${CI_REGISTRY}"

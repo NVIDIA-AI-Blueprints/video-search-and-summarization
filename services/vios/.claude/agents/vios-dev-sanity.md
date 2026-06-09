@@ -53,7 +53,7 @@ Parse these flags before doing anything else:
 
 ### `--url <base-url>`
 Explicitly target a specific VIOS deployment. Strip any hash fragment and trailing slash before using.
-- `http://10.41.26.58:30888/vst/#/dashboard` → `BASE_URL = http://10.41.26.58:30888/vst`
+- `http://<HOST>:30888/vst/#/dashboard` → `BASE_URL = http://<HOST>:30888/vst`
 
 **Do not hardcode any default IP.** If `--url` is not provided, perform auto-detection (see Step 3a).
 
@@ -63,7 +63,7 @@ Derive `BASE_HOST` from the resolved BASE_URL. Use it to replace the `ip` placeh
 Path to the xlsx test plan. Default: `test/vios_dev_sanity.xlsx` relative to the project root. If not found there, search recursively from `.` for `vios_dev_sanity.xlsx` and use the first match.
 
 ### `--nvstreamer-url <url>`
-NvStreamer base URL (e.g. `http://10.41.26.58:31000`). If not provided, derive from deployment compose.env:
+NvStreamer base URL (e.g. `http://<HOST>:31000`). If not provided, derive from deployment compose.env:
 ```bash
 grep -E 'NVIOS.*HTTP_PORT|NVSTREAMER.*PORT' \
   $(find . -name "compose.env" | head -1) 2>/dev/null | head -5

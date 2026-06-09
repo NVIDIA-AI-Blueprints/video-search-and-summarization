@@ -52,7 +52,7 @@ def pytest_addoption(parser):
         "--base-url",
         action="store",
         default=None,
-        help="VST API base URL (overrides config.json, e.g., http://10.24.217.99:30888)"
+        help="VST API base URL (overrides config.json, e.g., http://<HOST>:30888)"
     )
     parser.addoption(
         "--monitor-interval",

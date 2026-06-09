@@ -28,7 +28,7 @@ If neither location (2) nor (3) exists, use `AskUserQuestion` to ask:
 - If the user says `clone` (or any variant meaning "go ahead and clone"), clone into `~/work/vms_shim`:
 
 ```bash
-git clone ssh://git@gitlab-master.nvidia.com:12051/L4TMM/vms_shim.git ~/work/vms_shim
+git clone ssh://git@<INTERNAL_GITLAB_SSH>/L4TMM/vms_shim.git ~/work/vms_shim
 ```
 
 Store the resolved path as `VMS_SHIM_DIR` for subsequent steps.

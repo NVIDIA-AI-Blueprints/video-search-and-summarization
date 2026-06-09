@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM gitlab-master.nvidia.com:5005/l4tmm/vms_shim/cicd_images:jetson_cross_compiler_rel-34
+ARG BASE_IMAGE=vios-coverity:aarch64
+FROM ${BASE_IMAGE}
 
 # This is copied from P4 directory: //sw/mobile/tools/coverity/coverity_2020.09-2/
 # version is #1/1

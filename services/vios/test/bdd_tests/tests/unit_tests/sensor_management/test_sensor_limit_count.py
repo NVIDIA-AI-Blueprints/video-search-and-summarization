@@ -83,7 +83,7 @@ STATIC_VIDEO = (
 )
 # NVStreamer host for live RTSP test sources. Falls back to RFC 5737 docs IP
 # if NVStreamer is down (sensor entries still occupy slots either way).
-NVSTREAMER_BASE_URL = "http://10.24.216.253:31000"
+NVSTREAMER_BASE_URL = "http://localhost:31000"
 NVSTREAMER_FALLBACK_URL_BASE = "rtsp://192.0.2.1:554/bug6167064"
 RTSP_TEST_NAME_PREFIX = "bug6167064-rtsp-"
 # Patterns identifying file sensors this suite creates; safe to clean up
