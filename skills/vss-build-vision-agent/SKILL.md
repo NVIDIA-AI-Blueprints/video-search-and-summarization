@@ -201,7 +201,9 @@ Wait for confirmation before continuing. The only exception is **autonomous mode
 
 Once the user confirms the architecture, synthesize a flat allow-list of upstream compose service-keys by **unioning the `component_services:` blocks** of every microservice in the proposal, **resolving each `variants:` block against the user's chosen `deployment_shape`**, and dropping any entry whose `required: false` is excluded by the architecture (e.g. an optional MQTT broker that the user opted out of).
 
-Write the result to `<BUILD_DIR>/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time. Persist the sidecar before invoking Step 6, which expects the flag chosen here to be reused.
+Copy service keys into the sidecar **exactly** as they appear in the selected `component_services:` blocks. Do not normalize, shorten, singularize, or infer service keys from container names or prose. For example, RT-CV's service key is `perception-2d-fusion`; `perception-2d` is invalid because no allow-listed compose service has that key.
+
+Write the result to `<BUILD_DIR>/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time. Persist the sidecar before invoking Step 6, which expects the flag chosen here to be reused. Before moving to Step 6.5, validate that every `(key, file)` pair in `allow-list.yml` resolves to a real `services.<key>` entry in the referenced upstream compose file; if any key is missing, stop and fix the sidecar rather than generating a compose from a guessed service name.
 
 If the **NvStreamer validation harness** was included (per the External RTSP source decision above — live/streaming capability AND no real camera supplied), also record a top-level `validation_harness:` key in the sidecar:
 
@@ -288,6 +290,7 @@ Record the generated deploy skill in `MANIFEST.md` with the bring-up and tear-do
 ```
 build-output/
 ├── compose.yml
+├── .env                               # runtime copy used for dry-run/deploy when values are known
 ├── .env.template
 ├── allow-list.yml                      # Step 4 output — per-generation flag + service-key union; Step 6.5 reads this
 ├── MANIFEST.md
@@ -316,11 +319,16 @@ Record the chosen flag at the top of `<BUILD_DIR>/MANIFEST.md`, note every strip
 
 ### Step 7 — Dry-Run Validation
 
-After writing, validate before declaring success. The dry-run command depends on whether the source repo splits env vars across multiple files (Step 0):
+After writing, validate before declaring success. First verify the required build artifacts exist in one build folder: `compose.yml`, `.env.template`, `allow-list.yml`, and `MANIFEST.md`. If autonomous mode or direct deploy created a runtime `.env`, keep it alongside `.env.template`; never treat `.env` as a substitute for `.env.template`.
+
+The dry-run command depends on whether the source repo splits env vars across multiple files (Step 0). Use `.env` when a runtime file has been materialized, otherwise use `.env.template`:
 
 ```bash
-# If single combined env produced in Step 6:
+# If a runtime env was produced in Step 6:
 docker compose --env-file .env -f compose.yml config > resolved.yml
+
+# Otherwise dry-run against the template:
+docker compose --env-file .env.template -f compose.yml config > resolved.yml
 
 # If layering multiple env files (preferred when component .envs are kept separate):
 docker compose --env-file .env --env-file <repo>/deploy/docker/services/vios/vst.env \
