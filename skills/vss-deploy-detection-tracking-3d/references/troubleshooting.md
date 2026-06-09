@@ -124,6 +124,33 @@ docker logs vss-import-calibration-output-mv3dt 2>&1 | tail -10
 
 **Fix:** Walk [`calibration-workflow.md`](calibration-workflow.md) **Step 4b** — synthesize `Top.png` from the user's `layout.png` (or any project-output PNG) and write a matching `imageMetadata.json` with a `place` string mirroring `sensors[0].place`. Then `docker start vss-import-calibration-output-mv3dt` to retry the one-shot — no full redeploy needed.
 
+### `vss-import-calibration-output-mv3dt` exits 0 but overlays are missing
+
+**Symptom:** Under extended profile (`MINIMAL_PROFILE=""`), `vss-import-calibration-output-mv3dt` shows `Exited (0)`, but VST overlays are missing. Importer logs include `{"error":"Something broke!"}` or video-analytics API logs show `EACCES: permission denied, open '/web-api-app/files/...'`.
+
+**Cause:** The video-analytics API upload bind (`${VSS_DATA_DIR}/data_log/vss_video_analytics_api:/web-api-app/files`) is not writable by the API container. The importer uses `curl` without failing on HTTP error responses, so the one-shot can exit 0 even when the API rejected the calibration/image upload.
+
+**Diagnose:**
+```bash
+docker logs vss-import-calibration-output-mv3dt 2>&1 | tail -50
+docker logs vss-video-analytics-api-mv3dt 2>&1 | grep -iE 'EACCES|permission denied|Something broke|error' | tail -20
+docker exec vss-video-analytics-api-mv3dt sh -lc 'touch /web-api-app/files/.amc_write_test && rm -f /web-api-app/files/.amc_write_test'
+```
+
+**Fix:** Create the upload directory before retrying and apply the same scoped ACL used in `SKILL.md` Prerequisites §4. Then restart the API and rerun the one-shot importer; no full redeploy is needed.
+
+```bash
+API_UPLOAD_DIR="${VSS_DATA_DIR}/data_log/vss_video_analytics_api"
+mkdir -p "${API_UPLOAD_DIR}"
+setfacl -R    -m u:1000:rwx "${API_UPLOAD_DIR}"
+setfacl -R -d -m u:1000:rwx "${API_UPLOAD_DIR}"
+
+docker restart vss-video-analytics-api-mv3dt
+docker start vss-import-calibration-output-mv3dt
+```
+
+Re-run [`verify-and-view.md`](verify-and-view.md) Step 4b. Do not report success until the import check is clean.
+
 ### `vss-rtvi-cv-bev-fusion` not healthy / `/tmp/fusion_ready` missing
 
 **Cause(s):**

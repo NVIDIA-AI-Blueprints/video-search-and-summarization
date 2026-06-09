@@ -137,6 +137,7 @@ If `mdx-bev` is empty but `mdx-raw` is growing: fusion isn't producing output �
 ```bash
 ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
 NUM_STREAMS=$(grep '^NUM_STREAMS=' "$ENV_FILE" | cut -d= -f2)
+MINIMAL_PROFILE_VAL=$(grep '^MINIMAL_PROFILE=' "$ENV_FILE" | cut -d= -f2 | tr -d '"')
 VST_HOST="${HOST_IP:-localhost}"; VST_PORT="${VST_PORT:-30888}"
 CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}"
 
@@ -175,16 +176,40 @@ echo "mdx-raw: ${r1:-0} -> ${r2:-0}    mdx-bev: ${b1:-0} -> ${b2:-0}"
 { [ "${r2:-0}" -gt "${r1:-0}" ] && [ "${b2:-0}" -gt "${b1:-0}" ]; } \
   && echo "  offsets growing on both topics" \
   || echo "  offsets NOT growing on one or both topics"
+
+# 4. Extended profile: calibration/image import must really succeed for VST overlays.
+#    The importer can exit 0 even when the API returned {"error":...}; inspect both logs.
+if [ "${MINIMAL_PROFILE_VAL}" != "true" ]; then
+  docker exec vss-video-analytics-api-mv3dt sh -lc 'touch /web-api-app/files/.amc_write_test && rm -f /web-api-app/files/.amc_write_test' \
+    && echo "  video-analytics upload dir writable" \
+    || echo "  video-analytics upload dir NOT writable"
+
+  IMPORT_STATE=$(docker inspect vss-import-calibration-output-mv3dt --format '{{.State.Status}} {{.State.ExitCode}}' 2>/dev/null || echo "missing")
+  IMPORT_LOG=$(docker logs --tail 200 vss-import-calibration-output-mv3dt 2>&1 || true)
+  API_LOG=$(docker logs --tail 200 vss-video-analytics-api-mv3dt 2>&1 || true)
+  echo "Import container: ${IMPORT_STATE}"
+  if printf '%s\n%s\n' "${IMPORT_LOG}" "${API_LOG}" | grep -qiE 'EACCES|permission denied|"error"|"success":false|Something broke|imageMetadata\.json not found'; then
+    echo "  calibration/image import FAILED — inspect importer and video-analytics-api logs"
+  elif printf '%s\n' "${IMPORT_LOG}" | grep -q 'done'; then
+    echo "  calibration/image import completed without known error markers"
+  else
+    echo "  calibration/image import not confirmed — importer log did not reach done"
+  fi
+else
+  echo "Import check skipped under minimal profile"
+fi
 ```
 
-**Pass criteria — all four:**
+**Pass criteria — all required checks:**
 
 1. `Active sources` equals `NUM_STREAMS`.
 2. The VST sensor set matches the calibration cameras **exactly** (no extra, empty, or stale records).
 3. Every expected sensor reports **online**.
 4. Both `mdx-raw` and `mdx-bev` offsets grew between the two samples.
+5. Under extended profile, the video-analytics upload-dir write test passes.
+6. Under extended profile, importer logs reach `done` and neither importer nor video-analytics-api logs contain `EACCES`, permission errors, `{"error":...}`, or `Something broke`.
 
-If any fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. A sensor-set mismatch, stale/offline record, or `Active sources : 0` on healthy containers is the stale-state case — the fix is a **full clean redeploy** (`down -v` **and** clearing host-side `data_log`, then redeploy), not `down -v` alone. See the redeploy note in [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 3.
+If any core stream check fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. If the extended-profile import check fails, the deploy may process streams but overlays are not ready; fix the import issue in [`troubleshooting.md`](troubleshooting.md) before reporting success. A sensor-set mismatch, stale/offline record, or `Active sources : 0` on healthy containers is the stale-state case — the fix is a **full clean redeploy** (`down -v` **and** clearing host-side `data_log`, then redeploy), not `down -v` alone. See the redeploy note in [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 3.
 
 ## Step 5 — VST video wall
 
