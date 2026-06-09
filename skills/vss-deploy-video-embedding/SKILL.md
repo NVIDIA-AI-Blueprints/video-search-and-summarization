@@ -61,7 +61,17 @@ cd "{{repo_root}}/deploy/docker/services/rtvi/rtvi-embed"
 
 Do **not** use `/vss-deploy-profile` or `scripts/dev-profile.sh` for this standalone deployment.
 
-Set a minimal standalone environment before `docker compose up`:
+For agent-driven validation, never let `sudo` prompt interactively. Before any
+privileged ownership or Docker operation, use the non-interactive guard in
+[`references/deploy-vss-deploy-video-embedding.md`](references/deploy-vss-deploy-video-embedding.md)
+and [`references/troubleshooting.md`](references/troubleshooting.md): prefer plain
+`docker`; otherwise use `sudo -n docker`; if `sudo -n` fails, stop with the exact
+manual command for the host owner instead of retrying with interactive sudo or
+weakening permissions.
+
+Set a minimal standalone environment before `docker compose up`. If `sudo -n chown`
+fails, stop before `docker compose up` and ask the host owner to run the printed
+command.
 
 ```bash
 export RTVI_EMBED_PORT=8017
@@ -69,9 +79,17 @@ export VSS_DATA_DIR="${VSS_DATA_DIR:-$(pwd)/.standalone-data}"
 export NGC_API_KEY="<your-ngc-api-key>"
 export HOST_IP="$(hostname -I | awk '{print $1}')"
 export HF_TOKEN="${HF_TOKEN:-}"  # optional, but recommended to avoid HF 429s
-mkdir -p "${VSS_DATA_DIR}/data_log/vst/clip_storage"
 export RTVI_EMBED_KAFKA_ENABLED=false
 export ENABLE_REDIS_ERROR_MESSAGES=false
+# Prepare VST clip-storage host dir; use `sudo -n` for ownership fixes.
+CLIP_STORAGE_DIR="${VSS_DATA_DIR}/data_log/vst/clip_storage"
+mkdir -p "$CLIP_STORAGE_DIR"
+if ! sudo -n chown -R 1001:1001 "$CLIP_STORAGE_DIR"; then
+  echo "ERROR: passwordless sudo is unavailable for host-path ownership." >&2
+  echo "Ask the host owner to run: sudo chown -R 1001:1001 \"$CLIP_STORAGE_DIR\"" >&2
+  echo "Do not work around this with chmod 777 or world-writable permissions." >&2
+  exit 1
+fi
 ```
 
 This avoids mounting `/data_log/vst/clip_storage` from filesystem root when `VSS_DATA_DIR` is unset, and prevents startup stalls from missing Kafka/Redis peers in standalone mode.
@@ -80,7 +98,12 @@ This avoids mounting `/data_log/vst/clip_storage` from filesystem root when `VSS
 # Bring up the service under the required Compose profile.
 docker compose -f rtvi-embed-docker-compose.yml \
   --profile bp_developer_search_2d up -d rtvi-embed
+```
 
+If Docker requires elevated privileges, use `sudo -n docker compose ...` and fail
+fast if `sudo -n` reports that a password is required.
+
+```bash
 # Watch logs while the model downloads and Triton repo builds.
 docker compose -f rtvi-embed-docker-compose.yml logs -f rtvi-embed
 ```
@@ -218,11 +241,12 @@ For endpoint-specific constraints (live-stream SSE requirements, URL schemes, re
 
 ## Troubleshooting
 
-For deployment and operational failure patterns, see `references/troubleshooting.md`. Frequent issues:
+For common failure patterns and resolutions, see `references/troubleshooting.md`. Frequent issues:
 
-- `/v1/ready` stuck at 503 after warmup → check for missing `NGC_API_KEY`, Hugging Face 429 rate-limit failures during the first-boot model download (set `HF_TOKEN` to avoid), or unreachable Redis/Kafka peers when those flags are enabled.
+- `/v1/ready` stuck at 503 → check for missing `NGC_API_KEY`, Hugging Face 429 rate-limit failures during the first-boot model download (set `HF_TOKEN` to avoid), or unreachable Redis/Kafka peers when those flags are enabled.
 - Healthcheck flipping unhealthy in the first 20 minutes → restore `start_period: 1200s`.
-- Permission errors on bind-mounted cache directories → `chown -R 1001:1001` on the host paths.
+- Permission errors on bind-mounted cache directories → `sudo -n chown -R 1001:1001` on the host paths; if passwordless sudo is unavailable, ask the host owner to run the printed command (do not use `chmod 777`).
+- `sudo` prompts for a password during deploy → use `sudo -n` and fail fast; see `references/troubleshooting.md`; never retry with interactive sudo in an agent session.
 
 ## Upgrade And Rollback
 

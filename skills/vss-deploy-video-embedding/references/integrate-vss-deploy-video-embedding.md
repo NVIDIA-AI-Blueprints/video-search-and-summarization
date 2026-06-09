@@ -10,7 +10,7 @@ The Video Embedding microservice (legacy name: RT-Embed) generates dense vector 
 - **Redis** — Optional. Only required when error-message publishing is enabled (`ENABLE_REDIS_ERROR_MESSAGES=true`). Configure via `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, and `REDIS_PASSWORD`.
 - **Apache Kafka** — Optional. Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). The service publishes embedding messages to the topic named by `RTVI_EMBED_KAFKA_TOPIC` (injected as `KAFKA_TOPIC`; default `vision-embed-messages`) and errors to `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) using `KAFKA_BOOTSTRAP_SERVERS` (Compose builds this from `${HOST_IP}:9092`).
 - **OpenTelemetry collector** — Optional. Only required when `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` is set on the host (Compose injects this as `ENABLE_OTEL_MONITORING` inside the container). The service exports OTLP traces and metrics to `OTEL_EXPORTER_OTLP_ENDPOINT` (default `http://otel-collector:4318`).
-- **Upstream video source (VST or compatible clip writer)** — Optional. When you want to embed clips written by VST, mount `${VSS_DATA_DIR}/data_log/vst/clip_storage` at the service's `/home/vst/vst_release/streamer_videos` path so the service can read clip files locally.
+- **Upstream video source (VST or compatible clip writer)** — Optional. When you want to embed clips written by VST, bind `${VSS_DATA_DIR}/data_log/vst/clip_storage` to the container clip-storage reader mount declared in `rtvi-embed-docker-compose.yml` so the service can read clip files locally.
 
 ## Integration Interfaces
 
@@ -220,6 +220,8 @@ volumes:
   rtvi-ngc-model-cache:
   rtvi-triton-model-repo:
 ```
+
+The clip-storage volume line matches `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 ## Authentication & Authorization
 
