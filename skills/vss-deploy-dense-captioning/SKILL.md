@@ -153,6 +153,33 @@ MODEL_ID="$(curl -fsS "$BASE_URL/v1/models" -H "Authorization: Bearer $API_KEY" 
 curl -fsS "$BASE_URL/openapi.json" | jq -r '.paths | keys[]' | sort
 ```
 
+## RTSP Sample Stream Guard
+
+When a task or eval names `RTSP_SAMPLE_URL`, treat that exact environment
+variable as a required input. Verify it is set and non-empty before probing or
+registering any stream; if it is missing, stop with a clear failure message. Do
+not derive a substitute from NvStreamer, VIOS, sample-data bundles, or any other
+fallback, because that validates a different stream than the caller requested.
+
+```bash
+: "${RTSP_SAMPLE_URL:?Set RTSP_SAMPLE_URL to a reachable RTSP sample stream before RTSP validation}"
+case "$RTSP_SAMPLE_URL" in
+  rtsp://*) ;;
+  *) echo "RTSP_SAMPLE_URL must be an rtsp:// URL, got: $RTSP_SAMPLE_URL" >&2; exit 1 ;;
+esac
+
+if command -v ffprobe >/dev/null 2>&1; then
+  ffprobe -v error -rtsp_transport tcp \
+    -select_streams v:0 -show_entries stream=codec_type \
+    -of csv=p=0 "$RTSP_SAMPLE_URL" | grep -qx video
+elif command -v gst-discoverer-1.0 >/dev/null 2>&1; then
+  gst-discoverer-1.0 "$RTSP_SAMPLE_URL" | grep -qi 'video'
+else
+  echo "Install ffprobe or gst-discoverer-1.0 before RTSP validation." >&2
+  exit 1
+fi
+```
+
 ## Quick Start — dense captions from a local video
 
 ```bash
@@ -209,15 +236,19 @@ and 26.05 compatibility notes live in
 - Stored file captioning: upload with `POST /v1/files`, call
   `/v1/generate_captions` with the returned file id, use `stream=true` for SSE,
   then delete the file to release storage.
-- RTSP live captioning: precheck the RTSP URL with `ffprobe`,
-  `gst-discoverer-1.0`, or equivalent; require an actual video stream/caps
-  entry before registration; add the stream, caption it, then unregister it.
+- RTSP live captioning: when the caller provides `RTSP_SAMPLE_URL`, use that
+  exact URL and run the **RTSP Sample Stream Guard** before registration. Do not
+  derive a replacement stream from NvStreamer or VIOS when `RTSP_SAMPLE_URL` is
+  empty; fail fast instead. Require an actual video stream/caps entry before
+  registration; add the stream, caption it, then unregister it.
 - Alert prompts: include a deterministic `Anomaly Detected: Yes/No` line.
   Kafka publication is server-side config, additive to HTTP responses, and
   documented in [`references/kafka-workflows.md`](references/kafka-workflows.md).
 - Kafka validation: trust the live `vss-rtvi-vlm` environment for topic names.
-  For standalone validation, use a broker that advertises `${HOST_IP}:9092`;
-  never stop or replace a pre-existing broker without user confirmation.
+  In a full VSS alerts real-time profile, use the existing VSS Kafka container
+  `mdx-kafka` for CLI checks and final incident-consumer commands. For
+  standalone validation, use a broker that advertises `${HOST_IP}:9092`; never
+  stop or replace a pre-existing broker without user confirmation.
 
 ## Error Reference
 
