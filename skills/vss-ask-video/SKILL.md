@@ -10,7 +10,7 @@ metadata:
 
 # Video QnA using VLM through VSS Agent
 
-Use this skill when you need details about the video which requires VLM to look at the video frames — for example the agent has **no** usable prior answer and needs a **fresh look at the pixels** for a specific clip.
+Use this skill when you need details about the video which requires VLM to look at the video frames — for example the agent has **no** usable prior answer and needs a **fresh look at the pixels** for a specific clip. 
 
 ---
 

@@ -20,7 +20,7 @@ Answer read-only analytics questions (incidents, metrics, sensor data) by routin
 
 ## Instructions
 
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom.
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. 
 
 ## Examples
 
