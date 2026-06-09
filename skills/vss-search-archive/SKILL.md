@@ -110,7 +110,7 @@ URL=$(curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos" \
 # 2. Chunked POST the file to that VST URL (the UI streams chunks; from a shell,
 #    a single multipart POST is fine). The final-chunk response carries sensorId.
 SENSOR=$(curl -s -X POST "$URL" \
-  -F "file=@${FILE_PATH};filename=${FILENAME};type=video/mp4" \
+  -F "mediaFile=@${FILE_PATH};filename=${FILENAME};type=video/mp4" \
   -F "metadata={\"timestamp\":\"${START_TS}\"}" | jq -r .sensorId)
 
 # 3. Tell the agent the upload finished — this fans out to RTVI-CV + RTVI-embed
