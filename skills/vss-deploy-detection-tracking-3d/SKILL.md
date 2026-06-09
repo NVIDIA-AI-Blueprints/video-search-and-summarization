@@ -158,9 +158,9 @@ test -d "${DATA_DIR}/videos/${DATASET}" \
 ls "${DATA_DIR}/videos/${DATASET}/"*.mp4 2>/dev/null | wc -l
 
 # Ensure every per-service subdir under data_log/ exists. kafka / elasticsearch /
-# redis / postgres each run as a different non-root UID against these bind mounts —
-# without write access the daemons exit with "Permission denied" (kafka cluster_id),
-# "AccessDeniedException" (ES), or "Can't open the log file" (redis).
+# redis / postgres and the video-analytics API upload path (`/web-api-app/files`)
+# run as non-root UIDs against these bind mounts. Without write access the daemons
+# or calibration/image import can fail with permission errors.
 mkdir -p \
   "${DATA_DIR}/data_log/analytics_cache" \
   "${DATA_DIR}/data_log/calibration_toolkit" \
@@ -168,7 +168,8 @@ mkdir -p \
   "${DATA_DIR}/data_log/elastic/logs" \
   "${DATA_DIR}/data_log/kafka" \
   "${DATA_DIR}/data_log/redis/data" \
-  "${DATA_DIR}/data_log/redis/log"
+  "${DATA_DIR}/data_log/redis/log" \
+  "${DATA_DIR}/data_log/vss_video_analytics_api"
 
 # Grant write access to the specific container UIDs only — scoped ACLs, NOT 777 and
 # NOT chown. UIDs (per data-directory.md): postgres=70, redis=999, elasticsearch / VST /

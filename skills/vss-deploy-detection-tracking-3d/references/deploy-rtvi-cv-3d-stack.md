@@ -368,6 +368,10 @@ If any of the core are missing, `COMPOSE_PROFILES` is wrong — re-check `MODE` 
 ```bash
 cd "${VSS_APPS_DIR}"
 
+# Re-source .env so VSS_DATA_DIR, MINIMAL_PROFILE, and NGC_CLI_API_KEY are
+# available to the shell checks below, not only to docker compose.
+set -a; . industry-profiles/warehouse-operations/.env; set +a
+
 # NGC login (first time on this host)
 docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
 
@@ -394,6 +398,21 @@ for img in $VSS_CORE_IMAGES; do
     exit 1
   fi
 done
+
+# Extended profile only: create the video-analytics API upload bind before compose
+# starts so Docker does not auto-create it with root-only permissions. The import
+# one-shot posts calibration.json and Top.png through vss-video-analytics-api-mv3dt,
+# which writes them under /web-api-app/files. If this path is not writable, the
+# importer can still exit 0 while the API logs EACCES and overlays never appear.
+MINIMAL_PROFILE_VAL=$(printf '%s' "${MINIMAL_PROFILE:-}" | tr -d '"')
+if [ "${MINIMAL_PROFILE_VAL}" != "true" ]; then
+  API_UPLOAD_DIR="${VSS_DATA_DIR:?VSS_DATA_DIR not set}/data_log/vss_video_analytics_api"
+  mkdir -p "${API_UPLOAD_DIR}"
+  command -v setfacl >/dev/null \
+    || { echo "ERROR: setfacl missing; install acl or make ${API_UPLOAD_DIR} writable by container UID 1000"; exit 1; }
+  setfacl -R    -m u:1000:rwx "${API_UPLOAD_DIR}"
+  setfacl -R -d -m u:1000:rwx "${API_UPLOAD_DIR}"
+fi
 
 # Bring up (~10–15 min first run — PERCEPTION image pull + BodyPose3DNet TRT engine build)
 LOG=${LOG:-/tmp/mv3dt-deploy.log}
