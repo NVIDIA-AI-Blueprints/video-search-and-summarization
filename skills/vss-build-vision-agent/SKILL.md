@@ -24,7 +24,7 @@ metadata:
 
 `build-vision-agent` is the orchestration skill that takes a natural-language capability description (and optionally an existing deployment to extend) and produces a validated Docker Compose file by reading authoritative per-microservice reference files. Use it whenever the user wants a VSS deployment composed for them — net-new profiles, extending a running stack, integrating a third-party system, or merging two profiles.
 
-The skill has been evaluated on **IN-1 — streaming and on-demand video dense captioning**, which combines VIOS + RT-VLM + ELK. IN-2 (RT-CV + RT-DETR person detection) and the broader catalog land in subsequent phases. The skill itself does not need updates as new microservices are added — only `references/microservice-catalog.md` and the per-service `integrate-*.md` / `deploy-*.md` files.
+The skill has been evaluated on streaming and on-demand video dense captioning, which combines VIOS + RT-VLM + ELK. RT-CV + RT-DETR person detection is composed through the same catalog-driven mechanism. The skill itself does not need updates as new microservices are added — only `references/microservice-catalog.md` and the per-service `integrate-*.md` / `deploy-*.md` files.
 
 ## When to Use
 
@@ -33,6 +33,13 @@ The skill has been evaluated on **IN-1 — streaming and on-demand video dense c
 - **3P integration**: "Integrate my existing camera management system (compose at `./camera-mgmt/compose.yml`) with VSS"
 - **Profile combination**: "Combine the Search Profile and Alerts Profile"
 - **Helm output (post-v1)**: "Convert my dev-profile-alerts compose to a Helm chart"
+
+### Example Prompts
+
+Use these prompts as patterns for capability-based generation:
+
+- "Create a profile for streaming and on-demand video dense captioning. Streamed and uploaded video should be retrievable for playback. Streamed dense captions should be published to the kafka message bus and stored in elasticsearch."
+- "Create a VSS deployment that uses VIOS with the warehouse video sets as input, RT-CV with RT-DETR for person object detection and multi-object tracking, Kafka for streamed bounding-box metadata publication, and Elasticsearch/ELK for indexing and inspection; include bounding boxes, class labels, confidence, timestamps, sensor IDs, and track IDs in the metadata, expose the RT-CV health/readiness/stream/metrics API, generate the deployment self-contained under `_builds/`, and patch only local generated compose copies without modifying upstream `deploy/docker` files."
 
 If the user asks to **deploy** a generated compose, the skill will create (or update) a per-deployment deploy skill in Step 6 and prompt to invoke it in Step 8 — see those steps below. If the user asks to **call** a service's API (RT-VLM endpoints, VIOS endpoints, etc.), hand off to the relevant upstream skill (`vss-deploy-dense-captioning`, `vss-manage-video-io-storage`, `vss-setup-video-analytics-api`, etc.) — those are bundled into `<BUILD_DIR>/skills/` in Step 6.
 
@@ -257,7 +264,7 @@ After writing the compose artifact, copy the skill folders the operator will nee
 
 What to bundle:
 
-- **Microservice skills**: for each service selected in Step 4, look up the canonical skill folder name from `references/microservice-catalog.md` and copy `<vss-repo>/skills/<skill-name>/` → `build-output/skills/<skill-name>/`. IN-1 bundles `vss-manage-video-io-storage/`, `vss-deploy-dense-captioning/`, and the ELK references (carried inside `vss-build-vision-agent/references/`).
+- **Microservice skills**: for each service selected in Step 4, look up the canonical skill folder name from `references/microservice-catalog.md` and copy `<vss-repo>/skills/<skill-name>/` → `build-output/skills/<skill-name>/`. Dense-captioning deployments bundle `vss-manage-video-io-storage/` and `vss-deploy-dense-captioning/`; RT-CV detection/tracking deployments bundle `vss-manage-video-io-storage/` and `vss-deploy-detection-tracking-2d/`. ELK references are carried inside `vss-build-vision-agent/references/`.
 - **Use-case skills**: scan `<vss-repo>/skills/` for top-level skill folders whose `description:` frontmatter matches the capability description from Step 0 (e.g., `streaming-dense-captioning`, `agentic-search`, `person-counting`). Copy each match. **If none match, skip — do not create one.**
 
 Copy the entire skill folder verbatim (including `SKILL.md`, `references/`, `scripts/`, `eval/`). Do not edit any bundled file. Record every bundled skill in `MANIFEST.md` with its source path and a one-line purpose.
@@ -383,7 +390,8 @@ skills/vss-build-vision-agent/
 ├── CONTRIBUTING.md                                    # (planned) how to add a new microservice (see Phase 0 deliverables)
 ├── eval/
 │   ├── in-1-streaming-dense-captioning.json      # priority eval — gates Phase 4 rollout
-│   ├── in-2-person-detection-rt-detr.json        # priority eval — extensibility test
+│   ├── rt-cv-person-detection-rtdetr.json             # RT-CV detection/tracking eval
+│   ├── rt-cv-person-detection-rtdetr-harbor.json      # Harbor RT-CV eval
 │   └── ...                                            # follow-on evals as Phase 1c services land
 ├── references/
 │   ├── integrate-microservice-schema.md               # canonical schema for integrate-<microservice>.md
