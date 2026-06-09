@@ -1,22 +1,22 @@
 ---
 name: vss-deploy-detection-tracking-3d
 description: >
-  Deploy and operate RTVI-CV-3D / MV3DT multi-camera 3D tracking: per-camera
-  DeepStream perception plus BEV Fusion over calibrated cameras. Supports the
-  bundled sample dataset, custom video files, and RTSP streams, and chains to
-  `vss-generate-video-calibration` when calibration is missing. Use
-  `vss-deploy-profile` for the full warehouse blueprint and
+  Deploy and operate the RTVI-CV-3D microservice as MV3DT (`MODE=mv3dt`):
+  per-camera DeepStream perception plus BEV Fusion over calibrated cameras.
+  Supports the bundled sample dataset, custom video files, and RTSP streams,
+  and chains to `vss-generate-video-calibration` when calibration is missing.
+  Use `vss-deploy-profile` for the full warehouse blueprint and
   `vss-deploy-detection-tracking-2d` for single-camera 2D detection.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
-  tags: "nvidia blueprint mv3dt detection tracking 3d warehouse"
+  tags: "nvidia blueprint rtvi-cv-3d mv3dt detection tracking 3d warehouse"
 ---
 
 ## Purpose
 
-Deploy and operate the RTVI-CV-3D / MV3DT stack — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on the bundled sample dataset, custom videos, or live RTSP, without the full warehouse agent / LLM / VLM stack.
+Deploy and operate the RTVI-CV-3D microservice as MV3DT (`MODE=mv3dt`) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on the bundled sample dataset, custom videos, or live RTSP, without the full warehouse agent / LLM / VLM stack.
 
 ## Instructions
 
@@ -28,9 +28,9 @@ Work top-to-bottom: answer the routing questions (Q0–Q3) under [Routing](#rout
 - Deploy RTVI-CV-3D on my videos here: `<path/to/videos>`.
 - Run MV3DT on RTSP streams after calibration.
 
-# VSS Deploy Detection & Tracking — 3D (RTVI-CV-3D)
+# VSS Deploy Detection & Tracking — 3D (RTVI-CV-3D / MV3DT)
 
-Bring up the RTVI-CV-3D stack from the warehouse blueprint: per-camera DeepStream perception (`vss-rtvi-cv-mv3dt`) + BEV Fusion (`vss-rtvi-cv-bev-fusion`) + mosquitto MQTT bus + broker + VST sensor stack — without the agent / LLM / VLM stack that comes with the full warehouse blueprint.
+Bring up the RTVI-CV-3D microservice as the MV3DT stack (`MODE=mv3dt`) from the warehouse blueprint: per-camera DeepStream perception (`vss-rtvi-cv-mv3dt`) + BEV Fusion (`vss-rtvi-cv-bev-fusion`) + mosquitto MQTT bus + broker + VST sensor stack — without the agent / LLM / VLM stack that comes with the full warehouse blueprint.
 
 The actual compose machinery lives in `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/`. This skill drives the env overrides, calibration chain, and verification.
 
@@ -52,7 +52,8 @@ Default to **extended** unless the user explicitly asks for minimal. Extended de
 ### Q1 — Data source
 
 Ask this unless the source is explicit in the user's first message. A bare request
-like "deploy rtvi-cv-3d" does **not** imply `sample`.
+like "deploy rtvi-cv-3d" routes to this MV3DT skill (`MODE=mv3dt`), but does
+**not** imply `sample`.
 
 - **sample** — the bundled 4-camera synthetic dataset (`warehouse-4cams-20mx20m-synthetic`). Calibration ships in-tree; no AMC run needed.
 - **videos** — the user has local video files (any `*.mp4` named after their cameras). Standalone AMC (`auto_calib` profile) will run if calibration is missing.
@@ -92,7 +93,7 @@ If the user supplied a calibration path themselves, validate that path instead �
 
 Every path converges on [`references/verify-and-view.md`](references/verify-and-view.md) once `up -d` completes. [`references/troubleshooting.md`](references/troubleshooting.md) and [`references/teardown.md`](references/teardown.md) are linked but off the happy path.
 
-**Disambiguation rule.** If the user mentions "warehouse" without "mv3dt" / "3D tracking" / "multi-view", consider routing to [`../vss-deploy-profile/references/warehouse.md`](../vss-deploy-profile/references/warehouse.md) instead — that's the full warehouse blueprint (2D / 3D / MV3DT + agents). This skill is for **MV3DT only** without the agent stack / LLM / VLM.
+**Disambiguation rule.** In this skill, "RTVI-CV-3D" means the MV3DT microservice deployment and uses `MODE=mv3dt`. Route to [`../vss-deploy-profile/references/warehouse.md`](../vss-deploy-profile/references/warehouse.md) only when the user asks for the full warehouse blueprint, Sparse4D, `MODE=3d`, or `warehouse-3d-app`. This skill is for **MV3DT only** without the agent stack / LLM / VLM.
 
 ## Prerequisites
 
