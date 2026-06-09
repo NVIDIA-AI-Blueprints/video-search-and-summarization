@@ -265,6 +265,11 @@ Pulls images and builds the perception container (~10–15 min first run). If `d
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
 
+# Brev only: export before docker compose so COMPOSE_PROFILES and BREV_ENV_ID
+# are available for variable substitution. Skip on non-Brev hosts.
+export BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment 2>/dev/null)
+export COMPOSE_PROFILES=<literal-value-from-env>   # e.g. bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
+
 printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 
 nohup docker compose -f compose.yml \
@@ -359,6 +364,15 @@ ngc registry image list "nvidia/vss-core/*" 2>&1 | head -10
 ---
 
 ### Phase 2: System Prerequisites
+
+**Detect if this is a Brev-managed instance first:**
+
+```bash
+grep "BREV_ENV_ID" /etc/environment && echo "Brev instance — apply Brev-specific steps" \
+  || echo "Not Brev — standard deployment"
+```
+
+If `BREV_ENV_ID` is present, also complete [§2.7 Brev-specific host setup](#27-brev-specific-host-setup-brev-deployments-only) below, apply the [Brev Secure Link Overrides](#brev-secure-link-overrides) in Phase 5, and run the [post-deploy Brev steps](#after-deploy-brev). For Brev architecture and secure-link troubleshooting, see [`brev.md`](brev.md) — note that `brev.md` documents the dev-profile `generated.env` flow; for warehouse, the equivalent overrides go directly into `industry-profiles/warehouse-operations/.env` (Phase 5).
 
 Run each check in order. **If a check fails, automatically install and re-verify — do not wait for the user.** Only stop if a requirement cannot be met automatically (unsupported hardware, insufficient RAM/CPU).
 
@@ -604,6 +618,39 @@ free -h  # 64 GB+ RAM
 df -h /  # 500 GB+ SSD
 ```
 
+#### 2.7 Brev-specific host setup (Brev deployments only)
+
+These steps are required on any Brev-provisioned instance and are not covered by the standard system prerequisites above.
+
+**UFW — allow Docker bridge networks to reach host services**
+
+`vss-rtvi-vlm` runs on the Docker bridge network (`mdx_default`, subnet `172.18.0.0/16`) and needs to reach host-network services (HAProxy, VST). UFW blocks this by default:
+
+```bash
+sudo ufw allow from 172.17.0.0/16
+sudo ufw allow from 172.18.0.0/16
+```
+
+**CDI spec — regenerate both locations**
+
+The NVIDIA Container Toolkit writes CDI specs to two paths. The `/var/run/cdi/` copy can be stale (referencing `/dev/dri/cardN` devices that don't exist on headless GPU instances), causing all GPU containers to fail to start with `failed to stat CDI host device`. Always regenerate both:
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+sudo nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml
+```
+
+**`/etc/hosts` — resolve Brev domains locally**
+
+Host-network containers (e.g. `vss-alert-bridge`) validate video clip URLs that contain the Brev domain. Without a local hosts entry, the request goes to Cloudflare which blocks non-443 ports:
+
+```bash
+HOST_IP=$(hostname -I | awk '{print $1}')
+BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment)
+echo "${HOST_IP} 7777-${BREV_ENV_ID}.brevlab.com" | sudo tee -a /etc/hosts
+echo "${HOST_IP} 30888-${BREV_ENV_ID}.brevlab.com" | sudo tee -a /etc/hosts
+```
+
 ---
 
 ### Phase 3: Interactive Configuration
@@ -683,6 +730,35 @@ MINIMAL_PROFILE=""       # extended
   > **Note:** Post-calibration cleanup depends on mode. In 2D, Auto-Calibration adds blank `group` and `region` fields to `calibration.json`; they are not required for 2D and should be removed. For 3D / MV3DT, calibration files require camera clustering to populate `sensors[].group` — see [Calibration Generation](#calibration-generation).
 
   Once the calibration file is ready, redeploy with the full warehouse profile.
+
+#### Q6 — LLM Placement (`bp_wh` only)
+
+Skip for `bp_wh_kafka`, `bp_wh_redis`, and `bp_wh_auto_calib` (set `LLM_MODE=none` for those).
+
+For `bp_wh`, **always ask explicitly** — do not default to `local`:
+
+> "How should the LLM be deployed?
+> - **local** — LLM NIM on its own GPU (`LLM_DEVICE_ID`, default `2`). Requires a third GPU.
+> - **local_shared** — LLM NIM colocated with RTVI VLM on `SHARED_LLM_VLM_DEVICE_ID` (default `2`). Requires 2 GPUs but both models share one.
+> - **remote** — point at an external LLM endpoint via `LLM_BASE_URL` (e.g. `https://integrate.api.nvidia.com/v1`). No LLM NIM deployed. Requires `NVIDIA_API_KEY`.
+> - **none** — disable LLM entirely."
+
+**GPU memory check before choosing `local` or `local_shared`:**
+
+`vss-rtvi-vlm` (RTVI VLM) is **always** deployed locally for `bp_wh` and typically consumes 60–70 GB of VRAM on the GPU assigned to `RT_VLM_DEVICE_ID`. At the default `gpu_memory_utilization=0.40`, the LLM NIM pre-allocates 40 % of total GPU memory (e.g. ~38 GB on a 96 GB GPU). If the RTVI VLM and LLM NIM share a GPU, the combined allocation must fit within that GPU's VRAM.
+
+```bash
+nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
+```
+
+| GPU count | Recommended LLM mode |
+|---|---|
+| ≥ 3 GPUs | `local` — dedicated GPU for LLM NIM |
+| 2 GPUs, RTVI VLM uses < 50 % of GPU 1 VRAM | `local_shared` — colocate on GPU 1 |
+| 2 GPUs, RTVI VLM uses > 50 % of GPU 1 VRAM | `remote` — RTVI VLM leaves insufficient room for LLM NIM |
+| 1 GPU | `remote` or `none` |
+
+If the user chooses `remote`, also confirm `LLM_BASE_URL` and `NVIDIA_API_KEY` are set.
 
 ---
 
@@ -844,6 +920,30 @@ Uses `EXTERNAL_IP:3002` directly (not `VSS_PUBLIC_*`). The map tab is **disabled
 
 > **Do not** use the old `http://7777-<BREV_ENV_ID>.brevlab.com:7777` form — the Brev reverse proxy does not expose the raw HAProxy port. Using `http` with `:7777` will fail with connection refused or mixed-content errors in the browser.
 
+##### `COMPOSE_PROFILES` — set as a literal string on Brev
+
+The `COMPOSE_PROFILES` variable in the warehouse `.env` is defined as a shell-style template:
+
+```ini
+COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}
+```
+
+Some Docker Compose versions do not expand variable references within `--env-file` values, leaving the literal `${BP_PROFILE}` string unexpanded. Always override with the resolved value in the `.env` file for the chosen profile:
+
+```bash
+# Example for bp_wh + 2d + remote LLM (nemotron-nano-9b-v2)
+COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
+
+# Example for bp_wh + 2d + local LLM
+COMPOSE_PROFILES=bp_wh_2d,llm_local_nvidia-nemotron-nano-9b-v2
+```
+
+##### `vss-rtvi-vlm` bridge network access + socat proxy (Brev only)
+
+`vss-rtvi-vlm` runs on the Docker bridge network and needs to resolve Brev secure-link domains to fetch video clips for VLM verification. These steps are applied **after the stack is up** — see [After deploy — Brev](#after-deploy-brev).
+
+> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse `.env`. The variable is defined as a template inside `.env` and is not expanded by `--env-file` in all Docker Compose versions. Set it as a literal value directly in `.env` (e.g. `COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2`) and also `export COMPOSE_PROFILES=bp_wh_2d,...` in the shell before running `docker compose up`.
+
 > **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.2.0"` and uncomment `PERCEPTION_TAG="3.2.0-sbsa"`. Apply the same pattern to `BEV_FUSION_MV3DT_TAG` (mv3dt only), `RTVI_VLM_IMAGE_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG`.
 
 ---
@@ -931,6 +1031,50 @@ each need their own secure link opened in the Brev dashboard.
 VST is accessed directly on port `30888` — it does not go through the HAProxy ingress.
 
 See [Access Points](#access-points) for the full HAProxy route table and direct-port diagnostics table.
+
+---
+
+## After deploy — Brev
+
+Run these steps once the stack is healthy. Re-apply after any `vss-rtvi-vlm` restart.
+
+```bash
+BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment)
+```
+
+**1. Start socat TLS proxy** (create cert once per host, start after every host reboot):
+
+```bash
+# Create self-signed cert — once per host
+sudo openssl req -x509 -newkey rsa:2048 \
+  -keyout /etc/ssl/private/vst-proxy.key \
+  -out /etc/ssl/certs/vst-proxy.crt \
+  -days 3650 -nodes \
+  -subj "/CN=30888-${BREV_ENV_ID}.brevlab.com" 2>/dev/null
+sudo cat /etc/ssl/private/vst-proxy.key /etc/ssl/certs/vst-proxy.crt > /tmp/vst-proxy.pem
+
+# Start proxy — re-run after every host reboot
+sudo nohup socat OPENSSL-LISTEN:443,bind=172.18.0.1,cert=/tmp/vst-proxy.pem,verify=0,fork \
+  TCP:127.0.0.1:30888 > /tmp/socat.log 2>&1 &
+ss -tlnp | grep ':443'   # confirm listening
+```
+
+This TLS proxy allows `vss-rtvi-vlm` (Docker bridge network) to reach VST over `https://30888-<BREV_ENV_ID>.brevlab.com` via the bridge gateway `172.18.0.1:443`.
+
+**2. Inject Brev domain entries into `vss-rtvi-vlm`** (re-apply after every container restart):
+
+```bash
+docker exec -u root vss-rtvi-vlm sh -c "
+  echo '172.18.0.1 7777-${BREV_ENV_ID}.brevlab.com' >> /etc/hosts
+  echo '172.18.0.1 30888-${BREV_ENV_ID}.brevlab.com' >> /etc/hosts
+"
+
+# Verify
+docker exec vss-rtvi-vlm getent hosts 7777-${BREV_ENV_ID}.brevlab.com
+# Expected: 172.18.0.1   7777-<BREV_ENV_ID>.brevlab.com
+```
+
+With both steps complete, `vss-rtvi-vlm` can resolve Brev secure-link domains to the bridge gateway and reach HAProxy (port 7777) and VST (port 30888) for clip downloads.
 
 ---
 
