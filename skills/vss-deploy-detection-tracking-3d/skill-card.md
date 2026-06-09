@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying multi-camera 3D detection and tracking (MV3DT) using the NVIDIA RTVI-CV-3D microservice for warehouse video analytics applications. <br>
+Developers and engineers deploying multi-camera 3D detection and tracking (MV3DT) via the RTVI-CV-3D microservice on NVIDIA GPUs for warehouse video analytics. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,14 +19,12 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Video Search and Summarization GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy RTVI-CV-3D Stack](references/deploy-rtvi-cv-3d-stack.md) <br>
 - [Calibration Workflow](references/calibration-workflow.md) <br>
 - [Configure Cameras](references/configure-cameras.md) <br>
 - [Verify and View](references/verify-and-view.md) <br>
-- [Teardown](references/teardown.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -42,7 +40,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 3 internal evaluation tasks (positive skill-activation cases). <br>
+Evaluated against 3 internal evaluation tasks (3 positive skill-activation cases) via NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -67,10 +65,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 50% (+21%) | 79% (+26%) |
-| Discoverability | 3 | 59% (+22%) | 77% (+26%) |
-| Effectiveness | 3 | 35% (+28%) | 60% (+22%) |
-| Efficiency | 3 | 58% (+23%) | 68% (+26%) |
+| Correctness | 3 | 93% (+64%) | 69% (+35%) |
+| Discoverability | 3 | 91% (+56%) | 72% (+17%) |
+| Effectiveness | 3 | 64% (+57%) | 41% (+32%) |
+| Efficiency | 3 | 77% (+49%) | 61% (+12%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
