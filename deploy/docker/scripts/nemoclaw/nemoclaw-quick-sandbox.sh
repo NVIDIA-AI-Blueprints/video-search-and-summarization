@@ -14,7 +14,7 @@
 #   ./nemoclaw-quick-sandbox.sh --build-only [sandbox-name]
 #   ./nemoclaw-quick-sandbox.sh --create-only [sandbox-name]
 #
-# Environment (aligned with nemoclaw_steps.sh):
+# Environment (aligned with nemoclaw-install.sh):
 #   NEMOCLAW_SRC              Source tree (default: ~/.nemoclaw/source)
 #   NEMOCLAW_SANDBOX_NAME     Sandbox name (default: demo)
 #   NEMOCLAW_PROVIDER         build | custom | openai | anthropic | gemini
@@ -24,6 +24,8 @@
 #   COMPATIBLE_API_KEY        Required for custom provider
 #   CHAT_UI_URL               Optional CORS origin (auto-detected on Brev)
 #   BREV_DETECT_TUNNEL=0      Disable Brev cloudflared FQDN detection
+#   NEMOCLAW_SANDBOX_BASE_TAG Optional pin for ghcr.io/nvidia/nemoclaw/sandbox-base
+#   NEMOCLAW_FORCE_SANDBOX_BUILD=1  Rebuild nemoclaw-sandbox:local even if present
 
 set -euo pipefail
 
@@ -46,7 +48,7 @@ usage() {
   cat <<'EOF'
 Fast NemoClaw sandbox creation (nemoclaw-quickstart sandbox path).
 
-Run after:  bash nemoclaw_steps.sh 1 2 3
+Run after:  bash nemoclaw-install.sh 1 2 3 4
 
 Usage:
   nemoclaw-quick-sandbox.sh [--build-only | --create-only] [sandbox-name]
@@ -442,7 +444,9 @@ case "$NEMOCLAW_PROVIDER" in
     ;;
 esac
 
-[[ -n "$ENDPOINT_URL" ]] || fail "NEMOCLAW_ENDPOINT_URL is required for custom provider"
+if [[ "$NEMOCLAW_PROVIDER" == "custom" && -z "$ENDPOINT_URL" ]]; then
+  fail "NEMOCLAW_ENDPOINT_URL is required for custom provider"
+fi
 
 CREDENTIAL_VALUE="${!CREDENTIAL_ENV:-}"
 if [[ -z "$CREDENTIAL_VALUE" ]]; then
@@ -450,7 +454,7 @@ if [[ -z "$CREDENTIAL_VALUE" ]]; then
 fi
 
 NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-$DEFAULT_NEMOCLAW_MODEL}"
-[[ -n "$NEMOCLAW_MODEL" ]] || fail "NEMOCLAW_MODEL is required for custom provider"
+[[ -n "$NEMOCLAW_MODEL" ]] || fail "NEMOCLAW_MODEL is required for provider '$NEMOCLAW_PROVIDER'"
 
 NEMOCLAW_PRIMARY_MODEL_REF="${NEMOCLAW_PROVIDER_KEY}/${NEMOCLAW_MODEL}"
 
