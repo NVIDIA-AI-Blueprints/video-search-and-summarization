@@ -54,11 +54,11 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 3 | 100% (+33%) | 100% (+0%) |
-| Correctness | 3 | 60% (-17%) | 59% (+23%) |
-| Discoverability | 3 | 29% (-31%) | 22% (+3%) |
-| Effectiveness | 3 | 67% (-9%) | 67% (+37%) |
-| Efficiency | 3 | 42% (-12%) | 33% (-0%) |
+| Security | 3 | 100% (+0%) | 100% (+33%) |
+| Correctness | 3 | 67% (+2%) | 56% (+3%) |
+| Discoverability | 3 | 29% (-15%) | 20% (-11%) |
+| Effectiveness | 3 | 71% (+14%) | 59% (+5%) |
+| Efficiency | 3 | 42% (-1%) | 32% (-12%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -68,11 +68,11 @@ Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found
 
 Top findings:
 
-- MEDIUM SECURITY/Unknown (SDI-2): The skill executes `docker exec vss-agent sh -lc '...'` to read environment variables from a running container. While th (`SKILL.md:145`)
-- MEDIUM SECURITY/Unknown (SDI-2): The skill executes arbitrary Python code inside the `vss-agent` Docker container via `docker exec vss-agent python3 -c ' (`SKILL.md:221`)
-- LOW QUALITY/quality_discoverability: No '## Purpose' section (`skills/vss-generate-video-report/SKILL.md`)
-- LOW QUALITY/quality_reliability: No prerequisites/requirements documented (`skills/vss-generate-video-report/SKILL.md`)
-- LOW QUALITY/quality_reliability: No limitations documented (`skills/vss-generate-video-report/SKILL.md`)
+- MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-generate-video-report/SKILL.md`)
+- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Instructions' (`skills/vss-generate-video-report/SKILL.md`)
+- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-generate-video-report/SKILL.md`)
+- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-report/SKILL.md`)
+- MEDIUM SECURITY/Unknown (SDI-2): The skill uses `docker exec vss-agent env` to read environment variables from a running container. While this is a legit (`SKILL.md:105`)
 
 ## Tier 2: Deduplication Summary
 

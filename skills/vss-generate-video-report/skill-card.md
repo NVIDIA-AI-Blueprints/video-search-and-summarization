@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers generating structured video analysis reports from recorded clips (Mode A) or incident-range analytics (Mode B) within the NVIDIA Video Search and Summarization blueprint. <br>
+Developers and engineers use this skill to generate structured video analysis reports from recorded video clips (Mode A) or incident time-range queries (Mode B) within the NVIDIA Video Search and Summarization blueprint. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,12 +20,13 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA Vision Language Models NIM Documentation](https://docs.nvidia.com/nim/vision-language-models/1.6.0/introduction.html) <br>
+- [Video Search and Summarization GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Analysis, Shell commands] <br>
-**Output Format:** [Markdown] <br>
+**Output Type(s):** [Analysis, API Calls, Shell commands] <br>
+**Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
@@ -36,7 +37,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 3 internal evaluation tasks (all positive skill-activation cases) via NVSkills-Eval external profile. <br>
+Evaluated against 3 evaluation tasks (3 positive skill-activation cases) on the external NVSkills-Eval profile in the astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -60,11 +61,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 3 | 100% (+33%) | 100% (+0%) |
-| Correctness | 3 | 60% (-17%) | 59% (+23%) |
-| Discoverability | 3 | 29% (-31%) | 22% (+3%) |
-| Effectiveness | 3 | 67% (-9%) | 67% (+37%) |
-| Efficiency | 3 | 42% (-12%) | 33% (-0%) |
+| Security | 3 | 100% (+0%) | 100% (+33%) |
+| Correctness | 3 | 67% (+2%) | 56% (+3%) |
+| Discoverability | 3 | 29% (-15%) | 20% (-11%) |
+| Effectiveness | 3 | 71% (+14%) | 59% (+5%) |
+| Efficiency | 3 | 42% (-1%) | 32% (-12%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
