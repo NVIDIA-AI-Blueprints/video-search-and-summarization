@@ -343,7 +343,7 @@ Project state under `${VSS_APPS_DIR}/services/auto-calibration/projects/project_
 
 Calibration is now on disk at `${CAL_DIR}`. Hand back to the parent flow:
 
-1. Walk [`configure-cameras.md`](configure-cameras.md) — set `NUM_STREAMS` to the `camInfo/*.yaml` count, sync DeepStream batch sizes.
+1. Walk [`configure-cameras.md`](configure-cameras.md) — run Step 0 to normalize AMC/VGGT sensor IDs and video names to `Camera, Camera_01, ...`, then set `NUM_STREAMS` to the `camInfo/*.yaml` count and sync DeepStream batch sizes.
 2. Walk [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) — `docker compose up` with `MODE=mv3dt` + `BP_PROFILE=bp_wh_kafka` + `MINIMAL_PROFILE=""` (extended, the Q0 default — overlays enabled). Use `MINIMAL_PROFILE="true"` only if the user explicitly chose minimal in Q0.
 3. Walk [`verify-and-view.md`](verify-and-view.md) — confirm perception FPS, BEV ready, VST video wall.
 

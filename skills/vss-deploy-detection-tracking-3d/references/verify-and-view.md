@@ -198,6 +198,15 @@ if [ "${MINIMAL_PROFILE_VAL}" != "true" ]; then
 else
   echo "Import check skipped under minimal profile"
 fi
+
+# 5. VST streamprocessing must be able to find calibration by runtime sensor name.
+SP_LOG=$(docker logs --tail 300 vss-vios-streamprocessing 2>&1 || true)
+if printf '%s\n' "${SP_LOG}" | grep -q 'No calibration data found for sensor'; then
+  printf '%s\n' "${SP_LOG}" | grep 'No calibration data found for sensor' | tail -10
+  echo "  streamprocessing calibration lookup FAILED — run configure-cameras.md Step 0 and redeploy/recreate streamprocessing"
+else
+  echo "  streamprocessing calibration lookup has no missing-sensor entries"
+fi
 ```
 
 **Pass criteria — all required checks:**
@@ -208,8 +217,9 @@ fi
 4. Both `mdx-raw` and `mdx-bev` offsets grew between the two samples.
 5. Under extended profile, the video-analytics upload-dir write test passes.
 6. Under extended profile, importer logs reach `done` and neither importer nor video-analytics-api logs contain `EACCES`, permission errors, `{"error":...}`, or `Something broke`.
+7. `vss-vios-streamprocessing` logs do not contain `No calibration data found for sensor` for the runtime camera names.
 
-If any core stream check fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. If the extended-profile import check fails, the deploy may process streams but overlays are not ready; fix the import issue in [`troubleshooting.md`](troubleshooting.md) before reporting success. A sensor-set mismatch, stale/offline record, or `Active sources : 0` on healthy containers is the stale-state case — the fix is a **full clean redeploy** (`down -v` **and** clearing host-side `data_log`, then redeploy), not `down -v` alone. See the redeploy note in [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 3.
+If any core stream check fails, the deploy is not actually processing streams — go to [`troubleshooting.md`](troubleshooting.md) (`Active sources : 0` and stale-state entries) rather than reporting the URLs. If the extended-profile import check or streamprocessing calibration lookup check fails, the deploy may process streams but overlays are not ready; fix the issue in [`troubleshooting.md`](troubleshooting.md) before reporting success. A sensor-set mismatch, stale/offline record, or `Active sources : 0` on healthy containers is the stale-state case — the fix is a **full clean redeploy** (`down -v` **and** clearing host-side `data_log`, then redeploy), not `down -v` alone. See the redeploy note in [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md) Step 3.
 
 ## Step 5 — VST video wall
 

@@ -33,7 +33,7 @@ Skip when:
 - Q1 = `sample` (calibration ships with the correct names already).
 - The user supplied a calibration that already uses `Camera, Camera_01..N`.
 
-Idempotent and guarded: the block below is a no-op when the first sensor is already named `Camera`. It defaults to **dry-run** and prints the planned changes. Review the plan first; to apply the rename, re-run it with `APPLY_RENAME=1`. When applied, it writes `calibration.pre-normalize.json` and `camera-normalization-manifest.json` under `CAL_DIR` before changing files in place.
+Idempotent and guarded: the block below is a no-op when the first sensor is already named `Camera`. It defaults to **dry-run** and prints the planned changes. For custom AMC/VGGT outputs whose sensor IDs are `cam_00..`, review the plan and re-run with `APPLY_RENAME=1` before deploy; otherwise VST streamprocessing cannot match runtime stream names to calibration IDs. When applied, it writes `calibration.pre-normalize.json` and `camera-normalization-manifest.json` under `CAL_DIR` before changing files in place.
 
 ```bash
 DATASET="${SAMPLE_VIDEO_DATASET:?}"
@@ -271,6 +271,16 @@ echo "calibration.json sensors: $(jq '.sensors | length' "${CAL_DIR}/calibration
 echo "camInfo files:            $(find "${CAL_DIR}/camInfo/" -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | wc -l)"
 echo "NUM_STREAMS (.env):       $(grep '^NUM_STREAMS=' "${ENV_FILE}" | cut -d= -f2)"
 echo "GPU cap for mv3dt:        ${CAP}"
+
+# Sensor IDs must match VST runtime names exactly: Camera, Camera_01, ...
+ok=1; i=0
+while IFS= read -r id; do
+  expected="Camera"
+  test "$i" -eq 0 || expected=$(printf 'Camera_%02d' "$i")
+  test "$id" = "$expected" || { echo "sensor ID mismatch: got '$id', expected '$expected'"; ok=0; }
+  i=$((i + 1))
+done < <(jq -r '.sensors[].id' "${CAL_DIR}/calibration.json")
+test "$ok" -eq 1 || { echo "Run Step 0 with APPLY_RENAME=1 before deploy"; exit 1; }
 ```
 
-All three counts should line up; `NUM_STREAMS` ≤ `CAP`. Now proceed to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).
+All three counts should line up, `NUM_STREAMS` ≤ `CAP`, and sensor IDs should follow `Camera, Camera_01, ...`. Now proceed to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).

@@ -74,7 +74,7 @@ test -f "${CAL_DIR}/calibration.json" \
   && ls "${CAL_DIR}/camInfo/"*.{yml,yaml} 2>/dev/null
 ```
 
-If the user supplied a calibration path themselves, validate that path instead — don't recompute. See `configure-cameras.md` for the authoritative camera-count discovery (parses `calibration.json`).
+If the user supplied a calibration path themselves, validate that path instead — don't recompute. See `configure-cameras.md` for camera-name normalization and authoritative camera-count discovery (parses `calibration.json`).
 
 ### Q3 — Detector + dataset slug (only when Q2 triggers AMC)
 
@@ -227,7 +227,7 @@ SKILL.md (this file — Q0/Q1/Q2/Q3 routing)
   │                     └─ chains to vss-generate-video-calibration (deploy + drive API)
   │                     └─ fetches /v1/result/{project_id}/mv3dt_result?result_type=amc
   │                     └─ lands calibration files at warehouse-mv3dt-app/calibration/sample-data/<slug>/
-  ├─> configure-cameras.md (NUM_STREAMS sync, VST sensor trim)
+  ├─> configure-cameras.md (camera-name normalization, NUM_STREAMS sync, VST sensor trim)
   └─> deploy-rtvi-cv-3d-stack.md (compose up with bp_wh_kafka_mv3dt + extended/minimal)
         └─> verify-and-view.md (FPS, fusion_ready, mdx-bev, VST video wall + WebRTC checks)
 ```
