@@ -109,7 +109,8 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `ASSET_STORAGE_DIR` | Optional host directory bound to `/tmp/assets` inside the container. | (unset; mount is skipped) | No |
 | `RTVI_EMBED_LOG_DIR` | Optional host directory bound to `/opt/nvidia/rtvi/log/rtvi/`. | (unset; mount is skipped) | No |
 | `VSS_DATA_DIR` | Host root for VSS data; `data_log/vst/clip_storage` under this path is mounted into the container. | (unset) | Yes |
-| `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` | Container-side clip reader mount for the VST `clip_storage` bind (matches `rtvi-embed-docker-compose.yml`). | (see compose export below) | Yes when binding clip storage |
+| `VST_CONTAINER_ROOT` | VST container root from `vst.env`; clip reader path is `${VST_CONTAINER_ROOT}/streamer_videos`. | (from `vst.env`) | Yes when binding clip storage |
+| `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` | Container-side clip reader mount for the VST `clip_storage` bind (matches `rtvi-embed-docker-compose.yml`). | `${VST_CONTAINER_ROOT}/streamer_videos` | Yes when binding clip storage |
 
 ## Network Requirements
 
@@ -131,10 +132,12 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 
 ## Example Compose Snippet
 
-Set the container-side clip reader mount before validating or starting this snippet (value from `rtvi-embed-docker-compose.yml` line 81):
+Set the container-side clip reader mount before validating or starting this snippet. Load `VST_CONTAINER_ROOT` from `vst.env` (same contract as VIOS/RT-VLM clip sharing):
 
 ```bash
-export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH=/home/vst/vst_release/streamer_videos
+# shellcheck source=/dev/null
+source vst.env
+export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH="${VST_CONTAINER_ROOT}/streamer_videos"
 ```
 
 ```yaml
@@ -192,7 +195,7 @@ volumes:
   rtvi-triton-model-repo:
 ```
 
-Set `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` in the export above to match the container-side mount in `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Set `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` to `${VST_CONTAINER_ROOT}/streamer_videos` so the bind matches `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 ## Authentication & Authorization
 
