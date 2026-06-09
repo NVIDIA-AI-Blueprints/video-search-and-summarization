@@ -30,6 +30,8 @@ component_services:
     role: RT-CV perception service using RT-DETR detection with multi-object tracking enabled.
 ```
 
+The generated `allow-list.yml` must preserve those service keys exactly. In particular, include `perception-2d-fusion` for RT-CV inference; `perception-2d` is not an upstream compose service key and must not be used.
+
 ## Integration Interfaces
 
 ### Inputs
