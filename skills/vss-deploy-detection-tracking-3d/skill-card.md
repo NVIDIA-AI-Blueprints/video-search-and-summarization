@@ -1,5 +1,5 @@
 ## Description: <br>
-Deploy and operate RTVI-CV-3D / MV3DT multi-camera 3D tracking: per-camera DeepStream perception plus BEV Fusion over calibrated cameras. <br>
+Deploy and operate the RTVI-CV-3D microservice as MV3DT (MODE=mv3dt): per-camera DeepStream perception plus BEV Fusion over calibrated cameras. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying multi-camera 3D object detection and tracking (RTVI-CV-3D / MV3DT) for warehouse video analytics using NVIDIA's Video Search and Summarization blueprint. <br>
+Developers and engineers deploying multi-camera 3D detection and tracking (MV3DT) using the NVIDIA RTVI-CV-3D microservice for warehouse video analytics applications. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -26,7 +26,7 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Teardown](references/teardown.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -42,7 +42,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 3 deployment tasks in the NVSkills-Eval `external` profile (2 attempts per task, 50% pass threshold). <br>
+Evaluated against 3 internal evaluation tasks (positive skill-activation cases). <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,11 +66,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 6 | 100% (+0%) | 100% (+0%) |
-| Correctness | 6 | 96% (+12%) | 88% (+11%) |
-| Discoverability | 6 | 81% (+23%) | 64% (+2%) |
-| Effectiveness | 6 | 80% (+9%) | 70% (+2%) |
-| Efficiency | 6 | 64% (+22%) | 46% (+1%) |
+| Security | 3 | 100% (+0%) | 100% (+0%) |
+| Correctness | 3 | 50% (+21%) | 79% (+26%) |
+| Discoverability | 3 | 59% (+22%) | 77% (+26%) |
+| Effectiveness | 3 | 35% (+28%) | 60% (+22%) |
+| Efficiency | 3 | 58% (+23%) | 68% (+26%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
