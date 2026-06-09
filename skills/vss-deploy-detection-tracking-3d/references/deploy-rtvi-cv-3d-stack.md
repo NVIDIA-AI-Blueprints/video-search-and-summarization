@@ -1,6 +1,6 @@
 # Deploy the RTVI-CV-3D (MV3DT) stack
 
-The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run this **after** Q0/Q1/Q2/Q3 in SKILL.md resolved, calibration is on disk (either ship-with-repo for sample, or landed by [`calibration-workflow.md`](calibration-workflow.md), or user-supplied), and [`configure-cameras.md`](configure-cameras.md) has synced `NUM_STREAMS` to the calibration file count.
+The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run this **after** Q0/Q1/Q2/Q3 in SKILL.md resolved and calibration is on disk. For custom videos, RTSP, or user-supplied calibration, run [`configure-cameras.md`](configure-cameras.md) first so camera names and `NUM_STREAMS` are validated. The bundled sample dataset is already normalized.
 
 ## What this brings up
 
@@ -131,7 +131,7 @@ if docker ps --format '{{.Names}}' | grep -q '^vss-vios-sensor$'; then
 fi
 ```
 
-`down -v` is destructive (drops the VST DB and broker volumes), so **confirm with the user via `AskUserQuestion` before running it.** Full discussion of `down -v` semantics is in [`teardown.md`](teardown.md); the targeted sensor-trim alternative is in [`configure-cameras.md`](configure-cameras.md) Step 5.
+`down -v` is destructive (drops the VST DB and broker volumes), so **ask the user for confirmation before running it.** Full discussion of `down -v` semantics is in [`teardown.md`](teardown.md); the targeted sensor-trim alternative is in [`configure-cameras.md`](configure-cameras.md) Step 5.
 
 ### Step 0b — Align `streamprocessing` mounts for custom datasets
 

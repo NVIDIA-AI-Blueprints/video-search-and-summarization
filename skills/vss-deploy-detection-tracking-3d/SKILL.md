@@ -85,10 +85,10 @@ If the user supplied a calibration path themselves, validate that path instead �
 
 | Q1 | Q2 result | Path |
 |---|---|---|
-| `sample` | (cal ships in-tree) | [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) directly |
-| `videos` | cal present | [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) directly |
+| `sample` | (cal ships in-tree and already normalized) | [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) directly |
+| `videos` | cal present | [`references/configure-cameras.md`](references/configure-cameras.md) → [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) |
 | `videos` | cal missing | [`references/calibration-workflow.md`](references/calibration-workflow.md) (videos mode) → [`references/configure-cameras.md`](references/configure-cameras.md) → [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) |
-| `rtsp` | cal present | [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) directly |
+| `rtsp` | cal present | [`references/configure-cameras.md`](references/configure-cameras.md) → [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) |
 | `rtsp` | cal missing | [`references/calibration-workflow.md`](references/calibration-workflow.md) (rtsp mode) → [`references/configure-cameras.md`](references/configure-cameras.md) → [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) |
 
 Every path converges on [`references/verify-and-view.md`](references/verify-and-view.md) once `up -d` completes. [`references/troubleshooting.md`](references/troubleshooting.md) and [`references/teardown.md`](references/teardown.md) are linked but off the happy path.
@@ -185,7 +185,7 @@ setfacl -R -d -m "$ACL" "${DATA_DIR}/data_log"
 > Elasticsearch, since they re-own their dirs on first start). Prefer this for agent-driven runs and
 > shared hosts. The canonical [`../vss-deploy-profile/references/data-directory.md`](../vss-deploy-profile/references/data-directory.md)
 > documents the broad `chmod -R 777` and the per-container UID table; this skill uses the scoped-ACL
-> equivalent instead. **Confirm with the user (`AskUserQuestion`) before changing host permissions.**
+> equivalent instead. **Ask the user for confirmation before changing host permissions.**
 >
 > Requires a POSIX-ACL filesystem (ext4 / xfs — the default) and the `acl` package (`setfacl`). If a
 > daemon still logs a permission error after deploy, find its UID
@@ -225,7 +225,7 @@ Before destructive recovery (`docker compose down -v`, clearing `data_log`, dele
 SKILL.md (this file — Q0/Q1/Q2/Q3 routing)
   └─ if cal missing ─> calibration-workflow.md
   │                     └─ chains to vss-generate-video-calibration (deploy + drive API)
-  │                     └─ fetches /v1/result/{project_id}/mv3dt_result?result_type=amc
+  │                     └─ fetches /v1/result/{project_id}/mv3dt_result?result_type=amc (plus vggt when refinement is enabled)
   │                     └─ lands calibration files at warehouse-mv3dt-app/calibration/sample-data/<slug>/
   ├─> configure-cameras.md (camera-name normalization, NUM_STREAMS sync, VST sensor trim)
   └─> deploy-rtvi-cv-3d-stack.md (compose up with bp_wh_kafka_mv3dt + extended/minimal)
