@@ -230,9 +230,10 @@ curl -s "http://localhost:8010/v1/amc/calibrate/${project_id}/log" | tail -60
 
 **Fix:** Per [`calibration-workflow.md`](calibration-workflow.md) Step 2 — re-poll until `project_state == COMPLETED`. If VGGT requested, also check `vggt_state == COMPLETED` (VGGT only runs if the model file is staged).
 
-### VST video wall (`:30888`) unreachable
+### VST video wall (`/vst` on `:30888`) unreachable
 
 **Cause(s):**
+- The browser opened the base port instead of `http://<HOST_IP>:30888/vst`.
 - VST stack didn't come up (sensor-ms / postgres in bad state).
 - Firewall blocks port 30888 from the browser host.
 - `HOST_IP` is `localhost` and you're trying to reach from a remote browser.
@@ -351,11 +352,10 @@ docker compose -f compose.yml \
 **Diagnose:**
 ```bash
 docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
-ngc registry image list "nvidia/vss-core/*"      2>&1 | head -5
-ngc registry image list "nvidia/vss-core/*"   2>&1 | head -5
+ngc registry image list "nvidia/vss-core/*" 2>&1 | head -5
 ```
 
-**Fix:** Re-login. If neither org lists the image, your key doesn't have access — confirm with `ngc org list`. Then either set `PERCEPTION_IMAGE` and `BEV_FUSION_MV3DT_IMAGE` in `.env` to the org that works for you, or get a new key.
+**Fix:** Re-login. If `nvidia/vss-core/*` does not list the image, the key does not have access — confirm with `ngc org list`, then use a key with access to the published VSS images.
 
 ### Pipeline stalls at end-of-video (videos mode) — `Active sources : 0`, offsets flat
 

@@ -317,7 +317,7 @@ All checks should pass (or be N/A under `MINIMAL_PROFILE="true"`). If `camInfo/`
 
 ## Step 5 — Tear down AMC
 
-Leave the host clean before MV3DT comes up — they share `redis` and the host:port for `vss-auto-calibration` (still on `bp_wh_*_mv3dt` profile gating, so it will redeploy correctly under MV3DT later).
+Leave the host clean before MV3DT comes up. AMC runs under `auto_calib` / `bp_wh_auto_calib_*` profiles, not the normal `bp_wh_*_mv3dt` profiles used for MV3DT deployment.
 
 ```bash
 cd "${VSS_APPS_DIR}"

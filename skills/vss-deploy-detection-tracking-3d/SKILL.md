@@ -22,6 +22,12 @@ Deploy and operate the RTVI-CV-3D / MV3DT stack — per-camera DeepStream percep
 
 Work top-to-bottom: answer the routing questions (Q0–Q3) under [Routing](#routing), then follow the reference for the chosen path. Detailed step-by-step procedures live in `references/` (deploy, calibration chain, camera configuration, verification, teardown, troubleshooting).
 
+## Examples
+
+- Enable multi-camera tracking on the sample dataset.
+- Deploy RTVI-CV-3D on my videos here: `<path/to/videos>`.
+- Run MV3DT on RTSP streams after calibration.
+
 # VSS Deploy Detection & Tracking — 3D (RTVI-CV-3D)
 
 Bring up the RTVI-CV-3D stack from the warehouse blueprint: per-camera DeepStream perception (`vss-rtvi-cv-mv3dt`) + BEV Fusion (`vss-rtvi-cv-bev-fusion`) + mosquitto MQTT bus + broker + VST sensor stack — without the agent / LLM / VLM stack that comes with the full warehouse blueprint.
@@ -96,7 +102,7 @@ Locate `video-search-and-summarization/` on disk. All compose commands run from 
 
 ### 2. NGC CLI + key
 
-`$NGC_CLI_API_KEY` must be set. Both `nvidia/vss-core/*` and `nvidia/vss-core/*` are valid orgs depending on which the user's key resolves to. See `vss-deploy-profile/references/ngc.md` for setup if missing.
+`$NGC_CLI_API_KEY` must be set and must have access to `nvidia/vss-core/*` images. See `vss-deploy-profile/references/ngc.md` for setup if missing.
 
 If the user previously ran `ngc config set` but `$NGC_CLI_API_KEY` isn't exported in this shell, the key is already on disk:
 
