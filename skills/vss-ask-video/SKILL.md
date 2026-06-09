@@ -97,12 +97,12 @@ curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
 {"value":"<agent-think><agent-think-step ...>...</agent-think-step></agent-think>\n\n<final answer>\n\n"}
 ```
 
-There is no separate clean-answer field. The consumable answer is the text in `.value` after removing any leading `<agent-think>...</agent-think>` block.
+There is no separate clean-answer field. The consumable answer is the text in `.value` after removing any `<agent-think>...</agent-think>` block.
 
 Required handling for this skill (and any downstream caller):
 
 1. Read `.value` from the JSON response.
-2. Strip a leading `<agent-think>...</agent-think>` section when present.
+2. Strip `<agent-think>...</agent-think>` sections wherever they appear.
 3. Return only the remaining final-answer text to the user.
 
 Example extraction:
@@ -112,7 +112,7 @@ curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
   -H "Content-Type: application/json" \
   -d '{"input_message":"Call video_understanding tool to answer the following question about <sensor-id>: <user query>"}' \
 | jq -r '.value' \
-| python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"^\s*<agent-think>.*?</agent-think>\s*", "", t, flags=re.S); print(t.strip())'
+| python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<agent-think>.*?</agent-think>\s*", "", t, flags=re.S); print(t.strip())'
 ```
 
 ---
@@ -120,8 +120,4 @@ curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
 ## Cross-Reference
 
 - **vss-manage-video-io-storage** — VST storage/replay URLs so **`VIDEO_URL`** is valid for the VLM.
-- **vss-generate-video-report** — timestamped **reports** via **Mode A (direct VLM)** or **Mode B (video-analytics incidents)**; 
-
-
-
-bump:1
+- **vss-generate-video-report** — timestamped **reports** via **Mode A (direct VLM)** or **Mode B (video-analytics incidents)**; this skill is **VSS-agent `/generate`** for ad-hoc **video Q&A**.
