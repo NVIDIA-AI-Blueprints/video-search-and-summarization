@@ -64,10 +64,10 @@ This skill routes by **deployed mode + user intent** (monitoring vs subscription
 Requires the VSS **alerts** profile on `$HOST_IP` in either `verification` (CV) or `real-time` (VLM) mode.
 
 ```bash
-# Either perception-alerts (CV mode) OR rtvi-vlm (VLM mode) must be present.
+# Either vss-rtvi-cv (CV mode) OR vss-rtvi-vlm (VLM mode) must be present.
 curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
   && docker ps --format '{{.Names}}' \
-     | grep -qE '^(perception-alerts|rtvi-vlm)$'
+     | grep -qE '^(vss-rtvi-cv|vss-rtvi-vlm)$'
 ```
 
 If the probe fails, ask the user which mode to deploy and hand off to
@@ -90,27 +90,27 @@ caller pre-authorized autonomous deploy, run it directly with mode
 
 ## Step 1 — Detect the Currently Deployed Mode
 
-Before running any alert workflow, check which mode is live. Use **CV-only** containers as the signal — `rtvi-vlm` is **not** a reliable mode signal anymore because it runs in both modes.
+Before running any alert workflow, check which mode is live. Use **CV-only** containers as the signal — `vss-rtvi-vlm` is **not** a reliable mode signal because it runs in both modes.
 
 ```bash
-# CV verification mode (behavior analytics + perception-alerts are CV-only)
-docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics-alerts && echo "mode=CV"
+# CV verification mode (vss-behavior-analytics + vss-rtvi-cv are CV-only)
+docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "mode=CV"
 
-# VLM real-time mode (no CV pipeline; only rtvi-vlm)
-docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics-alerts || \
-  docker ps --format '{{.Names}}' | grep -qx rtvi-vlm && echo "mode=VLM"
+# VLM real-time mode (no CV pipeline; vss-rtvi-vlm still runs)
+docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics || \
+  docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm && echo "mode=VLM"
 ```
 
-If `vss-behavior-analytics-alerts` is present → **CV mode** (which also has `rtvi-vlm`).
-If only `rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
+If `vss-behavior-analytics` is present → **CV mode** (which also has `vss-rtvi-vlm`).
+If only `vss-rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
 If neither matches, the alerts profile is not deployed — direct the user to the `vss-deploy-profile` skill.
 
-Alternative signal (preferred when `docker ps` isn't accessible): check the profile's `.env`:
+Alternative signal (preferred when `docker ps` isn't accessible): check the profile's `generated.env`:
 
 ```bash
-grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
+grep -E '^MODE=' deploy/docker/developer-profiles/dev-profile-alerts/generated.env
 # MODE=2d_cv   → CV mode (full superset)
-# MODE=2d_vlm  → VLM real-time mode (rtvi-vlm only)
+# MODE=2d_vlm  → VLM real-time mode (vss-rtvi-vlm only; no vss-rtvi-cv)
 ```
 
 ---
@@ -331,7 +331,7 @@ separate verdict field.
 ## Customize CV Verifier Prompts (CV mode only)
 
 CV-path verifier prompts live in
-`deployments/developer-workflow/dev-profile-alerts/vlm-as-verifier/configs/alert_type_config.json`.
+`deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/alert_type_config.json`.
 Each entry maps a CV `alert_type` (the `category` field emitted by
 Behavior Analytics) to the VLM `system` / `user` / optional
 `enrichment` prompts.
@@ -368,7 +368,7 @@ natural-language detection description.
 
 - **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** "Slack webhook" → Workflow E (`alert-notify`). Never route Slack intents to `vss-alert-bridge`'s `/api/v1/realtime`.
 - **Workflow scope by mode:** Workflow A is CV-only. Workflows B and C work on either mode. Workflows D and E (subscriptions and Slack) are VLM real-time only — refuse with the canonical refusal text if attempted on CV.
-- **Don't use `rtvi-vlm` container presence as a mode signal.** It runs in both modes. Use `vss-behavior-analytics-alerts` (CV-only) or the `MODE` env var instead.
+- **Don't use `vss-rtvi-vlm` container presence as a mode signal.** It runs in both modes. Use `vss-behavior-analytics` (CV-only) or the `MODE` env var instead.
 - **A mode switch tears down the current deployment.** Any running VLM monitoring streams and any CV alert state not already in Elasticsearch will be lost.
 - **Don't call the `rtvi-vlm` microservice directly** from this skill. Always go through `$AGENT/generate`. The agent handles sensor→RTSP lookup, stream registration, and teardown.
 - **Sensor must already be in VIOS** for either mode. If the user hands you only an RTSP URL, use the `vss-manage-video-io-storage` skill first.
