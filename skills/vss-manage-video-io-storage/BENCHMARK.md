@@ -55,21 +55,24 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 92% (+67%) | 97% (+34%) |
-| Discoverability | 2 | 73% (+48%) | 81% (+35%) |
-| Effectiveness | 2 | 67% (+48%) | 81% (+47%) |
-| Efficiency | 2 | 64% (+48%) | 67% (+37%) |
+| Correctness | 2 | 90% (+50%) | 92% (+45%) |
+| Discoverability | 2 | 94% (+69%) | 71% (+19%) |
+| Effectiveness | 2 | 60% (+38%) | 66% (+43%) |
+| Efficiency | 2 | 83% (+61%) | 58% (+19%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 2 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 7 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-manage-video-io-storage/SKILL.md`)
+- MEDIUM QUALITY/quality_efficiency: Deeply nested references in integrate-vios-service.md (`skills/vss-manage-video-io-storage/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-manage-video-io-storage/SKILL.md`)
+- MEDIUM SECURITY/Unknown (SQP-2): The skill describes autonomous deployment of Docker containers and execution of shell commands (curl, docker compose, et (`SKILL.md:60`)
+- MEDIUM SECURITY/Unknown (SQP-2): The delete operation documentation does explain the destructive nature but buries the warning in blockquotes that may be (`references/api-reference.md:361`)
 
 ## Tier 2: Deduplication Summary
 

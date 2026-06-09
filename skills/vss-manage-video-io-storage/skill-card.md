@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and operators who need to manage video input/output and storage through the VIOS REST API — listing sensors, extracting clips, taking snapshots, uploading video files, and managing RTSP streams within NVIDIA VSS deployments. <br>
+Developers and engineers managing VSS video input/output through the VIOS REST API for sensor management, stream configuration, video uploads, clip extraction, and snapshot operations. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,10 +20,10 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [VIOS REST API Reference](references/api-reference.md) <br>
+- [Deploy VIOS Service](references/deploy-vios-service.md) <br>
+- [Integrate VIOS Service](references/integrate-vios-service.md) <br>
 - [NvStreamer API Reference](references/nvstreamer-api-reference.md) <br>
-- [VIOS Integration Contract](references/integrate-vios-service.md) <br>
-- [VIOS Deployment Contract](references/deploy-vios-service.md) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
@@ -40,7 +40,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 2 evaluation tasks in the NVSkills-Eval `external` profile on `astra-sandbox` environment. <br>
+Evaluated against 2 evaluation tasks in the `external` NVSkills-Eval profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -65,10 +65,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 92% (+67%) | 97% (+34%) |
-| Discoverability | 2 | 73% (+48%) | 81% (+35%) |
-| Effectiveness | 2 | 67% (+48%) | 81% (+47%) |
-| Efficiency | 2 | 64% (+48%) | 67% (+37%) |
+| Correctness | 2 | 90% (+50%) | 92% (+45%) |
+| Discoverability | 2 | 94% (+69%) | 71% (+19%) |
+| Effectiveness | 2 | 60% (+38%) | 66% (+43%) |
+| Efficiency | 2 | 83% (+61%) | 58% (+19%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
