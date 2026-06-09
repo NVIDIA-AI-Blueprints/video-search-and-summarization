@@ -237,10 +237,7 @@ curl -s --max-time 300 -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
         --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
         --arg scenario "$SCENARIO" \
         --argjson events "$EVENTS_JSON" \
-        --arg objects_json "$OBJECTS_JSON" '
-    ($objects_json | gsub("^[ \t\r\n]+|[ \t\r\n]+$"; "")) as $objects_text
-    | ($objects_text | if length == 0 then null else fromjson end) as $objects
-    | {
+        --argjson objects "${OBJECTS_JSON:-null}" '{
     url: $url,
     model: $model,
     scenario: $scenario,
