@@ -14,13 +14,13 @@ Answer read-only analytics questions (incidents, metrics, sensor data) by routin
 
 ## Prerequisites
 
-- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
+- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile`).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
 - `curl`, `jq`, and Docker available on the caller.
 
 ## Instructions
 
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom.
 
 ## Examples
 

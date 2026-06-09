@@ -49,7 +49,7 @@ env:
   - name: ARANGO_DB_HOST
     value: arango-db
   - name: ARANGO_DB_PASSWORD
-    value: passroot
+    value: ""
   - name: ARANGO_DB_PORT
     value: "8529"
   - name: ARANGO_DB_USERNAME
@@ -77,7 +77,7 @@ env:
   - name: GRAPH_DB_HTTP_PORT
     value: "7474"
   - name: GRAPH_DB_PASSWORD
-    value: passneo4j
+    value: ""
   - name: GRAPH_DB_USERNAME
     value: neo4j
   # Kafka integration: consume RTVI captions / publish structured summaries.
@@ -107,7 +107,7 @@ env:
   - name: MILVUS_DB_HOST
     value: ""
   - name: MINIO_PASSWORD
-    value: minio123
+    value: ""
   - name: MINIO_USERNAME
     value: minio
   - name: MODEL_ROOT_DIR
