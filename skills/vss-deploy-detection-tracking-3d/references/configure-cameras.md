@@ -10,7 +10,7 @@ The shipped warehouse `.env` defaults to `NUM_STREAMS=4` and a 4-camera sample. 
 
 | Consumer | Where | What it does |
 |---|---|---|
-| `vss-configurator-mv3dt` | `blueprint-configurator/blueprint_config.yml` line 579–586 | Computes `final_stream_count = min(NUM_STREAMS, max_streams_supported[HARDWARE_PROFILE].mv3dt)` and applies a `keep_count` op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` — keeps `final_stream_count` `.mp4` files (lex-sorted, last N kept) |
+| `vss-configurator-mv3dt` | `blueprint-configurator/blueprint_config.yml` line 579–586 | Computes `final_stream_count = min(NUM_STREAMS, max_streams_supported[HARDWARE_PROFILE].mv3dt)`. For sample/videos, applies a `keep_count` op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/`; for RTSP, keep `camera_info.json`, calibration, and `NUM_STREAMS` aligned yourself. |
 | `vss-rtvi-cv-bev-fusion` | `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml:53` (`MAX_EXPECTED_SENSORS: ${NUM_STREAMS:-4}`) | BEV Fusion buffers per-camera detections; if `MAX_EXPECTED_SENSORS` < actual streams, late cameras get dropped from fused frames |
 | `vss-rtvi-cv-mv3dt` (perception) | `warehouse-mv3dt-app.yml:290-291` (`BATCH_SIZE` and `MAX_BATCH_SIZE` set to `${NUM_STREAMS:-4}`) | DeepStream batch size — wrong value triggers reallocation or OOM at engine build |
 | `vss-vios-nvstreamer-mv3dt` / VST sensor-ms | streamcount registration with VST | If configurator registers more sensors than calibration covers, perception will receive frames for un-calibrated cameras and reject them |
@@ -158,7 +158,7 @@ If `CAM_COUNT == 1`: MV3DT is a multi-view stack — single-camera deployment is
 
 ## Step 2 — Check against the GPU's `max_streams_supported`
 
-Before propagating `NUM_STREAMS`, confirm the GPU can actually run that many MV3DT streams. The configurator trims the video set to the GPU's cap when `NUM_STREAMS` exceeds it.
+Before propagating `NUM_STREAMS`, confirm the GPU can actually run that many MV3DT streams. For sample/videos, the configurator can trim the video set to the GPU's cap when `NUM_STREAMS` exceeds it. For RTSP, set `NUM_STREAMS` to the number of entries in `camera_info.json` and keep it within the supported count.
 
 ```bash
 HARDWARE_PROFILE_VAL=$(grep '^HARDWARE_PROFILE=' "${ENV_FILE:-${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env}" | cut -d= -f2)
@@ -179,7 +179,7 @@ echo "Calibrated cameras: ${CAM_COUNT}"
 echo "Effective stream count = min(${CAM_COUNT}, ${CAP})"
 ```
 
-If `CAP < CAM_COUNT`, the user has more cameras than the GPU can process at MV3DT batch size. The configurator's `keep_count` file_management op will trim `.mp4` files at `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` down to `CAP`. Decide:
+If `CAP < CAM_COUNT`, the user has more cameras than the GPU can process at MV3DT batch size. For sample/videos, the configurator's `keep_count` file_management op will trim `.mp4` files at `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` down to `CAP`. For RTSP, reduce the camera list/calibration to the supported count or use a larger GPU before deploy. Decide:
 
 - **Accept the cap.** Continue — perception will run with `CAP` streams, fusion will see `CAP` cameras. Tell the user explicitly so they're not surprised.
 - **Move to a larger GPU.** Re-check `HARDWARE_PROFILE` against the actual hardware (see SKILL.md Prerequisites §3 for the supported MV3DT hardware slugs).
@@ -204,7 +204,7 @@ fi
 grep '^NUM_STREAMS=' "${ENV_FILE}"
 ```
 
-This single key drives all three consumers above — compose substitutes `${NUM_STREAMS}` at `up` time.
+This single key drives all three consumers above — compose substitutes `${NUM_STREAMS}` at `up` time. For RTSP, it must also equal the number of sensors in `SENSOR_FILE_PATH`; for sample/videos, it must equal the effective dataset/calibration count.
 
 ## Step 4 — Confirm DeepStream batch size
 
