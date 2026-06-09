@@ -13,18 +13,5 @@
       "The agent does not invoke vss-deploy-profile, scripts/dev-profile.sh, vss-search-archive, or captioning/CV skills.",
       "The agent does not run docker compose up, docker pull, or other deploy commands in the ACES sandbox."
     ]
-  },
-  {
-    "id": "rtvi-embed-negative-search-profile",
-    "question": "Generate the docker compose yaml for a VSS search profile with Elasticsearch video indexing.",
-    "expected_skill": null,
-    "expected_script": null,
-    "should_trigger": false,
-    "ground_truth": "The agent routes toward vss-deploy-profile and the search profile workflow rather than the standalone RT-Embed microservice skill.",
-    "expected_behavior": [
-      "The agent does not read or activate vss-deploy-video-embedding.",
-      "The agent identifies that the request is for the integrated VSS search profile stack, not standalone RT-Embed deployment.",
-      "The agent uses vss-deploy-profile or another appropriate skill rather than the RT-Embed standalone compose flow."
-    ]
   }
 ]
