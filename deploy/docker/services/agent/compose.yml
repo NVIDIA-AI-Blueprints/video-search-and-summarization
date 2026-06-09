@@ -116,6 +116,11 @@ services:
       # OpenAI API Key (for remote openai LLM/VLM)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
 
+      # Enterprise RAG (used by config_rag.yml when enabled)
+      RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag-server:8081/v1}
+      RAG_API_KEY: ${RAG_API_KEY:-}
+      KNOWLEDGE_COLLECTION: ${KNOWLEDGE_COLLECTION:-default}
+
       # Object Store & Report Generation
       VSS_AGENT_OBJECT_STORE_TYPE: ${VSS_AGENT_OBJECT_STORE_TYPE}
       VSS_AGENT_REPORTS_BASE_URL: ${VSS_AGENT_REPORTS_BASE_URL}

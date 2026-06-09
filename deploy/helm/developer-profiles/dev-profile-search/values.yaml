@@ -545,6 +545,14 @@ agent:
         value: ''
       - name: OPENAI_API_KEY
         value: ''
+      # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
+      # deploy/docker/services/agent/compose.yml.
+      - name: RAG_SERVER_URL
+        value: 'http://rag-server:8081/v1'
+      - name: RAG_API_KEY
+        value: ''
+      - name: KNOWLEDGE_COLLECTION
+        value: 'default'
       - name: RTVI_EMBED_BASE_URL
         value: '{{- $g := .Values.global | default dict -}}{{- $rii := (index $g "rtviInternalIngress") | default dict -}}{{- if $rii.enabled -}}{{- $svc := default "haproxy-kubernetes-ingress.haproxy-controller" $rii.controllerService -}}{{- $port := $rii.controllerPort | default 80 -}}{{- $path := default "/rtvi-embed" $rii.rtviEmbedPath -}}{{- printf "http://%s:%v%s" $svc $port $path -}}{{- else -}}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) -}}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString -}}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx -}}{{- $def := printf "http://%s:%s" $embedHost $embedPort -}}{{ coalesce .Values.rtviEmbedBaseUrl $def }}{{- end -}}'
       - name: COSMOS_EMBED_ENDPOINT
