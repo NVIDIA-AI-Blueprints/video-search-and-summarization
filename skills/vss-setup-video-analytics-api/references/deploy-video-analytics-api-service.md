@@ -255,3 +255,4 @@ docker compose -f services/analytics/video-analytics-api/compose.yml \
   exec vss-video-analytics-api node -e \
   "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
 ```
+
