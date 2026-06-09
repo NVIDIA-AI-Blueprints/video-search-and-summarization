@@ -1,40 +1,29 @@
 [
   {
-    "id": "standalone-deploy",
+    "id": "rtvi-embed-standalone-deploy",
     "question": "Deploy RT-Embed standalone on port 8017 without bringing up a full VSS profile.",
     "expected_skill": "vss-deploy-video-embedding",
-    "ground_truth": "Loads vss-deploy-video-embedding and deploys only rtvi-embed from deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml with profile bp_developer_search_2d; not vss-deploy-profile or scripts/dev-profile.sh.",
+    "expected_script": null,
+    "should_trigger": true,
+    "ground_truth": "The agent deploys the standalone RT-Embed (rtvi-embed) microservice from rtvi-embed-docker-compose.yml with profile bp_developer_search_2d, stages VSS_DATA_DIR with clip_storage pre-created, disables Kafka and Redis error messages for standalone mode, and reports the deploy result without routing to the full VSS profile stack.",
     "expected_behavior": [
-      "Loads vss-deploy-video-embedding and works from deploy/docker/services/rtvi/rtvi-embed.",
-      "Uses rtvi-embed-docker-compose.yml with profile bp_developer_search_2d to start only rtvi-embed.",
-      "Sets VSS_DATA_DIR with data_log/vst/clip_storage pre-created, disables Kafka and Redis error messages for standalone mode, and does not invoke vss-deploy-profile or scripts/dev-profile.sh.",
-      "Uses sudo -n for the chown ownership step on CLIP_STORAGE_DIR and stops with the printed manual command if passwordless sudo is unavailable, without falling back to interactive sudo or world-writable permissions.",
-      "Does not print plaintext API tokens or other secrets."
+      "The agent reads the vss-deploy-video-embedding skill before acting.",
+      "The agent uses rtvi-embed-docker-compose.yml with profile bp_developer_search_2d to start only rtvi-embed on port 8017.",
+      "The agent uses the skill's standalone deploy flow rather than routing to vss-deploy-profile, vss-search-archive, CV, or captioning skills.",
+      "The agent does not print plaintext API tokens or other secrets."
     ]
   },
   {
-    "id": "api-routing-file-embed",
-    "question": "Generate video embeddings from an uploaded MP4 with RT-Embed.",
-    "expected_skill": "vss-deploy-video-embedding",
-    "ground_truth": "Routes through vss-deploy-video-embedding: upload via POST /v1/files (purpose=vision, media_type=video), then POST /v1/generate_video_embeddings with the returned file id and cosmos-embed1-448p model id from GET /v1/models.",
+    "id": "rtvi-embed-negative-search-profile",
+    "question": "Generate the docker compose yaml for a VSS search profile with Elasticsearch video indexing.",
+    "expected_skill": null,
+    "expected_script": null,
+    "should_trigger": false,
+    "ground_truth": "The agent routes toward vss-deploy-profile and the search profile workflow rather than the standalone RT-Embed microservice skill.",
     "expected_behavior": [
-      "Uses POST /v1/files to upload the video before embedding.",
-      "Calls POST /v1/generate_video_embeddings with the file id and a model id from GET /v1/models.",
-      "Does not route to vss-deploy-profile, vss-search-archive, or unrelated captioning skills.",
-      "Does not print plaintext API tokens or other secrets."
-    ]
-  },
-  {
-    "id": "api-routing-live-stream",
-    "question": "Embed a live RTSP camera stream with RT-Embed and stream chunked results.",
-    "expected_skill": "vss-deploy-video-embedding",
-    "ground_truth": "Routes through vss-deploy-video-embedding: register the stream with POST /v1/streams/add, then POST /v1/generate_video_embeddings with stream=true, chunk_duration > 0, and Accept: text/event-stream; reuse an existing stream_id from GET /v1/streams/get-stream-info when the URL is already registered.",
-    "expected_behavior": [
-      "Registers the RTSP URL with POST /v1/streams/add before embedding.",
-      "Calls POST /v1/generate_video_embeddings with stream=true, chunk_duration greater than 0, and SSE headers for live output.",
-      "Checks GET /v1/streams/get-stream-info to avoid duplicate stream registrations for the same URL.",
-      "Does not attempt a synchronous live-stream embed without stream=true.",
-      "Does not print plaintext API tokens or other secrets."
+      "The agent does not read or activate vss-deploy-video-embedding.",
+      "The agent identifies that the request is for the integrated VSS search profile stack, not standalone RT-Embed deployment.",
+      "The agent uses vss-deploy-profile or another appropriate skill rather than the RT-Embed standalone compose flow."
     ]
   }
 ]
