@@ -20,7 +20,7 @@ Container names below are exactly what `docker ps` reports (sourced from the `co
 | VIOS Sensor MS | `vss-vios-sensor` | — | VIOS sensor management |
 | VIOS Stream Processing | `vss-vios-streamprocessing` | — | VIOS stream processing |
 | LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Nemotron LLM for reasoning. Activated by `llm_<mode>_<slug>` COMPOSE_PROFILES; container name = `${LLM_NAME_SLUG}` (e.g. `nvidia-nemotron-nano-9b-v2-fp8`, `nemotron-3-nano`, `gpt-oss-20b`, `llama-3.3-nemotron-super-49b-v1.5`). |
-| VLM NIM (default) | `nvidia-cosmos-reason2-8b` | 30082 | Cosmos Reason VLM for vision. Activated by `vlm_<mode>_<slug>`; container name = `${VLM_NAME_SLUG}` (e.g. `cosmos-reason1-7b`, `qwen3-vl-8b-instruct`). |
+| VLM NIM (default) | `nvidia-cosmos3-reasoner` | 30082 | Cosmos Reason VLM for vision. Activated by `vlm_<mode>_<slug>`; container name = `${VLM_NAME_SLUG}` (e.g. `cosmos3-reasoner`, `cosmos-reason2-8b`, `qwen3-vl-8b-instruct`). |
 | Redis | `redis` | 6379 | Cache |
 | Phoenix | `phoenix` | 6006 | Observability / telemetry |
 
@@ -29,7 +29,7 @@ Container names below are exactly what `docker ps` reports (sourced from the `co
 | Role | Model | Slug | Type |
 |---|---|---|---|
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | nim |
-| VLM | `nvidia/cosmos-reason2-8b` | `cosmos-reason2-8b` | nim |
+| VLM | `nvidia/cosmos3-nano-reasoner` | `cosmos3-reasoner` | nim |
 
 The base `.env` defaults both sides to shared local deployment:
 `LLM_MODE=local_shared` and `VLM_MODE=local_shared`, with
@@ -38,11 +38,11 @@ mode when LLM/VLM device IDs match and no remote flags are selected.
 
 **Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, `nvidia/nemotron-3-nano`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
 
-**Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `Qwen/Qwen3-VL-8B-Instruct`
+**Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `nvidia/cosmos-reason2-8b`, `Qwen/Qwen3-VL-8B-Instruct`
 
 ## Sizing — GPU memory per model
 
-Sizing for `base` is per-model. The default pair is `cosmos-reason2-8b` (VLM) + `nvidia-nemotron-nano-9b-v2` (LLM); the user can swap either by editing `LLM_NAME` / `LLM_NAME_SLUG` / `VLM_NAME` / `VLM_NAME_SLUG` in `dev-profile-base/generated.env` (the skill's per-deploy working copy; see ``SKILL.md`` (see `../SKILL.md`) Step 1c). The compose system auto-resolves to the right service via the computed `COMPOSE_PROFILES` (`llm_<mode>_<slug>` and `vlm_<mode>_<slug>`).
+Sizing for `base` is per-model. The default pair is `cosmos3-nano-reasoner` (VLM) + `nvidia-nemotron-nano-9b-v2` (LLM); the user can swap either by editing `LLM_NAME` / `LLM_NAME_SLUG` / `VLM_NAME` / `VLM_NAME_SLUG` in `dev-profile-base/generated.env` (the skill's per-deploy working copy; see ``SKILL.md`` (see `../SKILL.md`) Step 1c). The compose system auto-resolves to the right service via the computed `COMPOSE_PROFILES` (`llm_<mode>_<slug>` and `vlm_<mode>_<slug>`).
 
 The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use this with the [Sizing math](#sizing-math) section to decide whether a (LLM, VLM, GPU) combo fits. 
 
@@ -62,7 +62,8 @@ The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use
 
 | Model | Type | Compose file | Params | Precision | Est. VRAM (weights × 1.3) |
 |---|---|---|---|---|---|
-| `nvidia/cosmos-reason2-8b` (default) | NIM (`nvcr.io/nim/...:1.6.0`) | `nim/cosmos-reason2-8b/compose.yml` | 8 B | FP16 | **20.8 GB** |
+| `nvidia/cosmos3-nano-reasoner` (default) | NIM (`nvcr.io/nim/...:1.7`) | `nim/cosmos3-reasoner/compose.yml` | nano | FP8 | depends on NIM sizing |
+| `nvidia/cosmos-reason2-8b` | NIM (`nvcr.io/nim/...:1.6.0`) | `nim/cosmos-reason2-8b/compose.yml` | 8 B | FP16 | **20.8 GB** |
 | `nvidia/cosmos-reason1-7b` | NIM | `nim/cosmos-reason1-7b/compose.yml` | 7 B | FP16 | **18.2 GB** |
 | `Qwen/Qwen3-VL-8B-Instruct` | DLFW vLLM | `nim/qwen3-vl-8b-instruct/compose.yml` | 8 B | FP16 | **20.8 GB** |
 
@@ -173,9 +174,9 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 
 ### Hard rules
 
-- **L40S (48 GB) cannot host the default LLM + VLM shared.** 23.4 + 20.8 = 44.2 GB > 0.85 × 48 = 40.8 GB. Use a 2-GPU L40S host (one model per GPU), or escalate to the user per Trigger 2.
+- **L40S (48 GB) shared mode is tight.** Use the sizing math for the selected LLM/VLM pair. If the pair exceeds 40.8 GB usable, use a 2-GPU L40S host (one model per GPU), or escalate to the user per Trigger 2.
 - **DGX Spark shared mode must use the DGX Spark Nano 9B NIM path in `edge.md`.** Run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and set `LLM_MODE=remote`, `LLM_BASE_URL=http://localhost:30081`, and `LLM_NAME_SLUG=none`. The image is not wired into compose yet. Do not use the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image on DGX Spark.
-- **AGX/IGX Thor shared mode: Edge 4B is the LLM; the VLM still runs via RT-VLM.** The Edge 4B fallback in `edge.md` (standalone vLLM + `HF_TOKEN`) is the **LLM** path — this skill has no verified Thor-supported Nano 9B NIM, so keep it unless the user supplies a verified remote LLM endpoint. The **VLM** on base+Thor is *not* a standalone NIM: `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason 2 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason2`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`).
+- **AGX/IGX Thor shared mode: Edge 4B is the LLM; the VLM still runs via RT-VLM.** The Edge 4B fallback in `edge.md` (standalone vLLM + `HF_TOKEN`) is the **LLM** path — this skill has no verified Thor-supported Nano 9B NIM, so keep it unless the user supplies a verified remote LLM endpoint. The **VLM** on base+Thor is *not* a standalone NIM: `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason3 Nano FP8 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`).
 - **Llama 3.3 49B FP16 doesn't fit on a single 80 GB GPU.** 49 × 16 / 8 × 1.3 = 127 GB > 68 GB usable. Either run dedicated with tensor parallelism (`tp=2` on two H100s → 63.7 GB/GPU) or use H200 (141 GB) / B200 (192 GB) — or escalate per Trigger 2.
 - **`HARDWARE_PROFILE` is just an env-file label, not a sizing oracle.** It selects the path `nim/<slug>/hw-<HARDWARE_PROFILE>(-shared).env` — that's all. Pre-tuned env files exist for known platforms as a convenience, but missing != unsupported. Compute the right `NIM_KVCACHE_PERCENT` (or `--gpu-memory-utilization`) from the [Sizing math](#sizing-math) and write it into a fresh `hw-<HARDWARE_PROFILE>(-shared).env` (or set `HARDWARE_PROFILE=OTHER` and edit `hw-OTHER(-shared).env`). The agent's correctness check is the **resolved compose**: does it include the right LLM/VLM service for the chosen `LLM_NAME_SLUG` / `VLM_NAME_SLUG`, and does that service's env carry the computed sizing values? If yes, the deploy will work regardless of which `HARDWARE_PROFILE` label is used.
 - **Remote side — no local GPU needed.** When `LLM_MODE=remote` or `VLM_MODE=remote`, the matching local NIM/vLLM service is skipped entirely. Sizing math doesn't apply for the remote side.
@@ -207,7 +208,7 @@ The skill never invokes `dev-profile.sh`. Swapping a model is purely an `.env` e
 In-tree slugs are the directory names under `deploy/docker/services/nim/`:
 
 - **LLMs:** `nvidia-nemotron-nano-9b-v2`, `nvidia-nemotron-nano-9b-v2-fp8`, `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`
-- **VLMs:** `cosmos-reason2-8b`, `cosmos-reason1-7b`, `qwen3-vl-8b-instruct`
+- **VLMs:** `cosmos3-reasoner`, `cosmos-reason2-8b`, `cosmos-reason1-7b`, `qwen3-vl-8b-instruct`
 
 If yes → set the four env vars in `deploy/docker/developer-profiles/dev-profile-base/generated.env`:
 
@@ -423,7 +424,7 @@ COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE}
 
 Example resolved value:
 ```
-bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
+bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,llm_remote_none,vlm_local_shared_cosmos3-reasoner
 ```
 
 The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automatically.
@@ -478,7 +479,7 @@ Common failure modes and what they mean for base:
 | `POST /api/v1/videos` HTTP 500 | Agent not finished starting — poll `/health` longer |
 | VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vss-vios-ingress` |
 | VST returns empty `sensor/streams` but VST container is healthy | Check Postgres health/logs with `docker logs vss-vios-postgres`. Current compose uses the named volume `vios_pg_data` for PGDATA, not a `$VSS_DATA_DIR` Postgres bind mount. See [`data-directory.md`](data-directory.md) before removing any volume. |
-| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2` / `nvidia-cosmos-reason2-8b` |
+| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2` / `nvidia-cosmos3-reasoner` |
 | HITL prompt never arrives | `vss-agent` misconfigured HITL config — check `config.yml` |
 | Empty report | VLM unreachable from inside `vss-agent` container — check `VLM_BASE_URL` in resolved compose env |
 
