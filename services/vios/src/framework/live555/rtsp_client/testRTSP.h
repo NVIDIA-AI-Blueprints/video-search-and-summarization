@@ -173,7 +173,7 @@ public:
 
 private:
     std::thread m_capturethread;
-    char m_stop = 0;
+    EventLoopWatchVariable m_stop{0};
     Environment m_env;
     ourRTSPClient *m_ourRtspClient;
 };
