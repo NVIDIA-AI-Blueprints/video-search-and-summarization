@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // State encapsulating a TLS connection
 // C++ header
 
@@ -68,6 +68,14 @@ public:
 #ifndef NO_OPENSSL
 private:
   Boolean setup(int socketNum);
+  Boolean setupContinue(int socketNum);// called to complete "setup()" (perhaps via a callback)
+#ifdef CLIENT_TLS_SETUP_EXTRA
+  // If you want to do some extra work during the client TLS setup (e.g., to check the server's
+  // certificate), then you would do so by defining CLIENT_TLS_SETUP_EXTRA during
+  // the compilation, and implementing this member function (which, if it succeeds, must
+  // eventually cause "setupContinue()" to be called:
+  Boolean setupExtra(int socketNum);
+#endif
 
 private:
   class RTSPClient& fClient;
