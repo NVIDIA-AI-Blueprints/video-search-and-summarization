@@ -139,9 +139,13 @@ After `COMPLETED`, always give the user a way to review the result for that exac
 - **Overlay image on disk** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/multi_view_results/BA_output/results_ba_scaled_world/overlay_img_*.png` (single-camera projects use `output/single_view_results/cam_00/verification_map_overlay.png`).
 - **Project files** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/`.
 
-### Step E — (Optional) VGGT Refinement
+### Step E — VGGT Refinement
 
-Only if `vggt_state == "READY"` in project info (VGGT model must be staged — see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2):
+After the AMC run completes, always check `vggt_state` in project info. VGGT model staging is optional during setup and must not block the AMC result, but post-AMC handling follows the state:
+
+- If `vggt_state == "READY"` and the user explicitly requested VGGT refinement or staged VGGT during this setup flow, run VGGT refinement without asking again.
+- If `vggt_state == "READY"` but VGGT was already staged before this request and the user has not asked for VGGT-refined output, ask via `AskUserQuestion` whether to run refinement before starting it.
+- If VGGT is not ready, skip refinement and mention that VGGT refinement is available after staging the model (see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2).
 
 ```
 POST /v1/vggt/calibrate/<project_id>

@@ -81,7 +81,9 @@ UI fallback details for any of these live in [SKILL.md UI Fallback Pattern](../S
 
 ### Optional
 7. **`sensor_id`** per stream — if VIOS already has the sensor registered, pass the ID to skip re-registration. Leave null and the MS auto-registers via VIOS.
-8. **Ground truth zip** (`GT.zip`), **focal lengths**, **VGGT flag** — same options as the videos mode.
+8. **Ground truth zip** (`GT.zip`) and **focal lengths** — same options as the videos mode.
+
+VGGT refinement is handled after AMC completes by [SKILL.md Step E](../SKILL.md#step-e--vggt-refinement). Do not collect a separate RTSP-mode VGGT flag; staging the model is optional during deployment, and missing VGGT must not block the AMC run.
 
 For nvstreamer setup details and sensor pre-registration, see your VIOS deployment docs.
 
