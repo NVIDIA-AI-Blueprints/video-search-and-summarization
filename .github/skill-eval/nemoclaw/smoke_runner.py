@@ -306,6 +306,29 @@ def _has_expects(spec_path: Path) -> bool:
     return isinstance(expects, list) and bool(expects)
 
 
+def _is_standalone_host_docker_spec(spec_path: Path) -> bool:
+    """Return True for evals that require raw host Docker/Compose access.
+
+    The current NemoClaw runner intentionally exercises deployment through the
+    VSS Orchestrator MCP server. Specs that explicitly require standalone host
+    compose workflows are useful coverage, but they need a host-exec MCP/tooling
+    path before they can run under NemoClaw.
+    """
+    spec = _spec_json(spec_path)
+    text = json.dumps(spec.get("expects") or [], sort_keys=True).lower()
+    if "standalone" not in text:
+        return False
+    markers = (
+        "docker compose",
+        "compose file",
+        "compose.yml",
+        "standalone compose",
+        "not deploy a full vss profile",
+        "does not deploy a full vss profile",
+    )
+    return any(marker in text for marker in markers)
+
+
 def _platforms_for_spec(spec_path: Path, platform_filter: str | None) -> list[str]:
     spec = _spec_json(spec_path)
     platforms = spec.get("resources", {}).get("platforms", {})
@@ -385,6 +408,16 @@ def _selected_specs(
             if runnable_specs:
                 specs = runnable_specs
             else:
+                continue
+        standalone_specs = [spec_path for spec_path in specs if _is_standalone_host_docker_spec(spec_path)]
+        if standalone_specs:
+            for spec_path in standalone_specs:
+                blockers.append(
+                    f"{skill}/{spec_path.name}: standalone host-Docker eval is not "
+                    "supported by the NemoClaw MCP-only runner yet"
+                )
+            specs = [spec_path for spec_path in specs if spec_path not in standalone_specs]
+            if not specs:
                 continue
         for spec_path in specs:
             if not spec_path.exists():
