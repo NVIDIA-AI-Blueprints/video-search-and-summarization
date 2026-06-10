@@ -67,7 +67,7 @@ class AlertConfigRequest(BaseModel):
                 "prompt": "Analyze the scene for vehicle collisions or near-miss events.",
                 "system_prompt": "Answer the user's question correctly in yes or no",
                 "vlm_params": {
-                    "model": "nvidia/cosmos-reason2-8b",
+                    "model": "nvidia/cosmos3-nano-reasoner",
                     "num_frames": 10,
                     "temperature": 0.6,
                     "max_tokens": 512
@@ -126,7 +126,7 @@ class AlertConfigResponse(BaseModel):
                 "system_prompt": "Answer the user's question correctly in yes or no",
                 "enrichment_prompt": None,
                 "vlm_params": {
-                    "model": "nvidia/cosmos-reason2-8b",
+                    "model": "nvidia/cosmos3-nano-reasoner",
                     "num_frames": 10,
                     "temperature": 0.6,
                     "max_tokens": 512,
@@ -154,7 +154,7 @@ class AlertConfigListResponse(BaseModel):
                         "prompt": "Analyze the scene for vehicle collisions.",
                         "system_prompt": "Answer yes or no",
                         "enrichment_prompt": None,
-                        "vlm_params": {"model": "nvidia/cosmos-reason2-8b", "num_frames": 10},
+                        "vlm_params": {"model": "nvidia/cosmos3-nano-reasoner", "num_frames": 10},
                         "output_category": "Vehicle Collision",
                         "created_at": "2025-06-01T10:00:00Z",
                         "updated_at": "2025-06-01T10:00:00Z",
