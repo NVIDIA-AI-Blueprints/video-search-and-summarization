@@ -38,7 +38,7 @@ services:
   - key: sensor-ms                                   # variant-resolved from sensor_topology=rtsp-and-uploaded
     file: services/vios/initiator/docker-compose.yaml
   - key: streamprocessing-ms                         # variant-resolved from sensor_topology=rtsp-and-uploaded
-    file: services/vios/sdr/streamprocessing/docker-compose.yaml
+    file: services/vios/streamprocessing/docker-compose.yaml
   # SDRC stack (replaces legacy sdr-streamprocessing + envoy-streamprocessing)
   - key: init-dirs
     file: services/infra/sdrc/docker-compose.yaml

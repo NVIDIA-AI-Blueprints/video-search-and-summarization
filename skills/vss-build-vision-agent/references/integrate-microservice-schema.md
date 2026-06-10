@@ -31,6 +31,8 @@ Two parts in this section. The **prose part** is for humans; the **`component_se
 
 **Structured — `component_services:` block.** A fenced YAML code block declaring the upstream compose service-keys (the `services:` keys in `deploy/docker/...`) that THIS microservice brings into a deployment when selected. The skill unions these blocks across the candidates it confirms in Step 4 to produce the per-generation allow-list that Step 6.5 uses for `bp_developer_*` flag insertion and `depends_on` strip-vs-keep decisions.
 
+> **Where the block lives (decoupling, 2026-06-08).** For microservices owned by a separate skill, the `component_services:` block is NOT carried in that skill's `integrate-*.md` (which holds only the neutral contract) — it lives in `build-vision-agent`'s own per-service **patch reference** (`references/patch-vios.md`, `references/patch-rt-vlm.md`, …) so the microservice skills never depend back on the orchestrator. Co-located foundational infra (ELK) keeps its block in `references/integrate-elk.md`. The schema below is identical wherever the block lives; the examples are illustrative of the shape, not of the current file location.
+
 Schema:
 
 ```yaml
@@ -108,7 +110,7 @@ component_services:
       role: OTel sink used by all dev-profile-base services
 ```
 
-Example (`integrate-vios-service.md` — sketches the `sensor_topology` variant; see also the authoritative schema in `component-services-schema.md`, which uses a flat list-of-entries form with embedded `variants:` blocks rather than the `always:` / `variants:` form sketched below):
+Example (VIOS — its real block lives in `references/patch-vios.md`; this sketches the `sensor_topology` variant in the `always:` / `variants:` form. The **authoritative** form in `patch-vios.md` / `component-services-schema.md` uses a flat list-of-entries with embedded `variants:` blocks — see those files; the shape below is for schema illustration only):
 
 ```yaml
 component_services:
@@ -119,33 +121,54 @@ component_services:
     - key: vst-ingress
       compose: services/vios/foundational/docker-compose.yaml
       role: nginx ingress on :30888 — unified VIOS API surface
+    # SDRC routing stack (post-rebase 2026-05-26) — required for every topology.
+    # Replaces the legacy sdr-streamprocessing + envoy-streamprocessing pair
+    # (now gated to a dead profile). All six live in one compose file.
+    - key: init-dirs
+      compose: services/infra/sdrc/docker-compose.yaml
+      role: one-shot — chmod 0777 ./log + ./.wdm-env (strict prereq for sdr-controller)
+    - key: render-config
+      compose: services/infra/sdrc/docker-compose.yaml
+      role: one-shot — renders *.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs
+    - key: wdm-env-from-config
+      compose: services/infra/sdrc/docker-compose.yaml
+      role: one-shot — writes ./.wdm-env from the rendered config.yml
+    - key: wait-for-redis
+      compose: services/infra/sdrc/docker-compose.yaml
+      role: one-shot — blocks until Redis is up
+    - key: wait-for-docker-workloads
+      compose: services/infra/sdrc/docker-compose.yaml
+      role: one-shot — blocks until configured docker workloads exist
+    - key: sdr-controller
+      compose: services/infra/sdrc/docker-compose.yaml
+      role: WDM controller + Envoy router on localhost:10000 (sensor-ms /sensor/add target)
   variants:
     - name: sensor_topology
-      prompt: "How does the deployment ingest video — live RTSP cameras (Topology A) or uploaded file replays (Topology B)?"
-      default: rtsp_quartet
+      prompt: "How does the deployment ingest video — plain RTSP + uploaded files, or a warehouse vst_config overlay?"
+      default: rtsp-and-uploaded
       options:
-        - name: rtsp_quartet
-          when: user prompts mention live camera, RTSP, or streaming inference
+        - name: rtsp-and-uploaded
+          when: user prompts mention live RTSP, streaming inference, AND/OR uploaded file playback
           add:
             - key: sensor-ms
               compose: services/vios/initiator/docker-compose.yaml
-              role: dev-profile-base RTSP sensor variant
+              role: VST adaptor (vst_rtsp) accepting both RTSP input and uploaded files
             - key: streamprocessing-ms
-              compose: services/vios/sdr/streamprocessing/docker-compose.yaml
-              role: dev-profile-base streamprocessing variant
-            - key: sdr-streamprocessing
-              compose: services/vios/sdr/streamprocessing/docker-compose.yaml
-              role: WDM agent that drives streamprocessing-ms (mandatory; see VIOS quartet finding)
-            - key: envoy-streamprocessing
-              compose: services/vios/sdr/streamprocessing/docker-compose.yaml
-              role: L7 proxy sensor-ms calls on localhost:10000 for /sensor/add
-        - name: file_driven
-          when: user prompts mention sample / on-disk files only (no live camera)
+              compose: services/vios/streamprocessing/docker-compose.yaml
+              role: DeepStream pipeline for plain RTSP-and-uploaded streams
+        - name: warehouse-2d
+          when: user prompts mention the warehouse-2d profile
           add:
-            - key: nvstreamer-alerts
-              compose: developer-profiles/dev-profile-alerts/compose.yml
-              role: file-driven RTSP server — replaces the RTSP quartet
+            - key: sensor-ms-2d
+              compose: services/vios/initiator/docker-compose.yaml
+              role: VST adaptor with the warehouse-2d vst_config overlay
+            - key: streamprocessing-ms-2d
+              compose: services/vios/streamprocessing/docker-compose.yaml
+              role: DeepStream pipeline with the warehouse-2d label overlay
+        # (warehouse-3d / warehouse-mv3dt follow the same shape)
 ```
+
+> **NvStreamer is NOT a `sensor_topology` option.** Earlier revisions of this example listed an `nvstreamer-alerts` "file_driven" topology — that is wrong under the current design. `vss-vios-nvstreamer` is a **validation-harness component only** (a synthetic RTSP source the skill emits to exercise a deployment's live path when no real camera is supplied); it is emitted directly by Step 6 per `references/validation-harness.md`, recorded under the sidecar's separate `validation_harness:` key, and is **never** a `component_services:` entry or a `sensor_topology` case. The uploaded-file path is served by the same `rtsp-and-uploaded` VST adaptor above (VIOS handles both RTSP and file upload), not by a separate topology.
 
 The structured block lives alongside the prose; the prose stays focused on cross-microservice integration concerns (Kafka topic conventions, schema requirements, etc.).
 

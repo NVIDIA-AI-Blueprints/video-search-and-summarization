@@ -1,6 +1,6 @@
 # Component Services Schema
 
-This document defines the structured `component_services:` block that every `integrate-<microservice>.md` carries inside its `## Required Peer Services` section, and the per-generation `build-output/allow-list.yml` sidecar that `vss-build-vision-agent` synthesizes from those blocks.
+This document defines the structured `component_services:` block that build-vision-agent's per-service **patch reference** carries — `references/patch-<service>.md` for externally-owned microservices (VIOS, RT-VLM), or `references/integrate-elk.md` for co-located ELK — and the per-generation `allow-list.yml` sidecar that `vss-build-vision-agent` synthesizes from those blocks.
 
 ## Why this exists
 
@@ -88,6 +88,6 @@ The patcher reads `build-output/allow-list.yml` and applies two patches to each 
 
 This schema is referenced from:
 - `references/microservice-catalog.md` (the "How the skill uses this file" section points readers here)
-- Every `integrate-<microservice>.md` § Required Peer Services (the YAML block lives there)
+- build-vision-agent's per-service patch references — `references/patch-<service>.md` (VIOS, RT-VLM); ELK's block lives in `references/integrate-elk.md` (the YAML block lives there)
 - `SKILL.md` Step 4 (the skill emits the sidecar based on these blocks)
 - `SKILL.md` Step 6.5 (the patcher reads the sidecar)
