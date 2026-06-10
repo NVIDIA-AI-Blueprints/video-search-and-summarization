@@ -50,6 +50,7 @@ class ImageConfig:
 IMAGE_CONFIGS = {
     "vss-agent": ImageConfig(image_name="vss-agent", source_path=Path("services/agent")),
     "vss-agent-ui": ImageConfig(image_name="vss-agent-ui", source_path=Path("services/ui")),
+    "vss-alert-ms": ImageConfig(image_name="vss-alert-ms", source_path=Path("services/alert")),
 }
 
 DEPLOY_DIR = Path("deploy/docker")
