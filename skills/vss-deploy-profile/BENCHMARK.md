@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-profile`
-- Evaluation date: 2026-06-09
+- Evaluation date: 2026-06-10
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 5 evaluation tasks
@@ -55,25 +55,25 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 5 | 90% (+10%) | 80% (+0%) |
-| Correctness | 5 | 92% (+11%) | 82% (+32%) |
-| Discoverability | 5 | 92% (+15%) | 75% (+24%) |
-| Effectiveness | 5 | 64% (+10%) | 56% (+35%) |
-| Efficiency | 5 | 67% (+15%) | 59% (+20%) |
+| Security | 5 | 100% (+0%) | 100% (+10%) |
+| Correctness | 5 | 96% (+76%) | 86% (+50%) |
+| Discoverability | 5 | 93% (+69%) | 92% (+35%) |
+| Effectiveness | 5 | 70% (+65%) | 66% (+60%) |
+| Efficiency | 5 | 76% (+46%) | 89% (+37%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 6 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 13 total findings.
 
 Top findings:
 
-- MEDIUM QUALITY/quality_correctness: Instructions don't mention 'run_script' (`skills/vss-deploy-profile/SKILL.md`)
-- MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-deploy-profile/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in search.md (`skills/vss-deploy-profile/SKILL.md`)
-- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-deploy-profile/SKILL.md`)
-- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-profile/SKILL.md`)
+- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`SKILL.md:153`)
+- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:141`)
+- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:148`)
+- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:149`)
+- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:169`)
 
 ## Tier 2: Deduplication Summary
 
@@ -93,5 +93,5 @@ Top findings:
   vs "##### Internal service-to-service URLs (no Brev override needed)" in references/warehouse.md (lines 874-894)
   vs "## After deploy" in references/warehouse.md (lines 983-1029) (`references/alerts.md:204`)
 - HIGH DUPLICATE/duplicate: Duplicate content found across references/prerequisites.md and references/warehouse.md:
-  "### 2. Docker" in references/prerequisites.md (lines 167-186)
-  vs "#### 2.2 Docker" in references/warehouse.md (lines 478-492) (`references/prerequisites.md:167`)
+  "### 2. Docker" in references/prerequisites.md (lines 258-277)
+  vs "#### 2.2 Docker" in references/warehouse.md (lines 478-492) (`references/prerequisites.md:258`)
