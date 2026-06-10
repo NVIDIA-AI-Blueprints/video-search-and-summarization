@@ -37,7 +37,7 @@ Output contract for evaluators:
 
 ---
 
-## Examples 
+## Examples
 
 - "Generate a report for this video" / "report on `<sensor-id>`" → **Mode A**
 - "Analyze warehouse_01.mp4" / "create an analysis report on the uploaded video" → **Mode A**
