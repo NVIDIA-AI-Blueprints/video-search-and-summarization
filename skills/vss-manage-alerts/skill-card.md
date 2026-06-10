@@ -1,15 +1,15 @@
 ## Description: <br>
 Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, camera onboarding. <br>
 
-This skill is for demonstration purposes and not for production usage. <br>
+This skill is ready for commercial/non-commercial use. <br>
 
 ## Owner
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers use this skill to operate the VSS alert pipeline — managing real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, and camera onboarding on NVIDIA Video Search and Summarization deployments. <br>
+Developers and engineers operating NVIDIA VSS deployments use this skill to manage real-time alert monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, and camera onboarding for the video search and summarization pipeline. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,11 +19,11 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Alert Notify Reference](references/alert-notify.md) <br>
 - [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
 - [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -39,7 +39,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 14 evaluation tasks using NVSkills-Eval 3-Tier Evaluation (external profile, astra-sandbox environment). <br>
+14 evaluation tasks in NVSkills-Eval external profile (astra-sandbox environment), 1 attempt per task, 50% pass threshold. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,11 +63,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 7 | 93% (-7%) | 64% (-21%) |
-| Correctness | 7 | 85% (+47%) | 70% (+32%) |
-| Discoverability | 7 | 97% (+57%) | 80% (+18%) |
-| Effectiveness | 7 | 61% (+39%) | 46% (+26%) |
-| Efficiency | 7 | 89% (+51%) | 71% (+14%) |
+| Security | 7 | 100% (+0%) | 79% (-21%) |
+| Correctness | 7 | 91% (+56%) | 75% (+30%) |
+| Discoverability | 7 | 98% (+48%) | 86% (+24%) |
+| Effectiveness | 7 | 67% (+50%) | 48% (+26%) |
+| Efficiency | 7 | 90% (+45%) | 75% (+19%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
