@@ -10,7 +10,7 @@ For local MP4s instead, see `videos.md`. For verifying the install with the bund
 - **MS knows where VIOS is** — `VIOS_BASE_URL` is set in the MS container's environment (auto-wired from `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints; otherwise set explicitly in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env)). Required at runtime; Step 1 only uses the 30888 probe to detect whether VIOS is up locally.
 - **RTSP URLs reachable from the VIOS host** — verify with the user before starting capture.
 
-The shared prerequisites (AMC microservice, Python+requests) come from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-modes) section.
+The shared prerequisites (AMC microservice, Python+requests) come from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-calibration-modes) section.
 
 ## Step 1 — Verify VIOS Is Reachable
 
