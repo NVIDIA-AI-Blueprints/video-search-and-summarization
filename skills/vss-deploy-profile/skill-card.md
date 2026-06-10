@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying NVIDIA AI Blueprint Video Search and Summarization profiles on GPU-equipped hosts, using a compose-centric workflow to build env overrides, generate resolved compose files, and manage the full deploy/teardown lifecycle. <br>
+Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) blueprint profiles on GPU-equipped hosts for video analytics applications. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -37,7 +37,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 5 internal evaluation tasks (5 positive skill-activation cases, 0 negative cases). <br>
+Evaluated against 5 evaluation tasks in NVSkills-Eval external profile (astra-sandbox environment). <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -61,11 +61,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 5 | 90% (+10%) | 80% (+0%) |
-| Correctness | 5 | 92% (+11%) | 82% (+32%) |
-| Discoverability | 5 | 92% (+15%) | 75% (+24%) |
-| Effectiveness | 5 | 64% (+10%) | 56% (+35%) |
-| Efficiency | 5 | 67% (+15%) | 59% (+20%) |
+| Security | 5 | 100% (+0%) | 100% (+20%) |
+| Correctness | 5 | 95% (+60%) | 91% (+54%) |
+| Discoverability | 5 | 95% (+46%) | 84% (+30%) |
+| Effectiveness | 5 | 70% (+65%) | 71% (+64%) |
+| Efficiency | 5 | 78% (+39%) | 78% (+31%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
