@@ -54,25 +54,25 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 79% (+42%) | 68% (+33%) |
-| Discoverability | 3 | 94% (+33%) | 69% (+15%) |
-| Effectiveness | 3 | 38% (+34%) | 30% (+26%) |
-| Efficiency | 3 | 80% (+24%) | 53% (+6%) |
+| Security | 3 | 100% (+0%) | 83% (-17%) |
+| Correctness | 3 | 79% (+42%) | 61% (+26%) |
+| Discoverability | 3 | 95% (+34%) | 62% (+10%) |
+| Effectiveness | 3 | 36% (+30%) | 30% (+26%) |
+| Efficiency | 3 | 80% (+23%) | 53% (+6%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 6 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 7 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-generate-video-calibration/SKILL.md`)
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in common-steps.md (`skills/vss-generate-video-calibration/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-calibration/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SQP-2): Hardcoding `ssl_verify: false` disables TLS certificate validation for RTSP capture requests, exposing the connection to (`references/rtsp.md:107`)
-- MEDIUM SECURITY/Unknown (SQP-2): RTSP URLs may contain plaintext credentials (e.g., `rtsp://user:pass@host`) that are transmitted in HTTP request bodies  (`references/rtsp.md:60`)
+- MEDIUM SECURITY/Unknown (SQP-2): The RTSP capture script sets ssl_verify=False when communicating with the MS endpoint and handles RTSP URLs that may con (`references/rtsp.md:227`)
+- MEDIUM SECURITY/Unknown (SQP-2): The skill automatically executes `curl -LsSf https://astral.sh/uv/install.sh | sh` without explicit user consent when th (`references/sample-dataset.md:132`)
 
 ## Tier 2: Deduplication Summary
 
@@ -81,7 +81,7 @@ Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
 Notable observations:
 
 - Context Deduplication: Collected 7 file(s)
-- Inter-Skill Deduplication: Parsed skill 'vss-generate-video-calibration': 175 char description
+- Inter-Skill Deduplication: Parsed skill 'vss-generate-video-calibration': 182 char description
 
 ## Publication Recommendation
 
