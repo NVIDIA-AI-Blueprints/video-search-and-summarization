@@ -1039,6 +1039,109 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn('expected_skill = "vss-ask-video"', task_toml)
         self.assertIn("vss_orchestrator__docker_status", task_toml)
 
+    def test_generic_task_wrapper_replaces_stale_launcher_without_wait_profile(self):
+        with tempfile.TemporaryDirectory() as td:
+            task_dir = Path(td) / "base" / "rtxpro6000bw" / "step-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "instruction.md").write_text(
+                textwrap.dedent(
+                    """
+                    This Harbor trial is a thin launcher for NemoClaw/OpenClaw.
+
+                    ```bash
+                    python3 .github/skill-eval/nemoclaw/headless_runner.py \\
+                      --prompt-file /tests/nemoclaw_prompt.md \\
+                      --log-dir /logs/artifacts/nemoclaw \\
+                      --launch-mode cli \\
+                      --timeout 2400
+                    ```
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            (task_dir / "task.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [task]
+                    name = "nvidia-vss/vss-ask-video-base-rtx-step-1"
+
+                    [metadata]
+                    skill = "vss-ask-video"
+                    profile = "base"
+                    platform = "RTXPRO6000BW"
+                    gpu_count = 1
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            smoke_runner._wrap_task_for_nemoclaw(
+                task_dir=task_dir,
+                skill="vss-ask-video",
+                spec_path=REPO_ROOT / "skills" / "vss-ask-video" / "evals" / "base_profile_video_understanding.json",
+                platform="RTXPRO6000BW",
+            )
+
+            instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
+
+        self.assertIn("headless_runner.py", instruction)
+        self.assertIn("--wait-profile base", instruction)
+
+    def test_generic_task_wrapper_infers_profile_from_eval_spec(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_dir = root / "generated" / "rtxpro6000bw" / "step-1"
+            task_dir.mkdir(parents=True)
+            (task_dir / "instruction.md").write_text(
+                "Existing launcher without profile wait\n"
+                "python3 .github/skill-eval/nemoclaw/headless_runner.py\n",
+                encoding="utf-8",
+            )
+            (task_dir / "task.toml").write_text(
+                textwrap.dedent(
+                    """
+                    [task]
+                    name = "nvidia-vss/generated-alerts-step-1"
+
+                    [metadata]
+                    skill = "vss-manage-alerts"
+                    platform = "RTXPRO6000BW"
+                    gpu_count = 1
+                    """
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            spec_path = root / "alerts_vlm_real_time.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "expects": [
+                            {
+                                "query": "Deploy the VSS **alerts** profile in `real-time` mode on `{{platform}}`."
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            scenario = smoke_runner._wrap_task_for_nemoclaw(
+                task_dir=task_dir,
+                skill="vss-manage-alerts",
+                spec_path=spec_path,
+                platform="RTXPRO6000BW",
+            )
+
+            instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
+            task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
+
+        self.assertEqual(scenario.deployment_profile, "alerts")
+        self.assertIn("--wait-profile alerts", instruction)
+        self.assertIn('deployment_profile = "alerts"', task_toml)
+
     def test_task_metadata_reader_falls_back_without_tomllib(self):
         with tempfile.TemporaryDirectory() as td:
             task_dir = Path(td)

@@ -15,6 +15,7 @@ import datetime as dt
 import fcntl
 import json
 import os
+import re
 import selectors
 import signal
 import shutil
@@ -42,6 +43,7 @@ DEFAULT_SKILL = "vss-deploy-profile"
 DEFAULT_PROFILE = "base"
 DEFAULT_PLATFORM = "RTXPRO6000BW"
 SCRATCH_ROOT = Path("/tmp/skill-eval")
+KNOWN_VSS_PROFILES = {"base", "alerts", "search", "lvs"}
 
 PLATFORM_TASK = {
     "RTXPRO6000BW": "rtxpro6000bw",
@@ -579,9 +581,66 @@ def _task_gpu_count(metadata: dict[str, Any]) -> int:
         return 1
 
 
-def _deployment_profile(metadata: dict[str, Any]) -> str | None:
+def _normalize_profile(value: Any) -> str | None:
+    candidate = str(value or "").strip().lower()
+    if candidate in ("", "standalone"):
+        return None
+    return candidate if candidate in KNOWN_VSS_PROFILES else None
+
+
+def _deployment_profile_from_spec(spec_path: Path) -> str | None:
+    spec = _spec_json(spec_path)
+    expects = spec.get("expects")
+    if isinstance(expects, list) and expects:
+        query = str(expects[0].get("query", "") if isinstance(expects[0], dict) else "")
+        patterns = (
+            r"VSS\s+\*\*([A-Za-z0-9_-]+)\*\*\s+profile",
+            r"VSS\s+`?([A-Za-z0-9_-]+)`?\s+profile",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, query, flags=re.IGNORECASE)
+            if match:
+                profile = _normalize_profile(match.group(1))
+                if profile:
+                    return profile
+
+    stem = spec_path.stem.lower()
+    for profile in KNOWN_VSS_PROFILES:
+        if stem == profile or stem.startswith(f"{profile}_"):
+            return profile
+    return None
+
+
+def _deployment_profile_from_path(task_dir: Path) -> str | None:
+    for part in reversed(task_dir.parts):
+        profile = _normalize_profile(part)
+        if profile:
+            return profile
+        for known in KNOWN_VSS_PROFILES:
+            if part.lower().startswith(f"{known}_"):
+                return known
+    return None
+
+
+def _deployment_profile(
+    metadata: dict[str, Any],
+    *,
+    task_dir: Path | None = None,
+    spec_path: Path | None = None,
+) -> str | None:
     value = _metadata_value(metadata, "deployment_profile", "profile")
-    return str(value) if value not in (None, "", "standalone") else None
+    profile = _normalize_profile(value)
+    if profile:
+        return profile
+    if spec_path:
+        profile = _deployment_profile_from_spec(spec_path)
+        if profile:
+            return profile
+    if task_dir:
+        profile = _deployment_profile_from_path(task_dir)
+        if profile:
+            return profile
+    return None
 
 
 def _toml_value(value: Any) -> str:
@@ -681,7 +740,11 @@ def _wrap_task_for_nemoclaw(
     metadata = parsed.get("metadata") if isinstance(parsed.get("metadata"), dict) else {}
     task_platform = _task_platform(metadata, platform)
     gpu_count = _task_gpu_count(metadata)
-    deployment_profile = _deployment_profile(metadata)
+    deployment_profile = _deployment_profile(
+        metadata,
+        task_dir=task_dir,
+        spec_path=spec_path,
+    )
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
     prompt_path = tests_dir / "nemoclaw_prompt.md"
@@ -692,11 +755,14 @@ def _wrap_task_for_nemoclaw(
             _generic_nemoclaw_prompt(skill, original_instruction, deployment_profile),
             encoding="utf-8",
         )
-    if "headless_runner.py" not in original_instruction:
-        instruction_path.write_text(
-            _headless_launcher_instruction(skill, deployment_profile),
-            encoding="utf-8",
-        )
+    # Normalize adapter-generated launchers. Some adapters already emit a
+    # headless_runner.py instruction when SKILLS_EVAL_RUNNER=nemoclaw, but an
+    # older launcher may omit --wait-profile. If we preserve it, Harbor can
+    # verify before the async OpenClaw deployment is actually ready.
+    instruction_path.write_text(
+        _headless_launcher_instruction(skill, deployment_profile),
+        encoding="utf-8",
+    )
 
     metadata_updates: dict[str, Any] = {
         "runner": "nemoclaw",
