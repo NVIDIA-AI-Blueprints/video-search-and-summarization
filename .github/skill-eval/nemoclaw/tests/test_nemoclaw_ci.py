@@ -726,6 +726,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertNotIn("vss-deploy-video-embedding", skills)
         self.assertNotIn("vss-generate-video-calibration", skills)
         self.assertNotIn("vss-manage-video-io-storage", skills)
+        self.assertNotIn("vss-search-archive", skills)
         self.assertNotIn("vss-setup-behavior-analytics", skills)
         self.assertNotIn("vss-setup-video-analytics-api", skills)
         self.assertNotIn("evals", [row["spec_stem"] for row in rows])
@@ -735,6 +736,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertTrue(
             any(
                 "vss-setup-behavior-analytics/standalone_deploy.json: standalone host-Docker eval"
+                in item
+                for item in blockers
+            )
+        )
+        self.assertTrue(
+            any(
+                "vss-search-archive/search.json: search archive is not yet bounded"
                 in item
                 for item in blockers
             )

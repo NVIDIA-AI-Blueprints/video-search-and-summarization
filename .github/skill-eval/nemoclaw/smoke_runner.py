@@ -351,6 +351,21 @@ def _is_standalone_host_docker_spec(spec_path: Path) -> bool:
     return "standalone" in text and any(marker in text for marker in markers)
 
 
+def _known_unbounded_nemoclaw_spec(skill: str, spec_path: Path) -> str | None:
+    """Return a blocker reason for profile-backed specs not ready for the sweep.
+
+    These are not standalone Docker cases, but they still need additional
+    bounded setup before they are safe in the all-skills NemoClaw matrix.
+    """
+    if skill == "vss-search-archive" and spec_path.stem == "search":
+        return (
+            "search archive is not yet bounded for the NemoClaw all-skills "
+            "sweep; it needs deterministic search-corpus seeding and "
+            "multi-step query execution before it can run reliably"
+        )
+    return None
+
+
 def _platforms_for_spec(spec_path: Path, platform_filter: str | None) -> list[str]:
     spec = _spec_json(spec_path)
     platforms = spec.get("resources", {}).get("platforms", {})
@@ -439,6 +454,18 @@ def _selected_specs(
                     "supported by the NemoClaw MCP-only runner yet"
                 )
             specs = [spec_path for spec_path in specs if spec_path not in standalone_specs]
+            if not specs:
+                continue
+        unbounded_specs: list[tuple[Path, str]] = []
+        for spec_path in specs:
+            reason = _known_unbounded_nemoclaw_spec(skill, spec_path)
+            if reason:
+                unbounded_specs.append((spec_path, reason))
+        if unbounded_specs:
+            for spec_path, reason in unbounded_specs:
+                blockers.append(f"{skill}/{spec_path.name}: {reason}")
+            blocked_paths = {spec_path for spec_path, _ in unbounded_specs}
+            specs = [spec_path for spec_path in specs if spec_path not in blocked_paths]
             if not specs:
                 continue
         for spec_path in specs:
