@@ -34,7 +34,7 @@ resources:
 # In-cluster: template builds http://<release>-<slug>:8000/v1 from llmService/vlmService (NIM subchart names).
 # Remote NIM: prefer global.llmBaseUrl / global.vlmBaseUrl (same base as vss-agent). LVS deployment appends /v1 when missing.
 llmService: ""   # e.g. nvidia-nemotron-nano-9b-v2 — ignored when llmBaseUrl/global.llmBaseUrl resolves non-empty
-vlmService: ""  # e.g. nvidia-cosmos-reason2-8b — ignored when vlmBaseUrl/global.vlmBaseUrl resolves non-empty
+vlmService: ""  # e.g. nvidia-cosmos3-reasoner — ignored when vlmBaseUrl/global.vlmBaseUrl resolves non-empty
 llmBaseUrl: ""  # optional: overrides global.llmBaseUrl for LVS only
 vlmBaseUrl: ""  # optional: overrides global.vlmBaseUrl for LVS only
 llmName: ""  # optional: overrides global.llmName for LVS_LLM_MODEL_NAME

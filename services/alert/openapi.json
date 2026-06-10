@@ -1548,7 +1548,7 @@
                             "system_prompt": "Answer yes or no",
                             "updated_at": "2025-06-01T10:00:00Z",
                             "vlm_params": {
-                                "model": "nvidia/cosmos-reason2-8b",
+                                "model": "nvidia/cosmos3-nano-reasoner",
                                 "num_frames": 10
                             }
                         }
@@ -1639,7 +1639,7 @@
                     "system_prompt": "Answer the user's question correctly in yes or no",
                     "vlm_params": {
                         "max_tokens": 512,
-                        "model": "nvidia/cosmos-reason2-8b",
+                        "model": "nvidia/cosmos3-nano-reasoner",
                         "num_frames": 10,
                         "temperature": 0.6
                     }
@@ -1736,7 +1736,7 @@
                     "updated_at": "2025-06-01T10:00:00Z",
                     "vlm_params": {
                         "max_tokens": 512,
-                        "model": "nvidia/cosmos-reason2-8b",
+                        "model": "nvidia/cosmos3-nano-reasoner",
                         "num_frames": 10,
                         "temperature": 0.6
                     }
@@ -2208,7 +2208,7 @@
                         "enable_reasoning": true,
                         "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                         "live_stream_url": "rtsp://localhost:8554/media/video1",
-                        "model": "nvidia/cosmos-reason2-8b",
+                        "model": "nvidia/cosmos3-nano-reasoner",
                         "num_frames_per_second_or_fixed_frames_chunk": 10,
                         "prompt": "Detect vehicle collisions.",
                         "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
@@ -2265,7 +2265,7 @@
                             "enable_reasoning": true,
                             "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                             "live_stream_url": "rtsp://localhost:8554/media/video1",
-                            "model": "nvidia/cosmos-reason2-8b",
+                            "model": "nvidia/cosmos3-nano-reasoner",
                             "num_frames_per_second_or_fixed_frames_chunk": 10,
                             "prompt": "Detect vehicle collisions.",
                             "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
@@ -2679,7 +2679,7 @@
                     "chunk_overlap_duration": 5,
                     "enable_reasoning": true,
                     "live_stream_url": "rtsp://localhost:8554/media/video1",
-                    "model": "nvidia/cosmos-reason2-8b",
+                    "model": "nvidia/cosmos3-nano-reasoner",
                     "num_frames_per_second_or_fixed_frames_chunk": 10,
                     "place_lat": "37.3706",
                     "place_lon": "-121.9672",
@@ -3081,7 +3081,7 @@
                     "enable_reasoning": true,
                     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                     "live_stream_url": "rtsp://localhost:8554/media/video1",
-                    "model": "nvidia/cosmos-reason2-8b",
+                    "model": "nvidia/cosmos3-nano-reasoner",
                     "num_frames_per_second_or_fixed_frames_chunk": 10,
                     "prompt": "Detect vehicle collisions.",
                     "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",

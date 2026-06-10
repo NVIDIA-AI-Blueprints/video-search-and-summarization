@@ -28,7 +28,7 @@
 {{- $g := .Values.global | default dict }}
 {{- $subVn := trim (default "" .Values.vlmName) }}
 {{- $globVn := trim (default "" (index $g "vlmName")) }}
-{{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos-reason2-8b" }}
+{{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos3-nano-reasoner" }}
 {{- $rtviModel := trim (default "" .Values.rtviVlmModelToUse) | default $vlmNameStr }}
 
 always_on_rules:
