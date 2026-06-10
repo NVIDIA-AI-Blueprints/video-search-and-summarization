@@ -401,7 +401,8 @@ skills/vss-build-vision-agent/
 ├── CONTRIBUTING.md                                    # (planned) how to add a new microservice (see Phase 0 deliverables)
 ├── eval/
 │   ├── profile_in_1_streaming_dense_captions.json      # Harbor dense-captioning eval
-│   ├── profile_in_2_rt_cv_dense_captioning_harbor.json # Harbor RT-CV + dense-captioning eval
+│   ├── profile_in_2_rt_cv_person_detection_harbor.json # Harbor RT-CV generation eval
+│   ├── profile_in_2_rt_cv_person_detection_runtime_harbor.json # Harbor RT-CV runtime eval
 │   ├── rt-cv-person-detection-rtdetr-harbor.json       # Harbor RT-CV eval
 │   └── ...                                            # follow-on evals as Phase 1c services land
 ├── references/
