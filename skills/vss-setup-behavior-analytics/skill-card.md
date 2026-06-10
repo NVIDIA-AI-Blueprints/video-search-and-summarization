@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to deploy the vss-behavior-analytics service standalone (entrypoint, config-source, optional calibration). Not for the full warehouse deploy. <br>
+Use to deploy the vss-behavior-analytics service standalone (entrypoint, config-source, optional calibration). <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers who need to deploy and configure the behavior-analytics spatial-AI pipeline as a standalone service, selecting entrypoints, config sources, and calibration options without spinning up the full warehouse stack. <br>
+Developers and engineers deploying the VSS behavior-analytics microservice standalone, selecting entrypoints, configuration sources, and optional calibration for spatial-AI analytics pipelines. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -23,8 +23,9 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Configuration Guide](references/configuration.md) <br>
 - [Dynamic Config](references/dynamic-config.md) <br>
 - [Dynamic Calibration](references/dynamic-calibration.md) <br>
-- [NGC Credentials](references/ngc.md) <br>
+- [NGC API Key & Registry Login](references/ngc-api-key-registry-login.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -40,7 +41,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task (1 positive activation case) with 2 attempts per task in the NVSkills-Eval external profile. <br>
+Evaluated against 1 evaluation task in the astra-sandbox environment using the NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -64,11 +65,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 50% (+50%) | 50% (+50%) |
-| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
-| Effectiveness | 2 | 62% (+62%) | 50% (+50%) |
-| Efficiency | 2 | 27% (+0%) | 28% (-0%) |
+| Security | 1 | 100% (+0%) | 100% (+0%) |
+| Correctness | 1 | 50% (+50%) | 50% (+50%) |
+| Discoverability | 1 | 0% (+0%) | 0% (+0%) |
+| Effectiveness | 1 | 62% (+62%) | 50% (+50%) |
+| Efficiency | 1 | 27% (+0%) | 28% (-0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
