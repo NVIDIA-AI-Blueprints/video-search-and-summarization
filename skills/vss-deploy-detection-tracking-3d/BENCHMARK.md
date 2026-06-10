@@ -7,14 +7,13 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-detection-tracking-3d`
-- Evaluation date: 2026-06-09
+- Evaluation date: 2026-06-10
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 3 evaluation tasks
 - Attempts per task: 1
 - Pass threshold: 50%
-- Overall verdict: FAIL
-The skill should be reviewed before NVSkills-Eval publication. **Skill owners should address the applicable findings below and rerun NVSkills-Eval to refresh this benchmark.**
+- Overall verdict: PASS
 
 ## Agents Used
 
@@ -56,16 +55,16 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 87% (+57%) | 80% (+29%) |
-| Discoverability | 3 | 92% (+56%) | 80% (+26%) |
-| Effectiveness | 3 | 62% (+55%) | 57% (+28%) |
-| Efficiency | 3 | 80% (+51%) | 72% (+23%) |
+| Correctness | 3 | 83% (+40%) | 84% (+33%) |
+| Discoverability | 3 | 94% (+52%) | 72% (+24%) |
+| Effectiveness | 3 | 56% (+42%) | 57% (+24%) |
+| Efficiency | 3 | 82% (+52%) | 60% (+22%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 10 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 11 total findings.
 
 Top findings:
 
@@ -73,14 +72,17 @@ Top findings:
 - MEDIUM QUALITY/quality_efficiency: Instructions lack clear action verbs (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in troubleshooting.md (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-detection-tracking-3d/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SQP-2): The 'Nuke option' section performs destructive sudo rm -rf operations that wipe bind-mounted AMC project state and calib (`references/teardown.md:101`)
+- MEDIUM SECURITY/Unknown (SQP-2): The 'Nuke option' section describes highly destructive operations including sudo rm -rf of project state, calibration da (`references/teardown.md:101`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 1 total findings.
+Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
 
-Top findings:
+Notable observations:
 
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/calibration-workflow.md and references/teardown.md:
-  "## Step 5 — Tear down AMC" in references/calibration-workflow.md (lines 329-341)
-  vs "## Step 4 — Tear down AMC (only if you deployed it standalone)" in references/teardown.md (lines 75-87) (`references/calibration-workflow.md:329`)
+- Context Deduplication: Collected 7 file(s)
+- Inter-Skill Deduplication: Parsed skill 'vss-deploy-detection-tracking-3d': 426 char description
+
+## Publication Recommendation
+
+The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.
