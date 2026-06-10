@@ -116,7 +116,7 @@ poetry run pytest tests/unit_tests/sensor_management/ -v \
 
 # All unit tests against a remote host
 poetry run pytest tests/unit_tests/ -v \
-  --base-url http://10.24.217.99:30888 \
+  --base-url http://<HOST>:30888 \
   --junitxml=reports/junit.xml \
   --html=reports/report.html \
   --self-contained-html

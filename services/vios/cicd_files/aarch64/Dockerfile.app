@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE=nvcr.io/rxczgrvsg8nx/vst-dev/vst-base:2.1.0-runtime-26.04.1
+ARG BASE_IMAGE=vios/vst-base:2.1.0-runtime-26.04.1
 FROM ${BASE_IMAGE}
 
 ARG PKG_LOCATION

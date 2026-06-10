@@ -13,7 +13,7 @@ description: >-
 # BDD Test Container Update
 
 The BDD test container runs `bdd_test` from
-`gitlab-master.nvidia.com:5005/l4tmm/vms_shim/bdd_tests:<TAG>`. Since the CI
+`<INTERNAL_REGISTRY>/bdd_tests:<TAG>`. Since the CI
 runner bind-mounts the host repo's test source into `/app/`, the image only
 needs to be rebuilt when the things it bakes in change.
 
@@ -46,7 +46,7 @@ the `update_docker_compose()` function, on the line that sets the `test`
 service image:
 
 ```
-image: gitlab-master.nvidia.com:5005/l4tmm/vms_shim/bdd_tests:v<MAJOR>.<MINOR>.<PATCH>_x86
+image: <INTERNAL_REGISTRY>/bdd_tests:v<MAJOR>.<MINOR>.<PATCH>_x86
 ```
 
 Extract the current `MAJOR`, `MINOR`, and `PATCH` numbers.
@@ -68,7 +68,7 @@ minor and patch, prefer patch.
 
 ```bash
 cd test/bdd_tests
-docker build -t gitlab-master.nvidia.com:5005/l4tmm/vms_shim/bdd_tests:v<NEW_VERSION>_x86 .
+docker build -t <INTERNAL_REGISTRY>/bdd_tests:v<NEW_VERSION>_x86 .
 ```
 
 Replace `<NEW_VERSION>` with the computed `MAJOR.MINOR.PATCH`.
@@ -76,13 +76,13 @@ Replace `<NEW_VERSION>` with the computed `MAJOR.MINOR.PATCH`.
 ## 4. Push to GitLab registry
 
 ```bash
-docker push gitlab-master.nvidia.com:5005/l4tmm/vms_shim/bdd_tests:v<NEW_VERSION>_x86
+docker push <INTERNAL_REGISTRY>/bdd_tests:v<NEW_VERSION>_x86
 ```
 
 Ensure you are logged in to the GitLab registry first:
 
 ```bash
-docker login gitlab-master.nvidia.com:5005
+docker login <INTERNAL_REGISTRY>
 ```
 
 ## 5. Update the image tag in start_test.sh
@@ -91,7 +91,7 @@ In `cicd_files/docker-compose-test/start_test.sh`, locate the line inside the
 `update_docker_compose()` function:
 
 ```
-image: gitlab-master.nvidia.com:5005/l4tmm/vms_shim/bdd_tests:v<OLD_VERSION>_x86
+image: <INTERNAL_REGISTRY>/bdd_tests:v<OLD_VERSION>_x86
 ```
 
 Replace `<OLD_VERSION>` with `<NEW_VERSION>`.
@@ -113,7 +113,7 @@ After completing the update, report:
 
 | Item | Value |
 |---|---|
-| Registry | `gitlab-master.nvidia.com:5005/l4tmm/vms_shim/bdd_tests` |
+| Registry | `<INTERNAL_REGISTRY>/bdd_tests` |
 | Tag format | `v<MAJOR>.<MINOR>.<PATCH>_x86` |
 | Dockerfile | `test/bdd_tests/Dockerfile` |
 | Tag location | `cicd_files/docker-compose-test/start_test.sh` -- `update_docker_compose()` function |

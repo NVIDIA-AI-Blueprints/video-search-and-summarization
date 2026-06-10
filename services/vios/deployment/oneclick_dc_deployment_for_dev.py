@@ -1910,7 +1910,7 @@ class DeploymentManager:
         if self.config.with_minio:
             print(f"  MinIO Console: http://{self.config.host_ip}:9001")
             print(f"  MinIO API:     http://{self.config.host_ip}:9000")
-            print("                 Credentials: admin/nvidia123!")
+            print("                 Credentials: admin/<minio-password>")
         
         print()
         print("Host Path Information:")
@@ -2188,7 +2188,7 @@ class DeploymentManager:
         if self.config.with_minio:
             print(f"  MinIO Console: http://{self.config.host_ip}:9001")
             print(f"  MinIO API:     http://{self.config.host_ip}:9000")
-            print("                 Credentials: admin/nvidia123!")
+            print("                 Credentials: admin/<minio-password>")
         
         print()
         print("Host Path Information:")
