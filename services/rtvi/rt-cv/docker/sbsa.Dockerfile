@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.0-sbsa-26.05.1"
+ARG BASE_IMAGE="nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0-sbsa"
 
 FROM ${BASE_IMAGE}
 

@@ -15,7 +15,7 @@
 
 apiVersion: v2
 name: vss-video-analytics-api
-version: 26.05.4
-appVersion: "3.2-26.05.30"
+version: 3.2.0
+appVersion: "3.2.0"
 description: Video analytics API (Helm subchart under deploy/helm/services/analytics/charts)
 maintainers: []

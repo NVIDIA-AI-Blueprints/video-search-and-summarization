@@ -22,6 +22,15 @@ On **AGX Thor / IGX Thor**, this skill does not have a verified Nano 9B
 DGX Spark NIM replacement. Keep using the Thor Edge 4B standalone vLLM path
 below unless a Thor-supported NIM is confirmed.
 
+## Ask first — the local edge LLM is latency-limited
+
+The edge local LLM — **Edge 4B** (AGX/IGX Thor) or **Nano 9B Nemotron** (DGX Spark) — runs on the device's shared/unified memory and is **slow** (on DGX Spark it is the main latency bottleneck). **Before deploying, ask the user:**
+
+> The local edge LLM (Edge 4B on Thor, Nano 9B Nemotron on DGX Spark) runs on the device and is latency-limited. If you have a **remote LLM endpoint** (build.nvidia.com / NVIDIA API catalog, or your own OpenAI-compatible server), using it gives noticeably better latency. Use a remote LLM, or run the local one?
+
+- **Remote (recommended for latency):** the user supplies the endpoint + model. Set `LLM_MODE=remote`, `LLM_NAME_SLUG=none`, `LLM_BASE_URL=<endpoint, no trailing /v1>`, `LLM_NAME=<model the endpoint serves>`, and `NVIDIA_API_KEY=<key>` if required; probe `<endpoint>/v1/models` first (see [`credentials.md`](credentials.md)). Only the LLM goes remote; the VLM still deploys locally per the platform's VLM recipe below.
+- **Local:** proceed with the platform recipe below; expect higher latency.
+
 ## When to pick which
 
 | Situation | LLM path |
@@ -94,6 +103,44 @@ SKILL.md pre-flight smoke test does not install it.
 > # Replace `<VIC_DEVFREQ_PATH>` with the value of `ls /sys/class/devfreq/` that matches `*.vic`
 > sudo su -c 'echo performance > <VIC_DEVFREQ_PATH>/governor'
 > ```
+
+### Unified-memory GPU budget (reserve ≥ 0.2)
+<a id="unified-memory-budget"></a>
+
+On these platforms CPU, GPU, OS page cache, and every container draw from **one**
+shared pool, so a GPU-memory *fraction* — `NIM_GPU_MEM_FRACTION` / `NIM_KVCACHE_PERCENT`
+for NIM-served models (the DGX-Spark base LLM and Cosmos VLM run as NIMs), or
+`RTVI_VLLM_GPU_MEMORY_UTILIZATION` for RT-VLM (alerts / lvs / Thor) — is a slice of
+memory that is **not all free**.
+vLLM measures *free* at startup and aborts before loading the model if free is
+below what the fraction asks for (`desired = util × total`):
+
+```text
+ValueError: Free memory on device (X/124.61 GiB) on startup is less than desired
+GPU memory utilization (0.8, 99.69 GiB). Decrease GPU memory utilization …
+```
+
+which surfaces in VSS as `Engine core initialization failed` /
+`Failed to load VLM on GPU 0`.
+
+**Rule:** compute each fraction against *actual free* memory and leave **≥ 0.2 of
+total** (~20%) as reserve — `util ≤ free/total − 0.2` — and for co-resident
+services keep the **sum** of their fractions `≤ 0.8`:
+
+```bash
+# DGX Spark reports free/total via nvidia-smi (Thor/Tegra often reports N/A — see below)
+set -- $(nvidia-smi --query-gpu=memory.free,memory.total --format=csv,noheader,nounits | head -1 | tr -d ',')
+free=$1; total=$2
+awk -v f="$free" -v t="$total" 'BEGIN{u=f/t-0.2; if(u<0)u=0; printf "max util ~ %.2f  (free %d / total %d MiB; 0.2 reserve)\n", u, f, t}'
+```
+
+The conservative per-service defaults already aim for this on a clean box (each
+fraction ≈ 0.4, so two co-resident services sum to ≤ 0.8): the standalone DGX-Spark
+LLM NIM recipe below sets `NIM_GPU_MEM_FRACTION=0.4`, and `dev-profile.sh`'s
+`get_rtvi_vllm_gpu_memory_utilization()` returns `0.4` for RT-VLM. If other tenants
+are resident (so `free` is lower than the formula's value), **lower the fractions to
+fit**. If `nvidia-smi` can't read free (Thor/Tegra often reports `[N/A]`), keep the
+conservative ~0.4 and drop by `0.05` on the first `Free … less than desired` abort.
 
 ## DGX Spark - Nano 9B v2 DGX Spark NIM + local Cosmos Reason2 VLM
 
@@ -252,6 +299,13 @@ Then follow `SKILL.md` Steps 3-5. Thor uses the default 35% GPU budget for
 
 ## Caveats
 
+- **DGX Spark needs the `-sbsa` container images.** GB10/DGX Spark runs the dGPU/SBSA
+  driver (not Tegra/L4T); the default image tags pull the Tegra DeepStream build, which
+  crash-loops on missing `libnvbufsurface.so.1.0.0` / `libnvrm_mem.so`. `dev-profile.sh`
+  auto-swaps the `-sbsa` variants for `HARDWARE_PROFILE=DGX-SPARK`. When writing
+  `generated.env` directly, set each image tag to its `-sbsa` variant (the commented
+  `# …-sbsa` line in the profile's `.env`): `RTVI_VLM_IMAGE_TAG` (RT-VLM),
+  `PERCEPTION_TAG` (RT-CV), and `LVS_TAG` (LVS).
 - **DGX Spark NIM is local but configured as remote in VSS.** This is only
   because the image is not wired into compose yet. `LLM_MODE=remote` skips the
   local LLM compose service and points the agent at `localhost:30081`.

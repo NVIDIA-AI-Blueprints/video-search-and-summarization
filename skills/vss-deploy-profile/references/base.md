@@ -31,6 +31,11 @@ Container names below are exactly what `docker ps` reports (sourced from the `co
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | nim |
 | VLM | `nvidia/cosmos-reason2-8b` | `cosmos-reason2-8b` | nim |
 
+The base `.env` defaults both sides to shared local deployment:
+`LLM_MODE=local_shared` and `VLM_MODE=local_shared`, with
+`LLM_DEVICE_ID=0` and `VLM_DEVICE_ID=0`. `dev-profile.sh` writes the same
+mode when LLM/VLM device IDs match and no remote flags are selected.
+
 **Alternate LLMs:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark`, `nvidia/nemotron-3-nano`, `nvidia/llama-3.3-nemotron-super-49b-v1.5`, `openai/gpt-oss-20b`
 
 **Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `Qwen/Qwen3-VL-8B-Instruct`
@@ -170,7 +175,7 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 
 - **L40S (48 GB) cannot host the default LLM + VLM shared.** 23.4 + 20.8 = 44.2 GB > 0.85 × 48 = 40.8 GB. Use a 2-GPU L40S host (one model per GPU), or escalate to the user per Trigger 2.
 - **DGX Spark shared mode must use the DGX Spark Nano 9B NIM path in `edge.md`.** Run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and set `LLM_MODE=remote`, `LLM_BASE_URL=http://localhost:30081`, and `LLM_NAME_SLUG=none`. The image is not wired into compose yet. Do not use the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image on DGX Spark.
-- **AGX/IGX Thor shared mode still uses the Edge 4B fallback in `edge.md`.** This skill does not have a verified Thor-supported Nano 9B NIM path. Keep the standalone Edge 4B vLLM recipe and `HF_TOKEN` verification for Thor unless the user provides a verified remote endpoint.
+- **AGX/IGX Thor shared mode: Edge 4B is the LLM; the VLM still runs via RT-VLM.** The Edge 4B fallback in `edge.md` (standalone vLLM + `HF_TOKEN`) is the **LLM** path — this skill has no verified Thor-supported Nano 9B NIM, so keep it unless the user supplies a verified remote LLM endpoint. The **VLM** on base+Thor is *not* a standalone NIM: `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason 2 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason2`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`).
 - **Llama 3.3 49B FP16 doesn't fit on a single 80 GB GPU.** 49 × 16 / 8 × 1.3 = 127 GB > 68 GB usable. Either run dedicated with tensor parallelism (`tp=2` on two H100s → 63.7 GB/GPU) or use H200 (141 GB) / B200 (192 GB) — or escalate per Trigger 2.
 - **`HARDWARE_PROFILE` is just an env-file label, not a sizing oracle.** It selects the path `nim/<slug>/hw-<HARDWARE_PROFILE>(-shared).env` — that's all. Pre-tuned env files exist for known platforms as a convenience, but missing != unsupported. Compute the right `NIM_KVCACHE_PERCENT` (or `--gpu-memory-utilization`) from the [Sizing math](#sizing-math) and write it into a fresh `hw-<HARDWARE_PROFILE>(-shared).env` (or set `HARDWARE_PROFILE=OTHER` and edit `hw-OTHER(-shared).env`). The agent's correctness check is the **resolved compose**: does it include the right LLM/VLM service for the chosen `LLM_NAME_SLUG` / `VLM_NAME_SLUG`, and does that service's env carry the computed sizing values? If yes, the deploy will work regardless of which `HARDWARE_PROFILE` label is used.
 - **Remote side — no local GPU needed.** When `LLM_MODE=remote` or `VLM_MODE=remote`, the matching local NIM/vLLM service is skipped entirely. Sizing math doesn't apply for the remote side.
@@ -183,7 +188,7 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 2. **Write** it into the env file the resolved compose will load. The path is `deploy/docker/services/nim/<model-slug>/hw-<HARDWARE_PROFILE>(-shared).env` — pick or create whichever `HARDWARE_PROFILE` label fits (use the host's actual profile for documentation value, or `OTHER` if none matches and you're not contributing back).
    - **LLM NIM**: `NIM_KVCACHE_PERCENT=<v>` **and** `NIM_GPU_MEM_FRACTION=<v>`. **VLM NIM**: `NIM_KVCACHE_PERCENT=<v>` **and** `NIM_PASSTHROUGH_ARGS="--gpu-memory-utilization <v>"`. Also set `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` if you need to constrain context/concurrency.
    - vLLM: edit the model's `compose.yml` to set `--gpu-memory-utilization <value>` (or pass through an env var if the compose supports it)
-3. **Re-resolve and deploy**: `docker compose --env-file <env> config > resolved.yml && docker compose -f resolved.yml up -d`. Before running `up -d`, verify `resolved.yml` includes the right LLM/VLM service for your `LLM_NAME_SLUG` / `VLM_NAME_SLUG` and that the sizing values you wrote are visible in its `environment:` block.
+3. **Re-resolve and deploy**: `docker compose --env-file <env> config > resolved.yml && docker compose --env-file <env> -f resolved.yml up -d`. `--env-file` is required on `up` too — without it `COMPOSE_PROFILES` is unset and `up` exits 0 with zero services (see `SKILL.md` Step 5). Before running `up -d`, verify `resolved.yml` includes the right LLM/VLM service for your `LLM_NAME_SLUG` / `VLM_NAME_SLUG` and that the sizing values you wrote are visible in its `environment:` block.
 4. **Watch container logs** for the KV-cache report on startup (NIM logs `KV cache size: X GB` once it boots; vLLM logs `Maximum concurrency for X tokens per GPU: Y x`):
    - **OOM at model load** → lower fraction by 0.05 and redeploy.
    - **OOM mid-inference** (after a few requests, on long prompts) → also lower `NIM_MAX_MODEL_LEN` / `--max-model-len` and `NIM_MAX_NUM_SEQS` (e.g. from `4096`/`16` to `2048`/`4`).
@@ -319,7 +324,7 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>"
@@ -335,7 +340,7 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",
@@ -349,13 +354,14 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 
 Fire this recipe when the user says *"deploy in remote-all mode"*,
 *"both LLM and VLM are remote"*, or supplies two endpoint URLs (one per
-role). Both mode vars MUST flip to `remote`; leaving either at `local`
-silently breaks `COMPOSE_PROFILES`.
+role). Both mode vars MUST flip from the `.env` defaults
+(`LLM_MODE=local_shared`, `VLM_MODE=local_shared`) to `remote`; leaving either
+at `local_shared` keeps the local shared NIM `COMPOSE_PROFILES` active.
 
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "LLM_MODE": "remote",
@@ -379,15 +385,15 @@ grep -E '^(LLM_MODE|VLM_MODE|LLM_BASE_URL|VLM_BASE_URL|LLM_NAME|VLM_NAME)=' \
   deploy/docker/developer-profiles/dev-profile-base/generated.env
 ```
 Expect six lines, all non-empty; `LLM_MODE=remote` and `VLM_MODE=remote`
-must both appear. If either is `local`, you didn't overwrite the
-template placeholder — re-run the `sed` with the correct value.
+must both appear. If either is `local_shared` or `local`, you did not
+overwrite the template default — re-run the `sed` with the correct value.
 
 ### Dedicated GPUs (2-GPU system)
 
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_APPS_DIR": "<repo>/deploy/docker",
   "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",
@@ -412,31 +418,49 @@ template placeholder — re-run the `sed` with the correct value.
 The `.env` file computes this from other variables:
 
 ```
-COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},${BP_PROFILE}_${MODE}_${PROXY_MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
+COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
 ```
 
 Example resolved value:
 ```
-bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,bp_developer_base_2d_no_proxy,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
+bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,llm_remote_none,vlm_local_shared_cosmos-reason2-8b
 ```
 
 The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automatically.
 
 ## Endpoints (after deploy)
 
-| Service | URL |
+**Report the deployed public origin, not a raw container port.** Read it
+directly from the running stack — `docker inspect vss-agent` exposes
+`VSS_AGENT_EXTERNAL_URL`, the fully-assembled `proto://host:port` the agent
+actually serves (orchestrator equivalent: `docker_read`). Don't synthesize a
+`<HOST_IP>:<port>` URL — that surfaces an unreachable internal IP on Brev,
+where this origin is the `https://7777-<id>.brevlab.com` secure link (see
+[`brev.md`](brev.md)). Call that value `PUBLIC` below; everything is routed
+through the HAProxy ingress at that origin.
+
+| Service | URL to report (through ingress) |
 |---|---|
-| Agent UI | `http://<HOST_IP>:3000/` |
-| Agent REST API | `http://<HOST_IP>:8000/` |
-| Swagger UI | `http://<HOST_IP>:8000/docs` |
-| Reports | `http://<HOST_IP>:8000/static/agent_report_<DATE>.md` |
-| Phoenix telemetry | `http://<HOST_IP>:6006/` |
+| Agent UI | `${PUBLIC}/` |
+| Agent REST API | `${PUBLIC}/api` |
+| Reports | `${PUBLIC}/static/agent_report_<DATE>.md` |
+| Phoenix telemetry | `${PUBLIC}/phoenix` |
+
+**Direct service ports — internal only** (on-host `curl` debugging; not
+browser-reachable on Brev, never report these as the access URL):
+
+| Service | Direct port |
+|---|---|
+| Agent UI (direct) | `http://<HOST_IP>:3000/` |
+| Agent REST API (direct) | `http://<HOST_IP>:8000/` |
+| Swagger UI | `http://<HOST_IP>:8000/docs` — not routed through the ingress; direct/port-forward only |
+| Phoenix (direct) | `http://<HOST_IP>:6006/` |
 
 ## Env File Location
 
 ```
-<repo>/deploy/docker/developer-profiles/dev-profile-base/.env            # source defaults (read-only)
-<repo>/deploy/docker/developer-profiles/dev-profile-base/generated.env   # skill's working copy (apply overrides here)
+<repo>/deploy/docker/developer-profiles/dev-profile-base/.env
+<repo>/deploy/docker/developer-profiles/dev-profile-base/generated.env
 ```
 
 ## Debugging
@@ -452,9 +476,9 @@ Common failure modes and what they mean for base:
 | Symptom | Likely cause |
 |---|---|
 | `POST /api/v1/videos` HTTP 500 | Agent not finished starting — poll `/health` longer |
-| VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vst-ingress-dev` |
-| VST returns empty `sensor/streams` but VST container is healthy | `centralizedb-dev` (postgres) can't read PGDATA because `$VSS_DATA_DIR` was `chown`ed to ubuntu. See [SKILL.md § Step 1b](../SKILL.md#step-1b--prepare-the-data-directory) — use `chmod -R 777`, not `chown`. Fix: `sudo rm -rf $VSS_DATA_DIR/data_log/vst/postgres && redeploy` (postgres re-initializes on start) |
-| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2-shared-gpu` / `cosmos-reason2-8b-shared-gpu` |
+| VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vss-vios-ingress` |
+| VST returns empty `sensor/streams` but VST container is healthy | Check Postgres health/logs with `docker logs vss-vios-postgres`. Current compose uses the named volume `vios_pg_data` for PGDATA, not a `$VSS_DATA_DIR` Postgres bind mount. See [`data-directory.md`](data-directory.md) before removing any volume. |
+| WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2` / `nvidia-cosmos-reason2-8b` |
 | HITL prompt never arrives | `vss-agent` misconfigured HITL config — check `config.yml` |
 | Empty report | VLM unreachable from inside `vss-agent` container — check `VLM_BASE_URL` in resolved compose env |
 

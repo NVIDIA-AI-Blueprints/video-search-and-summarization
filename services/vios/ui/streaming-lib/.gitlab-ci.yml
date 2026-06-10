@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+image:
+  name: node:latest
+  pull_policy: always
+
+stages:
+  - build
+  - lint
+
+cache:
+  paths:
+    - node_modules/
+
+build:
+  stage: build
+  tags:
+    - vst_streaming_lib
+  script:
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+
+lint:
+  stage: lint
+  tags:
+    - vst_streaming_lib
+  script:
+    - npm ci
+    - npm run lint
+  dependencies:
+    - build
+
+format-check:
+  stage: lint
+  tags:
+    - vst_streaming_lib
+  script:
+    - npm ci
+    - npm run format:check
+  dependencies:
+    - build

@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -40,6 +41,36 @@ FAKE_SPECS = {
     ],
 }
 SKILLS_WITH_ADAPTERS = {"vss-summarize-video", "vss-search-archive"}
+
+
+class SkillFilePaths(unittest.TestCase):
+    def test_returns_sorted_paths_starting_from_skills_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            skills_dir = Path(td) / "skills"
+            alpha = skills_dir / "alpha" / "SKILL.md"
+            beta = skills_dir / "beta" / "SKILL.md"
+            nested = skills_dir / "gamma" / "nested" / "SKILL.md"
+            noise = skills_dir / "delta" / "README.md"
+
+            for p in (alpha, beta, nested, noise):
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text("test\n")
+
+            self.assertEqual(
+                plan_matrix.list_skill_file_paths(skills_dir),
+                [
+                    "skills/alpha/SKILL.md",
+                    "skills/beta/SKILL.md",
+                    "skills/gamma/nested/SKILL.md",
+                ],
+            )
+
+    def test_returns_empty_list_when_skills_dir_is_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(
+                plan_matrix.list_skill_file_paths(Path(td) / "missing-skills"),
+                [],
+            )
 
 
 class BuildMatrix(unittest.TestCase):
@@ -86,6 +117,16 @@ class BuildMatrix(unittest.TestCase):
             "skills/vss-summarize-video/SKILL.md",
         ])
         self.assertEqual(self._stems(inc), ["a", "b"])  # a appears once
+
+    def test_changed_evals_json_falls_through_to_whole_skill(self):
+        # `evals.json` (plural) is a legacy aggregate index, not a spec, so a
+        # changed evals.json must not dispatch as its own leg. It falls through
+        # to whole-skill scope like any other non-spec file under the skill.
+        inc = plan_matrix.build_matrix(
+            ["skills/vss-summarize-video/evals/evals.json"]
+        )
+        self.assertEqual(self._stems(inc), ["a", "b"])
+        self.assertNotIn("evals", self._stems(inc))
 
     def test_harness_only_change_is_empty(self):
         for f in (
@@ -143,6 +184,29 @@ class BuildMatrix(unittest.TestCase):
         self.assertTrue(all(leg["kind"] == "eval" for leg in inc))
 
 
+class SpecsForSkill(unittest.TestCase):
+    """specs_for_skill globs the real tree, so it's tested against a temp
+    skills/ dir (not the stubbed FAKE_SPECS above)."""
+
+    def test_skips_aggregate_evals_json_index(self):
+        import tempfile
+
+        orig_root = plan_matrix.REPO_ROOT
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "skills" / "foo" / "evals"
+            d.mkdir(parents=True)
+            (d / "deploy.json").write_text("{}")        # real spec object
+            (d / "evals.json").write_text("[]")          # legacy array index
+            plan_matrix.REPO_ROOT = Path(td)
+            try:
+                specs = plan_matrix.specs_for_skill("foo")
+            finally:
+                plan_matrix.REPO_ROOT = orig_root
+        stems = sorted(s[2] for s in specs)
+        self.assertEqual(stems, ["deploy"])
+        self.assertNotIn("evals", stems)
+
+
 class ListChangedFiles(unittest.TestCase):
     def test_uses_local_git_diff_not_compare_api(self):
         """Guards the >300-file fix: changed files come from a local
@@ -175,6 +239,58 @@ class ListChangedFiles(unittest.TestCase):
         self.assertIn("diff", flat)
         self.assertIn("FETCH_HEAD...HEAD", flat)
         self.assertNotIn("compare", flat)
+
+    def test_manual_filter_enumerates_specs_without_git(self):
+        """Manual sweep (MANUAL_SKILLS_FILTER set) enumerates the chosen
+        skill's specs instead of diffing, so build_matrix fans them per
+        (spec, platform) like a push — and no git diff is run."""
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *a, **k):
+            calls.append(list(cmd))
+
+            class _R:
+                stdout = ""
+
+            return _R()
+
+        orig_run = plan_matrix.subprocess.run
+        orig_specs = plan_matrix.specs_for_skill
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        plan_matrix.subprocess.run = fake_run  # type: ignore[assignment]
+        # Use a real skill dir so the existence guard passes; specs_for_skill
+        # is stubbed so the assertion stays stable as the tree changes.
+        plan_matrix.specs_for_skill = lambda s: (
+            [("skills/vss-manage-alerts/evals/a.json", "evals", "a"),
+             ("skills/vss-manage-alerts/evals/b.json", "evals", "b")]
+            if s == "vss-manage-alerts" else []
+        )
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-manage-alerts"
+        try:
+            files = plan_matrix.list_changed_files()
+        finally:
+            plan_matrix.subprocess.run = orig_run  # type: ignore[assignment]
+            plan_matrix.specs_for_skill = orig_specs
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
+
+        self.assertEqual(files, ["skills/vss-manage-alerts/evals/a.json",
+                                 "skills/vss-manage-alerts/evals/b.json"])
+        self.assertEqual(calls, [])  # manual mode never invokes git
+
+    def test_manual_filter_unknown_skill_raises(self):
+        """A typo'd / non-existent skill filter fails the plan loudly instead
+        of emitting a silent empty matrix the eval job skips."""
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-this-skill-does-not-exist-xyz"
+        try:
+            with self.assertRaises(ValueError):
+                plan_matrix.list_changed_files()
+        finally:
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
 
 
 class EmitSlugSafety(unittest.TestCase):

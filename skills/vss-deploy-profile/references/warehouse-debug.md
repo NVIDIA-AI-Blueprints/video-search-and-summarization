@@ -140,7 +140,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 | `vss-agent` | Orchestrator |
 | `vss-agent-ui` | Next.js UI |
 | `vss-va-mcp` | Video Analysis MCP server |
-| `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies VST + kibana + analytics API there) |
+| `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies kibana + analytics API there) |
 | `phoenix` | Telemetry / observability |
 
 > **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). Warehouse uses **RTVI VLM only** — `vss-agent` connects to it directly. `VLM_MODE=none` in the warehouse `.env`. Do not search for a VLM NIM container — it does not exist in this stack.
@@ -235,6 +235,47 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 ```
 
 ## Service Access Points
+
+Expected access points after a successful deploy.
+
+**Standard (bare-metal / VM with reachable IP):**
+
+```
+HAProxy:             http://<host_ip>:7777
+Kibana:              http://<host_ip>:7777/kibana
+VST:                 http://<host_ip>:30888/vst/
+Grafana:             http://<host_ip>:35000
+NvStreamer:          http://<host_ip>:31000
+Video Analytics API: http://<host_ip>:7777/video-analytics-api
+```
+
+**Brev (secure-link domain):**
+
+```
+Access Points (Brev):
+
+HAProxy:             https://7777-<BREV_ENV_ID>.brevlab.com
+VSS UI:              https://7777-<BREV_ENV_ID>.brevlab.com
+Kibana:              https://7777-<BREV_ENV_ID>.brevlab.com/kibana
+VST:                 https://30888-<BREV_ENV_ID>.brevlab.com/vst/
+NvStreamer:          https://31000-<BREV_ENV_ID>.brevlab.com
+Video Analytics API: https://7777-<BREV_ENV_ID>.brevlab.com/video-analytics-api
+
+Brev Secure Links — each exposed port requires its own secure-link hostname:
+  Port 7777  (HAProxy)    → https://7777-<BREV_ENV_ID>.brevlab.com
+  Port 30888 (VST)        → https://30888-<BREV_ENV_ID>.brevlab.com
+  Port 31000 (NvStreamer)  → https://31000-<BREV_ENV_ID>.brevlab.com
+  Port 35000  (Grafana)     → https://35000-<BREV_ENV_ID>.brevlab.com
+
+HAProxy-routed paths (/, /kibana, /api, /chat, /websocket, /alert-bridge,
+/video-analytics-api, /phoenix, /va-mcp, /static) all go through
+the port-7777 secure link. Direct-port services (VST, NvStreamer, Grafana)
+each need their own secure link opened in the Brev dashboard.
+```
+
+If URLs still show the old `http://...:7777` form, the `VSS_PUBLIC_*` overrides were not applied — see [`warehouse.md` § Brev Secure Link Overrides](warehouse.md#brev-secure-link-overrides).
+
+VST is accessed directly on port `30888` — it does not go through the HAProxy ingress.
 
 For the full HAProxy ingress route table, direct-port diagnostics table, and
 the `h_main` Host-header ACL rules, see
@@ -560,6 +601,9 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
 | `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify `.env` values; redeploy |
 | `vss-haproxy-ingress` up but UI 502 / report links broken | `EXTERNAL_IP` / `HAPROXY_PORT` not browser-reachable | Set `EXTERNAL_IP` to a real reachable hostname (see `warehouse.md` Phase 5); redeploy |
+| Brev: UI loads but API calls fail / mixed-content errors in browser console | `VSS_PUBLIC_*` overrides not applied — browser-facing URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com` | Apply [Brev secure link overrides](warehouse.md#brev-secure-link-overrides): set `VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss`, `VSS_PUBLIC_HOST=7777-<BREV_ENV_ID>.brevlab.com`, `VSS_PUBLIC_PORT=443`; redeploy |
+| Brev: HAProxy returns 404 on all paths | `Host:` header in the request doesn't match HAProxy `h_main` ACL | Verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`); redeploy |
+| Brev: WebSocket chat connection refused / falls back to HTTP | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not `443` | Fix the `.env` overrides and redeploy |
 | `error from registry: Incorrect Repository Format` during `docker compose up` | Docker 29.x multi-arch pull regression | Pin to Docker 28.3.3 and Docker Compose v2.39.1+ (warehouse.md §2.2). |
 
 Present the summary in this format:
@@ -600,7 +644,7 @@ bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/
 ```bash
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
-docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
+printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 nohup docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
   up --detach --pull always --force-recreate --build \
@@ -618,3 +662,4 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 5. Re-run **Phase 2** (FPS check) and, for 3D / MV3DT, **Phase 5** (BEV sync) to confirm the issue is resolved.
 
 If the issue persists after redeploy, consult the [Documentation Reference](#documentation-reference) links above and `warehouse.md` → Troubleshooting.
+

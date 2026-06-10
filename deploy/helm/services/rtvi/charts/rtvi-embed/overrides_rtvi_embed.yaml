@@ -19,8 +19,8 @@ imagePullSecrets:
 
 # Keep image aligned with chart defaults unless you need a specific build.
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-  tag: "3.2.0-26.05.4"
+  repository: nvcr.io/nvidia/vss-core/vss-rt-embed
+  tag: "3.2.0"
   pullPolicy: IfNotPresent
 
 # Model source and implementation paths

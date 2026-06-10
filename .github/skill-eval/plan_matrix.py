@@ -26,6 +26,9 @@ of an adapterless skill don't race to commit it N times.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
+    MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name or `*`
+                   (all skills) — enumerates those specs instead of diffing,
+                   so the matrix fans per-(spec, platform) like a push
     CHANGED_FILES  optional newline-separated override (tests / local)
     GITHUB_OUTPUT  optional; when set, key=value lines are appended here
 """
@@ -56,6 +59,14 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # corrupting an artifact name or escaping a path.
 SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+# `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
+# scenarios, not a dispatchable spec object. It has no `resources.platforms`,
+# so spec_platforms() would choke on it (list has no .get), and the agent can't
+# run it as a single spec. Real specs are named per scenario (deploy.json,
+# routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
+# never becomes a matrix leg.
+EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
+
 
 def list_changed_files() -> list[str]:
     """Changed files in the cumulative PR diff (base...mirror head).
@@ -72,6 +83,33 @@ def list_changed_files() -> list[str]:
     override = os.environ.get("CHANGED_FILES")
     if override is not None:
         return [ln.strip() for ln in override.splitlines() if ln.strip()]
+
+    # Manual full-sweep (workflow_dispatch): there's no diff. Enumerate the
+    # chosen skill(s)' specs so build_matrix fans them per-(spec,platform)
+    # exactly like a push — this replaces the legacy single-agent sweep.
+    # `*` sweeps every skill; otherwise a bare skill-dir name.
+    manual = os.environ.get("MANUAL_SKILLS_FILTER")
+    if manual:
+        # workflow_dispatch input — guard against path escape before it
+        # reaches specs_for_skill (which globs REPO_ROOT/skills/<filter>/…).
+        if manual != "*" and not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]*", manual):
+            raise ValueError(
+                f"unsafe MANUAL_SKILLS_FILTER {manual!r}: expected a skill-dir "
+                f"name ([A-Za-z0-9_-]) or '*'"
+            )
+        # Fail loud on a typo'd / renamed skill rather than emitting an empty
+        # matrix that the eval job silently skips (the removed manual-sweep
+        # job errored here too).
+        if manual != "*" and not (REPO_ROOT / "skills" / manual).is_dir():
+            raise ValueError(
+                f"MANUAL_SKILLS_FILTER {manual!r}: skills/{manual}/ does not "
+                f"exist on this ref — check the skill name"
+            )
+        skills = (
+            sorted(p.name for p in (REPO_ROOT / "skills").iterdir() if p.is_dir())
+            if manual == "*" else [manual]
+        )
+        return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
 
     base = os.environ["PR_BASE"]
     subprocess.run(
@@ -94,6 +132,8 @@ def specs_for_skill(skill: str) -> list[tuple[str, str, str]]:
         if not d.is_dir():
             continue
         for p in sorted(d.glob("*.json")):
+            if p.name in EXCLUDED_SPEC_NAMES:
+                continue
             rel = p.relative_to(REPO_ROOT).as_posix()
             found.append((rel, eval_dir, p.stem))
     return found
@@ -101,6 +141,18 @@ def specs_for_skill(skill: str) -> list[tuple[str, str, str]]:
 
 def adapter_exists(skill: str) -> bool:
     return (ADAPTERS_DIR / skill / "generate.py").is_file()
+
+
+def list_skill_file_paths(skills_dir: Path | None = None) -> list[str]:
+    """Repo-relative paths to every SKILL.md file under the skills directory."""
+    root = skills_dir or (REPO_ROOT / "skills")
+    if not root.is_dir():
+        return []
+    return [
+        p.relative_to(root.parent).as_posix()
+        for p in sorted(root.rglob("SKILL.md"))
+        if p.is_file()
+    ]
 
 
 def spec_platforms(spec_path: str) -> list[str]:
@@ -128,7 +180,10 @@ def build_matrix(changed: list[str]) -> list[dict]:
 
     for f in changed:
         m = SPEC_RE.match(f)
-        if m:
+        # A changed `evals.json` is not a spec; let it fall through to the
+        # whole-skill rule below (and specs_for_skill keeps it out of that
+        # expansion too) rather than dispatching it as its own leg.
+        if m and Path(f).name not in EXCLUDED_SPEC_NAMES:
             changed_specs.add(f)
             continue
         m = SKILL_FILE_RE.match(f)
@@ -251,7 +306,11 @@ def emit(include: list[dict]) -> None:
 
 
 def main() -> int:
-    changed = list_changed_files()
+    DAILY_RUN = os.environ.get("DAILY_RUN")
+    if DAILY_RUN:
+        changed = list_skill_file_paths()
+    else:
+        changed = list_changed_files()
     print(f"changed files ({len(changed)}):", file=sys.stderr)
     for f in changed:
         print(f"  {f}", file=sys.stderr)

@@ -15,7 +15,7 @@
 
 services:
   perception:
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.05.1}
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0}
     network_mode: "host"
     runtime: nvidia
     container_name: vss-rtvi-cv-mv3dt
@@ -38,7 +38,7 @@ services:
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
 
   measurement-fusion:
-    image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0-26.05.1}
+    image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0}
     network_mode: "host"
     container_name: vss-rtvi-cv-bev-fusion
     restart: always

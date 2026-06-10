@@ -13,6 +13,10 @@ overrides to the generated profile env and resolve compose from that file:
 deploy/docker/developer-profiles/dev-profile-lvs/generated.env
 ```
 
+Password values should be supplied by that profile env or deployment-specific
+overrides; the service compose file intentionally does not define password
+defaults.
+
 Core deployment:
 
 | Var | Purpose |
@@ -49,7 +53,7 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.2.0-26.05.4` for x86 / Jetson-Tegra; `3.2.0-26.05.4-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4` and `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4-sbsa`. |
+| `RTVI_VLM_IMAGE_TAG` | `3.2.0` for x86 / Jetson-Tegra; `3.2.0-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0` and `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0-sbsa`. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
@@ -65,8 +69,8 @@ Video summarization service:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | Image repository. |
-| `LVS_TAG` | `3.2.0-rc11-d65196a` | Image tag in current develop. |
+| `LVS_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Image repository. |
+| `LVS_TAG` | `3.2.0` | Image tag in current develop. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Active CA-RAG database backend. Use `graph_db` for Neo4j or `graph_db_arango` for ArangoDB only with an embedding endpoint configured. |
 | `LVS_EMB_ENABLE` | `false` | Required as `true` for Neo4j or ArangoDB graph backends. |
@@ -140,7 +144,7 @@ Neo4j graph backend with the open-source `neo4j:5.26.4` container:
 LVS_DATABASE_BACKEND=graph_db
 GRAPH_DB_HOST=127.0.0.1          # or ${HOST_IP}; avoid graph-db with host-networked lvs-server
 GRAPH_DB_USERNAME=neo4j
-GRAPH_DB_PASSWORD=passneo4j
+GRAPH_DB_PASSWORD=<neo4j-password>
 GRAPH_DB_HTTP_PORT=7474
 GRAPH_DB_BOLT_PORT=7687
 LVS_EMB_ENABLE=true
@@ -156,7 +160,7 @@ container:
 LVS_DATABASE_BACKEND=graph_db_arango
 ARANGO_DB_HOST=127.0.0.1         # or ${HOST_IP}; avoid arango-db with host-networked lvs-server
 ARANGO_DB_USERNAME=root
-ARANGO_DB_PASSWORD=passroot
+ARANGO_DB_PASSWORD=<arango-password>
 ARANGO_DB_PORT=8529
 LVS_EMB_ENABLE=true
 LVS_EMB_MODEL_NAME=nvidia/llama-3.2-nv-embedqa-1b-v2

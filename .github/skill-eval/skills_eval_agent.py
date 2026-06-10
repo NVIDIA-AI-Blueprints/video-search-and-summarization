@@ -5,7 +5,7 @@
 
 Spawns one `claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md`
 as its system prompt and lets it drive an eval end-to-end:
-adapter/dataset → Brev lock → harbor run → results comment. Two modes:
+adapter/dataset → Brev box selection → run_leg.py → results comment. Two modes:
 
   - Single-spec (push): the `plan` job in skills-eval.yml resolves the PR
     diff into a matrix of one leg per (spec, platform); each leg invokes
@@ -31,8 +31,10 @@ Env (set by the workflow step):
     EVAL_SPEC_PATH        Single-spec mode: skills/<skill>/evals/<spec>.json.
     EVAL_SPEC_STEM        Single-spec mode: the spec filename without .json.
     EVAL_PLATFORM         Single-spec mode: the one platform this leg runs.
-    MANUAL_FULL_SWEEP     "1" on workflow_dispatch: full-sweep mode (see above).
-    MANUAL_SKILLS_FILTER  Skill name from the dispatch input, or "*" for all.
+    MANUAL_SKILLS_FILTER  Skill name from the dispatch input, or "*" for all —
+                          consumed by plan_matrix.py to build the manual-sweep
+                          matrix; manual legs run as single-spec with an empty
+                          PR_NUMBER (results go to the job summary).
     ANTHROPIC_*           Agent SDK credentials (sourced from coordinator .env)
     GH_TOKEN              PR comment posting (push mode only)
     NGC_CLI_API_KEY       Local NIM pulls in trials
@@ -70,7 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 
 # Hard cap on the agent's tool loop — one trial burns ~20-30 harness
-# turns (startup + brev wait + `uvx harbor run` exec + reading results +
+# turns (startup + brev wait + `run_leg.py` exec + reading results +
 # migrating to _viewer), so a full-PR fan-out of 10-15 trials plus
 # recon/retry overhead exceeds the previous 300 ceiling. The 600 cap
 # that replaced it was still tight when the agent hit a novel
@@ -79,7 +81,7 @@ AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 # without prior context) — each "discovery" burst is 5-10 turns of
 # Read/Grep/Bash spelunking on top of the steady-state per-trial
 # cost. Bumping to 2000 absorbs that overhead without lifting the
-# real ceiling (skills-eval.yml timeout-minutes: 480 is the wall-
+# real ceiling (skills-eval.yml timeout-minutes: 360 is the wall-
 # clock gate; this knob is just a safety valve against runaway
 # loops).
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "2000"))
@@ -122,25 +124,25 @@ def _disable_server_thinking() -> None:
 
 
 def _set_bash_timeouts() -> None:
-    """Raise the Bash tool's timeout cap above the worst-case single
-    `uvx harbor run` so the runtime never auto-backgrounds the foreground
-    trial call.
+    """Raise the Bash tool's timeout cap above the worst-case `run_leg.py`
+    foreground call.
 
     Claude Code moves a foreground Bash command to a background task once it
     crosses the Bash *max* timeout (default 600000 ms = 10 min), then
     surfaces it as pollable task output. That silently defeats AGENTS.md's
-    "block on harbor — no polling" contract for any trial longer than 10 min
-    (most real deploys: env-build 1800s + agent 3600s + verify 1800s ≈ 2h).
-    Past the cap the foreground call is backgrounded and the agent falls into
-    polling its task .output files. The
+    "block on run_leg.py / Harbor -- no polling" contract. A full leg can
+    include lock contention plus multiple ordered Harbor subprocesses, so the
+    foreground cap must cover the workflow job window, not just one Harbor
+    attempt. Past the cap the foreground call is backgrounded and the agent
+    falls into polling its task .output files. The
     `_block_bash_background` hook can't prevent it: the runtime sets
     run_in_background *after* the timeout, not in the call input the hook
     inspects. Raising the cap is the only structural fix. The CI workflow
     exports these too; set them here defensively so local smoke-tests and any
     non-CI caller get the same guarantee. Both stay under the workflow's
     timeout-minutes so a genuinely hung call is still reaped by the job."""
-    os.environ.setdefault("BASH_DEFAULT_TIMEOUT_MS", "7200000")   # 2h
-    os.environ.setdefault("BASH_MAX_TIMEOUT_MS", "10800000")      # 3h
+    os.environ.setdefault("BASH_DEFAULT_TIMEOUT_MS", "21600000")  # 6h
+    os.environ.setdefault("BASH_MAX_TIMEOUT_MS", "21600000")      # 6h
 
 
 # ---------------------------------------------------------------------------
@@ -206,12 +208,10 @@ def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
               flush=True)
         return None
 
-    manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
     generated = datetime.datetime.now(datetime.timezone.utc).strftime(
         "%Y-%m-%d %H:%M:%S UTC")
 
-    title = ("Skills Eval Benchmark — Manual full-sweep" if manual_sweep
-             else "Skills Eval Benchmark")
+    title = "Skills Eval Benchmark"
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as fp:
@@ -248,7 +248,7 @@ def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
 async def _block_bash_background(input_data, tool_use_id, context):
     """PreToolUse hook: deny any Bash call that backgrounds work.
 
-    AGENTS.md § "No polling — block on harbor" requires `uvx harbor run`
+    AGENTS.md § "No polling — block on harbor" requires `run_leg.py`
     to be invoked synchronously so the orchestrating agent blocks on
     stdout instead of polling an output file. Enforcing that in prose
     alone is fragile — a drifting agent can still set
@@ -265,7 +265,7 @@ async def _block_bash_background(input_data, tool_use_id, context):
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": (
-                    "Backgrounding forbidden — run harbor synchronously "
+                    "Backgrounding forbidden — run run_leg.py synchronously "
                     "(AGENTS.md § No polling — block on harbor)."
                 ),
             }
@@ -291,37 +291,27 @@ async def run_agent() -> int:
         HookMatcher, ResultMessage, TextBlock, ToolUseBlock,
     )
 
-    manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
+    daily_run = os.environ.get("DAILY_RUN") == "true"
     pr_head = _require("PR_HEAD_SHA")
     pr_repo = _require("PR_REPO")
     run_id = os.environ.get("GITHUB_RUN_ID", f"local-{int(time.time())}")
 
-    if manual_sweep:
-        # workflow_dispatch path: no PR, no diff. PR_NUMBER/PR_BASE may be
-        # blank — keep them as empty strings so any downstream prompt
-        # interpolation still works.
-        pr_number = os.environ.get("PR_NUMBER", "") or f"manual-{run_id}"
-        pr_base = os.environ.get("PR_BASE", "") or "(manual)"
-        # `type: choice` already constrains the value server-side, but
-        # strip whitespace + newlines defensively before splicing into
-        # the agent's user prompt. The agent runs with bypassPermissions
-        # and full filesystem tools, so any prompt-templated user data is
-        # worth scrubbing regardless of the upstream guard.
-        skills_filter = os.environ.get("MANUAL_SKILLS_FILTER", "*").strip().splitlines()[0] if os.environ.get("MANUAL_SKILLS_FILTER", "").strip() else "*"
-        step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
-    else:
-        # Single-spec mode (push path): the `plan` job already resolved the
-        # diff into one matrix leg, so this run evaluates exactly one
-        # (skill, spec) — no diff, no looping. EVAL_KIND distinguishes a
-        # normal eval leg from a missing-adapter leg (which only commits the
-        # adapter, no trial). The legacy whole-PR-diff loop is gone; the matrix owns
-        # fan-out now.
-        pr_number = _require("PR_NUMBER")
-        pr_base = _require("PR_BASE")
-        eval_kind = os.environ.get("EVAL_KIND", "eval")
-        eval_skill = _require("EVAL_SKILL")
-        eval_spec_path = os.environ.get("EVAL_SPEC_PATH", "")
-        eval_platform = os.environ.get("EVAL_PLATFORM", "")
+    # Single-spec mode (push AND manual sweep): the `plan` job resolved a diff
+    # (push) or the picked skill's specs (workflow_dispatch) into one matrix
+    # leg, so this run evaluates exactly one (skill, spec, platform) — no diff,
+    # no looping. EVAL_KIND distinguishes a normal eval leg from a
+    # missing-adapter leg (which only commits the adapter). PR_NUMBER is empty
+    # on a manual sweep — the leg then writes its result to its job summary
+    # ($GITHUB_STEP_SUMMARY) instead of a PR comment, and cannot auto-commit an
+    # adapter (no contributor branch). The legacy single-agent sweep is gone;
+    # the matrix owns fan-out for both push and manual now.
+    pr_number = os.environ.get("PR_NUMBER", "")   # empty ⇒ manual sweep
+    pr_base = os.environ.get("PR_BASE", "")
+    eval_kind = os.environ.get("EVAL_KIND", "eval")
+    eval_skill = _require("EVAL_SKILL")
+    eval_spec_path = os.environ.get("EVAL_SPEC_PATH", "")
+    eval_platform = os.environ.get("EVAL_PLATFORM", "")
+    manual = not pr_number
 
     if not AGENTS_MD.exists():
         print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
@@ -329,65 +319,17 @@ async def run_agent() -> int:
 
     system_prompt = AGENTS_MD.read_text()
 
-    if manual_sweep:
+    if eval_kind == "missing_adapter":
+        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
         user_prompt = f"""
-**Manual full-sweep run** — `workflow_dispatch` fired (no PR, no diff).
-
-Context:
-  repo                = {pr_repo}
-  head SHA            = {pr_head}
-  workflow run        = {run_id}
-  working dir         = {REPO_ROOT}
-  skills filter       = {skills_filter}   (single skill name from the dispatch dropdown, or `*` = all)
-  GITHUB_STEP_SUMMARY = {step_summary or '(unset — fall back to stdout)'}
-
-Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
-
-  Step 1 (override): skip the diff entirely. Enumerate `skills/*/evals/*.json`
-    on the checked-out workspace. Keep only the skill named in `skills filter`
-    (the dispatch dropdown is single-select; `*` matches all). All specs on the
-    chosen skill(s) run — there is no spec-level filter. Skills with no eval/
-    dir are runtime libraries and are skipped as in the normal path.
-
-  Step 3 (override): the adapter auto-commit flow is OFF in manual mode
-    (there's no contributor branch to target). If an adapter is missing or
-    stale for a spec, record that spec as BLOCKED with the trigger that fired
-    (missing / stale / spec drift) and a one-line reason in the results
-    table — DO NOT push anything. Keep processing the
-    remaining (skill, spec) pairs.
-
-  Step 6 (override): there is no PR to comment on. For each completed
-    `(skill, spec)` batch, append the same markdown table you would have
-    posted via `gh pr comment` to the path in `$GITHUB_STEP_SUMMARY`. Use:
-
-      cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
-      ## Harbor Eval — `skills/<skill>/evals/<spec>.json`
-      ... (table + failing checks + suggestions, identical to § Result comment format) ...
-      MD
-
-    Append per-spec — don't buffer everything for the end. If
-    `$GITHUB_STEP_SUMMARY` is empty/unset (smoke-test locally), print the
-    same markdown to stdout instead and note the fallback.
-
-Everything else in AGENTS.md applies unchanged: startup hygiene, fleet
-selection (§ 5a), per-box flock (§ 5b), canonical harbor invocation, no
-trial-supervision polling, no writes under `skills/`, no instance lifecycle
-calls.
-
-When done, emit `DONE: <n>/<total> specs passed; <m> blockers` on the final
-line. If the sweep couldn't proceed at all (e.g. pool exhausted before the
-first trial), emit `BLOCKED: <reason>` instead.
-"""
-    elif eval_kind == "missing_adapter":
-        user_prompt = f"""
-PR #{pr_number}: skill `{eval_skill}` ships eval specs but has NO adapter at
+{target}: skill `{eval_skill}` ships eval specs but has NO adapter at
 `.github/skill-eval/adapters/{eval_skill}/generate.py`. The `plan` job
 collapsed every spec on this skill into this one leg so the adapter is
 committed exactly once.
 
 Context:
   repo         = {pr_repo}
-  PR number    = {pr_number}
+  PR number    = {pr_number or "(manual sweep — no PR)"}
   base branch  = {pr_base}
   mirror head  = {pr_head}
   workflow run = {run_id}
@@ -398,20 +340,57 @@ the adapter and COMMIT it directly to the source PR's `headRefName` (NOT the
 mirror) so the eval re-runs against it on the next sync. Do NOT run any trial
 in this leg (the re-run evaluates the committed adapter), and do NOT post a
 results comment. For an external-fork PR (the bot can't push to a fork),
-comment that the contributor must add the adapter and BLOCK instead.
+comment that the contributor must add the adapter and BLOCK instead. If this
+is a manual sweep (`PR number` above is blank) there is no branch to commit
+to — record the missing adapter in `$GITHUB_STEP_SUMMARY` and BLOCK.
 
 End with `BLOCKED: missing adapter for {eval_skill} auto-committed (<sha>)`
 once pushed, `BLOCKED: fork PR — adapter must be added by the contributor`
-for a fork, or `BLOCKED: <reason>` if you could not commit.
+for a fork, `BLOCKED: missing adapter for {eval_skill} (manual sweep)` for a
+manual run, or `BLOCKED: <reason>` if you could not commit.
 """
-    else:
+    elif daily_run:
         user_prompt = f"""
-PR #{pr_number}: evaluate exactly ONE spec on ONE platform —
+Develop: evaluate exactly ONE spec on ONE platform —
 `{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
 
 Context:
   repo         = {pr_repo}
-  PR number    = {pr_number}
+  base branch  = develop
+  mirror head  = {pr_head}
+  workflow run = {run_id}
+  working dir  = {REPO_ROOT}
+  spec         = {eval_spec_path}
+  platform     = {eval_platform or "(read from spec)"}
+  leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
+
+Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
+already selected this (spec, platform). Run steps 2–7 for it only:
+ensure its adapter exists under `.github/skill-eval/adapters/{eval_skill}/`
+(missing/stale → just skip this spec)
+→ generate the dataset → acquire a per-box flock
+on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run harbor synchronously for this platform (§ Harbor invocation; never
+background it) → gather results →
+append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on). Do NOT touch
+any other spec or skill.
+
+End with `DONE: <reward summary>` after posting the comment, or
+`BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
+"""
+    else:
+        target = f"PR #{pr_number}" if pr_number else "Manual sweep"
+        post_step = (
+            "append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on)"
+            if manual else "post ONE PR comment for this spec"
+        )
+        user_prompt = f"""
+{target}: evaluate exactly ONE spec on ONE platform —
+`{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
+
+Context:
+  repo         = {pr_repo}
+  PR number    = {pr_number or "(manual sweep — no PR)"}
   base branch  = {pr_base}
   mirror head  = {pr_head}
   workflow run = {run_id}
@@ -423,16 +402,15 @@ Context:
 Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
 already selected this (spec, platform). Run steps 2–7 for it only:
 ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
-(missing/stale → commit it to the PR branch per § 3c, then exit BLOCKED;
-the eval re-runs on sync — never run a locally-patched adapter in this leg)
-→ generate the dataset → acquire a per-box flock
-on a `vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
-run harbor synchronously for this platform (§ Harbor invocation; never
-background it) → gather results →
-post ONE PR comment for this spec (§ Result comment format). Do NOT touch
-any other spec or skill.
+(missing/stale → handle per § 3c, then exit BLOCKED — never run a
+locally-patched adapter in this leg) → generate the dataset → select a
+`vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
+run `.github/skill-eval/run_leg.py` for this platform (§ Harbor invocation;
+never background it; the wrapper holds the per-box lock while Harbor runs)
+→ gather results →
+{post_step} (§ Result comment format). Do NOT touch any other spec or skill.
 
-End with `DONE: <reward summary>` after posting the comment, or
+End with `DONE: <reward summary>` after posting the result, or
 `BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
 """
 

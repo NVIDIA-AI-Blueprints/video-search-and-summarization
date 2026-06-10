@@ -1,0 +1,13 @@
+# Compiled objects and dependency files
+*.o
+*.d
+
+# CSV files
+*.csv
+
+# UI test artifacts
+.playwright-mcp/
+*.png
+
+# Sonar database
+sonar-databases/

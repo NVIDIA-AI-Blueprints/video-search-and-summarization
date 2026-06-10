@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for live RTSP captioning or incident-range reports. <br>
+Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for report generation or live RTSP captioning. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers building AI-powered video analytics applications who need to produce narrative summaries of recorded video clips with timestamped events. <br>
+Developers and engineers use this skill to produce narrative summaries of recorded video clips via the LVS video summarization microservice with human-in-the-loop gating, or a direct VLM fallback when the service is unavailable. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,21 +19,30 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [Video Summarization API Reference](references/video-summarization-api.md) <br>
 - [Video Summarization Deployment](references/video-summarization-deployment.md) <br>
+- [Video Summarization Debugging](references/video-summarization-debugging.md) <br>
+- [Video Summarization Environment Variables](references/video-summarization-environment-variables.md) <br>
+- [HITL Prompts](references/hitl-prompts.md) <br>
 - [End-to-End Example](references/end-to-end-example.md) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Analysis, Shell commands] <br>
+**Output Type(s):** [API Calls, Shell commands] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
+## Evaluation Agents Used: <br>
+- `claude-code` <br>
+- `codex` <br>
+
+
+
 ## Evaluation Tasks: <br>
-NVSkills-Eval 3-Tier Evaluation with external profile; Tier 1 static validation (9 checks), Tier 2 deduplication (2 checks). Tier 3 live agent evaluation not available. <br>
+Evaluated against 1 task from the NVSkills-Eval external profile in the astra-sandbox environment. The dataset contained 1 positive skill-activation task with 1 attempt per task and a 50% pass threshold. Overall verdict: PASS. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -43,7 +52,25 @@ Reported benchmark dimensions: <br>
 - Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
 - Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
 
+Underlying evaluation signals used in this run: <br>
+- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
+- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
+- `accuracy`: Grades final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
+- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
+- `token_efficiency`: Compares token usage with and without the skill. <br>
 
+
+
+## Evaluation Results: <br>
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | 1 | 100% (+100%) | 100% (+100%) |
+| Correctness | 1 | 100% (+12%) | 97% (+36%) |
+| Discoverability | 1 | 100% (+6%) | 92% (+4%) |
+| Effectiveness | 1 | 72% (+10%) | 88% (+38%) |
+| Efficiency | 1 | 90% (+19%) | 83% (+7%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

@@ -20,7 +20,7 @@ Key service signals in the current develop branch:
 | Compose profile | `bp_developer_lvs_2d` |
 | video summarization service | `lvs-server` |
 | video summarization container | `vss-lvs` |
-| video summarization image | `${LVS_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.0-rc11-d65196a}` |
+| video summarization image | `${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.0}` |
 | REST API | `http://<HOST_IP>:38111` |
 | Readiness | `GET /v1/ready` |
 | MCP port | `38112`, disabled by default in the developer profile |
@@ -65,6 +65,8 @@ The checked-in profile env file,
 For a deployment, follow `vss-deploy-profile` and apply overrides to
 `deploy/docker/developer-profiles/dev-profile-lvs/generated.env`, then resolve
 `deploy/docker/resolved.yml`. Do not edit the service compose directly.
+Password values should come from the profile env or deployment overrides; do
+not add password defaults to the service compose file.
 
 Core required values:
 
@@ -84,8 +86,8 @@ Video summarization service values:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | video summarization image repository. |
-| `LVS_TAG` | `3.2.0-rc11-d65196a` | video summarization image tag in current develop. |
+| `LVS_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | video summarization image repository. |
+| `LVS_TAG` | `3.2.0` | video summarization image tag in current develop. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
@@ -149,7 +151,7 @@ services:
     image: neo4j:5.26.4
     container_name: graph-db
     environment:
-      NEO4J_AUTH: ${GRAPH_DB_USERNAME:-neo4j}/${GRAPH_DB_PASSWORD:-passneo4j}
+      NEO4J_AUTH: ${GRAPH_DB_USERNAME:-neo4j}/${GRAPH_DB_PASSWORD:?GRAPH_DB_PASSWORD_required}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_server_bolt_listen__address: 0.0.0.0:${GRAPH_DB_BOLT_PORT:-7687}
       NEO4J_server_http_listen__address: 0.0.0.0:${GRAPH_DB_HTTP_PORT:-7474}
@@ -163,7 +165,7 @@ services:
       LVS_DATABASE_BACKEND: graph_db
       GRAPH_DB_HOST: 127.0.0.1
       GRAPH_DB_USERNAME: ${GRAPH_DB_USERNAME:-neo4j}
-      GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD:-passneo4j}
+      GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD:?GRAPH_DB_PASSWORD_required}
       GRAPH_DB_HTTP_PORT: ${GRAPH_DB_HTTP_PORT:-7474}
       GRAPH_DB_BOLT_PORT: ${GRAPH_DB_BOLT_PORT:-7687}
       LVS_EMB_ENABLE: "true"
@@ -180,7 +182,7 @@ services:
     image: arangodb/arangodb:3.12.4
     container_name: arango-db
     environment:
-      ARANGO_ROOT_PASSWORD: ${ARANGO_DB_PASSWORD:-passroot}
+      ARANGO_ROOT_PASSWORD: ${ARANGO_DB_PASSWORD:?ARANGO_DB_PASSWORD_required}
     ports:
       - ${ARANGO_DB_PORT:-8529}:${ARANGO_DB_PORT:-8529}
     command:
@@ -195,7 +197,7 @@ services:
       LVS_DATABASE_BACKEND: graph_db_arango
       ARANGO_DB_HOST: 127.0.0.1
       ARANGO_DB_USERNAME: ${ARANGO_DB_USERNAME:-root}
-      ARANGO_DB_PASSWORD: ${ARANGO_DB_PASSWORD:-passroot}
+      ARANGO_DB_PASSWORD: ${ARANGO_DB_PASSWORD:?ARANGO_DB_PASSWORD_required}
       ARANGO_DB_PORT: ${ARANGO_DB_PORT:-8529}
       LVS_EMB_ENABLE: "true"
       LVS_EMB_MODEL_NAME: ${LVS_EMB_MODEL_NAME}
@@ -276,8 +278,8 @@ that exact id.
 The Helm service chart lives at `deploy/helm/services/video-summarization`.
 Important 3.2 values:
 
-- `image.repository: nvcr.io/nvstaging/vss-core/vss-video-summarization`
-- `image.tag: "3.2.0-rc11-d65196a"`
+- `image.repository: nvcr.io/nvidia/vss-core/vss-video-summarization`
+- `image.tag: "3.2.0"`
 - `service.backendPort: 38111`
 - `service.mcpPort: 38112`
 - `KAFKA_ENABLED: "true"`

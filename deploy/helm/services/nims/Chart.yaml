@@ -18,24 +18,24 @@ name: nims
 description: >
   Shared NVIDIA NIM umbrella containing NVIDIA NIM Operator CRDs (NIMCache + NIMService).
 type: application
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0.0"
 
 dependencies:
   - name: nemotron-nano-9b-v2
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/nemotron-nano-9b-v2"
     alias: nemotron
     condition: nemotron.enabled
 
   - name: cosmos-reason2-8b
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/cosmos-reason2-8b"
     alias: cosmos
     condition: cosmos.enabled
 
   - name: cosmos3-reasoner
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/cosmos3-reasoner"
     alias: cosmos3
     condition: cosmos3.enabled

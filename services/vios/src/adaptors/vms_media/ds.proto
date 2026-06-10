@@ -1,0 +1,220 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package protocols.daim.gateway.ds;
+
+enum AudioCodec
+{
+    // G.711 is the most widespread audio codec in use among telephone
+    // appliances and it is an audio algorithm that is widely used and
+    // supported by video conferencing systems.
+    G711 = 0;
+
+    // G.726 is an ITU-T standard speech codec used for the transmission
+    // of voice at rates on 16, 24, 32, and 40 kbit/s channels.
+    G726 = 1;
+
+    // Advanced Audio Coding (AAC) is an audio coding standard for lossy
+    // digital audio compression.
+    AAC = 2;
+}
+
+enum VideoCodec
+{
+    // Motion JPEG (M-JPEG or MJPEG).
+    MJPEG = 0;
+
+    // Advanced Video Coding (AVC), also referred to as H.264.
+    H264 = 1;
+
+    // High Efficiency Video Coding (HEVC), also known as H.265.
+    H265 = 2;
+}
+
+message Snapshot
+{
+    // Timestamp of when snapshot was taken.
+    google.protobuf.Timestamp timestamp = 1;
+
+    // The snapshot as a JPEG image. If empty, then no stream data was
+    // available to take a snapshot from.
+    bytes jpeg_image = 2;
+}
+
+message AudioData
+{
+    // Codec used for compressing the audio.
+    AudioCodec codec = 1;
+
+    // uint32 sequence_number = 2;
+    // google.protobuf.Timestamp timestamp = 3;
+    // uint32 sample_count = 4;
+    // uint32 channel_count = 5;
+    // uint32 bits_per_sample = 6;
+    // uint32 sample_frequency = 7;
+    // bytes samples = 8;
+}
+
+message VideoFrame
+{
+    // A number that will increase by one for each frame received. If the
+    // number increases by more than one, then one or more frames have been
+    // lost. If the number decreases, the counter has wrapped around.
+    uint32 sequence_number = 1;
+
+    // Timestamp of video frame.
+    google.protobuf.Timestamp timestamp = 2;
+
+    // Timestamp of synchronization point in video stream. For MJPEG, this will
+    // always match the frame timestamp. For H.264 and H.265, it will be the
+    // timestamp of the keyframe / i-frame from where decoding can start.
+    google.protobuf.Timestamp sync_point = 3;
+
+    // The actual data of the video frame.
+    bytes data = 4;
+}
+
+message VideoData
+{
+    // Codec used for compressing the video frames.
+    VideoCodec codec = 1;
+
+    // List of video frames in data. For live data, video frames will always be
+    // individually available. For recorded data, video frames will be grouped
+    // together by synchronization points. Specifically for H.264 and H.265,
+    // the list of frame will always constitute an entire GOP.
+    repeated VideoFrame frames = 2;
+}
+
+message StreamData
+{
+    // Data can be either audio or video data.
+    oneof data {
+        AudioData audio_data = 1;
+        VideoData video_data = 2;
+    }
+}
+
+message SnapshotRequest
+{
+    // ID of stream to take snapshot from.
+    string stream_id = 1;
+
+    // Maximum width in pixels of snapshot image.
+    uint32 max_width = 2;
+
+    // Maximum height in pixels of snapshot image.
+    uint32 max_height = 3;
+
+    // Token by which to authorize access to snapshot; leave blank to use
+    // default authorization.
+    string token = 4;
+}
+
+message LiveRequest
+{
+    // ID of stream to get live data from.
+    string stream_id = 1;
+
+    // If true, stream only data for which motion has been detected.
+    bool motion_only = 2;
+}
+
+message PlaybackRequest
+{
+    // ID of stream to get recorded data from.
+    string stream_id = 1;
+
+    // Stream data starting from this timestamp. Data will be streamed from the
+    // first synchronization point at or before the given timestamp. For H.264
+    // and H.265, this means that the first video frame streamed will always be
+    // a keyframe (i-frame).
+    google.protobuf.Timestamp from = 2;
+
+    // Stream data until this timestamp. Data will be streamed until, but not
+    // inclusive the next synchronization point in the stream. For H.264 and
+    // H.265, this means that an entire GOP will always be streamed even if
+    // you only request part of it.
+    google.protobuf.Timestamp to = 3;
+}
+
+message MoveFirst {
+}
+
+message MoveLast {
+}
+
+message MoveNext {
+}
+
+message MovePrevious {
+}
+
+message MoveTo {
+    // Timestamp of data to move current position to.
+    google.protobuf.Timestamp timestamp = 1;
+}
+
+message RandomAccessRequest
+{
+    // ID of stream to get recorded data from. It will be the stream id of the
+    // first request that will define the stream to use.
+    string stream_id = 1;
+
+    // A random access stream maintains a current position in the recorded
+    // data. Using the following commands, you can change this position.
+    // Everytime you change position, the data at the new position will be
+    // fetched. Initially the position in undefined and you have to execute
+    // either a MoveFirst, MoveLast or MoveTo command. Every command will
+    // result in exactly one piece of data being fetched. It might be empty
+    // if e.g. no recorded data is available.
+    oneof command {
+        // Move position to first recorded data and fetch it. If no recorded
+        // data are available, the position will be left undefined and the
+        // fetched data will be empty.
+        MoveFirst move_first = 2;
+
+        // Move position to last recorded data and fetch it. If no recorded
+        // data are available, the position will be left undefined and the
+        // fetched data will be empty.
+        MoveLast move_last = 3;
+
+        // Move position to next recorded data relative to current position
+        // and fetch it. Using the command when the current position is
+        // undefined is considered illegal and the stream will be terminated.
+        // If the current position is at the last recorded data, the position
+        // will not change and the last recorded data will be fetched.
+        MoveNext move_next = 4;
+
+        // Move position to previous recorded data relative to current position
+        // and fetch it. Using the command when the current position is
+        // undefined is cosidered illegal and the stream will be terminated. If
+        // the current position is at the first recorded data, the position
+        // will not change and the first recorded data will be fetched.
+        MovePrevious move_previous = 5;
+
+        // Move position to recorded data at specific time and fetch it. If
+        // data does not exist with the exact time specified, the nearest data
+        // before the given timestamp will be matched. Should there be no data
+        // before this timestamp, then the nearest data after the timestamp
+        // will be matched. If there is no recorded data, the current position
+        // will be left undefined and the fetched data will be empty.
+        MoveTo move_to = 6;
+    }
+}
+
+service DirectStreaming
+{
+    // Use this method to take a snapshot of data.
+    rpc TakeSnapshot(SnapshotRequest) returns (Snapshot) {}
+
+    // Use this method to stream live data.
+    rpc LiveStream(LiveRequest) returns (stream StreamData) {}
+
+    // Use this method to stream recorded data in chronological order between to timestamps.
+    rpc PlaybackStream(PlaybackRequest) returns (stream StreamData) {}
+
+    // Use this method to stream recorded data in random order as requested.
+    rpc RandomAccessStream(stream RandomAccessRequest) returns (stream StreamData) {}
+}

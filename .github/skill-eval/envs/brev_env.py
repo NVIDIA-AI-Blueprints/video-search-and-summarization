@@ -182,12 +182,32 @@ class BrevEnvironment(BaseEnvironment):
 
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
-        await _run_brev_exec(
+        #
+        # Wipe /logs/artifacts and /logs/verifier FIRST: harbor's
+        # Trial._download_artifacts() does a blanket download_dir(/logs/artifacts)
+        # and nothing on a warm-pool box ever clears that dir, so a prior
+        # trial's arbitrarily-named files get collected as THIS trial's
+        # artifacts (observed: 3-day-old `nemoclaw/` base-deploy logs surfacing
+        # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
+        # left intact here — its prior-trial session JSONLs are handled by the
+        # archive step just below (move-not-delete, for forensic SSH access).
+        setup_dirs_result = await _run_brev_exec(
             self._instance_name,
+            "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
             "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
+        # Fail loud: this is the load-bearing artifacts wipe. A silent failure
+        # would leave the prior trial's /logs/artifacts in place and re-collect
+        # it as this trial's output — the exact contamination being fixed —
+        # so it gets the same exit-code guard as the docker reset / repo sync.
+        if setup_dirs_result.return_code != 0:
+            tail = (setup_dirs_result.stderr or setup_dirs_result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"log-dir reset/setup failed on {self._instance_name}: "
+                f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
+            )
 
         # Archive any session JSONLs left by prior trials on this warm-pool
         # box. Without this, harbor's claude-code mapper merges every
@@ -221,6 +241,28 @@ class BrevEnvironment(BaseEnvironment):
             "fi"
         )
         await _run_brev_exec(self._instance_name, archive_cmd, timeout=30)
+
+        # Clear Claude Code's background-task scratch before the new
+        # `claude --print` starts. Session JSONL archival above handles stale
+        # `/logs/agent/sessions/projects/*`, but completed background tasks
+        # can also leave markers under `/tmp/claude-<uid>/.../tasks`. Claude
+        # Code may surface those as fresh `<task-notification>` messages in
+        # the next session, polluting the trajectory before the eval prompt.
+        claude_task_cleanup_result = await _run_brev_exec(
+            self._instance_name,
+            _claude_task_scratch_cleanup_command(),
+            timeout=30,
+        )
+        if claude_task_cleanup_result.return_code != 0:
+            tail = (
+                claude_task_cleanup_result.stderr
+                or claude_task_cleanup_result.stdout
+                or ""
+            )[-500:]
+            raise RuntimeError(
+                f"claude task scratch cleanup failed on {self._instance_name}: "
+                f"exit {claude_task_cleanup_result.return_code}; tail:\n{tail}"
+            )
 
         # Forward task-critical env vars from the local shell into the
         # instance's ~/.eval_env (sourced by ~/.profile, which every
@@ -286,6 +328,40 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
+        # Wipe the warm-pool box's docker runtime to a clean slate so no
+        # prior trial's deployment state can contaminate this one. Images are
+        # preserved (re-pulling the image set is slow); all containers,
+        # user-defined networks, and volumes are removed. See
+        # _reset_docker_runtime for why this is blanket, not VSS-scoped.
+        #
+        # Gate: ONLY on a spec's first trial — a single-step spec (task dir is
+        # the platform, e.g. `rtxpro6000bw`) or `step-1` of a multi-step spec.
+        # Multi-step checks for step N assume the deployment state established
+        # by step N-1 (AGENTS.md § "Multi-step specs"), and each step is a
+        # separate `harbor run` → separate start(); resetting before step-2+
+        # would destroy the very state under test. step-1 gets the clean box;
+        # later steps build on it. (`environment_dir.parent` is the task dir —
+        # named `step-N` for multi-step, the platform for single-step.)
+        # Caveat: a manual `harbor run` targeting only `step-2+` in isolation
+        # skips the reset and inherits whatever is on the box — run `step-1`
+        # first, or reset by hand. Normal CI always runs `step-1` first on a
+        # freshly reset box, so the gate is correct there.
+        #
+        # NOTE: docker reset runs BEFORE repo sync because running containers
+        # may have bind-mounted host paths inside $REPO (e.g.
+        # deploy/docker/data-dir/) and written root-owned files there. Without
+        # stopping them first, `git clean` in the repo sync step fails with
+        # "Permission denied" on those root-owned files/dirs.
+        task_dir_name = self.environment_dir.parent.name
+        if task_dir_name.startswith("step-") and task_dir_name != "step-1":
+            logger.info(
+                "Skipping docker runtime reset on %s — %s of a multi-step spec "
+                "must preserve step-1's deployment state",
+                self._instance_name, task_dir_name,
+            )
+        else:
+            await self._reset_docker_runtime()
+
         # Sync ~/video-search-and-summarization on the box to the PR's
         # actual head SHA before any deploy/agent step reads it.
         #
@@ -310,6 +386,86 @@ class BrevEnvironment(BaseEnvironment):
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _reset_docker_runtime(self) -> None:
+        """Wipe the warm-pool box's docker runtime before the trial.
+
+        Removes **all** containers (running + stopped), **all** volumes
+        (named + anonymous), and **all** user-defined networks, while
+        **preserving images** — re-pulling the multi-GB VSS/NIM image set on
+        every trial would dominate wall-clock.
+
+        Why blanket, not VSS-project-scoped: trials reach a deploy through
+        heterogeneous paths — direct `docker compose --profile …`, the
+        `/vss-deploy-profile` runbook, an MCP-orchestrator base deploy — under
+        different compose project names. A project- or label-scoped
+        `compose down` from the incoming trial therefore cannot reach a
+        *predecessor's* stack, so a leftover container port-conflicts the new
+        deploy (observed: a profile_in_1 trial where `phoenix` was stuck
+        `Created` and several init containers were missing because a prior
+        base-profile deploy's containers still held the ports). Removing
+        everything is the only reset that doesn't depend on knowing what the
+        last trial deployed. Safe because `vss-eval-*` boxes are a dedicated,
+        flock-serialised eval pool — nothing else runs on them.
+
+        NOTE: wiping all volumes also drops the model-weight caches
+        (`rtvi-hf-cache`, `rtvi-ngc-model-cache`), so the next deploy pays the
+        full cold model-weight download (~20 min vs ~55 s warm). The caller
+        gates this to a spec's first trial only (single-step, or step-1 of a
+        multi-step spec — later steps reuse step-1's deployment), so under the
+        canonical `-n 1 --max-retries 0` invocation (one trial per spec) the
+        cost is paid once per spec, not once per step. An `-n>1` rollout, a
+        harbor retry, or a repeated manual run on the same warm box each
+        re-wipes the caches and re-pays the cold start. The per-trial harbor
+        timeout already budgets for a cold deploy.
+
+        Runs as the normal (docker-group) user — the same identity the
+        trial's deploy uses; no sudo. `network prune` leaves the built-in
+        bridge/host/none networks, which is correct. Fails loud (`set -u`,
+        explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
+        if any container, volume, or user-defined network survives, so a
+        half-reset box surfaces as a trial error rather than silent cross-trial
+        contamination.
+        """
+        cmd = r"""set -uo pipefail
+docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
+cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
+vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
+docker network prune -f >/dev/null 2>&1 || true
+# Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
+# died mid-script would make the count commands below print nothing and the
+# guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
+# this check, so the remaining TOCTOU window is negligible.
+docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
+rc=$(docker ps -aq | wc -l | tr -d ' ')
+rv=$(docker volume ls -q | wc -l | tr -d ' ')
+# Only user-defined networks should be gone; the built-in bridge/host/none
+# are never removable, so filter to type=custom. A surviving user network
+# would collide ("network already exists" / address-range clash) on the next
+# `compose up`, so it must fail the reset like a surviving container/volume.
+rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
+if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
+  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
+  exit 1
+fi
+echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
+"""
+        logger.info(
+            "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"docker runtime reset failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Docker reset on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
+        )
 
     async def _sync_repo_to_pr_head(self) -> None:
         """Reset `~/video-search-and-summarization` on the Brev box to the
@@ -368,7 +524,10 @@ fi
 # Drop leftover working-tree state from a prior trial, but keep data/
 # (sample-data extract — slow to re-pull from NGC) and any .env tweaks
 # the active trial may have placed.
-git clean -fdx -e data/ -e .env
+# Use sudo git clean as a fallback: prior docker containers may have created
+# root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
+# a non-root git clean cannot remove ("Permission denied").
+git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
@@ -603,6 +762,31 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 def _which(cmd: str) -> bool:
     import shutil
     return shutil.which(cmd) is not None
+
+
+def _claude_task_scratch_cleanup_command() -> str:
+    """Remove stale Claude Code background-task markers for this user.
+
+    Claude Code keys temp scratch by effective UID, e.g.
+    `/tmp/claude-1002/-home-shadeform/<session>/tasks/<id>.output`. Removing
+    the old `tasks/` dirs prevents completed background-command notifications
+    from being replayed into the next Harbor trial.
+    """
+    return (
+        "UID_NUM=$(id -u); "
+        'BASE="/tmp/claude-${UID_NUM}"; '
+        'if [ -d "$BASE" ]; then '
+        '  BEFORE=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
+        # No `2>/dev/null` on the rm step: a real cleanup failure's stderr must
+        # reach claude_task_cleanup_result.stderr so the RuntimeError tail isn't
+        # empty (the BEFORE/AFTER count-finds keep theirs — that noise is benign).
+        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || exit 1; '
+        '  AFTER=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
+        '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
+        'else '
+        '  echo "[claude-task-scratch] no scratch base $BASE"; '
+        "fi"
+    )
 
 
 def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:
@@ -979,7 +1163,8 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
 
 
 async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
-    """SSH in and count GPUs via nvidia-smi. Raises on mismatch."""
+    """SSH in and count GPUs via nvidia-smi. Raises only if the box has
+    FEWER GPUs than required — over-provisioned boxes are accepted (>=)."""
     result = await _run_brev_exec(
         instance_name,
         "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
@@ -1000,16 +1185,21 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
             instance_name, result.stdout,
         )
         return
-    if actual != required_count:
+    # Over-provisioning is fine — a 1-GPU spec runs on a 2-GPU box with the
+    # 2nd GPU idle. Only UNDER-provisioning is fatal (a 2-GPU spec can't
+    # launch its second model on a 1-GPU box). The orchestrator still PREFERS
+    # an exact match for pool partitioning (AGENTS.md § 5a); this is the
+    # fallback gate. Returning (not raising) lets start() proceed to
+    # _reset_docker_runtime, so a fallback over-provisioned box still gets
+    # wiped before the trial deploys onto it.
+    if actual < required_count:
         raise RuntimeError(
             f"Brev instance '{instance_name}' has {actual} GPU(s) (live "
-            f"nvidia-smi); task requires exactly {required_count}. Pool "
-            f"partition mismatch — pick a fleet member with the matching "
-            f"GPU count (e.g. vss-eval-l40s-1g for 1-GPU, vss-eval-l40s* "
-            f"for 2-GPU)."
+            f"nvidia-smi); task requires at least {required_count}. Pick a "
+            f"fleet member with >= the required GPU count."
         )
     logger.info(
-        "Instance '%s' live gpu_count: %d (matches required %d)",
+        "Instance '%s' live gpu_count: %d (satisfies required >= %d)",
         instance_name, actual, required_count,
     )
 
@@ -1082,11 +1272,15 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
                 f"gpu_type: want tokens of {required_type!r} in {gpu!r}"
             )
 
-    # gpu_count check — strict equality so pool partitioning works.
-    # A 1-GPU task on a 2-GPU box wastes capacity (the other GPU could
-    # serve a sibling 1-GPU trial in parallel); a 2-GPU task on a 1-GPU
-    # box can't even launch the second LLM/VLM. Strict match makes both
-    # cases loud at validate time instead of mid-trial.
+    # gpu_count check — require >= (over-provisioned OK), NOT strict equality.
+    # A 1-GPU spec runs fine on a 2-GPU box (2nd GPU idles); only an
+    # UNDER-provisioned box (fewer GPUs than required) can't launch the spec's
+    # second model and must be rejected. Pool partitioning is preserved by the
+    # orchestrator PREFERRING an exact match (AGENTS.md § 5a) — this is the
+    # validate-time gate for the fallback case. Crucially, because we no longer
+    # raise here for an over-provisioned box, start() proceeds to
+    # _reset_docker_runtime, so a fallback 2-GPU box is wiped clean before the
+    # trial deploys onto it.
     required_count = int(req.get("gpu_count", 1) or 0)
     if required_count > 0:
         catalog_count = await _get_instance_gpu_count_from_catalog(
@@ -1103,9 +1297,9 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
                 await _check_live_gpu_count(instance.get("name"), required_count)
             except RuntimeError as exc:
                 errors.append(str(exc))
-        elif catalog_count != required_count:
+        elif catalog_count < required_count:
             errors.append(
-                f"gpu_count: want exactly {required_count}, instance has "
+                f"gpu_count: want at least {required_count}, instance has "
                 f"{catalog_count} (instance_type={instance.get('instance_type')})"
             )
 
@@ -1122,7 +1316,7 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
         require_clauses = []
         if required_type:
             require_clauses.append(f"gpu_type={required_type!r}")
-        require_clauses.append(f"gpu_count={required_count}")
+        require_clauses.append(f"gpu_count>={required_count}")
         require_phrase = " + ".join(require_clauses)
         hint = (
             f"\n\nTo find a matching pool member, scan vss-eval-* "
@@ -1215,5 +1409,3 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
             "Instance '%s' driver: %s (>= required %s)",
             instance_name, actual, min_driver,
         )
-
-

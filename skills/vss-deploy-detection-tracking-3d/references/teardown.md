@@ -13,7 +13,7 @@ docker compose -f compose.yml \
   down -v
 ```
 
-`down -v` removes the MV3DT containers (perception, fusion, mosquitto, broker, VST sensor stack, configurator, nvstreamer, auto-calibration) **and** resets the named docker volumes (Kafka log, Postgres VST DB, Elasticsearch data, Logstash libs). This is the recommended path for any redeploy where:
+`down -v` removes the MV3DT containers (perception, fusion, mosquitto, broker, VST sensor stack, configurator, nvstreamer) **and** resets the named docker volumes (Kafka log, Postgres VST DB, Elasticsearch data, Logstash libs). This is the recommended path for any redeploy where:
 
 - the dataset or camera count changed (sensor records re-initialize from the new calibration),
 - the calibration file changed for the same dataset slug,
@@ -83,7 +83,7 @@ COMPOSE_PROFILES=auto_calib docker compose \
   down
 ```
 
-When AMC came up under the warehouse profile gating (because `bp_wh_*_mv3dt` includes auto-calibration), Step 1 already removed it — no separate teardown needed.
+Normal MV3DT profiles (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`) do not include AMC. Auto-calibration warehouse profiles use `bp_wh_auto_calib_*`; if AMC is still running after the MV3DT teardown, use the command above.
 
 ## What is preserved across teardown
 
@@ -109,13 +109,22 @@ cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env down -v --rmi local
 
-# Clear bind-mounted AMC state — DESTRUCTIVE
-sudo rm -rf "${VSS_APPS_DIR}/services/auto-calibration/projects/"
-
-# Clear your own calibration outputs (keep the ship-with-repo sample!)
+# Clear bind-mounted AMC state — DESTRUCTIVE.
+# Auto-proceed when sudo is passwordless; otherwise surface the commands for the user.
 DATASET="${SAMPLE_VIDEO_DATASET:?}"
-if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
-  sudo rm -rf "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
+if sudo -n true 2>/dev/null; then
+  sudo rm -rf "${VSS_APPS_DIR}/services/auto-calibration/projects/"
+
+  # Clear your own calibration outputs (keep the ship-with-repo sample!)
+  if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
+    sudo rm -rf "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
+  fi
+else
+  echo "Sudo requires a password on this host. Please run the commands below in your shell, then confirm to continue:"
+  echo "  sudo rm -rf \"${VSS_APPS_DIR}/services/auto-calibration/projects/\""
+  if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
+    echo "  sudo rm -rf \"${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}\""
+  fi
 fi
 
 # Drop data_log and optionally revert .env (intentional this time)
