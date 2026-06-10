@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers operating NVIDIA Video Search and Summarization deployments who need to manage alert pipelines including real-time VLM monitoring, CV-based detection, Alert-Bridge subscription rules, Slack incident notifications, and incident queries. <br>
+Developers and engineers operating NVIDIA VSS deployments who need to manage real-time video alert pipelines, configure Alert-Bridge subscriptions, set up Slack incident notifications, query detected incidents, and onboard cameras. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -23,11 +23,11 @@ Mitigation: Review and scan skill before deployment. <br>
 - [alert-subscriptions.md](references/alert-subscriptions.md) <br>
 - [cv-verifier-prompts.md](references/cv-verifier-prompts.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
+**Output Type(s):** [Shell commands, Configuration instructions, Analysis] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
@@ -39,7 +39,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 14 recorded Tier 3 trials via NVSkills-Eval (external profile, astra-sandbox environment). <br>
+Evaluated against 14 tasks via NVSkills-Eval (external profile, astra-sandbox environment). Pass threshold: 50%. Overall verdict: PASS. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,11 +63,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 7 | 100% (+0%) | 64% (-36%) |
-| Correctness | 7 | 94% (+55%) | 85% (+40%) |
-| Discoverability | 7 | 98% (+51%) | 80% (+17%) |
-| Effectiveness | 7 | 65% (+43%) | 59% (+36%) |
-| Efficiency | 7 | 88% (+45%) | 69% (+14%) |
+| Security | 7 | 100% (+0%) | 71% (-29%) |
+| Correctness | 7 | 92% (+58%) | 63% (+17%) |
+| Discoverability | 7 | 96% (+53%) | 77% (+13%) |
+| Effectiveness | 7 | 61% (+43%) | 35% (+11%) |
+| Efficiency | 7 | 87% (+48%) | 69% (+13%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
