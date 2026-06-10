@@ -87,6 +87,31 @@ NONBUILD_PATTERNS = {
         "**/*.spec.ts",
         "**/*.spec.tsx",
     ],
+    # vss-alert-ms: services/alert/Dockerfile does `COPY . /app`, so every
+    # tracked file NOT excluded by services/alert/.dockerignore enters the
+    # build. This list is a strict subset of those .dockerignore exclusions, so
+    # it never marks a file that could ship as non-build. Anchored to the
+    # service root. KEEP IDENTICAL to ci-vss-oss nonbuild_patterns.py "vss-alert-ms".
+    "vss-alert-ms": [
+        "**/*.md",
+        "docs/**",
+        "notebooks/**",
+        "test/**",
+        "tests/**",
+        ".github/**",
+        ".gitattributes",
+        ".gitignore",
+        ".gitmodules",
+        ".dockerignore",
+        ".editorconfig",
+        ".nspect-vuln-allowlist.toml",
+        "scripts/**",
+        "releases/**",
+        "docker-compose*.yml",
+        "deploy_*.yml",
+        "*.log",
+        "*.env",
+    ],
 }
 
 
