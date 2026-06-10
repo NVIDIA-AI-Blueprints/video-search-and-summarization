@@ -54,24 +54,25 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 3 | 100% (+0%) | 83% (-17%) |
-| Correctness | 3 | 76% (+39%) | 80% (+45%) |
-| Discoverability | 3 | 95% (+33%) | 74% (+23%) |
-| Effectiveness | 3 | 36% (+32%) | 38% (+32%) |
-| Efficiency | 3 | 80% (+23%) | 59% (+15%) |
+| Security | 3 | 100% (+0%) | 100% (+0%) |
+| Correctness | 3 | 79% (+42%) | 68% (+33%) |
+| Discoverability | 3 | 94% (+33%) | 69% (+15%) |
+| Effectiveness | 3 | 38% (+34%) | 30% (+26%) |
+| Efficiency | 3 | 80% (+24%) | 53% (+6%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 4 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 6 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-generate-video-calibration/SKILL.md`)
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in common-steps.md (`skills/vss-generate-video-calibration/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-calibration/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SQP-2): The skill instructs agents to run `curl -LsSf https://astral.sh/uv/install.sh | sh` automatically without any user confi (`references/sample-dataset.md:132`)
+- MEDIUM SECURITY/Unknown (SQP-2): Hardcoding `ssl_verify: false` disables TLS certificate validation for RTSP capture requests, exposing the connection to (`references/rtsp.md:107`)
+- MEDIUM SECURITY/Unknown (SQP-2): RTSP URLs may contain plaintext credentials (e.g., `rtsp://user:pass@host`) that are transmitted in HTTP request bodies  (`references/rtsp.md:60`)
 
 ## Tier 2: Deduplication Summary
 
