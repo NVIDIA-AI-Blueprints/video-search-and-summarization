@@ -680,7 +680,7 @@ CloudResult S3CloudManager::makeS3DeleteMultipleRequest(const std::string& bucke
         std::string host;
         if (!m_endpoint.empty())
         {
-            // Extract host from custom endpoint (e.g., "http://10.24.218.240:9000")
+            // Extract host from custom endpoint (e.g., "http://<host>:9000")
             host = m_endpoint;
             // Remove protocol if present
             if (host.find("://") != std::string::npos)
