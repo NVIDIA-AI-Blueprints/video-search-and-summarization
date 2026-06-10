@@ -9,14 +9,6 @@ metadata:
 ---
 # VSS Deploy
 
-## Purpose
-
-Deploy any VSS profile (`base`, `search`, `lvs`, `warehouse`, `alerts`, `edge`) using a compose-centric workflow: build env overrides, generate resolved compose (dry-run), review, then deploy. This SKILL.md covers the cross-profile concerns (**profile routing**, **prerequisites**, **NGC**, **GPU setup**, and the deploy/teardown flow). Profile-specific service lists, sizing, env recipes, endpoints, and debugging live in per-profile reference docs — load the one that matches the user's intent.
-
-Helper scripts normalize `docker compose config` output and probe selected
-remote model endpoints before env mutation. All other deployment work goes
-through `compose` / `dev-profile.sh`.
-
 ## Available Scripts
 
 | Script | Purpose | Arguments |
@@ -62,7 +54,7 @@ The deployment flow is always: copy `.env` to `generated.env`, apply overrides, 
    asking the user. Use the detected path as `$REPO` for all subsequent
    commands.
 2. **Credential gates** — see [`references/credentials.md`](references/credentials.md): `NGC_CLI_API_KEY` for local/local_shared NIM pulls, `NVIDIA_API_KEY` for remote NIM endpoints, and `HF_TOKEN` for edge recipes that use gated HF models.
-3. **System prerequisites (GPU driver, Docker, NVIDIA Container Toolkit, kernel sysctls)** — full checks in [`references/prerequisites.md`](references/prerequisites.md). Canonical hardware/driver matrix is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html).
+3. **System prerequisites (GPU driver, Docker, NVIDIA Container Toolkit, kernel sysctls, and — if `ufw` is active — the [Docker-bridge→host firewall allow](references/prerequisites.md#firewall) so bridge NIMs can fetch clips from host-mode VST)** — full checks in [`references/prerequisites.md`](references/prerequisites.md). Canonical hardware/driver matrix is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html).
 
 The auto-detect snippet (git-root, then a common-path probe gated on
 `deploy/docker/compose.yml` + `dev-profile.sh` + `skills/vss-deploy-profile`)
@@ -158,8 +150,8 @@ Before building env overrides, confirm:
 | **Hardware** | `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` |
 | **LLM/VLM placement** | Explicitly decide local / local_shared / remote. Cross-reference available GPUs against the chosen profile's **Minimum GPU count** table. If endpoint env vars are present but the user did not request remote, ask whether to use or ignore them. |
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
-| **`HOST_IP`** | `hostname -I \| awk '{print $1}'` — the host's primary internal IP |
-| **`EXTERNAL_IP`** | Browser-reachable host/IP. On Brev, the secure-link domain — Step 1d detects Brev and (only then) reads `references/brev.md` to set it. |
+| **`HOST_IP`** | In-cluster dial address: `ip route get 1.1.1.1` src (like `dev-profile.sh`; correct on LAN + cloud). If that interface is a VPN/tunnel, fall back to the LAN IP and **prompt the user** — [Network addressing](references/prerequisites.md#addressing). |
+| **`EXTERNAL_IP`** | Browser-facing address; defaults to `${HOST_IP}`. Override when the browser path differs — cloud public IP, Brev secure-link (Step 1d), or tunnel; **ask the user where they browse from if unsure**. [Network addressing](references/prerequisites.md#addressing). |
 | **`HAPROXY_PORT`** | Browser-facing ingress port. Default `7777`; ensure it is free. |
 
 Before `docker compose up`, verify `EXTERNAL_IP`, `HAPROXY_PORT`, `VSS_PUBLIC_HOST`, and `VSS_PUBLIC_PORT` are populated with browser-reachable values. Otherwise the stack may appear healthy while UI/API/VST links 404 or loop through Cloudflare Access.
@@ -326,12 +318,10 @@ Cold deploys can take 10–20 min, and each profile reference lists the required
 
 ## Tear Down
 
-```bash
-cd $REPO/deploy/docker
-docker compose -f resolved.yml down
-```
-
-For switching profiles or recovering from a partial deploy, follow the full procedure in [`references/teardown.md`](references/teardown.md).
+To tear down a deployment — full host reclaim or cache-preserving redeploy / profile
+switch — follow [`references/teardown.md`](references/teardown.md). Always tear down
+by the `mdx` project with `-v --remove-orphans`; a plain `docker compose down` leaves
+volumes and networks behind.
 
 ## Debugging a Deployment
 
