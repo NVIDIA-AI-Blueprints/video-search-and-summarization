@@ -194,7 +194,7 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
-    async def test_start_wipes_stale_trial_inputs_on_warm_worker(self):
+    async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
         calls = []
 
         async def fake_find_brev_instance(name):
@@ -253,9 +253,10 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         reset = reset_commands[0]
         self.assertIn("/logs/artifacts", reset)
         self.assertIn("/logs/verifier", reset)
-        self.assertIn("/tests", reset)
-        self.assertIn("/solution", reset)
-        self.assertIn("/skills", reset)
+        self.assertNotIn("rm -rf /tests", reset)
+        self.assertNotIn("rm -rf /solution", reset)
+        self.assertNotIn("rm -rf /skills", reset)
+        self.assertIn("mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills", reset)
         self.assertLess(reset.index("sudo rm -rf"), reset.index("sudo mkdir -p"))
 
     async def test_nemoclaw_setup_sources_profile_without_nounset(self):

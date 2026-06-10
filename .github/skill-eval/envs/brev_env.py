@@ -264,12 +264,11 @@ class BrevEnvironment(BaseEnvironment):
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
         #
-        # Wipe per-trial input/output directories FIRST. Warm-pool boxes keep
-        # filesystem state between Harbor trials, and stale `/tests` files can
-        # make a NemoClaw launcher execute the previous task prompt while the
-        # current verifier judges a different spec.
+        # Wipe per-trial output directories FIRST. Warm-pool boxes keep
+        # filesystem state between Harbor trials, so stale artifacts from a
+        # prior trial must not be downloaded as this trial's evidence.
         #
-        # Also wipe /logs/artifacts and /logs/verifier: harbor's
+        # Wipe /logs/artifacts and /logs/verifier: harbor's
         # Trial._download_artifacts() does a blanket download_dir(/logs/artifacts)
         # and nothing on a warm-pool box ever clears that dir, so a prior
         # trial's arbitrarily-named files get collected as THIS trial's
@@ -277,9 +276,12 @@ class BrevEnvironment(BaseEnvironment):
         # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
         # left intact here — its prior-trial session JSONLs are handled by the
         # archive step just below (move-not-delete, for forensic SSH access).
+        #
+        # Do NOT wipe /tests, /solution, or /skills here: Harbor may already
+        # have staged the current trial inputs by the time start() runs.
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
-            "sudo rm -rf /logs/artifacts /logs/verifier /tests /solution /skills && "
+            "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
@@ -287,9 +289,9 @@ class BrevEnvironment(BaseEnvironment):
             timeout=30,
         )
         # Fail loud: this is the load-bearing per-trial wipe. A silent failure
-        # would leave prior `/tests` or `/logs/artifacts` in place and re-run or
-        # re-collect stale output as this trial's data, so it gets the same
-        # exit-code guard as the docker reset / repo sync.
+        # would leave prior `/logs/artifacts` in place and re-collect stale
+        # output as this trial's data, so it gets the same exit-code guard as
+        # the docker reset / repo sync.
         if setup_dirs_result.return_code != 0:
             tail = (setup_dirs_result.stderr or setup_dirs_result.stdout or "")[-500:]
             raise RuntimeError(
