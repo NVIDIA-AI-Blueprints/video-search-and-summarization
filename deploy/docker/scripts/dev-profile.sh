@@ -1303,7 +1303,7 @@ function state_up() {
   fi
 
   # Alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
-  # switch rtvi-vlm to openai-compat mode (cosmos-reason2 is only valid when the
+  # switch rtvi-vlm to openai-compat mode (cosmos-reason3 is only valid when the
   # local rtvi-vlm container is serving the integrated checkpoint).
   # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
@@ -1392,8 +1392,8 @@ function state_up() {
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
     if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
-      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
-      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
+      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
+      set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"
     fi
   fi
   # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi

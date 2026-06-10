@@ -101,4 +101,4 @@ always_on_rules:
     always_on_params:
       prompt: "Detect any vehicle collisions"
       system_prompt: "You are a traffic safety monitoring assistant"
-      model: "nvidia/cosmos-reason2-8b"
+      model: "nvidia/cosmos3-nano-reasoner"
