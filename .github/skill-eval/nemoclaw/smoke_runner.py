@@ -99,6 +99,32 @@ class WorkerLock(NamedTuple):
     remote_owner: str | None
 
 
+def _task_dir_sort_key(task_dir: Path) -> tuple[str, int, str]:
+    name = task_dir.name
+    if name.startswith("step-"):
+        try:
+            return (str(task_dir.parent), int(name.split("-", 1)[1]), name)
+        except ValueError:
+            pass
+    return (str(task_dir.parent), 0, name)
+
+
+def _scenario_groups(scenarios: list[NemoClawScenario]) -> list[list[NemoClawScenario]]:
+    groups: list[list[NemoClawScenario]] = []
+    current_key: tuple[Path, str, int] | None = None
+    current: list[NemoClawScenario] = []
+    for scenario in scenarios:
+        key = (scenario.harbor_path, scenario.platform, scenario.gpu_count)
+        if current and key != current_key:
+            groups.append(current)
+            current = []
+        current.append(scenario)
+        current_key = key
+    if current:
+        groups.append(current)
+    return groups
+
+
 def _run(cmd: list[str], *, timeout: int = 60, env: dict[str, str] | None = None) -> CommandResult:
     proc = subprocess.run(
         cmd,
@@ -266,6 +292,20 @@ def _spec_json(spec_path: Path) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _is_array_spec(spec_path: Path) -> bool:
+    try:
+        parsed = json.loads(spec_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(parsed, list)
+
+
+def _has_expects(spec_path: Path) -> bool:
+    spec = _spec_json(spec_path)
+    expects = spec.get("expects")
+    return isinstance(expects, list) and bool(expects)
+
+
 def _platforms_for_spec(spec_path: Path, platform_filter: str | None) -> list[str]:
     spec = _spec_json(spec_path)
     platforms = spec.get("resources", {}).get("platforms", {})
@@ -320,6 +360,31 @@ def _selected_specs(
             ]
             if not specs:
                 blockers.append(f"{skill}: no eval spec matching {spec_filter}")
+                continue
+        array_specs = [spec_path for spec_path in specs if _is_array_spec(spec_path)]
+        dict_specs = [spec_path for spec_path in specs if spec_path not in array_specs]
+        if array_specs:
+            if spec_filter or not dict_specs:
+                for spec_path in array_specs:
+                    blockers.append(
+                        f"{skill}/{spec_path.name}: array-format skill eval is not a "
+                        "NemoClaw live scenario"
+                    )
+            if dict_specs:
+                specs = dict_specs
+            else:
+                continue
+        empty_specs = [spec_path for spec_path in specs if not _has_expects(spec_path)]
+        runnable_specs = [spec_path for spec_path in specs if spec_path not in empty_specs]
+        if empty_specs:
+            if spec_filter or not runnable_specs:
+                for spec_path in empty_specs:
+                    blockers.append(
+                        f"{skill}/{spec_path.name}: eval spec has no runnable expects"
+                    )
+            if runnable_specs:
+                specs = runnable_specs
+            else:
                 continue
         for spec_path in specs:
             if not spec_path.exists():
@@ -382,7 +447,7 @@ def _run_adapter(
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr, flush=True)
         raise RuntimeError(f"{skill}/{spec_path.name}: adapter exited {result.returncode}")
-    return sorted(path.parent for path in output_root.rglob("task.toml"))
+    return sorted((path.parent for path in output_root.rglob("task.toml")), key=_task_dir_sort_key)
 
 
 def _read_task_toml(task_dir: Path) -> dict[str, Any]:
@@ -1501,66 +1566,89 @@ def main(argv: list[str] | None = None) -> int:
         if not scenarios:
             raise RuntimeError("no NemoClaw scenarios were generated")
 
-        print(f"[nemoclaw-ci] generated {len(scenarios)} NemoClaw scenario(s)", flush=True)
+        groups = _scenario_groups(scenarios)
+        print(
+            f"[nemoclaw-ci] generated {len(scenarios)} NemoClaw scenario(s) "
+            f"in {len(groups)} worker group(s)",
+            flush=True,
+        )
         failures: list[str] = []
         executed = 0
-        for index, scenario in enumerate(scenarios, start=1):
+        scenario_index = 0
+        for group_index, group in enumerate(groups, start=1):
+            first = group[0]
             gpu_count = (
                 args.gpu_count
                 if args.gpu_count is not None
                 else int(os.environ["NEMOCLAW_EVAL_GPU_COUNT"])
                 if os.environ.get("NEMOCLAW_EVAL_GPU_COUNT")
-                else scenario.gpu_count
+                else first.gpu_count
             )
+            group_steps = ", ".join(scenario.task_name for scenario in group)
             print(
-                "[nemoclaw-ci] scenario "
-                f"{index}/{len(scenarios)}: {scenario.skill}/{scenario.spec_name}/"
-                f"{scenario.platform}/{scenario.task_name} gpu_count={gpu_count}",
+                "[nemoclaw-ci] worker group "
+                f"{group_index}/{len(groups)}: {first.skill}/{first.spec_name}/"
+                f"{first.platform} gpu_count={gpu_count} steps=[{group_steps}]",
                 flush=True,
             )
             instance, worker_lock = _select_and_lock_instance(
-                scenario.platform,
+                first.platform,
                 gpu_count,
                 args.instance,
                 args.lock_timeout,
             )
             print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
-            scenario_started = time.time()
-            log_path = Path("/tmp/skill-eval") / f"nemoclaw-harbor-{run_id}-{_scenario_id(scenario)}.log"
-            harbor_rc = 1
-            reward: float | None = None
             try:
                 os.environ["BREV_INSTANCE"] = instance
-                harbor_env = os.environ.copy()
-                harbor_env["BREV_INSTANCE"] = instance
-                cmd = _harbor_command(scenario, results_root, run_id)
-                print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
-                harbor_rc = _stream_command(
-                    cmd,
-                    timeout_s=args.harbor_timeout,
-                    env=harbor_env,
-                    log_path=log_path,
-                )
+                for scenario in group:
+                    scenario_index += 1
+                    print(
+                        "[nemoclaw-ci] scenario "
+                        f"{scenario_index}/{len(scenarios)}: {scenario.skill}/"
+                        f"{scenario.spec_name}/{scenario.platform}/{scenario.task_name}",
+                        flush=True,
+                    )
+                    scenario_started = time.time()
+                    log_path = (
+                        Path("/tmp/skill-eval")
+                        / f"nemoclaw-harbor-{run_id}-{_scenario_id(scenario)}.log"
+                    )
+                    harbor_rc = 1
+                    reward: float | None = None
+                    harbor_env = os.environ.copy()
+                    harbor_env["BREV_INSTANCE"] = instance
+                    cmd = _harbor_command(scenario, results_root, run_id)
+                    print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
+                    harbor_rc = _stream_command(
+                        cmd,
+                        timeout_s=args.harbor_timeout,
+                        env=harbor_env,
+                        log_path=log_path,
+                    )
+
+                    reward, _reward_path = _latest_reward(
+                        results_root,
+                        run_id,
+                        since=scenario_started,
+                    )
+                    _append_harbor_report(
+                        scenario=scenario,
+                        instance=instance,
+                        results_root=results_root,
+                        run_id=run_id,
+                        reward=reward,
+                        harbor_rc=harbor_rc,
+                        log_path=log_path,
+                        since=scenario_started,
+                    )
+                    executed += 1
+                    if harbor_rc != 0 or reward is None or reward < 1.0:
+                        failures.append(
+                            f"{scenario.skill}/{scenario.spec_name}/{scenario.platform}/{scenario.task_name} "
+                            f"(harbor_rc={harbor_rc}, reward={reward if reward is not None else 'missing'})"
+                        )
             finally:
                 _release_lock(instance, worker_lock)
-
-            reward, _reward_path = _latest_reward(results_root, run_id, since=scenario_started)
-            _append_harbor_report(
-                scenario=scenario,
-                instance=instance,
-                results_root=results_root,
-                run_id=run_id,
-                reward=reward,
-                harbor_rc=harbor_rc,
-                log_path=log_path,
-                since=scenario_started,
-            )
-            executed += 1
-            if harbor_rc != 0 or reward is None or reward < 1.0:
-                failures.append(
-                    f"{scenario.skill}/{scenario.spec_name}/{scenario.platform}/{scenario.task_name} "
-                    f"(harbor_rc={harbor_rc}, reward={reward if reward is not None else 'missing'})"
-                )
 
         if failures:
             print(

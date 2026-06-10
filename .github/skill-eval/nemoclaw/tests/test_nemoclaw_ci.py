@@ -721,9 +721,79 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(len(skills), len(set(skills)))
         self.assertIn("vss-deploy-profile", skills)
         self.assertIn("vss-ask-video", skills)
+        self.assertNotIn("evals", [row["spec_stem"] for row in rows])
         self.assertTrue(
-            any("vss-generate-video-calibration: missing Harbor adapter" in item for item in blockers)
+            any("vss-generate-video-report-rag: missing Harbor adapter" in item for item in blockers)
         )
+
+    def test_explicit_array_spec_is_not_treated_as_nemoclaw_live_scenario(self):
+        rows, blockers = smoke_runner._build_matrix(
+            skills_filter="vss-search-archive",
+            profile_filter=None,
+            platform_filter=None,
+            spec_filter="evals",
+            representative_per_skill=False,
+        )
+
+        self.assertEqual(rows, [])
+        self.assertTrue(
+            any(
+                "vss-search-archive/evals.json: array-format skill eval is not a NemoClaw live scenario"
+                in item
+                for item in blockers
+            )
+        )
+
+    def test_task_dir_sort_key_orders_steps_naturally(self):
+        root = Path("/tmp/dataset/base/l40s")
+        task_dirs = [root / "step-10", root / "step-2", root / "step-1"]
+
+        ordered = sorted(task_dirs, key=smoke_runner._task_dir_sort_key)
+
+        self.assertEqual([path.name for path in ordered], ["step-1", "step-2", "step-10"])
+
+    def test_scenario_groups_keep_multistep_tasks_on_same_worker(self):
+        root = Path("/tmp/dataset/base/l40s")
+        scenarios = [
+            smoke_runner.NemoClawScenario(
+                skill="vss-ask-video",
+                spec_name="base_profile_video_understanding",
+                spec_path=Path("spec.json"),
+                platform="L40S",
+                gpu_count=1,
+                task_dir=root / "step-1",
+                harbor_path=root,
+                task_name="step-1",
+                deployment_profile="base",
+            ),
+            smoke_runner.NemoClawScenario(
+                skill="vss-ask-video",
+                spec_name="base_profile_video_understanding",
+                spec_path=Path("spec.json"),
+                platform="L40S",
+                gpu_count=1,
+                task_dir=root / "step-2",
+                harbor_path=root,
+                task_name="step-2",
+                deployment_profile="base",
+            ),
+            smoke_runner.NemoClawScenario(
+                skill="vss-deploy-profile",
+                spec_name="base",
+                spec_path=Path("base.json"),
+                platform="RTXPRO6000BW",
+                gpu_count=1,
+                task_dir=Path("/tmp/dataset/deploy/base/rtxpro6000bw"),
+                harbor_path=Path("/tmp/dataset/deploy/base"),
+                task_name="rtxpro6000bw",
+                deployment_profile="base",
+            ),
+        ]
+
+        groups = smoke_runner._scenario_groups(scenarios)
+
+        self.assertEqual([len(group) for group in groups], [2, 1])
+        self.assertEqual([scenario.task_name for scenario in groups[0]], ["step-1", "step-2"])
 
     def test_focused_deploy_profile_matrix_keeps_base_smoke(self):
         rows, blockers = smoke_runner._build_matrix(
