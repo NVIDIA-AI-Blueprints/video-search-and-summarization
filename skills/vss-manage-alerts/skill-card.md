@@ -1,7 +1,7 @@
 ## Description: <br>
 Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, camera onboarding. <br>
 
-This skill is ready for commercial/non-commercial use. <br>
+This skill is for demonstration purposes and not for production usage. <br>
 
 ## Owner
 NVIDIA <br>
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers operating NVIDIA VSS deployments who need to manage real-time video alert pipelines, configure Alert-Bridge subscriptions, set up Slack incident notifications, query detected incidents, and onboard cameras. <br>
+Developers and engineers use this skill to operate the VSS alert pipeline — managing real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, and camera onboarding on NVIDIA Video Search and Summarization deployments. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,15 +19,15 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [alert-notify.md](references/alert-notify.md) <br>
-- [alert-subscriptions.md](references/alert-subscriptions.md) <br>
-- [cv-verifier-prompts.md](references/cv-verifier-prompts.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Alert Notify Reference](references/alert-notify.md) <br>
+- [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
+- [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, Configuration instructions, Analysis] <br>
+**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
@@ -39,7 +39,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 14 tasks via NVSkills-Eval (external profile, astra-sandbox environment). Pass threshold: 50%. Overall verdict: PASS. <br>
+Evaluated against 14 evaluation tasks using NVSkills-Eval 3-Tier Evaluation (external profile, astra-sandbox environment). <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,11 +63,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 7 | 100% (+0%) | 71% (-29%) |
-| Correctness | 7 | 92% (+58%) | 63% (+17%) |
-| Discoverability | 7 | 96% (+53%) | 77% (+13%) |
-| Effectiveness | 7 | 61% (+43%) | 35% (+11%) |
-| Efficiency | 7 | 87% (+48%) | 69% (+13%) |
+| Security | 7 | 93% (-7%) | 64% (-21%) |
+| Correctness | 7 | 85% (+47%) | 70% (+32%) |
+| Discoverability | 7 | 97% (+57%) | 80% (+18%) |
+| Effectiveness | 7 | 61% (+39%) | 46% (+26%) |
+| Efficiency | 7 | 89% (+51%) | 71% (+14%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
