@@ -311,11 +311,11 @@ def _platforms_for_spec(spec_path: Path, platform_filter: str | None) -> list[st
     platforms = spec.get("resources", {}).get("platforms", {})
     if not isinstance(platforms, dict) or not platforms:
         return [platform_filter or DEFAULT_PLATFORM]
+    if platform_filter and platform_filter in PLATFORM_TASK:
+        return [platform_filter]
     declared = [str(name) for name in platforms]
     if not platform_filter:
         return declared
-    if platform_filter in platforms:
-        return [platform_filter]
     if "ANY" in platforms:
         return ["ANY"]
     return []
@@ -716,13 +716,22 @@ def _discover_scenarios(
     return scenarios, blockers
 
 
-def _preferred_platform(platforms: list[str], platform_filter: str | None) -> str:
+def _adapter_supports_platform(skill: str, platform: str) -> bool:
+    adapter = _adapter_path(skill)
+    if not adapter.exists():
+        return False
+    return platform in _adapter_help(adapter)
+
+
+def _preferred_platform(skill: str, platforms: list[str], platform_filter: str | None) -> str:
     if platform_filter and platform_filter in platforms:
         return platform_filter
-    if DEFAULT_PLATFORM in platforms:
-        return DEFAULT_PLATFORM
     if "ANY" in platforms:
         return "ANY"
+    if _adapter_supports_platform(skill, DEFAULT_PLATFORM):
+        return DEFAULT_PLATFORM
+    if DEFAULT_PLATFORM in platforms:
+        return DEFAULT_PLATFORM
     return platforms[0]
 
 
@@ -744,7 +753,7 @@ def _build_matrix(
     seen_skills: set[str] = set()
     for skill, spec_path, platforms in specs:
         selected_platforms = (
-            [_preferred_platform(platforms, platform_filter)]
+            [_preferred_platform(skill, platforms, platform_filter)]
             if representative_per_skill
             else platforms
         )
