@@ -1,0 +1,33 @@
+{
+  "skills": [
+    "vss-build-vision-agent"
+  ],
+  "profile": "in-2",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2,
+        "modes": [
+          "harbor",
+          "shared"
+        ]
+      }
+    }
+  },
+  "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, and NGC access to `nvcr.io/nvstaging/vss-core/vss-rt-cv` plus `nvstaging/vss-warehouse/vss-warehouse-app-data`. The VSS repository is checked out at `{{repo_root}}`, and the build skill writes to a fresh self-contained build directory under `{{repo_root}}/_builds/in-2/` (or the next suffixed collision-resolved folder). This is a generation-focused eval for an RT-CV object detection and multi-object tracking profile over the same warehouse video sets. Streamed and uploaded video must remain retrievable for playback through VIOS. RT-CV bounding-box metadata must be published to Kafka and stored in Elasticsearch through the shared ELK path. The RT-CV service key for this eval is the selected integration contract's `perception-2d-fusion`; `perception-2d` and `perception-alerts` are not acceptable substitutes.",
+  "expects": [
+    {
+      "query": "Use the `/vss-build-vision-agent` skill to generate an IN-2 Harbor deployment on `{{platform}}` from `{{repo_root}}`. Submit this exact prompt to the skill: \"Create a profile for streaming and on-demand object detection and multi-object tracking for class = person using RT-DETR with the RT-CV microservice. Streamed and uploaded video should be retrievable for playback. Streamed metadata from the RT-CV microservice should include bounding boxes, class labels, confidence, timestamps, sensor IDs, and track IDs published to the Kafka message bus and stored in Elasticsearch.\" Choose a new build under `_builds/`, keep the generated output self-contained, preserve exact service keys from the selected integration contracts, include a compact RT-CV Metadata Contract section in the manifest, and target the Harbor RTX PRO 6000 Blackwell environment.",
+      "checks": [
+        "`{{repo_root}}/_builds/` contains a new IN-2 Harbor build folder with `compose.yml`, `.env.template`, `MANIFEST.md`, and `allow-list.yml` in the same folder.",
+        "The generated architecture and allow-list resolve to the required components: VIOS + RT-CV + ELK + Kafka, using shared Kafka and Elasticsearch infrastructure rather than duplicate broker/indexing stacks.",
+        "The generated allow-list includes the exact RT-CV service key `perception-2d-fusion` from `integrate-vss-detection-tracking-2d.md`, and does not use `perception-2d` or `perception-alerts` as substitute RT-CV service keys.",
+        "The generated architecture, manifest, or deploy skill states that RT-CV consumes warehouse video streams or VIOS-registered stream sources from the same video set used for playback.",
+        "The generated architecture, manifest, or deploy skill preserves the prompt's playback requirement by documenting that streamed and uploaded video remain retrievable through VIOS playback APIs.",
+        "The generated `MANIFEST.md` or generated deploy skill contains a compact `RT-CV Metadata Contract` section that states RT-CV bounding-box metadata flows to Kafka and Elasticsearch and explicitly lists bounding box coordinates, class labels, confidence, timestamps, sensor IDs, and track IDs for person detections.",
+        "The generated output exposes or documents the RT-CV REST API for health/readiness/startup/stream/metrics checks on `http://<host>:9000/api/v1`.",
+        "The generated output references patched copies under `_builds/<name>/patched/`, not upstream compose files directly, and no upstream compose file under `{{repo_root}}/deploy/docker/` is modified by generation."
+      ]
+    }
+  ]
+}
