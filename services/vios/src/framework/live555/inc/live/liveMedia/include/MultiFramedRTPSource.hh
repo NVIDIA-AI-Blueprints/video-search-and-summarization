@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // RTP source for a common kind of payload format: Those which pack multiple,
 // complete codec frames (as many as possible) into each RTP packet.
 // C++ header
@@ -75,6 +75,7 @@ private:
 
   static void networkReadHandler(MultiFramedRTPSource* source, int /*mask*/);
   void networkReadHandler1();
+
   bool checkAndAddSeiFrame(BufferedPacket* nextPacket);
   std::vector<uint8_t> getSeiFrame(int64_t& frameId, struct timeval& pts, string& codec);
   Boolean fAreDoingNetworkReads;
