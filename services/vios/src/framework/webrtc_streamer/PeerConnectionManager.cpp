@@ -3029,7 +3029,7 @@ const pair<string, int> PeerConnectionManager::getAvailableSeatFromRP(const stri
         RP response
         < HTTP/1.1 200 OK
         < nodeRemainingCapacity: 1998
-        < sessionPublicAddress: 203.0.113.35
+        < sessionPublicAddress: 203.x.xxx.xx
         < sessionPrivateAddress: 10.0.0.5
         < sessionRoutes: 15948:UDP:video:15010
     */
