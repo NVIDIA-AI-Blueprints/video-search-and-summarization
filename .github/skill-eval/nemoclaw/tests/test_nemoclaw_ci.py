@@ -721,9 +721,37 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(len(skills), len(set(skills)))
         self.assertIn("vss-deploy-profile", skills)
         self.assertIn("vss-ask-video", skills)
+        self.assertNotIn("vss-deploy-video-embedding", skills)
+        self.assertNotIn("vss-setup-behavior-analytics", skills)
+        self.assertNotIn("vss-setup-video-analytics-api", skills)
         self.assertNotIn("evals", [row["spec_stem"] for row in rows])
         self.assertTrue(
             any("vss-generate-video-report-rag: missing Harbor adapter" in item for item in blockers)
+        )
+        self.assertTrue(
+            any(
+                "vss-setup-behavior-analytics/standalone_deploy.json: standalone host-Docker eval"
+                in item
+                for item in blockers
+            )
+        )
+
+    def test_standalone_host_docker_spec_is_blocked_for_nemoclaw(self):
+        rows, blockers = smoke_runner._build_matrix(
+            skills_filter="vss-setup-behavior-analytics",
+            profile_filter=None,
+            platform_filter=None,
+            spec_filter=None,
+            representative_per_skill=False,
+        )
+
+        self.assertEqual(rows, [])
+        self.assertTrue(
+            any(
+                "vss-setup-behavior-analytics/standalone_deploy.json: standalone host-Docker eval"
+                in item
+                for item in blockers
+            )
         )
 
     def test_explicit_array_spec_is_not_treated_as_nemoclaw_live_scenario(self):
