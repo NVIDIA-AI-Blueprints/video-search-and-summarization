@@ -14,6 +14,18 @@ DS_MESSAGE_RATE="${DS_MESSAGE_RATE:-1}"
 DS_TRACKER_REID="${DS_TRACKER_REID:-false}"
 DS_SHOW_SENSOR_ID="${DS_SHOW_SENSOR_ID:-false}"
 
+# ---------------------------------------------------------------------------
+# DeepStream runtime paths
+#
+# The StatefulSet sets GST_PLUGIN_PATH to gst-nvdstextembedder only. Prepend core
+# DeepStream plugin and lib dirs here (after entrypoint) so we keep the image
+# LD_LIBRARY_PATH.
+# ---------------------------------------------------------------------------
+export LD_LIBRARY_PATH="/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.0/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+_ARCH="$(uname -m)"
+export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/opt/nvidia/deepstream/deepstream-9.0/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
+unset _ARCH
+
 # Shared: build extra flags from env vars
 build_extra_flags() {
     local flags=""
