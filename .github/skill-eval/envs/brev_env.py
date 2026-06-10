@@ -264,7 +264,12 @@ class BrevEnvironment(BaseEnvironment):
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
         #
-        # Wipe /logs/artifacts and /logs/verifier FIRST: harbor's
+        # Wipe per-trial input/output directories FIRST. Warm-pool boxes keep
+        # filesystem state between Harbor trials, and stale `/tests` files can
+        # make a NemoClaw launcher execute the previous task prompt while the
+        # current verifier judges a different spec.
+        #
+        # Also wipe /logs/artifacts and /logs/verifier: harbor's
         # Trial._download_artifacts() does a blanket download_dir(/logs/artifacts)
         # and nothing on a warm-pool box ever clears that dir, so a prior
         # trial's arbitrarily-named files get collected as THIS trial's
@@ -274,17 +279,17 @@ class BrevEnvironment(BaseEnvironment):
         # archive step just below (move-not-delete, for forensic SSH access).
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
-            "sudo rm -rf /logs/artifacts /logs/verifier && "
+            "sudo rm -rf /logs/artifacts /logs/verifier /tests /solution /skills && "
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
             "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
-        # Fail loud: this is the load-bearing artifacts wipe. A silent failure
-        # would leave the prior trial's /logs/artifacts in place and re-collect
-        # it as this trial's output — the exact contamination being fixed —
-        # so it gets the same exit-code guard as the docker reset / repo sync.
+        # Fail loud: this is the load-bearing per-trial wipe. A silent failure
+        # would leave prior `/tests` or `/logs/artifacts` in place and re-run or
+        # re-collect stale output as this trial's data, so it gets the same
+        # exit-code guard as the docker reset / repo sync.
         if setup_dirs_result.return_code != 0:
             tail = (setup_dirs_result.stderr or setup_dirs_result.stdout or "")[-500:]
             raise RuntimeError(

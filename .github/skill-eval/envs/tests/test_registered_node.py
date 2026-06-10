@@ -194,6 +194,70 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
+    async def test_start_wipes_stale_trial_inputs_on_warm_worker(self):
+        calls = []
+
+        async def fake_find_brev_instance(name):
+            return {"name": name, "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-1g"}
+
+        async def fake_check_instance_matches(instance, requirements):
+            return None
+
+        async def fake_check_live_resources(instance, requirements):
+            return None
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            if "echo harbor-ready" in command:
+                return brev_env.ExecResult(stdout="harbor-ready\n", stderr=None, return_code=0)
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original_find = brev_env._find_brev_instance
+        original_match = brev_env._check_instance_matches
+        original_live = brev_env._check_live_resources
+        original_exec = brev_env._run_brev_exec
+        original_default = brev_env.DEFAULT_INSTANCE
+        brev_env._find_brev_instance = fake_find_brev_instance
+        brev_env._check_instance_matches = fake_check_instance_matches
+        brev_env._check_live_resources = fake_check_live_resources
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env.DEFAULT_INSTANCE = "vss-eval-test"
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                task_dir = Path(td) / "task"
+                env_dir = task_dir / "environment"
+                env_dir.mkdir(parents=True)
+                (task_dir / "task.toml").write_text(
+                    "[metadata]\nrunner = \"nemoclaw\"\n",
+                    encoding="utf-8",
+                )
+
+                async def noop(self, *args, **kwargs):
+                    return None
+
+                env = brev_env.BrevEnvironment()
+                env.environment_dir = env_dir
+                env._reset_docker_runtime = types.MethodType(noop, env)
+                env._sync_repo_to_pr_head = types.MethodType(noop, env)
+                env._ensure_nemoclaw_ready = types.MethodType(noop, env)
+                await env.start(force_build=False)
+        finally:
+            brev_env._find_brev_instance = original_find
+            brev_env._check_instance_matches = original_match
+            brev_env._check_live_resources = original_live
+            brev_env._run_brev_exec = original_exec
+            brev_env.DEFAULT_INSTANCE = original_default
+
+        reset_commands = [command for _, command, _ in calls if "sudo rm -rf" in command]
+        self.assertEqual(len(reset_commands), 1)
+        reset = reset_commands[0]
+        self.assertIn("/logs/artifacts", reset)
+        self.assertIn("/logs/verifier", reset)
+        self.assertIn("/tests", reset)
+        self.assertIn("/solution", reset)
+        self.assertIn("/skills", reset)
+        self.assertLess(reset.index("sudo rm -rf"), reset.index("sudo mkdir -p"))
+
     async def test_nemoclaw_setup_sources_profile_without_nounset(self):
         calls = []
 
