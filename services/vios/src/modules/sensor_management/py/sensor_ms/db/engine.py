@@ -30,3 +30,12 @@ def make_engine(cfg: Config) -> Engine:
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+
+def init_schema(engine: Engine) -> None:
+    """Create the sensor tables if missing (checkfirst), so a standalone fresh deployment works
+    without the C++ service having pre-created the schema. Idempotent: a no-op on a shared DB that
+    already has the tables."""
+    from .models import Base
+
+    Base.metadata.create_all(engine, checkfirst=True)

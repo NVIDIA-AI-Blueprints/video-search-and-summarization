@@ -28,6 +28,13 @@ class Config:
     kafka_server_address: str = ""
     mqtt_broker_address: str = ""
 
+    # --- adaptor selection ---
+    # adaptor_config_path: the configs/adaptor_config.json the active adaptor is chosen from
+    # (selection = $ADAPTOR by name, else first enabled entry). `adaptor` is the fallback name used
+    # only when the config file is absent/unreadable.
+    adaptor_config_path: str = "/home/vst/vst_release/configs/adaptor_config.json"
+    adaptor: str = "vst_rtsp"
+
     # --- discovery ---
     sensor_discovery_timeout: int = 10
     sensor_discovery_freq_secs: int = 15
@@ -114,7 +121,8 @@ class Config:
             "USE_MESSAGE_BROKER": "use_message_broker",
             "MESSAGE_BROKER_TOPIC": "message_broker_topic",
             "MESSAGE_BROKER_PAYLOAD_KEY": "message_broker_payload_key",
-            "REDIS_SERVER_ENV_VAR": "redis_server_env_var",
+            "REDIS_SERVER_ENV_VAR": "redis_server_env_var", "ADAPTOR": "adaptor",
+            "ADAPTOR_CONFIG_PATH": "adaptor_config_path",
             "DEVICE_NAME": "device_name", "REMOTE_ADDRESS_ENV": "remote_vst_address",
         }
         for env, attr in str_env.items():

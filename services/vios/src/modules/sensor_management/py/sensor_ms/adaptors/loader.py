@@ -48,6 +48,17 @@ def _import_obj(spec: str) -> Any:
     return getattr(module, attr)
 
 
+def load_control_adaptor(name: str) -> SensorControlAdaptor | None:
+    """Instantiate the control adaptor registered under `name` (e.g. "onvif"), or None if the
+    adaptor has no control class / is unknown. Lets the active adaptor be selected via the ADAPTOR
+    env without a full adaptor_config.json."""
+    entry = _REGISTRY.get(name)
+    if not entry:
+        return None
+    ctl_spec, _ = entry
+    return _import_obj(ctl_spec)() if ctl_spec else None
+
+
 def load_adaptor(config_path: str) -> LoadedAdaptor:
     with open(config_path) as fh:
         entries = json.load(fh).get("vst", [])

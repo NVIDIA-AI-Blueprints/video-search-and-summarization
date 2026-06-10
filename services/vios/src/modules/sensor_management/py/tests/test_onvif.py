@@ -97,3 +97,40 @@ def test_device_info_mapping():
     f = device_info_to_fields(info)
     assert f == {"hardware": "HW7", "manufacturer": "Acme", "serialNumber": "SN9",
                  "firmwareVersion": "1.2.3"}
+
+
+def test_loader_selects_onvif_control():
+    from sensor_ms.adaptors.loader import load_control_adaptor
+    from sensor_ms.adaptors.onvif.control import OnvifControl
+
+    assert isinstance(load_control_adaptor("onvif"), OnvifControl)
+    assert load_control_adaptor("vst_rtsp") is None     # url-only adaptor, no control class
+    assert load_control_adaptor("nonexistent") is None
+
+
+def test_scan_runs_onvif_discovery(tmp_path, monkeypatch):
+    # adaptor=onvif -> scan() invokes WS-Discovery and returns the device count; other adaptors no-op.
+    import sensor_ms.adaptors.onvif.discovery as disc
+    from sensor_ms.config import Config
+    from sensor_ms.core.sensor_management import SensorManagement
+    from sensor_ms.db.engine import make_engine
+    from sensor_ms.db.models import Base
+
+    async def fake_discover(message_id, timeout=3.0, bind_ip="0.0.0.0"):
+        return parse_probe_match(_PROBE_MATCH)  # one device
+
+    monkeypatch.setattr(disc, "discover", fake_discover)
+
+    async def run(adaptor):
+        cfg = Config(use_centralize_db=False, sqlite_db_path=str(tmp_path / f"{adaptor}.db"),
+                     vst_data_path=str(tmp_path), use_message_broker="", adaptor=adaptor)
+        Base.metadata.create_all(make_engine(cfg))
+        mgmt = SensorManagement(cfg)
+        try:
+            return await mgmt.scan(force=True)
+        finally:
+            await mgmt.stop()
+
+    assert asyncio.run(run("onvif")) == 1
+    assert asyncio.run(run("vst_rtsp")) == 0
+

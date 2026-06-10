@@ -86,9 +86,13 @@ class SensorInfo(_Model):
     name: str | None = None
     position: Position | None = None
     serialNumber: str | None = None
-    state: SensorState | None = None            # only on GET /sensor/list
+    # state/type kept as free str (not the swagger enum): the system uses more sensor types than the
+    # swagger lists (sensor_file, sensor_csi, sensor_udp, ...). Enum-constraining the RESPONSE caused
+    # ResponseValidationError -> 500 on /list when other services wrote e.g. sensor_file rows. The
+    # C++ returns the raw string; match that.
+    state: str | None = None                    # only on GET /sensor/list
     tags: str | None = None
-    type: SensorType | None = None              # only on GET /sensor/list
+    type: str | None = None                     # only on GET /sensor/list
     isTimelinePresent: bool | None = None        # only on GET /sensor/list
     isRemoteSensor: bool | None = None
     remoteDeviceId: str | None = None
@@ -122,8 +126,10 @@ class StreamMetadata(_Model):
 class StreamInfo(_Model):
     streamId: str | None = None
     isMain: bool | None = None
-    type: StreamType | None = None
-    storageLocation: StorageLocation | None = None
+    # str (not enum) for the same reason as SensorInfo.type: avoid ResponseValidationError 500s on
+    # values outside the swagger enum. mapping.py still produces the documented strings.
+    type: str | None = None
+    storageLocation: str | None = None
     vodUrl: str | None = None
     url: str | None = None
     name: str | None = None

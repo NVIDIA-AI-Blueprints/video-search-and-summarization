@@ -60,42 +60,54 @@ def device_info_to_fields(dev_info: Any) -> dict[str, str]:
 
 
 class OnvifControl(SensorControlAdaptor):
-    """ONVIF control via onvif-zeep-async. Lazily builds an ONVIFCamera per (host, creds)."""
+    """ONVIF control via onvif-zeep-async. Opens an ONVIFCamera per call and always closes it,
+    so a failed/timed-out connection never leaks the underlying aiohttp session."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._cameras: dict[str, Any] = {}
+    @staticmethod
+    async def _connect(host: str, port: int, user: str, pw: str):
+        from onvif import ONVIFCamera  # lazy: only when an ONVIF device is actually used
 
-    async def _camera(self, host: str, port: int, user: str, pw: str):
-        key = f"{host}:{port}:{user}"
-        cam = self._cameras.get(key)
-        if cam is None:
-            from onvif import ONVIFCamera  # lazy: only when an ONVIF device is actually used
-
-            cam = ONVIFCamera(host, port, user, pw)
+        cam = ONVIFCamera(host, port, user, pw)
+        try:
             await cam.update_xaddrs()
-            self._cameras[key] = cam
+        except Exception:
+            # update_xaddrs (e.g. a connect timeout) failed after the aiohttp session was created;
+            # close it here so a failed connection never leaks the session, then re-raise.
+            await OnvifControl._close(cam)
+            raise
         return cam
+
+    @staticmethod
+    async def _close(cam) -> None:
+        if cam is not None:
+            try:
+                await cam.close()
+            except Exception:  # best-effort cleanup; never mask the original error
+                pass
 
     async def connect(self) -> int:
         # Connection is per-sensor (cameras are independent); nothing global to do.
         return 0
 
     async def validate_credentials(self, sensor: dict[str, Any], username: str, password: str) -> bool:
+        cam = None
         try:
-            cam = await self._camera(sensor["ip"], int(sensor.get("port", 80)), username, password)
+            cam = await self._connect(sensor["ip"], int(sensor.get("port", 80)), username, password)
             dev = await cam.create_devicemgmt_service()
             await dev.GetDeviceInformation()
             return True
         except Exception as e:
             log.info("ONVIF credential validation failed for %s: %s", sensor.get("ip"), e)
             return False
+        finally:
+            await self._close(cam)
 
     async def get_sensor_stream_info(self, sensor: dict[str, Any]) -> int:
         """Populate sensor['streams'] from ONVIF profiles + stream URIs. Returns 0 on success."""
+        cam = None
         try:
-            cam = await self._camera(sensor["ip"], int(sensor.get("port", 80)),
-                                     sensor.get("user", ""), sensor.get("password", ""))
+            cam = await self._connect(sensor["ip"], int(sensor.get("port", 80)),
+                                      sensor.get("user", ""), sensor.get("password", ""))
             dev = await cam.create_devicemgmt_service()
             sensor.update(device_info_to_fields(await dev.GetDeviceInformation()))
             media = await cam.create_media_service()
@@ -114,16 +126,21 @@ class OnvifControl(SensorControlAdaptor):
         except Exception as e:
             log.error("ONVIF get_sensor_stream_info failed for %s: %s", sensor.get("ip"), e)
             return -1
+        finally:
+            await self._close(cam)
 
     # The remaining camera-facing operations follow the same pattern (create service -> call ->
     # map). They require a real device for validation (P3 gate) and are scaffolded here.
     async def reboot_sensor(self, sensor: dict[str, Any]) -> int:
+        cam = None
         try:
-            cam = await self._camera(sensor["ip"], int(sensor.get("port", 80)),
-                                     sensor.get("user", ""), sensor.get("password", ""))
+            cam = await self._connect(sensor["ip"], int(sensor.get("port", 80)),
+                                      sensor.get("user", ""), sensor.get("password", ""))
             dev = await cam.create_devicemgmt_service()
             await dev.SystemReboot()
             return 0
         except Exception as e:
             log.error("ONVIF reboot failed for %s: %s", sensor.get("ip"), e)
             return -1
+        finally:
+            await self._close(cam)

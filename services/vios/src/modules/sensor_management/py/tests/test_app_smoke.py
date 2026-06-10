@@ -41,14 +41,14 @@ def test_qos_deprecated_null_stats(client):
     assert r.json()["stats"] is None
 
 
-def test_internal_error_returns_snakecase_envelope(client):
-    # Smoke env has no real DB, so /sensor/list hits a DB error -> the global handler must render
-    # the snake_case VMSInternalError envelope (HTTP 500), never a stack trace or 422 shape.
-    r = client.get("/api/v1/sensor/list")
-    assert r.status_code == 500
+def test_error_envelope_is_snakecase(client):
+    # A VmsError must render as the snake_case envelope (never a 422/stack trace). POST /add with
+    # neither sensorUrl nor sensorIp raises InvalidParameterError before any DB access.
+    r = client.post("/api/v1/sensor/add", json={"name": "x"})
+    assert r.status_code == 400
     body = r.json()
     assert set(body) == {"error_code", "error_message"}
-    assert body["error_code"] == "VMSInternalError"
+    assert body["error_code"] == "InvalidParameterError"
 
 
 def test_mutating_endpoint_passes_through_without_token(client):
