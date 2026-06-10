@@ -194,7 +194,10 @@ When using this skill, ALWAYS follow this high-level workflow:
    If the user query references a specific video / sensor name
    (e.g. "the airport video", "warehouse_cam_3", "sample warehouse"),
    verify it's actually registered in VIOS **before** firing
-   `POST .../generate`. List sources via the `vss-manage-video-io-storage` skill.
+   `POST .../generate`. Resolve the source by invoking the
+   `vss-manage-video-io-storage` skill's canonical source-list workflow;
+   do not guess or probe alternate source-list routes, and do not use
+   `/generate` as a fallback existence check.
 
    Then:
    - **If the named source (or a clearly substring-matching name) IS in the list** → proceed to step 3. Forward the user's natural-language query verbatim — the agent's own search tool decomposer (`services/agent/src/vss_agents/tools/search.py`) extracts `video_sources` from the prose given the available sources, so the skill does NOT need to construct a structured `video sources` payload.
