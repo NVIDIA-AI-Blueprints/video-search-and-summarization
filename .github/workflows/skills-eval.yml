@@ -392,11 +392,8 @@ jobs:
     runs-on: [self-hosted, vss-skill-eval-runner]
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 1
       matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
-    concurrency:
-      group: nemoclaw-eval-${{ matrix.platform }}
-      cancel-in-progress: false
     timeout-minutes: 240
     steps:
       - name: Checkout mirror head
