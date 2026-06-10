@@ -16,7 +16,7 @@
 # limitations under the License.
 
 JETSON_CC_BASE="jetson_cross_compiler_base"
-JETSON_CC_IMAGE_NAME="${1:-gitlab-master.nvidia.com:5005/l4tmm/vms_shim/cicd_images:jetson_cross_compiler}"
+JETSON_CC_IMAGE_NAME="${1:-vios-build:jetson-cross-compiler}"
 docker build --network=host -t "${JETSON_CC_BASE}" .
 
 docker run --privileged --net=host -itd --name ${JETSON_CC_BASE} ${JETSON_CC_BASE}

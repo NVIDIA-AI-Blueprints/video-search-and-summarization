@@ -20,7 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-DEFAULT_IMAGE="nvcr.io/rxczgrvsg8nx/vst-dev/vst-streamprocessing:2.1.0-26.05.2"
+DEFAULT_IMAGE="vios/vst-streamprocessing:latest"
 MOUNT_PATH="/home/vst/vst_release"
 
 IMAGE=""

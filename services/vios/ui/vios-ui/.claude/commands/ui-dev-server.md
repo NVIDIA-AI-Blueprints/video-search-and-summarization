@@ -16,7 +16,7 @@ Start the VST UI dev server pointed at a backend host.
 
 - If `$ARGUMENTS` is non-empty, parse it as `<ip:port>` with an optional trailing path.
 - If no arguments were given, use `AskUserQuestion` to ask the user:
-  - "What is the backend IP and port? (e.g. 10.41.26.58:30888)"
+  - "What is the backend IP and port? (e.g. <HOST>:30888)"
 - Default path is `/vst` if none provided.
 - Construct the full URL: `http://<ip>:<port><path>`
 

@@ -27,7 +27,7 @@ This agent handles end-to-end quality assurance for VIOS (Video IO & Storage): d
 
 Every skill that talks to VIOS needs a `BASE_URL`. Resolve it once at the start of a task, in priority order:
 
-1. URL passed explicitly by the user (e.g. `/sqa test http://10.24.217.99:30888`)
+1. URL passed explicitly by the user (e.g. `/sqa test http://<HOST>:30888`)
 2. `VIOS_BASE_URL` environment variable: `echo $VIOS_BASE_URL`
 3. Probe localhost: `curl -s -o /dev/null -w "%{http_code}" http://localhost:30888/api/health` — use `http://localhost:30888` if it returns `200`
 4. Read the host IP that the last deployment printed, or check `deployment/**/docker-compose*.y*ml` for the configured port

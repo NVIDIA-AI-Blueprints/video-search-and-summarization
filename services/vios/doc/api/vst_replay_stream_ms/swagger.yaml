@@ -1192,13 +1192,13 @@ components:
           maxLength: 256
           format: uri
           description: 'Live RTSP URL.'
-          example: 'rtsp://10.41.26.58:30554/live/TruckAccident'
+          example: 'rtsp://<HOST>:30554/live/TruckAccident'
         vodUrl:
           type: string
           maxLength: 256
           format: uri
           description: 'VOD (replay) RTSP URL. Supports startTs/endTs query parameters.'
-          example: 'rtsp://10.41.26.58:30562/vod/TruckAccident'
+          example: 'rtsp://<HOST>:30562/vod/TruckAccident'
         name:
           type: string
           maxLength: 128
