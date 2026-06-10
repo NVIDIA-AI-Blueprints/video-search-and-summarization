@@ -216,23 +216,39 @@ def run_openclaw_cli(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Pa
     ensure_openclaw_gateway(sandbox_name, log_dir)
     inner = _openclaw_cli_command(prompt, timeout_s)
     launcher = (
-        f"set -eu; mkdir -p {OPENCLAW_RUN_DIR}; "
-        f"rm -f {OPENCLAW_RUN_DIR}/openclaw-agent.log {OPENCLAW_RUN_DIR}/openclaw-agent.pid; "
-        f"nohup sh -lc {shlex.quote(inner)} > {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>&1 & "
-        f"pid=$!; echo $pid > {OPENCLAW_RUN_DIR}/openclaw-agent.pid; echo $pid"
+        "set -u; "
+        f"mkdir -p {OPENCLAW_RUN_DIR}; "
+        f"rm -f {OPENCLAW_RUN_DIR}/openclaw-agent.log "
+        f"{OPENCLAW_RUN_DIR}/openclaw-agent.pid {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
+        f"sh -lc {shlex.quote(inner)} > {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>&1 & "
+        "pid=$!; "
+        f"echo $pid > {OPENCLAW_RUN_DIR}/openclaw-agent.pid; "
+        f"deadline=$(( $(date +%s) + {int(timeout_s) + 60} )); "
+        "while kill -0 \"$pid\" 2>/dev/null; do "
+        "  if [ \"$(date +%s)\" -ge \"$deadline\" ]; then "
+        "    kill \"$pid\" 2>/dev/null || true; "
+        "    sleep 2; "
+        "    kill -9 \"$pid\" 2>/dev/null || true; "
+        f"    echo 124 > {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
+        "    exit 124; "
+        "  fi; "
+        "  sleep 5; "
+        "done; "
+        "wait \"$pid\"; rc=$?; "
+        f"echo \"$rc\" > {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
+        "exit \"$rc\""
     )
-    result = _sandbox_exec(sandbox_name, launcher, timeout=30)
+    result = _sandbox_exec(sandbox_name, launcher, timeout=timeout_s + 90)
     (log_dir / "openclaw-launch.log").write_text(
         f"returncode={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}\n",
         encoding="utf-8",
     )
     return {
-        "status": 202 if result.returncode == 0 else 500,
+        "status": 200 if result.returncode == 0 else 500,
         "body": {
             "ok": result.returncode == 0,
             "mode": "cli",
             "returncode": result.returncode,
-            "pid": (result.stdout or "").strip(),
         },
         "stdout_tail": result.stdout[-4000:],
         "stderr_tail": result.stderr[-4000:],

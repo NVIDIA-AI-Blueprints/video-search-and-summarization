@@ -139,6 +139,13 @@ def _run(cmd: list[str], *, timeout: int = 60, env: dict[str, str] | None = None
     return CommandResult(proc.returncode, proc.stdout, proc.stderr)
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _parse_brev_json(raw: str) -> list[dict[str, Any]]:
     """Parse Brev JSON output while tolerating trailing CLI walkthrough text."""
     bracket = raw.rfind("]")
@@ -1798,10 +1805,21 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     executed += 1
                     if harbor_rc != 0 or reward is None or reward < 1.0:
-                        failures.append(
+                        failure = (
                             f"{scenario.skill}/{scenario.spec_name}/{scenario.platform}/{scenario.task_name} "
                             f"(harbor_rc={harbor_rc}, reward={reward if reward is not None else 'missing'})"
                         )
+                        failures.append(failure)
+                        if _env_flag("NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE", default=True):
+                            remaining = len(group) - group.index(scenario) - 1
+                            if remaining:
+                                print(
+                                    "[nemoclaw-ci] failing fast after scenario failure; "
+                                    f"skipping {remaining} remaining step(s) in "
+                                    f"{scenario.skill}/{scenario.spec_name}/{scenario.platform}",
+                                    flush=True,
+                                )
+                            break
             finally:
                 _release_lock(instance, worker_lock)
 
