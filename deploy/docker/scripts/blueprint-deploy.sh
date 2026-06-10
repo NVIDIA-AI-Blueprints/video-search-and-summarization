@@ -243,7 +243,7 @@ function usage() {
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
   echo "  --llm                           LLM model (e.g. nvidia/nvidia-nemotron-nano-9b-v2)"
-  echo "  --vlm                           VLM model (e.g. nvidia/cosmos3-reasoner, nvidia/cosmos-reason2-8b)"
+  echo "  --vlm                           VLM model (e.g. nvidia/cosmos-reason2-8b)"
   echo "  --llm-device-id                 GPU device ID for LLM"
   echo "  --vlm-device-id                 GPU device ID for VLM"
   echo "  --use-remote-llm                Use remote LLM (LLM_ENDPOINT_URL)"
@@ -808,14 +808,8 @@ function state_up() {
       set_env_var "VLM_NAME" "${_vlm_name}"
       set_env_var "VLM_NAME_SLUG" "none"
     elif [[ -n "${vlm}" ]]; then
+      set_env_var "VLM_NAME" "${vlm}"
       set_env_var "VLM_NAME_SLUG" "$(get_vlm_slug "${vlm}")"
-      if [[ "${vlm}" == "nvidia/cosmos3-reasoner" ]]; then
-        local _nim_model_size="${NIM_MODEL_SIZE:-$(get_env_value "${_source_env}" "NIM_MODEL_SIZE")}"
-        _nim_model_size="${_nim_model_size:-nano}"
-        set_env_var "VLM_NAME" "nvidia/cosmos3-${_nim_model_size}-reasoner"
-      else
-        set_env_var "VLM_NAME" "${vlm}"
-      fi
     fi
     if [[ "${_llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
       set_env_var "LLM_DEVICE_ID" "${llm_device_id}"
