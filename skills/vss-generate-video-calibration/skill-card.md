@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers who need to run AutoMagicCalib camera calibration on local video files, RTSP streams, or sample datasets within VSS deployments. <br>
+Developers and engineers use this skill to run end-to-end camera calibration via the AutoMagicCalib microservice on local video files, RTSP streams, or bundled sample datasets, and optionally deploy the AMC service. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,12 +19,13 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy Auto-Calibration Service](references/deploy-auto-calibration-service.md) <br>
-- [Video Input Mode](references/videos.md) <br>
+- [Calibration Tail (shared workflow)](references/calibration-tail.md) <br>
 - [RTSP Input Mode](references/rtsp.md) <br>
-- [Sample Dataset Mode](references/sample-dataset.md) <br>
+- [Videos Input Mode](references/videos.md) <br>
+- [Sample Dataset](references/sample-dataset.md) <br>
 
 
 ## Skill Output: <br>
@@ -40,7 +41,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 3 evaluation tasks (3 positive activation, 0 negative) in the NVSkills-Eval external profile on astra-sandbox environment. <br>
+Evaluated against 3 internal evaluation tasks (all positive skill-activation cases) using NVSkills-Eval external profile in astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -64,11 +65,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 3 | 100% (+0%) | 83% (-17%) |
-| Correctness | 3 | 76% (+39%) | 80% (+45%) |
-| Discoverability | 3 | 95% (+33%) | 74% (+23%) |
-| Effectiveness | 3 | 36% (+32%) | 38% (+32%) |
-| Efficiency | 3 | 80% (+23%) | 59% (+15%) |
+| Security | 3 | 100% (+0%) | 100% (+0%) |
+| Correctness | 3 | 79% (+42%) | 68% (+33%) |
+| Discoverability | 3 | 94% (+33%) | 69% (+15%) |
+| Effectiveness | 3 | 38% (+34%) | 30% (+26%) |
+| Efficiency | 3 | 80% (+24%) | 53% (+6%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
