@@ -125,5 +125,51 @@ services:
       retries: 60
       start_period: 2s
 
+  # Python reimplementation of the control-plane sensor service (opt-in).
+  #   Enable with:  docker compose --profile sensor-py up -d sensor-py
+  # Runs on its OWN port (SENSOR_PY_HTTP_PORT) so it can run side-by-side with the C++ sensor-ms
+  # for differential validation, against the SAME Postgres + Redis. To cut over, point the ingress
+  # at SENSOR_PY_HTTP_PORT instead of SENSOR_HTTP_PORT.
+  sensor-py:
+    profiles: ["sensor-py"]
+    image: ${SENSOR_PY_IMAGE:-vios-sensor-py:latest}
+    build:
+      context: ../../../src/modules/sensor_management/py
+      dockerfile: Dockerfile
+    user: "0:0"            # read the root-owned self_signed_certificate.pem (AES key parity)
+    environment:
+      - CONTAINER_NAME=sensor-py
+      - HTTP_PORT=${SENSOR_PY_HTTP_PORT:-30010}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - CENTRALIZE_DB_PASSWORD=${CENTRALIZE_DB_PASSWORD}
+      - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
+      - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
+      - USE_MESSAGE_BROKER=redis
+      - MESSAGE_BROKER_TOPIC=${REDIS_MSG_KEY}
+      - MESSAGE_BROKER_PAYLOAD_KEY=sensor.id
+      - REDIS_SERVER_ENV_VAR=${REDIS_HOSTADDR}:${REDIS_PORT}
+      - VST_DATA_PATH=/home/vst/vst_release/vst_data
+    volumes:
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data:ro
+    network_mode: host
+    container_name: sensor-py
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python3 -c "import os,urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:'+os.environ['HTTP_PORT']+'/v1/ready')"
+      timeout: 3s
+      interval: 15s
+      retries: 30
+      start_period: 5s
+    depends_on:
+      redis:
+        condition: service_healthy
+      centralizedb:
+        condition: service_healthy
+
 volumes:
   vst_pg_data:

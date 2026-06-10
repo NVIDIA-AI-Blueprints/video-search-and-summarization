@@ -134,7 +134,7 @@ CPPFLAGS += \
 			-I $(TOP)/src/framework/utilities/ \
 			-I $(TOP)/src/framework/apis/common \
 			-I $(TOP)/src/framework/apis \
-			-I $(TOP)/src/modules/sensor_management/ \
+			-I $(TOP)/src/modules/sensor_management/cpp/ \
 			-I $(TOP)/src/modules/stream_recorder/ \
 			-I $(TOP)/src/modules/storage_management/ \
 			-I $(TOP)/src/modules/rtsp_server/ \
@@ -506,7 +506,7 @@ clip_producer: utilities
 
 sensor_management:
 	@echo "Building sensor management module....."
-	$(MAKE) -C src/modules/sensor_management/
+	$(MAKE) -C src/modules/sensor_management/cpp/
 
 rtsp: utilities stream_monitor unified_storage
 	@echo "Building rtsp server module....."
@@ -626,7 +626,7 @@ TEST_OBJS := $(TEST_SRCS:.cpp=.o)
 # - websocket_apis.cpp: needs gRPC generated files
 # - user_apis.cpp: has sensor management dependencies
 # - remote_sensor_control_apis.cpp: needs gRPC generated files (vstserver.grpc.pb.h)
-FRAMEWORK_SRCS := $(filter-out src/app/Main.cpp src/app/server.cpp src/framework/apis/websocket_apis.cpp src/framework/apis/user_apis.cpp src/modules/sensor_management/remote_sensor_control_apis.cpp,$(SRCS))
+FRAMEWORK_SRCS := $(filter-out src/app/Main.cpp src/app/server.cpp src/framework/apis/websocket_apis.cpp src/framework/apis/user_apis.cpp src/modules/sensor_management/cpp/remote_sensor_control_apis.cpp,$(SRCS))
 FRAMEWORK_OBJS := $(FRAMEWORK_SRCS:.cpp=.o)
 
 
@@ -759,7 +759,7 @@ clean:
 	$(MAKE) -C src/framework/utilities/ clean
 	$(MAKE) -C src/framework/database/ clean
 	$(MAKE) -C src/framework/unified_storage/ clean
-	$(MAKE) -C src/modules/sensor_management/ clean
+	$(MAKE) -C src/modules/sensor_management/cpp/ clean
 	$(MAKE) -C src/modules/rtsp_server/ clean
 	$(MAKE) -C src/modules/stream_recorder/ clean
 	$(MAKE) -C src/modules/storage_management/ clean
