@@ -5,7 +5,7 @@ The video is segmented into chunks as per requested chunk duration and overlap i
 Frames are sampled and sent for VLM inference. Text output is generated at the end of inference.
 If Yes/No questions are asked, it also generates incidents based on set prompts.
 
-Default Docker Compose model: Cosmos Reason2 with `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` (configurable; see [Model Configuration](#model-configuration)).
+Default Docker Compose model: Cosmos Reason3 Nano FP8 with `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` (configurable; see [Model Configuration](#model-configuration)).
 
 ## Prerequisites
 - **NGC API key** to download the base container and any NGC-hosted model.
@@ -64,8 +64,8 @@ BACKEND_PORT=8000
 RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0
 # For DGX Spark/SBSA platforms:
 #RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0-sbsa
-VLM_MODEL_TO_USE=cosmos-reason2
-MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
+VLM_MODEL_TO_USE=cosmos-reason3
+MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix
 KAFKA_ENABLED=true
 #KAFKA_BOOTSTRAP_SERVERS=<Kafka_server_ip:port>
 KAFKA_TOPIC=mdx-vlm-captions
@@ -204,7 +204,7 @@ helm upgrade --install vss-rtvi-vlm . \
 
 When using the `hf-token-secret` secret, set `hfTokenSecret.name=hf-token-secret` and `hfTokenSecret.key=HF_TOKEN` in your values file or with `--set`.
 
-The standalone override sets `enabled=true`, `useSharedNim=false`, `modelPath=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8`, disables Kafka publishing with `KAFKA_ENABLED=false`, and uses loopback placeholders for Kafka and Redis.
+The standalone override sets `enabled=true`, `useSharedNim=false`, `modelPath=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`, disables Kafka publishing with `KAFKA_ENABLED=false`, and uses loopback placeholders for Kafka and Redis.
 
 #### 4. Expose the API for local testing
 
@@ -224,6 +224,7 @@ RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remo
 
 | Model or checkpoint | Example selector |
 |---------------------|------------------|
+| Cosmos Reason3 Nano FP8, `modelopt-fp8-final_format_fix` | `VLM_MODEL_TO_USE=cosmos-reason3`, `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
 | Cosmos Reason2 8B, `0303-fp8-dynamic-kv8` | `VLM_MODEL_TO_USE=cosmos-reason2`, `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` |
 | [Cosmos Reason2 8B, hf-0303](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=hf-0303) | `VLM_MODEL_TO_USE=cosmos-reason2`, `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-0303` |
 | [Cosmos Reason2 8B, 0303-fp4-dynamic-kv8](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=0303-fp4-dynamic-kv8) | `VLM_MODEL_TO_USE=cosmos-reason2`, `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp4-dynamic-kv8`. Do not use this FP4/NVFP4 variant on GB200. |
@@ -843,7 +844,7 @@ The table lists variables in the standalone Docker Compose stack and the standal
 
 | Variable | Description | Standalone default |
 |----------|-------------|--------------------|
-| `MODEL_PATH` (Helm: `modelPath`) | Model source | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` |
+| `MODEL_PATH` (Helm: `modelPath`) | Model source | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
 | `MODEL_IMPLEMENTATION_PATH` | Custom model implementation path | Empty |
 | `NGC_API_KEY` | NGC API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
 | `HF_TOKEN` | Hugging Face token | Compose: Empty; Helm: `hf-token-secret/HF_TOKEN` secret |
@@ -852,7 +853,7 @@ The table lists variables in the standalone Docker Compose stack and the standal
 | `OPENAI_API_KEY` | OpenAI-compatible API key | `NOAPIKEYSET` |
 | `OPENAI_API_VERSION` | Azure OpenAI API version | Empty |
 | `VIA_VLM_API_KEY` | OpenAI-compatible VLM API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
-| `VLM_MODEL_TO_USE` | Backend selector | `cosmos-reason2` |
+| `VLM_MODEL_TO_USE` | Backend selector | `cosmos-reason3` |
 | `VLM_BATCH_SIZE` | VLM inference batch size | Empty |
 | `NUM_VLM_PROCS` | Number of VLM inference processes | Empty |
 | `NUM_GPUS` | Number of GPUs to use | Compose: Empty; Helm: `1` |
@@ -921,7 +922,7 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | `image.pullPolicy` | Kubernetes image pull policy | `IfNotPresent` |
 | `replicas` | Number of RT-VLM replicas | `1` |
 | `useSharedNim` | Use an in-cluster or remote OpenAI-compatible NIM instead of loading the model in the RT-VLM pod | `false` |
-| `modelPath` | Model path used when `useSharedNim=false` | Set by `overrides_rtvi_vlm.yaml` to `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` |
+| `modelPath` | Model path used when `useSharedNim=false` | Set by `overrides_rtvi_vlm.yaml` to `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
 | `sharedNimService` | Shared NIM service name when `useSharedNim=true` | Empty |
 | `sharedNimPort` | Shared NIM service port | `8000` |
 | `vlmBaseUrl` | Remote VLM base URL when NIMs are disabled | Empty |
