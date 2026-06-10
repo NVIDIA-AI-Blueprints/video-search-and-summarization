@@ -48,11 +48,11 @@ The benchmark included 14 recorded Tier 3 trials, but the source evaluation data
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 7 | 100% (+0%) | 64% (-36%) |
-| Correctness | 7 | 94% (+55%) | 85% (+40%) |
-| Discoverability | 7 | 98% (+51%) | 80% (+17%) |
-| Effectiveness | 7 | 65% (+43%) | 59% (+36%) |
-| Efficiency | 7 | 88% (+45%) | 69% (+14%) |
+| Security | 7 | 100% (+0%) | 71% (-29%) |
+| Correctness | 7 | 92% (+58%) | 63% (+17%) |
+| Discoverability | 7 | 96% (+53%) | 77% (+13%) |
+| Effectiveness | 7 | 61% (+43%) | 35% (+11%) |
+| Efficiency | 7 | 87% (+48%) | 69% (+13%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
