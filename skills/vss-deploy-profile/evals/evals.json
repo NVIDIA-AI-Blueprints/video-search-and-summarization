@@ -16,13 +16,13 @@
     "id": "search-compose-generate",
     "question": "Generate the docker compose yaml for a VSS search profile.",
     "expected_skill": "vss-deploy-profile",
-    "ground_truth": "Loads vss-deploy-profile, routes to the search profile (references/search.md), and uses the same generated.env dry-run flow. Configures the search stack: Cosmos Embed1 embeddings via RT-Embed (vss-rtvi-embed, port 8017, MODEL_PATH git:huggingface Cosmos-Embed1-448p) indexed in Elasticsearch, with rtvi-cv + rtvi-embed + the LLM (default nvidia/nvidia-nemotron-nano-9b-v2) as the always-on GPU services. A VLM (cosmos-reason2-8b NIM or RT-VLM) is added only when the Critique agent is enabled, and the GPU device split (RT_CV_DEVICE_ID/RT_EMBED_DEVICE_ID/LLM_DEVICE_ID/VLM_DEVICE_ID) is respected.",
+    "ground_truth": "Loads vss-deploy-profile, routes to the search profile (references/search.md), and uses the same generated.env dry-run flow. Configures the search stack: Cosmos Embed1 embeddings via RT-Embed (vss-rtvi-embed, port 8017, MODEL_PATH git:huggingface Cosmos-Embed1-448p) indexed in Elasticsearch, with rtvi-cv + rtvi-embed + the LLM (default nvidia/nvidia-nemotron-nano-9b-v2) as the always-on GPU services. A VLM (cosmos3-reasoner NIM serving nvidia/cosmos3-nano-reasoner, or RT-VLM) is added only when the Critique agent is enabled, and the GPU device split (RT_CV_DEVICE_ID/RT_EMBED_DEVICE_ID/LLM_DEVICE_ID/VLM_DEVICE_ID) is respected.",
     "expected_behavior": [
       "Loads the vss-deploy-profile skill and routes to the search profile (references/search.md).",
       "Follows the same dry-run flow (generated.env -> `config > resolved.yml` -> normalize_resolved_yml.py -> `up -d`), with --env-file pointing at generated.env.",
       "Configures the search stack: Cosmos Embed1 embeddings via RT-Embed (vss-rtvi-embed, port 8017) indexed in Elasticsearch, with rtvi-cv, rtvi-embed, and the LLM as the always-on GPU services.",
       "On a multi-GPU host, assigns the device split explicitly (RT_CV_DEVICE_ID, RT_EMBED_DEVICE_ID, LLM_DEVICE_ID, VLM_DEVICE_ID) so the LLM leaves headroom for RT-Embed on the shared GPU — does not leave device assignment to default.",
-      "Adds a VLM (cosmos-reason2-8b NIM or RT-VLM vss-rtvi-vlm) only when the Critique agent is enabled — does not unconditionally deploy a Cosmos VLM NIM in the default integrated path.",
+      "Adds a VLM (cosmos3-reasoner NIM with VLM_NAME=nvidia/cosmos3-nano-reasoner and VLM_NAME_SLUG=cosmos3-reasoner, or RT-VLM vss-rtvi-vlm) only when the Critique agent is enabled — does not unconditionally deploy a Cosmos VLM NIM in the default integrated path.",
       "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
     ]
   },
