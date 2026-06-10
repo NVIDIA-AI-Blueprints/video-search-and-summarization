@@ -205,16 +205,22 @@ stacks on the host), allow that one instead:
 (Same step `warehouse.md` documents for Brev; applies to any ufw-active host.)
 
 **Browser access from another machine.** The bridge rule above only lets *containers*
-reach the host — it does **not** open the UI to other devices. To reach the UI/API
-from a different machine, also allow the browser-facing ingress port
-(`HAPROXY_PORT`, default `7777`; add `3000`/`8000` only if you hit the agent UI/API
-directly, bypassing HAProxy):
+reach the host — it does **not** open ports to other devices. The `HAPROXY_PORT`
+ingress (default `7777`) reverse-proxies the UI, agent API, and VST, so a single
+allow covers all three:
 
 ```bash
-sudo ufw allow 7777/tcp        # HAProxy ingress (browser UI/API/VST). Or scope to your LAN:
+sudo ufw allow 7777/tcp        # HAProxy ingress — fronts UI + agent + VST. Or scope to your LAN:
 # sudo ufw allow from 192.168.0.0/16 to any port 7777 proto tcp
 sudo ufw reload
-sudo ufw status | grep 7777    # confirm the rule is present
+```
+
+`nvstreamer` is the exception — its port (`31000`, host-networked) is **not** behind
+the ingress, so reaching its UI / RTSP directly needs its own allow:
+
+```bash
+sudo ufw allow 31000/tcp
+sudo ufw reload
 ```
 
 (Reachability still depends on `EXTERNAL_IP` — see [Network addressing](#addressing).)
