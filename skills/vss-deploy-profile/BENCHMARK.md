@@ -55,11 +55,11 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 5 | 100% (+0%) | 100% (+10%) |
-| Correctness | 5 | 96% (+76%) | 86% (+50%) |
-| Discoverability | 5 | 93% (+69%) | 92% (+35%) |
-| Effectiveness | 5 | 70% (+65%) | 66% (+60%) |
-| Efficiency | 5 | 76% (+46%) | 89% (+37%) |
+| Security | 5 | 100% (+0%) | 100% (+20%) |
+| Correctness | 5 | 95% (+60%) | 91% (+54%) |
+| Discoverability | 5 | 95% (+46%) | 84% (+30%) |
+| Effectiveness | 5 | 70% (+65%) | 71% (+64%) |
+| Efficiency | 5 | 78% (+39%) | 78% (+31%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -93,5 +93,5 @@ Top findings:
   vs "##### Internal service-to-service URLs (no Brev override needed)" in references/warehouse.md (lines 874-894)
   vs "## After deploy" in references/warehouse.md (lines 983-1029) (`references/alerts.md:204`)
 - HIGH DUPLICATE/duplicate: Duplicate content found across references/prerequisites.md and references/warehouse.md:
-  "### 2. Docker" in references/prerequisites.md (lines 258-277)
-  vs "#### 2.2 Docker" in references/warehouse.md (lines 478-492) (`references/prerequisites.md:258`)
+  "### 2. Docker" in references/prerequisites.md (lines 264-283)
+  vs "#### 2.2 Docker" in references/warehouse.md (lines 478-492) (`references/prerequisites.md:264`)
