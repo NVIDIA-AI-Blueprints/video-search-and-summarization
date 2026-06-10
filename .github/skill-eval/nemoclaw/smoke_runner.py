@@ -315,9 +315,29 @@ def _is_standalone_host_docker_spec(spec_path: Path) -> bool:
     path before they can run under NemoClaw.
     """
     spec = _spec_json(spec_path)
+    platforms = spec.get("resources", {}).get("platforms", {})
+    if isinstance(platforms, dict):
+        for platform_spec in platforms.values():
+            modes = platform_spec.get("modes") if isinstance(platform_spec, dict) else None
+            if isinstance(modes, list) and any(str(mode).lower() == "standalone" for mode in modes):
+                return True
+
     text = json.dumps(spec.get("expects") or [], sort_keys=True).lower()
-    if "standalone" not in text:
-        return False
+    host_direct_phrases = (
+        "no vss profile is pre-deployed",
+        "do not invoke `/vss-deploy-profile`",
+        "does not use `/vss-deploy-profile`",
+        "does not use /vss-deploy-profile",
+        "not use `/vss-deploy-profile`",
+        "not deploy a full vss profile",
+        "does not deploy a full vss profile",
+    )
+    if any(phrase in text for phrase in host_direct_phrases) and any(
+        marker in text for marker in ("docker", "compose", "container")
+    ):
+        return True
+    if "deploy amc" in text and "docker compose" in text:
+        return True
     markers = (
         "docker compose",
         "compose file",
@@ -326,7 +346,7 @@ def _is_standalone_host_docker_spec(spec_path: Path) -> bool:
         "not deploy a full vss profile",
         "does not deploy a full vss profile",
     )
-    return any(marker in text for marker in markers)
+    return "standalone" in text and any(marker in text for marker in markers)
 
 
 def _platforms_for_spec(spec_path: Path, platform_filter: str | None) -> list[str]:
