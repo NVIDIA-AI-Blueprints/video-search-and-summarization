@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // A data structure that implements a MIKEY message (RFC 3830)
 // C++ header
 
@@ -30,25 +30,31 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 
 class MIKEYState {
 public:
-  MIKEYState(Boolean useEncryption = True); // initialize with default parameters
-  virtual ~MIKEYState();
-
+  static MIKEYState* createNew(Boolean useEncryption = True);
+      // initialize with default parameters
   static MIKEYState* createNew(u_int8_t const* messageToParse, unsigned messageSize);
       // (Attempts to) parse a binary MIKEY message, returning a new "MIKEYState" if successful
       // (or NULL if unsuccessful).
 
+  virtual ~MIKEYState();
+
   u_int8_t* generateMessage(unsigned& messageSize) const;
       // Returns a binary message representing the current MIKEY state, of size "messageSize" bytes.
       // This array is dynamically allocated by this routine, and must be delete[]d by the caller.
+
+  void setROC(u_int32_t roc);
 
   // Accessors for the encryption/authentication parameters:
   Boolean encryptSRTP() const { return fEncryptSRTP; }
   Boolean encryptSRTCP() const { return fEncryptSRTCP; }
   u_int8_t const* keyData() const { return fKeyData; }
   u_int32_t MKI() const { return fMKI; }
+  u_int32_t initialROC() const { return fInitialROC; }
   Boolean useAuthentication() const { return fUseAuthentication; }
 
-private:
+protected:
+  MIKEYState(Boolean useEncryption);
+      // called only by "createNew()"
   MIKEYState(u_int8_t const* messageToParse, unsigned messageSize, Boolean& parsedOK);
       // called only by "createNew()"
 
@@ -64,6 +70,7 @@ private:
   Boolean fEncryptSRTCP;
   u_int8_t fKeyData[16+14]; // encryption key + salt
   u_int32_t fMKI; // used only if encryption is used. (We assume a MKI length of 4.)
+  u_int32_t fInitialROC; // initial SRTP roll-over-counter (assumes just one crypto session)
   Boolean fUseAuthentication;
 
   // Our internal binary representation of the MIKEY payloads:
