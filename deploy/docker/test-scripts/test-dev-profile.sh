@@ -979,6 +979,14 @@ run_dry_run_up_and_check_generated_env "generated.env LLM/VLM slugs and names" "
   "LLM_NAME_SLUG" "nemotron-3-nano" "LLM_NAME" "nvidia/nemotron-3-nano" \
   "VLM_NAME_SLUG" "cosmos-reason1-7b" "VLM_NAME" "nvidia/cosmos-reason1-7b"
 
+run_dry_run_up_and_check_generated_env "generated.env cosmos3-reasoner derives nano VLM_NAME by default" "base" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d -- \
+  "VLM_NAME_SLUG" "cosmos3-reasoner" "VLM_NAME" "nvidia/cosmos3-nano-reasoner"
+
+NIM_MODEL_SIZE=super run_dry_run_up_and_check_generated_env "generated.env cosmos3-reasoner derives super VLM_NAME from NIM_MODEL_SIZE" "base" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d -- \
+  "VLM_NAME_SLUG" "cosmos3-reasoner" "VLM_NAME" "nvidia/cosmos3-super-reasoner"
+
 run_dry_run_up_and_check_generated_env "generated.env MODE for alerts" "alerts" \
  -i 127.0.0.1 -m verification -d -- \
   "MODE" "2d_cv" \

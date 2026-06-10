@@ -436,7 +436,7 @@ function usage() {
   echo "                                   • One of (local):"
   echo "                                     - nvidia/cosmos-reason1-7b"
   echo "                                     - nvidia/cosmos-reason2-8b"
-  echo "                                     - nvidia/cosmos3-reasoner          (set NIM_MODEL_SIZE=nano|super)"
+  echo "                                     - nvidia/cosmos3-reasoner          (NIM_MODEL_SIZE=nano|super → VLM_NAME=nvidia/cosmos3-{size}-reasoner)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -1273,8 +1273,14 @@ function state_up() {
     set_env_var "VLM_NAME" "${_vlm_name}"
     set_env_var "VLM_NAME_SLUG" "none"
   elif [[ -n "${vlm}" ]]; then
-    set_env_var "VLM_NAME" "${vlm}"
     set_env_var "VLM_NAME_SLUG" "$(get_vlm_slug "${vlm}")"
+    if [[ "${vlm}" == "nvidia/cosmos3-reasoner" ]]; then
+      local _nim_model_size="${NIM_MODEL_SIZE:-$(get_env_value "${_source_env}" "NIM_MODEL_SIZE")}"
+      _nim_model_size="${_nim_model_size:-nano}"
+      set_env_var "VLM_NAME" "nvidia/cosmos3-${_nim_model_size}-reasoner"
+    else
+      set_env_var "VLM_NAME" "${vlm}"
+    fi
   fi
   if [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_NAME_SLUG" "none"
