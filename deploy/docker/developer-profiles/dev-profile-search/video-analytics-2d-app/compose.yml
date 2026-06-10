@@ -119,7 +119,7 @@ services:
       - -c
       - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh
     environment:
-      GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
+      GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/lib/gst-plugins:/opt/nvidia/deepstream/deepstream-9.0/lib/gst-plugins:/usr/lib/x86_64-linux-gnu/gstreamer-1.0/deepstream:/opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
       TRANSFORMERS_OFFLINE: 0
       HF_HUB_OFFLINE: 0
       DS_MODE_FLAG: "1"
