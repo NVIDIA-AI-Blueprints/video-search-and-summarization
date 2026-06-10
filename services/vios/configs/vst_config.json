@@ -102,7 +102,7 @@
 		"cloud_storage_type": "minio",
 		"cloud_storage_endpoint": "http://127.0.0.1:9000",
 		"cloud_storage_access_key": "admin",
-		"cloud_storage_secret_key": "nvidia123!",
+		"cloud_storage_secret_key": "",
 		"cloud_storage_bucket": "videos",
 		"cloud_storage_region": "",
 		"cloud_storage_use_ssl": false,

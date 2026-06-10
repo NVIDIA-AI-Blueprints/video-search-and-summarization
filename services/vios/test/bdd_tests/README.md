@@ -620,13 +620,13 @@ docker run --rm \
 docker run --rm \
   -v $(pwd)/reports:/app/reports \
   --network host \
-  vst-bdd-tests pytest --base-url http://10.24.217.99:30888 -v
+  vst-bdd-tests pytest --base-url http://<HOST>:30888 -v
 
   # Or override with --base-url (no config needed)
 docker run --rm \
   -v $(pwd)/reports:/app/reports \
   --network host \
-  gitlab-master.nvidia.com:5005/l4tmm/vms_shim/bdd_tests:v1.0_x86 pytest --base-url http://10.41.26.58:30888 -v
+  <INTERNAL_REGISTRY>/bdd_tests:v1.0_x86 pytest --base-url http://<HOST>:30888 -v
 ```
 
 **Run specific test categories:**
@@ -635,13 +635,13 @@ docker run --rm \
 docker run --rm \
   -v $(pwd)/reports:/app/reports \
   --network host \
-  vst-bdd-tests pytest --base-url http://10.24.217.99:30888 tests/file_upload/ -v
+  vst-bdd-tests pytest --base-url http://<HOST>:30888 tests/file_upload/ -v
 
 # Latency test with custom iterations
 docker run --rm \
   -v $(pwd)/reports:/app/reports \
   --network host \
-  vst-bdd-tests pytest --base-url http://10.24.217.99:30888 \
+  vst-bdd-tests pytest --base-url http://<HOST>:30888 \
     tests/perf/test_latency.py --perf-iterations 20 -v --log-cli-level=INFO
 ```
 
@@ -881,7 +881,7 @@ Configure cleanup behavior in `config.json`:
 ```json
 {
   "api": {
-    "base_url": "http://10.41.26.58:30888",  // VST API server URL
+    "base_url": "http://<HOST>:30888",  // VST API server URL
     "verify_ssl": false                       // SSL certificate verification
   }
 }

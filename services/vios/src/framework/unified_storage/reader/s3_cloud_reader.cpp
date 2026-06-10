@@ -415,7 +415,7 @@ CloudResult S3CloudReader::makeS3RequestWithParams(const std::string& method, co
         std::string host;
         if (!m_endpoint.empty())
         {
-            // Extract host from custom endpoint (e.g., "http://10.24.218.240:9000")
+            // Extract host from custom endpoint (e.g., "http://<host>:9000")
             host = m_endpoint;
             // Remove protocol if present
             if (host.find("://") != std::string::npos)
@@ -516,7 +516,7 @@ CloudResult S3CloudReader::makeS3Request(const std::string& method, const std::s
         std::string host;
         if (!m_endpoint.empty())
         {
-            // Extract host from custom endpoint (e.g., "http://10.24.218.240:9000")
+            // Extract host from custom endpoint (e.g., "http://<host>:9000")
             host = m_endpoint;
             // Remove protocol if present
             if (host.find("://") != std::string::npos)
@@ -760,7 +760,7 @@ std::string S3CloudReader::buildS3Endpoint(const std::string& bucket) const
     // Use custom endpoint if provided (for MinIO compatibility)
     if (!m_endpoint.empty() && m_endpoint.find("://") != std::string::npos)
     {
-        // Extract host from endpoint (e.g., "http://10.24.218.240:9000")
+        // Extract host from endpoint (e.g., "http://<host>:9000")
         std::string host = m_endpoint.substr(m_endpoint.find("://") + 3);
         return bucket + "." + host;
     }

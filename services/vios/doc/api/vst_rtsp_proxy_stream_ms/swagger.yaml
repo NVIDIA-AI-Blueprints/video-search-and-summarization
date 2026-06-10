@@ -389,13 +389,13 @@ components:
           maxLength: 256
           format: uri
           description: 'Live RTSP URL exposed by the proxy.'
-          example: 'rtsp://10.41.26.58:30554/live/TruckAccident'
+          example: 'rtsp://<HOST>:30554/live/TruckAccident'
         vodUrl:
           type: string
           maxLength: 256
           format: uri
           description: 'VOD RTSP URL exposed by the proxy for replaying recordings.'
-          example: 'rtsp://10.41.26.58:30562/vod/TruckAccident'
+          example: 'rtsp://<HOST>:30562/vod/TruckAccident'
       required:
         - sensorId
         - name
