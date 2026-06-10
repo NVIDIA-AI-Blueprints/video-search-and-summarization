@@ -37,7 +37,9 @@ DS_APP_DIR="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropoli
 # plugin and lib dirs here (after entrypoint) so we keep the image LD_LIBRARY_PATH.
 # ---------------------------------------------------------------------------
 export LD_LIBRARY_PATH="/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.0/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/opt/nvidia/deepstream/deepstream-9.0/lib/gst-plugins:/usr/lib/x86_64-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
+_ARCH="$(uname -m)"
+export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/opt/nvidia/deepstream/deepstream-9.0/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
+unset _ARCH
 
 # ---------------------------------------------------------------------------
 # Verify model artifacts exist (downloaded by perception-2d-init container)
