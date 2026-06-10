@@ -7,11 +7,11 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-generate-video-calibration`
-- Evaluation date: 2026-06-08
+- Evaluation date: 2026-06-10
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 3 evaluation tasks
-- Attempts per task: 2
+- Attempts per task: 1
 - Pass threshold: 50%
 - Overall verdict: PASS
 
@@ -54,25 +54,24 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 6 | 100% (+58%) | 75% (+0%) |
-| Correctness | 6 | 92% (+3%) | 75% (+32%) |
-| Discoverability | 6 | 91% (+13%) | 64% (+4%) |
-| Effectiveness | 6 | 50% (-10%) | 38% (+28%) |
-| Efficiency | 6 | 70% (+16%) | 47% (-2%) |
+| Security | 3 | 100% (+0%) | 83% (-17%) |
+| Correctness | 3 | 76% (+39%) | 80% (+45%) |
+| Discoverability | 3 | 95% (+33%) | 74% (+23%) |
+| Effectiveness | 3 | 36% (+32%) | 38% (+32%) |
+| Efficiency | 3 | 80% (+23%) | 59% (+15%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 5 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 4 total findings.
 
 Top findings:
 
 - MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-generate-video-calibration/SKILL.md`)
 - MEDIUM QUALITY/quality_efficiency: Deeply nested references in common-steps.md (`skills/vss-generate-video-calibration/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-generate-video-calibration/SKILL.md`)
-- MEDIUM SECURITY/Unknown (SQP-2): The RTSP capture request hardcodes ssl_verify=false, disabling TLS certificate verification. This exposes the connection (`references/rtsp.md:105`)
-- MEDIUM SECURITY/Unknown (SQP-2): The inline bash script automatically creates virtual environments and installs Python packages (requests) without explic (`references/sample-dataset.md:122`)
+- MEDIUM SECURITY/Unknown (SQP-2): The skill instructs agents to run `curl -LsSf https://astral.sh/uv/install.sh | sh` automatically without any user confi (`references/sample-dataset.md:132`)
 
 ## Tier 2: Deduplication Summary
 
