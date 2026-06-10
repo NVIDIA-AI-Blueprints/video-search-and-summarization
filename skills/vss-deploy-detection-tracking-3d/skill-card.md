@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers deploying multi-camera 3D detection and tracking (MV3DT) for warehouse and industrial video analytics using the NVIDIA VSS Blueprint. <br>
+Developers and engineers deploying multi-camera 3D detection and tracking (MV3DT) for warehouse video analytics using the NVIDIA VSS blueprint. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,14 +19,14 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deploy RTVI-CV-3D Stack](references/deploy-rtvi-cv-3d-stack.md) <br>
 - [Calibration Workflow](references/calibration-workflow.md) <br>
 - [Configure Cameras](references/configure-cameras.md) <br>
 - [Verify and View](references/verify-and-view.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
 - [Teardown](references/teardown.md) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -42,7 +42,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 3 evaluation tasks in the `external` NVSkills-Eval profile on the `astra-sandbox` environment. <br>
+Evaluated against 3 internal evaluation tasks (positive skill-activation cases) in the NVSkills-Eval `external` profile on astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -67,10 +67,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 87% (+57%) | 80% (+29%) |
-| Discoverability | 3 | 92% (+56%) | 80% (+26%) |
-| Effectiveness | 3 | 62% (+55%) | 57% (+28%) |
-| Efficiency | 3 | 80% (+51%) | 72% (+23%) |
+| Correctness | 3 | 83% (+40%) | 84% (+33%) |
+| Discoverability | 3 | 94% (+52%) | 72% (+24%) |
+| Effectiveness | 3 | 56% (+42%) | 57% (+24%) |
+| Efficiency | 3 | 82% (+52%) | 60% (+22%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
