@@ -246,9 +246,16 @@ Probe each selected artifact with the normalized NGC key before continuing:
   no-entitlement signal (manifest read requires the same org/team grant as the
   layer pull); or the matching `ngc registry image info ...` when the artifact
   maps cleanly to an NGC image path.
-- NGC model/resource paths: run the matching `ngc registry model info ...` or
-  `ngc registry resource info ...` for the exact repo/tag that the profile will
-  load or download.
+- NGC model/resource paths (e.g. the Cosmos checkpoint RT-VLM downloads at
+  runtime): run the matching `ngc registry model info ...` or `ngc registry
+  resource info ...` for the exact repo/tag the profile will load or download;
+  these use NGC's scoped auth. Do NOT probe a model with `docker manifest
+  inspect` (returns "no such manifest" because a model is not an OCI image) or a
+  raw `Authorization: Bearer <key>` REST call (returns `403` because that is not
+  NGC's auth flow); both are expected false negatives, not entitlement failures.
+  If the `ngc` CLI is unavailable, treat the container-image probe above as the
+  entitlement signal, since NGC grants org/team access across images and models
+  together.
 - Profile-staged TAO/perception models: run the corresponding `ngc registry
   model info ...` / `resource info ...` for each repo/tag before the staging
   block downloads files.
