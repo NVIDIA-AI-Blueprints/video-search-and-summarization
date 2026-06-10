@@ -92,8 +92,8 @@ spec:
             {{- $vlmUrl := trim (tpl $rawVlmMerged .) }}
             {{- $subVn := trim (default "" .Values.vlmName) }}
             {{- $globVn := trim (default "" (index $g "vlmName")) }}
-            {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos-reason2-8b" }}
-            {{- $vlmDef := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}
+            {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos3-nano-reasoner" }}
+            {{- $vlmDef := ternary (printf "http://%s-nvidia-cosmos3-reasoner:8000" .Release.Name) "http://nvidia-cosmos3-reasoner:8000" $pfx }}
             - name: EXTERNAL_IP
               value: {{ .Values.externalIp | default (index (.Values.global | default dict) "externalHost" | default "" | trim) | default "127.0.0.1" | quote }}
             - name: INTERNAL_IP
