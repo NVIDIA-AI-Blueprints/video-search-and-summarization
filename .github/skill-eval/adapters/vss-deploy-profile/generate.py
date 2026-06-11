@@ -278,7 +278,7 @@ def generate_nemoclaw_prompt(profile: str, platform: str, profile_def: dict) -> 
         f"Deploy the VSS {underlying} profile{mode_phrase} on {platform}.",
         "",
         "Requirements:",
-        "- Use the VSS skills installed in this OpenClaw workspace.",
+        "- Use the `/vss-deploy-profile` skill installed in this OpenClaw workspace.",
         "- Use the VSS Orchestrator MCP server for deployment.",
         "- Do not run raw docker compose, dev-profile.sh, or host shell deploy commands directly.",
         "- Call the orchestrator flow: prereqs, docker_generate, docker_up, then docker_status until terminal.",

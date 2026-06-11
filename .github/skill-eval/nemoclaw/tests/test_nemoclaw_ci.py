@@ -1816,7 +1816,8 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertIn("--launch-mode cli", instruction)
             self.assertIn("--timeout 2400", instruction)
             self.assertIn("--wait-profile base", instruction)
-            self.assertTrue((task_dir / "tests" / "nemoclaw_prompt.md").exists())
+            prompt = (task_dir / "tests" / "nemoclaw_prompt.md").read_text(encoding="utf-8")
+            self.assertIn("Use the `/vss-deploy-profile` skill", prompt)
 
     def test_missing_eval_spec_does_not_generate_nemoclaw_launcher(self):
         with tempfile.TemporaryDirectory() as td:
