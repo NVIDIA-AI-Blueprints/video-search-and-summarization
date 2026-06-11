@@ -1048,17 +1048,119 @@ fi
 echo "NemoClaw worker is locked by $(cat "$lock_dir/owner" 2>/dev/null || echo unknown)"
 exit 1
 """
-    try:
-        result = _run(["brev", "exec", instance, command], timeout=60)
-    except subprocess.TimeoutExpired:
-        print(f"[nemoclaw-ci] remote lock check timed out on {instance}", flush=True)
-        return None
-    if result.returncode == 0:
+    def attempt() -> tuple[int, str]:
+        try:
+            result = _run(["brev", "exec", instance, command], timeout=60)
+        except subprocess.TimeoutExpired:
+            print(f"[nemoclaw-ci] remote lock check timed out on {instance}", flush=True)
+            return 124, ""
+        tail = ((result.stdout or "") + (result.stderr or ""))[-500:].strip()
+        return result.returncode, tail
+
+    rc, tail = attempt()
+    if rc == 0:
         return owner
-    tail = ((result.stdout or "") + (result.stderr or ""))[-500:].strip()
+    locked_owner = _remote_lock_owner_from_output(tail)
+    if locked_owner and _remote_lock_owner_is_inactive(locked_owner):
+        print(
+            f"[nemoclaw-ci] removing remote lock from inactive run: {locked_owner}",
+            flush=True,
+        )
+        if _clear_remote_worker_lock(instance, locked_owner):
+            rc, tail = attempt()
+            if rc == 0:
+                return owner
+            locked_owner = _remote_lock_owner_from_output(tail)
     if tail:
         print(f"[nemoclaw-ci] {instance} remote lock unavailable: {tail}", flush=True)
     return None
+
+
+def _remote_lock_owner_from_output(output: str) -> str | None:
+    match = re.search(r"NemoClaw worker is locked by ([^\s]+)", output)
+    return match.group(1) if match else None
+
+
+def _remote_lock_owner_is_inactive(owner: str) -> bool:
+    run_id = _github_run_id_from_lock_owner(owner)
+    if not run_id:
+        return False
+    current_run_id = os.environ.get("GITHUB_RUN_ID", "")
+    if run_id == current_run_id:
+        return False
+    status = _github_run_status(run_id)
+    if status is None:
+        return False
+    return status not in {"queued", "in_progress", "waiting", "requested", "pending"}
+
+
+def _github_run_id_from_lock_owner(owner: str) -> str | None:
+    match = re.match(r"^(\d+)__", owner)
+    return match.group(1) if match else None
+
+
+def _github_run_status(run_id: str) -> str | None:
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not repo or not token:
+        return None
+    try:
+        result = _run(
+            [
+                "gh",
+                "run",
+                "view",
+                run_id,
+                "--repo",
+                repo,
+                "--json",
+                "status",
+                "--jq",
+                ".status",
+            ],
+            timeout=30,
+            env={**os.environ, "GH_TOKEN": token},
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode != 0:
+        tail = ((result.stdout or "") + (result.stderr or ""))[-300:].strip()
+        if tail:
+            print(
+                f"[nemoclaw-ci] could not query GitHub run {run_id}: {tail}",
+                flush=True,
+            )
+        return None
+    status = (result.stdout or "").strip()
+    return status or None
+
+
+def _clear_remote_worker_lock(instance: str, owner: str) -> bool:
+    command = f"""set -eu
+lock_dir=/tmp/skill-eval/locks/nemoclaw-worker.lockdir
+expected={shlex.quote(owner)}
+actual=$(cat "$lock_dir/owner" 2>/dev/null || true)
+if [ -d "$lock_dir" ] && [ "$actual" = "$expected" ]; then
+  rm -rf "$lock_dir"
+  echo "removed NemoClaw worker lock owned by $expected"
+  exit 0
+fi
+echo "NemoClaw worker lock owner changed to ${{actual:-none}}; not removing"
+exit 1
+"""
+    try:
+        result = _run(["brev", "exec", instance, command], timeout=60)
+    except subprocess.TimeoutExpired:
+        print(f"[nemoclaw-ci] remote stale lock cleanup timed out on {instance}", flush=True)
+        return False
+    tail = ((result.stdout or "") + (result.stderr or ""))[-500:].strip()
+    if result.returncode != 0:
+        if tail:
+            print(f"[nemoclaw-ci] remote stale lock cleanup skipped: {tail}", flush=True)
+        return False
+    if tail:
+        print(f"[nemoclaw-ci] {tail}", flush=True)
+    return True
 
 
 def _release_lock(instance: str, lock: WorkerLock) -> None:
@@ -1850,7 +1952,7 @@ def main(argv: list[str] | None = None) -> int:
             scenario=f"{args.skills} / {platform_filter or 'declared-platforms'}",
             scenario_id="infra-blocked",
         )
-        return 0
+        return 1
     except Exception as exc:  # noqa: BLE001
         print(f"BLOCKED: NemoClaw smoke setup failed: {exc}", file=sys.stderr, flush=True)
         body = (
