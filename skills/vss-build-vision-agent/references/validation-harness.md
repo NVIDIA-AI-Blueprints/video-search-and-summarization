@@ -130,7 +130,15 @@ SID=$(curl -s -X POST "$VIOS/sensor/add" \
   --data-raw "{\"sensorUrl\": \"$URL\"}" \
   | jq -r '.sensorId')
 
-# 4. VIOS now proxies the stream at rtsp://${HOST_IP}:30554/live/<SID>. Feed THAT to RT-VLM (use ${HOST_IP}).
+# 4. Record the caption-topic baseline, then feed the VIOS proxy stream to RT-VLM (use ${HOST_IP}).
+#    This baseline is what proves the live RT-VLM path advanced Kafka after this stream was driven.
+CAPTIONS_BEFORE=$(docker exec kafka kafka-get-offsets \
+  --bootstrap-server localhost:9092 \
+  --topic mdx-vlm-captions \
+  | awk -F: '{sum += $3} END {print sum+0}')
+echo "mdx-vlm-captions baseline offset: $CAPTIONS_BEFORE"
+
+#    VIOS now proxies the stream at rtsp://${HOST_IP}:30554/live/<SID>. Feed THAT to RT-VLM.
 #    /v1/streams/add takes the {"streams":[{...}]} ENVELOPE (a flat {"liveStreamUrl":...} body is
 #    rejected with InvalidParameters "('body', 'streams'): Field required" — Finding F-D, 2026-06-02;
 #    matches integrate-rt-vlm.md § Inputs). The stream_id comes back under .results[0].id.
@@ -147,7 +155,12 @@ curl -s -N -X POST "$RTVLM/v1/generate_captions" \
   -d "{\"id\": \"$STREAM_ID\", \"model\": \"<resolved-model-id>\", \"stream\": true, \"prompt\": \"Describe the scene.\", \"chunk_duration\": 10}"
 
 # 6. Assert captions land on Kafka mdx-vlm-captions AND in ES default_<id> FROM THE LIVE PATH.
-docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-vlm-captions   # offsets > 0
+CAPTIONS_AFTER=$(docker exec kafka kafka-get-offsets \
+  --bootstrap-server localhost:9092 \
+  --topic mdx-vlm-captions \
+  | awk -F: '{sum += $3} END {print sum+0}')
+echo "mdx-vlm-captions post-RT-VLM offset: $CAPTIONS_AFTER"
+test "$CAPTIONS_AFTER" -gt "$CAPTIONS_BEFORE"
 curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /^default_/ && $2+0 > 0'
 ```
 
@@ -159,11 +172,88 @@ curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /
 - **Discovery latency.** The streams list and codec metadata populate asynchronously (~5 s for the sensor to appear, ~15–30 s for `metadata.codec`). Retry with backoff (step 1); if you need codec immediately, call `GET $NV/storage/file/mediainfo?sensorId=$STEM`.
 - **No `/sensor/add` on NvStreamer.** Registration with VIOS happens on the VIOS port (30888), not on NvStreamer (31000). NvStreamer has no upstream-camera concept (`nvstreamer-api-reference.md § 3`).
 - **Register with VIOS only after the full SDRC/cluster is healthy (Finding F-E, 2026-06-02).** A sensor registered while `sdr-controller` or Redis is still unhealthy reports `state: online` on `/sensor/<id>/status` but its VIOS live proxy (`rtsp://${HOST_IP}:30554/live/<id>`) silently does NOT serve — RT-VLM `/v1/streams/add` then fails with `Could not connect to the RTSP URL or there is no video stream`. Confirm `sdr-controller` logs show `Redis Listener started` (not a `ConnectionRefusedError` crash-loop) before `POST /sensor/add`. If the proxy fails to serve, delete and re-add the sensor once the cluster is healthy — the re-registration produces a working proxy.
+- **Baseline before RT-VLM stream processing is mandatory for runtime proof.** `mdx-vlm-captions` offset `> 0` can be stale from a prior run. Record the baseline before `POST /v1/streams/add` / `/v1/generate_captions`, then assert the post-processing offset is greater.
 - **ES doc count is mandatory** (`feedback_smoke_test_completeness.md`). Kafka offset advance alone misses topic-name misconfigurations — assert `default_<id>` doc count from the live path, distinct from any VOD/upload check.
 
 ---
 
-## 5. Step 6.5 patch interactions (summary)
+## 5. The smoke sequence — NvStreamer → VIOS → RT-CV (Step 6 deploy skill / Step 8)
+
+Emit this sequence into the generated `deploy-<flag-slug>` skill whenever RT-CV detection/tracking is selected with Kafka + Elasticsearch storage. It proves the live path emits new RT-CV metadata, not merely that the build artifacts were generated.
+
+Ports referenced: **NvStreamer 31000** (HTTP) / **31554–31561** (RTSP pool), **VIOS 30888** (ingress) / **30554** (live RTSP proxy), **RT-CV 9000**, **Kafka 9092**, **Elasticsearch 9200**.
+
+```bash
+NV=http://${HOST_IP}:31000/vst/api/v1          # NvStreamer
+VIOS=http://${HOST_IP}:30888/vst/api/v1        # VIOS ingress
+RTCV=http://${HOST_IP}:9000/api/v1              # RT-CV
+STEM=<sample-video-filename-without-extension>  # file STEM from the staged validation video
+CAMERA_ID=rtcv_${STEM}
+
+# 0. Confirm RT-CV and the validation streamer are up before mutating stream state.
+curl -sf "$RTCV/live"
+curl -sf "$RTCV/ready"
+curl -sf "$RTCV/startup"
+curl -sf --connect-timeout 5 "$NV/sensor/version" | jq -e '.type == "streamer"'
+
+# 1. Record the pre-RT-CV Kafka end-offset baseline on mdx-raw.
+#    This command (or an equivalent AdminClient call) must appear in the runtime log before /stream/add.
+RAW_BEFORE=$(docker exec kafka kafka-get-offsets \
+  --bootstrap-server localhost:9092 \
+  --topic mdx-raw \
+  | awk -F: '{sum += $3} END {print sum+0}')
+echo "mdx-raw baseline offset: $RAW_BEFORE"
+
+# 2. Resolve the real NvStreamer sensorId by name and read its RTSP URL from the API.
+NVSID=""
+for i in 1 2 3 4 5 6; do
+  NVSID=$(curl -sf "$NV/sensor/list" | jq -r --arg s "$STEM" '.[] | select(.name==$s) | .sensorId' | head -1)
+  [ -n "$NVSID" ] && break
+  sleep 5
+done
+URL=$(curl -s "$NV/sensor/$NVSID/streams" | jq -r '.[0].url')
+
+# 3. Register the RTSP source with VIOS, then feed RT-CV the VIOS proxy URL.
+SID=$(curl -s -X POST "$VIOS/sensor/add" \
+  -H "Content-Type: application/json" \
+  --data-raw "{\"sensorUrl\": \"$URL\"}" \
+  | jq -r '.sensorId')
+PROXY="rtsp://${HOST_IP}:30554/live/$SID"
+
+curl -sf -X POST "$RTCV/stream/add" \
+  -H "Content-Type: application/json" \
+  --data-raw "{\"camera_id\":\"$CAMERA_ID\",\"camera_name\":\"$CAMERA_ID\",\"camera_url\":\"$PROXY\",\"change\":\"camera_add\",\"metadata\":{\"vios_sensor_id\":\"$SID\",\"source\":\"nvstreamer-validation\"}}"
+
+# 4. Wait for RT-CV to report the stream and process frames.
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  curl -sf "$RTCV/stream/get-stream-info" | jq -e --arg id "$CAMERA_ID" '.. | objects | select(.camera_id? == $id or .sensor_id? == $id)' && break
+  sleep 10
+done
+curl -sf "$RTCV/metrics" | grep -E 'fps|stream|latency'
+
+# 5. Re-read mdx-raw after RT-CV processing and assert advancement over the baseline.
+RAW_AFTER=$(docker exec kafka kafka-get-offsets \
+  --bootstrap-server localhost:9092 \
+  --topic mdx-raw \
+  | awk -F: '{sum += $3} END {print sum+0}')
+echo "mdx-raw post-RT-CV offset: $RAW_AFTER"
+test "$RAW_AFTER" -gt "$RAW_BEFORE"
+
+# 6. Query Elasticsearch for indexed bounding-box metadata from the live path.
+curl -sf 'http://localhost:9200/mdx-raw-*/_search?size=5' \
+  | jq -e '.hits.hits[]?._source | tostring | test("bbox|bounding|track|object|confidence")'
+```
+
+### RT-CV runtime gotchas
+
+- **Baseline before `/stream/add` is mandatory.** The runtime proof is `mdx-raw` offset advancement after RT-CV sees the stream. Topic existence, offset `> 0` without a baseline, or Elasticsearch index existence alone is insufficient.
+- **Use the VIOS proxy URL.** RT-CV must consume the same VIOS-registered source as the playback path: `rtsp://${HOST_IP}:30554/live/<sensorId>`.
+- **Record the before/after numbers.** The generated deploy skill should print both `RAW_BEFORE` and `RAW_AFTER` so an eval trace can verify the live metadata emission step without inferring it from prose.
+- **Use the exact RT-CV service API base.** Health, stream, and metrics calls go to `http://<host>:9000/api/v1`; do not use the RT-VLM `:8018` path or legacy `/v1/health/ready` paths.
+
+---
+
+## 6. Step 6.5 patch interactions (summary)
 
 - **Patch 0** (orphan grep): include `vss-vios-nvstreamer` in the orphan-container container_name patterns so a stale streamer from a prior generation (holding port 31000 / RTSP pool under `network_mode: host`) is detected and offered for `docker rm -f` before bring-up.
 - **Patch 1** (flag insertion): add the invented flag to the `nvstreamer-validation` service's `profiles:` list. The harness rides the **same** flag as the rest of the build (no separate flag).
