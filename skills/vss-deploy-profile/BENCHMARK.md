@@ -56,10 +56,10 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 5 | 100% (+0%) | 100% (+10%) |
-| Correctness | 5 | 86% (+64%) | 85% (+50%) |
-| Discoverability | 5 | 93% (+67%) | 89% (+32%) |
-| Effectiveness | 5 | 59% (+53%) | 61% (+54%) |
-| Efficiency | 5 | 77% (+52%) | 80% (+28%) |
+| Correctness | 5 | 94% (+66%) | 88% (+52%) |
+| Discoverability | 5 | 94% (+56%) | 85% (+28%) |
+| Effectiveness | 5 | 69% (+63%) | 64% (+58%) |
+| Efficiency | 5 | 78% (+41%) | 81% (+31%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
@@ -70,10 +70,10 @@ Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found
 Top findings:
 
 - MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`SKILL.md:152`)
-- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/troubleshooting.md:130`)
 - MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:141`)
 - MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:148`)
 - MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:149`)
+- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:169`)
 
 ## Tier 2: Deduplication Summary
 
