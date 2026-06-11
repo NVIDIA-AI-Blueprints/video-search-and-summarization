@@ -259,6 +259,78 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills", reset)
         self.assertLess(reset.index("sudo rm -rf"), reset.index("sudo mkdir -p"))
 
+    async def test_upload_dir_replaces_trial_input_dirs(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        async def fake_run_brev_copy(src, dst, timeout=brev_env.BREV_COPY_TIMEOUT):
+            calls.append(("copy", f"{src}->{dst}", timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original_exec = brev_env._run_brev_exec
+        original_copy = brev_env._run_brev_copy
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env._run_brev_copy = fake_run_brev_copy
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                source = Path(td) / "tests"
+                source.mkdir()
+                (source / "nemoclaw_prompt.md").write_text("fresh prompt\n", encoding="utf-8")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                await env.upload_dir(source, "/tests")
+        finally:
+            brev_env._run_brev_exec = original_exec
+            brev_env._run_brev_copy = original_copy
+
+        extract_commands = [
+            command for _, command, _ in calls
+            if isinstance(command, str) and "tar -xzf" in command
+        ]
+        self.assertEqual(len(extract_commands), 1)
+        command = extract_commands[0]
+        self.assertIn("sudo rm -rf /tests", command)
+        self.assertLess(command.index("sudo rm -rf /tests"), command.index("tar -xzf"))
+
+    async def test_upload_dir_does_not_replace_non_trial_dirs(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        async def fake_run_brev_copy(src, dst, timeout=brev_env.BREV_COPY_TIMEOUT):
+            calls.append(("copy", f"{src}->{dst}", timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original_exec = brev_env._run_brev_exec
+        original_copy = brev_env._run_brev_copy
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env._run_brev_copy = fake_run_brev_copy
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                source = Path(td) / "payload"
+                source.mkdir()
+                (source / "file.txt").write_text("data\n", encoding="utf-8")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                await env.upload_dir(source, "/tmp/payload")
+        finally:
+            brev_env._run_brev_exec = original_exec
+            brev_env._run_brev_copy = original_copy
+
+        extract_commands = [
+            command for _, command, _ in calls
+            if isinstance(command, str) and "tar -xzf" in command
+        ]
+        self.assertEqual(len(extract_commands), 1)
+        self.assertNotIn("sudo rm -rf /tmp/payload", extract_commands[0])
+
     async def test_nemoclaw_setup_sources_profile_without_nounset(self):
         calls = []
 

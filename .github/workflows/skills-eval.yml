@@ -392,7 +392,9 @@ jobs:
     runs-on: [self-hosted, vss-skill-eval-runner]
     strategy:
       fail-fast: false
-      max-parallel: 1
+      # Use both ready RTX workers while the remote worker lock still enforces
+      # one active blueprint deployment per GPU instance.
+      max-parallel: 2
       matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
     timeout-minutes: 90
     steps:
