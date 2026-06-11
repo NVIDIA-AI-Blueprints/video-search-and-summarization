@@ -118,6 +118,23 @@ class FindBrevInstanceFallback(unittest.IsolatedAsyncioTestCase):
         finally:
             brev_env._run_brev = original
 
+    async def test_brev_instance_can_be_found_by_id(self):
+        async def fake_run_brev(*args, **kw):
+            return brev_env.ExecResult(
+                stdout='[{"id":"instance-123","name":"vss-eval-rtx-1g-2"}]',
+                stderr=None,
+                return_code=0,
+            )
+
+        original = brev_env._run_brev
+        brev_env._run_brev = fake_run_brev
+        try:
+            result = await brev_env._find_brev_instance("instance-123")
+            self.assertIsNotNone(result)
+            self.assertEqual(result["name"], "vss-eval-rtx-1g-2")
+        finally:
+            brev_env._run_brev = original
+
     async def test_unknown_instance_returns_none(self):
         async def fake_run_brev(*args, **kw):
             return brev_env.ExecResult(stdout="[]", stderr=None, return_code=0)
