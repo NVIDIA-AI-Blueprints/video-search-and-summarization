@@ -1006,6 +1006,79 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("worker inventory unavailable for RTXPRO6000BW after 10s", message)
         self.assertIn("brev ls --json timed out after 45s", message)
 
+    def test_remote_lock_owner_helpers_are_conservative(self):
+        self.assertEqual(
+            smoke_runner._remote_lock_owner_from_output(
+                "NemoClaw worker is locked by 27354810855__nemoclaw-eval__123"
+            ),
+            "27354810855__nemoclaw-eval__123",
+        )
+        self.assertEqual(
+            smoke_runner._github_run_id_from_lock_owner("27354810855__nemoclaw-eval__123"),
+            "27354810855",
+        )
+        self.assertIsNone(smoke_runner._github_run_id_from_lock_owner("manual__nemoclaw"))
+
+    def test_remote_lock_from_current_run_is_active(self):
+        previous = {"GITHUB_RUN_ID": os.environ.get("GITHUB_RUN_ID")}
+        os.environ["GITHUB_RUN_ID"] = "27354810855"
+        try:
+            self.assertFalse(
+                smoke_runner._remote_lock_owner_is_inactive(
+                    "27354810855__nemoclaw-eval__123"
+                )
+            )
+        finally:
+            if previous["GITHUB_RUN_ID"] is None:
+                os.environ.pop("GITHUB_RUN_ID", None)
+            else:
+                os.environ["GITHUB_RUN_ID"] = previous["GITHUB_RUN_ID"]
+
+    def test_remote_lock_from_completed_run_is_cleared_and_retried(self):
+        previous = {
+            "_run": smoke_runner._run,
+            "_github_run_status": smoke_runner._github_run_status,
+            "GITHUB_RUN_ID": os.environ.get("GITHUB_RUN_ID"),
+            "GITHUB_JOB": os.environ.get("GITHUB_JOB"),
+        }
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *, timeout=60, env=None):
+            calls.append(cmd)
+            command_body = cmd[3] if cmd[:2] == ["brev", "exec"] and len(cmd) > 3 else ""
+            if command_body and "expected=" in command_body and "rm -rf" in command_body:
+                return smoke_runner.CommandResult(
+                    0,
+                    "removed NemoClaw worker lock owned by 27354810855__nemoclaw-eval__old",
+                    "",
+                )
+            if cmd[:2] == ["brev", "exec"] and len(calls) == 1:
+                return smoke_runner.CommandResult(
+                    1,
+                    "NemoClaw worker is locked by 27354810855__nemoclaw-eval__old",
+                    "",
+                )
+            return smoke_runner.CommandResult(0, "", "")
+
+        smoke_runner._run = fake_run
+        smoke_runner._github_run_status = lambda run_id: "completed"
+        os.environ["GITHUB_RUN_ID"] = "27358558981"
+        os.environ["GITHUB_JOB"] = "nemoclaw-eval"
+        try:
+            owner = smoke_runner._try_acquire_remote_worker_lock("vss-eval-rtx-2g-2")
+        finally:
+            smoke_runner._run = previous["_run"]
+            smoke_runner._github_run_status = previous["_github_run_status"]
+            for key in ("GITHUB_RUN_ID", "GITHUB_JOB"):
+                if previous[key] is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = previous[key]
+
+        self.assertIsNotNone(owner)
+        self.assertEqual(len(calls), 3)
+        self.assertIn("rm -rf", calls[1][3])
+
     def test_brev_inventory_timeout_is_infrastructure_blocked(self):
         previous = {"_run": smoke_runner._run}
         smoke_runner._run = lambda *args, **kwargs: (_ for _ in ()).throw(
