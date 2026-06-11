@@ -1122,6 +1122,38 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("reachability failed rc=255", output.getvalue())
         self.assertIn("Could not resolve hostname", output.getvalue())
 
+    def test_reachability_refreshes_ssh_config_after_hostname_failure(self):
+        previous = {"_run": smoke_runner._run}
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["brev", "refresh"]:
+                return smoke_runner.CommandResult(0, "refreshed\n", "")
+            if len(calls) == 1:
+                return smoke_runner.CommandResult(
+                    1,
+                    "",
+                    "ssh: Could not resolve hostname vss-eval-rtx-2g-4",
+                )
+            return smoke_runner.CommandResult(0, "harbor-ready\n", "")
+
+        smoke_runner._run = fake_run
+        try:
+            reachable = smoke_runner._reachable("vss-eval-rtx-2g-4")
+        finally:
+            smoke_runner._run = previous["_run"]
+
+        self.assertTrue(reachable)
+        self.assertEqual(
+            calls,
+            [
+                ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
+                ["brev", "refresh"],
+                ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
+            ],
+        )
+
     def test_generic_task_wrapper_creates_nemoclaw_launcher(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
