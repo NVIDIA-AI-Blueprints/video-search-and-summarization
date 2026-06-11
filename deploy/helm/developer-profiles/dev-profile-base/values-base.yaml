@@ -21,8 +21,8 @@
 profile: base
 mode: ""
 llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
-vlmNameSlug: <replace-with-vlm-name> # e.g. nvidia-cosmos-reason2-8b, nvidia-cosmos-reason2-8b-mini, nvidia-cosmos-reason2-8b-mini-2
-vlmName: "nvidia/cosmos-reason2-8b"
+vlmNameSlug: nvidia-cosmos3-reasoner # e.g. nvidia-cosmos3-reasoner, nvidia-cosmos-reason2-8b
+vlmName: "nvidia/cosmos3-nano-reasoner"
 # NGC: set apiKey (createSecrets=true lets the chart create pull secrets from it). Do not commit the key.
 ngc:
   createSecrets: true
@@ -37,7 +37,7 @@ global:
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nvidia/cosmos-reason2-8b"
+  vlmName: "nvidia/cosmos3-nano-reasoner"
 
 # Shared NIM umbrella: helm/services/nims. Set nims.global.ngcApiKey to the same value as ngc.apiKey so NIMCache/NIMService can pull models (or rely on pre-created ngc-secret / ngc-api).
 nims:
@@ -48,6 +48,8 @@ nims:
   nemotron:
     enabled: true
   cosmos:
+    enabled: false
+  cosmos3:
     enabled: true
 
 # VIOS umbrella (helm/services/vios): parent Chart.yaml uses condition: vios.enabled — that key must stay true here or in values.yaml or the whole VST stack is skipped (no postgres/sensor/ingress/…).
