@@ -1345,10 +1345,19 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         Harbor lifecycle/result reporting while making the handoff reliable.
         """
         meta = self._task_metadata or {}
-        if not _uses_nemoclaw(meta):
-            return command
         if "headless_runner.py" not in command or "claude" not in command:
             return command
+        # The generated headless_runner.py command is the authoritative signal
+        # for the NemoClaw handoff. Do not require parsed task metadata here:
+        # if Harbor/metadata parsing changes, falling back to the outer Claude
+        # launcher makes the job run until timeout and can collect stale
+        # /tests artifacts from warm workers.
+        expected_skill = str(meta.get("expected_skill") or meta.get("skill") or "").strip()
+        expected_arg = (
+            f" --expected-skill {shlex.quote(expected_skill)}"
+            if expected_skill
+            else ""
+        )
 
         timeout_s = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800"))
         wait_profile = str(meta.get("deployment_profile") or "").strip()
@@ -1369,7 +1378,7 @@ python3 .github/skill-eval/nemoclaw/headless_runner.py \
   --prompt-file /tests/nemoclaw_prompt.md \
   --log-dir /logs/artifacts/nemoclaw \
   --launch-mode cli \
-  --timeout {timeout_s}{wait_arg} \
+  --timeout {timeout_s}{wait_arg}{expected_arg} \
   > /logs/agent/nemoclaw-headless-runner.stdout 2>&1
 rc=$?
 set -e
