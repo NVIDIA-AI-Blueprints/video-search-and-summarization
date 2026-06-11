@@ -353,10 +353,27 @@ The canonical harbor command is in § Harbor invocation.
       implement any of this; you just invoke the wrapper and read its
       `[run-leg] selected instance: <name>` line for reporting.
 
-      Operator override: `--instance <name>` (or an inherited
-      `BREV_INSTANCE` env var, or `brev_instance` in `task.toml`
-      `[metadata]`) pins the leg to one box, skipping pool selection but
-      keeping the lock guard. Use this only for manual debugging runs.
+      With fleet=1, this collapses to today's behaviour — the single
+      `vss-eval-<short>` candidate is picked and locked. With fleet>1
+      (operator manually `brev create`s `vss-eval-l40s-2`, etc.), two
+      concurrent CI runs land on different boxes naturally; the wrapper-held
+      per-box lock arbitrates within-fleet contention.
+
+      Selection priority is **hardware-hard, software-free**: the
+      candidate's `gpu_type` MUST match the platform (hard); the box's
+      deployment state is irrelevant — the trial deploys what it needs
+      in its first agent turn, so a previously-warm box and a freshly-
+      booted one are equivalent from the trial's perspective.
+
+      If no hardware-matching candidate exists, **wait** for one — the
+      pool is operator-managed and a box may come online mid-run.
+      Re-snapshot `brev ls --json` every 5 min up to the 1800s budget,
+      rescoring each time; only after the full budget elapses with zero
+      matches do you emit `BLOCKED: pool exhausted for <platform>`. This
+      pool-wait is allowed (it waits on a resource that may not yet
+      exist, bounded by the budget); it is NOT the trial-supervision
+      polling forbidden in § "No polling", which watches in-flight work
+      the synchronous harbor call already blocks on.
 
    b. **Run the structural leg wrapper**. Do not acquire or release
       `flock` manually in a separate Bash call, and do not pass
@@ -486,10 +503,9 @@ The canonical harbor command is in § Harbor invocation.
   turn, not by anything you run from this agent), and invoking
   `run_leg.py` for the structurally locked Harbor run.
   If no hardware-matching pool member exists for the trial's
-  platform, `run_leg.py` waits internally (60s fleet rescan, 21000s
-  budget) and exits 75 with `BLOCKED: lock timeout`; relay that as
-  `BLOCKED: pool exhausted for <platform>` — provisioning is the
-  operator's job.
+  platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
+  poll, 1800s budget, then `BLOCKED: pool exhausted for
+  <platform>`) — provisioning is the operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
   notice the PR head on github.com is ahead of the mirror, note it
@@ -928,9 +944,9 @@ separate; don't conflate the two.
   session JSONL exists, the environment provider preserves a bounded tail of
   `/logs/agent/claude-code.txt` as the fallback agent artifact.
 - **Pool exhausted for the trial's platform.** `brev ls` shows zero
-  RUNNING `^vss-eval-*` boxes whose `gpu_type` matches. `run_leg.py`
-  waits internally (60s fleet rescan, up to its 21000s budget) and
-  exits 75 with `BLOCKED: lock timeout`; relay that as
+  RUNNING+READY `^vss-eval-*` boxes whose `gpu_type` matches. Wait
+  per § 5a (5-min `brev ls` poll, up to 1800s budget). If no
+  matching candidate appears within the window, emit
   `BLOCKED: pool exhausted for <platform>` and exit. Do NOT
   `brev create`, `brev start`, or `brev reset` — the operator
   provisions capacity, not the agent.
@@ -941,8 +957,8 @@ separate; don't conflate the two.
   3x. If still failing, emit `BLOCKED: anthropic rate limit` and
   exit.
 - **Lock contention** (another CI run holds the Brev lock). `run_leg.py`
-  waits up to ~5.8 h (`--lock-timeout-sec 21000`, under the per-leg job
-  timeout). If it times out, emit `BLOCKED: lock timeout on <instance>`.
+  waits up to 1800s by default (`SKILL_EVAL_LOCK_TIMEOUT_SEC`). If it
+  times out, emit `BLOCKED: lock timeout on <instance>`.
 
 ## Single-spec mode
 

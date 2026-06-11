@@ -1659,5 +1659,20 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
         self.assertNotIn('runner = "nemoclaw"', task_toml)
 
 
+class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
+    def test_nemoclaw_workflow_exports_bounded_timeouts(self):
+        source = (REPO_ROOT / ".github" / "workflows" / "skills-eval.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("timeout-minutes: 90", source)
+        self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=900", source)
+        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=3300", source)
+        self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
+        self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
+        self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
+        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=1200", source)
+
+
 if __name__ == "__main__":
     unittest.main()
