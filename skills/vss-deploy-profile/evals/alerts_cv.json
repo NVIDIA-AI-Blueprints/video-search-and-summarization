@@ -14,6 +14,7 @@
       "query": "Deploy the VSS **alerts** profile on {{platform}} for CV-driven alert generation with VLM-as-verifier. Run end-to-end and autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
+        "`test -z \"$(docker compose -f $REPO/deploy/docker/resolved.yml ps -a --format json | jq -r 'select((.State == \"running\" or (.State == \"exited\" and .ExitCode == 0)) | not) | .Name')\"` returns exit 0 (no resolved Compose containers are unhealthy, restarting, or exited non-zero)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0 (Agent backend)",
         "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0 (shared message bus)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (RT-CV perception \u2014 the 'CV' in this mode)",
