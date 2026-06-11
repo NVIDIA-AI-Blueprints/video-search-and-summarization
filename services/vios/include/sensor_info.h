@@ -43,6 +43,7 @@ inline constexpr const char* SENSOR_TYPE_GENERIC = "sensor_generic";
 inline constexpr const char* SENSOR_TYPE_REMOTE = "sensor_edge";
 inline constexpr const char* SENSOR_TYPE_CSI = "sensor_csi";
 inline constexpr const char* SENSOR_TYPE_FILE = "sensor_file";
+inline constexpr const char* SENSOR_TYPE_BASLER = "sensor_basler";
 
 // Record config values
 inline constexpr const char* RECORD_CONFIG_CLOUD_SCANNED = "Cloud";  // For cloud-scanned/imported files

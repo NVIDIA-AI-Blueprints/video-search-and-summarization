@@ -988,7 +988,8 @@ vector<shared_ptr<SensorInfo>> SensorManagement:: getSensors()
     vector<shared_ptr<SensorInfo>> list = deviceManager->getSensorList();
     for (auto sensor: list)
     {
-        if (sensor && (sensor->type == SENSOR_TYPE_ONVIF || sensor->type == SENSOR_TYPE_CSI))
+        if (sensor && (sensor->type == SENSOR_TYPE_ONVIF || sensor->type == SENSOR_TYPE_CSI ||
+                       sensor->type == SENSOR_TYPE_BASLER))
         {
             sensor_list.push_back(sensor);
         }

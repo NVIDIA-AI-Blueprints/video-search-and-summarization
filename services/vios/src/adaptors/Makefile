@@ -18,6 +18,7 @@ all:
 	$(MAKE) -C ./onvif/
 	$(MAKE) -C ./sensors_discovery/onvif
 	$(MAKE) -C ./sensors_discovery/native_sensors
+	$(MAKE) -C ./sensors_discovery/basler
 	$(MAKE) -C ./streamer/
 	$(MAKE) -C ./rtsp_streams/
 	$(MAKE) -C ./remote_device/
@@ -30,6 +31,7 @@ all:
 	$(MAKE) -C ./onvif/ soclean
 	$(MAKE) -C ./sensors_discovery/onvif soclean
 	$(MAKE) -C ./sensors_discovery/native_sensors soclean
+	$(MAKE) -C ./sensors_discovery/basler soclean
 	$(MAKE) -C ./rtsp_streams/ clean
 	$(MAKE) -C ./remote_device/ clean
 	$(MAKE) -C ./native_sensors/ clean

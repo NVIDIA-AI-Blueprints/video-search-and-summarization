@@ -85,6 +85,7 @@ add_common_files() {
 			mappings+=("prebuilts/${ARCH}/libremotedevice.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libremotedevice.so")
 			mappings+=("prebuilts/${ARCH}/libnativesensors_discovery.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnativesensors_discovery.so")
 			mappings+=("prebuilts/${ARCH}/libnativesensors_control.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnativesensors_control.so")
+			mappings+=("prebuilts/${ARCH}/libbasler_discovery.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libbasler_discovery.so")
 		fi
 	fi
 	# PROJECT = nvstreamer

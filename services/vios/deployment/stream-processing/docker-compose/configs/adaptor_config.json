@@ -11,7 +11,7 @@
 			"need_recording": true,
 			"need_storage_management": true,
 			"control_adaptor_lib_path":"prebuilts/arch/onvif_client.so",
-			"discovery_adaptor_lib_path":"prebuilts/arch/onvif_discovery.so"
+			"discovery_adaptor_lib_path":"prebuilts/arch/libbasler_discovery.so"
 		},
 		{
 			"enabled":false,
