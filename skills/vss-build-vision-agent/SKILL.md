@@ -24,7 +24,7 @@ metadata:
 
 `build-vision-agent` is the orchestration skill that takes a natural-language capability description (and optionally an existing deployment to extend) and produces a validated Docker Compose file by reading authoritative per-microservice reference files. Use it whenever the user wants a VSS deployment composed for them — net-new profiles, extending a running stack, integrating a third-party system, or merging two profiles.
 
-The skill has been evaluated on **IN-1 — streaming and on-demand video dense captioning**, which combines VIOS + RT-VLM + ELK. IN-2 (RT-CV + RT-DETR person detection) and the broader catalog land in subsequent phases. The skill itself does not need updates as new microservices are added — only `references/microservice-catalog.md` and the per-service `integrate-*.md` / `deploy-*.md` files.
+The skill has been evaluated on streaming and on-demand video dense captioning, which combines VIOS + RT-VLM + ELK. RT-CV + RT-DETR person detection is composed through the same catalog-driven mechanism. The skill itself does not need updates as new microservices are added — only `references/microservice-catalog.md` and the per-service `integrate-*.md` / `deploy-*.md` files.
 
 ## When to Use
 
@@ -33,6 +33,13 @@ The skill has been evaluated on **IN-1 — streaming and on-demand video dense c
 - **3P integration**: "Integrate my existing camera management system (compose at `./camera-mgmt/compose.yml`) with VSS"
 - **Profile combination**: "Combine the Search Profile and Alerts Profile"
 - **Helm output (post-v1)**: "Convert my dev-profile-alerts compose to a Helm chart"
+
+### Example Prompts
+
+Use these prompts as patterns for capability-based generation:
+
+- "Create a profile for streaming and on-demand video dense captioning. Streamed and uploaded video should be retrievable for playback. Streamed dense captions should be published to the kafka message bus and stored in elasticsearch."
+- "Create a VSS deployment that uses VIOS with the warehouse video sets as input, RT-CV with RT-DETR for person object detection and multi-object tracking, Kafka for streamed bounding-box metadata publication, and Elasticsearch/ELK for indexing and inspection; include bounding boxes, class labels, confidence, timestamps, sensor IDs, and track IDs in the metadata, expose the RT-CV health/readiness/stream/metrics API, generate the deployment self-contained under `_builds/`, and patch only local generated compose copies without modifying upstream `deploy/docker` files."
 
 If the user asks to **deploy** a generated compose, the skill will create (or update) a per-deployment deploy skill in Step 6 and prompt to invoke it in Step 8 — see those steps below. If the user asks to **call** a service's API (RT-VLM endpoints, VIOS endpoints, etc.), hand off to the relevant upstream skill (`vss-deploy-dense-captioning`, `vss-manage-video-io-storage`, `vss-setup-video-analytics-api`, etc.) — those are bundled into `<BUILD_DIR>/skills/` in Step 6.
 
@@ -194,7 +201,11 @@ Wait for confirmation before continuing. The only exception is **autonomous mode
 
 Once the user confirms the architecture, synthesize a flat allow-list of upstream compose service-keys by **unioning the `component_services:` blocks** of every microservice in the proposal, **resolving each `variants:` block against the user's chosen `deployment_shape`**, and dropping any entry whose `required: false` is excluded by the architecture (e.g. an optional MQTT broker that the user opted out of).
 
-Write the result to `<BUILD_DIR>/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time. Persist the sidecar before invoking Step 6, which expects the flag chosen here to be reused.
+Copy service keys into the sidecar **exactly** as they appear in the selected `component_services:` blocks. Do not normalize, shorten, singularize, or infer service keys from container names or prose. Do not substitute sibling services from another profile just because they share an image, container role, or similar name. For example, RT-CV's service key for the 2D fusion metadata path is `perception-2d-fusion`; `perception-2d` is invalid because no allow-listed compose service has that key, and `perception-alerts` is invalid for that path unless a selected `component_services:` block explicitly lists it.
+
+Before writing the sidecar, build the expected `(key, file)` set from the selected `component_services:` blocks and compare it to the proposed `services:` list. The proposed sidecar may only omit optional `required: false` entries that the architecture excluded, and may only add peers declared by selected `required_peers:` metadata. Any other extra service key is a generation error, even if that service exists in a referenced compose file.
+
+Write the result to `<BUILD_DIR>/allow-list.yml`. This sidecar is the **only** input Step 6.5 reads — the catalog, the per-microservice integrate files, and `SKILL.md` itself are NOT re-parsed at patch time. Persist the sidecar before invoking Step 6, which expects the flag chosen here to be reused. Before moving to Step 6.5, validate that every `(key, file)` pair in `allow-list.yml` resolves to a real `services.<key>` entry in the referenced upstream compose file; if any key is missing, stop and fix the sidecar rather than generating a compose from a guessed service name.
 
 If the **NvStreamer validation harness** was included (per the External RTSP source decision above — live/streaming capability AND no real camera supplied), also record a top-level `validation_harness:` key in the sidecar:
 
@@ -225,7 +236,7 @@ Validate that the host's GPU configuration (gathered in Step 0 if the user provi
 Write the compose file following VSS dev-profile conventions:
 
 - **Top-level `compose.yml`** with `include:` directives pointing to per-profile subdirectories (the existing `dev-profile-base/compose.yml`, `dev-profile-search/compose.yml`, etc., pattern).
-- **Environment variable substitution** for all secrets, API keys, and host-specific values. Use `${VAR_NAME}` everywhere; emit a corresponding `.env.template` in the same output directory listing every variable with comments describing purpose and required values.
+- **Environment variable substitution** for all secrets, API keys, and host-specific values. Use `${VAR_NAME}` everywhere. Always emit a corresponding `.env.template` in the same output directory listing every variable with comments describing purpose and required values. If the run is autonomous or proceeds directly to deploy, also materialize a runtime `.env` from that template, but never replace `.env.template` with `.env` and never omit `.env.template`; evaluators and operators depend on both files being present.
 - **GPU device reservations** using `deploy.resources.reservations.devices` with explicit `device_ids` from Step 4.
 - **Health checks** for every service that exposes an HTTP endpoint, copied from the per-service `deploy-<microservice>.md` (do not invent — use the exact compose values).
 - **`restart` policy** — match the source compose's pattern. VSS conventions: `restart: always` for persistent services, `restart: on-failure` for one-shot init containers, `restart: unless-stopped` where the source uses it.
@@ -243,7 +254,7 @@ If Step 4 recorded a `validation_harness: { rtsp_source: nvstreamer, ... }` key 
 3. **Add `.env` entries**: `NVSTREAMER_IMAGE_TAG` (reuse the VIOS tag), `NVSTREAMER_HTTP_PORT=31000`, `NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=true` (the same libav gate VIOS uploads need). Pre-resolve any `${VAR}` chains during env-folding so dry-run has zero unexpanded tokens.
 4. **Materialize the config files** (handled by Step 6.5 Patch 3): the two `nvstreamer/configs/{vst-config.json,vst-storage.json}` are copied into `<BUILD_DIR>/patched/nvstreamer/configs/`.
 
-The generated deploy skill's post-deploy smoke test (below) must include the NvStreamer → VIOS → RT-VLM streaming sequence from `references/validation-harness.md § 4`.
+The generated deploy skill's post-deploy smoke test (below) must include the NvStreamer → VIOS → RT-VLM streaming sequence from `references/validation-harness.md § 4` when RT-VLM is selected, and the NvStreamer → VIOS → RT-CV streaming sequence from `references/validation-harness.md § 5` when RT-CV detection/tracking is selected.
 
 #### Bundle related skills
 
@@ -251,7 +262,7 @@ After writing the compose artifact, copy the skill folders the operator will nee
 
 What to bundle:
 
-- **Microservice skills**: for each service selected in Step 4, look up the canonical skill folder name from `references/microservice-catalog.md` and copy `<vss-repo>/skills/<skill-name>/` → `build-output/skills/<skill-name>/`. IN-1 bundles `vss-manage-video-io-storage/`, `vss-deploy-dense-captioning/`, and the ELK references (carried inside `vss-build-vision-agent/references/`).
+- **Microservice skills**: for each service selected in Step 4, look up the canonical skill folder name from `references/microservice-catalog.md` and copy `<vss-repo>/skills/<skill-name>/` → `build-output/skills/<skill-name>/`. Dense-captioning deployments bundle `vss-manage-video-io-storage/` and `vss-deploy-dense-captioning/`; RT-CV detection/tracking deployments bundle `vss-manage-video-io-storage/` and `vss-deploy-detection-tracking-2d/`. ELK references are carried inside `vss-build-vision-agent/references/`.
 - **Use-case skills**: scan `<vss-repo>/skills/` for top-level skill folders whose `description:` frontmatter matches the capability description from Step 0 (e.g., `streaming-dense-captioning`, `agentic-search`, `person-counting`). Copy each match. **If none match, skip — do not create one.**
 
 Copy the entire skill folder verbatim (including `SKILL.md`, `references/`, `scripts/`, `eval/`). Do not edit any bundled file. Record every bundled skill in `MANIFEST.md` with its source path and a one-line purpose.
@@ -269,7 +280,8 @@ The generated SKILL.md must include:
 - **Bring-up command** — the exact `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> up -d` invocation.
 - **Health-check loop** — poll each service's healthcheck endpoint until pass or per-service `start_period` timeout; fail loudly with the specific service name when a check times out.
 - **Tear-down command** — `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> down -v` (note: `-v` removes named volumes; warn the operator inline).
-- **Post-deploy smoke test** — one curl or kafka-console-consumer command per "Outputs" section in the bundled microservice skills' `integrate-<microservice>.md`, so the operator can confirm the wiring actually works. **When the NvStreamer validation harness is included** (sidecar `validation_harness:` key), also emit the streaming-path smoke sequence from `references/validation-harness.md § 4`: verify NvStreamer up (`GET :31000/vst/api/v1/sensor/version` → `type=="streamer"`), the sample auto-discovered (`/sensor/list`), read the RTSP URL from `/sensor/<stem>/streams` (NEVER construct the 315xx port), register it with VIOS `POST :30888/vst/api/v1/sensor/add` (field `sensorUrl`), feed the VIOS proxy `rtsp://${HOST_IP}:30554/live/<sensorId>` (use `${HOST_IP}`, not localhost) to RT-VLM `POST :8018/v1/streams/add`, and assert `mdx-vlm-captions` offset advance + ES `default_<id>` doc count FROM THE LIVE PATH (distinct from the VOD/upload check). This validates the streaming half.
+- **Post-deploy smoke test** — one curl or kafka-console-consumer command per "Outputs" section in the bundled microservice skills' `integrate-<microservice>.md`, so the operator can confirm the wiring actually works. **When the NvStreamer validation harness is included** (sidecar `validation_harness:` key), emit the streaming-path smoke sequence for every selected streaming consumer. For RT-VLM, use `references/validation-harness.md § 4`: verify NvStreamer up (`GET :31000/vst/api/v1/sensor/version` → `type=="streamer"`), the sample auto-discovered (`/sensor/list`), read the RTSP URL from `/sensor/<stem>/streams` (NEVER construct the 315xx port), register it with VIOS `POST :30888/vst/api/v1/sensor/add` (field `sensorUrl`), feed the VIOS proxy `rtsp://${HOST_IP}:30554/live/<sensorId>` (use `${HOST_IP}`, not localhost) to RT-VLM `POST :8018/v1/streams/add`, record pre/post `mdx-vlm-captions` offsets, assert offset advance, and assert ES `default_<id>` doc count FROM THE LIVE PATH (distinct from the VOD/upload check). For RT-CV, use `references/validation-harness.md § 5`: record a pre-registration Kafka end-offset baseline on `mdx-raw` with `docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-raw` (or the equivalent command against the generated Kafka container), register the same VIOS proxy URL with RT-CV `POST :9000/api/v1/stream/add`, poll `:9000/api/v1/stream/get-stream-info` and `:9000/api/v1/metrics`, record a second `mdx-raw` end-offset after processing, and assert the post offset is greater than the baseline. A topic-exists-only check is not a smoke test. Also query Elasticsearch (`mdx-raw-*` or `mdx-frames-*`) for at least one indexed bounding-box document from that live path.
+- **RT-CV metadata contract** — when RT-CV detection/tracking is selected and Kafka / Elasticsearch storage is part of the architecture, emit a compact section named `## RT-CV Metadata Contract` in both `<BUILD_DIR>/MANIFEST.md` and the generated deploy skill. It must state that RT-CV bounding-box metadata flows `RT-CV -> Kafka -> Logstash/ELK -> Elasticsearch`, and it must explicitly list these fields in one place: bounding box coordinates, class label, confidence, timestamp, sensor ID, and track ID. If person-only detection is requested, also state that person detections are included in the indexed metadata. Keep this section short and searchable so operators and evals do not need to infer the contract from scattered prose.
 
 If a deploy skill already exists at `build-output/skills/deploy-<profile-name>/SKILL.md` (the user is regenerating the same profile), **overwrite it** with the new values. Do not append — stale GPU assignments or stale env paths from a prior run would silently misdirect deploy.
 
@@ -280,6 +292,7 @@ Record the generated deploy skill in `MANIFEST.md` with the bring-up and tear-do
 ```
 build-output/
 ├── compose.yml
+├── .env                               # runtime copy used for dry-run/deploy when values are known
 ├── .env.template
 ├── allow-list.yml                      # Step 4 output — per-generation flag + service-key union; Step 6.5 reads this
 ├── MANIFEST.md
@@ -308,11 +321,16 @@ Record the chosen flag at the top of `<BUILD_DIR>/MANIFEST.md`, note every strip
 
 ### Step 7 — Dry-Run Validation
 
-After writing, validate before declaring success. The dry-run command depends on whether the source repo splits env vars across multiple files (Step 0):
+After writing, validate before declaring success. First verify the required build artifacts exist in one build folder: `compose.yml`, `.env.template`, `allow-list.yml`, and `MANIFEST.md`. If autonomous mode or direct deploy created a runtime `.env`, keep it alongside `.env.template`; never treat `.env` as a substitute for `.env.template`.
+
+The dry-run command depends on whether the source repo splits env vars across multiple files (Step 0). Use `.env` when a runtime file has been materialized, otherwise use `.env.template`:
 
 ```bash
-# If single combined env produced in Step 6:
+# If a runtime env was produced in Step 6:
 docker compose --env-file .env -f compose.yml config > resolved.yml
+
+# Otherwise dry-run against the template:
+docker compose --env-file .env.template -f compose.yml config > resolved.yml
 
 # If layering multiple env files (preferred when component .envs are kept separate):
 docker compose --env-file .env --env-file <repo>/deploy/docker/services/vios/vst.env \
@@ -364,7 +382,7 @@ After all files are written, ask the user explicitly:
   /deploy-<profile-name>
   ```
 
-The autonomous-mode exception from Step 4 applies here too: when the user's original request explicitly said "deploy autonomously" or "and deploy", treat as `y` without prompting. When running in a non-interactive eval harness without explicit deploy intent, treat as `n` and just print the commands.
+The autonomous-mode exception from Step 4 applies here too: when the user's original request explicitly said "deploy autonomously", "and deploy", "generate and deploy", "runtime eval", or "smoke test", treat as `y` without prompting. In that mode, run the generated deploy skill and its post-deploy smoke tests; do not stop after `docker compose config` or only print commands. When running in a non-interactive eval harness without explicit deploy or runtime-smoke intent, treat as `n` and just print the commands.
 
 ## File Structure
 
@@ -373,8 +391,10 @@ skills/vss-build-vision-agent/
 ├── SKILL.md
 ├── CONTRIBUTING.md                                    # (planned) how to add a new microservice (see Phase 0 deliverables)
 ├── eval/
-│   ├── in-1-streaming-dense-captioning.json      # priority eval — gates Phase 4 rollout
-│   ├── in-2-person-detection-rt-detr.json        # priority eval — extensibility test
+│   ├── profile_in_1_streaming_dense_captions.json      # Harbor dense-captioning eval
+│   ├── profile_in_2_rt_cv_person_detection_harbor.json # Harbor RT-CV generation eval
+│   ├── profile_in_2_rt_cv_person_detection_runtime_harbor.json # Harbor RT-CV runtime eval
+│   ├── rt-cv-person-detection-rtdetr-harbor.json       # Harbor RT-CV eval
 │   └── ...                                            # follow-on evals as Phase 1c services land
 ├── references/
 │   ├── integrate-microservice-schema.md               # canonical schema for integrate-<microservice>.md
@@ -433,7 +453,7 @@ rm -rf ./build-output/
 - `references/architecture-diagram-template.md` — Step 4 ASCII diagram requirements + canonical IN-1 example
 - `references/allow-list-sidecar.md` — Step 4 sidecar schema, IN-1 example, union rules
 - `references/standalone-compose-patches.md` — Step 6.5 Patch 0/1/2/3/4 pseudocode and per-service IN-1 notes
-- `references/validation-harness.md` — NvStreamer synthetic-RTSP validation harness: inclusion rule (Step 4), service block + sample-video staging + config materialization (Step 6 / Step 6.5), NvStreamer → VIOS → RT-VLM smoke sequence
+- `references/validation-harness.md` — NvStreamer synthetic-RTSP validation harness: inclusion rule (Step 4), service block + sample-video staging + config materialization (Step 6 / Step 6.5), NvStreamer → VIOS → RT-VLM and NvStreamer → VIOS → RT-CV smoke sequences
 - `references/example-walkthroughs.md` — worked end-to-end walkthroughs (currently: IN-1 streaming-dense-captioning)
 - Per-deployment deploy skills are generated by Step 6 at `build-output/skills/deploy-<profile-name>/SKILL.md` — no shared `/deploy` skill exists.
 - VSS docs: <https://docs.nvidia.com/vss/latest/>

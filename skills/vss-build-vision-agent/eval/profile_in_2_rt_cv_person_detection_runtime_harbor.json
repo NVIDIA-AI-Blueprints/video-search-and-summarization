@@ -1,0 +1,39 @@
+{
+  "skills": [
+    "vss-build-vision-agent"
+  ],
+  "profile": "in-2-runtime",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2,
+        "modes": [
+          "harbor",
+          "runtime",
+          "shared"
+        ]
+      }
+    }
+  },
+  "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, and populated NGC credentials for pulling `nvcr.io/nvstaging/vss-core/vss-rt-cv` and `nvstaging/vss-warehouse/vss-warehouse-app-data`. The VSS repository is checked out at `{{repo_root}}`. This is a runtime eval, not just a generated-artifact eval: the agent must generate a self-contained build under `{{repo_root}}/_builds/in-2-runtime/`, deploy it with Docker Compose, drive a warehouse RTSP stream through RT-CV, prove uploaded and streamed video are retrievable through VIOS playback APIs, and leave services running for verifier probes unless the verifier explicitly requests cleanup. RT-CV detection metadata is expected on Kafka topic `mdx-raw` and in Elasticsearch indices matching `mdx-raw-*`.",
+  "expects": [
+    {
+      "query": "Use the `/vss-build-vision-agent` skill to generate and deploy an IN-2 runtime Harbor deployment on `{{platform}}` from `{{repo_root}}`. Submit this exact prompt to the skill: \"Create a profile for streaming and on-demand object detection and multi-object tracking for class = person using RT-DETR with the RT-CV microservice. Streamed and uploaded video should be retrievable for playback. Streamed metadata from the RT-CV microservice should include bounding boxes, class labels, confidence, timestamps, sensor IDs, and track IDs published to the Kafka message bus and stored in Elasticsearch.\" Choose the custom build directory `{{repo_root}}/_builds/in-2-runtime/`, use the generated compose profile flag `bp_developer_in_2_runtime`, keep the output self-contained, preserve exact service keys from the selected integration contracts, include a compact RT-CV Metadata Contract section in the manifest, and target the Harbor RTX PRO 6000 Blackwell environment. This is an execution task, not a generation-only task: do not stop after `docker compose config`, and do not only print deploy commands. After generation, deploy from the generated build directory with `docker compose --env-file .env -f compose.yml --profile bp_developer_in_2_runtime up -d`. Wait for RT-CV, VIOS, Kafka, Logstash, and Elasticsearch to become usable. Upload one warehouse video through VIOS and verify snapshot or clip retrieval. Register one warehouse RTSP stream from the generated validation harness or warehouse video set with VIOS, then drive RT-CV on the VIOS proxy URL `rtsp://${HOST_IP}:30554/live/<sensorId>` using `POST http://localhost:9000/api/v1/stream/add`. Before that RT-CV stream-add call, run and record a Kafka `mdx-raw` end-offset baseline, for example `docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-raw` or an equivalent command against the generated Kafka container. After RT-CV has processed the stream, run and record the same Kafka offset check again, verify the post offset is greater than the baseline, and include the before/after offsets in the final response. Leave services running for verifier probes unless `cleanup=true` is explicitly provided.",
+      "checks": [
+        "`{{repo_root}}/_builds/in-2-runtime/compose.yml`, `.env`, `.env.template`, `MANIFEST.md`, and `allow-list.yml` exist in the same generated build folder, and the top-level compose includes only patched copies under `_builds/in-2-runtime/patched/`, not upstream compose files directly.",
+        "`{{repo_root}}/_builds/in-2-runtime/allow-list.yml` includes the exact selected service key `perception-2d-fusion`, includes shared Kafka/ELK services such as `kafka`, `logstash`, and `elasticsearch`, and does not use `perception-2d` or `perception-alerts` as substitute RT-CV service keys.",
+        "`docker compose --env-file .env -f compose.yml --profile bp_developer_in_2_runtime config` from `{{repo_root}}/_builds/in-2-runtime/` returns exit 0 with zero unexpanded `${...}` tokens other than intentional shell escapes or `${VAR:-default}` consumer-side defaults.",
+        "The generated deployment is actually running: `docker ps` shows the key long-running containers for Kafka, Elasticsearch, Logstash, VIOS, RT-CV (`vss-rtvi-cv` or the generated RT-CV perception container), and the warehouse/NvStreamer validation source; exited one-shot init containers must have exit code 0.",
+        "Runtime health probes pass: `curl -sf http://localhost:9200/_cluster/health` returns Elasticsearch status `yellow` or `green`; `curl -sf http://localhost:9000/api/v1/live`, `/ready`, `/startup`, and `/metrics` all return exit 0 for RT-CV; and `curl -sf http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 for VIOS.",
+        "Uploaded video playback is actually retrievable through VIOS: after uploading a warehouse video, VIOS sensor or storage APIs list the uploaded stream, and a snapshot or clip retrieval endpoint returns HTTP 200 with non-empty image or video bytes.",
+        "Streamed video playback is actually retrievable through VIOS: after registering the warehouse RTSP source, VIOS exposes a sensor id and stream id, and a snapshot, stream URL, or clip retrieval endpoint for that live stream returns HTTP 200 or a valid stream URL.",
+        "RT-CV processes the same VIOS-registered warehouse stream: `/api/v1/stream/get-stream-info` reports an active stream using the same sensor id, camera id, or VIOS proxy URL `rtsp://${HOST_IP}:30554/live/<sensorId>`.",
+        "Kafka proves RT-CV emitted streamed metadata after stream registration: the trajectory contains two Kafka `mdx-raw` offset checks, such as `docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-raw` or equivalent AdminClient calls, with the first executed before RT-CV `/stream/add` and the second after stream processing. The post offset must be greater than the pre-RT-CV baseline. Topic existence, a single offset check, or offset `> 0` without a baseline is insufficient.",
+        "Elasticsearch proves RT-CV bounding-box metadata was indexed: `curl -sf 'http://localhost:9200/mdx-raw-*/_search?size=5'` or an equivalent `mdx-raw-*` / `mdx-frames-*` query returns at least one hit whose `_source` contains object detection metadata with bounding box coordinates (`object.bbox` or `objects[].bbox`), class label or object type, confidence, timestamp, sensor id, and object id or track id. Index existence or document count alone is insufficient.",
+        "RT-CV metrics show active processing for the registered stream: `/api/v1/metrics` reports a nonzero stream count or per-stream FPS/latency metric associated with the VIOS sensor/camera used for detection.",
+        "`{{repo_root}}/_builds/in-2-runtime/MANIFEST.md` or the generated deploy skill contains a compact `RT-CV Metadata Contract` section that states the runtime path `RT-CV -> Kafka mdx-raw -> Logstash/ELK -> Elasticsearch mdx-raw-*` and lists bounding box coordinates, class labels, confidence, timestamps, sensor IDs, and track IDs.",
+        "No upstream compose or config file under `{{repo_root}}/deploy/docker/` was modified by generation or deployment; `git diff --quiet HEAD -- deploy/docker/` returns exit 0 at the end of the run."
+      ]
+    }
+  ]
+}
