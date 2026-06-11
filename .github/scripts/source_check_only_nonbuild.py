@@ -174,7 +174,7 @@ def resolve_service_refs(repo: Path, read_text, image_name: str) -> tuple[set[st
         text = read_text(str(cf.relative_to(repo)))
         if not text:
             continue
-        for raw in chk.image_refs_in_text(text, config.image_name):
+        for raw in chk.image_refs_in_text(text, config.compose_names()):
             _, needed = chk.resolve_compose_vars(raw, {})
             if not needed:
                 expanded, _ = chk.resolve_compose_vars(raw, dict(os.environ))
