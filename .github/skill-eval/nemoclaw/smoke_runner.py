@@ -978,7 +978,16 @@ def _reachable(instance: str) -> bool:
             flush=True,
         )
         return False
-    return result.returncode == 0 and "harbor-ready" in result.stdout
+    reachable = result.returncode == 0 and "harbor-ready" in result.stdout
+    if not reachable:
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+        tail = output[-800:] if output else "<no output>"
+        print(
+            f"[nemoclaw-ci] candidate {instance} reachability failed "
+            f"rc={result.returncode}: {tail}",
+            flush=True,
+        )
+    return reachable
 
 
 def _try_acquire_lock(instance: str) -> WorkerLock | None:
