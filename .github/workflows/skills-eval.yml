@@ -394,7 +394,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
-    timeout-minutes: 240
+    timeout-minutes: 90
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
@@ -411,7 +411,7 @@ jobs:
 
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
-        timeout-minutes: 240
+        timeout-minutes: 90
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
@@ -423,6 +423,15 @@ jobs:
           # Keep capacity blockers bounded so one unavailable worker class
           # does not stall the serialized all-skills sweep for hours.
           export NEMOCLAW_LOCK_TIMEOUT_SEC=900
+          # Bound the setup + OpenClaw handoff. Successful representative rows
+          # are normally well under this; a breach should be reported as a
+          # failed scenario instead of a GitHub job timeout.
+          export NEMOCLAW_HARBOR_TIMEOUT_SEC=3300
+          export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500
+          export NEMOCLAW_SETUP_TIMEOUT_SEC=1620
+          export NEMOCLAW_SETUP_CELL_TIMEOUT=900
+          export NEMOCLAW_AGENT_TIMEOUT_SEC=1200
+          export NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER=3.0
           # Default to the lighter base smoke. If only the 2-GPU RTX warm pool
           # is online, the smoke runner can place this 1-GPU profile there.
           export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-base}"

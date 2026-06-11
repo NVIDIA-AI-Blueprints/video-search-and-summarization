@@ -132,6 +132,11 @@ SDK_DEADLINE_ENV = "SKILL_EVAL_WORK_DEADLINE_MONOTONIC"
 TRANSPORT_PGID_REGISTRY_ENV = "BREV_TRANSPORT_PGID_FILE"
 
 
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    return int(value) if value else default
+
+
 @dataclasses.dataclass(frozen=True)
 class HarborInvocation:
     """One concrete `uvx harbor run` invocation."""
