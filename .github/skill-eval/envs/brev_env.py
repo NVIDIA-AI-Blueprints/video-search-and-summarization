@@ -2116,7 +2116,7 @@ async def _find_brev_instance(name: str) -> dict | None:
         else:
             parsed = _parse_brev_json(raw)
         for inst in parsed:
-            if inst.get("name") == name:
+            if inst.get("name") == name or inst.get("id") == name:
                 return inst
 
         # JSON parsed, just no match for this name — check registered nodes

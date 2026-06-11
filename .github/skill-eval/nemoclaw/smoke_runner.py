@@ -99,6 +99,7 @@ class WorkerLock(NamedTuple):
     local_fd: int
     local_handle: Any
     remote_owner: str | None
+    remote_target: str | None = None
 
 
 def _task_dir_sort_key(task_dir: Path) -> tuple[str, int, str]:
@@ -223,6 +224,11 @@ def _summarize_instances(instances: list[dict[str, Any]]) -> str:
         details = ", ".join(part for part in (status, gpu, instance_type) if part)
         rows.append(f"{name} ({details or 'no metadata'})")
     return "; ".join(rows) if rows else "<no vss-eval-* workers visible>"
+
+
+def _exec_target_for_instance(instance: dict[str, Any]) -> str:
+    """Prefer Brev instance ID for CLI exec while keeping names for reporting."""
+    return str(instance.get("id") or instance.get("workspace_id") or instance.get("name") or "")
 
 
 def _generate_dataset(profile: str, platform: str, dataset_root: Path) -> None:
@@ -973,19 +979,21 @@ def _reachability_failure_text(result: CommandResult) -> str:
     return "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
 
 
-def _log_reachability_failure(instance: str, result: CommandResult) -> None:
+def _log_reachability_failure(instance: str, exec_target: str, result: CommandResult) -> None:
     output = _reachability_failure_text(result)
     tail = output[-800:] if output else "<no output>"
+    target_note = f" exec_target={exec_target}" if exec_target != instance else ""
     print(
-        f"[nemoclaw-ci] candidate {instance} reachability failed "
+        f"[nemoclaw-ci] candidate {instance}{target_note} reachability failed "
         f"rc={result.returncode}: {tail}",
         flush=True,
     )
 
 
-def _reachable(instance: str) -> bool:
+def _reachable(instance: str, exec_target: str | None = None) -> bool:
+    target = exec_target or instance
     try:
-        result = _run(["brev", "exec", instance, "echo harbor-ready"], timeout=45)
+        result = _run(["brev", "exec", target, "echo harbor-ready"], timeout=45)
     except subprocess.TimeoutExpired:
         print(
             f"[nemoclaw-ci] candidate {instance} reachability check timed out",
@@ -996,7 +1004,7 @@ def _reachable(instance: str) -> bool:
     if reachable:
         return True
 
-    _log_reachability_failure(instance, result)
+    _log_reachability_failure(instance, target, result)
     if "Could not resolve hostname" not in _reachability_failure_text(result):
         return False
 
@@ -1014,7 +1022,7 @@ def _reachable(instance: str) -> bool:
         return False
 
     try:
-        retry = _run(["brev", "exec", instance, "echo harbor-ready"], timeout=45)
+        retry = _run(["brev", "exec", target, "echo harbor-ready"], timeout=45)
     except subprocess.TimeoutExpired:
         print(
             f"[nemoclaw-ci] candidate {instance} reachability retry timed out",
@@ -1023,11 +1031,11 @@ def _reachable(instance: str) -> bool:
         return False
     retry_reachable = retry.returncode == 0 and "harbor-ready" in retry.stdout
     if not retry_reachable:
-        _log_reachability_failure(instance, retry)
+        _log_reachability_failure(instance, target, retry)
     return retry_reachable
 
 
-def _try_acquire_lock(instance: str) -> WorkerLock | None:
+def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLock | None:
     lock_dir = Path("/tmp/brev")
     lock_dir.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_dir / f"{instance}.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -1045,12 +1053,13 @@ def _try_acquire_lock(instance: str) -> WorkerLock | None:
             in {"1", "true", "yes"}
         )
         if not remote_lock_disabled:
-            remote_owner = _try_acquire_remote_worker_lock(instance)
+            remote_target = exec_target or instance
+            remote_owner = _try_acquire_remote_worker_lock(remote_target)
             if not remote_owner:
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 handle.close()
                 return None
-        return WorkerLock(fd, handle, remote_owner)
+        return WorkerLock(fd, handle, remote_owner, exec_target)
     except Exception:
         fcntl.flock(fd, fcntl.LOCK_UN)
         handle.close()
@@ -1211,6 +1220,7 @@ exit 1
 
 def _release_lock(instance: str, lock: WorkerLock) -> None:
     if lock.remote_owner:
+        remote_target = lock.remote_target or instance
         owner = shlex.quote(lock.remote_owner)
         command = f"""set -eu
 lock_dir=/tmp/skill-eval/locks/nemoclaw-worker.lockdir
@@ -1222,7 +1232,7 @@ else
 fi
 """
         try:
-            result = _run(["brev", "exec", instance, command], timeout=60)
+            result = _run(["brev", "exec", remote_target, command], timeout=60)
             if result.returncode != 0:
                 tail = ((result.stdout or "") + (result.stderr or ""))[-500:].strip()
                 print(f"[nemoclaw-ci] WARN: failed to release remote lock on {instance}: {tail}", flush=True)
@@ -1242,6 +1252,7 @@ def _select_and_lock_instance(
     while True:
         if explicit:
             candidates = [explicit]
+            instances_by_name: dict[str, dict[str, Any]] = {}
         else:
             try:
                 instances = _list_instances()
@@ -1260,6 +1271,11 @@ def _select_and_lock_instance(
                 time.sleep(10)
                 continue
             candidates = _instance_candidates(instances, platform=platform, gpu_count=gpu_count)
+            instances_by_name = {
+                str(inst.get("name") or ""): inst
+                for inst in instances
+                if inst.get("name")
+            }
             inventory = _summarize_instances(instances)
         print(
             "[nemoclaw-ci] candidate workers:",
@@ -1278,10 +1294,16 @@ def _select_and_lock_instance(
             continue
 
         for candidate in candidates:
-            if not _reachable(candidate):
+            exec_target = _exec_target_for_instance(instances_by_name.get(candidate, {})) or candidate
+            if exec_target != candidate:
+                print(
+                    f"[nemoclaw-ci] candidate {candidate} using Brev exec target {exec_target}",
+                    flush=True,
+                )
+            if not _reachable(candidate, exec_target):
                 print(f"[nemoclaw-ci] skipping unreachable candidate {candidate}", flush=True)
                 continue
-            lock = _try_acquire_lock(candidate)
+            lock = _try_acquire_lock(candidate, exec_target)
             if lock is not None:
                 return candidate, lock
             print(f"[nemoclaw-ci] skipping locked candidate {candidate}", flush=True)
@@ -1914,8 +1936,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.lock_timeout,
             )
             print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
+            brev_instance = worker_lock.remote_target or instance
             try:
-                os.environ["BREV_INSTANCE"] = instance
+                os.environ["BREV_INSTANCE"] = brev_instance
                 for scenario in group:
                     scenario_index += 1
                     print(
@@ -1932,7 +1955,7 @@ def main(argv: list[str] | None = None) -> int:
                     harbor_rc = 1
                     reward: float | None = None
                     harbor_env = os.environ.copy()
-                    harbor_env["BREV_INSTANCE"] = instance
+                    harbor_env["BREV_INSTANCE"] = brev_instance
                     cmd = _harbor_command(scenario, results_root, run_id)
                     print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
                     harbor_rc = _stream_command(
