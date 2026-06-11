@@ -929,11 +929,19 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             if result.return_code != 0:
                 raise RuntimeError(f"Upload dir failed: {result.stderr}")
 
-            target = shlex.quote(target_dir)
+            target_raw = str(target_dir).rstrip("/") or "."
+            target = shlex.quote(target_raw)
             remote_archive = shlex.quote(remote_tar)
             remote_dir = shlex.quote(remote_upload_dir)
+            replace_target = target_raw in {"/tests", "/solution", "/skills"}
+            prepare_target = (
+                f"sudo rm -rf {target} && "
+                if replace_target
+                else ""
+            )
             result = await _run_brev_exec(
                 self._instance_name,
+                f"{prepare_target}"
                 f"sudo mkdir -p {target} && "
                 f"sudo chown $(whoami):$(id -gn) {target}; "
                 "status=$?; "
