@@ -22,6 +22,7 @@ Task.toml [metadata] fields consumed:
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 from enum import Enum
 import json
@@ -1362,6 +1363,21 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         timeout_s = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800"))
         wait_profile = str(meta.get("deployment_profile") or "").strip()
         wait_arg = f" --wait-profile {shlex.quote(wait_profile)}" if wait_profile else ""
+        environment_dir = getattr(self, "environment_dir", None)
+        prompt_file = (
+            Path(environment_dir).parent / "tests" / "nemoclaw_prompt.md"
+            if environment_dir
+            else None
+        )
+        prompt_setup = ""
+        prompt_arg = "/tests/nemoclaw_prompt.md"
+        if prompt_file is not None and prompt_file.exists():
+            prompt_b64 = base64.b64encode(prompt_file.read_bytes()).decode("ascii")
+            prompt_arg = "/tmp/skill-eval/nemoclaw/current_prompt.md"
+            prompt_setup = (
+                "mkdir -p /tmp/skill-eval/nemoclaw\n"
+                f"printf %s {shlex.quote(prompt_b64)} | base64 -d > {shlex.quote(prompt_arg)}\n"
+            )
         return rf"""set -euo pipefail
 REPO="$HOME/video-search-and-summarization"
 cd "$REPO"
@@ -1373,9 +1389,10 @@ The outer Claude Code process was intentionally bypassed for this opt-in
 NemoClaw task. The skill evaluation is executed by OpenClaw/NemoClaw using
 the repository skills and the VSS Orchestrator MCP server.
 __NEMOCLAW_LAUNCHER__
+{prompt_setup}unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE
 set +e
 python3 .github/skill-eval/nemoclaw/headless_runner.py \
-  --prompt-file /tests/nemoclaw_prompt.md \
+  --prompt-file {shlex.quote(prompt_arg)} \
   --log-dir /logs/artifacts/nemoclaw \
   --launch-mode cli \
   --timeout {timeout_s}{wait_arg}{expected_arg} \
