@@ -22,10 +22,24 @@ services:
     image: ${VST_SENSOR_IMAGE}
     user: "0:0"
     runtime: nvidia
-    entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
+    # Install/activate the Basler pylon SDK (tools/install_pylon.sh) before
+    # launch_vst when INSTALL_PYLON=1 - mirrors how sdr/nvstreamer invoke
+    # user_additional_install.sh. $$ defers expansion to the container shell.
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$INSTALL_PYLON\" = \"1\" ]; then /home/vst/vst_release/tools/install_pylon.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - CONTAINER_NAME=sensor-ms
       - ADAPTOR=${VST_ADAPTOR}
+      # Basler pylon: install_pylon.sh runs at startup when INSTALL_PYLON=1,
+      # registers ldconfig + ld.so.preload, and (with /opt/pylon bind-mounted
+      # below) skips extraction. LD_PRELOAD ensures libbasler_discovery.so
+      # resolves GenICam GenericException typeinfo at dlopen time (typeinfo
+      # symbols cannot bind lazily).
+      - INSTALL_PYLON=${INSTALL_PYLON:-0}
+      - PYLON_ROOT=/opt/pylon
+      # Preload both libs: the adaptor loader uses RTLD_NOW, so every pylon symbol
+      # (libpylonbase: grab/transport; libpylonutility: CImageFormatConverter for
+      # the I420 conversion) must be in the symbol space before the adaptor loads.
+      - LD_PRELOAD=/opt/pylon/lib/libpylonbase.so:/opt/pylon/lib/libpylonutility.so
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false
@@ -42,6 +56,9 @@ services:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      # Extracted Basler pylon SDK from the host (read-only). install_pylon.sh
+      # sees libpylonbase.so already present and skips per-start extraction.
+      - ${PYLON_HOST_PATH:-/opt/pylon}:/opt/pylon:ro
     network_mode: host
     container_name: sensor-ms
     restart: unless-stopped

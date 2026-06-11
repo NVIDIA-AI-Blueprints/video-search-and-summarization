@@ -136,6 +136,7 @@ add_common_files() {
 	mappings+=("prebuilts/${ARCH}/libnvutils.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvutils.so")
 	mappings+=("prebuilts/${ARCH}/libnvdatabase.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvdatabase.so")
 	mappings+=("packaging/user_additional_install.sh=${PACKAGE_DIR}/tools/user_additional_install.sh")
+	mappings+=("packaging/install_pylon.sh=${PACKAGE_DIR}/tools/install_pylon.sh")
 	mappings+=("prebuilts/${ARCH}/libnvsystemmonitoring.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvsystemmonitoring.so")
 	mappings+=("prebuilts/${ARCH}/libnvvideo_source.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvvideo_source.so")
 	mappings+=("prebuilts/${ARCH}/libnvoverlays.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvoverlays.so")

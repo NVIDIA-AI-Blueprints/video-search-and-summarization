@@ -269,4 +269,74 @@ done
 echo "Cleaning up GStreamer cache..."
 rm -rf ~/.cache/gstreamer-1.0/
 
+# ---------------------------------------------------------------------------
+# Optional: Basler pylon SDK (required only by the basler discovery adaptor)
+#
+# Enable by setting INSTALL_PYLON=1 and pointing PYLON_SDK_URL at an archive
+# that extracts into a single top-level directory containing bin/, lib/, etc.
+# (e.g., an internal artifactory mirror of the official Basler tarball).
+#
+# Skipped by default so builds that don't need the basler adaptor stay lean.
+# ---------------------------------------------------------------------------
+if [[ "${INSTALL_PYLON:-0}" == "1" ]]; then
+  PYLON_ROOT="${PYLON_ROOT:-/opt/pylon}"
+
+  if [[ -x "${PYLON_ROOT}/bin/pylon-config" ]]; then
+    echo "pylon SDK already present at ${PYLON_ROOT}, skipping install"
+  else
+    if [[ -z "${PYLON_SDK_URL:-}" ]]; then
+      echo "ERROR: INSTALL_PYLON=1 but PYLON_SDK_URL is not set"
+      echo "       Set PYLON_SDK_URL to a pylon SDK tarball (internal mirror)"
+      exit 1
+    fi
+
+    # Map host arch to the arch slug pylon ships under.
+    case "$(uname -m)" in
+      x86_64)  PYLON_ARCH="x86_64" ;;
+      aarch64) PYLON_ARCH="aarch64" ;;
+      *)
+        echo "ERROR: unsupported arch $(uname -m) for pylon SDK"
+        exit 1
+        ;;
+    esac
+    echo "Installing Basler pylon SDK for ${PYLON_ARCH} into ${PYLON_ROOT}..."
+
+    TMPDIR_PYLON="$(mktemp -d)"
+    trap 'rm -rf "${TMPDIR_PYLON}"' EXIT
+
+    # Download with retries (reuse the script's retry idiom).
+    for attempt in $(seq 1 $MAX_RETRIES); do
+      if curl -fSL --retry 3 --connect-timeout 30 \
+              -o "${TMPDIR_PYLON}/pylon.tar.gz" "${PYLON_SDK_URL}"; then
+        echo "pylon SDK download succeeded"
+        break
+      fi
+      if [[ $attempt -lt $MAX_RETRIES ]]; then
+        echo "pylon download attempt $attempt/$MAX_RETRIES failed, retrying in $((2 * attempt))s..."
+        sleep $((2 * attempt))
+      else
+        echo "ERROR: failed to download pylon SDK from ${PYLON_SDK_URL}"
+        exit 1
+      fi
+    done
+
+    mkdir -p "${PYLON_ROOT}"
+    # --strip-components=1 collapses the single top-level dir into PYLON_ROOT.
+    tar -xzf "${TMPDIR_PYLON}/pylon.tar.gz" -C "${PYLON_ROOT}" --strip-components=1
+
+    if [[ ! -x "${PYLON_ROOT}/bin/pylon-config" ]]; then
+      echo "ERROR: pylon-config not found under ${PYLON_ROOT} after extract"
+      echo "       Archive layout may differ; verify PYLON_SDK_URL contents"
+      exit 1
+    fi
+
+    # Make pylon shared libs discoverable at runtime without LD_LIBRARY_PATH.
+    echo "${PYLON_ROOT}/lib" > /etc/ld.so.conf.d/pylon.conf
+    ldconfig
+
+    echo "Basler pylon SDK installed at ${PYLON_ROOT}"
+    "${PYLON_ROOT}/bin/pylon-config" --version || true
+  fi
+fi
+
 echo "Installation completed successfully!"
