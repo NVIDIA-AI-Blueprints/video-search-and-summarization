@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Iterable, NamedTuple
 from urllib.parse import quote
 
 try:
@@ -1491,6 +1491,86 @@ def _format_number(value: int | float | None) -> str:
     return f"{number:.1f}"
 
 
+def _iter_json_objects_from_log(path: Path) -> Iterable[dict[str, Any]]:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        candidates = [line]
+        if "{" in line:
+            candidates.append(line[line.find("{") :])
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                yield parsed
+                break
+
+
+def _usage_from_mapping(data: dict[str, Any]) -> tuple[int, int]:
+    prompt_tokens = int(
+        data.get("inputTokens")
+        or data.get("input_tokens")
+        or data.get("prompt_tokens")
+        or data.get("promptTokens")
+        or 0
+    )
+    cached_tokens = int(
+        data.get("cacheReadInputTokens")
+        or data.get("cache_read_input_tokens")
+        or 0
+    )
+    cached_tokens += int(
+        data.get("cacheCreationInputTokens")
+        or data.get("cache_creation_input_tokens")
+        or 0
+    )
+    return prompt_tokens, cached_tokens
+
+
+def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
+    candidates = [
+        trial_dir / "artifacts" / "nemoclaw" / "openclaw-agent.log",
+        trial_dir / "artifacts" / "artifacts" / "nemoclaw" / "openclaw-agent.log",
+    ]
+    turns = 0
+    prompt_tokens = 0
+    cached_tokens = 0
+    for log_path in candidates:
+        for event in _iter_json_objects_from_log(log_path):
+            role = event.get("role")
+            event_type = str(event.get("type") or event.get("event") or "")
+            if role == "assistant" or "assistant" in event_type:
+                turns += 1
+
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                prompt, cached = _usage_from_mapping(usage)
+                prompt_tokens += prompt
+                cached_tokens += cached
+
+            model_usage = event.get("modelUsage") or event.get("model_usage")
+            if isinstance(model_usage, dict):
+                for usage_value in model_usage.values():
+                    if not isinstance(usage_value, dict):
+                        continue
+                    prompt, cached = _usage_from_mapping(usage_value)
+                    prompt_tokens += prompt
+                    cached_tokens += cached
+
+    if not turns and not prompt_tokens and not cached_tokens:
+        return None
+    return (
+        str(turns) if turns else "n/a",
+        _format_number(prompt_tokens) if prompt_tokens else "n/a",
+        _format_number(cached_tokens) if cached_tokens else "n/a",
+    )
+
+
 def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> tuple[str, str, str]:
     agent_result = result.get("agent_result") if isinstance(result, dict) else None
     if isinstance(agent_result, dict):
@@ -1504,7 +1584,7 @@ def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> 
     trajectory = trial_dir / "agent" / "trajectory.json"
     data = _read_json(trajectory)
     if not data:
-        return "n/a", "n/a", "n/a"
+        return _load_openclaw_log_metrics(trial_dir) or ("n/a", "n/a", "n/a")
 
     steps = data.get("steps")
     turns = 0

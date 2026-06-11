@@ -1508,6 +1508,49 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("[trace](https://harbor-abc123.brevlab.com/jobs/", report)
         self.assertIn("Skills Eval Benchmark - NemoClaw sweep", benchmark)
 
+    def test_nemoclaw_report_reads_openclaw_json_usage_when_trajectory_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            log_dir = trial_dir / "artifacts" / "nemoclaw"
+            log_dir.mkdir(parents=True)
+            (log_dir / "openclaw-agent.log").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "assistant_message",
+                                "usage": {
+                                    "input_tokens": 8400,
+                                    "cache_read_input_tokens": 100,
+                                    "cache_creation_input_tokens": 50,
+                                },
+                            }
+                        ),
+                        "prefixed log "
+                        + json.dumps(
+                            {
+                                "role": "assistant",
+                                "modelUsage": {
+                                    "main": {
+                                        "inputTokens": 1100,
+                                        "cacheReadInputTokens": 25,
+                                    }
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+
+        self.assertEqual(metrics, ("2", "9.5k", "175"))
+
     def test_nemoclaw_report_prefers_leaf_trial_and_links_run_when_viewer_unavailable(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
