@@ -451,6 +451,34 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(report["response"]["error_type"], "FileNotFoundError")
         self.assertIn("missing.md", report["response"]["error"])
 
+    def test_expected_skill_rejects_stale_prompt(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            prompt = root / "prompt.md"
+            prompt.write_text(
+                "Use the `/vss-generate-video-report` skill for this task.",
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = headless_runner.main([
+                    "--prompt-file",
+                    str(prompt),
+                    "--log-dir",
+                    str(log_dir),
+                    "--expected-skill",
+                    "vss-deploy-dense-captioning",
+                    "--launch-mode",
+                    "cli",
+                ])
+
+            report = json.loads((log_dir / "nemoclaw_hooks_response.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(report["response"]["error_type"], "RuntimeError")
+        self.assertIn("does not reference expected skill", report["response"]["error"])
+
     def test_cli_launch_runs_openclaw_agent_inside_sandbox(self):
         calls: list[tuple[str, ...]] = []
         previous = {

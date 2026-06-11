@@ -311,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--launch-mode", choices=("hook", "cli"), default="hook")
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--wait-profile", default="", help="Wait for the live VSS profile to become ready after hook launch")
+    parser.add_argument("--expected-skill", default="", help="Fail fast if the prompt file does not reference this skill")
     args = parser.parse_args(argv)
 
     log_dir = Path(args.log_dir)
@@ -327,6 +328,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         prompt = Path(args.prompt_file).read_text(encoding="utf-8")
         (log_dir / "nemoclaw_prompt.md").write_text(prompt, encoding="utf-8")
+        expected_skill = args.expected_skill.strip()
+        if expected_skill and f"`/{expected_skill}`" not in prompt and f"/{expected_skill}" not in prompt:
+            raise RuntimeError(
+                f"prompt file {args.prompt_file} does not reference expected "
+                f"skill /{expected_skill}; refusing to launch a stale NemoClaw task"
+            )
 
         if args.launch_mode == "cli":
             response = run_openclaw_cli(sandbox_name, prompt, args.timeout, log_dir)
