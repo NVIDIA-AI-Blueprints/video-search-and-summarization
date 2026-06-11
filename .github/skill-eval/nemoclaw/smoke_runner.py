@@ -832,6 +832,7 @@ def _discover_scenarios(
     platform_filter: str | None,
     spec_filter: str | None,
     dataset_root: Path,
+    task_limit: int | None = None,
 ) -> tuple[list[NemoClawScenario], list[str]]:
     shutil.rmtree(dataset_root, ignore_errors=True)
     specs, blockers = _selected_specs(
@@ -857,6 +858,8 @@ def _discover_scenarios(
             if not task_dirs:
                 blockers.append(f"{skill}/{spec_path.name}/{platform}: adapter generated no tasks")
                 continue
+            if task_limit and task_limit > 0:
+                task_dirs = task_dirs[:task_limit]
             for task_dir in task_dirs:
                 scenarios.append(
                     _wrap_task_for_nemoclaw(
@@ -925,6 +928,7 @@ def _build_matrix(
                     "spec_path": str(spec_path.relative_to(REPO_ROOT)),
                     "platform": platform,
                     "slug": slug,
+                    "task_limit": "1" if representative_per_skill else "0",
                 }
             )
             seen_skills.add(skill)
@@ -1674,6 +1678,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset-root", default=str(DEFAULT_DATASET_ROOT))
     parser.add_argument("--results-root", default=str(DEFAULT_RESULTS_ROOT))
     parser.add_argument("--scratch-root", default=os.environ.get("NEMOCLAW_SCRATCH_ROOT", str(SCRATCH_ROOT)))
+    parser.add_argument("--task-limit", type=int, default=int(os.environ.get("NEMOCLAW_TASK_LIMIT", "0") or "0"))
     parser.add_argument("--print-matrix", action="store_true")
     parser.add_argument(
         "--all-specs",
@@ -1717,6 +1722,7 @@ def main(argv: list[str] | None = None) -> int:
             platform_filter=platform_filter,
             spec_filter=spec_filter,
             dataset_root=dataset_root,
+            task_limit=args.task_limit if args.task_limit > 0 else None,
         )
         for blocker in blockers:
             print(f"[nemoclaw-ci] blocked coverage item: {blocker}", flush=True)

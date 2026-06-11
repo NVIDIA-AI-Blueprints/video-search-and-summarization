@@ -722,6 +722,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         skills = [row["skill"] for row in rows]
         self.assertEqual(len(skills), len(set(skills)))
+        self.assertTrue(all(row["task_limit"] == "1" for row in rows))
         self.assertIn("vss-deploy-profile", skills)
         self.assertIn("vss-ask-video", skills)
         self.assertNotIn("vss-deploy-detection-tracking-2d", skills)
@@ -852,6 +853,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(rows[0]["skill"], "vss-deploy-profile")
         self.assertEqual(rows[0]["spec_stem"], "base")
         self.assertEqual(rows[0]["platform"], "RTXPRO6000BW")
+        self.assertEqual(rows[0]["task_limit"], "0")
 
     def test_worker_selection_skips_locked_candidate(self):
         previous = {
