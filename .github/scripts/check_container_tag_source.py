@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,12 +46,25 @@ COMPOSE_VAR_RE = re.compile(
 class ImageConfig:
     image_name: str
     source_path: Path
+    # Compose basenames that identify this image in deploy/docker. Defaults to
+    # (image_name,). The alert service is published/promoted as ``vss-alert-ms``
+    # but the deploy stack still pins the released basename
+    # ``vss-alert-verification``, so both must be recognized when scanning
+    # compose refs (see check-alert-ms-container-source.yml: "recognizes both").
+    deploy_image_names: tuple[str, ...] = ()
+
+    def compose_names(self) -> tuple[str, ...]:
+        return self.deploy_image_names or (self.image_name,)
 
 
 IMAGE_CONFIGS = {
     "vss-agent": ImageConfig(image_name="vss-agent", source_path=Path("services/agent")),
     "vss-agent-ui": ImageConfig(image_name="vss-agent-ui", source_path=Path("services/ui")),
-    "vss-alert-ms": ImageConfig(image_name="vss-alert-ms", source_path=Path("services/alert")),
+    "vss-alert-ms": ImageConfig(
+        image_name="vss-alert-ms",
+        source_path=Path("services/alert"),
+        deploy_image_names=("vss-alert-ms", "vss-alert-verification"),
+    ),
 }
 
 DEPLOY_DIR = Path("deploy/docker")
@@ -127,21 +141,28 @@ def commit_prefix_from_tag(tag: str | None) -> str | None:
     return matches[-1].group("sha").lower()
 
 
-def image_refs_in_text(text: str, expected_image_name: str) -> list[str]:
+def image_refs_in_text(text: str, expected_image_name: str | Iterable[str]) -> list[str]:
     """Extract ``image:`` refs matching ``expected_image_name`` from compose
-    content. Shared with the gate helper (see ``parse_env_text``)."""
+    content. ``expected_image_name`` may be a single basename or an iterable of
+    accepted basenames (for images whose deploy basename differs from the
+    published name). Shared with the gate helper (see ``parse_env_text``)."""
+    accepted = (
+        {expected_image_name}
+        if isinstance(expected_image_name, str)
+        else set(expected_image_name)
+    )
     refs: list[str] = []
     for line in text.splitlines():
         match = IMAGE_LINE_RE.match(line)
         if not match:
             continue
         ref = strip_quotes(match.group("ref"))
-        if image_name(ref) == expected_image_name and ref not in refs:
+        if image_name(ref) in accepted and ref not in refs:
             refs.append(ref)
     return refs
 
 
-def find_image_refs(compose_file: Path, expected_image_name: str) -> list[str]:
+def find_image_refs(compose_file: Path, expected_image_name: str | Iterable[str]) -> list[str]:
     return image_refs_in_text(compose_file.read_text(), expected_image_name)
 
 
@@ -495,7 +516,7 @@ def collect_resolved_images(
     unresolved: list[UnresolvedImage] = []
 
     for compose_file in compose_files:
-        raw_refs = find_image_refs(compose_file, config.image_name)
+        raw_refs = find_image_refs(compose_file, config.compose_names())
         if not raw_refs:
             continue
         compose_rel = str(compose_file.relative_to(repo_root))
