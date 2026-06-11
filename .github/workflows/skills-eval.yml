@@ -350,7 +350,7 @@ jobs:
   nemoclaw_plan:
     name: Plan NemoClaw eval matrix
     if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: [self-hosted, vss-brev-runner]
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
