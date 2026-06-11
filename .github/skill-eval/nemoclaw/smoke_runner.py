@@ -969,6 +969,20 @@ def _cleanup_results(results_root: Path, run_id: str) -> None:
     (results_root / run_id).mkdir(parents=True, exist_ok=True)
 
 
+def _reachability_failure_text(result: CommandResult) -> str:
+    return "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+
+
+def _log_reachability_failure(instance: str, result: CommandResult) -> None:
+    output = _reachability_failure_text(result)
+    tail = output[-800:] if output else "<no output>"
+    print(
+        f"[nemoclaw-ci] candidate {instance} reachability failed "
+        f"rc={result.returncode}: {tail}",
+        flush=True,
+    )
+
+
 def _reachable(instance: str) -> bool:
     try:
         result = _run(["brev", "exec", instance, "echo harbor-ready"], timeout=45)
@@ -979,15 +993,38 @@ def _reachable(instance: str) -> bool:
         )
         return False
     reachable = result.returncode == 0 and "harbor-ready" in result.stdout
-    if not reachable:
-        output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
-        tail = output[-800:] if output else "<no output>"
+    if reachable:
+        return True
+
+    _log_reachability_failure(instance, result)
+    if "Could not resolve hostname" not in _reachability_failure_text(result):
+        return False
+
+    print(
+        "[nemoclaw-ci] refreshing Brev SSH config after hostname resolution failure",
+        flush=True,
+    )
+    refresh = _run(["brev", "refresh"], timeout=60)
+    if refresh.returncode != 0:
+        tail = _reachability_failure_text(refresh)[-800:] or "<no output>"
         print(
-            f"[nemoclaw-ci] candidate {instance} reachability failed "
-            f"rc={result.returncode}: {tail}",
+            f"[nemoclaw-ci] Brev SSH config refresh failed rc={refresh.returncode}: {tail}",
             flush=True,
         )
-    return reachable
+        return False
+
+    try:
+        retry = _run(["brev", "exec", instance, "echo harbor-ready"], timeout=45)
+    except subprocess.TimeoutExpired:
+        print(
+            f"[nemoclaw-ci] candidate {instance} reachability retry timed out",
+            flush=True,
+        )
+        return False
+    retry_reachable = retry.returncode == 0 and "harbor-ready" in retry.stdout
+    if not retry_reachable:
+        _log_reachability_failure(instance, retry)
+    return retry_reachable
 
 
 def _try_acquire_lock(instance: str) -> WorkerLock | None:
