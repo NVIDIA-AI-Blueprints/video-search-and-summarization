@@ -48,6 +48,26 @@ class TestIsNonbuild(unittest.TestCase):
         self.assertFalse(self.nb("vss-agent-ui", "apps/x/Button.tsx"))
         self.assertFalse(self.nb("vss-agent-ui", "package.json"))
 
+    def test_alert_ms_docs_tests_and_meta_are_nonbuild(self):
+        self.assertTrue(self.nb("vss-alert-ms", "README.md"))
+        self.assertTrue(self.nb("vss-alert-ms", "docs/overview.md"))
+        self.assertTrue(self.nb("vss-alert-ms", "notebooks/demo.ipynb"))
+        self.assertTrue(self.nb("vss-alert-ms", "test/test_alert.py"))
+        self.assertTrue(self.nb("vss-alert-ms", "tests/test_alert.py"))
+        self.assertTrue(self.nb("vss-alert-ms", ".github/workflows/ci.yml"))
+        self.assertTrue(self.nb("vss-alert-ms", "scripts/run.sh"))
+        self.assertTrue(self.nb("vss-alert-ms", "docker-compose.dev.yml"))
+        self.assertTrue(self.nb("vss-alert-ms", ".dockerignore"))
+        self.assertTrue(self.nb("vss-alert-ms", "debug.log"))
+
+    def test_alert_ms_source_is_build_relevant(self):
+        # services/alert/Dockerfile does `COPY . /app`, so non-excluded files
+        # ship and must NOT be skipped.
+        self.assertFalse(self.nb("vss-alert-ms", "app.py"))
+        self.assertFalse(self.nb("vss-alert-ms", "src/enhance_alert_with_vlm.py"))
+        self.assertFalse(self.nb("vss-alert-ms", "requirements.txt"))
+        self.assertFalse(self.nb("vss-alert-ms", "Dockerfile"))
+
 
 class TestResolveServiceRefs(unittest.TestCase):
     def setUp(self):
