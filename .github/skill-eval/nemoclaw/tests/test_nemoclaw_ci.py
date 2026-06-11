@@ -1867,7 +1867,7 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
-        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=1200", source)
+        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=2400", source)
 
 
 if __name__ == "__main__":

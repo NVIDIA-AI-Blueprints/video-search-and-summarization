@@ -182,6 +182,7 @@ def _openclaw_cli_command(prompt: str, timeout_s: int) -> str:
     no_proxy = "localhost,127.0.0.1,::1,10.200.0.1,host.openshell.internal"
     ca_path = "/etc/openshell-tls/ca-bundle.pem"
     return (
+        "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
         f"export NO_PROXY={shlex.quote(no_proxy)}; "
         f"export no_proxy={shlex.quote(no_proxy)}; "
         f"export NODE_EXTRA_CA_CERTS={shlex.quote(ca_path)}; "
@@ -238,20 +239,38 @@ def run_openclaw_cli(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Pa
         f"echo \"$rc\" > {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
         "exit \"$rc\""
     )
-    result = _sandbox_exec(sandbox_name, launcher, timeout=timeout_s + 90)
+    try:
+        result = _sandbox_exec(sandbox_name, launcher, timeout=timeout_s + 90)
+        returncode = result.returncode
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        error = ""
+        error_type = ""
+    except subprocess.TimeoutExpired as exc:
+        returncode = 124
+        stdout = (exc.stdout or "")
+        stderr = (exc.stderr or "")
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        error = str(exc)
+        error_type = type(exc).__name__
     (log_dir / "openclaw-launch.log").write_text(
-        f"returncode={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}\n",
+        f"returncode={returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}\nerror_type={error_type}\nerror={error}\n",
         encoding="utf-8",
     )
     return {
-        "status": 200 if result.returncode == 0 else 500,
+        "status": 200 if returncode == 0 else 500,
         "body": {
-            "ok": result.returncode == 0,
+            "ok": returncode == 0,
             "mode": "cli",
-            "returncode": result.returncode,
+            "returncode": returncode,
         },
-        "stdout_tail": result.stdout[-4000:],
-        "stderr_tail": result.stderr[-4000:],
+        "stdout_tail": stdout[-4000:],
+        "stderr_tail": stderr[-4000:],
+        "error": error,
+        "error_type": error_type,
     }
 
 
@@ -337,12 +356,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.launch_mode == "cli":
             response = run_openclaw_cli(sandbox_name, prompt, args.timeout, log_dir)
-            if _response_ok(response):
-                try:
+            try:
+                if _response_ok(response):
                     wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
-                finally:
-                    collect_openclaw_cli_log(sandbox_name, log_dir)
-                    stop_openclaw_cli(sandbox_name)
+            finally:
+                collect_openclaw_cli_log(sandbox_name, log_dir)
+                stop_openclaw_cli(sandbox_name)
         else:
             hooks_token = _read_hooks_token()
             if not hooks_token:

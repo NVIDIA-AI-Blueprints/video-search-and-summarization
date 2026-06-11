@@ -406,6 +406,48 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("--prompt-file /tests/nemoclaw_prompt.md", command)
         self.assertNotIn("claude --print", command)
 
+    async def test_nemoclaw_launcher_embeds_current_prompt_when_task_dir_exists(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                tests_dir = task_dir / "tests"
+                env_dir = task_dir / "environment"
+                tests_dir.mkdir(parents=True)
+                env_dir.mkdir()
+                (tests_dir / "nemoclaw_prompt.md").write_text(
+                    "Use /vss-deploy-profile for this exact trial.\n",
+                    encoding="utf-8",
+                )
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {
+                    "runner": "nemoclaw",
+                    "expected_skill": "vss-deploy-profile",
+                }
+                await env.exec(
+                    "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
+                    timeout_sec=123,
+                )
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn("/tmp/skill-eval/nemoclaw/current_prompt.md", command)
+        self.assertIn("base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md", command)
+        self.assertIn("--expected-skill vss-deploy-profile", command)
+        self.assertNotIn("--prompt-file /tests/nemoclaw_prompt.md", command)
+
     async def test_nemoclaw_launcher_bypasses_outer_claude_without_metadata(self):
         calls = []
 
