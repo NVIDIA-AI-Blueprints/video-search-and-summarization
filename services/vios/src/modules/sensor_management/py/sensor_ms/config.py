@@ -42,6 +42,10 @@ class Config:
     onvif_sensor_time_sync_interval_secs: int = 60
     sensor_discovery_interfaces: list[str] = field(default_factory=list)
     max_sensors_supported: int = 8
+    # nvstreamer endpoints polled by the vst_rtsp/streamer adaptor's scan (NVSTREAMER_ENDPOINTS env,
+    # comma-separated "host:port"). Each is queried at /api/v1/sensor/streams. C++ parity: the
+    # vst_rtsp adaptor (rtsp_streams.cpp) GETs the nvstreamer stream list and registers each stream.
+    nvstreamer_endpoints: list[str] = field(default_factory=list)
 
     # --- rtsp / network / proxy ---
     rtsp_server_port: int = -1
@@ -129,6 +133,8 @@ class Config:
             if os.environ.get(env):
                 cur = getattr(self, attr)
                 setattr(self, attr, int(os.environ[env]) if isinstance(cur, int) else os.environ[env])
+        if os.environ.get("NVSTREAMER_ENDPOINTS"):
+            self.nvstreamer_endpoints = [e.strip() for e in os.environ["NVSTREAMER_ENDPOINTS"].split(",") if e.strip()]
 
 
 @lru_cache

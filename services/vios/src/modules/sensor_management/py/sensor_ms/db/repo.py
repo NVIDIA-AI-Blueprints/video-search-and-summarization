@@ -56,6 +56,31 @@ class SensorRepo:
             log.error("decrypt failed for sensor %s: %s", sensor_id, e)
             return ""
 
+    def read_video_records(self, stream_id: str, start_ms: int = 0, end_ms: int | None = None) -> list[tuple[int, int]]:
+        """Return [(start_time_ms, file_duration_ms)] for a stream ordered by start_time, within the
+        [start_ms, end_ms] window. Mirrors readVideoRecord (vst_common getRecordTimelines)."""
+        end = end_ms if end_ms is not None else 9223372036854775807
+        with self._sf() as s:
+            try:
+                rows = s.execute(
+                    text("select start_time, file_duration from video_record_details "
+                         "where stream_id = :sid and start_time between :s and :e order by start_time"),
+                    {"sid": stream_id, "s": start_ms, "e": end},
+                ).all()
+                return [(int(r[0] or 0), int(r[1] or 0)) for r in rows]
+            except Exception:
+                return []
+
+    def list_recorded_stream_ids(self) -> list[str]:
+        """Distinct stream_ids present in video_record_details (drives /sensor/timelines, which
+        reports recordings for all recorded streams, including deleted sensors — C++ parity)."""
+        with self._sf() as s:
+            try:
+                rows = s.execute(text("select distinct stream_id from video_record_details")).all()
+                return [r[0] for r in rows if r[0]]
+            except Exception:
+                return []
+
     def timeline_present(self, sensor_id: str) -> bool:
         # video_record_details holds recorded segments per sensor (lowercase per backend folding).
         with self._sf() as s:
@@ -83,6 +108,25 @@ class SensorRepo:
         row.modified_date_time = now_iso
         with self._sf() as s, s.begin():
             s.merge(row)
+
+    def authorize_sensor(self, sensor_id: str, username: str, plaintext_password: str,
+                         http_status: int, device_fields: dict, now_iso: str) -> bool:
+        """Update an existing sensor's credentials (password encrypted), http_status, and any
+        device-info fields resolved from the camera. Returns False if the sensor doesn't exist."""
+        enc = encrypt_password(plaintext_password, sensor_id, self._key()) if plaintext_password else ""
+        with self._sf() as s, s.begin():
+            row = s.execute(select(SensorDetails).where(SensorDetails.sensor_id == sensor_id)).scalar_one_or_none()
+            if row is None:
+                return False
+            row.username = username
+            row.password = enc
+            row.http_status = http_status
+            for col, key in (("hardware", "hardware"), ("manufacturer", "manufacturer"),
+                             ("firmware_version", "firmwareVersion"), ("serial_number", "serialNumber")):
+                if device_fields.get(key):
+                    setattr(row, col, device_fields[key])
+            row.modified_date_time = now_iso
+            return True
 
     def delete_sensor(self, sensor_id: str) -> bool:
         """Cascade delete: sensor_streams + recording_status + sensor_details."""

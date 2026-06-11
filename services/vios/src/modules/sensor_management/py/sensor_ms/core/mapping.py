@@ -16,6 +16,20 @@ from typing import Any
 from ..db.models import SensorDetails, SensorStreams
 
 CAMERA_NO_ERROR_CODE = 200
+CAMERA_UNAUTHORIZED_CODE = 401   # discovered ONVIF device without valid credentials
+
+# camera HTTP status -> (errorCode, errorMessage) for /status (utils.cpp:1163 mapping subset).
+_HTTP_TO_ERROR = {
+    200: ("NoError", "No Error"),
+    401: ("CameraUnauthorizedError", "Camera is not authorized"),
+    404: ("CameraNotFoundError", "Camera not found OR camera id is not valid"),
+    408: ("DeviceRequestTimeoutError", "Request Timout"),
+}
+
+
+def http_status_to_error(code: int | None) -> tuple[str, str]:
+    return _HTTP_TO_ERROR.get(code or 0, ("CommunicationError", "Camera communication error"))
+
 
 # StreamType enum (device_manager.cpp:24) and StreamStorageType (sensor_info.h:382).
 _STREAM_TYPE = {0: "Http", 1: "Hls", 2: "Rtsp", 3: "FileDownload", 4: "Udp",

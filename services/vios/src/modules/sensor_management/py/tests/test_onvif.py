@@ -60,6 +60,25 @@ def test_parse_probe_match_garbage_is_safe():
     assert parse_probe_match(b"<x/>") == []
 
 
+def test_scope_fields_parsing():
+    # Real Hikvision-style scopes: URL-decoded name, hardware, type, MAC, profiles.
+    pm = parse_probe_match(
+        b'<d:ProbeMatches xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery"'
+        b' xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing"><d:ProbeMatch>'
+        b'<wsa:EndpointReference><wsa:Address>urn:uuid:x</wsa:Address></wsa:EndpointReference>'
+        b'<d:Scopes>onvif://www.onvif.org/type/video_encoder onvif://www.onvif.org/Profile/Streaming '
+        b'onvif://www.onvif.org/Profile/G onvif://www.onvif.org/MAC/98:8b:0a:38:e0:d7 '
+        b'onvif://www.onvif.org/hardware/DS-2CD2T43G0-I5 '
+        b'onvif://www.onvif.org/name/HIKVISION%20DS-2CD2T43G0-I5</d:Scopes>'
+        b'<d:XAddrs>http://10.0.0.50/onvif/device_service</d:XAddrs></d:ProbeMatch></d:ProbeMatches>')[0]
+    sf = pm.scope_fields()
+    assert sf["name"] == "HIKVISION%20DS-2CD2T43G0-I5"   # kept RAW (C++ parity)
+    assert sf["hardware"] == "DS-2CD2T43G0-I5"
+    assert sf["type"] == "video_encoder"
+    assert sf["mac"] == "98:8b:0a:38:e0:d7"
+    assert set(sf["profiles"]) == {"Streaming", "G"}
+
+
 def test_dedup_matches_by_service_url():
     # Two ProbeMatch entries from the same device (same XAddrs) collapse to one.
     matches = parse_probe_match(_PROBE_MATCH) + parse_probe_match(_PROBE_MATCH)
@@ -95,8 +114,8 @@ def test_device_info_mapping():
     info = SimpleNamespace(Manufacturer="Acme", Model="X1", SerialNumber="SN9",
                            FirmwareVersion="1.2.3", HardwareId="HW7")
     f = device_info_to_fields(info)
-    assert f == {"hardware": "HW7", "manufacturer": "Acme", "serialNumber": "SN9",
-                 "firmwareVersion": "1.2.3"}
+    assert f == {"hardware": "X1", "manufacturer": "Acme", "serialNumber": "SN9",
+                 "firmwareVersion": "1.2.3"}   # hardware = Model, not HardwareId
 
 
 def test_loader_selects_onvif_control():

@@ -78,11 +78,13 @@ async def get_version(request: Request) -> Any:
 
 @router.get("/help", response_model=list[str])
 async def get_help() -> Any:
+    # Exact sorted list emitted by the C++ /sensor/help.
     return [
-        "/api/v1/sensor/list", "/api/v1/sensor/streams", "/api/v1/sensor/scan",
-        "/api/v1/sensor/add", "/api/v1/sensor/status", "/api/v1/sensor/configuration",
-        "/api/v1/sensor/version", "/api/v1/sensor/help", "/api/v1/sensor/qos",
-        "/v1/live", "/v1/ready", "/v1/startup", "/api/v1/sensor/timelines", "/api/v1/sensor/*",
+        "/api/v1/sensor/*", "/api/v1/sensor/add", "/api/v1/sensor/configuration",
+        "/api/v1/sensor/help", "/api/v1/sensor/list", "/api/v1/sensor/qos",
+        "/api/v1/sensor/scan", "/api/v1/sensor/status", "/api/v1/sensor/streams",
+        "/api/v1/sensor/timelines", "/api/v1/sensor/version",
+        "/v1/live", "/v1/ready", "/v1/startup",
     ]
 
 
@@ -100,12 +102,13 @@ async def get_qos() -> Any:
 
 @router.get("/timelines", response_model=dict[str, list[s.TimelineEntry]])
 async def get_all_timelines(request: Request) -> Any:
-    return {}
+    return await _mgmt(request).get_all_timelines()
 
 
 # --- per-sensor ---
-@router.get("/{sensor_id}/info", response_model=s.SensorInfo)
+@router.get("/{sensor_id}/info", response_model=s.SensorInfo, response_model_exclude_none=True)
 async def get_sensor_info(request: Request, sensor_id: str) -> Any:
+    # exclude_none drops state/type/isTimelinePresent (list-only fields) so /info matches the C++.
     return await _mgmt(request).get_sensor(sensor_id)
 
 
@@ -117,13 +120,7 @@ async def post_sensor_info(request: Request, sensor_id: str, body: s.PostSensorI
 
 @router.get("/{sensor_id}/status", response_model=s.SensorStatus)
 async def get_sensor_status(request: Request, sensor_id: str) -> Any:
-    statuses = await _mgmt(request).all_status()
-    st = statuses.get(sensor_id)
-    if st is None:
-        # Unknown sensor: name omitted, CameraNotFoundError (swagger SensorStatus).
-        return {"errorCode": "CameraNotFoundError",
-                "errorMessage": "Camera not found OR camera id is not valid", "state": "offline"}
-    return st
+    return await _mgmt(request).sensor_status(sensor_id)
 
 
 @router.delete("/{sensor_id}", dependencies=[Depends(require_bearer)])
@@ -140,13 +137,12 @@ async def post_replace(request: Request, sensor_id: str, body: s.ReplaceRequest)
 
 @router.get("/{sensor_id}/streams", response_model=list[s.StreamInfo])
 async def get_sensor_streams(request: Request, sensor_id: str) -> Any:
-    return await _mgmt(request).list_streams(sensor_id)
+    return await _mgmt(request).sensor_streams(sensor_id)
 
 
 @router.get("/{sensor_id}/settings")
 async def get_settings(request: Request, sensor_id: str) -> Any:
-    # Map streamId -> {Encode, Image}; null for non-ONVIF sensors (swagger).
-    return None
+    return await _mgmt(request).sensor_settings(sensor_id)
 
 
 @router.post("/{sensor_id}/settings", dependencies=[Depends(require_bearer)])
@@ -157,14 +153,13 @@ async def post_settings(request: Request, sensor_id: str, body: dict) -> Any:
 
 @router.post("/{sensor_id}/credentials", dependencies=[Depends(require_bearer)])
 async def post_credentials(request: Request, sensor_id: str, body: s.Credentials) -> Any:
-    # TODO(P3): validateCredentials via adaptor, then persist encrypted (db/crypto.py).
-    return {}
+    # Validates against the camera; wrong credentials -> InvalidParameterError (not 200).
+    return await _mgmt(request).set_credentials(sensor_id, body.username, body.password)
 
 
 @router.get("/{sensor_id}/network", response_model=s.NetworkInfo)
 async def get_network(request: Request, sensor_id: str) -> Any:
-    # TODO(P3)
-    return {}
+    return await _mgmt(request).sensor_network(sensor_id)
 
 
 @router.post("/{sensor_id}/network", response_model=s.NetworkSetResponse,
@@ -184,4 +179,4 @@ async def post_reboot(request: Request, sensor_id: str) -> Any:
 async def get_sensor_timelines(
     request: Request, sensor_id: str, startTime: str | None = None, endTime: str | None = None
 ) -> Any:
-    return []
+    return await _mgmt(request).get_recording_timelines(sensor_id, startTime or "", endTime or "")

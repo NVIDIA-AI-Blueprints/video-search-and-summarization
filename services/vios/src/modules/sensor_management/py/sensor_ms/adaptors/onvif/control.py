@@ -50,9 +50,10 @@ def profile_to_stream(profile: Any, stream_uri: str, is_main: bool) -> dict[str,
 
 
 def device_info_to_fields(dev_info: Any) -> dict[str, str]:
-    """Map ONVIF GetDeviceInformation -> sensor hardware fields."""
+    """Map ONVIF GetDeviceInformation -> sensor fields. hardware = Model (matches the C++ and the
+    /hardware/ discovery scope, e.g. "DS-2CD2T43G0-I5"); HardwareId is a separate device id."""
     return {
-        "hardware": getattr(dev_info, "HardwareId", "") or getattr(dev_info, "Model", "") or "",
+        "hardware": getattr(dev_info, "Model", "") or getattr(dev_info, "HardwareId", "") or "",
         "manufacturer": getattr(dev_info, "Manufacturer", "") or "",
         "serialNumber": getattr(dev_info, "SerialNumber", "") or "",
         "firmwareVersion": getattr(dev_info, "FirmwareVersion", "") or "",

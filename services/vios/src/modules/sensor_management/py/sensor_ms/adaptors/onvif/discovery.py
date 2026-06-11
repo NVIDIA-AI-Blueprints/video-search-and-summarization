@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import socket
 from dataclasses import dataclass, field
+from typing import Any
 from xml.etree import ElementTree as ET
 
 WS_DISCOVERY_ADDR = "239.255.255.250"
@@ -35,6 +36,28 @@ class ProbeMatch:
     @property
     def device_service_url(self) -> str:
         return self.xaddrs[0] if self.xaddrs else ""
+
+    def scope_fields(self) -> dict[str, Any]:
+        """Parse ONVIF scope URIs (onvif://www.onvif.org/<key>/<value>) into basic device details.
+        Values are kept RAW (URL-encoded), matching the C++ which stores e.g. name as
+        "HIKVISION%20DS-..." verbatim. Profiles accumulate into a list (Streaming/G/T/...)."""
+        out: dict[str, Any] = {"name": "", "hardware": "", "location": "", "type": "",
+                               "mac": "", "profiles": []}
+        for tok in (self.scopes or "").split():
+            low = tok.lower()
+            if "/name/" in low:
+                out["name"] = tok.split("/name/", 1)[1]
+            elif "/hardware/" in low:
+                out["hardware"] = tok.split("/hardware/", 1)[1]
+            elif "/location/" in low:
+                out["location"] = tok.split("/location/", 1)[1]
+            elif "/type/" in low:
+                out["type"] = tok.split("/type/", 1)[1]
+            elif "/mac/" in low:
+                out["mac"] = tok.rsplit("/", 1)[1]
+            elif "/profile/" in low:
+                out["profiles"].append(tok.rsplit("/", 1)[1])
+        return out
 
 
 def build_probe(message_id: str) -> bytes:
