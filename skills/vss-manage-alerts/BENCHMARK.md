@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-manage-alerts`
-- Evaluation date: 2026-06-10
+- Evaluation date: 2026-06-11
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 14 evaluation tasks
@@ -48,11 +48,11 @@ The benchmark included 14 recorded Tier 3 trials, but the source evaluation data
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 7 | 100% (+0%) | 79% (-21%) |
-| Correctness | 7 | 91% (+56%) | 75% (+30%) |
-| Discoverability | 7 | 98% (+48%) | 86% (+24%) |
-| Effectiveness | 7 | 67% (+50%) | 48% (+26%) |
-| Efficiency | 7 | 90% (+45%) | 75% (+19%) |
+| Security | 7 | 100% (+0%) | 79% (-7%) |
+| Correctness | 7 | 92% (+60%) | 95% (+50%) |
+| Discoverability | 7 | 96% (+57%) | 82% (+21%) |
+| Effectiveness | 7 | 66% (+49%) | 68% (+45%) |
+| Efficiency | 7 | 88% (+52%) | 72% (+16%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
