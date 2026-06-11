@@ -289,13 +289,14 @@ chmod -R 777 "$APPS/engines"
 rm -rf "$DATA/models"
 mkdir -p "$DATA/models/rtdetr-its" "$DATA/models/gdino"
 
-# 1. RTDETR-ITS (TrafficcamNet)
+# 1. RT-DETR Warehouse v1.0.2 (7-class detector). Staged under the
+#    rtdetr-its/model_epoch_035.fp16.onnx name expected by the shared ds-start.sh dispatcher.
 NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
-    nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
-mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
+    nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx \
     "$DATA/models/rtdetr-its/model_epoch_035.fp16.onnx"
-rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
+rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
 
 # 2. Mask Grounding DINO
 NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \

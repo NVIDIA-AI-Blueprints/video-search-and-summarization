@@ -70,9 +70,11 @@ function_groups:
           out: "rtdetr_warehouse_v1.0.2.fp16.onnx"
           kind: "file"
       alerts:
-      - package_ref: "nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
+      # RT-DETR Warehouse v1.0.2 (7-class) detector. Staged as rtdetr-its/model_epoch_035.fp16.onnx
+      # to satisfy the shared rtvi-cv ds-start.sh dispatcher, which hardcodes that path/name.
+      - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2"
         artifacts:
-        - src: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"  # yamllint disable-line rule:line-length
+        - src: "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx"  # yamllint disable-line rule:line-length
           out: "rtdetr-its/model_epoch_035.fp16.onnx"
           kind: "file"
       - package_ref: "nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"  # yamllint disable-line rule:line-length
