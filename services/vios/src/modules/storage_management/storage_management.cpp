@@ -2291,6 +2291,18 @@ VmsErrorCode StorageManagement::addOrRemoveFileInProtectList(const Json::Value& 
         return VmsErrorCode::VMSNotSupportedError;
     }
 
+    // Defensive guard: jsoncpp's Json::Value::get() throws Json::LogicError when
+    // invoked on a non-object (e.g. an array body). Without this check, a
+    // malformed body that slips past schema validation would crash the entire
+    // streamprocessing-ms process.
+    if (!in.isObject())
+    {
+        LOG(error) << "Request body must be a JSON object for /storage/file/protect, got non-object body" << endl;
+        SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response,
+                       "Request body must be a JSON object with 'filePath' (array of strings) and 'protect' (boolean) fields");
+        return VmsErrorCode::InvalidParameterError;
+    }
+
     vector<string> fileList;
 
     Json::Value fileListJson = in.get("filePath", EMPTY_STRING);

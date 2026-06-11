@@ -61,69 +61,62 @@ bool SchemaValidator::validateWebSocketRequest(const std::string &apiPath, const
 bool SchemaValidator::validateRequest(const std::string &apiPath, const Json::Value &jsonData, const std::string &queryString)
 {
     MEASURE_FUNCTION_EXECUTION_TIME
-    // Starting validation request for path
-    bool valid = false;
+    // First-match-wins: once an API spec matches the request path, that spec's
+    // validation result is authoritative. We must NOT fall through to subsequent
+    // matching specs, because a malformed body for a specific path (e.g.
+    // `/storage/file/protect`) could otherwise slip past validation by accidentally
+    // matching a later parameterized spec (e.g. `/storage/file/{streamId}` with
+    // streamId="protect"), reaching the handler with an unexpected JSON shape.
     for (const auto &spec : API_SPEC)
     {
-        // Check API spec
         std::unordered_map<std::string, std::string> pathParams;
-        if (matchApiPath(apiPath, spec.api_path, pathParams))
+        if (!matchApiPath(apiPath, spec.api_path, pathParams))
         {
-            valid = true;
-            Json::Value mergedData = jsonData;
-            // Add a validationBypassHandler here to bypass validation for the request
-            if (validationBypassHandler(apiPath, mergedData))
-            {
-                LOG(info) << "Validation bypassed for path: " << apiPath << endl;
-                return true;
-            }
-            if (mergedData.isNull())
-            {
-                mergedData = Json::objectValue;
-            }
-            
-            // For array request bodies, wrap in object to allow path parameter validation
-            if (jsonData.isArray())
-            {
-                Json::Value wrapperObject = Json::objectValue;
-                wrapperObject["$"] = mergedData; // Array becomes the root element
-                mergedData = wrapperObject;
-            }
-            
-            // Add all path params to merged data for validation
-            for (const auto &[key, value] : pathParams)
-            {
-                mergedData[key] = value;
-            }
-
-            // Add query parameters to merged data for validation if query string is provided
-            if (!queryString.empty())
-            {
-                Json::Value queryData = parseQueryStringToJson(queryString);
-                for (const auto& memberName : queryData.getMemberNames())
-                {
-                    // Reject requests where query parameters conflict with request body fields (excluding path parameters)
-                    if (mergedData.isMember(memberName) && pathParams.find(memberName) == pathParams.end())
-                    {
-                        LOG(error) << "Query parameter '" << memberName << "' conflicts with request body field. Request rejected." << endl;
-                        valid = false;
-                        break;
-                    }
-                    mergedData[memberName] = queryData[memberName];
-                }
-                if (!valid)
-                {
-                    continue;
-                }
-            }
-
-            if (validate(mergedData, spec))
-            {
-                return true;
-            }
-            valid = false;
             continue;
         }
+
+        Json::Value mergedData = jsonData;
+        if (validationBypassHandler(apiPath, mergedData))
+        {
+            LOG(info) << "Validation bypassed for path: " << apiPath << endl;
+            return true;
+        }
+        if (mergedData.isNull())
+        {
+            mergedData = Json::objectValue;
+        }
+
+        // For array request bodies, wrap in object to allow path parameter validation
+        if (jsonData.isArray())
+        {
+            Json::Value wrapperObject = Json::objectValue;
+            wrapperObject["$"] = mergedData; // Array becomes the root element
+            mergedData = wrapperObject;
+        }
+
+        // Add all path params to merged data for validation
+        for (const auto &[key, value] : pathParams)
+        {
+            mergedData[key] = value;
+        }
+
+        // Add query parameters to merged data for validation if query string is provided
+        if (!queryString.empty())
+        {
+            Json::Value queryData = parseQueryStringToJson(queryString);
+            for (const auto& memberName : queryData.getMemberNames())
+            {
+                // Reject requests where query parameters conflict with request body fields (excluding path parameters)
+                if (mergedData.isMember(memberName) && pathParams.find(memberName) == pathParams.end())
+                {
+                    LOG(error) << "Query parameter '" << memberName << "' conflicts with request body field. Request rejected." << endl;
+                    return false;
+                }
+                mergedData[memberName] = queryData[memberName];
+            }
+        }
+
+        return validate(mergedData, spec);
     }
     LOG(error) << "No matching API spec found for path: " << apiPath << endl;
     return false;

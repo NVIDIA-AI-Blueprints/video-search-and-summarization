@@ -117,7 +117,44 @@ class RequestHandler : public CivetHandler
     {
     }
 
+    // Public dispatch entry. Wraps handleImpl() so that any uncaught C++
+    // exception escaping a registered API handler becomes a 4xx/5xx response
+    // instead of propagating up to the signal handler and crashing the entire process
     bool handle(CivetServer *server, struct mg_connection *conn)
+    {
+        try
+        {
+            return handleImpl(server, conn);
+        }
+        catch (const Json::LogicError& e)
+        {
+            // Most commonly Json::Value::find()/get() invoked on a non-object
+            // (e.g. an array request body) — caller error, not a server fault.
+            LOG(error) << "Uncaught Json::LogicError in HTTP handler: " << e.what() << endl;
+            Json::Value response;
+            VmsErrorCode rc = VmsErrorCode::InvalidParameterError;
+            SET_VMS_ERROR2(rc, response, "Malformed JSON body");
+            return httpResponseHandler(rc, response, conn);
+        }
+        catch (const std::exception& e)
+        {
+            LOG(error) << "Uncaught std::exception in HTTP handler: " << e.what() << endl;
+            Json::Value response;
+            VmsErrorCode rc = VmsErrorCode::VMSInternalError;
+            SET_VMS_ERROR2(rc, response, "Internal server error");
+            return httpResponseHandler(rc, response, conn);
+        }
+        catch (...)
+        {
+            LOG(error) << "Uncaught unknown exception in HTTP handler" << endl;
+            Json::Value response;
+            VmsErrorCode rc = VmsErrorCode::VMSInternalError;
+            SET_VMS_ERROR2(rc, response, "Internal server error");
+            return httpResponseHandler(rc, response, conn);
+        }
+    }
+
+    bool handleImpl(CivetServer *server, struct mg_connection *conn)
     {
         bool ret = false;
         Json::Value response;
