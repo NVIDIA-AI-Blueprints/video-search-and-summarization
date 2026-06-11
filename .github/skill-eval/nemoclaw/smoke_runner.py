@@ -1936,7 +1936,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.lock_timeout,
             )
             print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
-            brev_instance = worker_lock.remote_target or instance
+            # Use the human-readable Brev name for Harbor itself. Instance IDs
+            # are useful for lock/reachability checks on some runners, but they
+            # have proven unreliable as long-lived `brev exec` targets during
+            # Harbor environment setup.
+            brev_instance = instance
             try:
                 os.environ["BREV_INSTANCE"] = brev_instance
                 for scenario in group:
