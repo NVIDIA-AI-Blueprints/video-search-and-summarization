@@ -194,9 +194,10 @@ When using this skill, ALWAYS follow this high-level workflow:
    If the user query references a specific video / sensor name
    (e.g. "the airport video", "warehouse_cam_3", "sample warehouse"),
    verify it's actually registered in VIOS **before** firing
-   `POST .../generate`. Resolve the source by invoking the
-   `vss-manage-video-io-storage` skill's canonical source-list workflow;
-   do not guess or probe alternate source-list routes, and do not use
+   `POST .../generate`. Resolve the source by using the
+   `vss-manage-video-io-storage` skill to list configured
+   sensors/cameras/streams and match the named source against the returned
+   names. Do not guess or probe alternate discovery routes, and do not use
    `/generate` as a fallback existence check.
 
    Then:
