@@ -45,10 +45,6 @@ private:
     void doBaslerDiscovery(std::map<std::string, SensorInfo>& freshList);
     int addNewSensor(SensorInfo& sensor);
     static std::string buildSensorIdFromSerial(const std::string& serial);
-    // PoC: on first discovery of a camera, grab a fixed number of frames and
-    // write their raw (un-debayered) buffers to disk. Runs on the discovery
-    // thread, outside m_monitorMutex, and bails early if m_exit is set.
-    void dumpFirstFrames(const SensorInfo& sensor);
 
     std::thread m_discoveryThread;
     std::atomic<bool> m_exit{true};
@@ -56,7 +52,6 @@ private:
     std::mutex m_sleeperLock;
     std::condition_variable m_sleeperWait;
     std::map<std::string, SensorInfo> m_freshList;  // keyed by serial number
-    std::set<std::string> m_dumpedSerials;          // serials already frame-dumped (PoC; discovery-thread only)
     bool m_pylonInitialized{false};                 // true once PylonInitialize succeeded
 
     static constexpr std::chrono::milliseconds kPollInterval{5000};

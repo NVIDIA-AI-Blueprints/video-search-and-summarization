@@ -892,7 +892,12 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
                 string stream_url = stream_info->live_proxy_url.empty() ? proxyUrl : stream_info->live_proxy_url;
                 StreamEventManager::getInstance().sendEvent(stream_url, STREAM_STATUS_STREAMING, details);
 
-                if(deviceMngr && deviceMngr->needStreamMonitoring && deviceMngr->needRtspServer == true)
+                // Basler is a local (pylon) producer, not an RTSP source: never add
+                // it to the RTSP-pull-based StreamMonitor (its frames are produced by
+                // the BaslerStreamProducer in a later stage). Adding it here would make
+                // StreamMonitor try to RTSP-connect the synthetic basler URL and fail.
+                if(deviceMngr && deviceMngr->needStreamMonitoring && deviceMngr->needRtspServer == true
+                   && stream_url.find(NV_BASLER_SENSOR) == string::npos)
                 {
                     if (stream_info->live_proxy_url.empty())
                     {

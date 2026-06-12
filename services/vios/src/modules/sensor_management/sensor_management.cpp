@@ -470,6 +470,39 @@ int SensorManagement::getAndAddProxyUrl(shared_ptr<SensorInfo>& sensorInfo, cons
                     }
                 }
             }
+            else if (sensorInfo->type == SENSOR_TYPE_BASLER)
+            {
+                // Basler is a local (pylon) producer with no RTSP backend. Mint a
+                // synthetic URL carrying the basler token + stream id and hand the
+                // stream off to the stream-processor via a camera_proxy event; the
+                // pod recognises the token and brings the stream to streaming state
+                // (the producer + recorder are wired in a later stage).
+                if (stream->live_proxy_url.empty())
+                {
+                    stream->live_url = stream->replay_url = stream->live_proxy_url =
+                        string("rtsp://") + string(NV_BASLER_SENSOR) + string("/") + stream->id;
+                }
+
+                if (GET_DEVICE_MANAGER()->needRtspServer == false &&
+                    sensorInfo->getSensorStatus() == SensorStatusOnline &&
+                    stream->isMainStream && sensorInfo->m_notify == true)
+                {
+                    SensorStatus status;
+                    status.timeStamp  = getCurrentTime();
+                    status.sensorId   = stream->id;
+                    status.sensorName = sensorInfo->name;
+                    status.serverId   = m_deviceManager->getDeviceId();
+                    status.event      = SensorStatusProxy;
+                    status.tags       = sensorInfo->tags;
+                    status.type       = SENSOR_TYPE_BASLER;
+
+                    vst_common::updateSensorDetailsToDB(deviceManager->id, sensorInfo);
+                    vst_common::notifyEvent(status, stream->live_proxy_url, &stream->getvideoEncoderValues());
+                    sensorInfo->m_notify = false;
+                    stream->updateErrorStatus(std::make_pair(StreamStatus::STREAM_STATUS_PROXY,
+                        translateStreamStatusToString(StreamStatus::STREAM_STATUS_PROXY)), false);
+                }
+            }
             else if (stream->live_proxy_url.empty() || sensorInfo->m_notify)
             {
                 if(type == TYPE_VST || type == TYPE_MMS)

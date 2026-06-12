@@ -22,16 +22,12 @@
 #include "utils.h"
 
 #include <pylon/PylonIncludes.h>
-#include <pylon/ImageFormatConverter.h>  // CImageFormatConverter (libpylonutility)
-#include <pylon/PylonImage.h>            // CPylonImage (libpylonutility)
 
 #include <dlfcn.h>
 
 #include <cstdint>
-#include <cstdlib>
 #include <exception>
-#include <filesystem>
-#include <fstream>
+#include <memory>
 #include <vector>
 
 using namespace nv_vms;
@@ -39,13 +35,6 @@ using namespace nv_vms;
 namespace {
 
 constexpr const char* kManufacturer = "Basler";
-
-// PoC frame-dump configuration.
-constexpr const char* kGigEDeviceClass = "BaslerGigE";  // restrict open() to GigE transport
-constexpr const char* kDumpDirEnv = "BASLER_DUMP_DIR";   // override output root
-constexpr const char* kDefaultDumpDir = "/tmp/basler_poc";
-constexpr uint32_t kDumpFrameCount = 100;                // frames to grab per camera
-constexpr unsigned kGrabTimeoutMs = 5000;                // per-frame RetrieveResult timeout
 
 // Lazily dlopen the pylon runtime so the adaptor .so itself can load on
 // systems without pylon installed. RTLD_GLOBAL is required so that pylon's
@@ -57,23 +46,20 @@ bool loadPylonRuntime()
 {
     struct Loader {
         void* base{nullptr};
-        void* utility{nullptr};
         Loader()
         {
-            // libpylonbase   : core camera/transport/grab classes + GenICam.
-            // libpylonutility: CImageFormatConverter / CPylonImage, used to
-            //                  demosaic + convert grabbed Bayer frames to I420.
-            //                  It is NOT a dependency of libpylonbase, so it
-            //                  must be loaded explicitly.
+            // libpylonbase: core camera/transport/enumeration classes + GenICam.
+            // Discovery only enumerates devices, so libpylonbase is sufficient;
+            // the producer that grabs/converts frames (stream-processor) loads
+            // libpylonutility itself.
             // NOTE: the adaptor loader dlopens this .so with RTLD_NOW, so all
             // pylon symbols must already be in the process symbol space at
-            // adaptor-load time - that is provided by LD_PRELOAD of BOTH libs in
-            // the deployment. This dlopen runs later (in start()) and therefore
-            // only serves as an explicit handle + the basis for graceful-disable
-            // when pylon is absent.
+            // adaptor-load time - that is provided by LD_PRELOAD in the
+            // deployment. This dlopen runs later (in start()) and therefore only
+            // serves as an explicit handle + the basis for graceful-disable when
+            // pylon is absent.
             base = dlopen("libpylonbase.so", RTLD_NOW | RTLD_GLOBAL);
-            utility = dlopen("libpylonutility.so", RTLD_NOW | RTLD_GLOBAL);
-            if (!base || !utility) {
+            if (!base) {
                 const char* err = dlerror();
                 LOG(error) << "BaslerDiscovery: pylon SDK not available ("
                            << (err ? err : "unknown")
@@ -82,7 +68,7 @@ bool loadPylonRuntime()
         }
     };
     static Loader loader;
-    return loader.base != nullptr && loader.utility != nullptr;
+    return loader.base != nullptr;
 }
 
 }  // namespace
@@ -210,6 +196,26 @@ void BaslerDiscovery::doBaslerDiscovery(std::map<std::string, SensorInfo>& fresh
 
             sensor.updateHttpErrorStatus(translateVmsErrorCodeToCameraHttpErrorCode(NoError));
 
+            // Advertise a single main stream. The real capture geometry/codec
+            // are finalised by the producer when it opens the camera (later
+            // stage); sane H.264/1080p defaults here are enough to take the
+            // sensor to streaming state in the stream-processor.
+            auto stream = std::make_shared<StreamInfo>();
+            stream->sensorId     = sensor.id;
+            stream->id           = sensor.id;
+            stream->name         = sensor.name;
+            stream->isMainStream = true;
+            stream->updateStreamtype(StreamType::Rtsp);
+            stream->updateErrorStatus(std::make_pair(StreamStatus::STREAM_STATUS_ONLINE,
+                translateStreamStatusToString(StreamStatus::STREAM_STATUS_ONLINE)));
+            SensorVideoEncoderSettingsValues encValues;
+            encValues.encoding          = "h264";
+            encValues.resolution.width  = "1920";
+            encValues.resolution.height = "1080";
+            encValues.frameRate         = "30";
+            stream->updateVideoEncoderValues(encValues);
+            sensor.streams.push_back(stream);
+
             LOG(verbose) << "BaslerDiscovery: class=" << deviceClass
                          << " model=" << sensor.model
                          << " serial=" << sensor.serial_number
@@ -231,119 +237,9 @@ int BaslerDiscovery::addNewSensor(SensorInfo& sensor)
     return publishOnSensorFound(sensor);
 }
 
-void BaslerDiscovery::dumpFirstFrames(const SensorInfo& sensor)
-{
-    namespace fs = std::filesystem;
-
-    const char* envDir = std::getenv(kDumpDirEnv);
-    const fs::path outDir = fs::path(envDir ? envDir : kDefaultDumpDir) / sensor.serial_number;
-
-    std::error_code ec;
-    fs::create_directories(outDir, ec);
-    if (ec) {
-        LOG(error) << "BaslerDiscovery: cannot create dump dir " << outDir.string()
-                   << ": " << ec.message() << endl;
-        return;
-    }
-
-    try {
-        // Open this specific camera by serial, restricted to the GigE transport
-        // layer. Uses the same pylon symbols already bound at runtime via the
-        // dlopen(RTLD_GLOBAL) of libpylonbase.so in loadPylonRuntime().
-        Pylon::CDeviceInfo deviceInfo;
-        deviceInfo.SetDeviceClass(kGigEDeviceClass);
-        deviceInfo.SetSerialNumber(Pylon::String_t(sensor.serial_number.c_str()));
-
-        Pylon::CInstantCamera camera(Pylon::CTlFactory::GetInstance().CreateDevice(deviceInfo));
-        camera.Open();
-
-        // Pixel format is constant for the run; record it for offline debayering.
-        Pylon::String_t pixelFormat = "unknown";
-        GenApi::INodeMap& nodemap = camera.GetNodeMap();
-        if (GenApi::CEnumerationPtr pf = nodemap.GetNode("PixelFormat");
-            pf.IsValid() && GenApi::IsReadable(pf)) {
-            pixelFormat = pf->ToString();
-        }
-
-        LOG(info) << "BaslerDiscovery: dumping " << kDumpFrameCount
-                  << " frames from serial=" << sensor.serial_number
-                  << " to " << outDir.string() << endl;
-
-        // Grab oldest-first (default GrabStrategy_OneByOne); auto-stops after count.
-        camera.StartGrabbing(kDumpFrameCount);
-
-        // Demosaic + convert each Bayer frame to planar I420 (YUV420planar) with
-        // pylon's CImageFormatConverter. We write TWO contiguous streams: the raw
-        // sensor frames (Bayer) and the converted I420 frames. Each is a stream of
-        // fixed-size, header-less frames, so a raw player scrubs by frame.
-        Pylon::CImageFormatConverter converter;
-        converter.OutputPixelFormat = Pylon::PixelType_YUV420planar;  // I420
-        Pylon::CPylonImage i420Image;  // reusable conversion target
-
-        std::ofstream rawStream, i420Stream;
-        fs::path rawPath, i420Path;
-        uint32_t saved = 0;
-        while (camera.IsGrabbing() && !m_exit) {
-            Pylon::CGrabResultPtr result;
-            camera.RetrieveResult(kGrabTimeoutMs, result, Pylon::TimeoutHandling_ThrowException);
-            if (!result->GrabSucceeded()) {
-                LOG(warning) << "BaslerDiscovery: grab failed for serial=" << sensor.serial_number
-                             << ": " << result->GetErrorDescription().c_str() << endl;
-                continue;
-            }
-
-            // Open both streams + sidecar on the first successful frame, once the
-            // geometry is known, so it can be encoded into the filenames.
-            if (!rawStream.is_open()) {
-                const std::string dims = std::to_string(result->GetWidth()) + "x"
-                                       + std::to_string(result->GetHeight());
-                rawPath  = outDir / ("basler_" + sensor.serial_number + "_" + dims
-                                     + "_" + std::string(pixelFormat.c_str()) + ".raw");
-                i420Path = outDir / ("basler_" + sensor.serial_number + "_" + dims + "_I420.yuv");
-                rawStream.open(rawPath, std::ios::binary);
-                i420Stream.open(i420Path, std::ios::binary);
-                if (!rawStream || !i420Stream) {
-                    LOG(error) << "BaslerDiscovery: cannot open dump file(s) under "
-                               << outDir.string() << endl;
-                    break;
-                }
-                std::ofstream meta(outDir / "metadata.txt");
-                meta << "model=" << sensor.model << "\n"
-                     << "serial=" << sensor.serial_number << "\n"
-                     << "width=" << result->GetWidth() << "\n"
-                     << "height=" << result->GetHeight() << "\n"
-                     << "source_pixel_format=" << pixelFormat.c_str() << "\n"
-                     << "raw_image_bytes=" << result->GetImageSize() << "\n"
-                     << "converted_format=I420 (YUV420planar)\n"
-                     << "frames=" << kDumpFrameCount << "\n";
-            }
-
-            // Raw sensor frame (Bayer mosaic).
-            rawStream.write(static_cast<const char*>(result->GetBuffer()),
-                            static_cast<std::streamsize>(result->GetImageSize()));
-
-            // Converted I420 frame (demosaic + colorspace conversion happen here).
-            converter.Convert(i420Image, result);
-            i420Stream.write(static_cast<const char*>(i420Image.GetBuffer()),
-                             static_cast<std::streamsize>(i420Image.GetImageSize()));
-            ++saved;
-        }
-
-        camera.StopGrabbing();
-        camera.Close();
-        LOG(info) << "BaslerDiscovery: dumped " << saved << " frame(s) for serial="
-                  << sensor.serial_number << " (raw=" << rawPath.string()
-                  << ", i420=" << i420Path.string() << ")" << endl;
-    } catch (const Pylon::GenericException& e) {
-        LOG(error) << "BaslerDiscovery: frame dump failed for serial=" << sensor.serial_number
-                   << ": " << e.GetDescription() << endl;
-    }
-}
-
 void BaslerDiscovery::discoveryTask()
 {
     while (!m_exit) {
-        std::vector<SensorInfo> toDump;  // cameras newly added this cycle (PoC frame dump)
         {
             std::lock_guard<std::mutex> lock(m_monitorMutex);
             m_freshList.clear();
@@ -385,25 +281,7 @@ void BaslerDiscovery::discoveryTask()
                 } else if (cacheMatch->getSensorStatus() == SensorStatusOffline) {
                     publishOnSensorFound(*cacheMatch);
                 }
-                // PoC: grab frames once per camera per process run - whether the
-                // camera is brand-new or already registered (e.g. restored from
-                // the DB on restart). m_dumpedSerials (checked below) keeps it
-                // idempotent so a present camera is dumped at most once.
-                toDump.push_back(fresh);
             }
-        }
-
-        // Dump frames OUTSIDE m_monitorMutex so a concurrent stop() is not
-        // blocked for the duration of the grab. Each serial is dumped once.
-        for (const auto& sensor : toDump) {
-            if (m_exit) {
-                break;
-            }
-            if (m_dumpedSerials.count(sensor.serial_number) != 0) {
-                continue;
-            }
-            dumpFirstFrames(sensor);
-            m_dumpedSerials.insert(sensor.serial_number);
         }
 
         {

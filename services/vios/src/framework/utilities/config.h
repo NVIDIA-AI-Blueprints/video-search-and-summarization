@@ -81,6 +81,7 @@ inline constexpr const char* REPLAY_STREAM_MODULE_DEFAULT_ENDPOINT = "http://loc
 inline constexpr const char* LIVE_STREAM_MODULE_DEFAULT_ENDPOINT = "http://localhost:30000";
 
 inline constexpr const char* NV_CSI_SENSOR = "csi_sensor";
+inline constexpr const char* NV_BASLER_SENSOR = "basler_sensor";
 
 namespace nv_vms {
 

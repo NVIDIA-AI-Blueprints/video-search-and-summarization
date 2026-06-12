@@ -258,6 +258,41 @@ void RtspServerManager::handleRESTAPIs()
             }
         }
 
+        // Basler (a local pylon producer) has no RTSP backend to proxy. Recognise
+        // the basler token in the URL, register the stream on a server and bring it
+        // to streaming state directly -- mirroring how a native/CSI local producer
+        // reaches streaming -- without creating a live555 proxy / DESCRIBE.
+        if (url.find(NV_BASLER_SENSOR) != string::npos || sensor_type == SENSOR_TYPE_BASLER)
+        {
+            string prefixUrl;
+            m_lb.addStream(id, prefixUrl);  // assign a server (round-robin); no proxy/DESCRIBE
+            string live_proxy_url = prefixUrl + string(NV_BASLER_SENSOR) + string("/") + id;
+            string vodUrl = vst_rtsp::vodServerDomainPrefix(id) + string("vod/") + id;
+
+            RtspServer* server = m_lb.rtspServer(id);
+            if (server == nullptr)
+            {
+                string error_message = "No RTSP server available for basler stream";
+                LOG(error) << error_message << " id:" << id << endl;
+                SET_VMS_ERROR2(VmsErrorCode::VMSInternalError, out, error_message.c_str())
+                return VmsErrorCode::VMSInternalError;
+            }
+
+            Json::Value params;
+            params["vodUrl"]     = vodUrl;
+            params["codec"]      = codec.empty() ? string("h264") : codec;
+            params["resolution"] = resolution;
+            params["framerate"]  = framerate;
+            params["tags"]       = tags;
+            server->registerStreamAsync(id, name, live_proxy_url, params);
+
+            out["url"]    = live_proxy_url;
+            out["vodUrl"] = vodUrl;
+            LOG(info) << "Accepted basler camera_proxy; stream brought to streaming: id=" << id
+                      << " url=" << secureUrlForLogging(live_proxy_url) << endl;
+            return VmsErrorCode::NoError;
+        }
+
         LOG(info) << "Creating proxy stream for url:" << secureUrlForLogging(url) << " id:" << id << " name:" << name << endl;
 
         int ret = m_lb.addProxyStream(id, name, url);
