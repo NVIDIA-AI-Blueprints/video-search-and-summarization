@@ -162,7 +162,7 @@ Layout (asset paths, ownership, mount points, profile-specific subdirs) is docum
 
 ### Step 1c — Initialize `generated.env`
 
-The skill's per-deploy working copy. Always start from a fresh copy of the source `.env` — never mutate the source.
+The skill's per-deploy working copy. Always start from a fresh copy of the source `.env` , never mutate the source.
 
 ```bash
 PROFILE=base
