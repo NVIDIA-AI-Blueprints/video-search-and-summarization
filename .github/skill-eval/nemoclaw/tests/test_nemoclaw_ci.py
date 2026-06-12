@@ -1655,6 +1655,10 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             trial_dir = Path(td) / "trial"
             log_dir = trial_dir / "artifacts" / "nemoclaw"
             log_dir.mkdir(parents=True)
+            (log_dir / "openclaw-agent.log").write_text(
+                json.dumps({"type": "assistant_partial"}) + "\n",
+                encoding="utf-8",
+            )
             (log_dir / "nemoclaw_hooks_response.json").write_text(
                 json.dumps(
                     {
