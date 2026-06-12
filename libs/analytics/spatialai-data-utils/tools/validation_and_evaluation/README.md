@@ -58,6 +58,35 @@ SIMULATION_ID="<SIMULATION_ID>"
 
 The tool downloads into `results/<SIMULATION_ID>/`.
 
+## Docker Usage
+
+Build the image from the repository root if needed:
+
+```bash
+docker build -f docker/Dockerfile -t spatialai_data_utils .
+```
+
+Run the validation and evaluation flow from the repository root. Mount the env file explicitly so a different simulation can be used without replacing `tools/validation_and_evaluation/.env`:
+
+```bash
+# Create a results directory with necessary permissions
+mkdir -p "$(pwd)/results"
+sudo chown -R "$USER:$USER" "$(pwd)/results"
+
+# Launch Docker with the validation tool, env file, and results directory mounted
+docker run --rm -it --user "$(id -u):$(id -g)" \
+  -v "$(pwd)/tools/validation_and_evaluation:/workspace/tools/validation_and_evaluation" \
+  -v "$(pwd)/tools/validation_and_evaluation/.env:/workspace/tools/validation_and_evaluation/.env:ro" \
+  -v "$(pwd)/results:/workspace/results" \
+  -w /workspace \
+  spatialai_data_utils \
+  python tools/validation_and_evaluation/run_validation_and_evaluation.py \
+    --calibration_url <calibration-URL>
+```
+
+Local outputs are written to `results/<SIMULATION_ID>/` on the host because
+`results/` is bind-mounted.
+
 ## Data Validation Checks
 
 Full mode performs validation before and after download:
