@@ -88,8 +88,16 @@ env:
     value: ""
   - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
     value: ""
-  - name: ENABLE_LVS_CR2_TIMESTAMP_PROMPT
+  - name: RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE
     value: ""
+  - name: RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE
+    value: ""
+  - name: RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE
+    value: ""
+  - name: RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE
+    value: ""
+  - name: RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS
+    value: "false"
   - name: RTVI_EXTRA_ARGS
     value: ""
   - name: RTVI_RTSP_LATENCY

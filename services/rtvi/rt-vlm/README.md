@@ -879,6 +879,11 @@ The table lists variables in the standalone Docker Compose stack and the standal
 | `RTVI_ENABLE_LIVE_TIMESTAMP_FILTER` | Enable timestamp filtering for live streams | `false` |
 | `RTVI_ENABLE_FILE_TIMESTAMP_FILTER` | Enable timestamp filtering for file streams | `true` |
 | `RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT` | Add timestamp metadata to VLM prompts | Empty |
+| `RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE` | Custom prefix injected before the user query for file inputs. Supports `{timestamps}`, `{query}`, `{first_ts}`, `{last_ts}` placeholders. When unset, the legacy prefix is used. | Empty |
+| `RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE` | Custom suffix appended after the user query for file inputs. Same placeholders as prefix. | Empty |
+| `RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE` | Custom prefix injected before the user query for RTSP inputs. Same placeholders as file variant. | Empty |
+| `RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE` | Custom suffix appended after the user query for RTSP inputs. Same placeholders as file variant. | Empty |
+| `RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS` | When `true`, encode absolute video timestamps into `frames_indices` for models that use `frames_indices/fps` for temporal position encoding (e.g. Qwen3-VL). | `false` |
 | `RTVI_EMPTY_CUDA_CACHE_ON_RESULT` | Empty CUDA cache after result handling | `false` |
 | `RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC` | Blocking timeout for stream deletion cleanup | `300` |
 | `RTVI_ENABLE_GOP_DECODE_OPT` | Enable GOP-aligned decode optimization | `true` |
