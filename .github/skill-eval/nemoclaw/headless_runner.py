@@ -213,7 +213,49 @@ def stop_openclaw_cli(sandbox_name: str) -> None:
     )
 
 
-def run_openclaw_cli(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Path) -> dict[str, Any]:
+def _start_openclaw_cli_async(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Path) -> dict[str, Any]:
+    ensure_openclaw_gateway(sandbox_name, log_dir)
+    inner = _openclaw_cli_command(prompt, timeout_s)
+    launcher = (
+        "set -u; "
+        f"mkdir -p {OPENCLAW_RUN_DIR}; "
+        f"rm -f {OPENCLAW_RUN_DIR}/openclaw-agent.log "
+        f"{OPENCLAW_RUN_DIR}/openclaw-agent.pid {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
+        f"sh -lc {shlex.quote(inner)} > {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>&1 & "
+        "pid=$!; "
+        f"echo $pid > {OPENCLAW_RUN_DIR}/openclaw-agent.pid; "
+        "echo started"
+    )
+    result = _sandbox_exec(sandbox_name, launcher, timeout=60)
+    (log_dir / "openclaw-launch.log").write_text(
+        f"returncode={result.returncode}\nstdout:\n{result.stdout or ''}\nstderr:\n{result.stderr or ''}\n"
+        "mode=async\n",
+        encoding="utf-8",
+    )
+    return {
+        "status": 200 if result.returncode == 0 else 500,
+        "body": {
+            "ok": result.returncode == 0,
+            "mode": "cli-async",
+            "returncode": result.returncode,
+        },
+        "stdout_tail": (result.stdout or "")[-4000:],
+        "stderr_tail": (result.stderr or "")[-4000:],
+        "error": "",
+        "error_type": "",
+    }
+
+
+def run_openclaw_cli(
+    sandbox_name: str,
+    prompt: str,
+    timeout_s: int,
+    log_dir: Path,
+    wait_profile: str = "",
+) -> dict[str, Any]:
+    if wait_profile:
+        return _start_openclaw_cli_async(sandbox_name, prompt, timeout_s, log_dir)
+
     ensure_openclaw_gateway(sandbox_name, log_dir)
     inner = _openclaw_cli_command(prompt, timeout_s)
     launcher = (
@@ -364,7 +406,13 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if args.launch_mode == "cli":
-            response = run_openclaw_cli(sandbox_name, prompt, args.timeout, log_dir)
+            response = run_openclaw_cli(
+                sandbox_name,
+                prompt,
+                args.timeout,
+                log_dir,
+                wait_profile=args.wait_profile,
+            )
             try:
                 if _response_ok(response):
                     wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
