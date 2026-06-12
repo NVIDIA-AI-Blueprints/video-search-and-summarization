@@ -1617,6 +1617,10 @@ def _load_nemoclaw_async_metrics(trial_dir: Path) -> tuple[str, str, str] | None
     return "async readiness", "not emitted", "not emitted"
 
 
+def _metrics_include_usage(metrics: tuple[str, str, str] | None) -> bool:
+    return bool(metrics and (metrics[1] != "n/a" or metrics[2] != "n/a"))
+
+
 def _nemoclaw_runtime_details(trial_dir: Path | None) -> list[str]:
     artifact_dir = _nemoclaw_artifact_dir(trial_dir)
     if artifact_dir is None:
@@ -1660,9 +1664,12 @@ def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> 
     trajectory = trial_dir / "agent" / "trajectory.json"
     data = _read_json(trajectory)
     if not data:
+        openclaw_metrics = _load_openclaw_log_metrics(trial_dir)
+        if _metrics_include_usage(openclaw_metrics):
+            return openclaw_metrics
         return (
-            _load_openclaw_log_metrics(trial_dir)
-            or _load_nemoclaw_async_metrics(trial_dir)
+            _load_nemoclaw_async_metrics(trial_dir)
+            or openclaw_metrics
             or ("n/a", "n/a", "n/a")
         )
 
@@ -1701,11 +1708,14 @@ def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> 
             cached_tokens += int(usage.get("cacheReadInputTokens") or 0)
             cached_tokens += int(usage.get("cacheCreationInputTokens") or 0)
 
-    return (
+    metrics = (
         str(turns) if turns else "n/a",
         _format_number(prompt_tokens) if prompt_tokens else "n/a",
         _format_number(cached_tokens) if cached_tokens else "n/a",
     )
+    if not _metrics_include_usage(metrics):
+        return _load_nemoclaw_async_metrics(trial_dir) or metrics
+    return metrics
 
 
 def _judge_details(trial_dir: Path | None, reward: float | None) -> tuple[int | None, int | None, list[str]]:

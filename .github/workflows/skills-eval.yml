@@ -454,6 +454,7 @@ jobs:
           export SKILLS_EVAL_RUNNER="nemoclaw"
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
           mkdir -p /tmp/brev /tmp/skill-eval
+          rm -rf "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}"
           # NemoClaw is an opt-in CI path. Keep it deterministic: discover the
           # requested adapter-backed scenarios, lock a matching worker for each
           # scenario, run Harbor directly, and emit Harbor-style reports.
@@ -488,8 +489,8 @@ jobs:
           RESULTS=$(find "$RUN_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
             TAR_PATHS=("results/${{ matrix.slug }}/${{ github.run_id }}")
-            if [ -d "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}" ]; then
-              TAR_PATHS+=("nemoclaw/${{ matrix.slug }}")
+            if [ -d "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}" ]; then
+              TAR_PATHS+=("nemoclaw/${{ matrix.slug }}/${{ github.run_id }}")
             fi
             tar czf "$RUN_TARBALL" \
               -C /tmp/skill-eval \
