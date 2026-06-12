@@ -7,14 +7,13 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-profile`
-- Evaluation date: 2026-06-10
+- Evaluation date: 2026-06-11
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 5 evaluation tasks
 - Attempts per task: 1
 - Pass threshold: 50%
-- Overall verdict: FAIL
-The skill should be reviewed before NVSkills-Eval publication. **Skill owners should address the applicable findings below and rerun NVSkills-Eval to refresh this benchmark.**
+- Overall verdict: PASS
 
 ## Agents Used
 
@@ -55,43 +54,27 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 5 | 100% (+0%) | 100% (+20%) |
-| Correctness | 5 | 95% (+60%) | 91% (+54%) |
-| Discoverability | 5 | 95% (+46%) | 84% (+30%) |
-| Effectiveness | 5 | 70% (+65%) | 71% (+64%) |
-| Efficiency | 5 | 78% (+39%) | 78% (+31%) |
+| Security | 5 | 100% (+0%) | 90% (-10%) |
+| Correctness | 5 | 96% (+64%) | 75% (+38%) |
+| Discoverability | 5 | 94% (+49%) | 79% (+24%) |
+| Effectiveness | 5 | 67% (+61%) | 51% (+44%) |
+| Efficiency | 5 | 77% (+39%) | 71% (+23%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 13 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 1 checks and found 2 total findings.
 
 Top findings:
 
-- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`SKILL.md:153`)
-- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:141`)
-- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:148`)
-- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:149`)
-- MEDIUM PII/ip_addresses: Non-RFC1918 IP address (`references/prerequisites.md:169`)
+- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-deploy-profile/SKILL.md`)
+- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-profile/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation reported findings. NVSkills-Eval ran 2 checks and found 2 total findings.
+This tier was not run or did not produce findings in this report.
 
-Top findings:
+## Publication Recommendation
 
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/alerts.md and references/base.md and references/lvs-profile.md and references/search.md and references/warehouse-debug.md and references/warehouse.md:
-  "## Endpoints (after deploy)" in references/alerts.md (lines 204-222)
-  vs "## Endpoints (after deploy)" in references/base.md (lines 431-458)
-  vs "## Endpoints (after deploy)" in references/lvs-profile.md (lines 189-204)
-  vs "## Endpoints (after deploy)" in references/search.md (lines 259-277)
-  vs "## Service Access Points" in references/warehouse-debug.md (lines 237-284)
-  vs "### Agent + UI + ingress (`bp_wh` only)" in references/warehouse.md (lines 84-93)
-  vs "### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_PORT>` — default `<EXTERNAL_IP>:7777`)" in references/warehouse.md (lines 140-156)
-  vs "### Direct ports (no HAProxy route — diagnostics only)" in references/warehouse.md (lines 157-172)
-  vs "##### Internal service-to-service URLs (no Brev override needed)" in references/warehouse.md (lines 874-894)
-  vs "## After deploy" in references/warehouse.md (lines 983-1029) (`references/alerts.md:204`)
-- HIGH DUPLICATE/duplicate: Duplicate content found across references/prerequisites.md and references/warehouse.md:
-  "### 2. Docker" in references/prerequisites.md (lines 264-283)
-  vs "#### 2.2 Docker" in references/warehouse.md (lines 478-492) (`references/prerequisites.md:264`)
+The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.

@@ -164,8 +164,8 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vss-agent-ui.extraEnv`** | `[]` | List of **`{ name, value }`** appended last in the container **`env`** block (override or add any **`NEXT_PUBLIC_*`** without a ConfigMap). |
 | **`vss-agent-ui.staticEnvConfigMapName`** | `""` | Optional **`envFrom`** **`ConfigMap`** name (you supply the **`ConfigMap`**). **`extraEnvFrom`** is also supported on the subchart. |
 | **`nims.enabled`** | `true` | Master switch for the **`nims`** umbrella (**`helm/services/nims`**). When **`false`**, no **NIM** **`NIMService`** / **`NIMCache`** objects are installed. Use **`false`** with **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`** and **`global.vlmName`** for remote-only LLM/VLM. |
-| **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for **`nemotron`** / **`cosmos`** **`nim-env`** ConfigMaps (**`H100`**, **`L40S`**, **`RTXPRO6000BW`**). |
-| **`nims.nemotron` / `nims.cosmos`** | see **`values.yaml`** | Per-model **`enabled`**, images, resources, storage, and **`env`**. Align with **`llmNameSlug`**, **`vlmNameSlug`**, and **`agent.vss-agent.llmName`** / **`vlmName`**. |
+| **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for **`nemotron`** / **`cosmos3`** **`nim-env`** ConfigMaps (**`H100`**, **`L40S`**, **`RTXPRO6000BW`**). |
+| **`nims.nemotron` / `nims.cosmos3`** | see **`values.yaml`** | Per-model **`enabled`**, images, resources, storage, and **`env`**. Align with **`llmNameSlug`**, **`vlmNameSlug`**, and **`agent.vss-agent.llmName`** / **`vlmName`**. |
 
 ### Remote LLM and VLM
 

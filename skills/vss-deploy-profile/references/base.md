@@ -120,20 +120,19 @@ fraction       = (this_num_params / total_num_params) × 0.85
 
 Read this as: at `NIM_KVCACHE_PERCENT=0.7` on an H100, the NIM is allowed 56 GB total. A 9B FP16 model uses ~23 GB of that for weights, leaving ~33 GB for KV cache — enough for long contexts at moderate concurrency.
 
-### Worked example — Nemotron Nano 9B + Cosmos Reason2 8B on H100 80 GB shared
+### Worked example — Nemotron Nano 9B + Cosmos3 Reasoner Nano FP8 on H100 80 GB shared
 
 ```text
-LLM weights = 9 × 16 / 8 = 18 GB        →  18 × 1.3 = 23.4 GB total
-VLM weights = 8 × 16 / 8 = 16 GB        →  16 × 1.3 = 20.8 GB total
+H100 max safe shared budget = 0.85 × 80 GB = 68 GB
 
-shared check: 23.4 + 20.8 = 44.2 GB     ≤  68 GB (0.85 × 80) ✓ fits
+LLM fraction = 0.40  →  NIM_KVCACHE_PERCENT=0.40  →  32 GB cap
+VLM fraction = 0.40  →  NIM_KVCACHE_PERCENT=0.40  →  32 GB cap
 
-LLM fraction = (9 / (9+8)) × 0.85 = 0.449   → NIM_KVCACHE_PERCENT=0.449
-VLM fraction = (8 / (9+8)) × 0.85 = 0.400   → NIM_KVCACHE_PERCENT=0.400
-reserved     = 1 - (0.449 + 0.400) = 0.151  (the 15% framework/CUDA buffer)
+shared check: 32 + 32 = 64 GB ≤ 68 GB ✓ fits
+reserved     = 1 - (0.40 + 0.40) = 0.20  (framework/CUDA buffer)
 ```
 
-The in-tree `*-shared.env` files round these to `0.4` for both because the default 9B + 8B pair is symmetric enough; you don't need the exact `0.449` — anything within ±0.05 is fine.
+The in-tree default shared env files set both sides to `0.4` for H100 and RTX PRO 6000 Blackwell. Use the model-specific NIM profile files as the source of truth for Cosmos3 Reasoner instead of reusing the old Cosmos Reason2 8B FP16 parameter math.
 
 ## Choosing dedicated vs shared
 
@@ -304,8 +303,8 @@ For shared mode, compute it via the formula. As sanity-check defaults / in-tree 
 
 | Co-residency | LLM `--gpu-memory-utilization` | VLM `NIM_KVCACHE_PERCENT` | Source |
 |---|---|---|---|
-| Nano 9B v2 FP8 + Cosmos Reason2 8B (shared) | 0.40 | 0.40 | FP8 + Cosmos2 `*-shared.env` |
-| DGX Spark Nano 9B NIM + Cosmos Reason2 8B on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
+| Nano 9B v2 + Cosmos3 Reasoner Nano FP8 (shared) | 0.40 | 0.40 | Cosmos3 `*-shared.env` |
+| DGX Spark Nano 9B NIM + Cosmos3 Reasoner Nano FP8 on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
 | Edge 4B + RT-VLM on Thor | 0.25 | RT-VLM default 0.35 | `edge.md` Thor fallback |
 | Qwen3-VL 8B + Nano 9B (shared) | 0.40 | 0.40 | Qwen3 `*-shared.env` |
 

@@ -146,14 +146,39 @@ Those numeric values are only an example shape for reducing cache pressure; vali
 
 The **warehouse** blueprint is driven by **`industry-profiles/warehouse-operations/`**
 
-1. **Edit environment**  
+1. **Download warehouse app data**
+
+```bash
+ngc \
+   registry \
+   resource \
+   download-version \
+   nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+
+# OR Manually download the tar file from NGC
+# URL https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
+
+# Extract the package
+
+cd vss-warehouse-app-data_v3.2.0
+tar -xvf vss-warehouse-app-data.tar.gz
+
+# Set permissions
+
+sudo chmod -R 777 /path/to/vss-warehouse-app-data
+
+# This is the path to the data directory. It is set in the industry-profiles/warehouse-operations/.env file for VSS_DATA_DIR.
+#VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
+```
+
+2. **Edit environment**  
    Update **`deploy/docker/industry-profiles/warehouse-operations/.env`** for your deployment:
 
    - **`MODE`**: `2d`, `3d`, or `mv3dt`
    - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` (see comments in that file for 2d, 3d, and mv3dt combinations)
    - **`MINIMAL_PROFILE`**, GPU hosts, API keys, and any other variables described in the file header
 
-2. **Start the stack**
+3. **Start the stack**
 
 ```bash
 cd /path/to/video-search-and-summarization/deploy/docker
@@ -163,7 +188,7 @@ docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/
 --build
 ```
 
-3. **Stop the stack**
+4. **Stop the stack**
 
 ```bash
 # Stop the running deployment
@@ -176,7 +201,7 @@ docker compose --env-file industry-profiles/warehouse-operations/.env down -v --
 docker volume ls -q -f "dangling=true" | xargs docker volume rm
 ```
 
-4. **Data / backup cleanup**  
+5. **Data / backup cleanup**  
    To reset **`data_log`** volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed, use **`deploy/docker/scripts/cleanup_all_datalog.sh`**.  
    Pass **`-e`** / **`--env-file`** with the **same env file** you used for **`docker compose --env-file …`**.
 
