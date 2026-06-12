@@ -549,6 +549,44 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         script = base64.b64decode(encoded).decode("utf-8")
         self.assertIn("openclaw-agent.log", script)
 
+    def test_cli_launch_returns_after_start_when_waiting_for_profile(self):
+        calls: list[tuple[str, ...]] = []
+        previous = {
+            "_run": headless_runner._run,
+            "_gateway_reachable": headless_runner._gateway_reachable,
+        }
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="started", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner._run = fake_run
+            headless_runner._gateway_reachable = lambda sandbox: True
+            try:
+                response = headless_runner.run_openclaw_cli(
+                    "demo",
+                    "Deploy base",
+                    30,
+                    log_dir,
+                    wait_profile="base",
+                )
+            finally:
+                headless_runner._run = previous["_run"]
+                headless_runner._gateway_reachable = previous["_gateway_reachable"]
+
+            launch_log = (log_dir / "openclaw-launch.log").read_text(encoding="utf-8")
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(response["body"]["mode"], "cli-async")
+        self.assertIn("mode=async", launch_log)
+        wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
+        encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
+        script = base64.b64decode(encoded).decode("utf-8")
+        self.assertIn("echo started", script)
+        self.assertNotIn("while kill -0", script)
+
     def test_cli_launch_stops_openclaw_even_when_readiness_fails(self):
         calls: list[str] = []
         previous = {
@@ -564,10 +602,12 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             prompt.write_text("Deploy base", encoding="utf-8")
             log_dir = root / "logs"
 
-            headless_runner.run_openclaw_cli = lambda sandbox, message, timeout, logs: {
+            headless_runner.run_openclaw_cli = (
+                lambda sandbox, message, timeout, logs, wait_profile="": {
                 "status": 202,
                 "body": {"ok": True},
-            }
+                }
+            )
             headless_runner.wait_for_profile = lambda profile, timeout, logs: {
                 "waited": True,
                 "ok": False,
