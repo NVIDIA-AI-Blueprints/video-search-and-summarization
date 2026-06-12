@@ -399,7 +399,7 @@ jobs:
       # slots while waiting on the same warm-worker fleet.
       max-parallel: 1
       matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
-    timeout-minutes: 90
+    timeout-minutes: 210
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
@@ -416,7 +416,7 @@ jobs:
 
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
-        timeout-minutes: 90
+        timeout-minutes: 210
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
@@ -425,9 +425,9 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
-          # Keep capacity blockers bounded so one unavailable worker class
-          # does not stall the serialized all-skills sweep for hours.
-          export NEMOCLAW_LOCK_TIMEOUT_SEC=900
+          # Give warm GPU workers enough time to become available while keeping
+          # the serialized sweep bounded.
+          export NEMOCLAW_LOCK_TIMEOUT_SEC=7200
           # Bound the setup + OpenClaw handoff. Successful representative rows
           # are normally well under this; a breach should be reported as a
           # failed scenario instead of a GitHub job timeout.
