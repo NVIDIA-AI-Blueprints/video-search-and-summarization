@@ -34,11 +34,11 @@ DS_APP_DIR="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropoli
 # DeepStream runtime paths
 #
 # Compose sets GST_PLUGIN_PATH to gst-nvdstextembedder only. Prepend core DeepStream
-# plugin and lib dirs here (after entrypoint) so we keep the image LD_LIBRARY_PATH.
+# plugin dirs here so GStreamer can find elements like nvvideoconvert for the
+# visionencoder bin, while keeping the embedder path from compose at the end.
 # ---------------------------------------------------------------------------
-export LD_LIBRARY_PATH="/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.0/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 _ARCH="$(uname -m)"
-export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/opt/nvidia/deepstream/deepstream-9.0/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
+export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
 unset _ARCH
 
 # ---------------------------------------------------------------------------
