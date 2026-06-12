@@ -518,6 +518,8 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertNotIn("nohup sh -lc", script)
         self.assertIn("wait \"$pid\"", script)
         self.assertIn("openclaw-agent.rc", script)
+        self.assertIn("finalAssistantVisibleText", script)
+        self.assertIn("finishReason", script)
         self.assertIn("--message", script)
         self.assertNotIn("--local", script)
         self.assertIn("--json", script)
