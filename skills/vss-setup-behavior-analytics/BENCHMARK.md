@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-setup-behavior-analytics`
-- Evaluation date: 2026-06-09
+- Evaluation date: 2026-06-10
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 1 evaluation tasks
@@ -55,10 +55,10 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 50% (+50%) | 50% (+50%) |
-| Discoverability | 1 | 0% (+0%) | 0% (+0%) |
-| Effectiveness | 1 | 62% (+62%) | 50% (+50%) |
-| Efficiency | 1 | 27% (+0%) | 28% (-0%) |
+| Correctness | 1 | 100% (+100%) | 50% (+50%) |
+| Discoverability | 1 | 100% (+100%) | 0% (+0%) |
+| Effectiveness | 1 | 100% (+100%) | 50% (+50%) |
+| Efficiency | 1 | 94% (+67%) | 28% (+0%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
