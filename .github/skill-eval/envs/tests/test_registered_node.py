@@ -14,6 +14,7 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 import types
@@ -137,6 +138,224 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
                 asyncio.run(brev_env._check_instance_matches(inst, {"gpu_type": "H100"}))
         finally:
             brev_env._get_instance_gpu_count_from_catalog = original
+
+    def test_larger_gpu_partition_satisfies_smaller_requirement(self):
+        inst = {"name": "test", "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-2g"}
+
+        async def fake_catalog_count(instance_type):
+            return 2
+
+        original = brev_env._get_instance_gpu_count_from_catalog
+        brev_env._get_instance_gpu_count_from_catalog = fake_catalog_count
+        try:
+            asyncio.run(
+                brev_env._check_instance_matches(
+                    inst,
+                    {"gpu_type": "RTX PRO 6000", "gpu_count": 1},
+                )
+            )
+        finally:
+            brev_env._get_instance_gpu_count_from_catalog = original
+
+    def test_smaller_gpu_partition_fails_larger_requirement(self):
+        inst = {"name": "test", "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-1g"}
+
+        async def fake_catalog_count(instance_type):
+            return 1
+
+        original = brev_env._get_instance_gpu_count_from_catalog
+        brev_env._get_instance_gpu_count_from_catalog = fake_catalog_count
+        try:
+            with self.assertRaisesRegex(RuntimeError, "want at least 2"):
+                asyncio.run(
+                    brev_env._check_instance_matches(
+                        inst,
+                        {"gpu_type": "RTX PRO 6000", "gpu_count": 2},
+                    )
+                )
+        finally:
+            brev_env._get_instance_gpu_count_from_catalog = original
+
+
+class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
+
+    async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
+        calls = []
+
+        async def fake_find_brev_instance(name):
+            return {"name": name, "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-1g"}
+
+        async def fake_check_instance_matches(instance, requirements):
+            return None
+
+        async def fake_check_live_resources(instance, requirements):
+            return None
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            if "echo harbor-ready" in command:
+                return brev_env.ExecResult(stdout="harbor-ready\n", stderr=None, return_code=0)
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original_find = brev_env._find_brev_instance
+        original_match = brev_env._check_instance_matches
+        original_live = brev_env._check_live_resources
+        original_exec = brev_env._run_brev_exec
+        original_default = brev_env.DEFAULT_INSTANCE
+        brev_env._find_brev_instance = fake_find_brev_instance
+        brev_env._check_instance_matches = fake_check_instance_matches
+        brev_env._check_live_resources = fake_check_live_resources
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env.DEFAULT_INSTANCE = "vss-eval-test"
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                task_dir = Path(td) / "task"
+                env_dir = task_dir / "environment"
+                env_dir.mkdir(parents=True)
+                (task_dir / "task.toml").write_text(
+                    "[metadata]\nrunner = \"nemoclaw\"\n",
+                    encoding="utf-8",
+                )
+
+                async def noop(self, *args, **kwargs):
+                    return None
+
+                env = brev_env.BrevEnvironment()
+                env.environment_dir = env_dir
+                env._reset_docker_runtime = types.MethodType(noop, env)
+                env._sync_repo_to_pr_head = types.MethodType(noop, env)
+                env._ensure_nemoclaw_ready = types.MethodType(noop, env)
+                await env.start(force_build=False)
+        finally:
+            brev_env._find_brev_instance = original_find
+            brev_env._check_instance_matches = original_match
+            brev_env._check_live_resources = original_live
+            brev_env._run_brev_exec = original_exec
+            brev_env.DEFAULT_INSTANCE = original_default
+
+        reset_commands = [command for _, command, _ in calls if "sudo rm -rf" in command]
+        self.assertEqual(len(reset_commands), 1)
+        reset = reset_commands[0]
+        self.assertIn("/logs/artifacts", reset)
+        self.assertIn("/logs/verifier", reset)
+        self.assertNotIn("rm -rf /tests", reset)
+        self.assertNotIn("rm -rf /solution", reset)
+        self.assertNotIn("rm -rf /skills", reset)
+        self.assertIn("mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills", reset)
+        self.assertLess(reset.index("sudo rm -rf"), reset.index("sudo mkdir -p"))
+
+    async def test_nemoclaw_setup_sources_profile_without_nounset(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._ensure_nemoclaw_ready({"required_mcp_tools": ["vss_orchestrator__docker_up"]})
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn("set -eo pipefail\nset +u\nsource ~/.profile", command)
+        self.assertIn("source ~/.profile 2>/dev/null || true\nset -u\nexport PATH", command)
+        self.assertNotIn("set -euo pipefail\nsource ~/.profile", command)
+        self.assertIn("--required-tools vss_orchestrator__docker_up", command)
+
+    async def test_nemoclaw_launcher_bypasses_outer_claude(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env._task_metadata = {
+                "runner": "nemoclaw",
+                "deployment_profile": "base",
+            }
+            await env.exec(
+                "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
+                timeout_sec=123,
+            )
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn("NemoClaw direct Harbor launcher", command)
+        self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
+        self.assertIn("--launch-mode cli", command)
+        self.assertIn("--wait-profile base", command)
+        self.assertIn("--prompt-file /tests/nemoclaw_prompt.md", command)
+        self.assertNotIn("claude --print", command)
+
+    async def test_nemoclaw_intercept_only_matches_launcher(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env._task_metadata = {"runner": "nemoclaw"}
+            await env.exec("echo no launcher here", timeout_sec=123)
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn("echo no launcher here", calls[0][1])
+
+    async def test_repo_sync_injects_pr_head_from_coordinator_env(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="synced repo to abc1234\n", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        old_head = os.environ.get("PR_HEAD_SHA")
+        old_repo = os.environ.get("PR_REPO")
+        brev_env._run_brev_exec = fake_run_brev_exec
+        os.environ["PR_HEAD_SHA"] = "abc1234"
+        os.environ["PR_REPO"] = "NVIDIA-AI-Blueprints/video-search-and-summarization"
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._sync_repo_to_pr_head()
+        finally:
+            brev_env._run_brev_exec = original
+            if old_head is None:
+                os.environ.pop("PR_HEAD_SHA", None)
+            else:
+                os.environ["PR_HEAD_SHA"] = old_head
+            if old_repo is None:
+                os.environ.pop("PR_REPO", None)
+            else:
+                os.environ["PR_REPO"] = old_repo
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][1]
+        self.assertIn("PR_HEAD_SHA=abc1234", command)
+        self.assertIn("PR_REPO=NVIDIA-AI-Blueprints/video-search-and-summarization", command)
+        self.assertNotIn('PR_HEAD_SHA="${PR_HEAD_SHA:-}"', command)
+        self.assertIn('"$REPO/deployments" "$REPO/deploy/docker/data-dir"', command)
+        self.assertIn("sudo rm -rf \"$stale_path\"", command)
+        self.assertIn("git clean failed; repairing checkout ownership", command)
+        self.assertIn("-path \"$REPO/data\" -prune", command)
 
 
 class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):

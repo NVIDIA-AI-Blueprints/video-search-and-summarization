@@ -54,6 +54,12 @@ BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
 
 
+def _uses_nemoclaw(meta: dict) -> bool:
+    """Return True when task metadata opts into the NemoClaw runner."""
+    runner = str(meta.get("runner", "")).strip().lower()
+    return runner == "nemoclaw" or bool(meta.get("requires_nemoclaw"))
+
+
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
 
@@ -72,6 +78,7 @@ class BrevEnvironment(BaseEnvironment):
     def __init__(self, **kwargs):  # noqa: ANN003
         super().__init__(**kwargs)
         self._instance_name: str | None = DEFAULT_INSTANCE
+        self._task_metadata: dict = {}
         self._started = False
 
     @staticmethod
@@ -125,6 +132,7 @@ class BrevEnvironment(BaseEnvironment):
             return
 
         meta = self._read_task_metadata()
+        self._task_metadata = meta
         requirements = {
             "gpu_type": meta.get("gpu_type"),
             "gpu_count": int(meta.get("gpu_count", 1)),
@@ -183,7 +191,11 @@ class BrevEnvironment(BaseEnvironment):
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
         #
-        # Wipe /logs/artifacts and /logs/verifier FIRST: harbor's
+        # Wipe per-trial output directories FIRST. Warm-pool boxes keep
+        # filesystem state between Harbor trials, so stale artifacts from a
+        # prior trial must not be downloaded as this trial's evidence.
+        #
+        # Wipe /logs/artifacts and /logs/verifier: harbor's
         # Trial._download_artifacts() does a blanket download_dir(/logs/artifacts)
         # and nothing on a warm-pool box ever clears that dir, so a prior
         # trial's arbitrarily-named files get collected as THIS trial's
@@ -191,6 +203,9 @@ class BrevEnvironment(BaseEnvironment):
         # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
         # left intact here — its prior-trial session JSONLs are handled by the
         # archive step just below (move-not-delete, for forensic SSH access).
+        #
+        # Do NOT wipe /tests, /solution, or /skills here: Harbor may already
+        # have staged the current trial inputs by the time start() runs.
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
             "sudo rm -rf /logs/artifacts /logs/verifier && "
@@ -198,10 +213,10 @@ class BrevEnvironment(BaseEnvironment):
             "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
-        # Fail loud: this is the load-bearing artifacts wipe. A silent failure
-        # would leave the prior trial's /logs/artifacts in place and re-collect
-        # it as this trial's output — the exact contamination being fixed —
-        # so it gets the same exit-code guard as the docker reset / repo sync.
+        # Fail loud: this is the load-bearing per-trial wipe. A silent failure
+        # would leave prior `/logs/artifacts` in place and re-collect stale
+        # output as this trial's data, so it gets the same exit-code guard as
+        # the docker reset / repo sync.
         if setup_dirs_result.return_code != 0:
             tail = (setup_dirs_result.stderr or setup_dirs_result.stdout or "")[-500:]
             raise RuntimeError(
@@ -286,6 +301,16 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            # Use the CI evaluation model for the OpenClaw/NemoClaw agent
+            # when available; keep LLM_REMOTE_* for the VSS app runtime.
+            "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+            # NemoClaw/OpenClaw provider configuration. CI can either set
+            # these explicitly, or the notebook adapter can derive them from
+            # the forwarded LLM_REMOTE_* + NVIDIA_API_KEY values below.
+            "NEMOCLAW_ENDPOINT_URL", "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
+            "NEMOCLAW_FALLBACK_ENDPOINT_URL", "NEMOCLAW_FALLBACK_MODEL",
+            "NEMOCLAW_PREFERRED_API", "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
+            "OPENAI_API_KEY", "NVIDIA_BASE_URL", "OPENSHELL_PROVIDER_NAME",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
@@ -353,36 +378,56 @@ class BrevEnvironment(BaseEnvironment):
         # stopping them first, `git clean` in the repo sync step fails with
         # "Permission denied" on those root-owned files/dirs.
         task_dir_name = self.environment_dir.parent.name
-        if task_dir_name.startswith("step-") and task_dir_name != "step-1":
-            logger.info(
-                "Skipping docker runtime reset on %s — %s of a multi-step spec "
-                "must preserve step-1's deployment state",
-                self._instance_name, task_dir_name,
-            )
+        is_later_multistep = task_dir_name.startswith("step-") and task_dir_name != "step-1"
+
+        if _uses_nemoclaw(meta):
+            if is_later_multistep:
+                logger.info(
+                    "Skipping docker runtime reset on %s — %s of a multi-step "
+                    "NemoClaw spec must preserve step-1's deployment state",
+                    self._instance_name, task_dir_name,
+                )
+            else:
+                # NemoClaw trials need a clean VSS host first, then an OpenClaw
+                # sandbox. Reset Docker before notebook setup creates the
+                # OpenClaw/NemoClaw containers.
+                await self._reset_docker_runtime()
+
+            # Sync ~/video-search-and-summarization on the box to the PR's
+            # actual head SHA before notebook setup or agent steps read it.
+            await self._sync_repo_to_pr_head()
+            await self._ensure_nemoclaw_ready(meta)
         else:
-            await self._reset_docker_runtime()
+            if is_later_multistep:
+                logger.info(
+                    "Skipping docker runtime reset on %s — %s of a multi-step spec "
+                    "must preserve step-1's deployment state",
+                    self._instance_name, task_dir_name,
+                )
+            else:
+                await self._reset_docker_runtime()
 
-        # Sync ~/video-search-and-summarization on the box to the PR's
-        # actual head SHA before any deploy/agent step reads it.
-        #
-        # Without this, every trial runs against whatever happened to be
-        # checked out on the box from a prior session — often a stale
-        # tarball-style checkout (no `.git`) with an obsolete directory
-        # layout (`deployments/` instead of `deploy/docker/`) and the
-        # pre-rename container names. The pre-deploy script generated
-        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
-        # only syncs on the *gold-solution* path; the trial's agent invokes
-        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
-        # PR_HEAD_SHA forwarded above never actually lands on disk.
-        await self._sync_repo_to_pr_head()
+            # Sync ~/video-search-and-summarization on the box to the PR's
+            # actual head SHA before any deploy/agent step reads it.
+            #
+            # Without this, every trial runs against whatever happened to be
+            # checked out on the box from a prior session — often a stale
+            # tarball-style checkout (no `.git`) with an obsolete directory
+            # layout (`deployments/` instead of `deploy/docker/`) and the
+            # pre-rename container names. The pre-deploy script generated
+            # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
+            # only syncs on the *gold-solution* path; the trial's agent invokes
+            # `/vss-deploy-profile` directly against `$REPO`, so without this step the
+            # PR_HEAD_SHA forwarded above never actually lands on disk.
+            await self._sync_repo_to_pr_head()
 
-        # The harness intentionally does NOT pre-deploy any VSS profile
-        # here. Each eval spec's first `expects[]` query is responsible
-        # for invoking `/vss-deploy-profile` (or the appropriate
-        # standalone-deploy runbook) — making the deploy step visible
-        # in the trial's reward + trajectory rather than hidden in the
-        # env provider. The previous `_ensure_prerequisite_deployed`
-        # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
+            # The harness intentionally does NOT pre-deploy any VSS profile
+            # here. Each eval spec's first `expects[]` query is responsible
+            # for invoking `/vss-deploy-profile` (or the appropriate
+            # standalone-deploy runbook) — making the deploy step visible
+            # in the trial's reward + trajectory rather than hidden in the
+            # env provider. The previous `_ensure_prerequisite_deployed`
+            # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
@@ -467,6 +512,96 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
+    async def _ensure_nemoclaw_ready(self, meta: dict) -> None:
+        """Run the setup-only notebook subset and readiness probes.
+
+        This keeps the human notebook as the source of truth while making the
+        CI path headless.  The executed notebook and readiness report remain on
+        the Brev worker under /tmp/skill-eval/nemoclaw for artifact collection
+        and operator debugging.
+        """
+        required_tools = meta.get("required_mcp_tools") or []
+        if isinstance(required_tools, str):
+            required_tools = [required_tools]
+        required_tools_csv = ",".join(str(tool) for tool in required_tools)
+
+        remote_setup_timeout = int(os.environ.get("NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC", "3300"))
+        cell_timeout = int(os.environ.get("NEMOCLAW_SETUP_CELL_TIMEOUT", "2700"))
+
+        cmd = rf"""set -eo pipefail
+set +u
+source ~/.profile 2>/dev/null || true
+set -u
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+REPO="$HOME/video-search-and-summarization"
+cd "$REPO"
+rm -rf /tmp/skill-eval/nemoclaw /logs/artifacts/nemoclaw 2>/dev/null || true
+mkdir -p /tmp/skill-eval/nemoclaw /logs/artifacts/nemoclaw
+SETUP_LOG=/tmp/skill-eval/nemoclaw/setup.log
+REMOTE_SETUP_TIMEOUT={remote_setup_timeout}
+cat > /tmp/skill-eval/nemoclaw/setup.sh <<'__NEMOCLAW_SETUP__'
+#!/usr/bin/env bash
+set -eo pipefail
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+REPO="$HOME/video-search-and-summarization"
+cd "$REPO"
+SETUP_LOG=/tmp/skill-eval/nemoclaw/setup.log
+exec > >(tee -a "$SETUP_LOG") 2>&1
+stage() {{
+  printf '[nemoclaw-setup] %s %s\n' "$(date -Is)" "$*"
+}}
+stage "begin setup on $(hostname)"
+python3 -m pip install --user --quiet nbformat nbclient ipykernel >/tmp/skill-eval/nemoclaw/pip-install.log 2>&1 || {{
+  cat /tmp/skill-eval/nemoclaw/pip-install.log >&2
+  exit 1
+}}
+stage "installed notebook dependencies"
+python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
+  --execute \
+  --output /tmp/skill-eval/nemoclaw/deploy_nemoclaw_vss.executed.ipynb \
+  --env-out /tmp/skill-eval/nemoclaw/nemoclaw.env \
+  --timeout {cell_timeout}
+stage "notebook setup adapter completed"
+python3 .github/skill-eval/nemoclaw/readiness.py \
+  --env-file /tmp/skill-eval/nemoclaw/nemoclaw.env \
+  --required-tools {shlex.quote(required_tools_csv)} \
+  --output /tmp/skill-eval/nemoclaw/readiness.json
+stage "readiness completed"
+__NEMOCLAW_SETUP__
+chmod +x /tmp/skill-eval/nemoclaw/setup.sh
+set +e
+timeout --kill-after=30s "$REMOTE_SETUP_TIMEOUT" /tmp/skill-eval/nemoclaw/setup.sh
+setup_rc=$?
+set -e
+cp -a /tmp/skill-eval/nemoclaw/. /logs/artifacts/nemoclaw/ 2>/dev/null || true
+if [ "$setup_rc" -ne 0 ]; then
+  echo "[nemoclaw-setup] setup failed with exit code $setup_rc"
+  echo "[nemoclaw-setup] artifact snapshot:"
+  find /tmp/skill-eval/nemoclaw -maxdepth 2 -type f -printf '%p\n' 2>/dev/null | sort || true
+  echo "[nemoclaw-setup] setup.log tail:"
+  tail -n 200 /tmp/skill-eval/nemoclaw/setup.log 2>/dev/null || true
+  echo "[nemoclaw-setup] pip-install.log tail:"
+  tail -n 80 /tmp/skill-eval/nemoclaw/pip-install.log 2>/dev/null || true
+  exit "$setup_rc"
+fi
+"""
+        timeout_sec = int(os.environ.get("NEMOCLAW_SETUP_TIMEOUT_SEC", str(remote_setup_timeout + 120)))
+        logger.info(
+            "Preparing NemoClaw/OpenClaw on %s (timeout=%ds)",
+            self._instance_name, timeout_sec,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=timeout_sec)
+        if result.return_code != 0:
+            combined_output = "\n".join(
+                part for part in (result.stdout, result.stderr) if part
+            )
+            tail = combined_output[-8000:]
+            raise RuntimeError(
+                f"NemoClaw setup failed on {self._instance_name}: "
+                f"exit {result.return_code}; output tail:\n{tail}"
+            )
+        logger.info("NemoClaw/OpenClaw setup succeeded on %s", self._instance_name)
+
     async def _sync_repo_to_pr_head(self) -> None:
         """Reset `~/video-search-and-summarization` on the Brev box to the
         PR's actual head SHA. Runs once per trial, before any deploy or
@@ -495,14 +630,17 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
         overrides) on `git clean`. Fails loud — `set -euo pipefail` so
         any sync error short-circuits start() before the agent runs.
         """
-        # PR_HEAD_SHA + PR_REPO come from the workflow step's env and are
-        # forwarded into ~/.eval_env on the instance by the loop above.
-        # When unset (local dev / smoke test), fall back to develop.
-        cmd = r"""set -euo pipefail
-PR_REPO="${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
-PR_HEAD_SHA="${PR_HEAD_SHA:-}"
+        # PR_HEAD_SHA + PR_REPO come from the workflow step's env. Inject
+        # them into this remote command directly instead of relying on
+        # ~/.profile: _run_brev_exec() intentionally runs a non-login shell,
+        # and fresh workers may not have sourced ~/.eval_env yet.
+        pr_repo = os.environ.get("PR_REPO", "NVIDIA-AI-Blueprints/video-search-and-summarization")
+        pr_head_sha = os.environ.get("PR_HEAD_SHA", "")
+        cmd = f"""set -euo pipefail
+PR_REPO={shlex.quote(pr_repo)}
+PR_HEAD_SHA={shlex.quote(pr_head_sha)}
 REPO="$HOME/video-search-and-summarization"
-VSS_REPO_URL="https://github.com/${PR_REPO}.git"
+VSS_REPO_URL="https://github.com/${{PR_REPO}}.git"
 
 # Case 1: dir exists but isn't a git repo (stale tarball checkout) — nuke
 #         and re-clone. Case 2: dir doesn't exist — clone fresh.
@@ -523,11 +661,23 @@ else
 fi
 # Drop leftover working-tree state from a prior trial, but keep data/
 # (sample-data extract — slow to re-pull from NGC) and any .env tweaks
-# the active trial may have placed.
-# Use sudo git clean as a fallback: prior docker containers may have created
-# root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
-# a non-root git clean cannot remove ("Permission denied").
-git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
+# the active trial may have placed. Some VSS services write root-owned
+# bind-mount content under the checkout, so remove known deployment
+# output dirs with sudo before falling back to git clean.
+for stale_path in "$REPO/deployments" "$REPO/deploy/docker/data-dir"; do
+  if [ -e "$stale_path" ]; then
+    sudo rm -rf "$stale_path" || true
+  fi
+done
+if ! git clean -fdx -e data/ -e .env; then
+  echo "git clean failed; repairing checkout ownership and retrying" >&2
+  sudo find "$REPO" \
+    -path "$REPO/.git" -prune -o \
+    -path "$REPO/data" -prune -o \
+    -path "$REPO/.env" -prune -o \
+    -exec chown -h "$(id -u):$(id -g)" {{}} + || true
+  git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
+fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
@@ -713,6 +863,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         user: str | int | None = None,
     ) -> ExecResult:
         assert self._instance_name
+        command = self._replace_nemoclaw_launcher_command(command)
 
         parts = [
             # Make sure user-installed binaries (claude, uv, etc.) are on PATH
@@ -753,6 +904,50 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             self._instance_name, full_cmd,
             timeout=timeout_sec or BREV_EXEC_TIMEOUT,
         )
+
+    def _replace_nemoclaw_launcher_command(self, command: str) -> str:
+        """Replace the outer Claude launcher with a deterministic handoff.
+
+        The NemoClaw task's actual skill exercise happens inside OpenClaw.
+        The outer Harbor Claude process is only supposed to launch that run;
+        in practice it can return early or keep polling an async shell task.
+        Intercepting only the generated NemoClaw launcher command keeps the
+        Harbor lifecycle/result reporting while making the handoff reliable.
+        """
+        meta = self._task_metadata or {}
+        if not _uses_nemoclaw(meta):
+            return command
+        if "headless_runner.py" not in command or "claude" not in command:
+            return command
+
+        timeout_s = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800"))
+        wait_profile = str(meta.get("deployment_profile") or "").strip()
+        wait_arg = f" --wait-profile {shlex.quote(wait_profile)}" if wait_profile else ""
+        return rf"""set -euo pipefail
+REPO="$HOME/video-search-and-summarization"
+cd "$REPO"
+mkdir -p /logs/agent /logs/artifacts/nemoclaw
+cat > /logs/agent/claude-code.txt <<'__NEMOCLAW_LAUNCHER__'
+NemoClaw direct Harbor launcher.
+
+The outer Claude Code process was intentionally bypassed for this opt-in
+NemoClaw task. The skill evaluation is executed by OpenClaw/NemoClaw using
+the repository skills and the VSS Orchestrator MCP server.
+__NEMOCLAW_LAUNCHER__
+set +e
+python3 .github/skill-eval/nemoclaw/headless_runner.py \
+  --prompt-file /tests/nemoclaw_prompt.md \
+  --log-dir /logs/artifacts/nemoclaw \
+  --launch-mode cli \
+  --timeout {timeout_s}{wait_arg} \
+  > /logs/agent/nemoclaw-headless-runner.stdout 2>&1
+rc=$?
+set -e
+cat /logs/agent/nemoclaw-headless-runner.stdout
+printf '\nNemoClaw direct launcher exit code: %s\n' "$rc" >> /logs/agent/claude-code.txt
+cat /logs/agent/nemoclaw-headless-runner.stdout >> /logs/agent/claude-code.txt
+exit "$rc"
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -1164,7 +1359,7 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
 
 async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
     """SSH in and count GPUs via nvidia-smi. Raises only if the box has
-    FEWER GPUs than required — over-provisioned boxes are accepted (>=)."""
+    fewer GPUs than required; over-provisioned boxes are accepted."""
     result = await _run_brev_exec(
         instance_name,
         "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",

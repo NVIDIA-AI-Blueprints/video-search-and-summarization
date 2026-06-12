@@ -25,6 +25,8 @@ NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
 NVIDIA_BASE_URL="${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}"
 NEMOCLAW_SHIM_DIR="${HOME}/.local/bin"
 OPENCLAW_CONFIG_UPDATE_SCRIPT="${OPENCLAW_CONFIG_UPDATE_SCRIPT:-${SCRIPT_DIR}/update_openclaw_config.py}"
+OPENCLAW_STREAM_PATCH_SCRIPT="${OPENCLAW_STREAM_PATCH_SCRIPT:-${SCRIPT_DIR}/patch_openclaw_streaming.py}"
+OPENCLAW_DISABLE_STREAMING_TOOL_CALLS="${OPENCLAW_DISABLE_STREAMING_TOOL_CALLS:-0}"
 NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${VSS_REPO_DIR}/assets/vss_nemoclaw_policy.yaml}"
 OPENCLAW_PLUGIN_DIR="${OPENCLAW_PLUGIN_DIR:-${VSS_REPO_DIR}/.openclaw}"
 VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
@@ -36,6 +38,29 @@ log() {
 
 have() {
   command -v "$1" >/dev/null 2>&1
+}
+
+allow_openshell_gateway_bridge() {
+  if [ "${NEMOCLAW_CONFIGURE_UFW_GATEWAY:-1}" != "1" ]; then
+    log "OpenShell gateway firewall preflight disabled"
+    return
+  fi
+  if ! have ufw; then
+    log "ufw not available; skipping OpenShell gateway firewall preflight"
+    return
+  fi
+  if ! have sudo || ! sudo -n true >/dev/null 2>&1; then
+    log "Passwordless sudo unavailable; skipping OpenShell gateway firewall preflight"
+    return
+  fi
+
+  local bridge_cidr bridge_ip
+  bridge_cidr="${OPENSHELL_GATEWAY_BRIDGE_CIDR:-172.18.0.0/16}"
+  bridge_ip="${OPENSHELL_GATEWAY_BRIDGE_IP:-172.18.0.1}"
+  log "Allowing OpenShell Docker bridge ${bridge_cidr} to reach gateway ${bridge_ip}:8080 via ufw"
+  if ! sudo -n ufw allow from "${bridge_cidr}" to "${bridge_ip}" port 8080 proto tcp; then
+    log "WARN: failed to add OpenShell gateway ufw rule; NemoClaw onboard may still fail gateway reachability"
+  fi
 }
 
 node_major_version() {
@@ -74,6 +99,9 @@ Environment (non-interactive Nemoclaw / OpenShell):
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
   OPENCLAW_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
                               (default: <VSS_REPO_DIR>/.openclaw)
+  OPENCLAW_DISABLE_STREAMING_TOOL_CALLS
+                              Set to 1 for OpenAI-compatible endpoints that support
+                              tool calls only in non-streaming mode.
 EOF
 }
 
@@ -256,6 +284,63 @@ configure_openshell_provider() {
   openshell inference get || true
 }
 
+patch_openclaw_streaming_in_sandbox() {
+  if [ "${OPENCLAW_DISABLE_STREAMING_TOOL_CALLS}" != "1" ]; then
+    return
+  fi
+  if [ ! -f "${OPENCLAW_STREAM_PATCH_SCRIPT}" ]; then
+    log "WARN: OpenClaw stream patch script ${OPENCLAW_STREAM_PATCH_SCRIPT} is missing"
+    return
+  fi
+  if ! have openshell; then
+    log "OpenShell is not available; skipping OpenClaw stream compatibility patch"
+    return
+  fi
+
+  log "Applying OpenClaw non-streaming tool-call compatibility patch in sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  if ! openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- python3 - < "${OPENCLAW_STREAM_PATCH_SCRIPT}"; then
+    log "WARN: failed to patch OpenClaw runtime inside sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  fi
+}
+
+patch_openclaw_streaming_images() {
+  if [ "${OPENCLAW_DISABLE_STREAMING_TOOL_CALLS}" != "1" ]; then
+    return
+  fi
+  if [ ! -f "${OPENCLAW_STREAM_PATCH_SCRIPT}" ] || ! have docker; then
+    return
+  fi
+
+  local image images cid
+  images="$(
+    {
+      docker image ls --format '{{.Repository}}:{{.Tag}}' 'nemoclaw-sandbox-base-local' 2>/dev/null || true
+      docker ps --filter "name=${NEMOCLAW_SANDBOX_NAME}" --format '{{.Image}}' 2>/dev/null || true
+    } | awk 'NF && !seen[$0]++'
+  )"
+  if [ -z "${images}" ]; then
+    return
+  fi
+
+  while IFS= read -r image; do
+    [ -n "${image}" ] || continue
+    log "Patching OpenClaw stream behavior in image ${image}"
+    cid="$(docker run -d --entrypoint sh "${image}" -c 'sleep 300' 2>/dev/null || true)"
+    if [ -z "${cid}" ]; then
+      log "WARN: could not start temporary container from ${image}; skipping image patch"
+      continue
+    fi
+    if docker exec -i "${cid}" python3 - < "${OPENCLAW_STREAM_PATCH_SCRIPT}" >/tmp/openclaw-stream-patch.log 2>&1; then
+      docker commit "${cid}" "${image}" >/dev/null 2>&1 || true
+      log "Patched image ${image}"
+    else
+      log "WARN: OpenClaw image patch failed for ${image}"
+      sed 's/^/[init_nemoclaw] stream patch: /' /tmp/openclaw-stream-patch.log >&2 || true
+    fi
+    docker rm -f "${cid}" >/dev/null 2>&1 || true
+  done <<< "${images}"
+}
+
 # `nemoclaw onboard` creates the dashboard port-forward (default 18789) that exposes the in-pod
 # openclaw-gateway (and its /hooks endpoint) to the host. When the sandbox already exists we skip
 # onboard, and the forward can also die independently between runs — so refresh it unconditionally.
@@ -288,15 +373,54 @@ forward_owned_by_sandbox() {
   forward_running_for_sandbox "$port" "$sandbox_name" || forward_process_running_for_sandbox "$port" "$sandbox_name"
 }
 
+dashboard_listener_pids() {
+  local port="$1"
+  if have lsof; then
+    lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NF'
+  elif have fuser; then
+    fuser -n tcp "$port" 2>/dev/null | tr ' ' '\n' | awk 'NF'
+  fi
+}
+
+kill_stale_dashboard_listeners() {
+  local port="$1"
+  local pid
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    [ "$pid" != "$$" ] || continue
+    log "Stopping stale dashboard listener on ${port} (pid=${pid})"
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+  done < <(dashboard_listener_pids "$port")
+  sleep 2
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    [ "$pid" != "$$" ] || continue
+    log "Force-stopping stale dashboard listener on ${port} (pid=${pid})"
+    kill -KILL "$pid" >/dev/null 2>&1 || true
+  done < <(dashboard_listener_pids "$port")
+}
+
 dashboard_forward_healthy() {
   local port="$1"
   have curl && curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null \
     | grep -q '"ok"[[:space:]]*:[[:space:]]*true'
 }
 
+start_dashboard_forward() {
+  local port="$1"
+  local forward_log="$2"
+  : >"$forward_log"
+  if have setsid; then
+    setsid -f openshell forward start "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >>"$forward_log" 2>&1 || true
+  else
+    openshell forward start --background "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >>"$forward_log" 2>&1 || true
+  fi
+}
+
 ensure_dashboard_forward() {
   local port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
   local forward_log="/tmp/nemoclaw-forward-${port}.log"
+  local attempt
   if ! have openshell; then
     log "ERROR: OpenShell not available; cannot refresh dashboard port-forward"
     return 1
@@ -313,19 +437,23 @@ ensure_dashboard_forward() {
 
   openshell forward stop "$port" "$NEMOCLAW_SANDBOX_NAME" >/dev/null 2>&1 || true
   pkill -TERM -f "[o]penshell forward start ${port} ${NEMOCLAW_SANDBOX_NAME}" >/dev/null 2>&1 || true
+  kill_stale_dashboard_listeners "$port"
 
-  if have setsid; then
-    setsid -f openshell forward start "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >"$forward_log" 2>&1 || true
-  else
-    openshell forward start --background "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >"$forward_log" 2>&1 || true
-  fi
+  start_dashboard_forward "$port" "$forward_log"
 
-  for _attempt in $(seq 1 30); do
+  for attempt in $(seq 1 60); do
     if forward_owned_by_sandbox "$port" "$NEMOCLAW_SANDBOX_NAME" && dashboard_forward_healthy "$port"; then
       log "Dashboard port-forward on ${port} is healthy for sandbox ${NEMOCLAW_SANDBOX_NAME}"
       return
     fi
-    sleep 1
+    if [ $((attempt % 5)) -eq 0 ]; then
+      log "Dashboard port-forward on ${port} is not healthy yet; retrying start (attempt=${attempt})"
+      openshell forward stop "$port" "$NEMOCLAW_SANDBOX_NAME" >/dev/null 2>&1 || true
+      pkill -TERM -f "[o]penshell forward start ${port} ${NEMOCLAW_SANDBOX_NAME}" >/dev/null 2>&1 || true
+      kill_stale_dashboard_listeners "$port"
+      start_dashboard_forward "$port" "$forward_log"
+    fi
+    sleep 2
   done
 
   log "ERROR: could not (re)start dashboard forward on ${port}; the OpenClaw UI and /hooks endpoint are unreachable at http://127.0.0.1:${port}"
@@ -387,9 +515,25 @@ apply_vss_policy() {
   nemoclaw "$NEMOCLAW_SANDBOX_NAME" policy-add --from-file "$policy_file" --yes
 }
 
+dump_openclaw_gateway_diagnostics() {
+  local port="$1"
+
+  openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
+    "printf '%s\n' '--- processes ---'; \
+     ps -ef | grep -E '[o]penclaw|[g]ateway' || true; \
+     printf '%s\n' '--- health ---'; \
+     curl -sv http://127.0.0.1:${port}/health 2>&1 || true; \
+     printf '%s\n' '--- systemd restart log ---'; \
+     tail -n 80 /tmp/openclaw-gateway-restart.log 2>/dev/null || true; \
+     printf '%s\n' '--- dashboard log ---'; \
+     tail -n 120 /tmp/openclaw-dashboard.log 2>/dev/null || true" </dev/null 2>&1 \
+    | sed 's/^/[init_nemoclaw] gateway diag: /' >&2 || true
+}
+
 restart_vss_openclaw_gateway() {
-  local port attempt
+  local port attempt ready_timeout
   port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+  ready_timeout="${NEMOCLAW_GATEWAY_READY_TIMEOUT:-120}"
 
   if ! have openshell; then
     log "OpenShell is not available; cannot restart OpenClaw gateway"
@@ -398,18 +542,35 @@ restart_vss_openclaw_gateway() {
 
   log "Restarting OpenClaw gateway in sandbox ${NEMOCLAW_SANDBOX_NAME}"
   openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "pkill -TERM -f '[o]penclaw-gateway' || true" </dev/null || true
+    "pkill -TERM -f '[o]penclaw-gateway' || true; \
+     pkill -TERM -f '[o]penclaw dashboard' || true" </dev/null || true
+  sleep 2
 
-  for attempt in $(seq 1 30); do
+  log "Starting OpenClaw gateway in sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
+    "rm -f /tmp/openclaw-dashboard.log /tmp/openclaw-gateway-restart.log; \
+     if command -v systemctl >/dev/null 2>&1; then \
+       systemctl --user daemon-reload >>/tmp/openclaw-gateway-restart.log 2>&1 || true; \
+       systemctl --user restart openclaw-gateway >>/tmp/openclaw-gateway-restart.log 2>&1 || true; \
+     fi; \
+     if command -v openclaw >/dev/null 2>&1; then \
+       nohup openclaw dashboard >/tmp/openclaw-dashboard.log 2>&1 & \
+     fi" </dev/null || true
+
+  for attempt in $(seq 1 "$ready_timeout"); do
     if openshell sandbox exec -n "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
         "curl -fsS http://127.0.0.1:${port}/health >/dev/null" </dev/null; then
       log "OpenClaw gateway is healthy after restart"
       return 0
     fi
+    if [ $((attempt % 15)) -eq 0 ]; then
+      log "OpenClaw gateway is not healthy yet; waiting (attempt=${attempt}/${ready_timeout})"
+    fi
     sleep 1
   done
 
-  log "WARN: OpenClaw gateway did not become healthy within 30 seconds after restart"
+  log "WARN: OpenClaw gateway did not become healthy within ${ready_timeout} seconds after restart"
+  dump_openclaw_gateway_diagnostics "$port"
   return 1
 }
 
@@ -555,8 +716,46 @@ run_install() {
   )
 }
 
+onboard_or_install_sandbox() {
+  log "Start installing/onboarding NemoClaw"
+  allow_openshell_gateway_bridge
+  if have nemoclaw; then
+    run_onboard
+  else
+    run_install
+  fi
+  log "Finished installing/onboarding NemoClaw"
+}
+
 sandbox_exists() {
   have openshell && openshell sandbox get "$NEMOCLAW_SANDBOX_NAME" >/dev/null 2>&1
+}
+
+ensure_nemoclaw_tunnel() {
+  local nemoclaw_cmd tunnel_log
+  nemoclaw_cmd="$(resolve_nemoclaw)" || {
+    log "nemoclaw is not currently resolvable; skipping tunnel refresh"
+    return 0
+  }
+  tunnel_log="/tmp/nemoclaw-tunnel-start.log"
+
+  if pgrep -f '[c]loudflared' >/dev/null 2>&1; then
+    log "NemoClaw tunnel process is already running"
+    return 0
+  fi
+
+  log "Starting NemoClaw tunnel for sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  : >"${tunnel_log}"
+  if have setsid; then
+    setsid -f "$nemoclaw_cmd" tunnel start >>"${tunnel_log}" 2>&1 || true
+  else
+    "$nemoclaw_cmd" tunnel start >>"${tunnel_log}" 2>&1 &
+  fi
+  sleep 5
+  if ! pgrep -f '[c]loudflared' >/dev/null 2>&1; then
+    log "WARN: NemoClaw tunnel process is not running yet"
+    tail -n 20 "${tunnel_log}" | sed 's/^/[init_nemoclaw] tunnel log: /' >&2 || true
+  fi
 }
 
 strip_ansi() {
@@ -603,19 +802,22 @@ main() {
   if sandbox_exists; then
     log "Sandbox ${NEMOCLAW_SANDBOX_NAME} already exists; skipping NemoClaw onboard/install"
     configure_openshell_provider
-  else
-    log "Start installing/onboarding NemoClaw"
-    if have nemoclaw; then
-      run_onboard
-    else
-      run_install
+    ensure_nemoclaw_tunnel
+    if ! wait_for_sandbox_ready "${NEMOCLAW_EXISTING_SANDBOX_READY_TIMEOUT:-90}"; then
+      log "Existing sandbox ${NEMOCLAW_SANDBOX_NAME} is not ready; rerunning NemoClaw setup"
+      onboard_or_install_sandbox
+      ensure_nemoclaw_tunnel
     fi
-    log "Finished installing/onboarding NemoClaw"
+  else
+    onboard_or_install_sandbox
+    ensure_nemoclaw_tunnel
   fi
 
   # Onboard can return before OpenClaw is executable inside the sandbox.
   wait_for_sandbox_ready
   refresh_path
+  patch_openclaw_streaming_in_sandbox
+  patch_openclaw_streaming_images
   ensure_dashboard_forward
   apply_vss_policy
   update_openclaw_allowed_origin
@@ -631,6 +833,7 @@ parse_args "$@"
 validate_custom_provider
 export NEMOCLAW_SANDBOX_NAME NEMOCLAW_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
 export NEMOCLAW_ENDPOINT_URL COMPATIBLE_API_KEY
-export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
+export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT OPENCLAW_STREAM_PATCH_SCRIPT NEMOCLAW_POLICY_FILE
+export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS
 
 main

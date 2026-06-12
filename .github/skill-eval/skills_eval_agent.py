@@ -241,6 +241,19 @@ def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
     return out_path
 
 
+def _final_protocol_marker(final_text: list[str]) -> str | None:
+    """Return the final DONE/BLOCKED marker only when it is the last line."""
+    summary = "\n".join(final_text[-10:])
+    for line in reversed(summary.splitlines()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if re.match(r"^(DONE|BLOCKED):", stripped):
+            return stripped
+        return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Agent loop
 # ---------------------------------------------------------------------------
@@ -491,11 +504,12 @@ End with `DONE: <reward summary>` after posting the result, or
     # stopped without DONE/BLOCKED, leaving the workflow green ✓ but
     # the source PR with no result comment) would produce a silent
     # green check. Treat that as a real failure with exit code 4.
-    summary = "\n".join(final_text[-10:])
-    if "BLOCKED:" in summary:
+    final_marker = _final_protocol_marker(final_text)
+
+    if final_marker and final_marker.startswith("BLOCKED:"):
         print("[agent] reported blocker", file=sys.stderr)
         return 0   # blocker is a valid outcome, not a crash
-    if "DONE:" in summary:
+    if final_marker and final_marker.startswith("DONE:"):
         return 0
     print(
         "[agent] exited without a final DONE: or BLOCKED: marker — "
