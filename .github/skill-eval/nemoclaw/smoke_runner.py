@@ -1665,21 +1665,23 @@ def _nemoclaw_runtime_details(trial_dir: Path | None) -> list[str]:
 
 
 def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> tuple[str, str, str]:
+    openclaw_metrics = _load_openclaw_log_metrics(trial_dir) if trial_dir is not None else None
+    if _metrics_include_usage(openclaw_metrics):
+        return openclaw_metrics
+
     agent_result = result.get("agent_result") if isinstance(result, dict) else None
     if isinstance(agent_result, dict):
         prompt = agent_result.get("n_input_tokens")
         cached = agent_result.get("n_cache_tokens")
         if prompt is not None or cached is not None:
-            return "n/a", _format_number(prompt), _format_number(cached)
+            turns = openclaw_metrics[0] if openclaw_metrics and openclaw_metrics[0] != "n/a" else "n/a"
+            return turns, _format_number(prompt), _format_number(cached)
 
     if trial_dir is None:
         return "n/a", "n/a", "n/a"
     trajectory = trial_dir / "agent" / "trajectory.json"
     data = _read_json(trajectory)
     if not data:
-        openclaw_metrics = _load_openclaw_log_metrics(trial_dir)
-        if _metrics_include_usage(openclaw_metrics):
-            return openclaw_metrics
         return (
             _load_nemoclaw_async_metrics(trial_dir)
             or openclaw_metrics
@@ -1722,12 +1724,12 @@ def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> 
             cached_tokens += int(usage.get("cacheCreationInputTokens") or 0)
 
     metrics = (
-        str(turns) if turns else "n/a",
+        openclaw_metrics[0] if openclaw_metrics and openclaw_metrics[0] != "n/a" else str(turns) if turns else "n/a",
         _format_number(prompt_tokens) if prompt_tokens else "n/a",
         _format_number(cached_tokens) if cached_tokens else "n/a",
     )
     if not _metrics_include_usage(metrics):
-        return _load_nemoclaw_async_metrics(trial_dir) or metrics
+        return _load_nemoclaw_async_metrics(trial_dir) or openclaw_metrics or metrics
     return metrics
 
 
