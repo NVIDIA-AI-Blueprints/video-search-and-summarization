@@ -1551,6 +1551,43 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(metrics, ("2", "9.5k", "175"))
 
+    def test_nemoclaw_report_reads_pretty_openclaw_result_payloads(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            log_dir = trial_dir / "artifacts" / "nemoclaw"
+            log_dir.mkdir(parents=True)
+            (log_dir / "openclaw-agent.log").write_text(
+                "warning before json\n"
+                + json.dumps(
+                    {
+                        "runId": "abc",
+                        "status": "ok",
+                        "result": {
+                            "payloads": [{"text": "one"}, {"text": "two"}],
+                            "meta": {
+                                "agentMeta": {
+                                    "lastCallUsage": {
+                                        "input": 42,
+                                        "cacheRead": 5,
+                                        "cacheWrite": 7,
+                                    }
+                                }
+                            },
+                        },
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+
+        self.assertEqual(metrics, ("2", "42", "12"))
+
     def test_nemoclaw_report_prefers_leaf_trial_and_links_run_when_viewer_unavailable(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
