@@ -131,7 +131,7 @@ Minimum standalone `.env` values:
 | `HOST_IP` | Always | Kafka bootstrap host (`${HOST_IP}:9092`) |
 | `VSS_DATA_DIR` | Always | Required clip-storage bind mount |
 | `RTVI_VLM_MODEL_TO_USE` | Always for standalone | Backend selector; use `cosmos-reason3` for the default local model or `openai-compat` for a remote/sibling endpoint |
-| `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason3 Nano FP8 path: `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason3 Nano BF16 path: `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | `RTVI_VLM_ENDPOINT` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Remote/sibling OpenAI-compatible VLM endpoint |
 | `VLM_NAME` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Model/deployment name exposed by that endpoint |
 

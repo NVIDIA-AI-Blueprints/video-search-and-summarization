@@ -66,7 +66,7 @@ canonical defaults rather than guessing.
 ```bash
 jq -n \
   --arg url "<clip_url_from_vss_manage_video_io_storage>" \
-  --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix}" \
+  --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}" \
   --arg scenario "<scenario>" \
   --argjson events '["<event1>", "<event2>"]' \
   '{

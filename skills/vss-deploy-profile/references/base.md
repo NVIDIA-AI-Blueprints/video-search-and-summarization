@@ -62,7 +62,9 @@ The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use
 
 | Model | Type | Compose file | Params | Precision | Est. VRAM (weights × 1.3) |
 |---|---|---|---|---|---|
-| `nvidia/cosmos3-nano-reasoner` (default) | NIM (`nvcr.io/nim/...:1.7`) | `nim/cosmos3-reasoner/compose.yml` | nano | FP8 | depends on NIM sizing |
+| `nvidia/cosmos3-nano-reasoner` (default) | NIM (`nvcr.io/nim/...:1.7`) | `nim/cosmos3-reasoner/compose.yml` | nano | BF16 | depends on NIM sizing |
+
+> **TODO (BF16 migration):** The default checkpoint changed from `modelopt-fp8-final_format_fix` (FP8) to `bf16-final` (BF16). BF16 weights are ~2× the size of FP8 for the same parameter count. The `NIM_KVCACHE_PERCENT` / `RTVI_VLLM_GPU_MEMORY_UTILIZATION` fractions in the worked examples and per-hardware env files below were tuned for the FP8 variant and may need re-validation on each target GPU. Verify the actual VRAM footprint of the `bf16-final` checkpoint from NGC or empirical testing and update the fractions accordingly.
 | `nvidia/cosmos-reason2-8b` | NIM (`nvcr.io/nim/...:1.6.0`) | `nim/cosmos-reason2-8b/compose.yml` | 8 B | FP16 | **20.8 GB** |
 | `nvidia/cosmos-reason1-7b` | NIM | `nim/cosmos-reason1-7b/compose.yml` | 7 B | FP16 | **18.2 GB** |
 | `Qwen/Qwen3-VL-8B-Instruct` | DLFW vLLM | `nim/qwen3-vl-8b-instruct/compose.yml` | 8 B | FP16 | **20.8 GB** |
@@ -120,7 +122,7 @@ fraction       = (this_num_params / total_num_params) × 0.85
 
 Read this as: at `NIM_KVCACHE_PERCENT=0.7` on an H100, the NIM is allowed 56 GB total. A 9B FP16 model uses ~23 GB of that for weights, leaving ~33 GB for KV cache — enough for long contexts at moderate concurrency.
 
-### Worked example — Nemotron Nano 9B + Cosmos3 Reasoner Nano FP8 on H100 80 GB shared
+### Worked example — Nemotron Nano 9B + Cosmos3 Reasoner Nano BF16 on H100 80 GB shared
 
 ```text
 H100 max safe shared budget = 0.85 × 80 GB = 68 GB
@@ -175,7 +177,7 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 
 - **L40S (48 GB) shared mode is tight.** Use the sizing math for the selected LLM/VLM pair. If the pair exceeds 40.8 GB usable, use a 2-GPU L40S host (one model per GPU), or escalate to the user per Trigger 2.
 - **DGX Spark shared mode must use the DGX Spark Nano 9B NIM path in `edge.md`.** Run `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant` as a standalone local NIM on port `30081` and set `LLM_MODE=remote`, `LLM_BASE_URL=http://localhost:30081`, and `LLM_NAME_SLUG=none`. The image is not wired into compose yet. Do not use the standard `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image on DGX Spark.
-- **AGX/IGX Thor shared mode: Edge 4B is the LLM; the VLM still runs via RT-VLM.** The Edge 4B fallback in `edge.md` (standalone vLLM + `HF_TOKEN`) is the **LLM** path — this skill has no verified Thor-supported Nano 9B NIM, so keep it unless the user supplies a verified remote LLM endpoint. The **VLM** on base+Thor is *not* a standalone NIM: `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason3 Nano FP8 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`).
+- **AGX/IGX Thor shared mode: Edge 4B is the LLM; the VLM still runs via RT-VLM.** The Edge 4B fallback in `edge.md` (standalone vLLM + `HF_TOKEN`) is the **LLM** path — this skill has no verified Thor-supported Nano 9B NIM, so keep it unless the user supplies a verified remote LLM endpoint. The **VLM** on base+Thor is *not* a standalone NIM: `dev-profile.sh` deploys RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint (`VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35`).
 - **Llama 3.3 49B FP16 doesn't fit on a single 80 GB GPU.** 49 × 16 / 8 × 1.3 = 127 GB > 68 GB usable. Either run dedicated with tensor parallelism (`tp=2` on two H100s → 63.7 GB/GPU) or use H200 (141 GB) / B200 (192 GB) — or escalate per Trigger 2.
 - **`HARDWARE_PROFILE` is just an env-file label, not a sizing oracle.** It selects the path `nim/<slug>/hw-<HARDWARE_PROFILE>(-shared).env` — that's all. Pre-tuned env files exist for known platforms as a convenience, but missing != unsupported. Compute the right `NIM_KVCACHE_PERCENT` (or `--gpu-memory-utilization`) from the [Sizing math](#sizing-math) and write it into a fresh `hw-<HARDWARE_PROFILE>(-shared).env` (or set `HARDWARE_PROFILE=OTHER` and edit `hw-OTHER(-shared).env`). The agent's correctness check is the **resolved compose**: does it include the right LLM/VLM service for the chosen `LLM_NAME_SLUG` / `VLM_NAME_SLUG`, and does that service's env carry the computed sizing values? If yes, the deploy will work regardless of which `HARDWARE_PROFILE` label is used.
 - **Remote side — no local GPU needed.** When `LLM_MODE=remote` or `VLM_MODE=remote`, the matching local NIM/vLLM service is skipped entirely. Sizing math doesn't apply for the remote side.
@@ -303,8 +305,8 @@ For shared mode, compute it via the formula. As sanity-check defaults / in-tree 
 
 | Co-residency | LLM `--gpu-memory-utilization` | VLM `NIM_KVCACHE_PERCENT` | Source |
 |---|---|---|---|
-| Nano 9B v2 + Cosmos3 Reasoner Nano FP8 (shared) | 0.40 | 0.40 | Cosmos3 `*-shared.env` |
-| DGX Spark Nano 9B NIM + Cosmos3 Reasoner Nano FP8 on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
+| Nano 9B v2 + Cosmos3 Reasoner Nano BF16 (shared) | 0.40 | 0.40 | Cosmos3 `*-shared.env` |
+| DGX Spark Nano 9B NIM + Cosmos3 Reasoner Nano BF16 on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
 | Edge 4B + RT-VLM on Thor | 0.25 | RT-VLM default 0.35 | `edge.md` Thor fallback |
 | Qwen3-VL 8B + Nano 9B (shared) | 0.40 | 0.40 | Qwen3 `*-shared.env` |
 

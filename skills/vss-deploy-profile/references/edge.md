@@ -237,11 +237,11 @@ sequence limits from the standalone recipe above.
 
 ## AGX Thor / IGX Thor - Edge 4B fallback + rtvi-vlm
 
-On Thor, the VLM falls back to **`rtvi-vlm` serving Cosmos Reason3 Nano FP8
+On Thor, the VLM falls back to **`rtvi-vlm` serving Cosmos Reason3 Nano BF16
 in-process**. The standalone `cosmos-reason2-8b` NIM service does not run on
-Thor. `rtvi-vlm` loads `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` itself and
+Thor. `rtvi-vlm` loads `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` itself and
 advertises it at `http://${HOST_IP}:8018/v1` under
-`VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` with
+`VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` with
 `VLM_NAME_SLUG=none`.
 
 Remote VLM and `--vlm` swaps are not supported on Thor for `base` or
