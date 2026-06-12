@@ -1362,7 +1362,15 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
         timeout_s = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800"))
         wait_profile = str(meta.get("deployment_profile") or "").strip()
-        wait_arg = f" --wait-profile {shlex.quote(wait_profile)}" if wait_profile else ""
+        fast_readiness_mode = (
+            os.environ.get("NEMOCLAW_FAST_READINESS_MODE", "").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        wait_arg = (
+            f" --wait-profile {shlex.quote(wait_profile)}"
+            if wait_profile and fast_readiness_mode
+            else ""
+        )
         environment_dir = getattr(self, "environment_dir", None)
         prompt_file = (
             Path(environment_dir).parent / "tests" / "nemoclaw_prompt.md"
