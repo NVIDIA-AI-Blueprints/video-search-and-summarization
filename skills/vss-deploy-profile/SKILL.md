@@ -33,7 +33,6 @@ Match the user's request to a profile, then load that profile's reference for si
 
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
 
-
 ## Instructions
 
 The deployment flow is always: copy `.env` to `generated.env`, apply overrides, dry-run compose into `resolved.yml`, review, normalize, deploy, then wait for readiness.
@@ -163,7 +162,7 @@ Layout (asset paths, ownership, mount points, profile-specific subdirs) is docum
 
 ### Step 1c — Initialize `generated.env`
 
-The skill's per-deploy working copy. Always start from a fresh copy of the source `.env` — never mutate the source.
+The skill's per-deploy working copy. Always start from a fresh copy of the source `.env` , never mutate the source.
 
 ```bash
 PROFILE=base
@@ -247,9 +246,16 @@ Probe each selected artifact with the normalized NGC key before continuing:
   no-entitlement signal (manifest read requires the same org/team grant as the
   layer pull); or the matching `ngc registry image info ...` when the artifact
   maps cleanly to an NGC image path.
-- NGC model/resource paths: run the matching `ngc registry model info ...` or
-  `ngc registry resource info ...` for the exact repo/tag that the profile will
-  load or download.
+- NGC model/resource paths (e.g. the Cosmos checkpoint RT-VLM downloads at
+  runtime): run the matching `ngc registry model info ...` or `ngc registry
+  resource info ...` for the exact repo/tag the profile will load or download;
+  these use NGC's scoped auth. Do NOT probe a model with `docker manifest
+  inspect` (returns "no such manifest" because a model is not an OCI image) or a
+  raw `Authorization: Bearer <key>` REST call (returns `403` because that is not
+  NGC's auth flow); both are expected false negatives, not entitlement failures.
+  If the `ngc` CLI is unavailable, treat the container-image probe above as the
+  entitlement signal, since NGC grants org/team access across images and models
+  together.
 - Profile-staged TAO/perception models: run the corresponding `ngc registry
   model info ...` / `resource info ...` for each repo/tag before the staging
   block downloads files.
