@@ -333,7 +333,7 @@ be running and no required container may be `unhealthy`, `restarting`, or
 
 ```bash
 expected=$(docker compose --env-file "$ENV_GEN" -f "$REPO/deploy/docker/resolved.yml" config --services | wc -l)
-actual=$(docker compose -f "$REPO/deploy/docker/resolved.yml" ps -q | wc -l)
+actual=$(docker compose -f "$REPO/deploy/docker/resolved.yml" ps -a -q | wc -l)
 if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
   echo "FAIL: expected $expected services, got $actual" >&2
   exit 1
@@ -361,9 +361,9 @@ necessary with two concise sentences explaining what the issue was and what fix
 was applied dynamically.
 
 If targeted fix attempts do not work after multiple iterations to get the
-container check gate passing, gather useful evidence. These issues must be surfaces 
+container check gate passing, gather useful evidence. These issues must be surfaced
 in the final deploy summary. Do not declare the deploy complete by silently ignoring
-failed containers. Call them out explicitly with two concise sentences explaining what 
+failed containers. Call them out explicitly with two concise sentences explaining what
 the issue is and what was attempted.
 
 ## Tear Down
