@@ -1,7 +1,61 @@
 [build-system]
-requires = [
-    "setuptools>=42",
-    "wheel",
-    "tomli>=1.0.0; python_version < '3.11'"
-]
+requires = ["setuptools==82.0.1", "wheel==0.47.0"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "spatialai-data-utils"
+description = "Utility functions for SpatialAI Datasets"
+authors = [{ name = "NVIDIA CORPORATION" }]
+readme = "README.md"
+license = "Apache-2.0"
+license-files = [
+    "NOTICE",
+    "3rdParty_Licenses.md",
+    "NVIDIA-Software-License-Agreement.pdf",
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+]
+keywords = [
+    "3d object perception",
+    "multi-target multi-camera tracking",
+    "warehouse",
+    "retail store",
+    "hospital",
+]
+dependencies = [
+    "lap==0.5.12",
+    "tqdm==4.67.1",
+    "scipy==1.15.3",
+    "tabulate==0.9.0",
+    "nuscenes-devkit==1.2.0",
+    "fvcore==0.1.5.post20221221",
+    "iopath==0.1.9",
+    "shapely==2.0.7",
+    "h5py==3.16.0",
+    "jsonschema==4.23.0",
+    "boto3==1.36.2",
+    "python-dotenv==1.0.1",
+    "pytz==2024.2",
+    "requests==2.32.3",
+    "pandas==2.3.3",
+    "motmetrics==1.4.0",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+torch = ["torch>=2.10.0"]
+full = [
+    "torch>=2.10.0",
+    "pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git@33824be",
+]
+
+[tool.setuptools]
+package-dir = {"" = ".."}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["spatialai_data_utils", "spatialai_data_utils.*"]
