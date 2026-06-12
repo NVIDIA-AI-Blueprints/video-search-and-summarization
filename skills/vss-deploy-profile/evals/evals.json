@@ -30,11 +30,11 @@
     "id": "alerts-compose-generate",
     "question": "Generate the docker compose yaml for a VSS alerts profile.",
     "expected_skill": "vss-deploy-profile",
-    "ground_truth": "Loads vss-deploy-profile, routes to the alerts profile (references/alerts.md, blueprint bp_developer_alerts), and uses the same generated.env dry-run flow. The VLM is always served by RT-VLM (vss-rtvi-vlm, port 8018, integrated Cosmos Reason3 Nano FP8 via RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix) — there is no standalone Cosmos NIM — so VLM_NAME_SLUG=none and COMPOSE_PROFILES omits the vlm_*_<slug> segment. Selects MODE 2d_cv (verification: RT-CV Grounding DINO -> behavior analytics -> alert-bridge -> per-clip VLM verify) or 2d_vlm (real-time: continuous RT-VLM -> alert-bridge on port 9080). LLM stack is identical to base (nvidia/nvidia-nemotron-nano-9b-v2, port 30081).",
+    "ground_truth": "Loads vss-deploy-profile, routes to the alerts profile (references/alerts.md, blueprint bp_developer_alerts), and uses the same generated.env dry-run flow. The VLM is always served by RT-VLM (vss-rtvi-vlm, port 8018, integrated Cosmos Reason3 Nano BF16 via RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final) — there is no standalone Cosmos NIM — so VLM_NAME_SLUG=none and COMPOSE_PROFILES omits the vlm_*_<slug> segment. Selects MODE 2d_cv (verification: RT-CV Grounding DINO -> behavior analytics -> alert-bridge -> per-clip VLM verify) or 2d_vlm (real-time: continuous RT-VLM -> alert-bridge on port 9080). LLM stack is identical to base (nvidia/nvidia-nemotron-nano-9b-v2, port 30081).",
     "expected_behavior": [
       "Loads the vss-deploy-profile skill and routes to the alerts profile (references/alerts.md, blueprint bp_developer_alerts).",
       "Follows the generated.env dry-run flow (config > resolved.yml -> normalize_resolved_yml.py -> up -d).",
-      "Serves the VLM via RT-VLM (vss-rtvi-vlm, port 8018, Cosmos Reason3 Nano FP8) rather than a standalone Cosmos NIM, and sets VLM_NAME_SLUG=none so COMPOSE_PROFILES omits the vlm_*_<slug> segment.",
+      "Serves the VLM via RT-VLM (vss-rtvi-vlm, port 8018, Cosmos Reason3 Nano BF16) rather than a standalone Cosmos NIM, and sets VLM_NAME_SLUG=none so COMPOSE_PROFILES omits the vlm_*_<slug> segment.",
       "Selects an alerts MODE explicitly — 2d_cv (verification: RT-CV Grounding DINO -> behavior analytics -> alert-bridge -> per-clip VLM verify) or 2d_vlm (real-time: continuous RT-VLM -> alert-bridge on port 9080) — and does not fabricate MODE values.",
       "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
     ]
@@ -43,12 +43,12 @@
     "id": "lvs-compose-generate",
     "question": "Generate the docker compose yaml for a VSS lvs (long-video summarization) profile.",
     "expected_skill": "vss-deploy-profile",
-    "ground_truth": "Loads vss-deploy-profile, routes to the lvs profile (references/lvs-profile.md), and uses the same generated.env dry-run flow. The LLM stack is identical to base (nvidia/nvidia-nemotron-nano-9b-v2, port 30081). The VLM is served by RT-VLM (vss-rtvi-vlm, port 8018, default integrated checkpoint ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix), not a standalone Cosmos NIM. VLM_NAME must be the RT-VLM /v1/models basename nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix — NOT the friendly name nvidia/cosmos3-nano-reasoner, which makes vss-lvs return 400 BadParameters.",
+    "ground_truth": "Loads vss-deploy-profile, routes to the lvs profile (references/lvs-profile.md), and uses the same generated.env dry-run flow. The LLM stack is identical to base (nvidia/nvidia-nemotron-nano-9b-v2, port 30081). The VLM is served by RT-VLM (vss-rtvi-vlm, port 8018, default integrated checkpoint ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final), not a standalone Cosmos NIM. VLM_NAME must be the RT-VLM /v1/models basename nim_nvidia_cosmos3-nano-reasoner_bf16-final — NOT the friendly name nvidia/cosmos3-nano-reasoner, which makes vss-lvs return 400 BadParameters.",
     "expected_behavior": [
       "Loads the vss-deploy-profile skill and routes to the lvs profile (references/lvs-profile.md).",
       "Follows the generated.env dry-run flow (config > resolved.yml -> normalize_resolved_yml.py -> up -d).",
-      "Serves the VLM via RT-VLM (vss-rtvi-vlm, port 8018, default checkpoint ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix), with the LLM stack identical to base (nvidia/nvidia-nemotron-nano-9b-v2, port 30081).",
-      "Sets VLM_NAME to the RT-VLM /v1/models basename nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix — NOT the friendly name nvidia/cosmos3-nano-reasoner (which makes vss-lvs return 400 BadParameters).",
+      "Serves the VLM via RT-VLM (vss-rtvi-vlm, port 8018, default checkpoint ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final), with the LLM stack identical to base (nvidia/nvidia-nemotron-nano-9b-v2, port 30081).",
+      "Sets VLM_NAME to the RT-VLM /v1/models basename nim_nvidia_cosmos3-nano-reasoner_bf16-final — NOT the friendly name nvidia/cosmos3-nano-reasoner (which makes vss-lvs return 400 BadParameters).",
       "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
     ]
   },

@@ -58,7 +58,7 @@ RT-VLM:
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | Default integrated backend selector. |
-| `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` | Default checkpoint. |
+| `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default checkpoint. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | empty | Optional vLLM memory fraction. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw caption events. |
 | `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw caption topic. |

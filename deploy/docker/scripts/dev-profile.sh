@@ -1392,8 +1392,8 @@ function state_up() {
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
     if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
-      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
-      set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"
+      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+      set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
     fi
   fi
   # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
