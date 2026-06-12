@@ -13,7 +13,7 @@ enabled: true
 
 useSharedNim: false
 # NGC NIM model artifact path inside the vss-rtvi-vlm container (see deployment template when useSharedNim is false)
-modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
+modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
 
 waitForKafka:
   enabled: false
