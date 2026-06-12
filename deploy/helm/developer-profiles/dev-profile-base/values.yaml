@@ -466,3 +466,4 @@ nims:
         operator: Exists
         effect: NoSchedule
     nimModelSize: "nano"
+    nimModelName: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"

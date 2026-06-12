@@ -256,6 +256,9 @@ cosmos3:
   # Selects the model variant: nano (default) or super.
   nimModelSize: "nano"
 
+  # NGC model name override — forces the NIM to download a specific checkpoint.
+  nimModelName: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+
   # Imported from <cosmos3-fullname>-nim-env ConfigMap into NIMService.spec.env.
   # Missing keys are ignored (optional: true).
   envConfigMapKeys:

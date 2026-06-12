@@ -52,6 +52,10 @@ tolerations:
 #   super — needs a dedicated VLM GPU
 nimModelSize: "nano"
 
+# NGC model name override — forces the NIM to download a specific checkpoint
+# instead of using its built-in default profile for the selected nimModelSize.
+nimModelName: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+
 # GPU-specific env vars. Populated by the umbrella chart via gpuProfiles lookup.
 env:
   NIM_KVCACHE_PERCENT: "0.7"
