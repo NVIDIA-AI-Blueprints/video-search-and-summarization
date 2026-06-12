@@ -55,6 +55,28 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 # retrying a transient stall on a fresh connection recovers it. Tunable.
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
+BREV_UPLOAD_RETRIES = int(os.environ.get("BREV_UPLOAD_RETRIES", "3"))
+BREV_UPLOAD_BACKOFF_SEC = float(os.environ.get("BREV_UPLOAD_BACKOFF_SEC", "5"))
+
+
+def _is_transient_brev_transport_error(message: str | None) -> bool:
+    if not message:
+        return False
+    lowered = message.lower()
+    return any(
+        needle in lowered
+        for needle in (
+            "rpc error",
+            "error reading from server",
+            "code = unavailable",
+            "waiting for instance to be ready",
+            "copy timed out",
+            "command timed out",
+            "connection reset",
+            "broken pipe",
+            "unexpected eof",
+        )
+    )
 
 # Keep every file-transfer API bounded below run_leg.py's recovery headroom.
 # Remote work gets 600 seconds. The public 630-second wall-clock bound also
@@ -907,8 +929,6 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         )
         os.close(fd)
         tar_path = Path(tar_path_str)
-        remote_upload_dir = f"/tmp/skill-eval/uploads/{uuid.uuid4().hex}"
-        remote_tar = f"{remote_upload_dir}/archive.tar.gz"
 
         try:
             await _run_local_transfer_command(
@@ -916,47 +936,91 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 timeout=60,
             )
 
-            result = await _run_brev_exec(
-                self._instance_name,
-                f"mkdir -p {shlex.quote(remote_upload_dir)}",
-                timeout=30,
-            )
-            if result.return_code != 0:
-                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+            last_err = ""
+            for attempt in range(BREV_UPLOAD_RETRIES):
+                remote_upload_dir = f"/tmp/skill-eval/uploads/{uuid.uuid4().hex}"
+                remote_tar = f"{remote_upload_dir}/archive.tar.gz"
 
-            result = await _run_brev_copy(
-                str(tar_path), f"{self._instance_name}:{remote_tar}",
-            )
-            if result.return_code != 0:
-                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+                result = await _run_brev_exec(
+                    self._instance_name,
+                    f"mkdir -p {shlex.quote(remote_upload_dir)}",
+                    timeout=30,
+                )
+                if result.return_code != 0:
+                    last_err = result.stderr or result.stdout or ""
+                    if (
+                        attempt + 1 < BREV_UPLOAD_RETRIES
+                        and _is_transient_brev_transport_error(last_err)
+                    ):
+                        logger.warning(
+                            "upload_dir mkdir attempt %d/%d failed (%s) — retrying",
+                            attempt + 1, BREV_UPLOAD_RETRIES, last_err,
+                        )
+                        await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
+                        continue
+                    raise RuntimeError(f"Upload dir failed: {last_err}")
 
-            target_raw = str(target_dir).rstrip("/") or "."
-            target = shlex.quote(target_raw)
-            remote_archive = shlex.quote(remote_tar)
-            remote_dir = shlex.quote(remote_upload_dir)
-            replace_target = target_raw in {"/tests", "/solution", "/skills"}
-            prepare_target = (
-                f"sudo rm -rf {target} && "
-                if replace_target
-                else ""
+                result = await _run_brev_copy(
+                    str(tar_path), f"{self._instance_name}:{remote_tar}",
+                )
+                if result.return_code != 0:
+                    last_err = result.stderr or result.stdout or ""
+                    if (
+                        attempt + 1 < BREV_UPLOAD_RETRIES
+                        and _is_transient_brev_transport_error(last_err)
+                    ):
+                        logger.warning(
+                            "upload_dir copy attempt %d/%d failed (%s) — retrying",
+                            attempt + 1, BREV_UPLOAD_RETRIES, last_err,
+                        )
+                        await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
+                        continue
+                    raise RuntimeError(f"Upload dir failed: {last_err}")
+
+                target_raw = str(target_dir).rstrip("/") or "."
+                target = shlex.quote(target_raw)
+                remote_archive = shlex.quote(remote_tar)
+                remote_dir = shlex.quote(remote_upload_dir)
+                replace_target = target_raw in {"/tests", "/solution", "/skills"}
+                prepare_target = (
+                    f"sudo rm -rf {target} && "
+                    if replace_target
+                    else ""
+                )
+                result = await _run_brev_exec(
+                    self._instance_name,
+                    f"{prepare_target}"
+                    f"sudo mkdir -p {target} && "
+                    f"sudo chown $(whoami):$(id -gn) {target}; "
+                    "status=$?; "
+                    "if [ $status -eq 0 ]; then "
+                    f"tar -xzf {remote_archive} -C {target}; "
+                    "status=$?; "
+                    "fi; "
+                    f"rm -f {remote_archive}; "
+                    f"rmdir {remote_dir} 2>/dev/null || true; "
+                    "exit $status",
+                    timeout=120,
+                )
+                if result.return_code == 0:
+                    return
+
+                last_err = result.stderr or result.stdout or ""
+                if (
+                    attempt + 1 < BREV_UPLOAD_RETRIES
+                    and _is_transient_brev_transport_error(last_err)
+                ):
+                    logger.warning(
+                        "upload_dir extract attempt %d/%d failed (%s) — retrying",
+                        attempt + 1, BREV_UPLOAD_RETRIES, last_err,
+                    )
+                    await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
+                    continue
+                raise RuntimeError(f"Upload dir failed: {last_err}")
+
+            raise RuntimeError(
+                f"Upload dir failed after {BREV_UPLOAD_RETRIES} attempts: {last_err}"
             )
-            result = await _run_brev_exec(
-                self._instance_name,
-                f"{prepare_target}"
-                f"sudo mkdir -p {target} && "
-                f"sudo chown $(whoami):$(id -gn) {target}; "
-                "status=$?; "
-                "if [ $status -eq 0 ]; then "
-                f"tar -xzf {remote_archive} -C {target}; "
-                "status=$?; "
-                "fi; "
-                f"rm -f {remote_archive}; "
-                f"rmdir {remote_dir} 2>/dev/null || true; "
-                "exit $status",
-                timeout=120,
-            )
-            if result.return_code != 0:
-                raise RuntimeError(f"Upload dir failed: {result.stderr}")
         finally:
             tar_path.unlink(missing_ok=True)
 

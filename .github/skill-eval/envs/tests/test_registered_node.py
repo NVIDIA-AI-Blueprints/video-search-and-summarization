@@ -657,6 +657,52 @@ class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(exec_calls), 1)
         self.assertIn("mkdir -p /tmp/skill-eval/uploads/", exec_calls[0][1])
 
+    async def test_upload_dir_retries_transient_brev_copy_failure(self):
+        exec_calls = []
+        copy_calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            exec_calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        async def fake_run_brev_copy(src, dst, timeout=brev_env.BREV_COPY_TIMEOUT):
+            copy_calls.append((src, dst, timeout))
+            if len(copy_calls) == 1:
+                return brev_env.ExecResult(
+                    stdout="",
+                    stderr=(
+                        "waiting for instance to be ready... "
+                        "rpc error: code = Unavailable desc = error reading from server: EOF"
+                    ),
+                    return_code=1,
+                )
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        original_exec = brev_env._run_brev_exec
+        original_copy = brev_env._run_brev_copy
+        original_backoff = brev_env.BREV_UPLOAD_BACKOFF_SEC
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env._run_brev_copy = fake_run_brev_copy
+        brev_env.BREV_UPLOAD_BACKOFF_SEC = 0
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                src_dir = Path(td) / "skills"
+                src_dir.mkdir()
+                (src_dir / "SKILL.md").write_text("test skill\n")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                await env.upload_dir(src_dir, "/skills")
+        finally:
+            brev_env._run_brev_exec = original_exec
+            brev_env._run_brev_copy = original_copy
+            brev_env.BREV_UPLOAD_BACKOFF_SEC = original_backoff
+
+        self.assertEqual(len(copy_calls), 2)
+        commands = [call[1] for call in exec_calls]
+        self.assertEqual(sum("mkdir -p /tmp/skill-eval/uploads/" in command for command in commands), 2)
+        self.assertEqual(sum("tar -xzf" in command for command in commands), 1)
+
 
 class VersionCompareSanity(unittest.TestCase):
     """Extra coverage for _version_lt beyond the generate.py tests."""
