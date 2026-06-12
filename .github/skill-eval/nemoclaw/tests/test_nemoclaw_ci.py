@@ -549,6 +549,26 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         script = base64.b64decode(encoded).decode("utf-8")
         self.assertIn("openclaw-agent.log", script)
 
+    def test_stop_openclaw_cli_allows_log_flush_before_force_kill(self):
+        calls: list[tuple[str, ...]] = []
+        previous = headless_runner._run
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        headless_runner._run = fake_run
+        try:
+            headless_runner.stop_openclaw_cli("demo")
+        finally:
+            headless_runner._run = previous
+
+        wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
+        encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
+        script = base64.b64decode(encoded).decode("utf-8")
+        self.assertIn("sleep 5", script)
+        self.assertIn("kill -9", script)
+
     def test_cli_launch_returns_after_start_when_waiting_for_profile(self):
         calls: list[tuple[str, ...]] = []
         previous = {
@@ -633,7 +653,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 headless_runner.stop_openclaw_cli = previous["stop_openclaw_cli"]
 
         self.assertEqual(rc, 1)
-        self.assertEqual(calls, ["collect", "stop"])
+        self.assertEqual(calls, ["stop", "collect"])
 
     def test_sandbox_exec_wraps_multiline_scripts_for_openshell(self):
         calls: list[tuple[str, ...]] = []

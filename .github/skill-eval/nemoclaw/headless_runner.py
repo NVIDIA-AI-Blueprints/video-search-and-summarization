@@ -208,8 +208,12 @@ def stop_openclaw_cli(sandbox_name: str) -> None:
     _sandbox_exec(
         sandbox_name,
         f"if [ -f {OPENCLAW_RUN_DIR}/openclaw-agent.pid ]; then "
-        f"kill $(cat {OPENCLAW_RUN_DIR}/openclaw-agent.pid) 2>/dev/null || true; fi",
-        timeout=20,
+        f"pid=$(cat {OPENCLAW_RUN_DIR}/openclaw-agent.pid); "
+        "kill \"$pid\" 2>/dev/null || true; "
+        "sleep 5; "
+        "kill -9 \"$pid\" 2>/dev/null || true; "
+        "fi",
+        timeout=30,
     )
 
 
@@ -417,8 +421,12 @@ def main(argv: list[str] | None = None) -> int:
                 if _response_ok(response):
                     wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
             finally:
-                collect_openclaw_cli_log(sandbox_name, log_dir)
-                stop_openclaw_cli(sandbox_name)
+                if args.wait_profile:
+                    stop_openclaw_cli(sandbox_name)
+                    collect_openclaw_cli_log(sandbox_name, log_dir)
+                else:
+                    collect_openclaw_cli_log(sandbox_name, log_dir)
+                    stop_openclaw_cli(sandbox_name)
         else:
             hooks_token = _read_hooks_token()
             if not hooks_token:
