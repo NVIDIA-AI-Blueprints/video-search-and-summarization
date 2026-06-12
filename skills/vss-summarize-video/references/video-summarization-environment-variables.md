@@ -53,7 +53,7 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.2.0` for x86 / Jetson-Tegra; `3.2.0-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0` and `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0-sbsa`. |
+| `RTVI_VLM_IMAGE_TAG` | `3.2.1-26.06.2` for x86 / Jetson-Tegra; `3.2.1-26.06.2-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-26.06.2` and `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-26.06.2-sbsa`. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
@@ -70,7 +70,7 @@ Video summarization service:
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
 | `LVS_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Image repository. |
-| `LVS_TAG` | `3.2.0` | Image tag in current develop. |
+| `LVS_TAG` | `3.2.1-26.06.2` | Image tag in current develop. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Active CA-RAG database backend. Use `graph_db` for Neo4j or `graph_db_arango` for ArangoDB only with an embedding endpoint configured. |
 | `LVS_EMB_ENABLE` | `false` | Required as `true` for Neo4j or ArangoDB graph backends. |
