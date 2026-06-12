@@ -50,6 +50,11 @@ on:
         options:
           - claude-code
           - nemoclaw
+      nemoclaw_instance:
+        description: "Optional Brev worker name for NemoClaw runs, e.g. vss-eval-rtx-2g-5."
+        required: false
+        default: ""
+        type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -420,6 +425,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
+          NEMOCLAW_INPUT_INSTANCE: ${{ inputs.nemoclaw_instance }}
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           set -a
@@ -450,6 +456,9 @@ jobs:
           export NEMOCLAW_EVAL_SPEC="${{ matrix.spec_stem }}"
           export NEMOCLAW_EVAL_PLATFORM="${{ matrix.platform }}"
           export NEMOCLAW_TASK_LIMIT="${{ matrix.task_limit }}"
+          if [ -n "${NEMOCLAW_INPUT_INSTANCE:-}" ]; then
+            export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"
+          fi
           export NEMOCLAW_RECREATE_SANDBOX=1
           export SKILLS_EVAL_RUNNER="nemoclaw"
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
