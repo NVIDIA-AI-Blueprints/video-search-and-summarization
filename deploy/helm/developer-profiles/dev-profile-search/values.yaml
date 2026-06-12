@@ -767,6 +767,7 @@ nims:
       pullPolicy: IfNotPresent
     replicas: 1
     nimModelSize: 'nano'
+    nimModelName: 'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'
     resources:
       limits:
         nvidia.com/gpu: '1'
