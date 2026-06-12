@@ -1494,27 +1494,28 @@ def _format_number(value: int | float | None) -> str:
 def _iter_json_objects_from_log(path: Path) -> Iterable[dict[str, Any]]:
     if not path.exists():
         return
-    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw_line.strip()
-        if not line:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    decoder = json.JSONDecoder()
+    index = 0
+    while index < len(text):
+        start = text.find("{", index)
+        if start < 0:
+            break
+        try:
+            parsed, offset = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            index = start + 1
             continue
-        candidates = [line]
-        if "{" in line:
-            candidates.append(line[line.find("{") :])
-        for candidate in candidates:
-            try:
-                parsed = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(parsed, dict):
-                yield parsed
-                break
+        if isinstance(parsed, dict):
+            yield parsed
+        index = start + max(offset, 1)
 
 
 def _usage_from_mapping(data: dict[str, Any]) -> tuple[int, int]:
     prompt_tokens = int(
         data.get("inputTokens")
         or data.get("input_tokens")
+        or data.get("input")
         or data.get("prompt_tokens")
         or data.get("promptTokens")
         or 0
@@ -1522,11 +1523,13 @@ def _usage_from_mapping(data: dict[str, Any]) -> tuple[int, int]:
     cached_tokens = int(
         data.get("cacheReadInputTokens")
         or data.get("cache_read_input_tokens")
+        or data.get("cacheRead")
         or 0
     )
     cached_tokens += int(
         data.get("cacheCreationInputTokens")
         or data.get("cache_creation_input_tokens")
+        or data.get("cacheWrite")
         or 0
     )
     return prompt_tokens, cached_tokens
@@ -1540,6 +1543,7 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
     turns = 0
     prompt_tokens = 0
     cached_tokens = 0
+    saw_usage = False
     for log_path in candidates:
         for event in _iter_json_objects_from_log(log_path):
             role = event.get("role")
@@ -1547,8 +1551,27 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
             if role == "assistant" or "assistant" in event_type:
                 turns += 1
 
+            result = event.get("result")
+            if isinstance(result, dict):
+                payloads = result.get("payloads")
+                if isinstance(payloads, list):
+                    turns += len([payload for payload in payloads if isinstance(payload, dict)])
+                meta = result.get("meta")
+                agent_meta = meta.get("agentMeta") if isinstance(meta, dict) else None
+                last_call_usage = (
+                    agent_meta.get("lastCallUsage")
+                    if isinstance(agent_meta, dict)
+                    else None
+                )
+                if isinstance(last_call_usage, dict):
+                    saw_usage = True
+                    prompt, cached = _usage_from_mapping(last_call_usage)
+                    prompt_tokens += prompt
+                    cached_tokens += cached
+
             usage = event.get("usage")
             if isinstance(usage, dict):
+                saw_usage = True
                 prompt, cached = _usage_from_mapping(usage)
                 prompt_tokens += prompt
                 cached_tokens += cached
@@ -1558,16 +1581,17 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
                 for usage_value in model_usage.values():
                     if not isinstance(usage_value, dict):
                         continue
+                    saw_usage = True
                     prompt, cached = _usage_from_mapping(usage_value)
                     prompt_tokens += prompt
                     cached_tokens += cached
 
-    if not turns and not prompt_tokens and not cached_tokens:
+    if not turns and not saw_usage:
         return None
     return (
         str(turns) if turns else "n/a",
-        _format_number(prompt_tokens) if prompt_tokens else "n/a",
-        _format_number(cached_tokens) if cached_tokens else "n/a",
+        _format_number(prompt_tokens) if saw_usage else "n/a",
+        _format_number(cached_tokens) if saw_usage else "n/a",
     )
 
 
