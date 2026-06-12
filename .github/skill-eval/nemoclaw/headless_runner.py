@@ -13,6 +13,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -204,6 +205,30 @@ def collect_openclaw_cli_log(sandbox_name: str, log_dir: Path) -> None:
     (log_dir / "openclaw-agent.log").write_text(result.stdout or "", encoding="utf-8")
 
 
+def _openclaw_log_completed(log_dir: Path) -> bool:
+    try:
+        text = (log_dir / "openclaw-agent.log").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return "finalAssistantVisibleText" in text and bool(
+        re.search(r'"(?:finishReason|stopReason)"\s*:\s*"stop"', text)
+    )
+
+
+def _openclaw_cli_state(sandbox_name: str) -> str:
+    result = _sandbox_exec(
+        sandbox_name,
+        f"if [ ! -f {OPENCLAW_RUN_DIR}/openclaw-agent.pid ]; then "
+        "echo missing; "
+        "else "
+        f"pid=$(cat {OPENCLAW_RUN_DIR}/openclaw-agent.pid); "
+        "if kill -0 \"$pid\" 2>/dev/null; then echo running; else echo stopped; fi; "
+        "fi",
+        timeout=30,
+    )
+    return (result.stdout or "").strip().splitlines()[-1] if result.stdout else "unknown"
+
+
 def stop_openclaw_cli(sandbox_name: str) -> None:
     _sandbox_exec(
         sandbox_name,
@@ -260,61 +285,57 @@ def run_openclaw_cli(
     if wait_profile:
         return _start_openclaw_cli_async(sandbox_name, prompt, timeout_s, log_dir)
 
-    ensure_openclaw_gateway(sandbox_name, log_dir)
-    inner = _openclaw_cli_command(prompt, timeout_s)
-    launcher = (
-        "set -u; "
-        f"mkdir -p {OPENCLAW_RUN_DIR}; "
-        f"rm -f {OPENCLAW_RUN_DIR}/openclaw-agent.log "
-        f"{OPENCLAW_RUN_DIR}/openclaw-agent.pid {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
-        f"sh -lc {shlex.quote(inner)} > {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>&1 & "
-        "pid=$!; "
-        f"echo $pid > {OPENCLAW_RUN_DIR}/openclaw-agent.pid; "
-        f"deadline=$(( $(date +%s) + {int(timeout_s) + 60} )); "
-        "while kill -0 \"$pid\" 2>/dev/null; do "
-        f"  if grep -q '\"finalAssistantVisibleText\"' {OPENCLAW_RUN_DIR}/openclaw-agent.log "
-        f"     && grep -q '\"finishReason\": \"stop\"' {OPENCLAW_RUN_DIR}/openclaw-agent.log; then "
-        "    sleep 3; "
-        "    kill \"$pid\" 2>/dev/null || true; "
-        "    sleep 2; "
-        "    kill -9 \"$pid\" 2>/dev/null || true; "
-        f"    echo 0 > {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
-        "    exit 0; "
-        "  fi; "
-        "  if [ \"$(date +%s)\" -ge \"$deadline\" ]; then "
-        "    kill \"$pid\" 2>/dev/null || true; "
-        "    sleep 2; "
-        "    kill -9 \"$pid\" 2>/dev/null || true; "
-        f"    echo 124 > {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
-        "    exit 124; "
-        "  fi; "
-        "  sleep 5; "
-        "done; "
-        "wait \"$pid\"; rc=$?; "
-        f"echo \"$rc\" > {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
-        "exit \"$rc\""
-    )
-    try:
-        result = _sandbox_exec(sandbox_name, launcher, timeout=timeout_s + 90)
-        returncode = result.returncode
-        stdout = result.stdout or ""
-        stderr = result.stderr or ""
-        error = ""
-        error_type = ""
-    except subprocess.TimeoutExpired as exc:
-        returncode = 124
-        stdout = (exc.stdout or "")
-        stderr = (exc.stderr or "")
-        if isinstance(stdout, bytes):
-            stdout = stdout.decode("utf-8", errors="replace")
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode("utf-8", errors="replace")
-        error = str(exc)
-        error_type = type(exc).__name__
-    (log_dir / "openclaw-launch.log").write_text(
-        f"returncode={returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}\nerror_type={error_type}\nerror={error}\n",
-        encoding="utf-8",
-    )
+    start = _start_openclaw_cli_async(sandbox_name, prompt, timeout_s, log_dir)
+    if not _response_ok(start):
+        start["body"]["mode"] = "cli"
+        return start
+
+    poll_sec = max(5, int(os.environ.get("NEMOCLAW_OPENCLAW_POLL_SEC", "15")))
+    deadline = time.time() + timeout_s
+    returncode = 124
+    stdout = start.get("stdout_tail", "")
+    stderr = start.get("stderr_tail", "")
+    error = "OpenClaw final output was not emitted before timeout"
+    error_type = "Timeout"
+    completed = False
+    state = "unknown"
+
+    while time.time() < deadline:
+        collect_openclaw_cli_log(sandbox_name, log_dir)
+        if _openclaw_log_completed(log_dir):
+            returncode = 0
+            error = ""
+            error_type = ""
+            completed = True
+            break
+        state = _openclaw_cli_state(sandbox_name)
+        if state == "stopped":
+            collect_openclaw_cli_log(sandbox_name, log_dir)
+            if _openclaw_log_completed(log_dir):
+                returncode = 0
+                error = ""
+                error_type = ""
+                completed = True
+            else:
+                returncode = 1
+                error = "OpenClaw process stopped before final output was emitted"
+                error_type = "OpenClawStopped"
+            break
+        time.sleep(poll_sec)
+
+    if not completed:
+        collect_openclaw_cli_log(sandbox_name, log_dir)
+        if _openclaw_log_completed(log_dir):
+            returncode = 0
+            error = ""
+            error_type = ""
+            completed = True
+
+    with (log_dir / "openclaw-launch.log").open("a", encoding="utf-8") as handle:
+        handle.write(
+            f"mode=blocking-poll\nreturncode={returncode}\ncompleted={str(completed).lower()}\n"
+            f"last_state={state}\nerror_type={error_type}\nerror={error}\n"
+        )
     return {
         "status": 200 if returncode == 0 else 500,
         "body": {

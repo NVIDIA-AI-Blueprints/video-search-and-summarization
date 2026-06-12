@@ -1621,6 +1621,19 @@ def _metrics_include_usage(metrics: tuple[str, str, str] | None) -> bool:
     return bool(metrics and (metrics[1] != "n/a" or metrics[2] != "n/a"))
 
 
+def _wait_for_nemoclaw_metrics(trial_dir: Path | None, timeout_s: float = 30.0) -> None:
+    if trial_dir is None:
+        return
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        metrics = _load_openclaw_log_metrics(trial_dir)
+        if metrics is not None:
+            return
+        if _load_nemoclaw_async_metrics(trial_dir) is not None:
+            return
+        time.sleep(2)
+
+
 def _nemoclaw_runtime_details(trial_dir: Path | None) -> list[str]:
     artifact_dir = _nemoclaw_artifact_dir(trial_dir)
     if artifact_dir is None:
@@ -1843,6 +1856,7 @@ def _append_harbor_report(
         started = dt.datetime.fromtimestamp(trial_dir.stat().st_mtime, dt.timezone.utc).isoformat()
     if finished == "-" and trial_dir is not None:
         finished = dt.datetime.fromtimestamp(trial_dir.stat().st_mtime, dt.timezone.utc).isoformat()
+    _wait_for_nemoclaw_metrics(trial_dir)
     turns, prompt_tokens, cached_tokens = _load_trajectory_metrics(trial_dir, result)
     passed, total, failures = _judge_details(trial_dir, reward)
     trace_url = _copy_viewer_snapshot(

@@ -487,8 +487,22 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         }
 
         def fake_run(cmd, *, timeout=30):
+            call_index = len(calls)
             calls.append(tuple(cmd))
-            return subprocess.CompletedProcess(cmd, 0, stdout="agent done", stderr="")
+            if call_index > 0:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=(
+                        '{"result":{"payloads":[{"text":"done"}],'
+                        '"meta":{"agentMeta":{"lastCallUsage":{"input":12,'
+                        '"cacheRead":3,"cacheWrite":4}}},'
+                        '"completion":{"finishReason":"stop"},'
+                        '"finalAssistantVisibleText":"done"}}'
+                    ),
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="started", stderr="")
 
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
@@ -511,15 +525,13 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(response["body"]["mode"], "cli")
         self.assertEqual(response["body"]["returncode"], 0)
         self.assertTrue(any("base64 -d" in " ".join(call) for call in calls))
-        self.assertIn("agent done", launch_log)
+        self.assertIn("mode=blocking-poll", launch_log)
+        self.assertIn("completed=true", launch_log)
         wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
         encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
         script = base64.b64decode(encoded).decode("utf-8")
-        self.assertNotIn("nohup sh -lc", script)
-        self.assertIn("wait \"$pid\"", script)
-        self.assertIn("openclaw-agent.rc", script)
-        self.assertIn("finalAssistantVisibleText", script)
-        self.assertIn("finishReason", script)
+        self.assertIn("echo started", script)
+        self.assertNotIn("while kill -0", script)
         self.assertIn("--message", script)
         self.assertNotIn("--local", script)
         self.assertIn("--json", script)
@@ -1649,6 +1661,40 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             )
 
         self.assertEqual(metrics, ("2", "42", "12"))
+
+    def test_nemoclaw_report_preserves_zero_openclaw_usage(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            log_dir = trial_dir / "artifacts" / "nemoclaw"
+            log_dir.mkdir(parents=True)
+            (log_dir / "openclaw-agent.log").write_text(
+                json.dumps(
+                    {
+                        "result": {
+                            "payloads": [{"text": "done"}],
+                            "meta": {
+                                "agentMeta": {
+                                    "lastCallUsage": {
+                                        "input": 0,
+                                        "cacheRead": 0,
+                                        "cacheWrite": 0,
+                                    }
+                                }
+                            },
+                        }
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+
+        self.assertEqual(metrics, ("1", "0", "0"))
 
     def test_nemoclaw_report_marks_async_metrics_as_not_emitted(self):
         with tempfile.TemporaryDirectory() as td:
