@@ -1595,6 +1595,58 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
     )
 
 
+def _nemoclaw_artifact_dir(trial_dir: Path | None) -> Path | None:
+    if trial_dir is None:
+        return None
+    candidates = [
+        trial_dir / "artifacts" / "nemoclaw",
+        trial_dir / "artifacts" / "artifacts" / "nemoclaw",
+    ]
+    return next((path for path in candidates if path.is_dir()), None)
+
+
+def _load_nemoclaw_async_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
+    artifact_dir = _nemoclaw_artifact_dir(trial_dir)
+    if artifact_dir is None:
+        return None
+    hooks = _read_json(artifact_dir / "nemoclaw_hooks_response.json")
+    response = hooks.get("response") if isinstance(hooks, dict) else None
+    body = response.get("body") if isinstance(response, dict) else None
+    if not isinstance(body, dict) or body.get("mode") != "cli-async":
+        return None
+    return "async readiness", "not emitted", "not emitted"
+
+
+def _nemoclaw_runtime_details(trial_dir: Path | None) -> list[str]:
+    artifact_dir = _nemoclaw_artifact_dir(trial_dir)
+    if artifact_dir is None:
+        return []
+    hooks = _read_json(artifact_dir / "nemoclaw_hooks_response.json")
+    response = hooks.get("response") if isinstance(hooks, dict) else None
+    body = response.get("body") if isinstance(response, dict) else None
+    if not isinstance(body, dict) or body.get("mode") != "cli-async":
+        return []
+
+    details = ["- OpenClaw completion mode: `async readiness`"]
+    elapsed = hooks.get("elapsed_s")
+    if isinstance(elapsed, (int, float)):
+        details.append(f"- Readiness wait: `{_format_duration(float(elapsed))}`")
+
+    wait: Any = []
+    try:
+        wait = json.loads((artifact_dir / "nemoclaw_wait.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        wait = []
+    if isinstance(wait, list):
+        details.append(f"- Readiness polls: `{len(wait)}`")
+
+    details.append(
+        "- OpenClaw turn/token metrics: `not emitted`; the fast path stops after "
+        "VSS readiness instead of waiting for OpenClaw's final answer."
+    )
+    return details
+
+
 def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> tuple[str, str, str]:
     agent_result = result.get("agent_result") if isinstance(result, dict) else None
     if isinstance(agent_result, dict):
@@ -1608,7 +1660,11 @@ def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> 
     trajectory = trial_dir / "agent" / "trajectory.json"
     data = _read_json(trajectory)
     if not data:
-        return _load_openclaw_log_metrics(trial_dir) or ("n/a", "n/a", "n/a")
+        return (
+            _load_openclaw_log_metrics(trial_dir)
+            or _load_nemoclaw_async_metrics(trial_dir)
+            or ("n/a", "n/a", "n/a")
+        )
 
     steps = data.get("steps")
     turns = 0
@@ -1831,6 +1887,7 @@ def _append_harbor_report(
     ]
     if trial_dir is not None:
         body.append(f"- Trial artifacts: `{trial_dir}`")
+    body.extend(_nemoclaw_runtime_details(trial_dir))
     if failures:
         body.extend(["", "### Failing checks", ""])
         body.extend(f"- {_shorten(item)}" for item in failures[:10])

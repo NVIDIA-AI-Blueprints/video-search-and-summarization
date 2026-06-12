@@ -1650,6 +1650,47 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(metrics, ("2", "42", "12"))
 
+    def test_nemoclaw_report_marks_async_metrics_as_not_emitted(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            log_dir = trial_dir / "artifacts" / "nemoclaw"
+            log_dir.mkdir(parents=True)
+            (log_dir / "nemoclaw_hooks_response.json").write_text(
+                json.dumps(
+                    {
+                        "elapsed_s": 699.94,
+                        "response": {
+                            "status": 200,
+                            "body": {
+                                "ok": True,
+                                "mode": "cli-async",
+                                "returncode": 0,
+                            },
+                        },
+                        "wait": {
+                            "waited": True,
+                            "ok": True,
+                            "profile": "base",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (log_dir / "nemoclaw_wait.json").write_text(
+                json.dumps([{"ok": False}, {"ok": True}]),
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": None, "n_cache_tokens": None}},
+            )
+            details = smoke_runner._nemoclaw_runtime_details(trial_dir)
+
+        self.assertEqual(metrics, ("async readiness", "not emitted", "not emitted"))
+        self.assertIn("- Readiness wait: `11m 40s`", details)
+        self.assertIn("- Readiness polls: `2`", details)
+
     def test_nemoclaw_report_prefers_leaf_trial_and_links_run_when_viewer_unavailable(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
