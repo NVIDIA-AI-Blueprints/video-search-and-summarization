@@ -1309,6 +1309,12 @@ def _select_and_lock_instance(
             print(f"[nemoclaw-ci] skipping locked candidate {candidate}", flush=True)
 
         if time.time() >= deadline:
+            if explicit:
+                raise InfrastructureBlocked(
+                    "lock timeout: explicit worker "
+                    f"{explicit} for {platform} was not reachable/unlocked "
+                    f"after {timeout_s}s"
+                )
             raise InfrastructureBlocked(
                 "lock timeout: no reachable unlocked worker for "
                 f"{platform} after {timeout_s}s"

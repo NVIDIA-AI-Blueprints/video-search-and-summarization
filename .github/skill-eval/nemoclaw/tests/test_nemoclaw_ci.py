@@ -1053,6 +1053,29 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("no running vss-eval-* candidate for RTXPRO6000BW", message)
         self.assertIn("vss-eval-l40s-1g", message)
 
+    def test_explicit_worker_timeout_names_worker(self):
+        previous = {
+            "_reachable": smoke_runner._reachable,
+            "sleep": smoke_runner.time.sleep,
+        }
+        smoke_runner._reachable = lambda instance, exec_target=None: False
+        smoke_runner.time.sleep = lambda seconds: None
+        try:
+            with self.assertRaises(smoke_runner.InfrastructureBlocked) as ctx:
+                smoke_runner._select_and_lock_instance(
+                    "RTXPRO6000BW",
+                    1,
+                    "vss-eval-rtx-2g-5",
+                    0,
+                )
+        finally:
+            smoke_runner._reachable = previous["_reachable"]
+            smoke_runner.time.sleep = previous["sleep"]
+
+        message = str(ctx.exception)
+        self.assertIn("explicit worker vss-eval-rtx-2g-5", message)
+        self.assertIn("RTXPRO6000BW", message)
+
     def test_worker_selection_retries_transient_inventory_timeout(self):
         previous = {
             "_list_instances": smoke_runner._list_instances,
