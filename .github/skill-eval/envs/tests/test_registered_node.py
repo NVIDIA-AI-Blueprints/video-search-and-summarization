@@ -381,6 +381,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
         original = brev_env._run_brev_exec
         brev_env._run_brev_exec = fake_run_brev_exec
+        previous_fast = os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
         try:
             env = brev_env.BrevEnvironment()
             env._instance_name = "vss-eval-test"
@@ -395,16 +396,50 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             brev_env._run_brev_exec = original
+            if previous_fast is not None:
+                os.environ["NEMOCLAW_FAST_READINESS_MODE"] = previous_fast
 
         self.assertEqual(len(calls), 1)
         command = calls[0][1]
         self.assertIn("NemoClaw direct Harbor launcher", command)
         self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
         self.assertIn("--launch-mode cli", command)
-        self.assertIn("--wait-profile base", command)
+        self.assertNotIn("--wait-profile base", command)
         self.assertIn("--expected-skill vss-ask-video", command)
         self.assertIn("--prompt-file /tests/nemoclaw_prompt.md", command)
         self.assertNotIn("claude --print", command)
+
+    async def test_nemoclaw_launcher_can_opt_into_fast_readiness_mode(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        previous_fast = os.environ.get("NEMOCLAW_FAST_READINESS_MODE")
+        brev_env._run_brev_exec = fake_run_brev_exec
+        os.environ["NEMOCLAW_FAST_READINESS_MODE"] = "1"
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            env._task_metadata = {
+                "runner": "nemoclaw",
+                "deployment_profile": "base",
+                "expected_skill": "vss-ask-video",
+            }
+            await env.exec(
+                "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
+                timeout_sec=123,
+            )
+        finally:
+            brev_env._run_brev_exec = original
+            if previous_fast is None:
+                os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
+            else:
+                os.environ["NEMOCLAW_FAST_READINESS_MODE"] = previous_fast
+
+        self.assertIn("--wait-profile base", calls[0][1])
 
     async def test_nemoclaw_launcher_embeds_current_prompt_when_task_dir_exists(self):
         calls = []
