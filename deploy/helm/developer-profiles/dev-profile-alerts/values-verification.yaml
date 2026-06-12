@@ -22,7 +22,7 @@
 
 profile: alerts
 mode: verification
-vlmName: "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"
+vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 ngc:
   createSecrets: true
@@ -39,7 +39,7 @@ global:
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 # Shared umbrella helm/services/nims — override gpuType here (see dev-profile-alerts/values.yaml for full nims.* defaults).
 nims:
@@ -55,7 +55,7 @@ agent:
   vss-agent:
     rtviVlmEnabled: true
     cosmosEmbedEnabled: false
-    vlmName: "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"
+    vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 vssIngress:
   enabled: true

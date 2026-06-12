@@ -263,7 +263,7 @@ alert_agent:
 rtvi_vlm:
   base_url: "http://localhost:8018/v1"          # RTVI VLM microservice URL (env: RTVI_VLM_BASE_URL)
   timeout: 10                                # HTTP request timeout (seconds)
-  default_model: "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"  # Default VLM model id (must match what RTVI VLM has loaded — query GET /v1/models to confirm)
+  default_model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"  # Default VLM model id (must match what RTVI VLM has loaded — query GET /v1/models to confirm)
   captions_ack_timeout: 2.0                  # Seconds to wait for generate_captions initial HTTP ack
   # Stream readiness probe: after the captions ack window expires
   # (streaming mode) the create path polls GET /streams/get-stream-info
