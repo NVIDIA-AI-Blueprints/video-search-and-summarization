@@ -939,6 +939,40 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             )
         )
 
+    def test_manual_single_skill_matrix_uses_representative_row_by_default(self):
+        previous_env = {
+            key: os.environ.pop(key, None)
+            for key in (
+                "MANUAL_SKILLS_FILTER",
+                "NEMOCLAW_EVAL_SPEC",
+                "NEMOCLAW_EVAL_PLATFORM",
+                "NEMOCLAW_ALL_SPECS",
+            )
+        }
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                rc = smoke_runner.main([
+                    "--print-matrix",
+                    "--skills",
+                    "vss-manage-alerts",
+                ])
+        finally:
+            for key, value in previous_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        self.assertEqual(rc, 0)
+        rows = json.loads(stdout.getvalue())["include"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["skill"], "vss-manage-alerts")
+        self.assertEqual(rows[0]["spec_stem"], "alerts_vlm_real_time")
+        self.assertEqual(rows[0]["platform"], "RTXPRO6000BW")
+        self.assertEqual(rows[0]["task_limit"], "1")
+
     def test_alerts_cv_is_blocked_for_nemoclaw_unless_rt_cv_is_enabled(self):
         previous = os.environ.pop("NEMOCLAW_ENABLE_RTCV", None)
         try:

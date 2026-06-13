@@ -2198,6 +2198,7 @@ def main(argv: list[str] | None = None) -> int:
     default_single_smoke = not spec_filter and not all_skills and requested_skills in ([], [DEFAULT_SKILL])
     platform_filter = args.platform or (DEFAULT_PLATFORM if default_single_smoke else None)
     profile_filter = args.profile if default_single_smoke else None
+    representative_matrix = not spec_filter and not args.all_specs
 
     if args.print_matrix:
         rows, blockers = _build_matrix(
@@ -2205,7 +2206,7 @@ def main(argv: list[str] | None = None) -> int:
             profile_filter=profile_filter,
             platform_filter=platform_filter,
             spec_filter=spec_filter,
-            representative_per_skill=all_skills and not args.all_specs,
+            representative_per_skill=representative_matrix,
         )
         _print_matrix(rows, blockers)
         return 0
