@@ -803,6 +803,25 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(parsed[0]["name"], "vss-eval-rtx-1g-2")
 
+    def test_brev_json_parser_accepts_workspaces_object(self):
+        raw = json.dumps(
+            {
+                "workspaces": [
+                    {
+                        "id": "instance-explicit",
+                        "name": "vss-eval-rtx-1g-10",
+                        "status": "RUNNING",
+                        "gpu": "RTXPro6000",
+                    }
+                ]
+            }
+        )
+
+        parsed = smoke_runner._parse_brev_json(raw)
+
+        self.assertEqual(parsed[0]["id"], "instance-explicit")
+        self.assertEqual(parsed[0]["name"], "vss-eval-rtx-1g-10")
+
     def test_instance_candidates_prefer_matching_gpu_partition(self):
         instances = [
             {

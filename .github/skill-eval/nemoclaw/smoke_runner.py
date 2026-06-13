@@ -149,6 +149,23 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 def _parse_brev_json(raw: str) -> list[dict[str, Any]]:
     """Parse Brev JSON output while tolerating trailing CLI walkthrough text."""
+    text = raw.strip()
+    if text:
+        for start_char, end_char in (("[", "]"), ("{", "}")):
+            start = text.find(start_char)
+            end = text.rfind(end_char)
+            if start < 0 or end < start:
+                continue
+            try:
+                parsed = json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict):
+                workspaces = parsed.get("workspaces")
+                if isinstance(workspaces, list):
+                    return [item for item in workspaces if isinstance(item, dict)]
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
