@@ -1090,6 +1090,50 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(calls["lock"], ("vss-eval-rtx-1g-2", "instance-123"))
         self.assertEqual(lock.remote_target, "instance-123")
 
+    def test_explicit_worker_uses_brev_id_as_exec_target_when_visible(self):
+        previous = {
+            "_list_instances": smoke_runner._list_instances,
+            "_reachable": smoke_runner._reachable,
+            "_try_acquire_lock": smoke_runner._try_acquire_lock,
+        }
+        calls: dict[str, tuple[str, str | None]] = {}
+        instances = [
+            {
+                "id": "instance-explicit",
+                "name": "vss-eval-rtx-1g-10",
+                "status": "RUNNING",
+                "gpu": "RTXPro6000",
+            },
+        ]
+
+        def fake_reachable(instance: str, exec_target: str | None = None) -> bool:
+            calls["reachable"] = (instance, exec_target)
+            return True
+
+        def fake_lock(instance: str, exec_target: str | None = None):
+            calls["lock"] = (instance, exec_target)
+            return smoke_runner.WorkerLock(123, object(), "owner", exec_target)
+
+        smoke_runner._list_instances = lambda: instances
+        smoke_runner._reachable = fake_reachable
+        smoke_runner._try_acquire_lock = fake_lock
+        try:
+            selected, lock = smoke_runner._select_and_lock_instance(
+                "RTXPRO6000BW",
+                1,
+                "vss-eval-rtx-1g-10",
+                10,
+            )
+        finally:
+            smoke_runner._list_instances = previous["_list_instances"]
+            smoke_runner._reachable = previous["_reachable"]
+            smoke_runner._try_acquire_lock = previous["_try_acquire_lock"]
+
+        self.assertEqual(selected, "vss-eval-rtx-1g-10")
+        self.assertEqual(calls["reachable"], ("vss-eval-rtx-1g-10", "instance-explicit"))
+        self.assertEqual(calls["lock"], ("vss-eval-rtx-1g-10", "instance-explicit"))
+        self.assertEqual(lock.remote_target, "instance-explicit")
+
     def test_worker_selection_reports_visible_pool_when_platform_missing(self):
         previous = {"_list_instances": smoke_runner._list_instances}
         smoke_runner._list_instances = lambda: [
@@ -1112,9 +1156,11 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
     def test_explicit_worker_timeout_names_worker(self):
         previous = {
+            "_list_instances": smoke_runner._list_instances,
             "_reachable": smoke_runner._reachable,
             "sleep": smoke_runner.time.sleep,
         }
+        smoke_runner._list_instances = lambda: []
         smoke_runner._reachable = lambda instance, exec_target=None: False
         smoke_runner.time.sleep = lambda seconds: None
         try:
@@ -1126,6 +1172,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                     0,
                 )
         finally:
+            smoke_runner._list_instances = previous["_list_instances"]
             smoke_runner._reachable = previous["_reachable"]
             smoke_runner.time.sleep = previous["sleep"]
 

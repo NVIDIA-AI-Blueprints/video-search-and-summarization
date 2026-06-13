@@ -1253,6 +1253,20 @@ def _select_and_lock_instance(
         if explicit:
             candidates = [explicit]
             instances_by_name: dict[str, dict[str, Any]] = {}
+            try:
+                instances = _list_instances()
+            except InfrastructureBlocked as exc:
+                print(
+                    f"[nemoclaw-ci] explicit worker inventory unavailable: {exc}; "
+                    "falling back to the worker name",
+                    flush=True,
+                )
+            else:
+                instances_by_name = {
+                    str(inst.get("name") or ""): inst
+                    for inst in instances
+                    if inst.get("name")
+                }
         else:
             try:
                 instances = _list_instances()
