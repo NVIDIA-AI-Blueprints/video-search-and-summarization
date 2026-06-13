@@ -282,7 +282,11 @@ def run_openclaw_cli(
     log_dir: Path,
     wait_profile: str = "",
 ) -> dict[str, Any]:
-    if wait_profile:
+    fast_readiness = (
+        os.environ.get("NEMOCLAW_FAST_READINESS_MODE", "").strip().lower()
+        in {"1", "true", "yes"}
+    )
+    if wait_profile and fast_readiness:
         return _start_openclaw_cli_async(sandbox_name, prompt, timeout_s, log_dir)
 
     start = _start_openclaw_cli_async(sandbox_name, prompt, timeout_s, log_dir)
@@ -375,6 +379,34 @@ def _vss_base_ready() -> tuple[bool, str]:
     return True, "VSS base readiness probes passed"
 
 
+def _vss_lvs_ready() -> tuple[bool, str]:
+    base_ok, base_message = _vss_base_ready()
+    if not base_ok:
+        return base_ok, base_message
+    probes = [
+        ["curl", "-sf", "--max-time", "15", "http://localhost:38111/v1/ready"],
+    ]
+    for probe in probes:
+        result = _run(probe, timeout=20)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or f"exit {result.returncode}")[-300:]
+            return False, f"{' '.join(probe)} failed: {detail}"
+
+    result = _run(["docker", "ps", "--format", "{{.Names}}"], timeout=20)
+    if result.returncode != 0:
+        return False, f"docker ps failed: {(result.stderr or result.stdout)[-300:]}"
+    names = set(result.stdout.splitlines())
+    if "vss-lvs" not in names:
+        return False, "missing containers: vss-lvs"
+    return True, "VSS lvs readiness probes passed"
+
+
+def _profile_ready(profile: str) -> tuple[bool, str]:
+    if profile == "lvs":
+        return _vss_lvs_ready()
+    return _vss_base_ready()
+
+
 def wait_for_profile(profile: str, timeout_s: int, log_dir: Path) -> dict[str, Any]:
     if not profile:
         return {"waited": False, "reason": "no profile requested"}
@@ -382,7 +414,7 @@ def wait_for_profile(profile: str, timeout_s: int, log_dir: Path) -> dict[str, A
     deadline = time.time() + timeout_s
     attempts: list[dict[str, Any]] = []
     while time.time() < deadline:
-        ok, message = _vss_base_ready()
+        ok, message = _profile_ready(profile)
         attempts.append({"t": round(time.time(), 3), "ok": ok, "message": message})
         (log_dir / "nemoclaw_wait.json").write_text(json.dumps(attempts, indent=2), encoding="utf-8")
         if ok:
