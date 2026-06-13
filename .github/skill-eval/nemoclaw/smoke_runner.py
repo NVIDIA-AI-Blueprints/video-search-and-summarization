@@ -1286,6 +1286,21 @@ def _select_and_lock_instance(
     timeout_s: int,
 ) -> tuple[str, WorkerLock]:
     deadline = time.time() + timeout_s
+    observations: list[str] = []
+
+    def remember(message: str) -> None:
+        if not message:
+            return
+        if observations and observations[-1] == message:
+            return
+        observations.append(message)
+        del observations[:-8]
+
+    def details() -> str:
+        if not observations:
+            return ""
+        return "; last observations: " + " | ".join(observations)
+
     while True:
         if explicit:
             candidates = [explicit]
@@ -1293,6 +1308,7 @@ def _select_and_lock_instance(
             try:
                 instances = _list_instances()
             except InfrastructureBlocked as exc:
+                remember(f"explicit worker inventory unavailable: {exc}")
                 print(
                     f"[nemoclaw-ci] explicit worker inventory unavailable: {exc}; "
                     "falling back to the worker name",
@@ -1304,15 +1320,27 @@ def _select_and_lock_instance(
                     for inst in instances
                     if inst.get("name")
                 }
+                explicit_instance = instances_by_name.get(explicit)
+                if explicit_instance:
+                    remember(
+                        "explicit worker inventory: "
+                        f"name={explicit} id={explicit_instance.get('id') or '-'} "
+                        f"status={explicit_instance.get('status') or '-'} "
+                        f"shell={explicit_instance.get('shell_status') or '-'} "
+                        f"health={explicit_instance.get('health_status') or '-'}"
+                    )
+                else:
+                    remember(f"explicit worker {explicit} not visible in brev ls inventory")
         else:
             try:
                 instances = _list_instances()
             except InfrastructureBlocked as exc:
                 reason = str(exc)
+                remember(reason)
                 if time.time() >= deadline:
                     raise InfrastructureBlocked(
                         "worker inventory unavailable for "
-                        f"{platform} after {timeout_s}s: {reason}"
+                        f"{platform} after {timeout_s}s: {reason}{details()}"
                     ) from exc
                 print(
                     f"[nemoclaw-ci] worker inventory unavailable: {reason}; "
@@ -1338,8 +1366,9 @@ def _select_and_lock_instance(
                 f"no running vss-eval-* candidate for {platform}; "
                 f"visible workers: {inventory}"
             )
+            remember(reason)
             if time.time() >= deadline:
-                raise InfrastructureBlocked(reason)
+                raise InfrastructureBlocked(reason + details())
             print(f"[nemoclaw-ci] {reason}; retrying worker selection", flush=True)
             time.sleep(10)
             continue
@@ -1352,11 +1381,13 @@ def _select_and_lock_instance(
                     flush=True,
                 )
             if not _reachable(candidate, exec_target):
+                remember(f"candidate {candidate} failed reachability check")
                 print(f"[nemoclaw-ci] skipping unreachable candidate {candidate}", flush=True)
                 continue
             lock = _try_acquire_lock(candidate, exec_target)
             if lock is not None:
                 return candidate, lock
+            remember(f"candidate {candidate} reachable but worker lock unavailable")
             print(f"[nemoclaw-ci] skipping locked candidate {candidate}", flush=True)
 
         if time.time() >= deadline:
@@ -1364,11 +1395,11 @@ def _select_and_lock_instance(
                 raise InfrastructureBlocked(
                     "lock timeout: explicit worker "
                     f"{explicit} for {platform} was not reachable/unlocked "
-                    f"after {timeout_s}s"
+                    f"after {timeout_s}s{details()}"
                 )
             raise InfrastructureBlocked(
                 "lock timeout: no reachable unlocked worker for "
-                f"{platform} after {timeout_s}s"
+                f"{platform} after {timeout_s}s{details()}"
             )
         if explicit:
             print(f"[nemoclaw-ci] waiting for explicit worker lock: {explicit}", flush=True)
