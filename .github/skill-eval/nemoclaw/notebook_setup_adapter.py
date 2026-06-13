@@ -84,6 +84,8 @@ NEMOCLAW_INSTALL_REF = os.environ.get(
     _notebook_default("NEMOCLAW_INSTALL_REF", ""),
 ).strip()
 NEMOCLAW_SANDBOX_NAME = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo").strip()
+NEMOCLAW_RECREATE_SANDBOX = os.environ.get("NEMOCLAW_RECREATE_SANDBOX", "1").strip() or "1"
+os.environ["NEMOCLAW_RECREATE_SANDBOX"] = NEMOCLAW_RECREATE_SANDBOX
 OPENCLAW_HOOKS_ENABLED = os.environ.get("OPENCLAW_HOOKS_ENABLED", "1").lower() not in ("0", "false", "no")
 OPENCLAW_HOOKS_PATH = os.environ.get(
     "OPENCLAW_HOOKS_PATH",
@@ -136,6 +138,7 @@ _token_file = Path(os.environ.get("NEMOCLAW_HOOKS_TOKEN_FILE", str(Path.home() /
 _token_file.parent.mkdir(parents=True, exist_ok=True)
 _keys = [
     "NEMOCLAW_SANDBOX_NAME",
+    "NEMOCLAW_RECREATE_SANDBOX",
     "OPENCLAW_HOOKS_PATH",
     "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
     "MCP_URL",
