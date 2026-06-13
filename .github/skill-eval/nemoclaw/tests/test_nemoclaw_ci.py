@@ -54,6 +54,10 @@ readiness = load_module(
     "nemoclaw_readiness",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "readiness.py",
 )
+nemoclaw_deploy_profile_verifier = load_module(
+    "nemoclaw_deploy_profile_verifier",
+    REPO_ROOT / ".github" / "skill-eval" / "verifiers" / "nemoclaw_deploy_profile.py",
+)
 smoke_runner = load_module(
     "nemoclaw_smoke_runner",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "smoke_runner.py",
@@ -2116,6 +2120,7 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             task_dir = out / "base" / "l40s"
             task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
             instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
+            test_script = (task_dir / "tests" / "test.sh").read_text(encoding="utf-8")
 
             self.assertIn('runner = "nemoclaw"', task_toml)
             self.assertIn('requires_mcp = true', task_toml)
@@ -2125,6 +2130,8 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertIn("--launch-mode cli", instruction)
             self.assertIn("--timeout 2400", instruction)
             self.assertIn("--wait-profile base", instruction)
+            self.assertIn("nemoclaw_deploy_profile.py", test_script)
+            self.assertTrue((task_dir / "tests" / "nemoclaw_deploy_profile.py").exists())
             prompt = (task_dir / "tests" / "nemoclaw_prompt.md").read_text(encoding="utf-8")
             self.assertIn("Use the `/vss-deploy-profile` skill", prompt)
 
@@ -2150,6 +2157,30 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
         self.assertIn("Brev secure-link URL", checks[1])
         self.assertIn("`vss-agent` as running", checks[2])
         self.assertIn("`vss-haproxy-ingress`", checks[3])
+
+    def test_nemoclaw_deploy_profile_verifier_uses_openclaw_fallback(self):
+        raw_log = "finalAssistantVisibleText: vss-agent health checks passing: 200 OK; https://7777-x.brevlab.com/; vss-haproxy-ingress running"
+        final = raw_log
+
+        api = nemoclaw_deploy_profile_verifier._fallback_pass(
+            "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0",
+            final,
+            raw_log,
+        )
+        ui = nemoclaw_deploy_profile_verifier._fallback_pass(
+            "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0",
+            final,
+            raw_log,
+        )
+        phoenix = nemoclaw_deploy_profile_verifier._fallback_pass(
+            "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+            final,
+            raw_log,
+        )
+
+        self.assertTrue(api[0])
+        self.assertTrue(ui[0])
+        self.assertTrue(phoenix[0])
 
     def test_missing_eval_spec_does_not_generate_nemoclaw_launcher(self):
         with tempfile.TemporaryDirectory() as td:
