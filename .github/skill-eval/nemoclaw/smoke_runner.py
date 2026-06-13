@@ -14,6 +14,7 @@ import argparse
 import datetime as dt
 import fcntl
 import json
+import math
 import os
 import re
 import selectors
@@ -1623,6 +1624,29 @@ def _usage_from_mapping(data: dict[str, Any]) -> tuple[int, int]:
     return prompt_tokens, cached_tokens
 
 
+def _prompt_chars_from_openclaw_meta(meta: dict[str, Any]) -> int:
+    """Estimate the prompt size when OpenClaw omits provider token usage."""
+    total_chars = 0
+    report = meta.get("systemPromptReport")
+    if isinstance(report, dict):
+        system_prompt = report.get("systemPrompt")
+        if isinstance(system_prompt, dict):
+            total_chars += int(system_prompt.get("chars") or 0)
+        skills = report.get("skills")
+        if isinstance(skills, dict):
+            total_chars += int(skills.get("promptChars") or 0)
+    final_prompt = meta.get("finalPromptText")
+    if isinstance(final_prompt, str):
+        total_chars += len(final_prompt)
+    return total_chars
+
+
+def _format_estimated_tokens(chars: int) -> str:
+    if chars <= 0:
+        return "n/a"
+    return f"~{_format_number(math.ceil(chars / 4))}"
+
+
 def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
     candidates = [
         trial_dir / "artifacts" / "nemoclaw" / "openclaw-agent.log",
@@ -1631,6 +1655,7 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
     turns = 0
     prompt_tokens = 0
     cached_tokens = 0
+    estimated_prompt_chars = 0
     saw_usage = False
     for log_path in candidates:
         for event in _iter_json_objects_from_log(log_path):
@@ -1645,6 +1670,11 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
                 if isinstance(payloads, list):
                     turns += len([payload for payload in payloads if isinstance(payload, dict)])
                 meta = result.get("meta")
+                if isinstance(meta, dict):
+                    estimated_prompt_chars = max(
+                        estimated_prompt_chars,
+                        _prompt_chars_from_openclaw_meta(meta),
+                    )
                 agent_meta = meta.get("agentMeta") if isinstance(meta, dict) else None
                 last_call_usage = (
                     agent_meta.get("lastCallUsage")
@@ -1676,6 +1706,12 @@ def _load_openclaw_log_metrics(trial_dir: Path) -> tuple[str, str, str] | None:
 
     if not turns and not saw_usage:
         return None
+    if saw_usage and not prompt_tokens and estimated_prompt_chars:
+        return (
+            str(turns) if turns else "n/a",
+            _format_estimated_tokens(estimated_prompt_chars),
+            _format_number(cached_tokens),
+        )
     return (
         str(turns) if turns else "n/a",
         _format_number(prompt_tokens) if saw_usage else "n/a",
@@ -1711,6 +1747,10 @@ def _metrics_include_usage(metrics: tuple[str, str, str] | None) -> bool:
 
 def _metrics_are_zero_usage(metrics: tuple[str, str, str] | None) -> bool:
     return bool(metrics and metrics[1] == "0" and metrics[2] == "0")
+
+
+def _metrics_are_estimated_usage(metrics: tuple[str, str, str] | None) -> bool:
+    return bool(metrics and metrics[1].startswith("~"))
 
 
 def _wait_for_nemoclaw_metrics(trial_dir: Path | None, timeout_s: float = 30.0) -> None:
@@ -1762,7 +1802,10 @@ def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> 
     if isinstance(agent_result, dict):
         prompt = agent_result.get("n_input_tokens")
         cached = agent_result.get("n_cache_tokens")
-        if _metrics_are_zero_usage(openclaw_metrics) and ((prompt or 0) or (cached or 0)):
+        if (
+            (_metrics_are_zero_usage(openclaw_metrics) or _metrics_are_estimated_usage(openclaw_metrics))
+            and ((prompt or 0) or (cached or 0))
+        ):
             turns = openclaw_metrics[0] if openclaw_metrics and openclaw_metrics[0] != "n/a" else "n/a"
             return turns, _format_number(prompt), _format_number(cached)
         if not _metrics_include_usage(openclaw_metrics) and (prompt is not None or cached is not None):
@@ -2008,6 +2051,11 @@ def _append_harbor_report(
     ]
     if trial_dir is not None:
         body.append(f"- Trial artifacts: `{trial_dir}`")
+    if prompt_tokens.startswith("~"):
+        body.append(
+            "- Prompt tok source: estimated from OpenClaw prompt-size fields because "
+            "provider token usage was not emitted."
+        )
     body.extend(_nemoclaw_runtime_details(trial_dir))
     if failures:
         body.extend(["", "### Failing checks", ""])
