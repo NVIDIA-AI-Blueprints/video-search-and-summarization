@@ -407,7 +407,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("NemoClaw direct Harbor launcher", command)
         self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
         self.assertIn("--launch-mode cli", command)
-        self.assertNotIn("--wait-profile base", command)
+        self.assertIn("--wait-profile base", command)
         self.assertIn("--expected-skill vss-ask-video", command)
         self.assertIn("--prompt-file /tests/nemoclaw_prompt.md", command)
         self.assertNotIn("claude --print", command)

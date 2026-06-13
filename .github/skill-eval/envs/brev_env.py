@@ -1438,13 +1438,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
         timeout_s = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800"))
         wait_profile = str(meta.get("deployment_profile") or "").strip()
-        fast_readiness_mode = (
-            os.environ.get("NEMOCLAW_FAST_READINESS_MODE", "").strip().lower()
-            in {"1", "true", "yes"}
-        )
         wait_arg = (
             f" --wait-profile {shlex.quote(wait_profile)}"
-            if wait_profile and fast_readiness_mode
+            if wait_profile
             else ""
         )
         environment_dir = getattr(self, "environment_dir", None)

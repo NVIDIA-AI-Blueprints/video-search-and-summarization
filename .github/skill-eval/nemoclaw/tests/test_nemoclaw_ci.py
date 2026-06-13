@@ -643,6 +643,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         previous = {
             "_run": headless_runner._run,
             "_gateway_reachable": headless_runner._gateway_reachable,
+            "NEMOCLAW_FAST_READINESS_MODE": os.environ.get("NEMOCLAW_FAST_READINESS_MODE"),
         }
 
         def fake_run(cmd, *, timeout=30):
@@ -653,6 +654,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             log_dir = Path(td)
             headless_runner._run = fake_run
             headless_runner._gateway_reachable = lambda sandbox: True
+            os.environ["NEMOCLAW_FAST_READINESS_MODE"] = "1"
             try:
                 response = headless_runner.run_openclaw_cli(
                     "demo",
@@ -664,6 +666,10 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             finally:
                 headless_runner._run = previous["_run"]
                 headless_runner._gateway_reachable = previous["_gateway_reachable"]
+                if previous["NEMOCLAW_FAST_READINESS_MODE"] is None:
+                    os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
+                else:
+                    os.environ["NEMOCLAW_FAST_READINESS_MODE"] = previous["NEMOCLAW_FAST_READINESS_MODE"]
 
             launch_log = (log_dir / "openclaw-launch.log").read_text(encoding="utf-8")
 
@@ -675,6 +681,45 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         script = base64.b64decode(encoded).decode("utf-8")
         self.assertIn("echo started", script)
         self.assertNotIn("while kill -0", script)
+
+    def test_wait_for_lvs_profile_requires_lvs_ready_endpoint(self):
+        previous = {
+            "_run": headless_runner._run,
+            "sleep": headless_runner.time.sleep,
+            "time": headless_runner.time.time,
+        }
+        calls: list[list[str]] = []
+        now = iter([0, 1, 2, 3, 4, 61])
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(cmd)
+            if "38111/v1/ready" in " ".join(cmd):
+                return subprocess.CompletedProcess(cmd, 7, stdout="", stderr="connection refused")
+            if cmd[:2] == ["docker", "ps"]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="vss-agent\nvss-agent-ui\nredis\nvss-lvs\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            headless_runner._run = fake_run
+            headless_runner.time.sleep = lambda seconds: None
+            headless_runner.time.time = lambda: next(now)
+            try:
+                report = headless_runner.wait_for_profile("lvs", 60, Path(td))
+            finally:
+                headless_runner._run = previous["_run"]
+                headless_runner.time.sleep = previous["sleep"]
+                headless_runner.time.time = previous["time"]
+
+        self.assertTrue(report["waited"])
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["profile"], "lvs")
+        self.assertIn("38111/v1/ready", report["message"])
+        self.assertTrue(any("38111/v1/ready" in " ".join(call) for call in calls))
 
     def test_cli_launch_stops_openclaw_even_when_readiness_fails(self):
         calls: list[str] = []
