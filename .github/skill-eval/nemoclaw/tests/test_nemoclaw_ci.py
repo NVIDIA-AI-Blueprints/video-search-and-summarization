@@ -1415,7 +1415,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                       --prompt-file /tests/nemoclaw_prompt.md \\
                       --log-dir /logs/artifacts/nemoclaw \\
                       --launch-mode cli \\
-                      --timeout 2400
+                      --timeout 1500
                     ```
                     """
                 ).strip()
@@ -2128,7 +2128,7 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertIn("headless_runner.py", instruction)
             self.assertIn("--log-dir /logs/artifacts/nemoclaw", instruction)
             self.assertIn("--launch-mode cli", instruction)
-            self.assertIn("--timeout 2400", instruction)
+            self.assertIn("--timeout 1500", instruction)
             self.assertIn("--wait-profile base", instruction)
             self.assertIn("nemoclaw_deploy_profile.py", test_script)
             self.assertTrue((task_dir / "tests" / "nemoclaw_deploy_profile.py").exists())
@@ -2231,11 +2231,11 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=7200", source)
         self.assertIn("NEMOCLAW_INPUT_INSTANCE:", source)
         self.assertIn('export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"', source)
-        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=3300", source)
+        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=2400", source)
         self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
-        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=2400", source)
+        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=1500", source)
 
 
 if __name__ == "__main__":

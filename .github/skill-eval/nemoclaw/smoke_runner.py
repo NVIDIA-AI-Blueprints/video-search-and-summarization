@@ -735,7 +735,7 @@ def _headless_launcher_instruction(skill: str, deployment_profile: str | None) -
         "  --prompt-file /tests/nemoclaw_prompt.md \\\n"
         "  --log-dir /logs/artifacts/nemoclaw \\\n"
         "  --launch-mode cli \\\n"
-        "  --timeout 2400"
+        "  --timeout 1500"
         f"{wait_arg}\n"
         "```\n"
     )
