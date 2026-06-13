@@ -2128,6 +2128,29 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             prompt = (task_dir / "tests" / "nemoclaw_prompt.md").read_text(encoding="utf-8")
             self.assertIn("Use the `/vss-deploy-profile` skill", prompt)
 
+    def test_nemoclaw_deploy_profile_checks_include_openclaw_log_fallbacks(self):
+        rendered = deploy_adapter._render_nemoclaw_eval_spec(
+            {
+                "expects": [
+                    {
+                        "checks": [
+                            "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0",
+                            "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0",
+                            "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+                            "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+                        ]
+                    }
+                ]
+            }
+        )
+
+        checks = rendered["expects"][0]["checks"]
+        self.assertTrue(all("/logs/artifacts/nemoclaw/openclaw-agent.log" in check for check in checks))
+        self.assertIn("vss-agent` health check", checks[0])
+        self.assertIn("Brev secure-link URL", checks[1])
+        self.assertIn("`vss-agent` as running", checks[2])
+        self.assertIn("`vss-haproxy-ingress`", checks[3])
+
     def test_missing_eval_spec_does_not_generate_nemoclaw_launcher(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
