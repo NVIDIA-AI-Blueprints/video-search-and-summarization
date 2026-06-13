@@ -371,6 +371,9 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("set -euo pipefail\nsource ~/.profile", command)
         self.assertIn("--required-tools vss_orchestrator__docker_up", command)
         self.assertIn("apt-get install -y -qq libcairo2-dev pkg-config", command)
+        self.assertIn("NEMOCLAW_PRESTAGE_ALERTS_MODELS", command)
+        self.assertIn("models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx", command)
+        self.assertIn("models/rtdetr-its/model_epoch_035.fp16.onnx", command)
 
     async def test_nemoclaw_launcher_bypasses_outer_claude(self):
         calls = []
