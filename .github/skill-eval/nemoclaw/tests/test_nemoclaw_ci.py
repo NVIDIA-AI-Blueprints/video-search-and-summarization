@@ -122,6 +122,35 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertIn("optional OpenShell forward 9090 skipped in CI", run_cell["source"])
         self.assertIn("ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)", run_cell["source"])
 
+    def test_ci_notebook_makes_docker_login_best_effort(self):
+        source = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
+            "cells": [
+                {
+                    "id": "4c91fd59",
+                    "cell_type": "code",
+                    "metadata": {},
+                    "source": [
+                        'if login_result.returncode != 0:\n',
+                        '    raise RuntimeError(f"Docker login to nvcr.io failed\\n{login_result.stderr}")\n',
+                        '\n',
+                        'print("Docker login to nvcr.io: OK")\n',
+                    ],
+                    "outputs": [],
+                }
+            ],
+        }
+        manifest = {"cells": ["4c91fd59"], "insert_parameters_before": "4c91fd59"}
+
+        built = notebook_adapter.build_notebook(source, manifest)
+        login_cell = next(cell for cell in built["cells"] if cell.get("id") == "4c91fd59")
+
+        self.assertIn("WARNING: Docker login to nvcr.io failed; continuing in CI", login_cell["source"])
+        self.assertNotIn("raise RuntimeError", login_cell["source"])
+        self.assertIn("else:", login_cell["source"])
+
     def test_redacts_configured_secret_values(self):
         os.environ["NVIDIA_API_KEY"] = "nvapi-secret"
         try:
@@ -228,6 +257,30 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9989/sse")
+
+    def test_parameter_cell_accepts_ngc_api_key_alias(self):
+        defaults = {
+            "HARDWARE_PROFILE": "RTXPRO6000BW",
+            "NEMOCLAW_ENDPOINT_URL": "",
+            "NEMOCLAW_MODEL": "",
+            "COMPATIBLE_API_KEY": "",
+        }
+        env_keys = ("NGC_CLI_API_KEY", "NGC_API_KEY")
+        previous = {key: os.environ.get(key) for key in env_keys}
+        for key in env_keys:
+            os.environ.pop(key, None)
+        os.environ["NGC_API_KEY"] = "ngc-alias"
+        try:
+            exec(notebook_adapter.PARAMETER_SOURCE, defaults)
+            self.assertEqual(os.environ.get("NGC_CLI_API_KEY"), "ngc-alias")
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        self.assertEqual(defaults["NGC_CLI_API_KEY"], "ngc-alias")
 
     def test_parameter_cell_prefers_ci_agent_model_over_vss_runtime_model(self):
         defaults = {
