@@ -443,6 +443,7 @@ jobs:
           export NEMOCLAW_SETUP_CELL_TIMEOUT=900
           export NEMOCLAW_AGENT_TIMEOUT_SEC=1500
           export NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER=3.0
+          export NEMOCLAW_REMOTE_LOCK_STALE_SEC=900
           # Default to the lighter base smoke. If only the 2-GPU RTX warm pool
           # is online, the smoke runner can place this 1-GPU profile there.
           export NEMOCLAW_EVAL_PROFILE="${NEMOCLAW_EVAL_PROFILE:-base}"
