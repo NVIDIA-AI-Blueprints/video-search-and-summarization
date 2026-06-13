@@ -56,6 +56,9 @@ import sys
 from pathlib import Path
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
+NEMOCLAW_DEPLOY_PROFILE_VERIFIER = (
+    Path(__file__).resolve().parents[2] / "verifiers" / "nemoclaw_deploy_profile.py"
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -431,7 +434,7 @@ def _render_nemoclaw_eval_spec(spec: dict) -> dict:
 # Test script generation
 # ---------------------------------------------------------------------------
 
-def generate_test_script(spec_name: str, profile: str) -> str:
+def generate_test_script(spec_name: str, profile: str, *, nemoclaw: bool = False) -> str:
     """Wrapper test.sh that invokes the generic LLM-as-judge verifier
     against the rendered eval spec shipped alongside it. Harbor reads
     /logs/verifier/reward.txt.
@@ -442,6 +445,19 @@ def generate_test_script(spec_name: str, profile: str) -> str:
     `_ensure_prerequisite_deployed`) is gone. Each trial deploys
     inside its own agent turn now; nothing reads a marker."""
     del profile  # retained in signature for caller compatibility
+    if nemoclaw:
+        return (
+            "#!/bin/bash\n"
+            "# vss-deploy-profile NemoClaw verifier: deterministic OpenClaw-log\n"
+            "# plus live-probe verifier. Avoids per-check LLM judge latency.\n"
+            "set -uo pipefail\n"
+            "\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            'python3 "$TEST_DIR/nemoclaw_deploy_profile.py" \\\n'
+            f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
+            "\n"
+            "exit 0\n"
+        )
     return (
         "#!/bin/bash\n"
         "# vss-deploy-profile verifier: delegates to the generic LLM-as-judge\n"
@@ -709,13 +725,17 @@ def generate_task(
             rendered = _render_nemoclaw_eval_spec(rendered)
         spec_name = spec_path.name
         (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
-        (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile))
+        (tests_dir / "test.sh").write_text(
+            generate_test_script(spec_name, profile, nemoclaw=nemoclaw)
+        )
         if nemoclaw:
             (tests_dir / "nemoclaw_prompt.md").write_text(
                 generate_nemoclaw_prompt(profile, platform, profile_def)
             )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        if nemoclaw and NEMOCLAW_DEPLOY_PROFILE_VERIFIER.exists():
+            shutil.copy(NEMOCLAW_DEPLOY_PROFILE_VERIFIER, tests_dir / "nemoclaw_deploy_profile.py")
     else:
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
