@@ -355,7 +355,7 @@ jobs:
   nemoclaw_plan:
     name: Plan NemoClaw eval matrix
     if: github.event_name == 'workflow_dispatch' && inputs.runner == 'nemoclaw'
-    runs-on: [self-hosted, downstream-pipeline]
+    runs-on: [self-hosted, nemoclaw-ci-runner]
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
