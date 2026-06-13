@@ -1776,6 +1776,40 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(metrics, ("1", "0", "0"))
 
+    def test_nemoclaw_report_falls_back_to_harbor_tokens_when_openclaw_zero(self):
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            log_dir = trial_dir / "artifacts" / "nemoclaw"
+            log_dir.mkdir(parents=True)
+            (log_dir / "openclaw-agent.log").write_text(
+                json.dumps(
+                    {
+                        "result": {
+                            "payloads": [{"text": "done"}],
+                            "meta": {
+                                "agentMeta": {
+                                    "lastCallUsage": {
+                                        "input": 0,
+                                        "cacheRead": 0,
+                                        "cacheWrite": 0,
+                                    }
+                                }
+                            },
+                        }
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            metrics = smoke_runner._load_trajectory_metrics(
+                trial_dir,
+                {"agent_result": {"n_input_tokens": 28_008_935, "n_cache_tokens": 27_445_245}},
+            )
+
+        self.assertEqual(metrics, ("1", "28.0M", "27.4M"))
+
     def test_nemoclaw_report_marks_async_metrics_as_not_emitted(self):
         with tempfile.TemporaryDirectory() as td:
             trial_dir = Path(td) / "trial"

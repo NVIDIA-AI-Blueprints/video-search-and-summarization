@@ -1627,6 +1627,10 @@ def _metrics_include_usage(metrics: tuple[str, str, str] | None) -> bool:
     return bool(metrics and (metrics[1] != "n/a" or metrics[2] != "n/a"))
 
 
+def _metrics_are_zero_usage(metrics: tuple[str, str, str] | None) -> bool:
+    return bool(metrics and metrics[1] == "0" and metrics[2] == "0")
+
+
 def _wait_for_nemoclaw_metrics(trial_dir: Path | None, timeout_s: float = 30.0) -> None:
     if trial_dir is None:
         return
@@ -1672,16 +1676,19 @@ def _nemoclaw_runtime_details(trial_dir: Path | None) -> list[str]:
 
 def _load_trajectory_metrics(trial_dir: Path | None, result: dict[str, Any]) -> tuple[str, str, str]:
     openclaw_metrics = _load_openclaw_log_metrics(trial_dir) if trial_dir is not None else None
-    if _metrics_include_usage(openclaw_metrics):
-        return openclaw_metrics
-
     agent_result = result.get("agent_result") if isinstance(result, dict) else None
     if isinstance(agent_result, dict):
         prompt = agent_result.get("n_input_tokens")
         cached = agent_result.get("n_cache_tokens")
-        if prompt is not None or cached is not None:
+        if _metrics_are_zero_usage(openclaw_metrics) and ((prompt or 0) or (cached or 0)):
             turns = openclaw_metrics[0] if openclaw_metrics and openclaw_metrics[0] != "n/a" else "n/a"
             return turns, _format_number(prompt), _format_number(cached)
+        if not _metrics_include_usage(openclaw_metrics) and (prompt is not None or cached is not None):
+            turns = openclaw_metrics[0] if openclaw_metrics and openclaw_metrics[0] != "n/a" else "n/a"
+            return turns, _format_number(prompt), _format_number(cached)
+
+    if _metrics_include_usage(openclaw_metrics):
+        return openclaw_metrics
 
     if trial_dir is None:
         return "n/a", "n/a", "n/a"
