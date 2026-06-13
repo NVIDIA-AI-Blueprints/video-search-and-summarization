@@ -669,8 +669,10 @@ stage() {{
 stage "begin setup on $(hostname)"
 if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
   stage "installing system packages for uv sync"
-  sudo -n apt-get update -qq
-  sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libcairo2-dev pkg-config
+  sudo -n apt-get update -qq || sudo -n apt-get update -qq || \
+    stage "apt update failed; continuing with cached package indexes"
+  sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libcairo2-dev pkg-config || \
+    stage "apt package preflight failed; continuing and letting setup report any missing dependency"
 else
   stage "apt/sudo unavailable; skipping system package preflight"
 fi
