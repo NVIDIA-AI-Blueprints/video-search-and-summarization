@@ -2119,6 +2119,7 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
 
         self.assertIn("max-parallel: 1", source)
         self.assertIn("nemoclaw_instance:", source)
+        self.assertIn("runs-on: [self-hosted, downstream-pipeline]", source)
         self.assertIn("runs-on: [self-hosted, nemoclaw-ci-runner]", source)
         self.assertIn("timeout-minutes: 210", source)
         self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=7200", source)
