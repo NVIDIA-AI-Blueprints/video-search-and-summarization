@@ -395,7 +395,7 @@ jobs:
     name: NemoClaw / ${{ matrix.name }}
     needs: nemoclaw_plan
     if: needs.nemoclaw_plan.outputs.has_targets == 'true'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: [self-hosted, nemoclaw-ci-runner]
     strategy:
       fail-fast: false
       # Keep NemoClaw sweeps serialized until the v2 runner pool is stable.
