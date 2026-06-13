@@ -44,7 +44,10 @@ def _openai_base_url(url):
 def _notebook_default(name, fallback=""):
     return globals().get(name, fallback)
 
-NGC_CLI_API_KEY = os.environ.get("NGC_CLI_API_KEY", "")
+NGC_CLI_API_KEY = os.environ.get("NGC_CLI_API_KEY") or os.environ.get("NGC_API_KEY", "")
+if NGC_CLI_API_KEY:
+    os.environ.setdefault("NGC_CLI_API_KEY", NGC_CLI_API_KEY)
+    os.environ.setdefault("NGC_API_KEY", NGC_CLI_API_KEY)
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
 HARDWARE_PROFILE = os.environ.get(
     "HARDWARE_PROFILE",
@@ -198,9 +201,13 @@ def _normalize_cell_source(cell: dict[str, Any]) -> dict[str, Any]:
 
 
 def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
-    if cell_id != "run-code" or not isinstance(cell.get("source"), str):
+    if not isinstance(cell.get("source"), str):
         return cell
     source = cell["source"]
+    if cell_id == "4c91fd59":
+        return _patch_docker_login_cell(cell)
+    if cell_id != "run-code":
+        return cell
     optional_forward = "ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)"
     if optional_forward not in source:
         return cell
@@ -213,6 +220,32 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
                 "    ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)",
                 "except RuntimeError as exc:",
                 "    print(f\"WARNING: optional OpenShell forward 9090 skipped in CI: {exc}\", flush=True)",
+            ]
+        ),
+    )
+    return patched
+
+
+def _patch_docker_login_cell(cell: dict[str, Any]) -> dict[str, Any]:
+    source = cell["source"]
+    strict_block = (
+        'if login_result.returncode != 0:\n'
+        '    raise RuntimeError(f"Docker login to nvcr.io failed\\n{login_result.stderr}")\n'
+        '\n'
+        'print("Docker login to nvcr.io: OK")'
+    )
+    if strict_block not in source:
+        return cell
+    patched = deepcopy(cell)
+    patched["source"] = source.replace(
+        strict_block,
+        "\n".join(
+            [
+                "if login_result.returncode != 0:",
+                '    print(f"WARNING: Docker login to nvcr.io failed; continuing in CI. stderr tail:\\n{login_result.stderr[-1000:]}")',
+                '    print("The deployment step will still use cached images or fail with a concrete pull error if registry access is required.")',
+                "else:",
+                '    print("Docker login to nvcr.io: OK")',
             ]
         ),
     )
