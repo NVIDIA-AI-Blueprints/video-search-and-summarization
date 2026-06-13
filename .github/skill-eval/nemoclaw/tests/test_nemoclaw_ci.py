@@ -903,6 +903,8 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertTrue(all(row["task_limit"] == "1" for row in rows))
         self.assertIn("vss-deploy-profile", skills)
         self.assertIn("vss-ask-video", skills)
+        deploy_row = next(row for row in rows if row["skill"] == "vss-deploy-profile")
+        self.assertEqual(deploy_row["spec_stem"], "base")
         self.assertNotIn("vss-deploy-detection-tracking-2d", skills)
         self.assertNotIn("vss-deploy-detection-tracking-3d", skills)
         self.assertNotIn("vss-deploy-video-embedding", skills)
@@ -929,6 +931,47 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 for item in blockers
             )
         )
+        self.assertTrue(
+            any(
+                "vss-deploy-profile/alerts_cv.json: alerts CV mode requires real RT-CV model artifacts"
+                in item
+                for item in blockers
+            )
+        )
+
+    def test_alerts_cv_is_blocked_for_nemoclaw_unless_rt_cv_is_enabled(self):
+        previous = os.environ.pop("NEMOCLAW_ENABLE_RTCV", None)
+        try:
+            rows, blockers = smoke_runner._build_matrix(
+                skills_filter="vss-deploy-profile",
+                profile_filter=None,
+                platform_filter=None,
+                spec_filter="alerts_cv",
+                representative_per_skill=False,
+            )
+
+            self.assertEqual(rows, [])
+            self.assertTrue(
+                any("alerts CV mode requires real RT-CV model artifacts" in item for item in blockers)
+            )
+
+            os.environ["NEMOCLAW_ENABLE_RTCV"] = "1"
+            rows, blockers = smoke_runner._build_matrix(
+                skills_filter="vss-deploy-profile",
+                profile_filter=None,
+                platform_filter=None,
+                spec_filter="alerts_cv",
+                representative_per_skill=False,
+            )
+
+            self.assertEqual(blockers, [])
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["spec_stem"], "alerts_cv")
+        finally:
+            if previous is None:
+                os.environ.pop("NEMOCLAW_ENABLE_RTCV", None)
+            else:
+                os.environ["NEMOCLAW_ENABLE_RTCV"] = previous
 
     def test_standalone_host_docker_spec_is_blocked_for_nemoclaw(self):
         rows, blockers = smoke_runner._build_matrix(

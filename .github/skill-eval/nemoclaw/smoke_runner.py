@@ -393,7 +393,27 @@ def _known_unbounded_nemoclaw_spec(skill: str, spec_path: Path) -> str | None:
             "sweep; it needs deterministic search-corpus seeding and "
             "multi-step query execution before it can run reliably"
         )
+    if (
+        skill == DEFAULT_SKILL
+        and spec_path.stem == "alerts_cv"
+        and not _env_flag("NEMOCLAW_ENABLE_RTCV")
+    ):
+        return (
+            "alerts CV mode requires real RT-CV model artifacts from NGC; "
+            "keep it out of the default NemoClaw sweep until those artifacts "
+            "are available on the worker or NEMOCLAW_ENABLE_RTCV=1 is set"
+        )
     return None
+
+
+def _spec_priority(skill: str, spec_path: Path) -> tuple[int, str]:
+    preferred = {
+        DEFAULT_SKILL: ["base", "alerts_vlm", "lvs", "search", "warehouse"],
+    }.get(skill, [])
+    try:
+        return (preferred.index(spec_path.stem), spec_path.stem)
+    except ValueError:
+        return (len(preferred), spec_path.stem)
 
 
 def _platforms_for_spec(spec_path: Path, platform_filter: str | None) -> list[str]:
@@ -438,7 +458,7 @@ def _selected_specs(
         if not adapter.exists():
             blockers.append(f"{skill}: missing Harbor adapter at {adapter.relative_to(REPO_ROOT)}")
             continue
-        specs = sorted(evals_dir.glob("*.json"))
+        specs = sorted(evals_dir.glob("*.json"), key=lambda path: _spec_priority(skill, path))
         if skill == DEFAULT_SKILL and profile_filter and not all_skills:
             specs = [evals_dir / f"{profile_filter}.json"]
         if spec_filter:
