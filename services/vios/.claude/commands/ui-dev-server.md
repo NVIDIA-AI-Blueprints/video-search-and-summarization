@@ -1,7 +1,7 @@
 ---
 description: Configure backend IP in config.tsx, install deps, and start the UI dev server
 argument-hint: <ip:port> [/path]
-allowed-tools: AskUserQuestion, Read, Edit, Bash
+allowed-tools: AskUserQuestion, Read, Edit, Bash(cd ui/vios-ui && npm run install:link), Bash(cd ui/vios-ui && npm run dev)
 ---
 
 ## Task
