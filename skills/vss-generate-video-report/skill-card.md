@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to generate structured video analysis reports from recorded clips (via VLM) or incident-range analytics on the NVIDIA Video Search and Summarization platform. <br>
+Developers and engineers use this skill to generate structured video analysis reports — either per-clip VLM analysis or incident-range narrative reports — from NVIDIA Video Search and Summarization (VSS) deployments. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -29,7 +29,7 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Type(s):** [Analysis, Markdown report] <br>
 **Output Format:** [Markdown] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [Mode A produces a Video Analysis Report; Mode B produces an Incident Range Report] <br>
+**Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
 - `claude-code` <br>
@@ -38,7 +38,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 3 evaluation tasks (3 positive skill-activation cases) using NVSkills-Eval external profile in an astra-sandbox environment. <br>
+Evaluated against 3 evaluation tasks in the `external` NVSkills-Eval profile (environment: astra-sandbox, 1 attempt per task, 50% pass threshold). Overall verdict: PASS. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,10 +63,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 55% (+46%) | 32% (+18%) |
-| Discoverability | 3 | 11% (+3%) | 8% (-10%) |
-| Effectiveness | 3 | 63% (+58%) | 34% (+29%) |
-| Efficiency | 3 | 26% (-0%) | 28% (-10%) |
+| Correctness | 3 | 51% (+43%) | 27% (+23%) |
+| Discoverability | 3 | 11% (+3%) | 0% (+0%) |
+| Effectiveness | 3 | 61% (+60%) | 37% (+34%) |
+| Efficiency | 3 | 26% (-0%) | 28% (-0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
