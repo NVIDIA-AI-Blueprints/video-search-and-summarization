@@ -23,6 +23,7 @@
 #include "vst_common.h"
 #include "stream_event_manager.h"
 #include "stream_monitor.h"
+#include "basler_stream_monitor.h"
 #include "database.h"
 #include "health_probes.h"
 #include <string_view>
@@ -285,6 +286,18 @@ void RtspServerManager::handleRESTAPIs()
             params["framerate"]  = framerate;
             params["tags"]       = tags;
             server->registerStreamAsync(id, name, live_proxy_url, params);
+
+            // Start the local pylon producer for this camera. The sensor id has the
+            // form "basler-<serial>"; strip the prefix to recover the serial used to
+            // open the device. Lazily loads libbasler_producer.so; on hosts without
+            // pylon this is a graceful no-op.
+            string serial = id;
+            const string baslerPrefix = string("basler-");
+            if (serial.rfind(baslerPrefix, 0) == 0)
+            {
+                serial = serial.substr(baslerPrefix.size());
+            }
+            BaslerStreamMonitor::getInstance()->addStream(id, serial);
 
             out["url"]    = live_proxy_url;
             out["vodUrl"] = vodUrl;

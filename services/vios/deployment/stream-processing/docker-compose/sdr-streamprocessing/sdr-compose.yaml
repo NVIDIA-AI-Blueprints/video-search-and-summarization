@@ -40,7 +40,7 @@ x-streamprocessing-base: &streamprocessing_base
   network_mode: host
   runtime: nvidia
   user: "0:0"
-  entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+  entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && if [ \"$$INSTALL_PYLON\" = \"1\" ]; then /home/vst/vst_release/tools/install_pylon.sh; fi && exec /home/vst/vst_release/launch_vst"]
   restart: unless-stopped
   ulimits:
     nofile:
@@ -59,6 +59,13 @@ services:
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB:-}
       - CONTAINER_NAME=streamprocessing-ms-1
       - ADAPTOR=${VST_ADAPTOR}
+      # Basler pylon: the BaslerStreamProducer (camera grab + encode) runs in the
+      # stream-processor, so the pod needs pylon just like sensor-ms. install_pylon.sh
+      # runs at startup when INSTALL_PYLON=1; LD_PRELOAD lets libbasler_producer.so
+      # resolve pylon symbols at dlopen time (typeinfo cannot bind lazily).
+      - INSTALL_PYLON=${INSTALL_PYLON:-0}
+      - PYLON_ROOT=/opt/pylon
+      - LD_PRELOAD=/opt/pylon/lib/libpylonbase.so:/opt/pylon/lib/libpylonutility.so
       - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT_1}
       - PROMETHEUS_PORT=${STREAM_PROCESSOR_PROMETHEUS_PORT_1}
       - RTSP_SERVER_PORT=${RTSP_SERVER_PORT_1}
@@ -76,6 +83,8 @@ services:
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
+      # Extracted Basler pylon SDK from the host (read-only), mounted at /opt/pylon.
+      - ${PYLON_HOST_PATH:-/opt/pylon}:/opt/pylon:ro
     healthcheck:
       <<: *healthcheck_http_ready_base
     depends_on:

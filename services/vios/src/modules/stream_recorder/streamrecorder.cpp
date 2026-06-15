@@ -452,9 +452,13 @@ RecordScheduleStatus StreamRecorder::startRecord(const string streamId, RecordSt
     RecordScheduleStatus ret = RecordScheduleON;
     if (it != m_streams.end())
     {
-        /* Add stream into stream_monitor */
+        /* Add stream into stream_monitor. Basler streams are served by a local
+         * pylon producer (BaslerStreamProducer), not an RTSP source, so they must
+         * not be added to the RTSP-pull StreamMonitor (it would 404 on the proxy
+         * URL); the recorder consumes from the producer directly instead. */
         StreamMonitor* streamMonitor = StreamMonitor::getInstance();
-        if (streamMonitor)
+        if (streamMonitor && it->second &&
+            it->second->live_proxy_url.find(NV_BASLER_SENSOR) == std::string::npos)
         {
             streamMonitor->addStream(it->second);
         }
