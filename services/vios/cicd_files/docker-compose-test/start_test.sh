@@ -864,17 +864,6 @@ finalize_artifacts() {
         echo "INFO: VST_BASE_PATH not set yet; skipping docker log collection"
     fi
 
-    # Mirror BDD reports to the legacy artifact path Jenkins archives from.
-    if [[ -n "${TOP:-}" && -n "${VST_BASE_PATH:-}" \
-          && -d "$VST_BASE_PATH/bdd_test_reports" ]]; then
-        local legacy_reports_dir="$TOP/deployment/scaling/docker-compose/bdd_test_reports"
-        if mkdir -p "$legacy_reports_dir" 2>/dev/null; then
-            cp -r "$VST_BASE_PATH/bdd_test_reports/." "$legacy_reports_dir/" 2>/dev/null \
-                || echo "INFO: Failed to mirror reports to legacy path during finalize"
-            echo "INFO: Mirrored BDD reports to legacy artifact path: $legacy_reports_dir"
-        fi
-    fi
-
     return "$exit_code"
 }
 
@@ -1038,7 +1027,7 @@ main() {
 
     # Calculate absolute paths
     VST_BASE_PATH="$(cd "$SCRIPT_DIR/../../deployment/stream-processing/docker-compose" && pwd)"
-    NVSTREAMER_BASE_PATH="$(cd "$SCRIPT_DIR/../../deployment/scaling/docker-compose/nvstreamer" && pwd)"
+    NVSTREAMER_BASE_PATH="$(cd "$SCRIPT_DIR/../../deployment/stream-processing/docker-compose/nvstreamer" && pwd)"
     RTSP_STREAMS_JSON="$VST_BASE_PATH/configs/rtsp_streams.json"
     VST_CONFIG_JSON="$VST_BASE_PATH/configs/vst_config.json"
     
