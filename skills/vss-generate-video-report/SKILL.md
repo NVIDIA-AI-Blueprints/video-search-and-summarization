@@ -69,11 +69,14 @@ Never route reports through VSS-agent `POST /generate`.
 Probe:
 
 ```bash
+# Resolve host once so unset HOST_IP still targets local deployments.
+VSS_HOST="${HOST_IP:-localhost}"
+
 # Mode A — VST + VLM reachability
-curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null
+curl -sf --max-time 5 "http://${VSS_HOST}:30888/vst/api/v1/sensor/version" >/dev/null
 
 # Mode B — VA-MCP
-curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
+curl -sf --max-time 5 "http://${VSS_HOST}:9901/" >/dev/null
 ```
 
 If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or `-p alerts` (Mode B). **Always** confirm the deploy with the user first.
@@ -109,7 +112,7 @@ Step 3 on the original internal URL when the VLM is local / in-cluster.
 
 ## Mode A — Report on a recorded video clip
 
-**If the VSS `lvs` profile is deployed** — `curl -sf --max-time 5 "http://${HOST_IP}:38111/v1/ready"` returns HTTP 200 — run `/vss-summarize-video` to produce the summary, then paste its output into the report template in Step 4 and skip Steps 1–3 (the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
+**If the VSS `lvs` profile is deployed** — `curl -sf --max-time 5 "http://${HOST_IP:-localhost}:38111/v1/ready"` returns HTTP 200 — run `/vss-summarize-video` to produce the summary, then paste its output into the report template in Step 4 and skip Steps 1–3 (the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
 
 ### Step 1 — Resolve the clip URL
 

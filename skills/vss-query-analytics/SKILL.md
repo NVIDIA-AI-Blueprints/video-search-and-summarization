@@ -63,8 +63,8 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
 
 1. Probe the VA-MCP endpoint:
    ```bash
-   curl -sf --max-time 5 "http://${HOST_IP}:9901/mcp" >/dev/null 2>&1 || \
-     curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
+   curl -sf --max-time 5 "http://${HOST_IP:-localhost}:9901/mcp" >/dev/null 2>&1 || \
+     curl -sf --max-time 5 "http://${HOST_IP:-localhost}:9901/" >/dev/null
    ```
 
 2. **If the probe fails**, ask the user:
@@ -113,7 +113,10 @@ curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
 
 ## Tool Reference
 
-Replace the `-d` payload in Step 2 with any of the following.
+Use Step 2's full `curl` shape for every tool call: keep the same URL, headers, and
+`mcp-session-id` header, and only swap the JSON payload in `-d`.
+
+Each example below is a full, runnable command (not just a payload snippet).
 
 ### video_analytics__get_incidents
 
@@ -129,37 +132,72 @@ Replace the `-d` payload in Step 2 with any of the following.
 
 ```bash
 # Recent incidents (all sensors)
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_incidents","arguments":{"max_count":10}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_incidents","arguments":{"max_count":10}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 
 # For a specific sensor
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_incidents","arguments":{"source":"<sensor-id>","source_type":"sensor","max_count":20}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_incidents","arguments":{"source":"<sensor-id>","source_type":"sensor","max_count":20}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 
 # Confirmed (VLM-verified) only
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_incidents","arguments":{"vlm_verdict":"confirmed","max_count":10}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_incidents","arguments":{"vlm_verdict":"confirmed","max_count":10}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
 ### video_analytics__get_incident
 
 ```bash
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_incident","arguments":{"id":"<incident-id>","includes":["objectIds","info"]}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_incident","arguments":{"id":"<incident-id>","includes":["objectIds","info"]}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
 ### video_analytics__get_sensor_ids
 
 ```bash
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sensor_ids","arguments":{}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sensor_ids","arguments":{}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
 ### video_analytics__get_places
 
 ```bash
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_places","arguments":{}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_places","arguments":{}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
 ### video_analytics__get_fov_histogram
 
 ```bash
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_fov_histogram","arguments":{"source":"<sensor-id>","source_type":"sensor","start_time":"<ISO>","end_time":"<ISO>","object_type":"Person","bucket_count":10}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_fov_histogram","arguments":{"source":"<sensor-id>","source_type":"sensor","start_time":"<ISO>","end_time":"<ISO>","object_type":"Person","bucket_count":10}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
 ### video_analytics__analyze
@@ -167,21 +205,31 @@ Replace the `-d` payload in Step 2 with any of the following.
 `analysis_type`: `max_min_incidents`, `average_speed`, `avg_num_people`, `avg_num_vehicles`
 
 ```bash
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__analyze","arguments":{"source":"<sensor-id>","source_type":"sensor","start_time":"<ISO>","end_time":"<ISO>","analysis_type":"avg_num_people"}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__analyze","arguments":{"source":"<sensor-id>","source_type":"sensor","start_time":"<ISO>","end_time":"<ISO>","analysis_type":"avg_num_people"}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
 ### vst_sensor_list
 
 ```bash
--d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"vst_sensor_list","arguments":{}},"id":1}'
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"vst_sensor_list","arguments":{}},"id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
 
 ---
 
 ## MCP connection & retry guidance
 
-The VA-MCP server is reached over HTTP at `http://${HOST_IP}:9901/mcp`
-and speaks JSON-RPC 2.0 over Server-Sent Events.
+The VA-MCP server is reached over HTTP at `http://${HOST_IP:-localhost}:9901/mcp`
+ and speaks JSON-RPC 2.0 over Server-Sent Events.
 
 1. **Verify reachability** before any `tools/call`:
 
