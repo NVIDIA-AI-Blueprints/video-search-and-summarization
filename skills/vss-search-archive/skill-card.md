@@ -7,9 +7,9 @@ This skill is for demonstration purposes and not for production usage. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers use this skill to perform natural-language search across archived video content, ingest video files or RTSP streams for search indexing, and manage search-ingested sources within an NVIDIA VSS deployment. <br>
+Developers and engineers performing natural-language video search across archived sources, ingesting video files and RTSP streams, and managing search-indexed media through the VSS agent backend. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -37,7 +37,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task (positive skill-activation case) in the NVSkills-Eval `external` profile on an `astra-sandbox` environment. <br>
+Evaluated against 1 evaluation task in astra-sandbox environment using NVSkills-Eval external profile with pass threshold of 50%. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -61,11 +61,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 1 | 100% (+0%) | 100% (+100%) |
-| Correctness | 1 | 100% (+75%) | 57% (+23%) |
-| Discoverability | 1 | 100% (+75%) | 62% (+9%) |
-| Effectiveness | 1 | 84% (+60%) | 32% (+18%) |
-| Efficiency | 1 | 94% (+72%) | 61% (+17%) |
+| Security | 1 | 100% (+0%) | 100% (+0%) |
+| Correctness | 1 | 100% (+75%) | 97% (+59%) |
+| Discoverability | 1 | 100% (+75%) | 89% (+26%) |
+| Effectiveness | 1 | 88% (+64%) | 72% (+48%) |
+| Efficiency | 1 | 94% (+70%) | 81% (+23%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
