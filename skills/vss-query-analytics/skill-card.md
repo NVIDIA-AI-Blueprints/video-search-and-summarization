@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers query read-only video-analytics data (incidents, metrics, alerts, sensor telemetry) from an operational VSS deployment via the VA-MCP server. <br>
+Developers and engineers querying read-only video-analytics data (incidents, alerts, metrics, sensor telemetry) from deployed VSS pipelines via the VA-MCP server. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -24,19 +24,19 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [API Calls, Shell commands] <br>
+**Output Type(s):** [API Calls, Shell commands, Analysis] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- Claude Code (`claude-code`) <br>
-- Codex (`codex`) <br>
+- claude-code <br>
+- codex <br>
 
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task (positive skill-activation case) in the `astra-sandbox` environment using NVSkills-Eval `external` profile. <br>
+Evaluated against 1 evaluation task in the astra-sandbox environment using the NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,8 +63,8 @@ Underlying evaluation signals used in this run: <br>
 | Security | 1 | 100% (+0%) | 100% (+0%) |
 | Correctness | 1 | 50% (+50%) | 50% (+50%) |
 | Discoverability | 1 | 0% (+0%) | 0% (+0%) |
-| Effectiveness | 1 | 62% (+62%) | 62% (+62%) |
-| Efficiency | 1 | 27% (+0%) | 28% (-0%) |
+| Effectiveness | 1 | 70% (+70%) | 66% (+66%) |
+| Efficiency | 1 | 27% (+0%) | 28% (+0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
