@@ -7,7 +7,9 @@ allowed-tools: AskUserQuestion, Read, Edit, Write, Bash, Bash(npm run format), B
 
 ## Overview
 
-The VST web client (`vst-ui-ts/`) is a React + TypeScript + Vite + MUI application. It connects to three possible backend types — **VST**, **MMS**, and **NVStreamer** — detected at runtime. WebRTC streaming comes from an external library (`vst-streaming-lib`) installed via the `vst-web-streamer` repo when running `npm run install:link`.
+The VST web client lives at `ui/vios-ui/` (package `vst-ui-ts`) relative to the `services/vios` tree. It is a React + TypeScript + Vite + MUI application that connects to three possible backend types — **VST**, **MMS**, and **NVStreamer** — detected at runtime. WebRTC streaming comes from `vst-streaming-lib`, the sibling `ui/streaming-lib/` directory, built and linked when running `npm run install:link`.
+
+All file paths in the Codebase Map below are relative to `ui/vios-ui/`, and all `npm`/`git` commands run from that directory — `cd ui/vios-ui` first. Do not assume the session working directory is the UI project root.
 
 Use this skill for any UI feature work. Follow the workflow top to bottom; skip steps only when clearly not applicable.
 
@@ -99,7 +101,7 @@ src/
 - **State:** Zustand store in `services/StateManagement.tsx`. Prefer reading state via store selectors; avoid prop-drilling through more than two levels.
 - **Styling:** MUI v5 with `sx` prop or `styled`. Theme lives in `theme/themeContextProvider.tsx`. Dark/light toggle is context-driven. Use theme tokens, not hard-coded colours.
 - **Scripts available:**
-  - `npm run install:link` — installs deps and links vst-web-streamer
+  - `npm run install:link` — installs deps and builds/links the sibling `ui/streaming-lib` as `vst-streaming-lib`
   - `npm run dev` — starts the Vite dev server
   - `npm run build` — production build → `dist/`
   - `npm run lint` — ESLint check
@@ -138,11 +140,11 @@ Make focused, minimal changes. Follow these conventions:
 
 ### Step 4 — Lint and format
 
-Run both checks after implementation is complete:
+Run both checks after implementation is complete (from `ui/vios-ui`):
 
 ```bash
-npm run format
-npm run lint
+cd ui/vios-ui && npm run format
+cd ui/vios-ui && npm run lint
 ```
 
 Fix every lint error before proceeding. Do not skip or suppress rules without user approval.
@@ -164,8 +166,8 @@ When the user is satisfied, proceed.
 ### Step 7 — Final lint and format pass
 
 ```bash
-npm run format
-npm run lint
+cd ui/vios-ui && npm run format
+cd ui/vios-ui && npm run lint
 ```
 
 Ensure the working tree is clean before committing.
@@ -192,15 +194,10 @@ git add <file1> <file2> ...
 git status
 ```
 
-Write a concise commit message (imperative mood, ≤72 chars on the first line):
+Check and follow the repo's commit conventions (branch naming, commit message format, trailers, attribution rules) — see `/vios-git`. Write a concise commit message (imperative mood, ≤72 chars on the first line):
 
 ```bash
-git commit -m "$(cat <<'EOF'
-<Short summary of what and why>
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
-EOF
-)"
+git commit -m "<Short summary of what and why>"
 ```
 
 ### Step 9 — Report and prompt for PR
@@ -224,5 +221,5 @@ Then say:
 ## Related Skills
 
 - `/ui-dev-server` — Configure backend IP and start the Vite dev server
-- `/update-vst-ui` — Build and deploy static assets to the vms_shim repo (VIOS/VST deployment)
+- `/update-vst-ui` — Build and deploy static assets into the vios tree (ingress/vst-ui and webroot)
 - `/security-review` — Run before committing sensitive changes
