@@ -1,0 +1,222 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the skills eval agent (.github/skill-eval/skills_eval_agent.py) as a
+# nightly full sweep of every skill — the `schedule` cron below, with
+# DAILY_RUN=1 making plan_matrix.py enumerate all skills — or on demand via
+# workflow_dispatch. It deliberately does NOT run per-PR: a full GPU sweep is
+# far too heavy to fire on every pull-request mirror push. See
+# .github/skill-eval/AGENTS.md for the agent's system prompt and behaviour.
+
+name: Skills Eval Daily
+
+on:
+  # Nightly full sweep of all skills (DAILY_RUN below makes plan_matrix.py
+  # enumerate every skill). This is the only automatic trigger — there is
+  # deliberately no per-PR `push:` trigger, because a full GPU sweep is far
+  # too heavy to run on every pull-request mirror push.
+  schedule:
+    - cron: "30 1 * * *"
+      timezone: "America/Los_Angeles"
+  # On-demand sweep via the "Run workflow" button. This file lives on the
+  # default branch (`main`) only so GitHub registers the `schedule:` above —
+  # scheduled workflows run from the default branch alone. The actual eval
+  # harness (plan_matrix.py, the skills/ tree, adapters, specs) lives on
+  # `develop`, not `main`, so every job below checks out `develop`
+  # (`ref: develop`) and the sweep always evaluates develop's harness — whether
+  # it was reached via the nightly cron or this button.
+  workflow_dispatch:
+
+# Authenticate as github-actions[bot] for all GitHub operations (gh pr
+# comment, gh pr create, git push of eval-bot/* branches). The agent
+# inherits this via env.GH_TOKEN on the run step below. Mirrors how
+# helm-sync.yml does it — no PAT, no rotation, no personal-account
+# binding. The skill-eval bot PRs hit the source PR's headRefName branch
+# in this same repo, so contents:write is enough; pull-requests:write
+# covers gh pr comment + gh pr create.
+permissions:
+  contents: write
+  pull-requests: write
+
+# Only one sweep runs at a time per ref. A fresh run cancels the in-flight
+# one; the per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock)
+# release automatically when the agent process dies (POSIX flock(2) semantics —
+# no userspace trap needed). Any stale containers / volumes / marker that the
+# cancelled run left on a box are reconciled by the NEXT run's
+# `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy marker
+# carries `<profile_tag>|<run_id>`, so a marker from this run never matches
+# the next run's desired marker and the next run always tears down + redeploys.
+# Same path handles SIGKILL (the 12h timeout-minutes terminator) and host reboots
+# — there's no exit-side cleanup machinery to bypass.
+concurrency:
+  group: skills-eval-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------------
+  # plan — enumerate every skill into the dispatch matrix (full sweep:
+  # DAILY_RUN=1 -> plan_matrix.py list_skill_file_paths()).
+  # Lightweight: gh + python3, no GPU, no brev, no flock.
+  # ---------------------------------------------------------------------
+  plan:
+    name: Plan eval matrix
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_targets: ${{ steps.plan.outputs.has_targets }}
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          # This workflow file lives on `main` only to register the schedule
+          # (scheduled runs fire from the default branch), but the eval harness
+          # and the skills/ tree live on `develop`. Check out `develop` so the
+          # nightly sweep plans against develop's harness, not main's.
+          ref: develop
+          fetch-depth: 0   # full history (DAILY_RUN enumerates the whole skills/ tree)
+
+      - name: Compute matrix
+        id: plan
+        env:
+          DAILY_RUN: true
+        run: python3 .github/skill-eval/plan_matrix.py
+
+  # ---------------------------------------------------------------------
+  # eval — one leg per (spec, platform). Each leg runs the agent once.
+  # ---------------------------------------------------------------------
+  eval:
+    name: ${{ matrix.name }}
+    needs: plan
+    if: needs.plan.outputs.has_targets == 'true'
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    strategy:
+      # One slow/failed spec must not cancel its siblings.
+      fail-fast: false
+      # Cap concurrent legs near the vss-eval-* box count so legs don't
+      # all grab a runner slot only to block on flock. Excess legs queue.
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
+    # sequential harbor invocations, each up to the 1 h agent ceiling
+    # (AGENTS.md `--agent-timeout-multiplier 6.0`). 360m covers a ~4-step
+    # cold-box spec plus deploy/dataset/comment overhead without the
+    # whole-sweep 12 h cap the single-job design needed. AGENTS.md's
+    # box-lock wait (flock -w 21000 ≈ 5.8 h) is kept strictly under this
+    # 360 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
+    # before the job-killer fires (a 43200 s / 12 h wait would be
+    # silently killed mid-flock with no verdict — the exit-4 trap).
+    timeout-minutes: 360
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          # Match the plan job: run develop's harness + specs, not main's.
+          ref: develop
+          fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
+
+      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        run: |
+          # The runner host (vss-skill-validator-v2) keeps coordinator
+          # secrets in a single .env. Don't echo contents.
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run skills eval agent (single spec)
+        id: agent
+        env:
+          # github-actions[bot] token; scoped by the permissions: block.
+          GH_TOKEN: ${{ github.token }}
+          # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
+          # per-leg scratch dir with no hosts.yml so a stored OAuth on the
+          # host can't reauthor bot comments. Same fix helm-sync.yml uses.
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
+          # Raise the Bash-tool timeout cap above the worst-case single
+          # `uvx harbor run` (~2h: env-build 1800s + agent 3600s + verify
+          # 1800s). Without this the runtime auto-backgrounds the foreground
+          # harbor call at the 10-min default cap and the agent falls into
+          # polling its task output — silently defeating the "block on
+          # harbor" wait contract (the PreToolUse hook can't catch a
+          # runtime-initiated background; it only inspects call input). Both
+          # stay under the job's timeout-minutes so the call can't outlive it.
+          BASH_DEFAULT_TIMEOUT_MS: "7200000"
+          BASH_MAX_TIMEOUT_MS: "10800000"
+        run: |
+          mkdir -p "$GH_CONFIG_DIR"
+          set -a
+          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
+          set +a
+          export PR_HEAD_SHA="${{ github.sha }}"
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          # Single-spec mode — plan already decided this leg's target, so
+          # the agent skips the diff and processes exactly one (skill, spec).
+          export EVAL_KIND="${{ matrix.kind }}"
+          export EVAL_SKILL="${{ matrix.skill }}"
+          export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
+          export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
+          export EVAL_PLATFORM="${{ matrix.platform }}"
+          export DAILY_RUN="true"
+          # Per-leg scratch scope. Every leg keys its datasets/results/
+          # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
+          # so concurrent legs — and concurrent PR runs on the same host —
+          # never collide (AGENTS.md § "Per-leg scratch isolation").
+          export EVAL_SLUG="${{ matrix.slug }}"
+          # `.github` isn't a valid Python package prefix; expose the
+          # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
+          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+          mkdir -p /tmp/brev /tmp/skill-eval
+          python3 .github/skill-eval/skills_eval_agent.py
+
+      - name: Collect results for workflow artifact
+        if: always()
+        env:
+          EVAL_SLUG: ${{ matrix.slug }}
+        run: |
+          # This leg's harbor output lives under its own scratch scope,
+          # /tmp/skill-eval/results/<slug>/<run_id>/, so the artifact
+          # carries only this (spec,platform)'s trials. missing_adapter /
+          # blocker legs finish without a results dir — a valid outcome.
+          LEG_RESULTS="/tmp/skill-eval/results/${EVAL_SLUG}/${GITHUB_RUN_ID}"
+          if [ ! -d "$LEG_RESULTS" ]; then
+            echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
+            exit 0
+          fi
+          # Exclude per-trial agent/ trajectory subdirs from the tarball
+          # (NOT from the on-disk tree the Harbor viewer serves). Those
+          # files capture every tool_use/tool_result verbatim, so a `.env`
+          # read or `docker compose config` dump would otherwise carry
+          # secret values into the public artifact (PR #516 leaked
+          # NGC_CLI_API_KEY this way). Reward / judge / result.json — what
+          # the report consumes — stay in.
+          # Per-leg tarball path scoped by slug + run_id. `max-parallel`
+          # places multiple legs on one runner host, so a fixed
+          # /tmp/skills-eval-results.tar.gz would let overlapping legs
+          # overwrite each other's archive before upload — each leg then
+          # uploads whichever sibling wrote last. The slug makes the path
+          # unique per (skill,spec,platform).
+          LEG_TARBALL="/tmp/skills-eval-daily-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
+          RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
+          if [ -n "$RESULTS" ]; then
+            tar czf "$LEG_TARBALL" \
+              -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
+          else
+            echo "results dir exists but empty — nothing to archive"
+          fi
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-daily-results-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/skills-eval-daily-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
