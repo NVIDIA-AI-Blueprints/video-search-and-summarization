@@ -196,13 +196,19 @@ PREAMBLE = (
 )
 
 
-def generate_instruction(profile: str, platform: str) -> str:
+def generate_instruction(profile: str, platform: str, spec_query: str | None = None) -> str:
     """Short, query-style instruction. The `/vss-deploy-profile` skill reads the host
     and env vars and picks the actual LLM/VLM placement.
 
-    Shape: "Deploy the <profile> profile (on <platform>) [in <mode> mode]
-    autonomously — do not ask for confirmation before running."
+    When a spec_query is provided (the `expects[0].query` from the eval spec, with
+    `{{platform}}` already substituted), it is used verbatim as the body — preserving
+    any profile-specific instructions (e.g. `bp_wh_2d`, NGC app-data download, remote
+    model env vars) that the generic template would omit.  When spec_query is None
+    the generic template is used as a safe fallback.
     """
+    if spec_query is not None:
+        return "\n".join([PREAMBLE, "", spec_query]) + "\n"
+
     profile_def = PROFILES[profile]
     underlying = deploy_profile(profile)
     deploy_flag_m = profile_def.get("deploy_mode")
@@ -444,8 +450,32 @@ def generate_task(
     task_dir.mkdir(parents=True, exist_ok=True)
 
     # -- instruction.md --
+    # Prefer the spec's expects[0].query (with {{platform}} substituted) so
+    # profile-specific instructions (e.g. warehouse's bp_wh_2d, NGC app-data
+    # download, remote-model env vars) reach the agent verbatim, rather than
+    # being collapsed into the generic "Deploy the <profile> profile" fallback.
+    spec_query: str | None = None
+    if skill_dir is not None:
+        spec_path = skill_dir / "evals" / f"{profile}.json"
+        if not spec_path.exists():
+            legacy = skill_dir / "eval" / f"{profile}.json"
+            if legacy.exists():
+                spec_path = legacy
+        if spec_path.exists():
+            try:
+                raw = json.loads(spec_path.read_text())
+                expects = raw.get("expects") or []
+                if expects and isinstance(expects[0].get("query"), str):
+                    import re as _re
+                    spec_query = _re.sub(
+                        r"\{\{\s*platform\s*\}\}", platform, expects[0]["query"]
+                    )
+            except Exception as exc:  # noqa: BLE001
+                print(f"WARN: could not read spec query for {profile}: {exc}",
+                      file=sys.stderr)
+
     (task_dir / "instruction.md").write_text(
-        generate_instruction(profile, platform),
+        generate_instruction(profile, platform, spec_query=spec_query),
     )
 
     # -- task.toml --
