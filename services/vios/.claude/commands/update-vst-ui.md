@@ -16,23 +16,13 @@ The UI source lives at `<VIOS_DIR>/ui/vios-ui/` (package `vst-ui-ts`). The WebRT
 
 ## Step 1 — Locate the vios tree
 
-The VST UI deploys into the `vios` component, which lives at `services/vios/` inside the `video-search-and-summarization` monorepo. Resolve `VIOS_DIR` (the path to that `services/vios` directory) using this priority order:
+The VST UI source and its deployment targets all live inside the `vios` component (`services/vios/`) of the `video-search-and-summarization` monorepo. This skill runs from a session opened in that monorepo, so the tree is already checked out — no cloning is needed. Resolve `VIOS_DIR` (the path to the `services/vios` directory):
 
-1. **Argument provided** — if `$ARGUMENTS` is non-empty, use that path directly (it should point at the `services/vios` directory). Skip all further checks and go straight to verifying the directory exists.
-2. **Current directory** — if the current directory is itself a vios tree (contains `webroot` and `deployment/scaling/ingress`), use `.`; otherwise if `./services/vios` exists (you are at the monorepo root), use it.
-3. **Default location** — check `~/work/video-search-and-summarization/services/vios`.
+1. **Argument provided** — if `$ARGUMENTS` is non-empty, use that path directly (it should point at the `services/vios` directory).
+2. **Current directory is the vios tree** — if it contains `webroot` and `deployment/scaling/ingress`, use `.`.
+3. **Monorepo root** — if `./services/vios` exists, use it.
 
-If none of (1)–(3) resolves, use `AskUserQuestion` to ask:
-
-> "I couldn't find the vios tree (services/vios). Would you like to provide a path to an existing checkout, or should I clone the video-search-and-summarization monorepo from GitHub? (reply with a path, or type 'clone')"
-
-- If the user supplies a path, use that as `VIOS_DIR`.
-- If the user says `clone` (or any variant meaning "go ahead and clone"), clone the monorepo and point `VIOS_DIR` at its `services/vios` directory:
-
-```bash
-git clone git@github.com:NVIDIA-AI-Blueprints/video-search-and-summarization.git ~/work/video-search-and-summarization
-# VIOS_DIR=~/work/video-search-and-summarization/services/vios
-```
+Verify the resolved directory contains `ui/vios-ui` and `deployment/scaling/ingress`. If none of the above resolves (you are not inside a checkout), ask the user for the path to their `services/vios` directory rather than cloning.
 
 Store the resolved path as `VIOS_DIR` for subsequent steps.
 
@@ -144,7 +134,7 @@ git -C $VIOS_DIR commit -m "<COMMIT_MESSAGE>"
 ## Step 7 — Report results
 
 Report to the user:
-- Whether the vios tree was found locally or the monorepo was cloned, and the resolved `VIOS_DIR` path
+- The resolved `VIOS_DIR` path
 - The VST UI build commit/version used
 - Confirmation that old assets were removed from both targets
 - Confirmation that new dist files were copied to both targets
