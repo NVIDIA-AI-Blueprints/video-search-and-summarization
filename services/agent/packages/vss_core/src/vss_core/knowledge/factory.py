@@ -39,6 +39,7 @@ _LAZY_BACKENDS: dict[str, str] = {
     "frag_lib": "vss_core.knowledge.adapters.frag_lib",
     "llama_index": "vss_core.knowledge.adapters.llama_index",
     "langchain": "vss_core.knowledge.adapters.langchain",
+    "arango_graph": "vss_core.knowledge.adapters.arango_graph",
 }
 
 
