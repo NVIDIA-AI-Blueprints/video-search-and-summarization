@@ -449,6 +449,12 @@ VST_CONTAINERS = [
     "redis-server",
     "sensor-ms",
     "streamprocessing-ms-1",
+    # SDRC mode services (gated behind --profile sdrc)
+    "sdr-controller",
+    "sdrc-init-dirs",
+    "sdrc-render-config",
+    # Legacy sdr+envoy names (kept so stop/cleanup still works on old deploys
+    # that pre-date the SDRC refactor; harmless when containers are absent).
     "sdr-streamprocessing",
     "envoy-streamprocessing",
     "prometheus",

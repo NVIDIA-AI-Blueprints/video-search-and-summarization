@@ -19,6 +19,13 @@
 # Envoy in one process — it replaces the legacy two-container (sdr + envoy-proxy)
 # pipeline.
 #
+# All three services are gated behind the "sdrc" Compose profile. They start
+# only when `docker compose --profile sdrc up` (or `COMPOSE_PROFILES=sdrc`) is
+# invoked. The oneclick deployment script flips this based on VST_USE_SDRC.
+# When VST_USE_SDRC=false, the profile is omitted and the entire sdrc/
+# subgraph is skipped; sensor-MS then talks to the pod directly via
+# RTSP_SERVER_MODULE_ENDPOINT (see modules_apis.cpp::vst_rtsp::addStream).
+#
 # This is the standalone (single-workload, single-compose-graph) variant of the
 # pattern at deploy/docker/services/infra/sdrc/. The VSS variant has extra init
 # containers (wdm-env-from-config, wait-for-redis, wait-for-docker-workloads)
@@ -37,6 +44,7 @@ services:
   # Pre-create ./log as world-writable so the host user can clean up after
   # sdr-controller (which runs as root inside the container) without sudo.
   sdrc-init-dirs:
+    profiles: ["sdrc"]
     image: alpine:3.23.4
     user: "0:0"
     container_name: sdrc-init-dirs
@@ -54,7 +62,10 @@ services:
   # ${NUM_SENSORS}. Output is written next to the template with the .tmpl suffix
   # stripped (e.g. config.yml.tmpl -> config.yml). sdr-controller mounts the
   # resulting configs/ directory read-only.
+  # render-config.sh auto-runs `apk add --no-cache gettext` when envsubst is
+  # missing, so the alpine-based redis image works here as well.
   sdrc-render-config:
+    profiles: ["sdrc"]
     image: alpine:3.23.4
     user: "0:0"
     container_name: sdrc-render-config
@@ -91,6 +102,7 @@ services:
   # — both live in the parent compose graph and are merged into the same project
   # by the root docker-compose.yaml's `include:` directive.
   sdr-controller:
+    profiles: ["sdrc"]
     image: ${SDR_MW_L_IMAGE:-nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0}
     container_name: sdr-controller
     network_mode: host

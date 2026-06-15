@@ -28,6 +28,9 @@ services:
       - ADAPTOR=${VST_ADAPTOR}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
+      - VST_USE_SDRC=${VST_USE_SDRC:-false}
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
+      - RTSP_SERVER_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT:-}
       - NEED_STORAGE=false
       - NEED_STREAM_MONITORING=true
       - HTTP_PORT=${SENSOR_HTTP_PORT}
@@ -58,10 +61,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+        required: false
       centralizedb:
         condition: service_healthy
       sdr-controller:
         condition: service_started
+        required: false
 
   streamprocessing-ms-1:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
@@ -86,6 +91,7 @@ services:
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
     volumes:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
@@ -114,6 +120,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+        required: false
 
   centralizedb:
     image: ${POSTGRES_IMAGE}
@@ -161,7 +168,14 @@ services:
       sensor-ms:
         condition: service_healthy
 
+  # Redis is the message broker SDR consumes from, and the routing-table
+  # backing store Envoy's Lua filter reads. It's only used in SDRC mode. Profile-
+  # gated to "sdrc" so direct mode skips it entirely. sensor-MS still has
+  # `enable_notification: true` in its vst_config.json, so in direct mode it
+  # will attempt to publish camera_status_change events to a non-existent
+  # broker — the async notification queue logs and drops them, no crash.
   redis:
+    profiles: ["sdrc"]
     image: ${REDIS_IMAGE}
     user: "0:0"
     restart: always

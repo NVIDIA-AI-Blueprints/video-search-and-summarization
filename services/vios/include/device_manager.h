@@ -116,6 +116,7 @@ struct DeviceConfig
     string use_message_broker;
     bool enable_notification_consumer;
     string use_message_broker_consumer;
+    bool use_sdrc = false;
     string message_broker_topic_consumer;
     string video_metadata_server;
     bool enable_gem_drawing;

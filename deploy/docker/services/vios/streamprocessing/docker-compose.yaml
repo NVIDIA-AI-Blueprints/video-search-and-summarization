@@ -33,6 +33,7 @@ services:
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
@@ -82,6 +83,7 @@ services:
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
@@ -131,6 +133,7 @@ services:
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
@@ -182,6 +185,7 @@ services:
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs

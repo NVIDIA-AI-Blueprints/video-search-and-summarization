@@ -896,6 +896,25 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.module_endpoints[ModuleLiveStream] = LIVE_STREAM_MODULE_DEFAULT_ENDPOINT;
     }
 
+    /* VST_USE_SDRC toggles between the direct (sensor-MS posts to
+       stream-processor REST API; default, no SDR/Envoy in the data path) and
+       scaled (SDR + Envoy route stream-bound APIs) deployment topologies. */
+    char *use_sdrc_env = getenv("VST_USE_SDRC");
+    if (use_sdrc_env != nullptr)
+    {
+        string val(use_sdrc_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.use_sdrc = (val == "true" || val == "1" || val == "yes");
+    }
+
+    char *enable_notif_env = getenv("VST_ENABLE_NOTIFICATION");
+    if (enable_notif_env != nullptr)
+    {
+        string val(enable_notif_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.enable_notification = (val == "true" || val == "1" || val == "yes");
+    }
+
     // Observability configuration
     Json::Value observability = config.get("observability", Json::nullValue);
     if (observability != Json::nullValue)
