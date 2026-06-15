@@ -2,7 +2,7 @@
 name: vst-ui-dev
 description: This skill should be used when the user asks to "add a feature", "fix a bug", "create a component", "implement UI", "update the VST UI", "change the dashboard", "modify the video player", or any other development task on the VST web client (vst-ui-ts TypeScript/React codebase). Covers the full development loop: plan → implement → lint/format → dev server → user review → commit → branch → PR.
 argument-hint: <feature description>
-allowed-tools: AskUserQuestion, Read, Edit, Write, Bash, Bash(npm run format), Bash(npm run lint), Bash(npm run install:link), Bash(git *)
+allowed-tools: AskUserQuestion, Read, Edit, Write, Bash(cd ui/vios-ui && npm run format), Bash(cd ui/vios-ui && npm run lint), Bash(cd ui/vios-ui && npm run install:link), Bash(git *)
 ---
 
 ## Overview
