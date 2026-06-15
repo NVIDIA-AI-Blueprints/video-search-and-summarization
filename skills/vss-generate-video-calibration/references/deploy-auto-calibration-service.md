@@ -218,8 +218,7 @@ If the write test does not succeed (the common case on a fresh host — see abov
 if setfacl -m u:1000:rwx "$PROJECTS_DIR" 2>/dev/null; then
   echo "projects directory ACL updated"
 elif sudo -n true 2>/dev/null; then
-  sudo setfacl -m u:1000:rwx "$PROJECTS_DIR"
-  echo "projects directory ACL updated"
+  sudo setfacl -m u:1000:rwx "$PROJECTS_DIR" && echo "projects directory ACL updated"
 else
   echo "Sudo requires a password on this host. Please run the command below in your shell, then re-run the write test:"
   echo "  sudo setfacl -m u:1000:rwx \"$PROJECTS_DIR\""
