@@ -4,6 +4,7 @@ auto_sync_ready: true
 additional_vetters:
   - abhishek-ak-nv
   - akshayanv
+  - alexzh-nvda
   - ary1111
   - ashan-nv
   - ashwind-nvidia
@@ -15,8 +16,10 @@ additional_vetters:
   - dineshv
   - dsitlani-nv
   - freshyjmp
+  - gbau1
   - giapdq
   - gous-75
+  - haidongtran
   - harshalnishar
   - hfarooq-nv
   - hntran-nvidia
@@ -25,8 +28,8 @@ additional_vetters:
   - jiayin-nvidia
   - kaushikc-nvidia
   - lebahoang
-  - lianqiann
   - liamy-nv
+  - lianqiann
   - mansiigo
   - munjalp6
   - nathankw
@@ -39,6 +42,7 @@ additional_vetters:
   - poojavenkatesan
   - pratik-bhatt-nv
   - prisrivastav-nv
+  - purvag3091
   - rahul3349
   - romalakar
   - shubham050300
@@ -48,5 +52,3 @@ additional_vetters:
   - vineet-raina
   - vishkumar56
   - zac-wang-nv
-  - gbau1
-  - alexzh-nvda
