@@ -7,6 +7,15 @@
 
 set -euo pipefail
 
+# RHEL hosts (Docker via nvidia-container-toolkit) and OpenShift/RHCOS (GPU Operator)
+# inject the real driver libraries (e.g. libnvidia-ml.so.1) into /usr/lib64, while
+# this Ubuntu-based DeepStream image looks under /usr/lib/x86_64-linux-gnu where it
+# only finds a 0-byte stub -> "libnvidia-ml.so.1: file too short" and the GStreamer
+# pipeline fails to create src_nvmultiurisrcbin. Prepend /usr/lib64 so the loader
+# resolves the real libs first; the image's path is preserved, so vanilla Ubuntu
+# Docker behavior is unchanged.
+export LD_LIBRARY_PATH=/usr/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+
 DS_MODEL_FAMILY="${DS_MODEL_FAMILY:?DS_MODEL_FAMILY must be set (cnn, rtdetr, sparse4d)}"
 STREAM_TYPE="${STREAM_TYPE:-kafka}"
 DS_MODE_FLAG="${DS_MODE_FLAG:-1}"
