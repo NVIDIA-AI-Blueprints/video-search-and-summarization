@@ -1,23 +1,25 @@
 ---
 description: Build the VST UI and deploy the static files into the vios tree (services/vios of the video-search-and-summarization repo), both ingress/vst-ui and webroot, then commit.
 argument-hint: [/path/to/services/vios]
-allowed-tools: AskUserQuestion, Read, Bash, Bash(git clone *), Bash(git -C * status), Bash(git -C * add *), Bash(git -C * commit *), Bash(git -C * log *), Bash(npm run install:link), Bash(npm run build), Bash(rm -rf *), Bash(cp -r *)
+allowed-tools: AskUserQuestion, Read, Bash
 ---
 
 ## Task
 
-Build the VST UI and deploy the compiled static assets into the vios component (`services/vios`) of the video-search-and-summarization repository, replacing the old files in both deployment locations, then commit the repo.
+Build the VST UI and deploy the compiled static assets into the `vios` component (`services/vios`) of the video-search-and-summarization repository, replacing the old files in both deployment locations, then commit the repo.
+
+The UI source lives at `<VIOS_DIR>/ui/vios-ui/` (package `vst-ui-ts`). The WebRTC streaming library is the sibling `<VIOS_DIR>/ui/streaming-lib/` directory, built and linked by `npm run install:link`.
 
 **Arguments provided:** $ARGUMENTS
 
 ---
 
-## Step 1 — Locate or clone the vios tree
+## Step 1 — Locate the vios tree
 
 The VST UI deploys into the `vios` component, which lives at `services/vios/` inside the `video-search-and-summarization` monorepo. Resolve `VIOS_DIR` (the path to that `services/vios` directory) using this priority order:
 
 1. **Argument provided** — if `$ARGUMENTS` is non-empty, use that path directly (it should point at the `services/vios` directory). Skip all further checks and go straight to verifying the directory exists.
-2. **Current directory** — if `./services/vios` exists (you are at the monorepo root), use it; if the current directory is itself a vios tree (contains `webroot` and `deployment/scaling/ingress`), use `.`.
+2. **Current directory** — if the current directory is itself a vios tree (contains `webroot` and `deployment/scaling/ingress`), use `.`; otherwise if `./services/vios` exists (you are at the monorepo root), use it.
 3. **Default location** — check `~/work/video-search-and-summarization/services/vios`.
 
 If none of (1)–(3) resolves, use `AskUserQuestion` to ask:
@@ -28,7 +30,7 @@ If none of (1)–(3) resolves, use `AskUserQuestion` to ask:
 - If the user says `clone` (or any variant meaning "go ahead and clone"), clone the monorepo and point `VIOS_DIR` at its `services/vios` directory:
 
 ```bash
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git ~/work/video-search-and-summarization
+git clone git@github.com:NVIDIA-AI-Blueprints/video-search-and-summarization.git ~/work/video-search-and-summarization
 # VIOS_DIR=~/work/video-search-and-summarization/services/vios
 ```
 
@@ -37,6 +39,8 @@ Store the resolved path as `VIOS_DIR` for subsequent steps.
 The two deployment targets inside `VIOS_DIR` are:
 - `TARGET_INGRESS = $VIOS_DIR/deployment/scaling/ingress/vst-ui`
 - `TARGET_WEBROOT = $VIOS_DIR/webroot`
+
+The UI source directory is `UI_DIR = $VIOS_DIR/ui/vios-ui`.
 
 ---
 
@@ -53,30 +57,30 @@ rm -rf $TARGET_WEBROOT/assets $TARGET_WEBROOT/favicon $TARGET_WEBROOT/index.html
 
 ## Step 3 — Install dependencies in the VST UI repo
 
-Run from the `vst-ui-ts` project root (the directory containing `package.json` — the working directory for this Claude session):
+Run from the UI source directory (`$UI_DIR`, the directory containing `package.json`):
 
 ```bash
-npm run install:link
+cd $UI_DIR && npm run install:link
 ```
 
-Wait for it to complete before continuing.
+This builds the sibling `ui/streaming-lib` package and links it as `vst-streaming-lib`. Wait for it to complete before continuing.
 
 ---
 
 ## Step 4 — Build the VST UI static files
 
 ```bash
-npm run build
+cd $UI_DIR && npm run build
 ```
 
-This runs `tsc && vite build` and outputs the static files to the `dist/` directory.
+This runs `tsc && vite build` and outputs the static files to `$UI_DIR/dist`.
 
 **Note:** `npm run dev` starts a live dev server and does **not** produce a `dist/` folder. Always use `npm run build` to generate deployable static assets.
 
 Wait for the build to complete. Verify `dist/` exists and is non-empty:
 
 ```bash
-ls dist/
+ls $UI_DIR/dist/
 ```
 
 If the build fails, stop and report the error to the user.
@@ -88,8 +92,8 @@ If the build fails, stop and report the error to the user.
 Copy every file and folder inside `dist/` to both target directories:
 
 ```bash
-cp -r dist/. $TARGET_INGRESS/
-cp -r dist/. $TARGET_WEBROOT/
+cp -r $UI_DIR/dist/. $TARGET_INGRESS/
+cp -r $UI_DIR/dist/. $TARGET_WEBROOT/
 ```
 
 Verify the copy:
@@ -103,10 +107,10 @@ ls $TARGET_WEBROOT/assets/ 2>/dev/null | head -5
 
 ## Step 6 — Commit the repo
 
-Get the current VST UI version or latest git commit short SHA from the VST UI repo to use in the commit message:
+Get the current VST UI version or latest git commit short SHA to use in the commit message:
 
 ```bash
-git log -1 --format="%h %s"
+git -C $VIOS_DIR log -1 --format="%h %s"
 ```
 
 Then stage and commit the changed files. Paths are relative to `VIOS_DIR` (i.e. `services/vios`):
