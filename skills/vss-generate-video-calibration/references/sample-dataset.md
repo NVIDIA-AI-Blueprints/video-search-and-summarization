@@ -134,11 +134,21 @@ PY=python3
     uv venv "$VENV"
     uv pip install --python "$VENV/bin/python" --quiet requests
     PY="$VENV/bin/python3"
-  # Last resort: stdlib venv via apt (requires sudo).
+  # Last resort: stdlib venv via apt (requires sudo). Detect sudo mode so
+  # password-required hosts get a clear handoff instead of a silent `sudo -n`
+  # failure.
   else
-    echo "Need python3-venv or uv. Try one of:" >&2
-    echo "  curl -LsSf https://astral.sh/uv/install.sh | sh   (no sudo)" >&2
-    echo "  sudo apt install -y python3-venv python3-pip" >&2
+    echo "Need python3-venv or uv. Try the sudo-free option first:" >&2
+    echo "  curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+    if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+      echo "Passwordless sudo is available; alternatively run:" >&2
+      echo "  sudo apt install -y python3-venv python3-pip" >&2
+    elif command -v sudo >/dev/null 2>&1; then
+      echo "Sudo requires a password on this host. To use apt instead, run this in your shell, enter your password when prompted, then re-run this block:" >&2
+      echo "  sudo apt install -y python3-venv python3-pip" >&2
+    else
+      echo "sudo is not installed. Ask an admin to install python3-venv and python3-pip, or install uv with the command above." >&2
+    fi
     exit 1
   fi
 }
