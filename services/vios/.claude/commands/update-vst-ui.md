@@ -1,7 +1,7 @@
 ---
 description: Build the VST UI and deploy the static files into the vios tree (services/vios of the video-search-and-summarization repo), both ingress/vst-ui and webroot, then commit.
 argument-hint: [/path/to/services/vios]
-allowed-tools: AskUserQuestion, Read, Bash
+allowed-tools: AskUserQuestion, Read, Bash(cd * && npm run install:link), Bash(cd * && npm run build), Bash(ls *), Bash(rm -rf *), Bash(cp -r *), Bash(git -C * log *), Bash(git -C * add *), Bash(git -C * status), Bash(git -C * commit *)
 ---
 
 ## Task
