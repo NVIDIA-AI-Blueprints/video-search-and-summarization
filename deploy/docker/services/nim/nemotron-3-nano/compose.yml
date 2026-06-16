@@ -16,7 +16,6 @@
 services:
   nemotron-3-nano-init:
     image: alpine:3.23.4
-    container_name: llm-nim-init
     profiles:
     - llm_local_nemotron-3-nano
     - llm_local_shared_nemotron-3-nano
@@ -27,7 +26,6 @@ services:
     restart: "no"
   nemotron-3-nano:
     image: nvcr.io/nim/nvidia/nemotron-3-nano:1
-    container_name: nemotron-3-nano
     profiles:
     - llm_local_nemotron-3-nano
     runtime: nvidia
@@ -63,7 +61,6 @@ services:
         required: true
   nemotron-3-nano-shared-gpu:
     image: nvcr.io/nim/nvidia/nemotron-3-nano:1
-    container_name: nemotron-3-nano
     profiles:
     - llm_local_shared_nemotron-3-nano
     runtime: nvidia

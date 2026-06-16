@@ -16,7 +16,6 @@
 services:
   cosmos-reason2-8b:
     image: nvcr.io/nim/nvidia/cosmos-reason2-8b:1.6.0
-    container_name: nvidia-cosmos-reason2-8b
     profiles:
     - vlm_local_cosmos-reason2-8b
     runtime: nvidia
@@ -56,7 +55,6 @@ services:
 
   cosmos-reason2-8b-shared-gpu:
     image: nvcr.io/nim/nvidia/cosmos-reason2-8b:1.6.0
-    container_name: nvidia-cosmos-reason2-8b
     profiles:
     - vlm_local_shared_cosmos-reason2-8b
     runtime: nvidia

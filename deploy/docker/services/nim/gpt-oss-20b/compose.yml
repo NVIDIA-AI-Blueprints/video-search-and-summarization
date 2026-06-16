@@ -26,7 +26,6 @@ services:
     restart: "no"
   gpt-oss-20b:
     image: nvcr.io/nim/openai/gpt-oss-20b:1
-    container_name: gpt-oss-20b
     profiles:
     - llm_local_gpt-oss-20b
     runtime: nvidia
@@ -62,7 +61,6 @@ services:
         required: true
   gpt-oss-20b-shared-gpu:
     image: nvcr.io/nim/openai/gpt-oss-20b:1
-    container_name: gpt-oss-20b
     profiles:
     - llm_local_shared_gpt-oss-20b
     runtime: nvidia

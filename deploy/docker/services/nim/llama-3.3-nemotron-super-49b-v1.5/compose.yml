@@ -16,7 +16,6 @@
 services:
   llama-3.3-nemotron-super-49b-v1.5:
     image: nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1.5:1
-    container_name: llama-3.3-nemotron-super-49b-v1.5
     profiles:
     - llm_local_llama-3.3-nemotron-super-49b-v1.5
     runtime: nvidia
@@ -48,7 +47,6 @@ services:
       retries: 2
   llama-3.3-nemotron-super-49b-v1.5-shared-gpu:
     image: nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1.5:1
-    container_name: llama-3.3-nemotron-super-49b-v1.5
     profiles:
     - llm_local_shared_llama-3.3-nemotron-super-49b-v1.5
     runtime: nvidia

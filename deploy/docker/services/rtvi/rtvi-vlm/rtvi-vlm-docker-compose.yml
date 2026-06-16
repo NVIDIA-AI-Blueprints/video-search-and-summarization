@@ -19,7 +19,6 @@ services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
     image: nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0}
-    container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
     runtime: nvidia
@@ -98,7 +97,7 @@ services:
       # Bounded queue size for the async Kafka sender.
       KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
 
-      KAFKA_BOOTSTRAP_SERVERS: ${HOST_IP}:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
       NGC_API_KEY: "${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}"
       RTVI_EXTRA_ARGS: "${RTVI_EXTRA_ARGS:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
@@ -165,6 +164,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 1200s
+    networks: [app-network]
     restart: unless-stopped
     depends_on:
       broker-health-check:
@@ -194,6 +194,10 @@ services:
       qwen3-vl-8b-instruct-shared-gpu:
         condition: service_healthy
         required: false
+
+networks:
+  app-network:
+    driver: bridge
 
 volumes:
   rtvi-hf-cache:
