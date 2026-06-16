@@ -164,8 +164,15 @@ Then restart sensor-ms so it reloads: `docker restart sensor-ms`.
 
 **Option B — stage a backing file so the stream resolves:**
 ```bash
-cp /tmp/nvstreamer_auto_deploy/nvstreamer-1/<existing_file>.mp4 \
-   /tmp/nvstreamer_auto_deploy/nvstreamer-1/<missing_file>.mp4
+# Copy any valid clip already served by this NVStreamer instance over the
+# missing filename. If the instance has no clips, upload one first (PUT
+# /vst/api/v1/storage/file/<name>) or ask the user for a directory of valid
+# video files. Sample clips are no longer shipped in the repo -- they are baked
+# into the BDD test image at /app/test_videos.
+# Preserve the missing file's original extension (.mp4/.mkv/.ts); the source
+# clip should use the same container so the stream plays.
+cp /tmp/nvstreamer_auto_deploy/nvstreamer-1/<existing_clip>.<ext> \
+   /tmp/nvstreamer_auto_deploy/nvstreamer-1/<missing_file>.<ext>
 ```
 NVStreamer picks up new files without a restart.
 
