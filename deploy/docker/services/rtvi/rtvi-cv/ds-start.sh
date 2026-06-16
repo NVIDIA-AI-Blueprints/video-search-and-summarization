@@ -14,6 +14,12 @@ DS_MESSAGE_RATE="${DS_MESSAGE_RATE:-1}"
 DS_TRACKER_REID="${DS_TRACKER_REID:-false}"
 DS_SHOW_SENSOR_ID="${DS_SHOW_SENSOR_ID:-false}"
 
+# Prepend core DeepStream plugin dirs so GStreamer can find nvvideoconvert and
+# other elements required by metropolis_perception_app (e.g. alerts rtdetr-gdino).
+_ARCH="$(uname -m)"
+export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
+unset _ARCH
+
 # Shared: build extra flags from env vars
 build_extra_flags() {
     local flags=""
