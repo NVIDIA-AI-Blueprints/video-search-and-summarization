@@ -55,6 +55,7 @@ void PipelineConfiguration::parseOptions(const std::map<std::string, std::string
     m_recordedPlayback = (m_uri.find("file://") == 0);
     m_isCloudStream = (m_uri.find("s3://") != std::string::npos) || ((opts.find("storageLocation") != opts.end() && opts.at("storageLocation") == "cloud"));
     m_isNativeStream = (opts.find("capture_type") != opts.end() && opts.at("capture_type") == "native_stream");
+    m_isBaslerStream = (m_uri.find(NV_BASLER_SENSOR) != std::string::npos);
     m_imageCapture = (opts.find("image_capture") != opts.end());
     m_godsEyeView = (opts.find("gods_eye_view") != opts.end() && opts.at("gods_eye_view") == "true");
 
@@ -82,9 +83,9 @@ void PipelineConfiguration::setupQualityConfig(const std::map<std::string, std::
     m_quality.hlsPlayback = (opts.find("hls") != opts.end() && opts.at("hls") == "hls");
     
     // Determine pass-through mode
-    if (m_isNativeStream) {
-        m_quality.passThrough = false; // Not supported for native streams
-    } else if (m_recordedPlayback == false && 
+    if (m_isNativeStream || m_isBaslerStream) {
+        m_quality.passThrough = false; // Local producers (native/basler) are transcode-only here
+    } else if (m_recordedPlayback == false &&
                (GET_CONFIG().webrtc_out_encode_fallback_option == WEBRTC_OUT_FALLBACK_PASS_THROUGH || 
                 m_quality.quality == "pass_through")) {
         

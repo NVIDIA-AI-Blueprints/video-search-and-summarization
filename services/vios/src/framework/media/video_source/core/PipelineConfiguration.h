@@ -96,6 +96,7 @@ private:
     std::string m_peerIdStreamId;
     bool m_recordedPlayback = false;
     bool m_isNativeStream = false;
+    bool m_isBaslerStream = false;
     bool m_isCloudStream = false;
     bool m_imageCapture = false;
     bool m_godsEyeView = false;
