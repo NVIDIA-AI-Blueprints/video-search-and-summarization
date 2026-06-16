@@ -1,7 +1,7 @@
 ## Description: <br>
 Use this skill to run top-level VSS fusion search on archived video, or to ingest video files / RTSP streams for search. <br>
 
-This skill is for research and development only. <br>
+This skill is for demonstration purposes and not for production usage. <br>
 
 ## Owner
 NVIDIA <br>
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to perform natural-language search across archived video content using Cosmos Embed1 embeddings, ingest video files or RTSP streams into the VSS search pipeline, and manage search-indexed video sources. <br>
+Developers and operations teams searching archived video content using natural-language queries, ingesting video files or RTSP streams for search, and managing search-indexed sources. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -21,7 +21,7 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [Discovery Modes](references/discovery_modes.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -37,7 +37,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 internal skill evaluation task (positive activation) under the NVSkills-Eval `external` profile. <br>
+Evaluated against 1 evaluation task (1 positive skill-activation case) using the NVSkills-Eval external profile in an astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -62,10 +62,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 100% (+75%) | 67% (+29%) |
-| Discoverability | 1 | 100% (+75%) | 80% (+23%) |
-| Effectiveness | 1 | 88% (+64%) | 44% (+20%) |
-| Efficiency | 1 | 94% (+72%) | 70% (+20%) |
+| Correctness | 1 | 100% (+65%) | 97% (+49%) |
+| Discoverability | 1 | 100% (+75%) | 97% (+42%) |
+| Effectiveness | 1 | 88% (+58%) | 62% (+32%) |
+| Efficiency | 1 | 94% (+72%) | 94% (+50%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
