@@ -29,7 +29,7 @@ export const fetchCalibrationData = async (
     calibrationInstance: Calibration | null;
 }> => {
     if (!sensor?.sensorId || streamType === StreamType.VideoWall) {
-        console.log('Calibration fetch skipped:', {
+        LOG.info('Calibration fetch skipped:', {
             hasSensor: !!sensor?.sensorId,
             streamType,
             isVideoWall: streamType === StreamType.VideoWall,
@@ -37,20 +37,20 @@ export const fetchCalibrationData = async (
         return { calibrationData: null, calibrationInstance: null };
     }
 
-    console.log('Starting calibration data fetch for sensor:', sensor.sensorId);
+    LOG.info('Starting calibration data fetch for sensor:', sensor.sensorId);
 
     try {
         const endpoint = `${config.mdatWebApiEndpoint}/config/calibration?sensorId=${sensor.sensorId}`;
-        console.log('Fetching from endpoint:', endpoint);
+        LOG.info('Fetching from endpoint:', endpoint);
 
         const response = await nvAxios.get(endpoint, {
             headers: { streamId: sensor.sensorId },
         });
-        console.log('Calibration response received:', response.data);
+        LOG.info('Calibration response received:', response.data);
 
         if (response.data) {
             const calibData = response.data as CalibrationData;
-            console.log('Calibration data set:', calibData);
+            LOG.info('Calibration data set:', calibData);
 
             // Find the sensor data for the selected sensor
             const sensorData = calibData.sensors.find(s => s.id === sensor.sensorId);
@@ -60,7 +60,7 @@ export const fetchCalibrationData = async (
 
             // Check if this is a 2D or 3D calibration
             const is2DCalibration = calibData.calibrationType === 'cartesian' && !sensorData.homography;
-            console.log('Calibration type detected:', {
+            LOG.info('Calibration type detected:', {
                 type: calibData.calibrationType,
                 is2D: is2DCalibration,
                 hasHomography: !!sensorData.homography,
@@ -101,7 +101,7 @@ export const fetchCalibrationData = async (
             throw new Error('No calibration data received');
         }
     } catch (error) {
-        console.error('Calibration fetch error:', error);
+        LOG.error('Calibration fetch error:', error);
         LOG.error('Failed to fetch calibration data:', error);
         return { calibrationData: null, calibrationInstance: null };
     }

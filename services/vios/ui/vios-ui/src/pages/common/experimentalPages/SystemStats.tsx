@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useState, useEffect } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { Button, Grid2 as Grid, Paper, Typography, useTheme } from '@mui/material';
@@ -55,7 +56,7 @@ const SystemStats: React.FC = () => {
                     return newStats.slice(-maxDataPoints);
                 });
             } catch (error) {
-                console.error('Error fetching system stats:', error);
+                LOG.error('Error fetching system stats:', error);
             }
         };
 

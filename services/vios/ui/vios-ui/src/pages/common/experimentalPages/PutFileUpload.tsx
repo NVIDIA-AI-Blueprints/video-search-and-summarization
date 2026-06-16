@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useState, useCallback, useRef } from 'react';
 import {
     Stack,
@@ -102,10 +103,10 @@ const PutFileUpload: React.FC = () => {
     const uploadFileWithPut = useCallback(
         async (file: File): Promise<boolean> => {
             try {
-                console.log('uploadFileWithPut called for:', file.name);
+                LOG.info('uploadFileWithPut called for:', file.name);
 
                 if (!validateInputs()) {
-                    console.log('Validation failed, aborting upload');
+                    LOG.info('Validation failed, aborting upload');
                     return false;
                 }
 
@@ -121,8 +122,8 @@ const PutFileUpload: React.FC = () => {
                     url = `${config.storageManagementEndpoint}/api/v1/storage/file/${fileName}?sensorId=${encodeURIComponent(sensorId)}&timestamp=${encodeURIComponent(timestamp)}`;
                 }
 
-                console.log(`PUT upload URL (${isLegacy ? 'Legacy' : 'Current'}):`, url);
-                console.log('File details:', {
+                LOG.info(`PUT upload URL (${isLegacy ? 'Legacy' : 'Current'}):`, url);
+                LOG.info('File details:', {
                     originalName: file.name,
                     uploadName: fileName,
                     isCustomName: !!customFilename.trim(),
@@ -146,8 +147,8 @@ const PutFileUpload: React.FC = () => {
                     },
                 });
 
-                console.log('PUT upload successful:', response.data);
-                console.log('Full response:', response);
+                LOG.info('PUT upload successful:', response.data);
+                LOG.info('Full response:', response);
 
                 // Store the response data
                 setUploadResponse({
@@ -163,19 +164,19 @@ const PutFileUpload: React.FC = () => {
 
                 setUploadComplete(true);
                 setUploadProgress({ fileName, progress: 100 });
-                console.log('Upload completed successfully, states updated');
+                LOG.info('Upload completed successfully, states updated');
                 enqueueSnackbar(`File "${fileName}" uploaded successfully`, { variant: 'success' });
                 return true;
             } catch (error) {
-                console.error('PUT upload error:', error);
-                console.error('Error details:', {
+                LOG.error('PUT upload error:', error);
+                LOG.error('Error details:', {
                     message: error instanceof Error ? error.message : 'Unknown error',
                     response: error instanceof AxiosError ? error.response : null,
                     request: error instanceof AxiosError ? error.request : null,
                 });
 
                 setUploadFailed(true);
-                console.log('Upload failed, states updated, ready for next upload');
+                LOG.info('Upload failed, states updated, ready for next upload');
 
                 // Store error response data if available
                 if (error instanceof AxiosError && error.response) {
@@ -217,8 +218,8 @@ const PutFileUpload: React.FC = () => {
             }
 
             // Clear all previous states completely and start upload
-            console.log('Starting PUT upload for file:', file.name);
-            console.log('Clearing all previous states...');
+            LOG.info('Starting PUT upload for file:', file.name);
+            LOG.info('Clearing all previous states...');
 
             setIsUploading(true);
             setUploadComplete(false);
@@ -229,11 +230,11 @@ const PutFileUpload: React.FC = () => {
             try {
                 await uploadFileWithPut(file);
             } catch (error) {
-                console.error('Upload failed:', error);
+                LOG.error('Upload failed:', error);
                 setUploadFailed(true);
             } finally {
                 setIsUploading(false);
-                console.log('Upload process completed, ready for next upload');
+                LOG.info('Upload process completed, ready for next upload');
             }
         },
         [uploadFileWithPut, validateInputs, isUploading, enqueueSnackbar]

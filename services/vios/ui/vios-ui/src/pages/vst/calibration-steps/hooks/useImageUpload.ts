@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../../utils/misc/Logger';
 import { useState } from 'react';
 import config from '../../../../config';
 
@@ -59,14 +60,14 @@ export const useImageUpload = (options: UseImageUploadOptions = {}) => {
 
         const uploadUrl = `${config.analyticsUIServerEndpoint}/api/sensors/${sensorId}/`;
 
-        console.log('🔍 Image upload debug info:');
-        console.log('- Upload URL:', uploadUrl);
-        console.log('- File name:', file.name);
-        console.log('- File size:', file.size, 'bytes');
-        console.log('- File type:', file.type);
-        console.log('- FormData entries:');
+        LOG.info('🔍 Image upload debug info:');
+        LOG.info('- Upload URL:', uploadUrl);
+        LOG.info('- File name:', file.name);
+        LOG.info('- File size:', file.size, 'bytes');
+        LOG.info('- File type:', file.type);
+        LOG.info('- FormData entries:');
         for (const [key, value] of formData.entries()) {
-            console.log(`  - ${key}:`, value instanceof File ? `File(${value.name}, ${value.size}b)` : value);
+            LOG.info(`  - ${key}:`, value instanceof File ? `File(${value.name}, ${value.size}b)` : value);
         }
 
         try {
@@ -78,7 +79,7 @@ export const useImageUpload = (options: UseImageUploadOptions = {}) => {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('❌ Upload failed with response:', {
+                LOG.error('❌ Upload failed with response:', {
                     status: response.status,
                     statusText: response.statusText,
                     headers: Object.fromEntries(response.headers.entries()),
@@ -87,11 +88,11 @@ export const useImageUpload = (options: UseImageUploadOptions = {}) => {
                 throw new Error(`Failed to upload image: ${response.status} ${response.statusText}. Server response: ${errorText}`);
             }
 
-            console.log('✅ Upload successful');
+            LOG.info('✅ Upload successful');
             return await response.json();
         } catch (error) {
             if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-                console.error('❌ Network error - server may be unreachable:', {
+                LOG.error('❌ Network error - server may be unreachable:', {
                     url: uploadUrl,
                     error: error.message,
                 });
@@ -147,37 +148,37 @@ export const useImageUpload = (options: UseImageUploadOptions = {}) => {
         setUploadProgress(0);
 
         try {
-            console.log('🚀 Starting image upload for sensor:', sensorId);
+            LOG.info('🚀 Starting image upload for sensor:', sensorId);
 
             // Get image dimensions first
             setUploadProgress(10);
-            console.log('📏 Getting image dimensions...');
+            LOG.info('📏 Getting image dimensions...');
             const dimensions = await getImageDimensions(file);
-            console.log('✅ Image dimensions:', dimensions);
+            LOG.info('✅ Image dimensions:', dimensions);
 
             // Get current sensor data
             setUploadProgress(25);
-            console.log('📄 Fetching current sensor data...');
+            LOG.info('📄 Fetching current sensor data...');
             const sensorData = await getSensorData(sensorId);
-            console.log('✅ Sensor data retrieved');
+            LOG.info('✅ Sensor data retrieved');
 
             // Upload the image with the sensor data
             setUploadProgress(50);
-            console.log('📤 Uploading image...');
+            LOG.info('📤 Uploading image...');
             await uploadCalibrationImage(sensorId, file, sensorData);
-            console.log('✅ Image uploaded successfully');
+            LOG.info('✅ Image uploaded successfully');
 
             // Update image resolution
             setUploadProgress(75);
-            console.log('🔄 Updating image resolution...');
+            LOG.info('🔄 Updating image resolution...');
             await updateImageResolution(sensorId, dimensions.width, dimensions.height);
-            console.log('✅ Image resolution updated');
+            LOG.info('✅ Image resolution updated');
 
             setUploadProgress(100);
-            console.log('🎉 Upload completed successfully');
+            LOG.info('🎉 Upload completed successfully');
             options.onSuccess?.();
         } catch (err) {
-            console.error('❌ Upload failed:', err);
+            LOG.error('❌ Upload failed:', err);
             const errorMessage = err instanceof Error ? err.message : 'Failed to upload calibration image';
 
             // Provide more specific error messages based on the error type

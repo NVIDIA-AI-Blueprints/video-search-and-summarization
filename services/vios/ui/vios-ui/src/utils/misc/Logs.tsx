@@ -15,15 +15,21 @@
  * limitations under the License.
  */
 import config from '../../config';
+import LOG from './Logger';
 
+/**
+ * Thin backward-compatible wrappers that delegate to the {@link LOG} singleton.
+ * Prefer importing `LOG` directly in new code. Output is gated by `config.enableLogs`
+ * (legacy behaviour) in addition to LOG's own level threshold.
+ */
 export const logInfo = (...messages: unknown[]) => {
     if (config.enableLogs) {
-        console.log(...messages);
+        LOG.info(...messages);
     }
 };
 
 export const logError = (...messages: unknown[]) => {
     if (config.enableLogs) {
-        console.error(...messages);
+        LOG.error(...messages);
     }
 };

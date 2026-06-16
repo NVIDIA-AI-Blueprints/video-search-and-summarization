@@ -208,7 +208,7 @@ const CameraSettingsForm: React.FC<CameraSettingsFormProps> = ({ sensor }) => {
                 }
             }
 
-            console.log('newSettings: ', newSettings);
+            LOG.info('newSettings: ', newSettings);
             return newSettings;
         });
     };

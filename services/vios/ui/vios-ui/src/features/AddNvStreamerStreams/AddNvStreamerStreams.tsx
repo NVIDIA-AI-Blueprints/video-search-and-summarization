@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useState, ChangeEvent } from 'react';
 import {
     Card,
@@ -76,7 +77,7 @@ const AddNvStreamerStreams: React.FC = () => {
             setSelectedStreams([]);
             setSummary(null);
         } catch (error) {
-            console.error('Error fetching streams:', error);
+            LOG.error('Error fetching streams:', error);
         } finally {
             setIsLoading(false);
         }
@@ -112,7 +113,7 @@ const AddNvStreamerStreams: React.FC = () => {
                     };
                     successCount++;
                 } catch (error) {
-                    console.error(`Error adding stream ${streamName}:`, error);
+                    LOG.error(`Error adding stream ${streamName}:`, error);
                     updatedStreams[streamIndex] = {
                         ...stream,
                         status: 'error',

@@ -51,7 +51,7 @@ export const rewindOrFastforward = async (
             headers: { streamId: sensorId },
         });
         LOG.info(`Stream playback speed ${amount} successfully`, response?.data);
-        console.log(`Rewind/FF ${amount} ? success`);
+        LOG.info(`Rewind/FF ${amount} ? success`);
         return true;
     } catch (error: unknown) {
         LOG.error(`Stream playback speed ${amount} error`, error);
@@ -174,7 +174,7 @@ export const seekForward = async (peerId: string, mediaSessionId: string, sensor
             headers: { streamId: sensorId },
         });
         LOG.info('Stream seeked +10 successfully', response?.data);
-        console.log('+10 seek ? success');
+        LOG.info('+10 seek ? success');
         return true;
     } catch (error: unknown) {
         LOG.error('Stream seek +10 error', error);
@@ -199,7 +199,7 @@ export const seekBackward = async (peerId: string, mediaSessionId: string, senso
             headers: { streamId: sensorId },
         });
         LOG.info('Stream seeked -10 successfully', response?.data);
-        console.log('-10 seek ? success');
+        LOG.info('-10 seek ? success');
         return true;
     } catch (error: unknown) {
         LOG.error('Stream seek -10 error', error);

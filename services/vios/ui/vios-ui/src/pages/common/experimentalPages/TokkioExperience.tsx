@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import { FC, useState, useRef, useCallback } from 'react';
 import {
     Grid2 as Grid,
@@ -75,13 +76,13 @@ const Webrtc: FC = () => {
     });
 
     const onErrorCallback = useCallback(async (error: ErrorType) => {
-        console.error('on Error: ', error);
+        LOG.error('on Error: ', error);
         await stopStreaming();
     }, []);
 
     const handleConfigChange = (key: keyof StreamConfig) => (event: React.ChangeEvent<HTMLInputElement>) => {
         setConfig(prev => ({ ...prev, [key]: event.target.checked }));
-        console.log(`${key}:`, event.target.checked);
+        LOG.info(`${key}:`, event.target.checked);
     };
 
     const startStreaming = async () => {
@@ -123,7 +124,7 @@ const Webrtc: FC = () => {
                 errorCallback: onErrorCallback,
             });
 
-            console.log('streamManager.current', streamManager.current.getConfig());
+            LOG.info('streamManager.current', streamManager.current.getConfig());
 
             streamManager.current.startStreaming({
                 options: {
@@ -143,7 +144,7 @@ const Webrtc: FC = () => {
                 streamManager.current = null;
                 setIsStreaming(false);
             } catch (error) {
-                console.error('Error stopping stream:', error);
+                LOG.error('Error stopping stream:', error);
             }
         }
         setIsStreaming(false);

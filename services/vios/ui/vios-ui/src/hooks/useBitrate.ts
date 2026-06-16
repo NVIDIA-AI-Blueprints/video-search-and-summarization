@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../utils/misc/Logger';
 import { useState, useEffect, useRef } from 'react';
 
 interface BitrateStats {
@@ -30,7 +31,7 @@ export const useBitrate = (fullStats?: RTCStatsReport) => {
 
     useEffect(() => {
         if (!fullStats) {
-            console.log('useBitrate: No stats available');
+            LOG.info('useBitrate: No stats available');
             return;
         }
 
@@ -48,7 +49,7 @@ export const useBitrate = (fullStats?: RTCStatsReport) => {
                                 (8 * (report.bytesReceived - lastBytesReceived)) / ((report.timestamp - lastTimestamp) / 1000); // bits per second
                             setBitrate(Math.round(currentBitrate));
                         } else {
-                            console.log('useBitrate: First measurement, waiting for next sample');
+                            LOG.info('useBitrate: First measurement, waiting for next sample');
                         }
                         statsRef.current = {
                             lastBytesReceived: report.bytesReceived,
@@ -58,10 +59,10 @@ export const useBitrate = (fullStats?: RTCStatsReport) => {
                 });
 
                 if (!foundInboundRtp) {
-                    console.log('useBitrate: No inbound-rtp video stats found');
+                    LOG.info('useBitrate: No inbound-rtp video stats found');
                 }
             } catch (error) {
-                console.error('useBitrate: Error calculating bitrate:', error);
+                LOG.error('useBitrate: Error calculating bitrate:', error);
             }
         };
 

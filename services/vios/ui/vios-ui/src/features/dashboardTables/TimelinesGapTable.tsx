@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Card, CardHeader, IconButton, Typography, TextField, Skeleton, useTheme } from '@mui/material';
 import { KeyboardArrowLeft, KeyboardArrowRight } from '@mui/icons-material';
@@ -135,7 +136,7 @@ const TimelinesGapTable: React.FC = () => {
                 autoHideDuration: 2000,
             });
         } catch (error) {
-            console.error('Failed to copy timeline data:', error);
+            LOG.error('Failed to copy timeline data:', error);
             enqueueSnackbar('Failed to copy timeline data. Please try selecting and copying manually.', {
                 variant: 'error',
                 autoHideDuration: 3000,
@@ -266,14 +267,14 @@ const TimelinesGapTable: React.FC = () => {
                         const sensorEntry = timelinesData.find(t => (sensorData[t.sensorId] || t.sensorId) === sensorName);
 
                         if (!sensorEntry) {
-                            console.warn('Sensor data not found for:', sensorName);
+                            LOG.warn('Sensor data not found for:', sensorName);
                             return '';
                         }
 
                         // Get the timeline entry
                         const timeline = sensorEntry.data.timelines[dataPointIndex];
                         if (!timeline) {
-                            console.warn('Timeline not found for:', {
+                            LOG.warn('Timeline not found for:', {
                                 sensorName,
                                 dataPointIndex,
                             });
@@ -295,7 +296,7 @@ const TimelinesGapTable: React.FC = () => {
                             </div>
                         `;
                     } catch (error) {
-                        console.error('Error in tooltip:', error);
+                        LOG.error('Error in tooltip:', error);
                         return '';
                     }
                 },

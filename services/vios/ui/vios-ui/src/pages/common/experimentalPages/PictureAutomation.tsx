@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
@@ -163,7 +164,7 @@ export const PictureAutomation: React.FC = () => {
                     imageUrl,
                 };
             } catch (error) {
-                console.error('Error fetching screenshot:', error);
+                LOG.error('Error fetching screenshot:', error);
                 return {
                     success: false,
                     timestamp: formatUTCTime(new Date()),
@@ -188,7 +189,7 @@ export const PictureAutomation: React.FC = () => {
 
         for (const sensor of selectedSensors) {
             if (!sensor.streamId) {
-                console.warn('Skipping sensor without streamId:', sensor);
+                LOG.warn('Skipping sensor without streamId:', sensor);
                 continue;
             }
 

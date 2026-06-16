@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, Typography, Box, Chip, Alert, Button } from '@mui/material';
 import { useTheme, alpha } from '@mui/material/styles';
@@ -58,7 +59,7 @@ const transformImageCalibratonCoords = (coords: { x: number; y: number }[], fram
         y: coord.y + offset, // Shift negative coordinates to positive
     }));
 
-    console.log('[VST_CANVAS_DEBUG] Coordinate transformation:', {
+    LOG.info('[VST_CANVAS_DEBUG] Coordinate transformation:', {
         original: coords,
         frameHeight,
         minY,
@@ -115,7 +116,7 @@ const VisualizationCanvas: React.FC<VisualizationCanvasProps> = ({
     sensor,
     showLiveBackground = false,
 }) => {
-    console.log('[VST_CANVAS_DEBUG] Component called with props:', {
+    LOG.info('[VST_CANVAS_DEBUG] Component called with props:', {
         frameWidth,
         frameHeight,
         roiImageCoords,
@@ -132,7 +133,7 @@ const VisualizationCanvas: React.FC<VisualizationCanvasProps> = ({
     const [isLoadingImage, setIsLoadingImage] = useState(false);
 
     // Debug: Log incoming coordinates
-    console.log('[VST_CANVAS_DEBUG] Initial coordinates:', {
+    LOG.info('[VST_CANVAS_DEBUG] Initial coordinates:', {
         frameWidth,
         frameHeight,
         roiImageCoords,
@@ -154,7 +155,7 @@ const VisualizationCanvas: React.FC<VisualizationCanvasProps> = ({
             ? transformTripwireImageCalibrationCoords(tripwireImageCoords, frameHeight)
             : tripwireImageCoords;
 
-    console.log('[VST_CANVAS_DEBUG] Final coordinates for rendering:', {
+    LOG.info('[VST_CANVAS_DEBUG] Final coordinates for rendering:', {
         transformedROICoords,
         transformedTripwireCoords,
         willRender: !(!transformedROICoords && !transformedTripwireCoords),
@@ -199,7 +200,7 @@ const VisualizationCanvas: React.FC<VisualizationCanvasProps> = ({
             };
             img.src = imageUrl;
         } catch (error) {
-            console.error('Error fetching live picture:', error);
+            LOG.error('Error fetching live picture:', error);
             setImageError(error instanceof Error ? error.message : 'Unknown error');
             setIsLoadingImage(false);
         }
@@ -432,18 +433,18 @@ const VisualizationCanvas: React.FC<VisualizationCanvasProps> = ({
         theme,
     ]);
 
-    console.log('[VST_CANVAS_DEBUG] Checking render condition:', {
+    LOG.info('[VST_CANVAS_DEBUG] Checking render condition:', {
         hasTransformedROI: !!transformedROICoords,
         hasTransformedTripwire: !!transformedTripwireCoords,
         willReturn: !transformedROICoords && !transformedTripwireCoords,
     });
 
     if (!transformedROICoords && !transformedTripwireCoords) {
-        console.log('[VST_CANVAS_DEBUG] Returning null - no coordinates to render');
+        LOG.info('[VST_CANVAS_DEBUG] Returning null - no coordinates to render');
         return null;
     }
 
-    console.log('[VST_CANVAS_DEBUG] About to render component');
+    LOG.info('[VST_CANVAS_DEBUG] About to render component');
 
     return (
         <Card

@@ -27,7 +27,7 @@ import { updateSensorsAndStreams } from '../../utils/misc/updateSensorsAndStream
 
 const DeleteFilesSection = () => {
     const sensors = useVSTUIStore(state => state.sensorServiceSensors);
-    console.log(sensors);
+    LOG.info(sensors);
     const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const { enqueueSnackbar } = useSnackbar();

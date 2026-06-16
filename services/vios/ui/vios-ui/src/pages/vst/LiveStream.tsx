@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import useVSTUIStore from '../../services/StateManagement';
 import SensorSelector from '../../components/sensorSelector/MultipleSensorSelector';
 import React, { useCallback, useState, useMemo } from 'react';
@@ -67,7 +68,7 @@ const LiveStream = () => {
 
     const handleSensorSelection = useCallback((selection: Sensor[] | undefined) => {
         setSelectedSensors(selection || []);
-        console.log('Selected Sensors: ', selection);
+        LOG.info('Selected Sensors: ', selection);
     }, []);
 
     return (

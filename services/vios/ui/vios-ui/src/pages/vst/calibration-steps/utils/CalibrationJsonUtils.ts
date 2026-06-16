@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../../utils/misc/Logger';
 import { matrix, multiply, Matrix } from 'mathjs';
 import { flipPointY } from './calibrationMath';
 
@@ -149,7 +150,7 @@ export function applyHomographyToCoordinates(
     imageHeight: number
 ): JsonCoordinate[] {
     if (!homographyMatrix || homographyMatrix.length !== 3) {
-        console.warn('Invalid homography matrix provided');
+        LOG.warn('Invalid homography matrix provided');
         return coordinates;
     }
 
@@ -185,7 +186,7 @@ export function applyHomographyToCoordinates(
             };
         });
     } catch (error) {
-        console.error('Error applying homography transformation:', error);
+        LOG.error('Error applying homography transformation:', error);
         return coordinates;
     }
 }

@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+import LOG from '../misc/Logger';
 type Bbox = { leftX: number; rightX: number; topY: number; bottomY: number };
 type Coordinate = { x: number; y: number; z?: number };
 type GeoLocation = { lat: number; lon: number; alt?: number };
@@ -327,7 +329,7 @@ class ReverseCalibration {
             h[0][2] * (h[1][0] * h[2][1] - h[1][1] * h[2][0]);
 
         if (Math.abs(det) < 1e-10) {
-            console.warn('Homography matrix is singular, cannot calculate inverse');
+            LOG.warn('Homography matrix is singular, cannot calculate inverse');
             return undefined;
         }
 
@@ -358,13 +360,13 @@ class ReverseCalibration {
      */
     transformWorldToImage(worldCoord: Coordinate, sensorId: string): Coordinate | null {
         if (!this.contains(sensorId)) {
-            console.warn(`Sensor ${sensorId} not found in sensor map`);
+            LOG.warn(`Sensor ${sensorId} not found in sensor map`);
             return null;
         }
 
         const sensor = this.sensorMap[sensorId];
         if (!sensor.inverseHomography) {
-            console.warn(`Inverse homography not available for sensor ${sensorId}`);
+            LOG.warn(`Inverse homography not available for sensor ${sensorId}`);
             return null;
         }
 
@@ -385,7 +387,7 @@ class ReverseCalibration {
         const w = inverseHomography[2][0] * worldX + inverseHomography[2][1] * worldY + inverseHomography[2][2];
 
         if (Math.abs(w) < 1e-10) {
-            console.warn('Division by zero in inverse homography transformation');
+            LOG.warn('Division by zero in inverse homography transformation');
             return null;
         }
 
@@ -705,8 +707,8 @@ export const transform2DImageToWorld = (
 
         if (maxRelativeError > 0.1) {
             // 10% relative error threshold
-            console.warn('Homography appears unstable. Reference point transformation errors:', testTransformations);
-            console.warn(`Maximum relative error: ${(maxRelativeError * 100).toFixed(2)}%`);
+            LOG.warn('Homography appears unstable. Reference point transformation errors:', testTransformations);
+            LOG.warn(`Maximum relative error: ${(maxRelativeError * 100).toFixed(2)}%`);
         }
 
         return imageCoords.map((coord, index) => {
@@ -714,7 +716,7 @@ export const transform2DImageToWorld = (
 
             // Validate the resulting world coordinates are reasonable
             if (!isFinite(worldCoord.x) || !isFinite(worldCoord.y)) {
-                console.warn(`Homography produced invalid world coordinates at index ${index}:`, worldCoord, 'from image coord:', coord);
+                LOG.warn(`Homography produced invalid world coordinates at index ${index}:`, worldCoord, 'from image coord:', coord);
                 throw new Error(`Invalid transformation result at point ${index}: non-finite coordinates`);
             }
 
@@ -726,13 +728,13 @@ export const transform2DImageToWorld = (
             const expandedMaxY = maxGlobalY + globalRangeY * toleranceFactor;
 
             if (worldCoord.x < expandedMinX || worldCoord.x > expandedMaxX || worldCoord.y < expandedMinY || worldCoord.y > expandedMaxY) {
-                console.warn(`Transformed coordinate at index ${index} is far outside reference bounds:`, {
+                LOG.warn(`Transformed coordinate at index ${index} is far outside reference bounds:`, {
                     transformed: worldCoord,
                     imageCoord: coord,
                     referenceBounds: { minGlobalX, maxGlobalX, minGlobalY, maxGlobalY },
                     expandedBounds: { expandedMinX, expandedMaxX, expandedMinY, expandedMaxY },
                 });
-                console.warn('This may indicate an unstable homography transformation. Consider reviewing calibration points.');
+                LOG.warn('This may indicate an unstable homography transformation. Consider reviewing calibration points.');
 
                 // For now, we'll allow it but warn the user
                 // In production, you might want to throw an error or use a fallback method
@@ -741,10 +743,10 @@ export const transform2DImageToWorld = (
             return { x: worldCoord.x, y: worldCoord.y, z: 0 };
         });
     } catch (error) {
-        console.error('Homography calculation failed:', error);
-        console.error('Reference image coordinates:', referenceImageCoords);
-        console.error('Reference global coordinates:', referenceGlobalCoords);
-        console.error('Input image coordinates:', imageCoords);
+        LOG.error('Homography calculation failed:', error);
+        LOG.error('Reference image coordinates:', referenceImageCoords);
+        LOG.error('Reference global coordinates:', referenceGlobalCoords);
+        LOG.error('Input image coordinates:', imageCoords);
         throw new Error(`Failed to calculate 2D transformation: ${error}`);
     }
 };
@@ -770,7 +772,7 @@ export const transform2DWorldToImage = (
             return applyHomography({ x: coord.x, y: coord.y }, homography);
         });
     } catch (error) {
-        console.error('Homography calculation failed:', error);
+        LOG.error('Homography calculation failed:', error);
         throw new Error(`Failed to calculate 2D reverse transformation: ${error}`);
     }
 };

@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import useVSTUIStore from '../../../services/StateManagement';
 import SensorSelector from '../../../components/sensorSelector/SingleSensorSelector';
 import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
@@ -100,7 +101,7 @@ const RTSPStreamQOS = () => {
                     });
                 }
             } catch (error) {
-                console.error('Error fetching QoS data:', error);
+                LOG.error('Error fetching QoS data:', error);
             }
         };
 

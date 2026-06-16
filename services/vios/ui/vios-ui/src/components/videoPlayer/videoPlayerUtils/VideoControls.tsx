@@ -27,6 +27,7 @@ import {
     VolumeOff,
     PhotoCamera,
     Fullscreen,
+    FullscreenExit,
     DateRange,
     AccessTime,
     Replay,
@@ -52,6 +53,8 @@ interface VideoControlsProps {
     onCalendarClick: () => void;
     onSyncClick: () => void;
     onReplay: () => void;
+    /** When true, the fullscreen toggle renders the "exit" affordance. Defaults to false. */
+    isFullscreen?: boolean;
 }
 
 const VideoControls: React.FC<VideoControlsProps> = ({
@@ -73,6 +76,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
     onCalendarClick,
     onSyncClick,
     onReplay,
+    isFullscreen = false,
 }) => {
     const theme = useTheme();
     const isXsScreen = useMediaQuery(theme.breakpoints.down('sm'));
@@ -87,6 +91,15 @@ const VideoControls: React.FC<VideoControlsProps> = ({
                 width: '100%',
                 justifyContent: 'space-between',
                 overflow: 'hidden',
+                // Subtle, professional press/hover feedback on transport buttons.
+                '& .MuiIconButton-root': {
+                    transition: 'transform 0.15s ease, color 0.15s ease',
+                    '&:hover': { transform: 'scale(1.15)' },
+                    '&:active': { transform: 'scale(0.92)' },
+                },
+                '@media (prefers-reduced-motion: reduce)': {
+                    '& .MuiIconButton-root': { transition: 'none', '&:hover, &:active': { transform: 'none' } },
+                },
             }}
         >
             {/* Left side controls */}
@@ -245,9 +258,9 @@ const VideoControls: React.FC<VideoControlsProps> = ({
                     </>
                 )}
 
-                <Tooltip title='Fullscreen'>
+                <Tooltip title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
                     <IconButton onClick={onFullscreen} size='small' id='fullscreen-control-btn'>
-                        <Fullscreen />
+                        {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
                     </IconButton>
                 </Tooltip>
             </Box>
