@@ -139,9 +139,28 @@ test/bdd_tests/
     junit.xml
     test_results.csv
     unit_tests/*.csv
+  test_videos/                        # sample clips, baked into the BDD image (gitignored, not in repo)
 
 webroot/index.html                    # UI entry point
 ```
+
+---
+
+## Sample Video Files
+
+There are no longer sample clips committed under `tools/data/`. The BDD sample
+clips (10s H.264/H.265, MP4/MKV) are **baked into the BDD test image** at
+`/app/test_videos` and are gitignored, not stored in the repo. The BDD suite
+seeds NVStreamer from them automatically (session prerequisite uploads them and
+runs a VST scan when NVStreamer has no streams).
+
+When a deployment or an ad-hoc test needs a video source and none is available:
+
+- **Ask the user to point to a directory that contains valid video files**
+  (MP4/MKV/TS carrying H.264 or H.265). Do not assume a path exists.
+- Upload those files to NVStreamer (`PUT /vst/api/v1/storage/file/<name>`), then
+  run a sensor scan from the VST UI (or `POST /vst/api/v1/sensor/scan`) so VIOS
+  imports the RTSP streams.
 
 ---
 
