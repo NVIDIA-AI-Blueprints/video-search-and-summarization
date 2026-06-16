@@ -1,0 +1,9 @@
+# Sample test clips are baked into the BDD test image at build time and are
+# intentionally NOT committed to the repository. Keep this directory tracked
+# (via README.md and this file) so the Dockerfile `COPY test_videos/` step has
+# a target, but never commit the binaries themselves. See README.md.
+*.mp4
+*.mkv
+*.ts
+*.mov
+*.avi
