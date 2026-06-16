@@ -299,7 +299,7 @@ const SensorVideoDownloadCard: React.FC = () => {
     };
 
     const handleTimeRangeChange = (range: [string, string]) => {
-        console.log('Selected range:', range);
+        LOG.info('Selected range:', range);
         setSelectedStartTime(range[0]);
         setSelectedEndTime(range[1]);
         setUseMillisecondsInput(false);

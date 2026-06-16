@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useState } from 'react';
 import {
     Table,
@@ -68,7 +69,7 @@ const RTSPTable: React.FC = () => {
                 autoHideDuration: 2000,
             });
         } catch (error) {
-            console.error('Failed to copy URL:', error);
+            LOG.error('Failed to copy URL:', error);
             enqueueSnackbar('Failed to copy URL. Please try selecting and copying manually.', {
                 variant: 'error',
                 autoHideDuration: 3000,
