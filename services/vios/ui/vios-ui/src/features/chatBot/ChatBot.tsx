@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useState, useEffect, useRef } from 'react';
 import store from 'store2';
 import {
@@ -120,7 +121,7 @@ const ChatBot: React.FC = () => {
             botMessage.content = botMessage.content.trim();
             setMessages(prev => [...prev, botMessage]);
         } catch (error) {
-            console.error('Error fetching response:', error);
+            LOG.error('Error fetching response:', error);
             setError('An error occurred while fetching the response. Please try again.');
         } finally {
             setIsLoading(false);
@@ -147,7 +148,7 @@ const ChatBot: React.FC = () => {
             };
             setMessages([botMessage]);
         } catch (error) {
-            console.error('Error deleting memory:', error);
+            LOG.error('Error deleting memory:', error);
             setError('An error occurred while deleting the memory. Please try again.');
         } finally {
             setIsLoading(false);

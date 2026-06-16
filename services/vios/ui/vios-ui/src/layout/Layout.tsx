@@ -273,7 +273,22 @@ export default function UILayout() {
                     >
                         <MediaUpload />
                     </div>
-                    <Outlet />
+                    {/* Subtle fade/rise on route change. Keyed by pathname so it replays per page. */}
+                    <Box
+                        key={location.pathname}
+                        sx={{
+                            animation: 'vstPageEnter 240ms ease-out both',
+                            '@keyframes vstPageEnter': {
+                                from: { opacity: 0, transform: 'translateY(4px)' },
+                                to: { opacity: 1, transform: 'translateY(0)' },
+                            },
+                            '@media (prefers-reduced-motion: reduce)': {
+                                animation: 'none',
+                            },
+                        }}
+                    >
+                        <Outlet />
+                    </Box>
                 </Container>
                 <Footer />
             </Box>
