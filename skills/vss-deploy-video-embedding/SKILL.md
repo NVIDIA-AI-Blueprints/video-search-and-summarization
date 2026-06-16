@@ -39,6 +39,27 @@ Use this skill when you need to:
 - **Health endpoint:** `GET /v1/ready`.
 - **Healthcheck startup grace:** `1200s` (20 minutes) on first boot.
 
+## Version & API scope
+
+This skill documents **VSS 3.2 GA** RT-Embed (`nvcr.io/nvidia/vss-core/vss-rt-embed`).
+The legacy **3.1** name **RT-Embed** is the same microservice — use this skill's
+compose file and **`/v1/...`** paths on image tag **`3.2.0`** (SBSA server-ARM /
+DGX Spark: **`3.2.0-sbsa`**). Derive `RTVI_EMBED_TAG` from the checked-in compose before deploy (see Deploy below).
+
+Use the live OpenAPI as the source of truth before optional endpoints:
+
+```bash
+BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
+curl -fsS "$BASE_URL/openapi.json" | jq -r '.paths | keys[]' | sort
+```
+
+**Readiness probes:** `GET /v1/ready`, `/v1/live`, `/v1/startup` (not `/health` or
+`/v1/health/ready`). **Embedding:** `POST /v1/generate_text_embeddings`,
+`POST /v1/generate_video_embeddings`, `POST /v1/files`; live RTSP uses plural
+`/v1/streams/*`. Use the exact `model` id from `GET /v1/models`
+(`cosmos-embed1-448p` on the default 3.2 GA build). Endpoint schemas:
+[`references/rest-api.md`](references/rest-api.md).
+
 ## Prerequisites
 
 Before bringing the service up:
@@ -56,10 +77,16 @@ See `references/deploy-vss-deploy-video-embedding.md` for the full prerequisite 
 For **standalone RT-Embed**, work from the service directory:
 
 ```bash
-cd "{{repo_root}}/deploy/docker/services/rtvi/rtvi-embed"
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
+cd "$REPO/deploy/docker/services/rtvi/rtvi-embed"
+
+COMPOSE_DEFAULT_TAG=$(sed -nE 's/.*RTVI_EMBED_TAG:-([^}]+).*/\1/p' rtvi-embed-docker-compose.yml | head -n1)
+export RTVI_EMBED_TAG="${RTVI_EMBED_TAG:-$COMPOSE_DEFAULT_TAG}"
 ```
 
-Do **not** use `/vss-deploy-profile` or `scripts/dev-profile.sh` for this standalone deployment.
+Do **not** use `/vss-deploy-profile` or `deploy/docker/scripts/dev-profile.sh` for this
+standalone deployment. That script is owned by `vss-deploy-profile` (full VSS stack deploy);
+this skill does not invoke it — use `docker compose` from the `rtvi-embed` directory only.
 
 For agent-driven validation, never let `sudo` prompt interactively. Before any
 privileged ownership or Docker operation, use the non-interactive guard in
@@ -115,6 +142,7 @@ First-boot startup may take 20 minutes for the Cosmos-Embed1 download and Triton
 ```bash
 BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
 
+curl -fsS "$BASE_URL/openapi.json" | jq -r '.paths | keys[]' | sort
 curl -fsS "$BASE_URL/v1/ready"               # 200 when warm.
 curl -fsS "$BASE_URL/v1/ready?detailed=true" # Component-level status.
 curl -fsS "$BASE_URL/v1/version"

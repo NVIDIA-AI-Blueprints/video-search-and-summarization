@@ -259,7 +259,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         "",
         f"Use the `/vss-deploy-video-embedding` skill on this bare `{platform}` host "
         "to bring up the RT-Embed microservice standalone via Docker Compose. "
-        "Do not run `/vss-deploy-profile` or `scripts/dev-profile.sh`.",
+        "Do not run `/vss-deploy-profile` or `deploy/docker/scripts/dev-profile.sh`.",
         "",
         "## Query",
         "",
