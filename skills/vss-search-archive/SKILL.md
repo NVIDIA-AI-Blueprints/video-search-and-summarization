@@ -209,12 +209,13 @@ When using this skill, ALWAYS follow this high-level workflow:
    — Use clear section headers
    - Organize findings individually with supporting detail, and close with a summary
    - Use tables where comparisons help. Write like a technical report, not a chat message.
-   - If criteria results are non-null, then in addition to a column "Critic result" ("confirmed" | "rejected" | "skipped"), include a column "Criteria" with all the criteria for this search result ({criteria_n}: ✓ | ✗)
+   - For every rendered search hit, cite the `start_time`, `end_time`, `similarity`, and `screenshot_url` or `clip_url` exactly as returned by `/generate`. Do not round, truncate, paraphrase, or omit these fields.
+   - If criteria results are non-null, every result row (confirmed, rejected, or skipped) must include both a "Critic result" column (`confirmed` | `rejected` | `skipped`) and a "Criteria" column listing all criteria relevant to that row using `{criteria_n}: ✓ | ✗`.
 5. CRITICAL: Verify the results and explain this to the user concisely.
    If search fails, or returns unexpected results (i.e. videos that do not appear to match user query, zero matches, zero videos returned, error etc.), STOP. Do not proceed without reading [troubleshooting.md](references/troubleshooting.md) to iterate with feedback loops until proper results are found and presented like a professional inspection report.
 6. Final verifications:
-   - ALWAYS inform user that final and further verifications can be run. Present this as a `Verification Step`
-   - ONLY IF user agrees, download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query
+   - ALWAYS include a `Verification Step` offer at the end of the report telling the user screenshots can be downloaded and inspected for the best candidates.
+   - Do NOT download screenshots or claim visual inspection was completed unless the user explicitly opts in. ONLY IF the user agrees, download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query.
 
 ## Input resolution
 
