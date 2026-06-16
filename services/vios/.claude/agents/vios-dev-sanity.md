@@ -525,8 +525,15 @@ PASS if: HTTP 200 and response contains expected data (non-empty array, expected
 Steps say "Upload file to NvStreamer" or reference the media-upload page:
 
 ```
-1. Find a test file:
-   bash: find . -name "*.mkv" -o -name "*.mp4" | grep -E "(test|bdd_tests|tools)/data" | head -3
+1. Find a test file on the host. Sample clips are no longer committed under
+   tools/data -- they are baked into the BDD test image (/app/test_videos),
+   which is not on the host filesystem. Search, in order:
+   a. bash: find . -type f \( -name "*.mkv" -o -name "*.mp4" \) 2>/dev/null | grep -E "bdd_tests/(data|test_videos)" | head -3
+   b. bash: find . -type f \( -name "*.mkv" -o -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | head -5
+   c. bash: find /tmp/nvstreamer_auto_deploy -type f \( -name "*.mkv" -o -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | head -3
+   Use the first match. If no valid video file is found on disk, mark this test BLOCKED with reason
+   "no test video on disk (clips are baked into the BDD image, not on host)"
+   and continue to the next test. Do NOT prompt the user -- see Interaction Policy.
 2. browser_navigate → NVSTREAMER_URL/#/media-upload (or /#/dashboard)
 3. browser_snapshot → find file upload area
 4. browser_evaluate → find the file input element
@@ -1006,6 +1013,7 @@ Once execution starts (after the Step 0 permission gate), do not pause for user 
 | VIOS not reachable after auto-detect | Deploy via vios-deployment, then re-probe |
 | NvStreamer URL not provided | Derive from compose.env; fall back to `http://BASE_HOST:31000` |
 | NvStreamer URL unreachable | Mark NvStreamer-dependent tests BLOCKED; continue with remaining tests |
+| No test video file on disk (upload test) | Mark the file-upload test BLOCKED with "no test video on disk"; continue |
 | Sensor list empty for a test | Mark that test BLOCKED with reason; continue |
 | Test step ambiguous | Interpret the most literal reading; note interpretation in remarks |
 | Browser element not found | Retry once with fresh snapshot; if still missing, mark FAIL and continue |
