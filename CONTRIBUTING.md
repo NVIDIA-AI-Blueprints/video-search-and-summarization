@@ -116,6 +116,31 @@ By making a contribution to this project, I certify that:
 
 **Pull requests with unsigned commits will not be merged.**
 
+## Pre-commit hooks
+
+This repository uses [pre-commit](https://pre-commit.com/) hooks to run security scans before each commit. You must install and enable them before contributing.
+
+### Setup
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+### What runs
+
+| Hook | Purpose |
+|------|---------|
+| [TruffleHog](https://github.com/trufflesecurity/trufflehog) | Scans commits for secrets, credentials, and API keys |
+
+The hooks run automatically on `git commit`. To run them manually against all files:
+
+```bash
+pre-commit run --all-files
+```
+
+If a hook fails, fix the issue before committing. **Pull requests that contain detected secrets will not be merged.**
+
 ## Code contributions
 
 ### Your first issue

@@ -53,6 +53,8 @@ from pydantic import field_validator
 from vss_agents.utils.hitl import format_hitl_popup_header
 from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
+from vss_agents.utils.url_translation import translate_url
+
 logger = logging.getLogger(__name__)
 
 

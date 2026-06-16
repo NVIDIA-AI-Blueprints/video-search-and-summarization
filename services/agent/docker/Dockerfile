@@ -83,9 +83,9 @@ RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/imageio_ffmpeg 2>/dev/n
 # Security patch stage - download patched OpenSSL libraries
 # CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.19-1~deb12u2
 FROM debian:bookworm AS security-patches
-ARG TARGETARCH
 
-# Download the patched libssl3 package for the target architecture
+# Install the latest libssl3 via apt (avoids hardcoding a .deb URL that can go 404
+# when Debian publishes a newer point release).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends wget ca-certificates && \
     mkdir -p /patches && \

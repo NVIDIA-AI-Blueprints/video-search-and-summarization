@@ -11,7 +11,6 @@
 - [Prerequisites](#prerequisites)
 - [Hardware Requirements](#hardware-requirements)
 - [Quickstart Guide](#quickstart-guide)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## Overview

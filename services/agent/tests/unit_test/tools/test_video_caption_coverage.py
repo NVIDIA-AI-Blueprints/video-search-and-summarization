@@ -142,7 +142,7 @@ class TestCallVlmPartition:
         mock_response.content = "[10.45] A person walks."
         mock_llm.ainvoke.return_value = mock_response
 
-        start_ts, caption = await call_vlm_partition(
+        start_ts, _caption = await call_vlm_partition(
             llm=mock_llm,
             base64_frames=["base64data1", "base64data2"],
             template_prompt="Describe video at fps {fps}. Query: {user_prompt}. Start: {start_timestamp}.",
@@ -152,7 +152,7 @@ class TestCallVlmPartition:
             max_retries=3,
         )
         assert start_ts == 10.0
-        assert "person" in caption
+        assert "person" in _caption
 
     @pytest.mark.asyncio
     async def test_retry_on_error_message(self):
@@ -172,7 +172,7 @@ class TestCallVlmPartition:
             success_response,
         ]
 
-        start_ts, caption = await call_vlm_partition(
+        start_ts, _caption = await call_vlm_partition(
             llm=mock_llm,
             base64_frames=["frame1"],
             template_prompt="fps {fps} query {user_prompt} start {start_timestamp}",
@@ -182,7 +182,7 @@ class TestCallVlmPartition:
             max_retries=3,
         )
         assert start_ts == 10.0
-        assert "Scene description" in caption
+        assert "Scene description" in _caption
 
     @pytest.mark.asyncio
     async def test_no_retry_for_long_error_message(self):
