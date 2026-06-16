@@ -3,6 +3,14 @@
     "base_url": "http://localhost:30888",
     "verify_ssl": false
   },
+  "nvstreamer": {
+    "host": "localhost",
+    "port_base": 31000,
+    "instances": 1,
+    "upload_timestamp": "2025-01-01T00:00:00.000Z",
+    "live_ready_timeout_sec": 150,
+    "replay_ready_timeout_sec": 300
+  },
   "reporting": {
     "junit_xml": "reports/junit.xml",
     "html_report": "reports/report.html",
