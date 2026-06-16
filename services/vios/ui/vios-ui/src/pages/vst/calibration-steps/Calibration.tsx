@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useState, useEffect } from 'react';
 import {
     Paper,
@@ -270,7 +271,7 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                             const transformedFigures = flipY([newFigure], sensorHeight);
                             await pushPolygonUpdate(selectedSensorId, transformedFigures, config.analyticsUIServerEndpoint);
                         } catch (err) {
-                            console.error('Failed to update polygon:', err);
+                            LOG.error('Failed to update polygon:', err);
                         }
                     }
                 }
@@ -323,7 +324,7 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
                     const transformedFigures = flipY([calibrationFigure], sensorHeight);
                     await pushEdgeLengthsUpdate(selectedSensorId, transformedFigures, newCoordinates, config.analyticsUIServerEndpoint);
                 } catch (err) {
-                    console.error('Failed to update edge lengths:', err);
+                    LOG.error('Failed to update edge lengths:', err);
                 }
             }
         }
@@ -481,7 +482,7 @@ const Calibration: React.FC<CalibrationProps> = ({ projectId, onProjectUpdated }
             }
 
             const invertResult = await invertResponse.text();
-            console.log('Image invert response:', invertResult);
+            LOG.info('Image invert response:', invertResult);
 
             // Step 2: Update sensor with calibration data
             const sensorHeight = selectedSensor?.height || 1080;

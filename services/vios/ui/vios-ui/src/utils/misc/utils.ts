@@ -23,7 +23,7 @@ export function parseSettings(jsonString: string): CameraSettings {
         const parsedData = JSON.parse(jsonString) as CameraSettings;
         return parsedData;
     } catch (error) {
-        console.error('Error parsing JSON:', error);
+        LOG.error('Error parsing JSON:', error);
         throw new Error('Invalid JSON format');
     }
 }

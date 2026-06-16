@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
     Stack,
@@ -181,7 +182,7 @@ const MediaUpload = () => {
 
     // Add debug logging for state changes
     useEffect(() => {
-        console.log('State updated:', {
+        LOG.info('State updated:', {
             eventInfo,
             timestampInput,
             streamName,
@@ -205,7 +206,7 @@ const MediaUpload = () => {
         try {
             await updateSensorsAndStreams();
         } catch (error) {
-            console.error('Failed to refresh sensors and streams:', error);
+            LOG.error('Failed to refresh sensors and streams:', error);
         }
     };
 
@@ -214,14 +215,14 @@ const MediaUpload = () => {
     }, []);
 
     const handleEnableTranscode = useCallback(() => {
-        console.log('Toggling transcode from:', enableTranscode, 'to:', !enableTranscode);
+        LOG.info('Toggling transcode from:', enableTranscode, 'to:', !enableTranscode);
         setEnableTranscode(!enableTranscode);
     }, [enableTranscode]);
 
     const handleFrameRateChange = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
             const { value } = e.target;
-            console.log('Setting frame rate to:', value);
+            LOG.info('Setting frame rate to:', value);
             if (value === '' || /^\d+$/.test(value)) {
                 setFrameRate(value);
             } else {
@@ -240,7 +241,7 @@ const MediaUpload = () => {
     const handleBitRateChange = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
             const { value } = e.target;
-            console.log('Setting bitrate to:', value);
+            LOG.info('Setting bitrate to:', value);
             if (value === '' || /^\d+$/.test(value)) {
                 setBitrate(value);
             } else {
@@ -281,23 +282,23 @@ const MediaUpload = () => {
         nvAxios
             .post(`${config.sensorManagementEndpoint}/api/v1/sensor/${deviceId}/info`, jsonData)
             .then((res: AxiosResponse) => {
-                console.log('set tag response: ', res.data);
+                LOG.info('set tag response: ', res.data);
             })
             .catch((e: AxiosError) => {
-                console.debug('failed to set tags', e);
+                LOG.verbose('failed to set tags', e);
             });
     };
 
     const customFileUpload = useCallback((options: UploadOptions) => {
         setShowProgress(true);
         const currentState = stateRef.current;
-        console.log('Processing file with state:', currentState);
+        LOG.info('Processing file with state:', currentState);
 
         if (!currentState.enableChunkUpload) {
-            console.log('Using single chunk upload for file:', options.file.name);
+            LOG.info('Using single chunk upload for file:', options.file.name);
             uploadFileAsSingleChunk(options);
         } else {
-            console.log('Using chunk upload for file:', options.file.name);
+            LOG.info('Using chunk upload for file:', options.file.name);
             uploadFileInChunks(options);
         }
     }, []);
@@ -311,7 +312,7 @@ const MediaUpload = () => {
             totalChunkCount: number,
             onSuccess: (response: string) => void
         ) => {
-            console.log(`Chunk ${chunkNumber}/${totalChunkCount} uploaded successfully`);
+            LOG.info(`Chunk ${chunkNumber}/${totalChunkCount} uploaded successfully`);
             if (chunkNumber === totalChunkCount) {
                 enqueueSnackbar(`Success - File upload successfully ${response.data.filename}`, {
                     variant: 'success',
@@ -320,7 +321,7 @@ const MediaUpload = () => {
                         vertical: 'bottom',
                     },
                 });
-                console.log('file upload response', response.data);
+                LOG.info('file upload response', response.data);
                 onSuccess('Ok');
                 handleRefresh();
             }
@@ -333,7 +334,7 @@ const MediaUpload = () => {
             onError: (error: { error: unknown }) => void
         ) => {
             cancelToken.cancel();
-            console.error(`Error uploading chunk ${chunkNumber}:`, error);
+            LOG.error(`Error uploading chunk ${chunkNumber}:`, error);
             onError({ error });
             const errorMessage = error.response?.data?.error_message || 'File upload failed';
             enqueueSnackbar(`Error - ${errorMessage}`, {
@@ -579,7 +580,7 @@ const MediaUpload = () => {
             };
 
             const handleError = (error: AxiosError, onError: (error: { error: unknown }) => void) => {
-                console.error('File upload error', error);
+                LOG.error('File upload error', error);
                 onError({ error });
                 const errorMessage =
                     error.response?.data && typeof error.response.data === 'object' && 'error_message' in error.response.data
@@ -593,7 +594,7 @@ const MediaUpload = () => {
             };
 
             const uploadHeaders = setupUploadHeaders(file);
-            console.log('Single file upload headers:', uploadHeaders);
+            LOG.info('Single file upload headers:', uploadHeaders);
 
             const cancelTokenSource = axios.CancelToken.source();
             cancelTokensRef.current.set(file.name, cancelTokenSource);
@@ -620,11 +621,11 @@ const MediaUpload = () => {
                         return;
                     }
                     if (error instanceof AxiosError) {
-                        console.error('Upload error:', error);
-                        console.error('Error response:', error.response?.data);
+                        LOG.error('Upload error:', error);
+                        LOG.error('Error response:', error.response?.data);
                         handleError(error, onError);
                     } else {
-                        console.error('Unknown error:', error);
+                        LOG.error('Unknown error:', error);
                         handleError(new AxiosError('Unknown error occurred'), onError);
                     }
                 });
@@ -658,7 +659,7 @@ const MediaUpload = () => {
 
             // Get current state for all files
             const currentState = stateRef.current;
-            console.log('Processing multiple files with state:', currentState);
+            LOG.info('Processing multiple files with state:', currentState);
 
             files.forEach(file => {
                 if (hasWhiteSpace(file.name)) {
@@ -685,7 +686,7 @@ const MediaUpload = () => {
                         }));
                     },
                     onError: ({ error }) => {
-                        console.error('Upload error:', error);
+                        LOG.error('Upload error:', error);
                         setFailedFiles(prev => [...prev, file.name]);
                         setUploadedFiles(prev => prev + 1);
                         // Keep the last progress value on error
@@ -735,7 +736,7 @@ const MediaUpload = () => {
 
             // Get current state for all files
             const currentState = stateRef.current;
-            console.log('Processing multiple files with state:', currentState);
+            LOG.info('Processing multiple files with state:', currentState);
 
             files.forEach(file => {
                 if (hasWhiteSpace(file.name)) {
@@ -762,7 +763,7 @@ const MediaUpload = () => {
                         }));
                     },
                     onError: ({ error }) => {
-                        console.error('Upload error:', error);
+                        LOG.error('Upload error:', error);
                         setFailedFiles(prev => [...prev, file.name]);
                         setUploadedFiles(prev => prev + 1);
                         // Keep the last progress value on error
@@ -999,7 +1000,7 @@ const MediaUpload = () => {
                         <Switch
                             checked={enableChunkUpload}
                             onChange={e => {
-                                console.log('Toggle changed to:', e.target.checked);
+                                LOG.info('Toggle changed to:', e.target.checked);
                                 setEnableChunkUpload(e.target.checked);
                             }}
                         />
