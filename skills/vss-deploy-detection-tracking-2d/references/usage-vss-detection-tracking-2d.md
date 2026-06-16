@@ -124,7 +124,7 @@ If the intent is ambiguous, use `AskUserQuestion`:
 
 ## Step 3 — Collect Required Parameters
 
-**Use `AskQuestion` for structured choices.** Ask the user in chat for free-text values. Always collect all unknowns in a **single interaction**.
+**Use `AskUserQuestion` for structured choices.** Ask the user in chat for free-text values. Always collect all unknowns in a **single interaction**.
 
 ### For Stream Add
 
@@ -143,7 +143,7 @@ For any missing required values, ask in chat:
 >
 > Please provide the URL and ID.
 
-Then use `AskQuestion` for optional settings (with sensible defaults pre-selected):
+Then use `AskUserQuestion` for optional settings (with sensible defaults pre-selected):
 
 ```json
 {
@@ -196,7 +196,7 @@ curl -s "${BASE_URL}/api/v1/stream/get-stream-info" -H "Accept: application/json
 
 **Print:** `Fetching active streams from RTVI-CV...`
 
-If streams exist, present them as a choice using `AskQuestion`:
+If streams exist, present them as a choice using `AskUserQuestion`:
 
 ```json
 {
@@ -223,7 +223,7 @@ If no streams are active, tell the user:
 
 **Print:** `Preparing to generate text embeddings...`
 
-Ask for text input in chat, then use `AskQuestion` for the model:
+Ask for text input in chat, then use `AskUserQuestion` for the model:
 
 > What text do you want to generate embeddings for?
 
@@ -296,7 +296,7 @@ Show the exact curl command with all values filled in:
 >
 > Shall I run this?
 
-Use `AskQuestion` for confirmation:
+Use `AskUserQuestion` for confirmation:
 
 ```json
 {
@@ -422,7 +422,7 @@ If a probe fails, flag it: `| Readiness | NOT READY — service may still be loa
 
 ## Step 6 — Suggest Next Actions
 
-Use `AskQuestion` to offer logical follow-ups:
+Use `AskUserQuestion` to offer logical follow-ups:
 
 ```json
 {

@@ -17,7 +17,7 @@ ACTIVE=$(echo "$STREAM_INFO" | python3 -c \
 
 ## 11.b — Print the "what now?" menu block
 
-**Print this BEFORE the AskQuestion** so the user sees all options at a glance.
+**Print this BEFORE the AskUserQuestion** so the user sees all options at a glance.
 Build the block from live state: hide lines that don't apply.
 
 ```

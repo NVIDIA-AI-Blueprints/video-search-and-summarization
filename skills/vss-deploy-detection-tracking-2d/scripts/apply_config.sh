@@ -34,7 +34,7 @@
 # Output markers (parseable by the skill):
 #   RESOLVE_OK: <label>=<path>      — 4.a discovery result
 #   RESOLVE_MISS: <label> (no match)  — 4.a found zero candidates; skill should run fetch_resources.sh
-#   RESOLVE_AMBIGUOUS: <label> count=<N>  — 4.a needs AskQuestion from skill (N >= 2 candidates)
+#   RESOLVE_AMBIGUOUS: <label> count=<N>  — 4.a needs AskUserQuestion from skill (N >= 2 candidates)
 #   BATCH_UPDATE_OK <usecase> <N>   — 4.c done
 #   SINK_UPDATE_OK <usecase> <sink> — 4.d done
 #   STREAM_SOURCES_OK <usecase> <mode> — 4.e done

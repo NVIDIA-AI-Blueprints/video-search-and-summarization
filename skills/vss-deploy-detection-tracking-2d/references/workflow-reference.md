@@ -112,7 +112,7 @@ Keep the split clean — scripts do the brittle multi-file work; the agent does 
 
 | Task | Owner |
 |---|---|
-| Collect user inputs (use case, batch, sink, etc.) | Agent (`AskQuestion`) |
+| Collect user inputs (use case, batch, sink, etc.) | Agent (`AskUserQuestion`) |
 | Detect platform | Agent (one-liner: `uname -m`, `nvidia-smi`, `/etc/nv_tegra_release`) |
 | Write `~/.ngc/config` | Agent (simple `cat > file` + `chmod 600`) |
 | Download NGC resources | Agent (one-liner: `ngc registry resource download-version ...`) |
