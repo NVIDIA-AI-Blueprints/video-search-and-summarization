@@ -7,9 +7,9 @@ This skill is for demonstration purposes and not for production usage. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers building AI-powered video analytics applications who need to run natural-language search across archived video, ingest video files or RTSP streams for search, and manage search-indexed sources. <br>
+Developers and engineers use this skill to perform natural-language search across archived video content, ingest video files or RTSP streams for search indexing, and manage search-indexed video sources via the NVIDIA Video Search and Summarization blueprint. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,7 +25,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls, Analysis] <br>
+**Output Type(s):** [API Calls, Shell commands, Analysis] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
@@ -37,7 +37,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task in the NVSkills-Eval external profile (astra-sandbox environment). <br>
+Evaluated against 1 task from the NVSkills-Eval `external` profile in `astra-sandbox` environment. Pass threshold: 50%. Overall verdict: PASS. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -62,10 +62,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 1 | 100% (+0%) | 100% (+100%) |
-| Correctness | 1 | 100% (+75%) | 77% (+39%) |
-| Discoverability | 1 | 100% (+75%) | 87% (+34%) |
-| Effectiveness | 1 | 92% (+68%) | 50% (+36%) |
-| Efficiency | 1 | 94% (+72%) | 76% (+36%) |
+| Correctness | 1 | 100% (+75%) | 57% (+10%) |
+| Discoverability | 1 | 100% (+75%) | 62% (+3%) |
+| Effectiveness | 1 | 88% (+64%) | 44% (+14%) |
+| Efficiency | 1 | 94% (+72%) | 59% (+12%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
