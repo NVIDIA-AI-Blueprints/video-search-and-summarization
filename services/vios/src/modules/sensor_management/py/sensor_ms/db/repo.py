@@ -128,6 +128,27 @@ class SensorRepo:
             row.modified_date_time = now_iso
             return True
 
+    def update_sensor_info(self, sensor_id: str, fields: dict, now_iso: str) -> bool:
+        """Update editable SENSOR_DETAILS columns (name/position/tags/location/hardware metadata).
+        Only keys present in `fields` are written. Returns False if the sensor doesn't exist."""
+        col_map = {
+            "name": "name", "hardware": "hardware", "manufacturer": "manufacturer",
+            "serial_number": "serial_number", "firmware_version": "firmware_version",
+            "hardware_id": "hardware_id", "location": "location", "tags": "tags",
+            "position": "position",
+        }
+        with self._sf() as s, s.begin():
+            row = s.execute(
+                select(SensorDetails).where(SensorDetails.sensor_id == sensor_id)
+            ).scalar_one_or_none()
+            if row is None:
+                return False
+            for key, col in col_map.items():
+                if key in fields:
+                    setattr(row, col, fields[key])
+            row.modified_date_time = now_iso
+            return True
+
     def delete_sensor(self, sensor_id: str) -> bool:
         """Cascade delete: sensor_streams + recording_status + sensor_details."""
         with self._sf() as s, s.begin():

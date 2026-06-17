@@ -64,6 +64,25 @@ def _position_db_to_api(position_json: str | None) -> dict[str, Any]:
     }
 
 
+def position_api_to_db(position: dict[str, Any] | None) -> str:
+    """Serialize an API position object (camelCase) to the POSITION JSON column (snake_case keys,
+    alphabetically sorted, compact) so it round-trips through _position_db_to_api. Mirrors the C++
+    setSensorInfo position persistence."""
+    p = position or {}
+    coords = p.get("coordinates", {}) or {}
+    geo = p.get("geoLocation", p.get("geo_location", {})) or {}
+    origin = p.get("origin", {}) or {}
+    db = {
+        "coordinates": {"x": coords.get("x", ""), "y": coords.get("y", "")},
+        "depth": p.get("depth", ""),
+        "direction": p.get("direction", ""),
+        "field_of_view": p.get("fieldOfView", p.get("field_of_view", "")),
+        "geo_location": {"latitude": geo.get("latitude", ""), "longitude": geo.get("longitude", "")},
+        "origin": {"latitude": origin.get("latitude", ""), "longitude": origin.get("longitude", "")},
+    }
+    return json.dumps(db, sort_keys=True, separators=(",", ":"))
+
+
 def _to_bool(v: str | None) -> bool:
     return str(v).strip().lower() == "true"
 

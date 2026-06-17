@@ -210,6 +210,11 @@ class SetConfiguration(_Model):
     ntpServers: list[str] | None = None
 
 
+# --- debug (test hooks) ---
+class DebugIp(_Model):
+    ip: str = ""
+
+
 class VersionResponse(_Model):
     type: str
     version: str

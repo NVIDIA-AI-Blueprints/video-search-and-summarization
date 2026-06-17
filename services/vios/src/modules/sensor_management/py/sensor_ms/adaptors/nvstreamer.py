@@ -25,13 +25,16 @@ def _base(endpoint: str) -> str:
     return ep
 
 
-def fetch_streams(endpoint: str, timeout: float = 5.0) -> list[dict[str, Any]]:
+def fetch_streams(endpoint: str, timeout: float = 5.0,
+                  api: str = "/api/v1/sensor/streams", max_count: int | None = None) -> list[dict[str, Any]]:
     """Query one nvstreamer endpoint and return [{sensorId, name, url, metadata}] for its main streams.
 
-    Raises on connection/HTTP error (caller logs and skips). Each entry uses the nvstreamer's stable
-    streamId as the sensor id so re-polling is idempotent and recordings survive delete+readd.
+    `api` is the path to GET (rtsp_streams.json Nvstreamer.api) and `max_count` caps how many streams
+    are returned (rtsp_streams.json Nvstreamer.max_stream_count). Raises on connection/HTTP error
+    (caller logs and skips). Each entry uses the nvstreamer's stable streamId as the sensor id so
+    re-polling is idempotent and recordings survive delete+readd.
     """
-    url = _base(endpoint) + "/api/v1/sensor/streams"
+    url = _base(endpoint) + (api or "/api/v1/sensor/streams")
     with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 (trusted internal endpoint)
         data = json.loads(resp.read().decode("utf-8"))
     out: list[dict[str, Any]] = []
@@ -50,4 +53,6 @@ def fetch_streams(endpoint: str, timeout: float = 5.0) -> list[dict[str, Any]]:
                 "url": main.get("url", "") or "",
                 "metadata": main.get("metadata", {}) or {},
             })
+            if max_count and len(out) >= int(max_count):
+                return out
     return out

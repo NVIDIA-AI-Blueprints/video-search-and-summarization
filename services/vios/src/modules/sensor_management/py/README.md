@@ -14,9 +14,18 @@ The C++ implementation of this module lives alongside, in `../cpp/`.
 
 ## Status
 
-Phase 1 scaffold. The framework (routing, auth, error envelope, response Content-Type, DB models,
-credential crypto, adaptor ABCs, event publisher) is wired to the contract. Business logic in
-`core/` and the ONVIF adaptor are stubs marked `TODO(Pn)` per the migration phases.
+The framework (routing, auth, error envelope, response Content-Type, DB models, credential crypto,
+adaptor ABCs, event publisher) is wired to the contract, and the full REST surface is implemented:
+
+- Read/CRUD: list, streams, add, delete, status, info (get), credentials, configuration (get),
+  version, help, qos, timelines, scan.
+- Write/update: info (post: name/position/tags with uniqueness + truncation), configuration (post:
+  discovery interfaces + NTP, restart discovery), replace.
+- Device control via the ONVIF control adaptor: reboot, network (get/set), settings (get/set).
+  These require a real ONVIF camera; the response<->model mapping is factored into unit-tested pure
+  helpers, but the live-hardware matrix is the outstanding P3 validation gate.
+- Debug/test hooks: debug/plug, debug/unplug, debug/status (simulate camera plug/unplug; discovery
+  skips blocked IPs).
 
 ## Contract behaviors baked in (do not "fix" these — they are deliberate parity requirements)
 
@@ -31,6 +40,29 @@ credential crypto, adaptor ABCs, event publisher) is wired to the contract. Busi
     uvicorn sensor_ms.main:app --host 0.0.0.0 --port 30010
 
 OpenAPI docs at `/docs`. Health at `/v1/live`, `/v1/ready`, `/v1/startup`.
+
+## Logging
+
+`sensor_ms.*` logs go to stdout (`docker logs sensor-py`) with a timestamped format. Lifecycle events
+are logged at INFO (sensor discovered/added/credentialed/removed/replaced, reboot/network/settings
+applied, config applied, sensor-count-limit reached) and every error response is logged with request
+context (5xx -> ERROR, 4xx -> WARNING, uncredentialed-ONVIF 401 -> INFO). Credentials are never logged.
+
+## Notifications (message broker)
+
+Camera events (`camera_add`/`camera_proxy`/`camera_remove`) are published to the broker selected by
+`use_message_broker` (from `vst_config.json` `notifications` section or env), matching the C++
+NotificationFactory. All three backends are implemented:
+- **redis** — `XADD <topic> * {<payload_key>: <json>}` (`redis_server_env_var`)
+- **kafka** — `produce(topic=<topic>, value=<json>, key=<payload_key>)` (`kafka_server_address` / `KAFKA_BOOTSTRAP_URL`)
+- **mqtt** — `publish(<topic>, <json>, qos=1, retain=true)` (`mqtt_broker_address` / `MQTT_BROKER_ADDRESS`)
+
+Publish is best-effort: a broker error is logged, not raised, so a flaky bus never fails the sensor
+operation. Config is read from the `vst_config.json` `notifications` section (env vars override).
+
+## Logging env knobs (`logging_setup.py`):
+- `LOG_LEVEL` = `DEBUG|INFO|WARNING|ERROR` (default `INFO`; `DEBUG` adds per-scan WS-Discovery detail).
+- `LOG_HEALTH_ACCESS` = `1` to keep the `/v1/ready|live|startup` access-log lines (filtered out by default).
 
 ## Layout
 

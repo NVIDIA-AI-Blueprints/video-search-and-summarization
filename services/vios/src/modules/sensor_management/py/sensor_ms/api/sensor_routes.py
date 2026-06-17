@@ -65,7 +65,9 @@ async def get_configuration(request: Request) -> Any:
 
 @router.post("/configuration", dependencies=[Depends(require_bearer)])
 async def post_configuration(request: Request, body: s.SetConfiguration) -> Any:
-    # TODO(P2): apply deviceDiscoveryInterfaces / ntpServers; restart discovery if ifaces changed.
+    # Apply deviceDiscoveryInterfaces / ntpServers; restart discovery if the interface set changed
+    # (parity with C++ handleSensorConfiguration POST).
+    await _mgmt(request).apply_configuration(body.model_dump(exclude_none=True))
     return {}
 
 
@@ -94,6 +96,23 @@ async def get_system_stats() -> Any:
     return _stats()
 
 
+# --- debug plug/unplug (test hooks; gated by enableDebugApis, parity with C++ handleSensorDebugAPI) ---
+@router.get("/debug/status")
+async def get_debug_status(request: Request, ip: str = "") -> Any:
+    # {"status": "unplug"} if the ip is currently blocked (simulated unplug), else {"status": "plug"}.
+    return {"status": _mgmt(request).sensor_block_status(ip)}
+
+
+@router.post("/debug/unplug", dependencies=[Depends(require_bearer)])
+async def post_debug_unplug(request: Request, body: s.DebugIp) -> Any:
+    return _mgmt(request).block_sensor(body.ip, "unplug")
+
+
+@router.post("/debug/plug", dependencies=[Depends(require_bearer)])
+async def post_debug_plug(request: Request, body: s.DebugIp) -> Any:
+    return _mgmt(request).block_sensor(body.ip, "plug")
+
+
 @router.get("/qos", deprecated=True)
 async def get_qos() -> Any:
     # Deprecated: sensor-ms has no RTSP server; always null stats (swagger). Use proxy/debug/qos.
@@ -114,8 +133,8 @@ async def get_sensor_info(request: Request, sensor_id: str) -> Any:
 
 @router.post("/{sensor_id}/info", dependencies=[Depends(require_bearer)])
 async def post_sensor_info(request: Request, sensor_id: str, body: s.PostSensorInfo) -> Any:
-    # TODO(P2): update name/position/tags; name-uniqueness check.
-    return {}
+    # Update name (uniqueness-checked + truncated), position, location, tags, hardware metadata.
+    return await _mgmt(request).set_sensor_info(sensor_id, body.model_dump(exclude_none=True))
 
 
 @router.get("/{sensor_id}/status", response_model=s.SensorStatus)
@@ -131,8 +150,10 @@ async def delete_sensor(request: Request, sensor_id: str) -> Any:
 
 @router.post("/{sensor_id}/replace", dependencies=[Depends(require_bearer)])
 async def post_replace(request: Request, sensor_id: str, body: s.ReplaceRequest) -> Any:
-    # TODO(P2)
-    return {}
+    # Replace an offline sensor with another existing sensor, preserving the old sensor id so its
+    # recordings/timelines reattach (parity with C++ replaceSensorId).
+    await _mgmt(request).replace_sensor(sensor_id, body.model_dump(exclude_none=True))
+    return True
 
 
 @router.get("/{sensor_id}/streams", response_model=list[s.StreamInfo])
@@ -147,8 +168,8 @@ async def get_settings(request: Request, sensor_id: str) -> Any:
 
 @router.post("/{sensor_id}/settings", dependencies=[Depends(require_bearer)])
 async def post_settings(request: Request, sensor_id: str, body: dict) -> Any:
-    # TODO(P3): range/enum validation + adaptor apply.
-    return {}
+    # Apply ONVIF Image/Encode settings via the control adaptor (VMSNotSupportedError for non-ONVIF).
+    return await _mgmt(request).set_sensor_settings(sensor_id, body)
 
 
 @router.post("/{sensor_id}/credentials", dependencies=[Depends(require_bearer)])
@@ -165,13 +186,12 @@ async def get_network(request: Request, sensor_id: str) -> Any:
 @router.post("/{sensor_id}/network", response_model=s.NetworkSetResponse,
              dependencies=[Depends(require_bearer)])
 async def post_network(request: Request, sensor_id: str, body: s.NetworkInfo) -> Any:
-    # TODO(P3)
-    return {"rebootNeeded": False}
+    return await _mgmt(request).set_sensor_network(sensor_id, body.model_dump(exclude_none=True))
 
 
 @router.post("/{sensor_id}/reboot", dependencies=[Depends(require_bearer)])
 async def post_reboot(request: Request, sensor_id: str) -> Any:
-    # TODO(P3)
+    await _mgmt(request).reboot_sensor(sensor_id)
     return {}
 
 

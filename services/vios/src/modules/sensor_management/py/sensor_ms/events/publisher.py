@@ -18,10 +18,13 @@ TODO(P2): implement redis/kafka/mqtt backends; build_payload/serialize_event are
 from __future__ import annotations
 
 import json
+import logging
 from enum import Enum
 from typing import Any
 
 from ..config import Config
+
+log = logging.getLogger(__name__)
 
 
 class ChangeEvent(str, Enum):
@@ -84,14 +87,19 @@ def resolve_redis_host_port(cfg: Config) -> tuple[str, int]:
 
 
 class EventPublisher:
-    """Broker-agnostic publisher. One broker active at a time (NotificationFactory singleton).
-
-    Redis backend implemented (XADD stream). kafka/mqtt are TODO(P2).
-    """
+    """Broker-agnostic notification publisher. One broker active at a time (cfg.use_message_broker),
+    matching the C++ NotificationFactory. Backends (all carry the same serialized event body):
+      - redis: XADD <topic> * {<payload_key>: <json>}            (nvds_msgapi redis stream)
+      - kafka: produce(topic=<topic>, value=<json>, key=<payload_key>)  (bootstrap=kafka_server_address)
+      - mqtt:  publish(<topic>, <json>, qos=1, retain=True)      (broker=mqtt_broker_address)
+    Publish is best-effort: a broker error is logged, not raised, so a flaky bus never fails the
+    sensor operation (C++ deliverMessage returns false + logs)."""
 
     def __init__(self, cfg: Config):
         self._cfg = cfg
         self._redis = None
+        self._kafka = None
+        self._mqtt = None
 
     @property
     def enabled(self) -> bool:
@@ -105,15 +113,70 @@ class EventPublisher:
             self._redis = redis.Redis(host=host, port=port, socket_connect_timeout=5)
         return self._redis
 
+    def _kafka_producer(self):
+        if self._kafka is None:
+            from confluent_kafka import Producer  # lazy: only when kafka backend is active
+
+            self._kafka = Producer({"bootstrap.servers": self._cfg.kafka_server_address})
+        return self._kafka
+
+    def _mqtt_client(self):
+        if self._mqtt is None:
+            import uuid
+            from urllib.parse import urlparse
+
+            import paho.mqtt.client as mqtt
+
+            addr = self._cfg.mqtt_broker_address or ""
+            p = urlparse(addr if "://" in addr else f"tcp://{addr}")
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"vst_{uuid.uuid4().hex}")
+            client.connect(p.hostname or "localhost", p.port or 1883, keepalive=20)
+            client.loop_start()
+            self._mqtt = client
+        return self._mqtt
+
     async def publish(self, payload: dict[str, Any]) -> None:
         if not self.enabled:
             return
         body = serialize_event(payload)
         backend = self._cfg.use_message_broker.lower()
-        if backend == "redis":
-            # XADD <topic> * <payload_key> <json>  — matches the C++ nvds_msgapi redis stream path.
-            self._redis_client().xadd(
-                self._cfg.message_broker_topic, {self._cfg.message_broker_payload_key: body}
-            )
-        else:
-            raise NotImplementedError(f"event backend '{backend}' not implemented (P2)")
+        topic = self._cfg.message_broker_topic
+        key = self._cfg.message_broker_payload_key
+        try:
+            if backend == "redis":
+                self._redis_client().xadd(topic, {key: body})
+            elif backend == "kafka":
+                producer = self._kafka_producer()
+                producer.produce(topic, value=body.encode("utf-8"),
+                                 key=(key or "").encode("utf-8"))
+                producer.poll(0)  # serve delivery callbacks (non-blocking), like rd_kafka_poll
+            elif backend == "mqtt":
+                self._mqtt_client().publish(topic, body, qos=1, retain=True)
+            else:
+                raise NotImplementedError(f"event backend '{backend}' not implemented")
+        except NotImplementedError:
+            raise
+        except Exception as e:  # best-effort: log, don't fail the sensor op (C++ parity)
+            log.error("event publish to '%s' (topic=%s) failed: %s", backend, topic, e)
+
+    def close(self) -> None:
+        """Release broker clients (called on shutdown)."""
+        if self._kafka is not None:
+            try:
+                self._kafka.flush(5)
+            except Exception:
+                pass
+            self._kafka = None
+        if self._mqtt is not None:
+            try:
+                self._mqtt.loop_stop()
+                self._mqtt.disconnect()
+            except Exception:
+                pass
+            self._mqtt = None
+        if self._redis is not None:
+            try:
+                self._redis.close()
+            except Exception:
+                pass
+            self._redis = None

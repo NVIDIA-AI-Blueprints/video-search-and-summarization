@@ -45,6 +45,7 @@ NVSTREAMER_IMAGE="${NVSTREAMER_IMAGE:-nvstreamer}"
 # Define valid module names
 declare -A VALID_MODULES=(
     ["sensor"]=1
+    ["sensor-py"]=1    # Python control-plane reimplementation; built from its own Dockerfile
     ["rtspserver"]=1
     ["recorder"]=1
     ["livestream"]=1
@@ -61,6 +62,7 @@ show_help() {
     echo "Options:"
     echo "  arch=<arch>        Specify the architecture (amd64/x86_64 or arm64/aarch64). Default is x86_64/amd64."
     echo "  module=<modules>   Comma-separated list of modules to build (e.g., sensor,rtspserver,streamprocessing)."
+    echo "                     Use module=sensor-py to build the Python sensor service image from its own Dockerfile."
     echo "  package            Build and package the modules."
     echo "  container          Build, package, and create Docker containers (uses base image strategy for faster builds)."
     echo "  tag=<name>         Docker image tag for application containers (used with container option)."
@@ -87,6 +89,8 @@ show_help() {
     echo ""
     echo "  ./build.sh module=sensor"
     echo "  ./build.sh arch=arm64 module=recorder"
+    echo "  ./build.sh container module=sensor-py            # build Python sensor service image (vst-sensor-py)"
+    echo "  ./build.sh container module=sensor-py push=1     # build + push Python sensor service image"
     echo ""
     echo "  ./build.sh package module=sensor,rtspserver,recorder,livestream,replaystream,storage,streambridge,streamprocessing"
     echo "  ./build.sh container module=sensor,rtspserver,recorder,livestream,replaystream,storage,streambridge,streamprocessing"
@@ -265,6 +269,7 @@ echo "IMAGE_REGISTRY=$IMAGE_REGISTRY"
 # Default tags for each module
 declare -A DEFAULT_TAGS=(
     [sensor]="latest"
+    [sensor-py]="latest"
     [storage]="latest"
     [recorder]="latest"
     [rtspserver]="latest"
@@ -421,6 +426,63 @@ build_module() {
         echo "Build failed for module: $module. Exiting function."
         return 1
     fi
+}
+
+# Function to build the Python sensor-management microservice container.
+# Unlike the C++ modules, sensor-py does NOT go through make/package + Dockerfile.app; it is built
+# directly from src/modules/sensor_management/py/Dockerfile. Image name/tag/registry follow the same
+# convention as the other module images: $IMAGE_REGISTRY/vst-sensor-py:<tag>.
+build_sensor_py_container() {
+    local imagename=$1
+    local py_dir="src/modules/sensor_management/py"
+
+    if [[ ! -f "$py_dir/Dockerfile" ]]; then
+        echo "[ERROR] sensor-py Dockerfile not found at $py_dir/Dockerfile"
+        return 1
+    fi
+
+    echo "Building Docker image: $imagename (from $py_dir/Dockerfile)"
+    local start_ts
+    start_ts=$(date +%s)
+
+    local cache_flag=""
+    if [[ $NO_CACHE -eq 1 ]]; then
+        cache_flag="--no-cache"
+        echo "Building without Docker cache..."
+    fi
+
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+        docker build $cache_flag --platform linux/arm64 --network=host -t "$imagename" "$py_dir"
+    else
+        docker build $cache_flag --network=host -t "$imagename" "$py_dir"
+    fi
+    if [[ $? -ne 0 ]]; then
+        echo "[ERROR] Docker build failed for image: $imagename"
+        return 1
+    fi
+    echo "Docker build succeeded for image: $imagename"
+    print_per_image_build_timing_line "$start_ts"
+
+    if [[ $PUSH -eq 1 ]]; then
+        echo "Pushing Docker image: $imagename"
+        docker push "$imagename"
+        if [[ $? -ne 0 ]]; then
+            echo "[ERROR] Docker push failed for image: $imagename"
+            return 1
+        fi
+        echo "Docker push succeeded for image: $imagename"
+    fi
+}
+
+# Resolve the sensor-py image name honoring an explicit tag=, else its default tag.
+sensor_py_image_name() {
+    local tag
+    if [[ -n "$TAG" ]]; then
+        tag="$TAG"
+    else
+        tag=${DEFAULT_TAGS[sensor-py]:-"latest"}
+    fi
+    echo "$IMAGE_REGISTRY/vst-sensor-py:${tag}"
 }
 
 # Function to build and package all modules
@@ -1001,6 +1063,11 @@ else
         fi
         echo "Building specified modules"
         for module in "${MODULES[@]}"; do
+            # sensor-py has no compile step; "building" it means building its Docker image.
+            if [[ "$module" == "sensor-py" ]]; then
+                build_sensor_py_container "$(sensor_py_image_name)" || exit 1
+                continue
+            fi
             if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
                 build_module "$module" 1
             else
@@ -1015,6 +1082,11 @@ else
     elif [[ $PACKAGE -eq 1 ]]; then
         echo "Packaging specified modules"
         for module in "${MODULES[@]}"; do
+            # sensor-py has no separate package artifact; its deployable is the Docker image.
+            if [[ "$module" == "sensor-py" ]]; then
+                build_sensor_py_container "$(sensor_py_image_name)" || exit 1
+                continue
+            fi
             if [[ ${#MODULES[@]} -gt 1 ]]; then
                 # Clean previous module before building new
                 if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
@@ -1048,6 +1120,15 @@ else
                 imagename="$IMAGE_REGISTRY/vst-${module}:${TAG}"
             fi
             echo "Setting image name for module $module: $imagename"
+
+            # sensor-py: build the Python service image directly from its Dockerfile, bypassing the
+            # C++ make/package + Dockerfile.app flow used by every other module.
+            if [[ "$module" == "sensor-py" ]]; then
+                build_sensor_py_container "$imagename" || exit 1
+                cont_array+=("$imagename")
+                MODULE_COUNT=$((MODULE_COUNT + 1))
+                continue
+            fi
 
             # Clean previous module before building new
             if [[ ${#MODULES[@]} -gt 1 ]]; then

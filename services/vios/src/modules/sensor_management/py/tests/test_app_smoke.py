@@ -59,10 +59,16 @@ def test_mutating_endpoint_passes_through_without_token(client):
 
 
 def test_full_route_surface_registered():
-    paths = {route.path for route in app.routes}
+    # Use the OpenAPI schema as the route source (version-stable across FastAPI/Starlette; newer
+    # Starlette wraps include_router results in opaque router objects without a flat `.path`).
+    paths = set(app.openapi()["paths"])
     for expected in [
         "/api/v1/sensor/list", "/api/v1/sensor/add", "/api/v1/sensor/{sensor_id}",
         "/api/v1/sensor/{sensor_id}/credentials", "/api/v1/sensor/{sensor_id}/network",
         "/api/v1/sensor/scan", "/api/v1/sensor/configuration", "/v1/ready",
+        # control-plane APIs completed on top of the read/add/delete core
+        "/api/v1/sensor/{sensor_id}/info", "/api/v1/sensor/{sensor_id}/replace",
+        "/api/v1/sensor/{sensor_id}/settings", "/api/v1/sensor/{sensor_id}/reboot",
+        "/api/v1/sensor/debug/plug", "/api/v1/sensor/debug/unplug", "/api/v1/sensor/debug/status",
     ]:
         assert expected in paths, f"missing route {expected}"

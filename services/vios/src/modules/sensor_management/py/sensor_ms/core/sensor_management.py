@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import asyncio
+import json
 import logging
 import os
 
@@ -65,6 +66,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _is_valid_ipv4(addr: str) -> bool:
+    """True for a dotted-quad IPv4 address (parity with C++ validateIpAddress for set network)."""
+    import ipaddress
+
+    try:
+        ipaddress.IPv4Address(addr)
+        return True
+    except (ValueError, ipaddress.AddressValueError):
+        return False
+
+
 class SensorManagement:
     def __init__(self, cfg: Config):
         self._cfg = cfg
@@ -77,6 +89,14 @@ class SensorManagement:
         self._discovery_task: asyncio.Task | None = None
         # Consecutive missed-discovery counts per ONVIF sensor id, for debounced removal logging.
         self._onvif_misses: dict[str, int] = {}
+        # Debug "unplug": IPs the test hooks (/sensor/debug/unplug) have blocked. Discovery skips them
+        # so a camera can be simulated offline without physically unplugging it (C++ blockSensor).
+        self._blocked_ips: set[str] = set()
+        # Whether the "sensors count limit reached" message has already been logged; reset when a scan
+        # no longer hits the cap, so it is logged once per state change instead of every scan.
+        self._cap_logged = False
+        # Set True when a scan could not reach a discovery endpoint; drives the bounded startup retry.
+        self._last_scan_had_failures = False
         log.info("sensor adaptor: %s (control=%s, nvstreamer=%s)", self._adaptor_name,
                  type(self._control).__name__ if self._control else "none", cfg.nvstreamer_endpoints)
 
@@ -110,8 +130,7 @@ class SensorManagement:
             init_schema(self._dm.engine)
         except Exception as e:
             log.warning("schema init skipped: %s", e)
-        # Initial discovery, then a periodic background loop (parity with the C++ discovery threads)
-        # so deleted sources reappear within sensor_discovery_freq_secs.
+        # Initial discovery at startup.
         try:
             await self.scan(force=False)
         except Exception as e:
@@ -124,7 +143,38 @@ class SensorManagement:
             await self._reannounce_online_sensors()
         except Exception as e:
             log.warning("startup re-announce failed: %s", e)
-        self._discovery_task = asyncio.create_task(self._periodic_discovery())
+        # Periodic re-discovery runs ONLY for ONVIF (continuous WS-Discovery, lightweight multicast --
+        # C++ parity). RTSP/nvstreamer sources are discovered once at startup and on demand via
+        # POST /api/v1/sensor/scan (matching the C++ rtsp_streams adaptor) -- no continuous HTTP
+        # polling, so unreachable endpoints are not retried every few seconds.
+        if self._periodic_discovery_enabled():
+            self._discovery_task = asyncio.create_task(self._periodic_discovery())
+        elif self._last_scan_had_failures:
+            # One-shot adaptor whose startup scan hit endpoint failures -> bounded background retry.
+            self._discovery_task = asyncio.create_task(self._startup_discovery_retry())
+
+    def _periodic_discovery_enabled(self) -> bool:
+        return self._adaptor_name == ONVIF_ADAPTOR
+
+    async def _startup_discovery_retry(self) -> None:
+        """For one-shot (rtsp/nvstreamer) discovery: if the startup scan couldn't reach an endpoint,
+        retry a bounded number of times with a delay, then stop. Resilient to a transient boot-time
+        failure (e.g. nvstreamer not ready yet) without falling back to continuous polling."""
+        retries = max(0, int(self._cfg.discovery_retry_count))
+        interval = max(1, int(self._cfg.discovery_retry_interval_secs))
+        for attempt in range(1, retries + 1):
+            await asyncio.sleep(interval)
+            log.info("retrying discovery after failure (attempt %d/%d)", attempt, retries)
+            try:
+                await self.scan(force=False)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("discovery retry %d failed: %s", attempt, e)
+            if not self._last_scan_had_failures:
+                log.info("discovery retry succeeded; no further retries")
+                return
+        log.info("discovery retries exhausted (%d); giving up until next POST /sensor/scan", retries)
 
     async def _reannounce_online_sensors(self) -> None:
         """Republish camera_add + camera_proxy (creds embedded) for each sensor that has a resolved
@@ -169,6 +219,7 @@ class SensorManagement:
                 await self._discovery_task
             except (asyncio.CancelledError, Exception):
                 pass
+        self._events.close()
         self._dm.dispose()
 
     # --- reads ---
@@ -214,13 +265,37 @@ class SensorManagement:
         return {"name": row.name or "", "errorCode": ec, "errorMessage": em,
                 "state": "online" if (row.sensor_status or 0) != 0 else "offline"}
 
-    async def sensor_network(self, sensor_id: str) -> dict[str, Any]:
-        self._require_sensor(sensor_id)
-        return {}   # non-onvif/authorized: no network info available from sensor-py
+    def _onvif_sensor_dict(self, row) -> dict[str, Any]:
+        """Build the {ip, port, user, password} dict the ONVIF control adaptor consumes from a row."""
+        return {
+            "ip": row.ipaddress,
+            "port": urlparse(row.url or "").port or ONVIF_DEFAULT_PORT,
+            "user": row.username or "",
+            "password": self.repo.get_password(row.sensor_id) or "",
+            "streams": [],
+        }
 
-    async def sensor_settings(self, sensor_id: str):
-        self._require_sensor(sensor_id)
-        return None   # non-onvif: null (per swagger, settings is null for non-ONVIF sources)
+    async def sensor_network(self, sensor_id: str) -> dict[str, Any]:
+        """GET /{id}/network. ONVIF: query the camera via the control adaptor (GetNetworkInterfaces).
+        Non-ONVIF / no control / adaptor failure -> VMSInternalError (C++ getSensorNetworkInfo)."""
+        row = self._require_sensor(sensor_id)
+        if row.type != SENSOR_TYPE_ONVIF or self._control is None:
+            raise VmsError(VmsErrorCode.VMSInternalError)
+        ret, info = await self._control.get_network_info(self._onvif_sensor_dict(row))
+        if ret != 0:
+            raise VmsError(VmsErrorCode.VMSInternalError)
+        return info
+
+    async def sensor_settings(self, sensor_id: str, type_: str = ""):
+        """GET /{id}/settings. ONVIF: per-stream {Image, Encode} from the control adaptor. Non-ONVIF:
+        empty object (C++ getSensorSettings leaves the response empty when the adaptor can't supply)."""
+        row = self._require_sensor(sensor_id)
+        if row.type != SENSOR_TYPE_ONVIF or self._control is None:
+            return {}
+        ret, settings = await self._control.get_settings(self._onvif_sensor_dict(row), type_)
+        if ret != 0:
+            return {}
+        return settings
 
     async def get_recording_timelines(self, sensor_id: str, start: str = "", end: str = "") -> list[dict[str, Any]]:
         """Merged recording ranges for a sensor from video_record_details (vst_common parity).
@@ -265,16 +340,26 @@ class SensorManagement:
         # Truncate the name to the max length (C++ truncateString(name, MAX_SENSOR_NAME_LENGTH)).
         name = (body.get("name") or "")[:MAX_SENSOR_NAME_LENGTH]
         body = {**body, "name": name}
-        # Duplicate detection (parity with C++ addSensor). URL/IP match (any name) -> "Sensor exists
-        # already"; otherwise a name-only collision -> "User given name is invalid or already exists".
+        # Duplicate detection (parity with C++ addSensor). Both error_messages carry the CONFLICTING
+        # sensor's id+name so callers (e.g. AMC) can distinguish the cases and reuse the pre-registered
+        # sensor instead of re-adding. Exact format matches the C++ fix (sensor_management_utils.cpp):
+        #   URL/IP match (any name) -> "Sensor exists already, sensorId: <id>, sensorName: <name>"
+        #   name-only collision     -> "User given name is invalid or already exists, sensorId: <id>, sensorName: <name>"
         existing = self.repo.list_sensors()
+        # Capacity check (parity with C++ isSpaceForNewSensor): reject once the configured limit is hit.
+        if not self._has_capacity(len(existing)):
+            raise VmsError(VmsErrorCode.VMSNotSupportedError, "Sensors count limit reached")
         for e in existing:
             if (url and (e.url or "") == url) or (ip and (e.ipaddress or "") == ip):
-                raise VmsError(VmsErrorCode.InvalidParameterError, "Sensor exists already")
+                raise VmsError(
+                    VmsErrorCode.InvalidParameterError,
+                    f"Sensor exists already, sensorId: {e.sensor_id}, sensorName: {e.name or ''}")
         for e in existing:
             if name and (e.name or "") == name:
-                raise VmsError(VmsErrorCode.InvalidParameterError,
-                               "User given name is invalid or already exists")
+                raise VmsError(
+                    VmsErrorCode.InvalidParameterError,
+                    "User given name is invalid or already exists, "
+                    f"sensorId: {e.sensor_id}, sensorName: {e.name or ''}")
         # Opt-in RTSP DESCRIBE pre-flight (verifyRtsp). Reject unreachable/auth-failed URLs before
         # persisting (testRtspUrl parity). Off by default to preserve legacy behaviour.
         probe_codec = ""
@@ -388,6 +473,9 @@ class SensorManagement:
                         change=ChangeEvent.camera_proxy, camera_id=sensor_id, camera_name=row.name,
                         camera_url=live_url, tags=row.tags or "", created_at=now, metadata=md,
                     ))
+        # Log the add (source host only -- never the credentialed URL/password).
+        source = ip or (urlparse(url).hostname or "")
+        log.info("added %s sensor %s '%s' (%s)", sensor_type, sensor_id, row.name, source)
         return sensor_id
 
     async def set_credentials(self, sensor_id: str, username: str, password: str) -> bool:
@@ -409,8 +497,13 @@ class SensorManagement:
             if not await self._control.validate_credentials(sensor, username, password):
                 raise VmsError(VmsErrorCode.InvalidParameterError,
                                "setSensorCredentials: invalid username or password")
-            # Authorized: resolve device info + media profiles (RTSP URIs).
-            await self._control.get_sensor_stream_info(sensor)
+            # Resolve device info + media profiles (RTSP URIs). A failure here (e.g. "Sender not
+            # Authorized" on GetProfiles/GetStreamUri) means the credentials are NOT actually valid
+            # for media access -- some cameras serve GetDeviceInformation anonymously, so validate
+            # alone can pass with wrong credentials. Reject instead of persisting bad credentials.
+            if await self._control.get_sensor_stream_info(sensor) != 0:
+                raise VmsError(VmsErrorCode.InvalidParameterError,
+                               "setSensorCredentials: invalid username or password")
             now = _now_iso()
             self.repo.authorize_sensor(sensor_id, username, password, mapping.CAMERA_NO_ERROR_CODE,
                                        sensor, now)
@@ -445,10 +538,13 @@ class SensorManagement:
                     await self._events.publish(build_payload(
                         change=ChangeEvent.camera_proxy, camera_id=sensor_id, camera_name=row.name,
                         camera_url=live_url, tags=row.tags or "", created_at=now, metadata=md))
+            log.info("credentials validated for sensor %s; resolved %d stream(s)",
+                     sensor_id, len(sensor.get("streams") or []))
             return True
 
         # Non-ONVIF (e.g. rtsp): store credentials without a live camera handshake.
         self.repo.authorize_sensor(sensor_id, username, password, mapping.CAMERA_NO_ERROR_CODE, {}, _now_iso())
+        log.info("credentials stored for sensor %s", sensor_id)
         return True
 
     async def delete_sensor(self, sensor_id: str) -> None:
@@ -462,6 +558,205 @@ class SensorManagement:
             change=ChangeEvent.camera_remove, camera_id=sensor_id,
             camera_name=name, camera_url="", tags=tags, created_at=_now_iso(), metadata=None,
         ))
+        log.info("deleted sensor %s ('%s')", sensor_id, name)
+
+    async def set_sensor_info(self, sensor_id: str, body: dict[str, Any]) -> bool:
+        """Update editable sensor fields (name/position/location/tags/hardware metadata).
+        Parity with C++ setSensorInfo: a changed name must be non-empty and unique, else
+        InvalidParameterError (with the conflicting sensor surfaced); name is truncated to the max."""
+        if not body:
+            raise VmsError(VmsErrorCode.InvalidParameterError)
+        log.info("applying sensor info for %s: %s", sensor_id, body)
+        row = self.repo.get_sensor(sensor_id)
+        if row is None:
+            raise VmsError(VmsErrorCode.VMSInternalError, f"Failed to get sensor info: {sensor_id}")
+
+        fields: dict[str, Any] = {}
+        if "name" in body:
+            new_name = (body.get("name") or "")[:MAX_SENSOR_NAME_LENGTH]
+            if new_name != (row.name or ""):
+                if not new_name:
+                    raise VmsError(VmsErrorCode.InvalidParameterError,
+                                   "User given name is invalid or already exists")
+                conflict = next((e for e in self.repo.list_sensors()
+                                 if (e.name or "") == new_name and e.sensor_id != sensor_id), None)
+                if conflict is not None:
+                    raise VmsError(
+                        VmsErrorCode.InvalidParameterError,
+                        "User given name is invalid or already exists, "
+                        f"sensorId: {conflict.sensor_id}, sensorName: {conflict.name}")
+            fields["name"] = new_name
+        for api_key, col in (("hardware", "hardware"), ("manufacturer", "manufacturer"),
+                             ("serialNumber", "serial_number"), ("firmwareVersion", "firmware_version"),
+                             ("hardwareId", "hardware_id"), ("location", "location"), ("tags", "tags")):
+            if api_key in body:
+                fields[col] = body[api_key] or ""
+        if "position" in body:
+            fields["position"] = mapping.position_api_to_db(body.get("position"))
+
+        if not self.repo.update_sensor_info(sensor_id, fields, _now_iso()):
+            raise VmsError(VmsErrorCode.VMSInternalError)
+        log.info("set sensor info for %s", sensor_id)
+        return True
+
+    async def replace_sensor(self, old_sensor_id: str, body: dict[str, Any]) -> None:
+        """Replace an offline sensor with another existing sensor, keeping the OLD id so persisted
+        recordings/timelines (keyed by sensor_id) reattach. Parity with C++ replaceSensorId/replaceSensor:
+        both sensors must exist, the old one must be offline, then the new sensor's details + streams
+        are re-keyed onto the old id and the old/new rows collapse into one."""
+        new_sensor_id = body.get("sensorId") or body.get("deviceid") or ""
+        if not new_sensor_id:
+            raise VmsError(VmsErrorCode.InvalidParameterError, "Sensor ID is empty")
+        old_row = self.repo.get_sensor(old_sensor_id)
+        if old_row is None:
+            raise VmsError(VmsErrorCode.InvalidParameterError, "Old Sensor does not exists, cannot replace")
+        new_row = self.repo.get_sensor(new_sensor_id)
+        if new_row is None:
+            raise VmsError(VmsErrorCode.InvalidParameterError, "New Sensor does not exists, cannot replace")
+        # "Online"/"Streaming" sensor_status (>=1) is still active; only an offline (0) sensor can be
+        # replaced (C++ blocks SensorStatusOnline/Streaming).
+        if (old_row.sensor_status or 0) != 0:
+            raise VmsError(VmsErrorCode.InvalidParameterError, "Old Sensor still active, cannot replace")
+
+        new_password = self.repo.get_password(new_sensor_id)
+        new_streams = self.repo.list_streams(new_sensor_id)
+        now = _now_iso()
+        # Collapse both rows, then re-insert the new sensor's details under the OLD id.
+        self.repo.delete_sensor(old_sensor_id)
+        self.repo.delete_sensor(new_sensor_id)
+        replaced = SensorDetails(
+            device_id=new_row.device_id or (self._cfg.device_name or ""),
+            sensor_id=old_sensor_id, sensor_hw_id=new_row.sensor_hw_id or old_sensor_id,
+            username=new_row.username or "", name=new_row.name or old_sensor_id,
+            ipaddress=new_row.ipaddress or "", hardware=new_row.hardware or "",
+            manufacturer=new_row.manufacturer or "", serial_number=new_row.serial_number or "",
+            firmware_version=new_row.firmware_version or "", hardware_id=new_row.hardware_id or "",
+            location=new_row.location or "", tags=new_row.tags or "", url=new_row.url or "",
+            type=new_row.type or SENSOR_TYPE_RTSP, position=new_row.position or EMPTY_POSITION,
+            is_remote=new_row.is_remote or "false", http_status=new_row.http_status,
+            sensor_status=new_row.sensor_status or 0, created_date_time=now, modified_date_time=now,
+        )
+        self.repo.insert_sensor(replaced, new_password, now)
+        main_url = ""
+        main_md: dict[str, Any] = {}
+        for st in new_streams:
+            is_main = (st.stream_ismainstream or "").lower() == "true"
+            # main stream id == old sensor id; sub-streams keep their token suffix re-keyed to old id.
+            stream_id = old_sensor_id if is_main else f"{old_sensor_id}-{st.stream_id.split('-', 1)[-1]}"
+            self.repo.insert_stream(SensorStreams(
+                sensor_id=old_sensor_id, stream_id=stream_id, stream_live_url=st.stream_live_url or "",
+                stream_proxy_url="", stream_replay_url="", stream_encoding=st.stream_encoding or "",
+                stream_framerate=st.stream_framerate or "", stream_resolution=st.stream_resolution or "",
+                stream_ismainstream="true" if is_main else "false", stream_type=st.stream_type or STREAM_TYPE_RTSP,
+                stream_storage_location=st.stream_storage_location or 0,
+                stream_name=st.stream_name or replaced.name, created_date_time=now, modified_date_time=now), now)
+            if is_main:
+                main_url = st.stream_live_url or ""
+                main_md = {"codec": st.stream_encoding or "", "framerate": st.stream_framerate or "",
+                           "resolution": st.stream_resolution or ""}
+        # Re-announce so the RTSP-server/stream-processor rebuilds the proxy for the replaced id.
+        await self._events.publish(build_payload(
+            change=ChangeEvent.camera_add, camera_id=old_sensor_id, camera_name=replaced.name,
+            camera_url="", tags=replaced.tags or "", created_at=now, metadata=None))
+        if main_url:
+            await self._events.publish(build_payload(
+                change=ChangeEvent.camera_proxy, camera_id=old_sensor_id, camera_name=replaced.name,
+                camera_url=main_url, tags=replaced.tags or "", created_at=now, metadata=main_md))
+        log.info("replaced sensor %s with %s", old_sensor_id, new_sensor_id)
+
+    async def apply_configuration(self, body: dict[str, Any]) -> None:
+        """POST /configuration. Apply deviceDiscoveryInterfaces / ntpServers to the in-memory config
+        and restart discovery if the (non-empty) interface set changed (C++ handleSensorConfiguration)."""
+        interfaces = body.get("deviceDiscoveryInterfaces")
+        if isinstance(interfaces, list):
+            new_ifaces = [i for i in interfaces if i]
+            if new_ifaces != self._cfg.sensor_discovery_interfaces:
+                self._cfg.sensor_discovery_interfaces = new_ifaces
+                if new_ifaces:
+                    await self._restart_discovery()
+        ntp = body.get("ntpServers")
+        if isinstance(ntp, list):
+            new_ntp = [n for n in ntp if n]
+            if new_ntp != self._cfg.ntp_servers:
+                self._cfg.ntp_servers = new_ntp
+        log.info("configuration applied (discovery_interfaces=%s, ntp_servers=%s)",
+                 self._cfg.sensor_discovery_interfaces, self._cfg.ntp_servers)
+
+    async def _restart_discovery(self) -> None:
+        """Cancel and re-launch the periodic discovery loop (C++ rebootSensorDiscovery)."""
+        if self._discovery_task is not None:
+            self._discovery_task.cancel()
+            try:
+                await self._discovery_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        try:
+            await self.scan(force=False)
+        except Exception as e:
+            log.warning("discovery restart scan failed: %s", e)
+        # Re-arm the periodic loop only for ONVIF (RTSP/nvstreamer is one-shot + on /scan).
+        if self._periodic_discovery_enabled():
+            self._discovery_task = asyncio.create_task(self._periodic_discovery())
+
+    async def reboot_sensor(self, sensor_id: str) -> None:
+        """POST /{id}/reboot via the ONVIF control adaptor (C++ rebootSensor)."""
+        row = self._require_sensor(sensor_id)
+        if row.type != SENSOR_TYPE_ONVIF or self._control is None:
+            raise VmsError(VmsErrorCode.VMSInternalError)
+        if await self._control.reboot_sensor(self._onvif_sensor_dict(row)) != 0:
+            raise VmsError(VmsErrorCode.VMSInternalError)
+        log.info("reboot requested for sensor %s", sensor_id)
+
+    async def set_sensor_network(self, sensor_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /{id}/network. Validate the IPv4 address, push to the camera via the control adaptor,
+        and report whether a reboot is needed (C++ setSensorNetworkInfo)."""
+        if not body:
+            raise VmsError(VmsErrorCode.InvalidParameterError, "setSensorNetworkInfo: invalid parameters")
+        log.info("applying network settings for sensor %s: %s", sensor_id, body)
+        row = self._require_sensor(sensor_id)
+        ipv4 = body.get("ipAddressV4", "")
+        if ipv4 and not _is_valid_ipv4(ipv4):
+            raise VmsError(VmsErrorCode.InvalidParameterError, "Invalid ipv4 address")
+        if row.type != SENSOR_TYPE_ONVIF or self._control is None:
+            raise VmsError(VmsErrorCode.VMSInternalError)
+        ret, reboot_needed = await self._control.set_network_info(self._onvif_sensor_dict(row), body)
+        if ret != 0:
+            raise VmsError(VmsErrorCode.VMSInternalError)
+        log.info("network settings applied for sensor %s (rebootNeeded=%s)", sensor_id, reboot_needed)
+        return {"rebootNeeded": reboot_needed}
+
+    async def set_sensor_settings(self, sensor_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /{id}/settings. ONVIF only (VMSNotSupportedError otherwise), applied via the control
+        adaptor (C++ setSensorSettings)."""
+        row = self.repo.get_sensor(sensor_id)
+        if row is None:
+            raise VmsError(VmsErrorCode.CameraNotFoundError)
+        if row.type != SENSOR_TYPE_ONVIF:
+            raise VmsError(VmsErrorCode.VMSNotSupportedError,
+                           "SetSensorSettings is not supported for non-onvif sensor")
+        if self._control is None:
+            raise VmsError(VmsErrorCode.VMSInternalError, "ONVIF adaptor not loaded")
+        # Log the requested values (codec/bitrate/etc. -- no credentials here).
+        log.info("applying settings for sensor %s: %s", sensor_id, body or {})
+        if await self._control.set_settings(self._onvif_sensor_dict(row), body or {}) != 0:
+            raise VmsError(VmsErrorCode.VMSInternalError)
+        log.info("settings applied for sensor %s", sensor_id)
+        return {}
+
+    # --- debug test hooks (blockSensor parity) ---
+    def block_sensor(self, ip: str, action: str) -> dict[str, str]:
+        """Simulate a camera being plugged/unplugged from the network for testing. 'unplug' blocks the
+        IP (discovery skips it -> camera goes offline); 'plug' unblocks it."""
+        if ip:
+            if action == "unplug":
+                self._blocked_ips.add(ip)
+            elif action == "plug":
+                self._blocked_ips.discard(ip)
+        return {"status": action}
+
+    def sensor_block_status(self, ip: str) -> str:
+        """'unplug' if the IP is currently blocked, else 'plug' (C++ debug GET status)."""
+        return "unplug" if ip in self._blocked_ips else "plug"
 
     def get_configuration(self) -> dict[str, Any]:
         """Assemble the GetConfiguration response (swagger) from the loaded config."""
@@ -518,25 +813,144 @@ class SensorManagement:
         - vst_rtsp/streamer: poll nvstreamer endpoints, register each stream as a sensor_rtsp.
         Registration is idempotent (stable sensor_id), so re-scan after a delete re-adds the source
         and any persisted recordings/timelines (keyed by sensor_id) reattach."""
+        self._last_scan_had_failures = False
         if self._adaptor_name == ONVIF_ADAPTOR:
             return await self._scan_onvif()
         if self._adaptor_name in RTSP_ADAPTORS:
+            # Prefer configs/rtsp_streams.json (C++ vst_rtsp parity: direct `streams` + `Nvstreamer`
+            # endpoints). Fall back to the NVSTREAMER_ENDPOINTS env only when the file is absent.
+            data = self._read_rtsp_streams_config()
+            if data is not None:
+                return await self._scan_from_rtsp_streams_config(data)
             return await self._scan_nvstreamer()
         return 0
 
+    def _rtsp_streams_config_path(self) -> str:
+        """Locate configs/rtsp_streams.json -- it lives in the same configs dir as adaptor_config.json
+        (mounted at /home/vst/vst_release/configs), falling back to VST_CONFIG_PATH."""
+        base = os.path.dirname(self._cfg.adaptor_config_path or "") or os.environ.get("VST_CONFIG_PATH", "")
+        return os.path.join(base, "rtsp_streams.json") if base else ""
+
+    def _read_rtsp_streams_config(self) -> dict[str, Any] | None:
+        path = self._rtsp_streams_config_path()
+        if not path or not os.path.isfile(path):
+            return None
+        try:
+            with open(path) as fh:
+                return json.load(fh)
+        except (OSError, ValueError) as e:
+            log.warning("failed to read rtsp_streams.json (%s): %s", path, e)
+            return None
+
+    @staticmethod
+    def _rtsp_stream_sensor_id(stream_in: str) -> str:
+        """Stable sensor id derived from the RTSP url, so re-scans are idempotent and a disabled
+        stream maps back to the same id for removal."""
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, stream_in))
+
+    async def _scan_from_rtsp_streams_config(self, data: dict[str, Any]) -> int:
+        """Register sources from rtsp_streams.json: enabled direct `streams` (RTSP urls) and enabled
+        `Nvstreamer` endpoints (polled at their api, capped at max_stream_count). Mirrors the C++
+        vst_rtsp adaptor (rtsp_streams.cpp)."""
+        added = 0
+        count = len(self.repo.list_sensors())
+        hit_cap = False
+
+        # 1) Direct RTSP streams.
+        for s in data.get("streams") or []:
+            stream_in = (s.get("stream_in") or "").strip()
+            if not stream_in or stream_in.lower().startswith("udp"):
+                continue  # UDP sources need port pooling; out of scope for the control plane (P3)
+            sid = self._rtsp_stream_sensor_id(stream_in)
+            if not s.get("enabled", False):
+                # Disabled -> remove if previously registered (C++ disableStream parity).
+                if self.repo.get_sensor(sid) is not None:
+                    await self.delete_sensor(sid)
+                continue
+            if self.repo.get_sensor(sid) is not None:
+                continue  # idempotent
+            if (urlparse(stream_in).hostname or "") in self._blocked_ips:
+                continue
+            if not self._has_capacity(count):
+                hit_cap = True
+                continue
+            name = (s.get("name") or "")[:MAX_SENSOR_NAME_LENGTH]
+            video = s.get("video") or {}
+            md = {"codec": video.get("codec", ""), "framerate": str(video.get("framerate", "") or "")} if video else {}
+            await self._register_rtsp_sensor(sid, name or sid, stream_in, md)
+            count += 1
+            added += 1
+
+        # 2) Nvstreamer endpoints.
+        for nv in data.get("Nvstreamer") or []:
+            if not nv.get("enabled"):
+                continue
+            endpoint = (nv.get("endpoint") or "").strip()
+            if not endpoint:
+                continue
+            api = nv.get("api") or "/api/v1/sensor/streams"
+            max_count = int(nv.get("max_stream_count", self._cfg.max_sensors_supported))
+            try:
+                streams = await asyncio.to_thread(
+                    fetch_streams, endpoint, float(self._cfg.sensor_discovery_timeout), api, max_count)
+            except Exception as e:
+                log.warning("nvstreamer poll failed for %s: %s", endpoint, e)
+                self._last_scan_had_failures = True
+                continue
+            for st in streams:
+                if self.repo.get_sensor(st["sensorId"]) is not None:
+                    continue
+                if (urlparse(st["url"]).hostname or "") in self._blocked_ips:
+                    continue
+                if not self._has_capacity(count):
+                    hit_cap = True
+                    continue
+                await self._register_rtsp_sensor(st["sensorId"], st["name"], st["url"], st["metadata"])
+                count += 1
+                added += 1
+
+        self._note_cap(hit_cap, "streams")
+        if added:
+            log.info("rtsp_streams.json discovery registered %d new stream(s)", added)
+        return added
+
+    def _has_capacity(self, current_count: int) -> bool:
+        """Whether another sensor may be registered: current count < max_sensors_supported
+        (parity with C++ DeviceManager::isSpaceForNewSensor)."""
+        return current_count < int(self._cfg.max_sensors_supported)
+
+    def _note_cap(self, hit_cap: bool, what: str) -> None:
+        """Log 'sensors count limit reached' ONCE per state change rather than on every scan."""
+        if hit_cap and not self._cap_logged:
+            log.info("Sensors count limit reached (%d); not registering more discovered %s",
+                     self._cfg.max_sensors_supported, what)
+            self._cap_logged = True
+        elif not hit_cap:
+            self._cap_logged = False
+
     async def _scan_nvstreamer(self) -> int:
         added = 0
+        count = len(self.repo.list_sensors())
+        hit_cap = False
         for ep in self._cfg.nvstreamer_endpoints:
             try:
                 streams = await asyncio.to_thread(fetch_streams, ep, float(self._cfg.sensor_discovery_timeout))
             except Exception as e:
                 log.warning("nvstreamer poll failed for %s: %s", ep, e)
+                self._last_scan_had_failures = True
                 continue
             for s in streams:
                 if self.repo.get_sensor(s["sensorId"]) is not None:
                     continue  # idempotent: already registered
+                if (urlparse(s["url"]).hostname or "") in self._blocked_ips:
+                    continue  # debug "unplug": skip blocked source
+                if not self._has_capacity(count):
+                    hit_cap = True
+                    continue
                 await self._register_rtsp_sensor(s["sensorId"], s["name"], s["url"], s["metadata"])
+                count += 1
                 added += 1
+        self._note_cap(hit_cap, "streams")
         if added:
             log.info("nvstreamer discovery registered %d new stream(s)", added)
         return added
@@ -580,15 +994,25 @@ class SensorManagement:
         log.debug("WS-Discovery probe returned %d ProbeMatch response(s)", len(matches))
         seen: set[str] = set()
         added = 0
+        count = len(self.repo.list_sensors())
+        hit_cap = False
         for m in matches:
             ip = urlparse(m.device_service_url).hostname if m.device_service_url else ""
             sid = (m.address.rsplit(":", 1)[-1] if m.address else "") or ip
             if not sid or not ip:
                 continue
+            if ip in self._blocked_ips:
+                continue  # debug "unplug": treat as not present this scan
             seen.add(sid)
             self._onvif_misses.pop(sid, None)  # responded this scan -> reset miss counter
             if self.repo.get_sensor(sid) is not None:
                 continue  # already known -> no log (avoid spam)
+            # Cap the number of registered sensors (parity with C++ isSpaceForNewSensor): once the
+            # limit is hit, stop persisting newly discovered devices so the DB / list / streams are
+            # not flooded by every camera on the network.
+            if not self._has_capacity(count):
+                hit_cap = True
+                continue
             # Populate basic device details from the ProbeMatch scopes (name/hardware/location/type),
             # matching the C++ which fills the sensor from discovery before any credentialed
             # GetProfiles. Full RTSP profiles are resolved later once credentials are supplied.
@@ -612,7 +1036,9 @@ class SensorManagement:
                 tags="", created_at=now, metadata=None))
             # First-time detection only -- this fires once per device (then it is in the DB).
             log.info("ONVIF device detected: %s (%s) at %s", name, sid, ip)
+            count += 1
             added += 1
+        self._note_cap(hit_cap, "ONVIF devices")
         self._log_onvif_removals(seen)
         return added
 

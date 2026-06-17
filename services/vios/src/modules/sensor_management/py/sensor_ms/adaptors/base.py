@@ -91,6 +91,15 @@ class SensorControlAdaptor(abc.ABC):
     async def set_sensor_encode_settings(self, sensor: dict[str, Any], settings: dict[str, Any]) -> int:
         return -1
 
+    async def get_settings(self, sensor: dict[str, Any], type_: str = "") -> tuple[int, dict[str, Any]]:
+        """High-level GET /settings: return (0, {streamId: {Image, Encode}}) or (-1, {}). type_ in
+        {"", "Image", "Encode"} selects which block(s) to include."""
+        return -1, {}
+
+    async def set_settings(self, sensor: dict[str, Any], settings: dict[str, Any]) -> int:
+        """High-level POST /settings: apply Image/Encode settings. Returns 0 on success, -1 on error."""
+        return -1
+
     async def set_ptz(self, sensor: dict[str, Any], action: str, x: str, y: str) -> int:
         return 0
 

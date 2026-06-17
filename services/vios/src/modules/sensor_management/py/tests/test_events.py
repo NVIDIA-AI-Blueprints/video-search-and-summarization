@@ -9,7 +9,10 @@ compact separators).
 """
 from __future__ import annotations
 
-from sensor_ms.events.publisher import ChangeEvent, build_payload, serialize_event
+import pytest
+
+from sensor_ms.config import Config
+from sensor_ms.events.publisher import ChangeEvent, EventPublisher, build_payload, serialize_event
 
 CREATED = "2026-06-09T07:49:54Z"
 
@@ -59,3 +62,69 @@ def test_camera_remove_payload_matches_golden():
                       camera_url="", tags="", created_at=CREATED,
                       metadata={"codec": "h264"})
     assert serialize_event(p) == GOLDEN_REMOVE
+
+
+# --- backend dispatch (kafka / mqtt / unknown / best-effort) ------------------------
+def _payload():
+    return build_payload(change=ChangeEvent.camera_add, camera_id=SID, camera_name=NAME,
+                         camera_url="", tags="", created_at=CREATED, metadata=None)
+
+
+async def test_publish_kafka_backend(monkeypatch):
+    cfg = Config(enable_notification=True, use_message_broker="kafka",
+                 message_broker_topic="vst_events", message_broker_payload_key="sensor.id",
+                 kafka_server_address="localhost:9092")
+    pub = EventPublisher(cfg)
+    sent: dict = {}
+
+    class _FakeProducer:
+        def produce(self, topic, value=None, key=None):
+            sent.update(topic=topic, value=value, key=key)
+
+        def poll(self, _t):
+            sent["polled"] = True
+
+    monkeypatch.setattr(pub, "_kafka_producer", lambda: _FakeProducer())
+    await pub.publish(_payload())
+    assert sent["topic"] == "vst_events"
+    assert sent["key"] == b"sensor.id"
+    assert sent["value"] == serialize_event(_payload()).encode("utf-8")
+    assert sent.get("polled") is True
+
+
+async def test_publish_mqtt_backend(monkeypatch):
+    cfg = Config(enable_notification=True, use_message_broker="mqtt",
+                 message_broker_topic="vst_events", message_broker_payload_key="sensor.id",
+                 mqtt_broker_address="tcp://localhost:1883")
+    pub = EventPublisher(cfg)
+    sent: dict = {}
+
+    class _FakeClient:
+        def publish(self, topic, payload, qos=0, retain=False):
+            sent.update(topic=topic, payload=payload, qos=qos, retain=retain)
+
+    monkeypatch.setattr(pub, "_mqtt_client", lambda: _FakeClient())
+    await pub.publish(_payload())
+    assert sent["topic"] == "vst_events" and sent["qos"] == 1 and sent["retain"] is True
+    assert sent["payload"] == serialize_event(_payload())
+
+
+async def test_publish_unknown_backend_raises():
+    cfg = Config(enable_notification=True, use_message_broker="rabbitmq", message_broker_topic="t")
+    with pytest.raises(NotImplementedError):
+        await EventPublisher(cfg).publish(_payload())
+
+
+async def test_publish_is_best_effort_on_broker_error(monkeypatch):
+    cfg = Config(enable_notification=True, use_message_broker="kafka", message_broker_topic="t")
+    pub = EventPublisher(cfg)
+
+    class _BadProducer:
+        def produce(self, *a, **k):
+            raise RuntimeError("broker down")
+
+        def poll(self, _t):
+            pass
+
+    monkeypatch.setattr(pub, "_kafka_producer", lambda: _BadProducer())
+    await pub.publish(_payload())  # must NOT raise (best-effort, C++ parity)

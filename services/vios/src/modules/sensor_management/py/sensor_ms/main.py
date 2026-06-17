@@ -17,6 +17,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 
+from .logging_setup import configure_logging
+
+# Configure logging as early as possible (at import, so it applies whether started via
+# `uvicorn sensor_ms.main:app` or run()).
+configure_logging()
+
 log = logging.getLogger(__name__)
 
 from .api.errors import VmsError, VmsErrorCode
@@ -50,12 +56,26 @@ app = FastAPI(
 
 @app.exception_handler(VmsError)
 async def _vms_error_handler(request: Request, exc: VmsError) -> TextPlainJSONResponse:
+    # Log every error response with request context. 5xx are real failures (ERROR); 4xx are client/
+    # expected conditions (WARNING); an uncredentialed-ONVIF 401 is the normal "needs credentials"
+    # state the UI polls, so keep it at INFO to avoid log spam.
+    if exc.http_status >= 500:
+        level = logging.ERROR
+    elif exc.code == VmsErrorCode.CameraUnauthorizedError:
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+    log.log(level, "%s %s -> %d %s: %s", request.method, request.url.path,
+            exc.http_status, exc.code.value, exc.message)
     return TextPlainJSONResponse(status_code=exc.http_status, content=exc.envelope())
 
 
 @app.exception_handler(RequestValidationError)
 async def _validation_handler(request: Request, exc: RequestValidationError) -> TextPlainJSONResponse:
     # Map request schema violations to the InvalidParameterError envelope (not FastAPI's 422 shape).
+    # Log only field locations/types -- never the submitted values, which can contain credentials.
+    locs = [{"loc": e.get("loc"), "type": e.get("type")} for e in exc.errors()]
+    log.warning("%s %s -> 400 request validation failed: %s", request.method, request.url.path, locs)
     err = VmsError(VmsErrorCode.InvalidParameterError)
     return TextPlainJSONResponse(status_code=err.http_status, content=err.envelope())
 
