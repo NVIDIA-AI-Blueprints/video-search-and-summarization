@@ -34,11 +34,13 @@ component_services:
   # in 3.2, source tree slated for removal). All 6 services are enumerated below so
   # Patch 1 adds the invented profile flag to each. The render-config init
   # container additionally requires the build to materialize config.yml.tmpl
-  # + docker_cluster_config-streamprocessing.json.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs
-  # (model: developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/ — single-workload
-  # form); see Patch 3 below for the materialization directive (templates are not compose
-  # services, so they are not in component_services — but they are a hard requirement for
-  # the SDRC chain to boot).
+  # + the docker_cluster_config-*.json.tmpl set that matches the deployment's
+  # stream-consuming workloads under SDR_CONTROLLER_CONFIG_PATH/configs. The template
+  # SET is workload-dependent (see Patch 3): a VIOS/streamprocessing-only build uses the
+  # 2d_vlm model (streamprocessing workload only); a build that also runs RT-CV
+  # (cv-verification) MUST use the 2d_cv model, which ADDS docker_cluster_config-rtvi-cv.json.tmpl.
+  # Templates are not compose services (not in component_services) but are a hard
+  # requirement for the SDRC chain to route streams to each workload.
   - key: init-dirs
     file: services/infra/sdrc/docker-compose.yaml
     role: One-shot — chmod 0777 ./log + ./.wdm-env so the host user can clean up later. Strict prereq for sdr-controller.
@@ -114,7 +116,16 @@ For Topology A (SDRC-routed — the canonical IN-1 path), Patch 1 must append th
 
 ### Patch 3 — SDRC config-template materialization
 
-The SDRC `render-config` init container reads `*.tmpl` files from `${SDR_CONTROLLER_CONFIG_PATH}/configs/` and renders each in place (substituting `${HOST_IP}` / `${NUM_STREAMS}` / `${NUM_SENSORS}`). Step 6.5 must materialize a `config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl` pair into the build under whatever path becomes `SDR_CONTROLLER_CONFIG_PATH`, modeled on `developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/` (single-workload form — no rtvi-cv variant for a VIOS-only build). If the `*.tmpl` files are absent, `sdrc-render-config` exits with `render-config: no *.tmpl files found in /tmpl`, the rest of the SDRC chain never runs, and `sdr-controller` never boots — leaving sensor-ms's `localhost:10000` call unanswered. (The legacy `./envoy.yaml` + `./sdr-config/` bind sources from the removed `services/vios/sdr/streamprocessing/` tree no longer apply.)
+The SDRC `render-config` init container reads `*.tmpl` files from `${SDR_CONTROLLER_CONFIG_PATH}/configs/` and renders each in place (substituting `${HOST_IP}` / `${NUM_STREAMS}` / `${NUM_SENSORS}`). Step 6.5 must materialize a `config.yml.tmpl` **plus the `docker_cluster_config-*.json.tmpl` set that matches the deployment's stream-consuming workloads** into the build under whatever path becomes `SDR_CONTROLLER_CONFIG_PATH`. The WDM in `sdr-controller` only routes streams to a workload that has a `docker_cluster_config-<workload>.json.tmpl` — a missing per-workload cluster config means that workload's container gets **`Active sources: 0`** even though everything is "healthy."
+
+**The template set is workload-dependent — pick by what is in the allow-list (Finding F-J, 2026-06-16):**
+
+| Deployment | Model dir | Cluster-config templates to materialize |
+|---|---|---|
+| VIOS / streamprocessing only (e.g. IN-1 dense captioning, `alert_source=vlm-realtime`) | `developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/` | `config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl` |
+| **Includes RT-CV** (`alert_source=cv-verification`; `perception-alerts` / `vss-rtvi-cv` in the allow-list) | `developer-profiles/dev-profile-alerts/sdrc/2d_cv/configs/` | `config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl` + **`docker_cluster_config-rtvi-cv.json.tmpl`** |
+
+Rule: materialize **one `docker_cluster_config-<workload>.json.tmpl` per stream-consuming workload in the allow-list.** RT-CV (`vss-rtvi-cv`) is such a workload, so a `cv-verification` build MUST use the `2d_cv` set; omitting `docker_cluster_config-rtvi-cv.json.tmpl` is what leaves RT-CV with `Active sources: 0` (no streams routed) while logs otherwise look clean. The matching `SDR_CONTROLLER_CONFIG_PATH=...sdrc/${MODE}` already encodes this via `MODE` (`2d_cv` vs `2d_vlm`) — keep the path and the materialized template set in sync with the chosen `MODE`. If the `*.tmpl` files are absent entirely, `sdrc-render-config` exits with `render-config: no *.tmpl files found in /tmpl`, the rest of the SDRC chain never runs, and `sdr-controller` never boots — leaving sensor-ms's `localhost:10000` call unanswered. (The legacy `./envoy.yaml` + `./sdr-config/` bind sources from the removed `services/vios/sdr/streamprocessing/` tree no longer apply.)
 
 ### Validation harness (NvStreamer)
 
