@@ -47,6 +47,51 @@ The raw compose default is `VLM_MODEL_TO_USE=openai-compat`, which makes rtvi-vl
 
 regardless of what `dev-profile-base/.env` ships. Resolve `RTVI_VLM_IMAGE_TAG` and `RTVI_VLM_MODEL_PATH` from `dev-profile-base/.env` (do not hardcode — the tag stream moves). The caption topic must be `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` (the raw compose default `vision-llm-messages` is unsubscribed by both Logstash pipelines). See `integrate-rt-vlm.md § Environment Variables` for the neutral env contract behind these overrides.
 
+Additionally set in the generated `.env`:
+
+```
+RTVI_VLM_FILE_URL_ALLOWED_DIRS=/home/vst/vst_release/streamer_videos
+```
+
+And add the following to the `environment:` block of the patched `rtvi-vlm` service (Step 6.5):
+
+```yaml
+FILE_URL_ALLOWED_DIRS: "${RTVI_VLM_FILE_URL_ALLOWED_DIRS:-}"
+```
+
+Without this, `POST /v1/files` with `url=file://...` returns `"file:// URLs are disabled. Set FILE_URL_ALLOWED_DIRS to enable."` and the VIOS vodUrl → RT-VLM flow fails. Setting it to empty (the default) leaves file:// disabled; the path `/home/vst/vst_release/streamer_videos` matches the VIOS vodUrl mount and is required for the shared-volume flow. Surfaced live 2026-06-18, IN-1 expanded eval.
+
+## VOD path design: VIOS vodUrl → RT-VLM (shared clip_storage mount)
+
+VIOS's `streamprocessing-ms` and `rtvi-vlm` both bind-mount the same host directory — `${VSS_DATA_DIR}/data_log/vst/clip_storage` — at the SAME container-internal path `/home/vst/vst_release/streamer_videos`. This means the VIOS-internal `vodUrl` returned by `GET /vst/api/v1/sensor/{id}/streams` (e.g. `/home/vst/vst_release/streamer_videos/warehouse_safety_0001.mp4`) is directly accessible inside RT-VLM via `file://` — no copy or re-upload needed.
+
+The recommended on-demand VOD flow for IN-1:
+
+```
+1. Upload: PUT /vst/api/v1/storage/file/<name>
+           → VIOS writes the file to its clip_storage dir
+           → returns { sensorId: "<uuid>", ... }
+
+2. Resolve: GET /vst/api/v1/sensor/{sensorId}/streams
+            → returns [{ vodUrl: "/home/vst/vst_release/streamer_videos/<name>.mp4", ... }]
+
+3. Register: POST /v1/files  (multipart: purpose=vision, media_type=video, url=file://<vodUrl>)
+             → RT-VLM opens <vodUrl> via the shared mount (requires FILE_URL_ALLOWED_DIRS)
+             → returns { id: "<file_id>", ... }
+
+4. Caption: POST /v1/generate_captions  { id: "<file_id>", model: "<MODEL_ID>", stream: false, ... }
+```
+
+This avoids streaming the video over HTTP twice and is the canonical on-demand path for IN-1.
+
+**The RT-VLM model ID is runtime-generated.** Never hardcode the human-readable model name (e.g. `cosmos-reason2-8b`) as the `model` field in `generate_captions` — RT-VLM registers a generated ID in the format `nim_nvidia_<model>_<tag>` (e.g. `nim_nvidia_cosmos-reason2-8b_hf-1208`). Passing `cosmos-reason2-8b` returns `BadParameters: No such model 'cosmos-reason2-8b'`. Always resolve at runtime:
+
+```bash
+MODEL_ID=$(curl -sf "http://<host>:<RTVI_VLM_PORT>/v1/models" | jq -r '.data[0].id')
+```
+
+This applies to both streaming (`stream: true`) and on-demand (`stream: false`) caption calls. Smoke test scripts, SKILL.md steps, and any documentation that names a `model` value must use the runtime-resolved form. Surfaced live 2026-06-18, IN-1 expanded eval.
+
 ## Emitted shape
 
 The patched `rtvi-vlm` block is `include:`d from `<BUILD_DIR>/compose.yml`; deploy with `docker compose --env-file <BUILD_DIR>/.env -f <BUILD_DIR>/compose.yml --profile <invented-flag> up -d`. See the `## Example Compose Snippet` in `integrate-rt-vlm.md` for the full upstream block this is patched from.
