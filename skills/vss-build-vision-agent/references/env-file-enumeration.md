@@ -64,3 +64,14 @@ Two defenses, apply both:
 2. **Single-quote any folded value that contains `{`, `[`, `"`, `#`, a space, or `=`** when emitting the output `.env`, so the value stays on one logical line and cannot truncate the file. Order the emitted `.env` so the **host-override / credentials block comes first**, never after an unquoted complex value, as belt-and-suspenders against any downstream parser.
 
 After folding, the Step 7 dry-run (`docker compose --env-file .env -f compose.yml config`) must show zero **real** unexpanded `${...}` tokens — a missing `HOST_IP` / `VSS_APPS_DIR` in the resolved output is the tell-tale signature of this truncation bug.
+
+## Required additions for IN-1 (not in any upstream `.env`)
+
+The following variables have no upstream `.env` source — they must be added explicitly to the generated `.env.template` (and populated in `.env`) for every IN-1 deployment:
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `RTVI_VLM_FILE_URL_ALLOWED_DIRS` | `/home/vst/vst_release/streamer_videos` | Enables RT-VLM to open `file://` URLs sourced from VIOS `vodUrl`. Required for the VIOS vodUrl → RT-VLM on-demand flow. Both `vss-vios-streamprocessing` and `vss-rtvi-vlm` mount `${VSS_DATA_DIR}/data_log/vst/clip_storage` at this exact path, so the VIOS-internal path is valid inside RT-VLM. Setting this empty (or absent) disables `file://` entirely. See `patch-rt-vlm.md § VOD path design`. |
+| `SAMPLE_VIDEO_DATASET` | *(empty)* | Suppresses the Docker Compose warning `"The SAMPLE_VIDEO_DATASET variable is not set. Defaulting to a blank string."` emitted by upstream infra composes that reference this var. Not used by any IN-1 service; leave empty. |
+
+Both variables are absent from all 10 core `.env` files and from the NIM hardware-tier set. Omitting `RTVI_VLM_FILE_URL_ALLOWED_DIRS` causes silent failure on `POST /v1/files?url=file://...`; omitting `SAMPLE_VIDEO_DATASET` is cosmetic only (a compose warning, not an error). Surfaced live 2026-06-18, IN-1 expanded eval.
