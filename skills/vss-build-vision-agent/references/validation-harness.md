@@ -130,11 +130,23 @@ SID=$(curl -s -X POST "$VIOS/sensor/add" \
   --data-raw "{\"sensorUrl\": \"$URL\"}" \
   | jq -r '.sensorId')
 
-# 4. VIOS now proxies the stream at rtsp://${HOST_IP}:30554/live/<SID>. Feed THAT to RT-VLM (use ${HOST_IP}).
+# 4. VIOS now proxies the stream over a DYNAMIC RTSP port from the RtspLoadBalancer pool — it is
+#    NOT fixed at 30554 (it landed on 30556 in the most recent run). VIOS GET /sensor/<id>/streams
+#    returns an EMPTY .url for type:Rtsp sensors, so the proxy port is only discoverable from the
+#    streamprocessing container log line "Live proxy url: rtsp://<HOST_IP>:<PORT>/live/<SID>"
+#    (Finding B, 2026-06-17). Grep the log for $SID after /sensor/add succeeds, then extract the port.
+#    Feed THAT proxy URL to RT-VLM (use ${HOST_IP}, never localhost).
 #    /v1/streams/add takes the {"streams":[{...}]} ENVELOPE (a flat {"liveStreamUrl":...} body is
 #    rejected with InvalidParameters "('body', 'streams'): Field required" — Finding F-D, 2026-06-02;
 #    matches integrate-rt-vlm.md § Inputs). The stream_id comes back under .results[0].id.
-PROXY="rtsp://${HOST_IP}:30554/live/$SID"
+PROXY=""
+for i in 1 2 3 4 5 6; do
+  PROXY=$(docker logs vss-vios-streamprocessing 2>&1 | grep "Live proxy url" | grep "$SID" | tail -1 \
+    | sed -E 's#.*(rtsp://[^[:space:]]+).*#\1#')
+  [ -n "$PROXY" ] && break
+  sleep 5
+done
+# PROXY == rtsp://<HOST_IP>:<dynamic-port>/live/$SID  (port from RtspLoadBalancer pool, e.g. 30556)
 STREAM_ID=$(curl -s -X POST "$RTVLM/v1/streams/add" \
   -H "Content-Type: application/json" \
   -d "{\"streams\": [{\"liveStreamUrl\": \"$PROXY\", \"description\": \"nvstream validation\"}]}" \
@@ -154,6 +166,7 @@ curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /
 ### Gotchas (cite when debugging)
 
 - **Read the RTSP port from the API.** The 315xx RTSP port is assigned by NvStreamer's load balancer at start-up; it is NOT tied to filename or alphabetic order (`nvstreamer-api-reference.md § 2`). Constructing `rtsp://host:31554/...` will intermittently hit the wrong port.
+- **The VIOS live-proxy RTSP port is dynamic (RtspLoadBalancer pool) — do not hardcode 30554.** Always read it from the streamprocessing logs after `/sensor/add` (`docker logs vss-vios-streamprocessing 2>&1 | grep "Live proxy url" | grep "$SID"`). VIOS `GET /sensor/<id>/streams` returns an empty `.url` for `type:Rtsp` sensors, so the log line is the only source. The port landed on 30556 (not 30554) in the most recent run (Finding B, 2026-06-17).
 - **`sensorUrl`, not `url`.** VIOS `POST /sensor/add` takes `sensorUrl` (`integrate-vios-service.md § API Schema` line ~172 / `api-reference.md § 6`). Using `url` silently fails parameter validation.
 - **`${HOST_IP}`, not `localhost`, for the VIOS proxy URL handed to RT-VLM.** Both run `network_mode: host`, but a `localhost` URL passed into the RT-VLM container resolves to the container's own loopback (VIOS Finding 12). Use `${HOST_IP}`.
 - **Discovery latency.** The streams list and codec metadata populate asynchronously (~5 s for the sensor to appear, ~15–30 s for `metadata.codec`). Retry with backoff (step 1); if you need codec immediately, call `GET $NV/storage/file/mediainfo?sensorId=$STEM`.
@@ -161,6 +174,9 @@ curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /
 - **Register with VIOS only after the full SDRC/cluster is healthy (Finding F-E, 2026-06-02).** A sensor registered while `sdr-controller` or Redis is still unhealthy reports `state: online` on `/sensor/<id>/status` but its VIOS live proxy (`rtsp://${HOST_IP}:30554/live/<id>`) silently does NOT serve — RT-VLM `/v1/streams/add` then fails with `Could not connect to the RTSP URL or there is no video stream`. Confirm `sdr-controller` logs show `Redis Listener started` (not a `ConnectionRefusedError` crash-loop) before `POST /sensor/add`. If the proxy fails to serve, delete and re-add the sensor once the cluster is healthy — the re-registration produces a working proxy.
 - **ES doc count is mandatory** (`feedback_smoke_test_completeness.md`). Kafka offset advance alone misses topic-name misconfigurations — assert `default_<id>` doc count from the live path, distinct from any VOD/upload check.
 - **Clean stale OFFLINE sensors in VIOS before re-adding (Finding F-H, 2026-06-16).** On a re-deploy, NvStreamer auto-discovers the staged video under a fresh `sensorId` (the `_N` uniquifier increments), but VIOS still holds the **prior run's** sensor registration — now `state: offline` because the old NvStreamer RTSP port/pool is gone. Blindly `POST /sensor/add` then leaves a stale offline duplicate (and the smoke test may resolve the wrong sensorId). Before registering, list VIOS sensors and `DELETE` any whose `live_stream_url` points at an NvStreamer 315xx RTSP URL but reports `state: offline` (or whose name matches the sample stem from a prior run): `GET ${VIOS}/sensor/list` → for each stale/offline NvStreamer-backed entry `DELETE ${VIOS}/sensor/{sensorId}`, then add the freshly-resolved URL. Emit this de-dup step into the generated deploy skill's smoke sequence and into Patch 0 pre-flight so re-runs are idempotent (pairs with the `vss-vios-nvstreamer` orphan-container grep in § 5).
+- **Live registration residue on re-run (Finding C, 2026-06-17).** Like the VOD clip_storage bind-mount, `${VSS_DATA_DIR}/data_log/vst/vst_data` is a HOST bind-mount that survives `docker compose down` (and `down -v`). The NvStreamer RTSP sensor registered in a prior run is still in Postgres there, so on a re-run `POST /sensor/add` with the same `sensorUrl` returns HTTP 400 "Sensor exists already". Before re-running the live half, clear the stale sensor by ONE of:
+  - **`DELETE $VIOS/sensor/<stale-sensorId>` (PREFERRED for iterative eval runs)** — removes only the one stale sensor, preserving all other sensor configs and ingested data. Resolve the stale id from `GET $VIOS/sensor/list` by matching the NvStreamer proxy `sensorUrl`.
+  - `sudo rm -rf ${VSS_DATA_DIR}/data_log/vst/vst_data` — full clean, but DESTRUCTIVE: wipes ALL sensor configs. Use only for a true clean-slate run, not for tight iterate-and-rerun loops.
 
 ---
 
