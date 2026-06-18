@@ -35,7 +35,7 @@ Emit the following service **directly into the build-output compose** (i.e. into
 
 ```yaml
   nvstreamer-validation:
-    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     profiles: ["<invented-flag>"]            # e.g. bp_developer_in_1 — inserted by Step 6.5 Patch 1
     entrypoint: [ "/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst" ]
@@ -152,13 +152,19 @@ STREAM_ID=$(curl -s -X POST "$RTVLM/v1/streams/add" \
   -d "{\"streams\": [{\"liveStreamUrl\": \"$PROXY\", \"description\": \"nvstream validation\"}]}" \
   | jq -r '.results[0].id')
 
-# 5. Drive captions on the live stream by the stream_id from step 4 (id field; stream:true and a
+# 5. Resolve the loaded model ID at runtime — do NOT hardcode "cosmos-reason2-8b".
+#    The model id registered in RT-VLM is a runtime-generated string in the format
+#    nim_nvidia_<model>_<tag> (e.g. nim_nvidia_cosmos-reason2-8b_hf-1208). Passing
+#    the human-readable name returns BadParameters: No such model 'cosmos-reason2-8b'.
+MODEL_ID=$(curl -sf "$RTVLM/v1/models" | jq -r '.data[0].id')
+
+# 6. Drive captions on the live stream by the stream_id from step 4 (id field; stream:true and a
 #    non-empty prompt are both mandatory per RT-VLM /v1/generate_captions). chunk_duration > 0.
 curl -s -N -X POST "$RTVLM/v1/generate_captions" \
   -H "Content-Type: application/json" \
-  -d "{\"id\": \"$STREAM_ID\", \"model\": \"<resolved-model-id>\", \"stream\": true, \"prompt\": \"Describe the scene.\", \"chunk_duration\": 10}"
+  -d "{\"id\": \"$STREAM_ID\", \"model\": \"$MODEL_ID\", \"stream\": true, \"prompt\": \"Describe the scene.\", \"chunk_duration\": 10}"
 
-# 6. Assert captions land on Kafka mdx-vlm-captions AND in ES default_<id> FROM THE LIVE PATH.
+# 7. Assert captions land on Kafka mdx-vlm-captions AND in ES default_<id> FROM THE LIVE PATH.
 docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-vlm-captions   # offsets > 0
 curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /^default_/ && $2+0 > 0'
 ```
@@ -176,6 +182,13 @@ curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /
 - **Live registration residue on re-run (Finding C, 2026-06-17).** Like the VOD clip_storage bind-mount, `${VSS_DATA_DIR}/data_log/vst/vst_data` is a HOST bind-mount that survives `docker compose down` (and `down -v`). The NvStreamer RTSP sensor registered in a prior run is still in Postgres there, so on a re-run `POST /sensor/add` with the same `sensorUrl` returns HTTP 400 "Sensor exists already". Before re-running the live half, clear the stale sensor by ONE of:
   - **`DELETE $VIOS/sensor/<stale-sensorId>` (PREFERRED for iterative eval runs)** — removes only the one stale sensor, preserving all other sensor configs and ingested data. Resolve the stale id from `GET $VIOS/sensor/list` by matching the NvStreamer proxy `sensorUrl`.
   - `sudo rm -rf ${VSS_DATA_DIR}/data_log/vst/vst_data` — full clean, but DESTRUCTIVE: wipes ALL sensor configs. Use only for a true clean-slate run, not for tight iterate-and-rerun loops.
+- **VOD clip_storage file residue on re-run.** After a partial or wrong-`VSS_DATA_DIR` run, `clip_storage/<filename>` may exist on the host bind-mount but be absent from a fresh Postgres (e.g. after `down -v` recreated the named volume but left the bind-mount intact). VIOS returns `ResourceConflictError: File already exists` on upload (filesystem check passes) but `File not found` on `DELETE <sensorId>` (Postgres check fails) — leaving you stuck. Fix: remove the file directly from the bind-mount before re-uploading:
+
+  ```bash
+  docker run --rm -v "${VSS_DATA_DIR}/data_log/vst/clip_storage:/d" busybox rm -f "/d/<filename>"
+  ```
+
+  Replace `<filename>` with the actual upload filename (e.g. `warehouse_safety_0001.mp4`). For a full clean slate, `sudo rm -rf ${VSS_DATA_DIR}/data_log/vst/clip_storage/` then `sudo mkdir -p ... && sudo chmod -R 777 ...` to recreate. Surfaced live 2026-06-18, IN-1 expanded eval.
 
 ---
 

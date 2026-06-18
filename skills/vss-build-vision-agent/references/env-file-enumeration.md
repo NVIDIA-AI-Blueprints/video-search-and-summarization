@@ -40,3 +40,14 @@ Hardware tiers: `H100`, `RTXPRO6000BW`, `L40S`, `DGX-SPARK`, `AGX-THOR`, `IGX-TH
 ## Variable folding rule
 
 When generating the output `.env` in Step 6, **fold in every variable referenced by any selected service's compose** — even if it lives outside the per-profile `.env`. Cross-reference each candidate's `integrate-<microservice>.md § Environment Variables` for the authoritative per-service list, and walk the actual compose YAML for `${VAR}` substitutions to catch any the reference file missed.
+
+## Required additions for IN-1 (not in any upstream `.env`)
+
+The following variables have no upstream `.env` source — they must be added explicitly to the generated `.env.template` (and populated in `.env`) for every IN-1 deployment:
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `RTVI_VLM_FILE_URL_ALLOWED_DIRS` | `/home/vst/vst_release/streamer_videos` | Enables RT-VLM to open `file://` URLs sourced from VIOS `vodUrl`. Required for the VIOS vodUrl → RT-VLM on-demand flow. Both `vss-vios-streamprocessing` and `vss-rtvi-vlm` mount `${VSS_DATA_DIR}/data_log/vst/clip_storage` at this exact path, so the VIOS-internal path is valid inside RT-VLM. Setting this empty (or absent) disables `file://` entirely. See `patch-rt-vlm.md § VOD path design`. |
+| `SAMPLE_VIDEO_DATASET` | *(empty)* | Suppresses the Docker Compose warning `"The SAMPLE_VIDEO_DATASET variable is not set. Defaulting to a blank string."` emitted by upstream infra composes that reference this var. Not used by any IN-1 service; leave empty. |
+
+Both variables are absent from all 10 core `.env` files and from the NIM hardware-tier set. Omitting `RTVI_VLM_FILE_URL_ALLOWED_DIRS` causes silent failure on `POST /v1/files?url=file://...`; omitting `SAMPLE_VIDEO_DATASET` is cosmetic only (a compose warning, not an error). Surfaced live 2026-06-18, IN-1 expanded eval.
