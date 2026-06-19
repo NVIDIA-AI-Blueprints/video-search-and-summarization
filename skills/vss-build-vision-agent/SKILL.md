@@ -186,6 +186,17 @@ Then prompt the user for any of the following that are ambiguous (FR-4):
 - **Endpoint conflicts** — when port collisions cannot be resolved automatically.
 - **Model selection** — when multiple VLM / LLM options are compatible.
 - **Remote vs. local inference** — for NIM-based services (RT-VLM in `openai-compat` mode, LLM NIMs).
+- **VS / summarization LLM source (when VS is in the build).** VS requires a summarization LLM
+  that the dense-captioning baseline does not provide. Check GPU availability:
+  `nvidia-smi --query-gpu=name --format=csv,noheader | wc -l` minus the GPU count the current
+  baseline profile occupies (e.g. IN-1 uses 1 GPU). If a spare GPU is available, propose a
+  **local NIM** (`nvidia-nemotron-nano-9b-v2`) as the default — this matches the upstream
+  `dev-profile-lvs` default and avoids cloud-inference entitlement requirements. Only propose the
+  remote NVIDIA-hosted endpoint (`integrate.api.nvidia.com`) when no spare GPU exists or the user
+  explicitly opts out. If remote is chosen, warn that `integrate.api.nvidia.com` requires a
+  cloud-inference-entitled `NVIDIA_API_KEY`, which is a **different entitlement scope** from the
+  NGC registry key (`nvapi-*`) used for image pulls — an NGC registry key returns HTTP 403 on
+  `/v1/chat/completions`.
 - **External RTSP source location** (when the prompt mentions live stream input) — is the source a real public RTSP server, a real IP camera, a sibling container, or a host process? **If the user supplies a real camera / RTSP URL**, use it: pre-flight reachability **from inside the rtvi-vlm container** (not just the host) before generating the compose; if the source is a non-VSS sidecar, recommend co-locating on the same compose network with `--network-alias` (see `integrate-rt-vlm.md` § Network Requirements > Reaching external RTSP sources); if the source is on the host, verify Docker's iptables FORWARD chain has the necessary rule by probing `docker exec rtvi-vlm bash -c "exec 3<>/dev/tcp/${HOST_IP}/${RTSP_PORT}"`. **If the user did NOT supply a real source but the capability has a live/streaming path**, include the **NvStreamer validation harness** as a synthetic RTSP source (a stored sample video served over RTSP by `vss-vios-nvstreamer`, replacing the legacy `mediamtx + ffmpeg` dummy-stream sidecar) — record the decision in the sidecar's `validation_harness:` key and emit the service in Step 6. The inclusion rule, the service block, config/sample-video staging, and the NvStreamer → VIOS → RT-VLM smoke sequence are all in `references/validation-harness.md`. NvStreamer is a validation-harness component ONLY — NOT a `sensor_topology` variant and NOT a `component_services:` entry.
 
 Wait for confirmation before continuing. The only exception is **autonomous mode** — when the user's request explicitly says "deploy autonomously" or "run without confirmation", or when running inside a non-interactive eval harness with that permission.
@@ -263,6 +274,7 @@ Generate a self-contained deploy skill at `build-output/skills/deploy-<profile-n
 
 The generated SKILL.md must include:
 
+- **YAML frontmatter (FIRST lines of the file, before any heading)** — a valid agentskills.io frontmatter block so the deploy skill is discoverable and invokable as `/deploy-<profile-name>`. Required keys: `name: deploy-<profile-name>` (matching the folder), `description:` (one line covering deploy/verify/health-check/smoke-test/tear-down and naming the capability, the build dir, and the profile flag), `version:` (e.g. `0.1.0`), `license: Apache-2.0`. Without this block the file is a plain runbook, not a loadable skill. (Regression fixed 2026-06-18: earlier generations emitted the runbook heading directly with no frontmatter.)
 - **Compose path** — absolute or `build-output/`-relative path to the generated `compose.yml`.
 - **Env file path** — path to `.env.template` and an instruction to copy it to `.env` and fill in every variable before deploy.
 - **GPU assignments** — the device-id map confirmed in Step 4 (`RT_VLM_DEVICE_ID=0`, etc.), so the operator can sanity-check against the host before bring-up.
