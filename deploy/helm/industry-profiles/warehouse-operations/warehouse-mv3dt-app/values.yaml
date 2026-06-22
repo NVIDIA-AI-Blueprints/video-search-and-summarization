@@ -15,8 +15,8 @@ bp-configurator:
     mountPath: /opt/data
     seedConfigMapName: vss-behavior-analytics-resources
   image:
-    repository: nvcr.io/nvstaging/vss-core/vss-configurator
-    tag: "3.2-2026.05.12"
+    repository: nvcr.io/nvidia/vss-core/vss-configurator
+    tag: "3.2.0"
     pullPolicy: IfNotPresent
   init:
     enabled: true
@@ -315,9 +315,10 @@ rtvi:
     enabled: true
     profileMode: standalone-mv3dt
     replicas: 1
+    otelServiceName: rtvi-cv-mv3dt
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: "3.2.0-26.05.1"
+      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+      tag: "3.2.0"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
@@ -326,8 +327,8 @@ rtvi:
     downloadModelsFromNgc: false
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
-    ngcAppDataOrg: nvstaging
-    ngcAppDataResourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-05212026
+    ngcAppDataOrg: nvidia
+    ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:
@@ -341,8 +342,8 @@ rtvi:
         fusion:
           enabled: true
           image:
-            repository: nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-bev-fusion
-            tag: "3.2.0-26.05.3"
+            repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion
+            tag: "3.2.0"
             pullPolicy: IfNotPresent
           rawTopic: mdx-raw
           fusedTopic: mdx-bev

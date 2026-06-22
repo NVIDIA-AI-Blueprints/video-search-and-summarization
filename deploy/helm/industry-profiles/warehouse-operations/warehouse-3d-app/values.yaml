@@ -11,8 +11,8 @@ bp-configurator:
   enabled: true
   name: bp-configurator-3d
   image:
-    repository: nvcr.io/nvstaging/vss-core/vss-configurator
-    tag: "3.2-2026.05.12"
+    repository: nvcr.io/nvidia/vss-core/vss-configurator
+    tag: "3.2.0"
     pullPolicy: IfNotPresent
   init:
     enabled: true
@@ -105,8 +105,8 @@ warehouse:
     enabled: true
     name: ds-configurator-3d
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-config-adaptor
-      tag: "3.2-2026.05.15-3"
+      repository: nvcr.io/nvidia/vss-core/vss-rt-config-adaptor
+      tag: "3.2.0"
       pullPolicy: IfNotPresent
     configMapName: vss-rtvi-cv-warehouse-standalone-3d
     calibrationConfigMapName: vss-rtvi-cv-warehouse-standalone-3d-calibration
@@ -331,8 +331,8 @@ rtvi:
     profileMode: standalone-3d
     replicas: 1
     image:
-      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: "3.2.0-26.05.1"
+      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+      tag: "3.2.0"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
@@ -340,8 +340,8 @@ rtvi:
     downloadModelsFromNgc: false
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
-    ngcAppDataOrg: nvstaging
-    ngcAppDataResourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-05212026
+    ngcAppDataOrg: nvidia
+    ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
     kafka:
       bootstrapServers: ""
     standaloneWarehouse:
