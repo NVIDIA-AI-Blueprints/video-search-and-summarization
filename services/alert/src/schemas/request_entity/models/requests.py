@@ -75,8 +75,14 @@ class AlertInfo(BaseModel):
         return v
     
     @validator('type', pre=True)
-    def normalize_alert_type(cls, v):
-        """Preserve provided case; trim whitespace only (schema uses enum-like names)."""
+    def _strip_alert_type_field(cls, v):
+        """Trim whitespace only, PRESERVING case (schema uses enum-like names).
+
+        Note: this intentionally differs from
+        ``handlers.alert_config.normalize.normalize_alert_type`` (which also
+        lower-cases for Redis/ES key generation). Kept separate on purpose;
+        do not unify without auditing alert-type key lookups.
+        """
         if isinstance(v, str):
             return v.strip()
         return v

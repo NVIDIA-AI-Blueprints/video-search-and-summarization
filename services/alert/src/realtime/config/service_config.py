@@ -19,20 +19,13 @@ Shared configuration helpers for Alert Bridge services.
 """
 
 import logging
-import os
 from typing import Any, Dict
 
-import yaml
 
 logger = logging.getLogger(__name__)
 
 
 def load_config(config_file: str = "config.yaml") -> Dict[str, Any]:
-    """Load configuration from YAML file."""
-    config_path = os.getenv("CONFIG_PATH", config_file)
-    try:
-        with open(config_path, "r") as fh:
-            return yaml.safe_load(fh) or {}
-    except FileNotFoundError:
-        logger.warning("Config file %s not found; using defaults", config_path)
-        return {}
+    """Load configuration from YAML file (CONFIG_PATH env overrides)."""
+    from utils.config import load_config as _load_config, resolve_config_path
+    return _load_config(resolve_config_path(config_file), default_on_missing=True)
