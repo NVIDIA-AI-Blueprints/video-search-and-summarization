@@ -13,20 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import yaml
 from clients.redis_handler import RedisHandler
 from functools import lru_cache
 
-def load_config():
-    # Use the CONFIG_PATH environment variable, default to "config.yaml"
-    config_file = os.getenv("CONFIG_PATH", "config.yaml")
-    with open(config_file, 'r') as file:
-        return yaml.safe_load(file)
+from utils.config import load_config, resolve_config_path  # noqa: F401  (load_config re-exported for callers)
+
 
 def load_config_path():
-    # Use the CONFIG_PATH environment variable, default to "config.yaml"
-    return os.getenv("CONFIG_PATH", "config.yaml")
+    """Active config path (CONFIG_PATH env, default config.yaml)."""
+    return resolve_config_path()
 
 @lru_cache()
 def get_redis_handler() -> RedisHandler:
