@@ -24,7 +24,6 @@ import logging
 import json
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
-import yaml
 import redis
 
 from schemas import EntityValidator
@@ -422,8 +421,8 @@ class AlertSubmissionService:
     @staticmethod
     def _load_config(config_file: str) -> Dict[str, Any]:
         """Load configuration from YAML file."""
-        with open(config_file, 'r') as file:
-            return yaml.safe_load(file)
+        from utils.config import load_config
+        return load_config(config_file)
     
     def close(self):
         """Clean up resources."""
