@@ -29,7 +29,7 @@ dependencies:
     repository: "file://./charts/redis"
     condition: redis.enabled
   - name: mosquitto
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://./charts/mosquitto"
     condition: mosquitto.enabled
   - name: sdrc

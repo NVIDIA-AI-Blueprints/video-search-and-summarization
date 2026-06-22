@@ -1,21 +1,21 @@
 dependencies:
 - name: vios
   repository: file://../../../services/vios
-  version: 26.04.2
+  version: 3.2.0
 - name: infra
   repository: file://../../../services/infra
-  version: 26.04.2
+  version: 3.2.0
 - name: bp-configurator
   repository: file://../../../services/bp-configurator
-  version: 26.04.2
+  version: 3.2.0
 - name: calibration-import
   repository: file://../../../services/calibration-import
-  version: 26.04.2
+  version: 3.2.0
 - name: rtvi
   repository: file://../../../services/rtvi
-  version: 26.04.2
+  version: 3.2.0
 - name: analytics
   repository: file://../../../services/analytics
-  version: 26.04.2
-digest: sha256:80ae80836bc1fec79532a4427420ffcd5c23224ab4006753d96c18fb52d51483
-generated: "2026-05-27T14:59:45.205650284-07:00"
+  version: 3.2.0
+digest: sha256:3aefa117c230207fef7f15f5219721b7ce315505e38ab7c982a2e90f3a7b949e
+generated: "2026-06-22T13:11:28.287179971-07:00"

@@ -5,8 +5,8 @@ apiVersion: v2
 name: warehouse-3d-app
 description: NVIDIA Metropolis warehouse operations 3D app profile
 type: application
-version: 26.04.2
-appVersion: "26.02.3"
+version: 3.2.0
+appVersion: "3.2.0"
 keywords:
   - metropolis
   - warehouse
@@ -16,26 +16,26 @@ maintainers:
   - name: NVIDIA
 dependencies:
 - name: vios
-  version: 26.04.2
+  version: 3.2.0
   repository: file://../../../services/vios
   condition: vios.enabled
 - name: infra
-  version: 26.04.2
+  version: 3.2.0
   repository: file://../../../services/infra
   condition: infra.enabled
 - name: bp-configurator
-  version: 26.04.2
+  version: 3.2.0
   repository: file://../../../services/bp-configurator
   condition: bp-configurator.enabled
 - name: calibration-import
-  version: 26.04.2
+  version: 3.2.0
   repository: file://../../../services/calibration-import
   condition: calibration-import.enabled
 - name: rtvi
-  version: 26.04.2
+  version: 3.2.0
   repository: file://../../../services/rtvi
   condition: rtvi.enabled
 - name: analytics
-  version: 26.04.2
+  version: 3.2.0
   repository: file://../../../services/analytics
   condition: analytics.enabled
