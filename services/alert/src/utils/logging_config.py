@@ -24,7 +24,6 @@ Reads logging configuration from config.yaml and applies it consistently.
 import logging
 import os
 import re
-import yaml
 
 
 # Regex pattern to match base64 data URLs: data:<mime>;base64,<data>
@@ -91,8 +90,8 @@ def setup_logging(config_file: str = "config.yaml") -> None:
     """
     try:
         # Load configuration
-        with open(config_file, 'r') as file:
-            config = yaml.safe_load(file)
+        from utils.config import load_config
+        config = load_config(config_file)
         
         # Get logging configuration
         logging_config = config.get('logging', {})
@@ -200,8 +199,8 @@ def enforce_log_level(config_file: str = "config.yaml") -> None:
     Call after all modules are initialized to override any hardcoded setLevel() calls.
     """
     try:
-        with open(config_file, 'r') as file:
-            config = yaml.safe_load(file)
+        from utils.config import load_config
+        config = load_config(config_file)
         
         log_level = os.getenv('LOG_LEVEL_ROOT', config.get('logging', {}).get('level', 'INFO')).upper()
         third_party_level = os.getenv('LOG_LEVEL_3P', config.get('logging', {}).get('third_party_level', 'WARNING')).upper()
