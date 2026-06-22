@@ -18,13 +18,13 @@
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 
-from elastic.elastic import ElasticClient, ApiError, ConflictError
+from clients.elastic import ElasticClient, ApiError, ConflictError
 
 
 @pytest.fixture
 def es_client():
     """Create an ElasticClient with a mocked Elasticsearch connection."""
-    with patch("elastic.elastic.Elasticsearch") as mock_es_cls:
+    with patch("clients.elastic.Elasticsearch") as mock_es_cls:
         mock_instance = MagicMock()
         mock_instance.ping.return_value = True
         mock_es_cls.return_value = mock_instance

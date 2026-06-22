@@ -27,7 +27,7 @@ Pre-fix layout
 
 Post-fix layout (these tests lock the behavioural contract)
 -----------------------------------------------------------
-* Helpers live in :mod:`models.pluggable_parser_runtime`.
+* Helpers live in :mod:`schemas.pluggable_parser_runtime`.
 * ``handlers.direct_media.direct_media_handler`` imports them at
   *module load time*, no lazy import inside methods.
 * Importing ``enhance_alert_with_vlm`` *and*
@@ -105,14 +105,14 @@ class TestRuntimeModuleImportable:
     """The helpers must be importable from their new home."""
 
     def test_public_functions_importable_from_runtime_module(self):
-        from models.pluggable_parser_runtime import (  # noqa: F401
+        from schemas.pluggable_parser_runtime import (  # noqa: F401
             apply_pluggable_parser_output,
             apply_pluggable_parser_error,
             safe_json_dumps_parser_output,
         )
 
     def test_error_source_constants_importable(self):
-        from models.pluggable_parser_runtime import (
+        from schemas.pluggable_parser_runtime import (
             ERROR_SOURCE_PLUGGABLE_PARSER,
             ERROR_SOURCE_VLM_SCHEMA,
             ERROR_SOURCE_VLM_API,
@@ -130,7 +130,7 @@ class TestRuntimeModuleImportable:
         assert all(isinstance(b, str) and b for b in buckets)
 
     def test_status_constants_importable(self):
-        from models.pluggable_parser_runtime import (
+        from schemas.pluggable_parser_runtime import (
             PLUGGABLE_PARSER_OK_STATUS,
             PLUGGABLE_PARSER_ERROR_STATUS,
         )
@@ -157,16 +157,16 @@ class TestDirectMediaHandlerNoLazyImport:
 
     def test_helpers_come_from_runtime_module(self):
         """The helpers bound to the handler module point to the
-        :mod:`models.pluggable_parser_runtime` implementation, not a
+        :mod:`schemas.pluggable_parser_runtime` implementation, not a
         lazy-imported shadow copy from the orchestrator.
         """
         dmh = _fresh_real_direct_media_handler()
 
         assert dmh._apply_pluggable_parser_output.__module__ == (
-            "models.pluggable_parser_runtime"
+            "schemas.pluggable_parser_runtime"
         )
         assert dmh._apply_pluggable_parser_error.__module__ == (
-            "models.pluggable_parser_runtime"
+            "schemas.pluggable_parser_runtime"
         )
 
     def test_no_lazy_import_statement_inside_publish_success(self):
@@ -184,7 +184,7 @@ class TestDirectMediaHandlerNoLazyImport:
         assert "from enhance_alert_with_vlm import" not in source, (
             "DirectMediaHandler._publish_success must not lazy-import from "
             "enhance_alert_with_vlm — helpers were moved to "
-            "models.pluggable_parser_runtime so the import can happen at "
+            "schemas.pluggable_parser_runtime so the import can happen at "
             "module load time."
         )
 
@@ -207,10 +207,10 @@ class TestOrchestratorReExportsLegacyNames:
         import enhance_alert_with_vlm as orchestrator
 
         assert orchestrator._apply_pluggable_parser_output.__module__ == (
-            "models.pluggable_parser_runtime"
+            "schemas.pluggable_parser_runtime"
         )
         assert orchestrator._apply_pluggable_parser_error.__module__ == (
-            "models.pluggable_parser_runtime"
+            "schemas.pluggable_parser_runtime"
         )
 
 
@@ -218,7 +218,7 @@ class TestRuntimeHelpersRoundTrip:
     """End-to-end: the helpers produce the documented Option-B shape."""
 
     def test_success_helper_populates_vlm_response_and_clears_verdict(self):
-        from models.pluggable_parser_runtime import apply_pluggable_parser_output
+        from schemas.pluggable_parser_runtime import apply_pluggable_parser_output
 
         msg = {"info": {"sensorId": "cam-1"}}
         apply_pluggable_parser_output(
@@ -240,7 +240,7 @@ class TestRuntimeHelpersRoundTrip:
         assert "reasoning" not in info
 
     def test_error_helper_sets_error_source_and_verdict(self):
-        from models.pluggable_parser_runtime import (
+        from schemas.pluggable_parser_runtime import (
             apply_pluggable_parser_error,
             ERROR_SOURCE_PLUGGABLE_PARSER,
         )
@@ -262,7 +262,7 @@ class TestRuntimeHelpersRoundTrip:
     def test_safe_json_dumps_falls_back_on_non_serializable_values(self):
         from datetime import datetime
 
-        from models.pluggable_parser_runtime import safe_json_dumps_parser_output
+        from schemas.pluggable_parser_runtime import safe_json_dumps_parser_output
 
         out = safe_json_dumps_parser_output({"when": datetime(2026, 1, 1)})
         # ``default=str`` renders the datetime to ISO-ish; the outer
@@ -281,7 +281,7 @@ class TestNoCircularImport:
         # Importing in either order must not raise.
         orchestrator = importlib.import_module("enhance_alert_with_vlm")
         handler_module = _fresh_real_direct_media_handler()
-        runtime = importlib.import_module("models.pluggable_parser_runtime")
+        runtime = importlib.import_module("schemas.pluggable_parser_runtime")
 
         assert orchestrator is not None
         assert handler_module is not None

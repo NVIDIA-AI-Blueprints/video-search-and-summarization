@@ -13,20 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os as _os
+import sys as _sys
+# Bootstrap: this launcher lives at the service root while the packages live
+# under ``src/``. Put ``src/`` on the import path so ``import vlm`` etc. resolve
+# both locally and inside the container (Dockerfile keeps CMD at /app).
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "src"))
+
 import argparse
 import json
-import logging
 import os
 import signal
 import sys
 import time
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from multiprocessing import Process
 from queue import Queue, Empty
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
-import uuid
-import mimetypes
 
 from concurrent.futures import ThreadPoolExecutor, Future, TimeoutError as FutureTimeoutError
 
@@ -35,15 +39,14 @@ import uvicorn
 import yaml
 from openai import APIConnectionError, APITimeoutError, InternalServerError, UnprocessableEntityError
 from openai.types.chat import ChatCompletionMessage
-from urllib.parse import urlsplit
 
 from metrics import PROMETHEUS_ENABLED
 if PROMETHEUS_ENABLED:
     from metrics import reset_prometheus_multiproc_dir
     reset_prometheus_multiproc_dir()
 
-from its_redis.redis_handler import RedisHandler
-from mdx.anomaly.event_bridge_factory import EventBridgeFactory
+from clients.redis_handler import RedisHandler
+from mdx.event_bridge_factory import EventBridgeFactory
 from vst.exceptions import (
     VSTError,
     VSTClientError,
@@ -52,23 +55,23 @@ from vst.exceptions import (
     VSTTimeoutError,
     VSTUnavailableError,
 )
-from mdx.anomaly.sink.vlm_enhanced_sink import build_vlm_enhanced_sink
-from models.responses import (
+from mdx.sink.vlm_enhanced_sink import build_vlm_enhanced_sink
+from schemas.vlm_responses import (
     AlertBridgeResponse,
     VLMResponse,
     merge_info_with_response,
 )
-from models.base_response_parser import load_response_parser
-from models.pluggable_parser_runtime import (
+from schemas.base_response_parser import load_response_parser
+from schemas.pluggable_parser_runtime import (
     ERROR_SOURCE_MEDIA_DOWNLOAD,
-    ERROR_SOURCE_PLUGGABLE_PARSER,
     ERROR_SOURCE_VLM_API,
     ERROR_SOURCE_VLM_SCHEMA,
     PLUGGABLE_PARSER_ERROR_STATUS,
     PLUGGABLE_PARSER_OK_STATUS,
     apply_pluggable_parser_error as _apply_pluggable_parser_error,
     apply_pluggable_parser_output as _apply_pluggable_parser_output,
-    safe_json_dumps_parser_output as _safe_json_dumps_parser_output,
+    ERROR_SOURCE_PLUGGABLE_PARSER, 
+    safe_json_dumps_parser_output as _safe_json_dumps_parser_output,  
 )
 if TYPE_CHECKING:
     from webhook import OpenClawNotifier, WebhookKafkaForwarder
@@ -77,7 +80,7 @@ if TYPE_CHECKING:
 # (``_PLUGGABLE_PARSER_OK_STATUS`` / ``_PLUGGABLE_PARSER_ERROR_STATUS``).
 # External tests and a handful of diagnostic scripts still read these via
 # ``enhance_alert_with_vlm._PLUGGABLE_PARSER_OK_STATUS``; the helpers and
-# constants themselves now live in :mod:`models.pluggable_parser_runtime`
+# constants themselves now live in :mod:`schemas.pluggable_parser_runtime`
 # so Mode-3 (``DirectMediaHandler``) can import them at module load time
 # without paying a circular-import lazy-import penalty.
 _PLUGGABLE_PARSER_OK_STATUS = PLUGGABLE_PARSER_OK_STATUS
@@ -89,7 +92,7 @@ from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from utils.event_utils import normalize_alert_message, is_alert
 from utils.url_transformer import transform_video_url, is_vlm_local
-from mdx.anomaly.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
+from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
 from utils.logging_config import setup_logging, get_logger, enforce_log_level
 from utils.schema_util import protobuf_anomalies_to_json_string_list
 from vlm.vlm_client import VLMClient, AsyncVLMRuntime
@@ -99,7 +102,6 @@ from metrics.recorder import (
     inc_events_after_dedup,
     inc_events_dropped,
     inc_events_skipped_confirmed,
-    observe_pipeline_latency,
     observe_video_length,
     observe_vlm_duration,
     observe_vst_duration,
@@ -318,11 +320,11 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         )
 
         # Initialize entity validator for request processing
-        from entity_management import EntityValidator
+        from schemas import EntityValidator
         self.entity_validator = EntityValidator()
 
         # Initialize ResponseBuilder for clean response handling
-        from entity_management.response_entity import ResponseBuilder
+        from schemas.response_entity import ResponseBuilder
         self.response_builder = ResponseBuilder()
 
         # PromptManager is now initialised earlier (before the VLM
@@ -2189,7 +2191,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             # Publish enhanced anomalies using new sink interface
             incidents = []
             for i, anomaly in enumerate(enhanced_anomalies):
-                from mdx.anomaly.stream_message import StreamMessage
+                from mdx.stream_message import StreamMessage
 
                 # Debug: Log the JSON structure being sent to Redis
                 anomaly_json = json.dumps(anomaly)
@@ -2282,8 +2284,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         Returns:
             List of AlertResponseEntity error responses
         """
-        from entity_management.response_entity.models import AlertResponseEntity
-        from entity_management.shared import ProcessingStatus
+        from schemas.response_entity.models import AlertResponseEntity
         from datetime import datetime, timezone
         import json
 
@@ -2307,10 +2308,10 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             # If this message wasn't successfully validated, create error response
             if message_id not in validated_ids:
                 # Create error response for validation failure
-                from entity_management.response_entity.models.responses import (
+                from schemas.response_entity.models.responses import (
                     AlertResponseEntity, AlertInfo, EventInfo, VerificationInfo
                 )
-                from entity_management.shared.enums import AlertSeverity, AlertStatus
+                from schemas.shared.enums import AlertSeverity, AlertStatus
 
                 error_response = AlertResponseEntity(
                     id=message_id,
@@ -2359,7 +2360,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             worker_id: Worker ID for logging
         """
         try:
-            from mdx.anomaly.stream_message import StreamMessage
+            from mdx.stream_message import StreamMessage
             from datetime import datetime, timezone
 
             # Convert error responses to StreamMessage format
@@ -2402,7 +2403,7 @@ def start_fastapi():
     try:
         port = int(os.getenv("FASTAPI_PORT", 9080))
         logger.info(f"Starting Alert Bridge FastAPI server on port {port}...")
-        uvicorn.run("alert-agent-web.app.main:app", host="0.0.0.0", port=port)
+        uvicorn.run("web.main:app", host="0.0.0.0", port=port)
     except Exception as e:
         logger.error(f"FastAPI server failed to start: {e}")
         raise

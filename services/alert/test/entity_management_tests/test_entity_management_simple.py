@@ -24,13 +24,13 @@ from pathlib import Path
 # Test just the basic imports and validator
 def test_imports_work():
     """Test that all entity management components can be imported."""
-    from entity_management import (
+    from schemas import (
         AlertRequestEntity,
         AlertResponseEntity, 
         EntityValidator,
         EntityBuilder
     )
-    from entity_management.shared import AlertSeverity, AlertStatus
+    from schemas.shared import AlertSeverity, AlertStatus
     
     # Basic verification that imports work
     assert AlertRequestEntity is not None
@@ -44,7 +44,7 @@ def test_imports_work():
 
 def test_entity_validator_creation():
     """Test that EntityValidator can be created."""
-    from entity_management import EntityValidator
+    from schemas import EntityValidator
     
     validator = EntityValidator()
     assert validator is not None
@@ -53,7 +53,7 @@ def test_entity_validator_creation():
 
 def test_entity_builder_creation():
     """Test that EntityBuilder can be created.""" 
-    from entity_management import EntityBuilder
+    from schemas import EntityBuilder
     
     builder = EntityBuilder()
     assert builder is not None
@@ -62,7 +62,7 @@ def test_entity_builder_creation():
 
 def test_config_loading():
     """Test that the configuration system loads properly."""
-    from entity_management.config.defaults_loader import AlertsDefaultsConfigLoader
+    from schemas.config.defaults_loader import AlertsDefaultsConfigLoader
     
     # This should work with the existing alert_request_defaults.yaml
     loader = AlertsDefaultsConfigLoader()
@@ -77,7 +77,7 @@ def test_config_loading():
 @pytest.mark.skip(reason="EntityBuilder.create_error_response removed in API rewrite (commit 65d17be).")
 def test_create_error_response():
     """Test creating error responses."""
-    from entity_management import EntityBuilder
+    from schemas import EntityBuilder
 
     builder = EntityBuilder()
     error_response = builder.create_error_response(
@@ -94,7 +94,7 @@ def test_create_error_response():
 
 def test_alert_severity_enum():
     """Test AlertSeverity enum values."""
-    from entity_management.shared import AlertSeverity
+    from schemas.shared import AlertSeverity
 
     assert AlertSeverity.LOW.value == "LOW"
     assert AlertSeverity.MEDIUM.value == "MEDIUM"
@@ -105,7 +105,7 @@ def test_alert_severity_enum():
 
 def test_alert_status_enum():
     """Test AlertStatus enum values."""
-    from entity_management.shared import AlertStatus
+    from schemas.shared import AlertStatus
 
     assert AlertStatus.ACTIVE.value == "ACTIVE"
     assert AlertStatus.RESOLVED.value == "RESOLVED"
@@ -119,8 +119,8 @@ def test_alert_status_enum():
 
 def test_basic_alert_info_creation():
     """Test creating AlertInfo directly."""
-    from entity_management.request_entity.models import AlertInfo
-    from entity_management.shared import AlertSeverity, AlertStatus
+    from schemas.request_entity.models import AlertInfo
+    from schemas.shared import AlertSeverity, AlertStatus
 
     alert_info = AlertInfo(
         severity=AlertSeverity.HIGH,
@@ -139,7 +139,7 @@ def test_basic_alert_info_creation():
 
 def test_basic_event_info_creation():
     """Test creating EventInfo directly."""
-    from entity_management.request_entity.models import EventInfo
+    from schemas.request_entity.models import EventInfo
     
     event_info = EventInfo(
         type="person_detected",
