@@ -50,15 +50,15 @@ def _load_direct_media_handler():
     ``sys.modules['handlers.*']`` at import time, poisoning the real
     package for the rest of the pytest session.  Rather than fight over
     ``sys.modules``, load the handler module from disk with an isolated
-    spec — it only depends on ``models.responses`` and its sibling
+    spec — it only depends on ``schemas.vlm_responses`` and its sibling
     ``media_downloader``, both of which we import explicitly.
     """
     here = os.path.dirname(os.path.abspath(__file__))
     handler_path = os.path.normpath(
-        os.path.join(here, "..", "handlers", "direct_media", "direct_media_handler.py")
+        os.path.join(here, "..", "src", "handlers", "direct_media", "direct_media_handler.py")
     )
     downloader_path = os.path.normpath(
-        os.path.join(here, "..", "handlers", "direct_media", "media_downloader.py")
+        os.path.join(here, "..", "src", "handlers", "direct_media", "media_downloader.py")
     )
 
     # Ensure media_downloader is loadable as an attribute of a package
@@ -343,7 +343,7 @@ class TestMode3SinkInvocation:
         """Lock the real sink API contract against future regressions.
 
         Uses a minimal stub sink that exposes *only* ``publish_success`` /
-        ``publish_error`` — matching ``mdx.anomaly.sink.vlm_enhanced_sink.
+        ``publish_error`` — matching ``mdx.sink.vlm_enhanced_sink.
         sink_base.VLMEnhancedEventSinkBase``. Any attempt to call
         ``sink.send(...)`` would raise ``AttributeError`` at runtime (the
         Previously-reported bug). This test would fail under the old buggy

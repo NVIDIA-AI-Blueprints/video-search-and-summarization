@@ -32,41 +32,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-# Make the project root importable for handlers/* — but the root-level
-# ``app.py`` shadows the ``app`` namespace inside ``alert-agent-web``.
-# Build the ``app.api`` package manually so the routes module's relative
-# imports resolve cleanly under pytest.
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, _REPO_ROOT)
+# ``web`` is a proper importable package (src/ is on sys.path via the
+# top-level conftest), so import the routes module directly.
 from handlers.alert_config import AlertConfigService, AlertConfigStore  # noqa: E402
-
-_API_DIR = os.path.join(_REPO_ROOT, "alert-agent-web", "app", "api")
-
-
-def _load_module(qualname: str, file_name: str):
-    spec = importlib.util.spec_from_file_location(
-        qualname, os.path.join(_API_DIR, file_name)
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[qualname] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-# Register synthetic parent packages first so relative imports work.
-sys.modules.pop("app", None)  # drop the root-level app.py shadow
-_app_pkg = types.ModuleType("app")
-_app_pkg.__path__ = [os.path.join(_REPO_ROOT, "alert-agent-web", "app")]
-sys.modules["app"] = _app_pkg
-
-_app_api_pkg = types.ModuleType("app.api")
-_app_api_pkg.__path__ = [_API_DIR]
-sys.modules["app.api"] = _app_api_pkg
-
-# Load schemas + the schemas dependency before the routes module.
-_load_module("app.api.alert_schemas", "alert_schemas.py")
-_load_module("app.api.alert_config_schemas", "alert_config_schemas.py")
-_routes_mod = _load_module("app.api.alert_config_routes", "alert_config_routes.py")
+import web.api.alert_config_routes as _routes_mod  # noqa: E402
 
 router = _routes_mod.router
 _get_service = _routes_mod._get_service

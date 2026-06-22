@@ -20,7 +20,7 @@ import os
 import importlib.util
 
 _schema_path = os.path.join(
-    os.path.dirname(__file__), '..', 'alert-agent-web', 'app', 'api', 'alert_config_schemas.py'
+    os.path.dirname(__file__), '..', 'src', 'web', 'schemas', 'alert_config_schemas.py'
 )
 _spec = importlib.util.spec_from_file_location("alert_config_schemas", _schema_path)
 _mod = importlib.util.module_from_spec(_spec)

@@ -40,7 +40,7 @@ def _load_metrics_init(monkeypatch, enabled: bool):
     monkeypatch.setenv("PROMETHEUS_METRICS_ENABLED", "true" if enabled else "false")
     monkeypatch.delitem(sys.modules, "metrics.prometheus_metrics", raising=False)
 
-    module_path = Path(__file__).resolve().parents[2] / "metrics" / "__init__.py"
+    module_path = Path(__file__).resolve().parents[2] / "src" / "metrics" / "__init__.py"
     module_name = f"_metrics_init_under_test_{uuid.uuid4().hex}"
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     module = importlib.util.module_from_spec(spec)

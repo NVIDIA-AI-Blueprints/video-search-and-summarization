@@ -31,7 +31,7 @@ _saved_path = sys.path[:]
 sys.path = [p for p in sys.path if os.path.abspath(p) != _repo_root]
 sys.path.insert(0, _web_root)
 try:
-    from app.schema.verification_schemas import OnDemandVerificationRequest
+    from web.schemas.verification_schemas import OnDemandVerificationRequest
 finally:
     sys.path = _saved_path
     sys.modules.update(_saved)
