@@ -64,10 +64,10 @@ from openai import APITimeoutError, APIConnectionError, InternalServerError
 # ---------------------------------------------------------------------------
 
 _stub_modules = [
-    'its_redis', 'its_redis.redis_handler',
-    'mdx', 'mdx.anomaly', 'mdx.anomaly.event_bridge_factory',
-    'mdx.anomaly.sink', 'mdx.anomaly.sink.vlm_enhanced_sink',
-    'mdx.anomaly.utils', 'mdx.anomaly.utils.elastic_ready',
+    'its_redis', 'clients.redis_handler',
+    'mdx', 'mdx', 'mdx.event_bridge_factory',
+    'mdx.sink', 'mdx.sink.vlm_enhanced_sink',
+    'mdx.utils', 'mdx.utils.elastic_ready',
     'handlers', 'handlers.enrichment', 'handlers.direct_media',
     'handlers.prompt_handler', 'handlers.prompt_handler.alert_type_config_loader',
     'handlers.async_dispatch_mixin',
@@ -86,11 +86,11 @@ for mod_name in _stub_modules:
 
 sys.modules['handlers'].__path__ = []
 sys.modules['handlers.prompt_handler'].__path__ = []
-sys.modules['its_redis.redis_handler'].RedisHandler = Mock
-sys.modules['mdx.anomaly.event_bridge_factory'].EventBridgeFactory = Mock()
-sys.modules['mdx.anomaly.sink.vlm_enhanced_sink'].build_vlm_enhanced_sink = Mock()
-sys.modules['mdx.anomaly.utils.elastic_ready'].generate_alert_fingerprint = Mock(return_value='fp')
-sys.modules['mdx.anomaly.utils.elastic_ready'].generate_incident_fingerprint = Mock(return_value='fp')
+sys.modules['clients.redis_handler'].RedisHandler = Mock
+sys.modules['mdx.event_bridge_factory'].EventBridgeFactory = Mock()
+sys.modules['mdx.sink.vlm_enhanced_sink'].build_vlm_enhanced_sink = Mock()
+sys.modules['mdx.utils.elastic_ready'].generate_alert_fingerprint = Mock(return_value='fp')
+sys.modules['mdx.utils.elastic_ready'].generate_incident_fingerprint = Mock(return_value='fp')
 sys.modules['handlers.enrichment'].EnrichmentProcessor = Mock
 sys.modules['handlers.direct_media'].DirectMediaHandler = Mock
 sys.modules['handlers.prompt_handler.alert_type_config_loader'].AlertTypeConfig = Mock
@@ -117,7 +117,7 @@ sys.modules['vlm.vlm_client'].VLMClient = Mock
 sys.modules['vlm.vlm_client'].AsyncVLMRuntime = Mock
 
 from enhance_alert_with_vlm import AnomalyEnhancer  # noqa: E402
-from models.pluggable_parser_runtime import (  # noqa: E402
+from schemas.pluggable_parser_runtime import (  # noqa: E402
     ERROR_SOURCE_MEDIA_DOWNLOAD,
     ERROR_SOURCE_PLUGGABLE_PARSER,
     ERROR_SOURCE_VLM_API,
@@ -233,7 +233,7 @@ class TestSchemaFailSetsVlmSchema:
         # lenient heuristic paths inside ``model_validate_text``.
         with patch('os.path.isfile', return_value=True), \
              patch(
-                 'models.responses.VLMResponse.model_validate_text',
+                 'schemas.vlm_responses.VLMResponse.model_validate_text',
                  side_effect=ValueError("not in expected format"),
              ):
             AnomalyEnhancer._evaluate_local_video(
@@ -253,7 +253,7 @@ class TestSchemaFailSetsVlmSchema:
         msg = _vst_msg()
 
         with patch(
-            'models.responses.VLMResponse.model_validate_text',
+            'schemas.vlm_responses.VLMResponse.model_validate_text',
             side_effect=ValueError("not in expected format"),
         ):
             AnomalyEnhancer._process_single_message(stub, worker_id=0, message=msg)
@@ -466,7 +466,7 @@ class TestSuccessPathNoErrorSourceLeak:
     that rely on ``exists(info.errorSource)`` semantics."""
 
     def test_pluggable_success_has_no_error_source_key(self):
-        from models.pluggable_parser_runtime import apply_pluggable_parser_output
+        from schemas.pluggable_parser_runtime import apply_pluggable_parser_output
 
         msg = {"info": {}}
         apply_pluggable_parser_output(
@@ -477,7 +477,7 @@ class TestSuccessPathNoErrorSourceLeak:
         assert "errorSource" not in msg["info"]
 
     def test_default_path_success_has_no_error_source_key(self):
-        from models.responses import AlertBridgeResponse, merge_info_with_response
+        from schemas.vlm_responses import AlertBridgeResponse, merge_info_with_response
 
         msg = {"info": {}}
         merge_info_with_response(

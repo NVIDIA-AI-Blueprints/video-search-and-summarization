@@ -306,7 +306,7 @@ class TestFactoryCategoryMappingLoading:
 
     def test_load_category_mapping_success(self):
         """Test successful loading of category mapping from alert type config."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.factory import _load_category_mapping
+        from mdx.sink.vlm_enhanced_sink.factory import _load_category_mapping
 
         mock_mapping = {"collision": "Vehicle Collision"}
 
@@ -324,7 +324,7 @@ class TestFactoryCategoryMappingLoading:
 
     def test_load_category_mapping_failure_returns_empty(self):
         """Test that loading failure returns empty dict."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.factory import _load_category_mapping
+        from mdx.sink.vlm_enhanced_sink.factory import _load_category_mapping
 
         with patch(
             'handlers.prompt_handler.alert_type_config_loader.AlertTypeConfigLoader'
@@ -342,7 +342,7 @@ class TestSinkCategoryMappingIntegration:
 
     def test_elastic_sink_accepts_category_mapping(self):
         """Test that VLMEnhancedElasticSink accepts category_mapping parameter."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.sink_elastic import VLMEnhancedElasticSink
+        from mdx.sink.vlm_enhanced_sink.sink_elastic import VLMEnhancedElasticSink
 
         mock_client = MagicMock()
         category_mapping = {"collision": "Vehicle Collision"}
@@ -359,7 +359,7 @@ class TestSinkCategoryMappingIntegration:
 
     def test_kafka_sink_accepts_category_mapping(self):
         """Test that VLMEnhancedKafkaSink accepts category_mapping parameter."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.sink_kafka import VLMEnhancedKafkaSink
+        from mdx.sink.vlm_enhanced_sink.sink_kafka import VLMEnhancedKafkaSink
 
         mock_producer = MagicMock()
         category_mapping = {"collision": "Vehicle Collision"}
@@ -375,7 +375,7 @@ class TestSinkCategoryMappingIntegration:
 
     def test_elastic_sink_default_empty_mapping(self):
         """Test that VLMEnhancedElasticSink defaults to empty mapping."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.sink_elastic import VLMEnhancedElasticSink
+        from mdx.sink.vlm_enhanced_sink.sink_elastic import VLMEnhancedElasticSink
 
         mock_client = MagicMock()
 
@@ -389,7 +389,7 @@ class TestSinkCategoryMappingIntegration:
 
     def test_kafka_sink_default_empty_mapping(self):
         """Test that VLMEnhancedKafkaSink defaults to empty mapping."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.sink_kafka import VLMEnhancedKafkaSink
+        from mdx.sink.vlm_enhanced_sink.sink_kafka import VLMEnhancedKafkaSink
 
         mock_producer = MagicMock()
 
@@ -695,7 +695,7 @@ class TestFactoryVerdictDescriptionMappingLoading:
 
     def test_load_verdict_description_mapping_success(self):
         """Test successful loading of verdict description mapping."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.factory import _load_verdict_description_mapping
+        from mdx.sink.vlm_enhanced_sink.factory import _load_verdict_description_mapping
 
         mock_mapping = {
             "collision": {
@@ -718,7 +718,7 @@ class TestFactoryVerdictDescriptionMappingLoading:
 
     def test_load_verdict_description_mapping_failure_returns_empty(self):
         """Test that loading failure returns empty dict."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.factory import _load_verdict_description_mapping
+        from mdx.sink.vlm_enhanced_sink.factory import _load_verdict_description_mapping
 
         with patch(
             'handlers.prompt_handler.alert_type_config_loader.AlertTypeConfigLoader'
@@ -736,7 +736,7 @@ class TestSinkVerdictDescriptionMappingIntegration:
 
     def test_elastic_sink_accepts_verdict_description_mapping(self):
         """Test that VLMEnhancedElasticSink accepts verdict_description_mapping parameter."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.sink_elastic import VLMEnhancedElasticSink
+        from mdx.sink.vlm_enhanced_sink.sink_elastic import VLMEnhancedElasticSink
 
         mock_client = MagicMock()
         verdict_description_mapping = {
@@ -758,7 +758,7 @@ class TestSinkVerdictDescriptionMappingIntegration:
 
     def test_elastic_sink_default_empty_verdict_description_mapping(self):
         """Test that VLMEnhancedElasticSink defaults to empty verdict_description_mapping."""
-        from mdx.anomaly.sink.vlm_enhanced_sink.sink_elastic import VLMEnhancedElasticSink
+        from mdx.sink.vlm_enhanced_sink.sink_elastic import VLMEnhancedElasticSink
 
         mock_client = MagicMock()
 
