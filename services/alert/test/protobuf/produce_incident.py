@@ -41,7 +41,7 @@ if REPO_ROOT not in sys.path:
 
 from confluent_kafka import Producer
 from google.protobuf import json_format
-from mdx.anomaly.protobuf import Incident as NvIncident
+from mdx.protobuf import Incident as NvIncident
 
 
 def load_json_payload(path: str) -> Dict[str, Any]:

@@ -19,7 +19,7 @@ import json
 
 import pytest
 
-from models.responses import (
+from schemas.vlm_responses import (
     AlertBridgeResponse,
     VLMResponse,
     merge_info_with_response,

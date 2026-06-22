@@ -32,8 +32,8 @@ sys.path = [p for p in sys.path if os.path.abspath(p) != _repo_root and p != ""]
 sys.path.insert(0, _web_root)
 try:
     import app.main  # noqa: F401
-    from app.service import ondemand_verification_service as _svc_mod
-    from app.service.ondemand_verification_service import (
+    from web.service import ondemand_verification_service as _svc_mod
+    from web.service.ondemand_verification_service import (
         AlertTypeNotFoundError,
         OnDemandVerificationService,
     )

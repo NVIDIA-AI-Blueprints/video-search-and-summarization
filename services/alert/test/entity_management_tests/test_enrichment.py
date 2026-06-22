@@ -21,7 +21,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from typing import Dict, Any
 
-from models.responses import EnrichmentResponse
+from schemas.vlm_responses import EnrichmentResponse
 from handlers.enrichment import EnrichmentProcessor
 
 

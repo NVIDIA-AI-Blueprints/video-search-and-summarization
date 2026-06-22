@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import pytest
 
-from models.base_response_parser import (
+from schemas.base_response_parser import (
     BaseResponseParser,
     load_response_parser,
 )
