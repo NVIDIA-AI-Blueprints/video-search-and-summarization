@@ -176,7 +176,7 @@ try:
         # Try protobuf first (Kafka sink uses protobuf)
         decoded = False
         try:
-            from mdx.anomaly.protobuf import Incident
+            from mdx.protobuf import Incident
             incident = Incident()
             incident.ParseFromString(value)
             if incident.sensorId:

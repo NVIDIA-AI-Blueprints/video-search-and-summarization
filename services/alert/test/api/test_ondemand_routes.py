@@ -68,9 +68,9 @@ def client(mock_service):
     sys.path = [p for p in sys.path if os.path.abspath(p) != _repo_root and p != ""]
     sys.path.insert(0, _web_root)
     try:
-        from app.main import app
-        from app.api.verification_routes import get_ondemand_service
-        from app.service.ondemand_verification_service import AlertTypeNotFoundError as _Err
+        from web.main import app
+        from web.api.verification_routes import get_ondemand_service
+        from web.service.ondemand_verification_service import AlertTypeNotFoundError as _Err
     except (ImportError, Exception) as exc:
         pytest.skip(f"FastAPI app not importable: {exc}")
     finally:

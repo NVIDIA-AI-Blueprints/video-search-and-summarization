@@ -30,7 +30,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from models.responses import ModelType
+from schemas.vlm_responses import ModelType
 from vlm.vlm_client import VLMClient
 
 

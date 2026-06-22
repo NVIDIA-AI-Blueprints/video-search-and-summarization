@@ -17,7 +17,7 @@
 
 import pytest
 
-from mdx.anomaly.utils.elastic_ready import generate_incident_fingerprint
+from mdx.utils.elastic_ready import generate_incident_fingerprint
 
 
 class TestIncidentFingerprint:
