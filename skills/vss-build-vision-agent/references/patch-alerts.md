@@ -197,6 +197,26 @@ Resolve `EXTERNAL_IP` / `INTERNAL_IP` to the host's routable IP so `alert_agent.
 
 > **Drop `NEXT_PUBLIC_*` when folding `dev-profile-alerts/.env`.** That file carries the UI-only `NEXT_PUBLIC_*` block, including the ~319-char `NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON={...}` value. `vss-ui` is **not** part of an Alert Microservice allow-list, so drop the whole `NEXT_PUBLIC_*` set during env-folding — besides being dead weight, the long unquoted JSON breaks line-based `--env-file` parsers and silently truncates every var after it (including `HOST_IP` / `VSS_APPS_DIR` / `VSS_DATA_DIR`). See `references/env-file-enumeration.md § Variable folding rule` for the general rule + the quote-complex-values defense.
 
+## Kibana data-view integration (MANDATORY in the generated deploy skill)
+
+> **Live finding (AT-1, 2026-06-22).** With a lean alerts allow-list (the common `vlm-realtime` / AT-1 case), the optional `kibana-init-container-alerts` is dropped — so Kibana boots with **no data view** for the verified-alert indices and incidents are invisible in Discover (the operator sees "no data view" and cannot view alerts). The verified records ARE in Elasticsearch (`mdx-vlm-incidents-*`, the live-path `default_<id>` captions, `ab-*` configs/rules) — only the Kibana saved objects are missing.
+
+Whenever the **alerts** profile is generated, Step 6's generated `deploy-<flag>` skill **MUST** include a post-deploy Kibana saved-objects import step, **independent of whether `kibana-init-container-alerts` is in the allow-list**. This is the same import that container performs (`developer-profiles/dev-profile-alerts/kibana-dashboard/init-scripts/kibana-import-dashboard.sh`), reduced to a host-side curl so the lean profile needs no extra image build:
+
+```bash
+# Idempotent (overwrite=true) — re-run after every bring-up. Kibana runs under base path /kibana.
+NDJSON=${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/kibana-dashboard/its-kibana-objects.ndjson
+curl -s -X POST "http://${HOST_IP}:5601/kibana/api/saved_objects/_import?overwrite=true" \
+  -H "kbn-xsrf: true" --form file=@"$NDJSON"
+```
+
+Creates **data views** `mdx-vlm-incidents-*` (the realtime-alert index), `mdx-incidents-*`, `mdx-vlm-alerts-*`, `mdx-alerts-*`, `mdx-behavior-*`, `mdx-raw-*`, and **saved searches** including **"VLM Verified Incident Rolling Feed"** (the `vlm-realtime` alert feed) and "VLM Verified Alerts Rolling Feed". Operator views alerts at `http://${HOST_IP}:5601/kibana/app/discover` → that saved search (or the `mdx-vlm-incidents-*` data view); each doc carries `category` (alert_type), `analyticsModule.info.streamType` (`live`), and `llm.queries[0].response` (the VLM Yes/No verdict + reasoning).
+
+Notes:
+- The upstream `its-kibana-objects.ndjson` ships **data views + saved searches but NO Dashboard object** — the rolling-feed saved searches in Discover are the intended alert view. If a pinned Dashboard is wanted, author one over `mdx-vlm-incidents-*` and import it in the same call.
+- Alternatively, include `kibana-init-container-alerts` in the allow-list (it bakes the same ndjson and imports at deploy time via its `depends_on: kibana service_healthy`). Prefer the post-deploy curl for lean profiles — no Dockerfile build, and it re-runs idempotently.
+- Verify after import: `curl -s "http://${HOST_IP}:5601/kibana/api/data_views" -H "kbn-xsrf: true"` should list `mdx-vlm-incidents-*`.
+
 > **Keep agent / va-mcp config paths CONTAINER-relative — do NOT absolutize them .** `vss-agent` and `vss-va-mcp` mount the host repo at `${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro` and run with workdir `/vss-agent`, so their config/template vars are **relative paths that resolve inside the container**, not on the host: `VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml`, `VSS_VA_MCP_CONFIG_FILE=./deploy/docker/.../va_mcp_server_config.yml`, `VSS_AGENT_TEMPLATE_PATH=./deploy/docker/.../templates`. During env-folding the skill MUST pass these through **verbatim** (keep the leading `./deploy/docker/...`). Rewriting them to a host-absolute path (e.g. prefixing `${VSS_APPS_DIR}`) makes the agent look for a path that does not exist inside the container → config-not-found boot failure. (Same class of bug as a flat-resolver over-expanding a container-relative value — the path is intentionally container-scoped.)
 
 ## Emitted shape
