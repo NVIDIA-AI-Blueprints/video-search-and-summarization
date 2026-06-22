@@ -32,7 +32,7 @@ for _name in list(sys.modules):
     if _name == "mdx" or _name.startswith("mdx."):
         del sys.modules[_name]
 
-from mdx.anomaly.source.source_redis_stream import SourceRedisStream  # noqa: E402
+from mdx.source.source_redis_stream import SourceRedisStream  # noqa: E402
 
 
 class _FakeStreamMessage:

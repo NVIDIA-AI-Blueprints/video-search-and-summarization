@@ -86,8 +86,8 @@ def client(mocks, always_on_service):
     sys.path = [p for p in sys.path if os.path.abspath(p) != repo_root]
     sys.path.insert(0, web_root)
     try:
-        from app.main import app
-        from app.api.realtime_routes import (
+        from web.main import app
+        from web.api.realtime_routes import (
             get_always_on_service,
             get_incident_service,
             get_realtime_service,
@@ -821,7 +821,7 @@ def routes_module(client):
     Depends on ``client`` so that the sys.path / sys.modules dance has
     already put the alert-agent-web ``app`` package on sys.modules.
     """
-    return sys.modules["app.api.realtime_routes"]
+    return sys.modules["web.api.realtime_routes"]
 
 
 @pytest.fixture()

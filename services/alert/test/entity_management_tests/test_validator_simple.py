@@ -16,8 +16,8 @@
 """
 Simple tests for EntityValidator using the actual API.
 """
-from entity_management import EntityValidator, AlertRequestEntity
-from entity_management.shared import AlertSeverity
+from schemas import EntityValidator, AlertRequestEntity
+from schemas.shared import AlertSeverity
 
 
 def test_validator_with_valid_requests():

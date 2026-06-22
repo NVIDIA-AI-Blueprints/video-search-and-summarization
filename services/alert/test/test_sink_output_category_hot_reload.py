@@ -29,7 +29,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mdx.anomaly.sink.vlm_enhanced_sink.sink_kafka import VLMEnhancedKafkaSink
+from mdx.sink.vlm_enhanced_sink.sink_kafka import VLMEnhancedKafkaSink
 
 
 class FakeAlertConfigStore:
@@ -122,7 +122,7 @@ def test_publish_picks_up_store_edits_without_restart(monkeypatch):
         return MagicMock(SerializeToString=lambda: b"")
 
     monkeypatch.setattr(
-        "mdx.anomaly.sink.vlm_enhanced_sink.sink_kafka."
+        "mdx.sink.vlm_enhanced_sink.sink_kafka."
         "convert_incident_to_protobuf_incident",
         fake_convert,
     )
@@ -150,8 +150,8 @@ def test_factory_does_not_auto_derive_store_from_redis_handler(tmp_path):
     would silently target a different backend than the API in
     deployments that split those sections, so PUT edits would never
     reach the sink. The factory enforces explicit threading."""
-    from mdx.anomaly.sink.vlm_enhanced_sink.factory import build_vlm_enhanced_sink
-    import mdx.anomaly.sink.vlm_enhanced_sink.sink_kafka as sk
+    from mdx.sink.vlm_enhanced_sink.factory import build_vlm_enhanced_sink
+    import mdx.sink.vlm_enhanced_sink.sink_kafka as sk
 
     config = {
         "vlm_enhanced_sink": {

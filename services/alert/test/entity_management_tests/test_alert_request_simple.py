@@ -19,8 +19,8 @@ Simple tests for AlertRequestEntity to verify basic functionality.
 import pytest
 from pydantic import ValidationError
 
-from entity_management.request_entity.models import AlertRequestEntity, AlertInfo, EventInfo
-from entity_management.shared import AlertSeverity
+from schemas.request_entity.models import AlertRequestEntity, AlertInfo, EventInfo
+from schemas.shared import AlertSeverity
 
 
 class TestAlertRequestEntitySimple:
