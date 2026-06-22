@@ -19,7 +19,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
 
-from elastic.elastic import ConflictError
+from clients.elastic import ConflictError
 from persistence.elastic_store import ElasticPersistenceStore
 from persistence.exceptions import (
     ConcurrentModificationError,

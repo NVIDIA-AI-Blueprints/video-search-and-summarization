@@ -69,10 +69,11 @@ print(generate_latest(registry).decode("utf-8"))
     env = os.environ.copy()
     env["PROMETHEUS_METRICS_ENABLED"] = "true"
     env["PROMETHEUS_MULTIPROC_DIR"] = str(tmp_path / "prometheus-shards")
+    src_root = repo_root / "src"
     env["PYTHONPATH"] = (
-        str(repo_root)
+        str(src_root)
         if not env.get("PYTHONPATH")
-        else str(repo_root) + os.pathsep + env["PYTHONPATH"]
+        else str(src_root) + os.pathsep + env["PYTHONPATH"]
     )
 
     result = subprocess.run(
