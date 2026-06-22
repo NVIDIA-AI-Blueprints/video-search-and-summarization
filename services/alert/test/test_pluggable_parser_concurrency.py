@@ -46,7 +46,7 @@ from typing import List
 
 import pytest
 
-from models.base_response_parser import BaseResponseParser, load_response_parser
+from schemas.base_response_parser import BaseResponseParser, load_response_parser
 
 
 # ---------------------------------------------------------------------------

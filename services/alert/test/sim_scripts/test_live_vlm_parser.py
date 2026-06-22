@@ -192,7 +192,7 @@ def simulate_info_merge(parsed: dict) -> dict:
     by merge_info_with_response — None→"", int→str, dict→JSON.
     """
     try:
-        from models.responses import (
+        from schemas.vlm_responses import (
             AlertBridgeResponse,
             merge_info_with_response,
         )
