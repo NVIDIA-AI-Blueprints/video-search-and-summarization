@@ -129,5 +129,3 @@ COPY --from=builder --chown=${APP_UID}:${APP_GID} /runtime/workspace /workspace
 WORKDIR /workspace
 
 USER ${APP_UID}:${APP_GID}
-
-CMD ["python"]
