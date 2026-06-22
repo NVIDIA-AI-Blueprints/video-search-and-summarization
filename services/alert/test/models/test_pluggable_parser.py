@@ -19,8 +19,8 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 
-from models.base_response_parser import BaseResponseParser, load_response_parser
-from models.responses import (
+from schemas.base_response_parser import BaseResponseParser, load_response_parser
+from schemas.vlm_responses import (
     AlertBridgeResponse,
     merge_info_with_response,
 )
@@ -458,7 +458,7 @@ class TestDefaultBehavior:
 
     def test_default_verification_path_unaffected(self):
         """When response_parser is absent, default CR parsing works normally."""
-        from models.responses import VLMResponse
+        from schemas.vlm_responses import VLMResponse
 
         text = "<think>I see a collision.</think>\n\nYES"
         vlm = VLMResponse.model_validate_text(text, model_name="nvidia/cosmos-reason2-7b")

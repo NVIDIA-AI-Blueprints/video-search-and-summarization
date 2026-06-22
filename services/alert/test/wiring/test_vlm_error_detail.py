@@ -28,10 +28,10 @@ from unittest.mock import Mock
 import pytest
 
 _stub_modules = [
-    'its_redis', 'its_redis.redis_handler',
-    'mdx', 'mdx.anomaly', 'mdx.anomaly.event_bridge_factory',
-    'mdx.anomaly.sink', 'mdx.anomaly.sink.vlm_enhanced_sink',
-    'mdx.anomaly.utils', 'mdx.anomaly.utils.elastic_ready',
+    'its_redis', 'clients.redis_handler',
+    'mdx', 'mdx', 'mdx.event_bridge_factory',
+    'mdx.sink', 'mdx.sink.vlm_enhanced_sink',
+    'mdx.utils', 'mdx.utils.elastic_ready',
     'handlers', 'handlers.enrichment', 'handlers.direct_media',
     'handlers.prompt_handler', 'handlers.prompt_handler.alert_type_config_loader',
     'handlers.async_dispatch_mixin',
@@ -54,11 +54,11 @@ for mod_name in _stub_modules:
 sys.modules['handlers'].__path__ = []
 sys.modules['handlers.prompt_handler'].__path__ = []
 
-sys.modules['its_redis.redis_handler'].RedisHandler = Mock
-sys.modules['mdx.anomaly.event_bridge_factory'].EventBridgeFactory = Mock()
-sys.modules['mdx.anomaly.sink.vlm_enhanced_sink'].build_vlm_enhanced_sink = Mock()
-sys.modules['mdx.anomaly.utils.elastic_ready'].generate_alert_fingerprint = Mock(return_value='fp')
-sys.modules['mdx.anomaly.utils.elastic_ready'].generate_incident_fingerprint = Mock(return_value='fp')
+sys.modules['clients.redis_handler'].RedisHandler = Mock
+sys.modules['mdx.event_bridge_factory'].EventBridgeFactory = Mock()
+sys.modules['mdx.sink.vlm_enhanced_sink'].build_vlm_enhanced_sink = Mock()
+sys.modules['mdx.utils.elastic_ready'].generate_alert_fingerprint = Mock(return_value='fp')
+sys.modules['mdx.utils.elastic_ready'].generate_incident_fingerprint = Mock(return_value='fp')
 sys.modules['handlers.enrichment'].EnrichmentProcessor = Mock
 sys.modules['handlers.direct_media'].DirectMediaHandler = Mock
 sys.modules['handlers.prompt_handler.alert_type_config_loader'].AlertTypeConfig = Mock

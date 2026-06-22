@@ -116,7 +116,7 @@ def mock_redis_client():
 def redis_handler_enabled(temp_config_file, mock_redis_client):
     """Create a RedisHandler with end_time_delta_filter enabled."""
     with patch('redis.Redis', return_value=mock_redis_client):
-        from its_redis.redis_handler import RedisHandler
+        from clients.redis_handler import RedisHandler
         handler = RedisHandler(config_file=temp_config_file)
         handler._redis_client = mock_redis_client
         return handler
@@ -126,7 +126,7 @@ def redis_handler_enabled(temp_config_file, mock_redis_client):
 def redis_handler_disabled(temp_config_file_disabled, mock_redis_client):
     """Create a RedisHandler with end_time_delta_filter disabled."""
     with patch('redis.Redis', return_value=mock_redis_client):
-        from its_redis.redis_handler import RedisHandler
+        from clients.redis_handler import RedisHandler
         handler = RedisHandler(config_file=temp_config_file_disabled)
         handler._redis_client = mock_redis_client
         return handler
@@ -547,7 +547,7 @@ class TestConfigLoading:
         
         try:
             with patch('redis.Redis', return_value=mock_redis_client):
-                from its_redis.redis_handler import RedisHandler
+                from clients.redis_handler import RedisHandler
                 handler = RedisHandler(config_file=config_path)
                 
                 # Should use defaults
@@ -581,7 +581,7 @@ class TestConfigLoading:
         
         try:
             with patch('redis.Redis', return_value=mock_redis_client):
-                from its_redis.redis_handler import RedisHandler
+                from clients.redis_handler import RedisHandler
                 handler = RedisHandler(config_file=config_path)
                 
                 assert handler._end_delta_enabled is True
