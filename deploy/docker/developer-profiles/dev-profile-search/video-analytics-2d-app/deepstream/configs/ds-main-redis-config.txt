@@ -36,7 +36,7 @@ num-source-bins=0
 use-nvmultiurisrcbin=1
 stream-name-display=1
 max-batch-size=8
-http-ip=localhost
+http-ip=0.0.0.0
 http-port=9000
 extract-sei-type5-data=1
 sei-uuid=NVDS_CUSTOMMETA
@@ -82,7 +82,7 @@ msg-conv-msg2p-new-api=0
 msg-conv-frame-interval=1
 msg-broker-proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so
 #Provide your msg-broker-conn-str here
-msg-broker-conn-str=localhost;6379;
+msg-broker-conn-str=redis;6379;
 #topic=mdx-raw
 topic=mdx-raw
 #Optional:
