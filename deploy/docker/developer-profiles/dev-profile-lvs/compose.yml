@@ -42,6 +42,10 @@ services:
         condition: on-failure
         max_attempts: 2
     container_name: vss-vios-nvstreamer-lvs
+    networks:
+      default:
+        aliases:
+          - vss-vios-nvstreamer
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
