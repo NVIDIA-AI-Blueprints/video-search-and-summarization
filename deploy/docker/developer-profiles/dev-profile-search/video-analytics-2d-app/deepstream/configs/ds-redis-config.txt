@@ -14,7 +14,7 @@
 # limitations under the License.
 
 [message-broker]
-hostname=localhost
+hostname=redis
 port=6379
 streamsize=10000
 payloadkey=value

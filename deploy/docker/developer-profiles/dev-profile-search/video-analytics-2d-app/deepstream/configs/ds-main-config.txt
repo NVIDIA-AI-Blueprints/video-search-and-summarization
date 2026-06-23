@@ -36,7 +36,7 @@ num-source-bins=0
 use-nvmultiurisrcbin=1
 stream-name-display=1
 max-batch-size=16
-http-ip=localhost
+http-ip=0.0.0.0
 http-port=9000
 extract-sei-type5-data=1
 sei-uuid=NVDS_CUSTOMMETA
@@ -85,7 +85,7 @@ msg-broker-proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.s
 #msg-broker-conn-str=qvs-ds-kafka-01;9092;metromind-raw
 #topic=metromind-raw
 # msg-broker-conn-str=mdx-kafka-cluster-kafka-brokers;9092;mdx-raw
-msg-broker-conn-str=localhost;9092;mdx-raw
+msg-broker-conn-str=kafka;29092;mdx-raw
 #topic=mdx-raw
 topic=mdx-raw
 #Optional:
