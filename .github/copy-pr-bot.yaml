@@ -1,3 +1,54 @@
 enabled: true
 auto_sync_draft: false
 auto_sync_ready: true
+additional_vetters:
+  - abhishek-ak-nv
+  - akshayanv
+  - alexzh-nvda
+  - ary1111
+  - ashan-nv
+  - ashwind-nvidia
+  - asonny02
+  - ayyappa-dev
+  - banose
+  - danh-nguyen-nvidia
+  - daviddu0425
+  - dineshv
+  - dsitlani-nv
+  - freshyjmp
+  - gbau1
+  - giapdq
+  - gous-75
+  - haidongtran
+  - harshalnishar
+  - hfarooq-nv
+  - hntran-nvidia
+  - hugoverjus
+  - huyprowow
+  - jiayin-nvidia
+  - kaushikc-nvidia
+  - lebahoang
+  - liamy-nv
+  - lianqiann
+  - mansiigo
+  - munjalp6
+  - nathankw
+  - nikunj-jesadiya
+  - nv-mpandele
+  - nv-pnikam
+  - nv-vankit
+  - nv-zhliu
+  - peterychang
+  - poojavenkatesan
+  - pratik-bhatt-nv
+  - prisrivastav-nv
+  - purvag3091
+  - rahul3349
+  - romalakar
+  - shubham050300
+  - soumilinandi
+  - ssmmoo1
+  - trongp-nvidia
+  - vineet-raina
+  - vishkumar56
+  - zac-wang-nv
