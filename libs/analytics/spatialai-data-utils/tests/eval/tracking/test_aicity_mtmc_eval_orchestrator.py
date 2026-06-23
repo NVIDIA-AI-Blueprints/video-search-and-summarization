@@ -258,6 +258,46 @@ class TestRunAicityMtmcEvaluation:
         # Per-scene record for the only scene we drove.
         assert SCENE_NAME in results["per_scene"]
 
+    def test_out_of_gt_frame_predictions_are_ignored(self, tmp_path, _force_sequential_trackeval):
+        """Predictions on frames absent from the GT are dropped, not scored
+        as false positives.
+
+        Evaluation is scoped to the frames the GT annotates, so a
+        full-length submission judged against a truncated GT is not
+        penalised for its out-of-GT-range predictions.  The GT covers
+        frames 0-3 while the prediction covers 0-7 within a 100-frame
+        window; the extra frames 4-7 must be ignored, leaving a perfect
+        self-eval on frames 0-3 -> HOTA approaches 1.0.
+        """
+        gt_lines = [
+            _aicity_row(object_id=1, frame_id=i, x=float(i), y=0.0)
+            for i in range(4)
+        ]
+        pred_lines = [
+            _aicity_row(object_id=1, frame_id=i, x=float(i), y=0.0)
+            for i in range(8)
+        ]
+        gt = tmp_path / "gt.txt"
+        pred = tmp_path / "pred.txt"
+        _write_lines(gt, gt_lines)
+        _write_lines(pred, pred_lines)
+
+        results = run_aicity_mtmc_evaluation(
+            ground_truth_file=str(gt),
+            prediction_file=str(pred),
+            scene_id_to_name=SCENE_MAP,
+            output_dir=str(tmp_path / "out"),
+            num_cores=1,
+            num_frames_to_eval=100,  # window spans frames 4-7, but the GT lacks them
+            eval_type="bbox",
+            fps=10.0,
+            quiet=True,
+        )
+        # The 4 extra predictions (frames 4-7, no GT) are ignored, so the
+        # self-consistent frames 0-3 still yield a perfect score.
+        assert results["final"]["HOTA"] == pytest.approx(1.0, abs=0.01)
+        assert results["per_scene_object_counts"] == {SCENE_NAME: 4}
+
     def test_run_with_default_output_dir_uses_tempdir(self, tmp_path, _force_sequential_trackeval):
         """Passing ``output_dir=None`` triggers the tempfile branch.
         The orchestrator should still return a valid results dict."""
