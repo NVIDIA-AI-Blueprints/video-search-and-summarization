@@ -206,14 +206,19 @@ void BaslerDiscovery::doBaslerDiscovery(std::map<std::string, SensorInfo>& fresh
             stream->name         = sensor.name;
             stream->isMainStream = true;
             stream->updateStreamtype(StreamType::Rtsp);
+            // In-memory only (updateDB=false): the discovery loop rebuilds this
+            // fresh stream object every poll cycle. Persisting here would stamp
+            // ONLINE over the runtime STREAMING status that the stream processor
+            // sets, every ~5s. Persistence happens once via the add path
+            // (addNewSensor -> publishOnSensorFound), matching the ONVIF adaptor.
             stream->updateErrorStatus(std::make_pair(StreamStatus::STREAM_STATUS_ONLINE,
-                translateStreamStatusToString(StreamStatus::STREAM_STATUS_ONLINE)));
+                translateStreamStatusToString(StreamStatus::STREAM_STATUS_ONLINE)), /*updateDB=*/false);
             SensorVideoEncoderSettingsValues encValues;
             encValues.encoding          = "h264";
             encValues.resolution.width  = "1920";
             encValues.resolution.height = "1080";
             encValues.frameRate         = "30";
-            stream->updateVideoEncoderValues(encValues);
+            stream->updateVideoEncoderValues(encValues, /*updateDB=*/false);
             sensor.streams.push_back(stream);
 
             LOG(verbose) << "BaslerDiscovery: class=" << deviceClass
