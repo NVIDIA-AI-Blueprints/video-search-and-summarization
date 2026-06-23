@@ -27,5 +27,5 @@ logger = logging.getLogger(__name__)
 
 def load_config(config_file: str = "config.yaml") -> Dict[str, Any]:
     """Load configuration from YAML file (CONFIG_PATH env overrides)."""
-    from utils.config import load_config as _load_config, resolve_config_path
-    return _load_config(resolve_config_path(config_file), default_on_missing=True)
+    from utils.config import load_config as _load_config
+    return _load_config(config_file, default_on_missing=True)
