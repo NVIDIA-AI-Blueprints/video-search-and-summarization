@@ -17,13 +17,12 @@ services:
   sensor-bp-wait-bp-configurator:
     image: busybox:1.37.0
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
-    network_mode: host
     container_name: sensor-bp-wait-bp-configurator
     restart: "no"
     volumes:
       - ${VSS_APPS_DIR}/services/vios/initiator/scripts/sensor-bp-wait-bp-configurator.sh:/scripts/sensor-bp-wait-bp-configurator.sh:ro
     environment:
-      BP_CONFIGURATOR_READYZ_URL: ${BP_CONFIGURATOR_READYZ_URL:-http://127.0.0.1:5001/readyz}
+      BP_CONFIGURATOR_READYZ_URL: ${BP_CONFIGURATOR_READYZ_URL:-http://vss-configurator:5001/readyz}
       SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC: ${SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC:-300}
     command: ["/bin/sh", "/scripts/sensor-bp-wait-bp-configurator.sh"]
 
