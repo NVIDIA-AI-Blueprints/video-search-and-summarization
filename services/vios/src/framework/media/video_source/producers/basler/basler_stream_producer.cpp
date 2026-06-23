@@ -46,8 +46,6 @@ constexpr uint32_t kLogEveryNFrames = 100;              // throttle the per-fram
 constexpr int kNominalFps = 30;                         // appsrc caps framerate hint
 constexpr uint32_t kHwBitrateBps = 5000000;             // nvv4l2h264enc bitrate (bps)
 constexpr int kSwBitrateKbps = 5000;                    // x264enc bitrate (kbps)
-constexpr uint64_t kMaxDumpFrames = 300;                // bound the S2.2 debug dump
-constexpr const char* kDumpDirEnv = "BASLER_DUMP_DIR";  // override the dump directory
 
 // Annex-B H.264 NAL type from a start-code-prefixed buffer (SPS=7, PPS=8);
 // -1 if it is not a recognisable NAL.
@@ -261,8 +259,8 @@ bool BaslerStreamProducer::buildPipeline(int width, int height)
     // call -- they accumulate SPS then PPS across calls and only start consuming
     // when an IDR slice follows. An au-aligned buffer (SPS+PPS+IDR in one) is
     // misread as a lone SPS, so m_startConsuming never flips and nothing records.
-    // Concatenated, per-NAL byte-stream is still a valid Annex-B stream (dump
-    // stays playable; the muxer side re-parses to its container's stream-format).
+    // Concatenated, per-NAL byte-stream is still a valid Annex-B stream; the
+    // muxer side re-parses to its container's stream-format.
     {
         GstCaps* h264Caps = gst_caps_from_string(
             "video/x-h264, stream-format=(string)byte-stream, alignment=(string)nal");
@@ -290,19 +288,6 @@ bool BaslerStreamProducer::buildPipeline(int width, int height)
                    << std::endl;
         teardownPipeline();
         return false;
-    }
-
-    // Open the S2.2 debug dump.
-    const char* dumpDir = std::getenv(kDumpDirEnv);
-    const std::string dumpPath =
-        std::string(dumpDir ? dumpDir : "/tmp") + "/basler_" + m_serial + ".h264";
-    m_dumpFile.open(dumpPath, std::ios::binary | std::ios::trunc);
-    if (!m_dumpFile) {
-        LOG(warning) << "BaslerStreamProducer[" << m_streamId << "]: cannot open dump file "
-                     << dumpPath << " (encoding continues without dump)" << std::endl;
-    } else {
-        LOG(info) << "BaslerStreamProducer[" << m_streamId << "]: dumping H.264 to " << dumpPath
-                  << " (first " << kMaxDumpFrames << " frames)" << std::endl;
     }
 
     if (gst_element_set_state(m_pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
@@ -366,17 +351,6 @@ GstFlowReturn BaslerStreamProducer::onNewEncodedSample(GstElement* appsink, gpoi
                           << "B pps=" << self->m_pps.size() << "B)" << std::endl;
             }
         }
-        if (self->m_dumpFile.is_open() && self->m_encodedFrames < kMaxDumpFrames) {
-            self->m_dumpFile.write(reinterpret_cast<const char*>(map.data),
-                                   static_cast<std::streamsize>(map.size));
-            if (self->m_encodedFrames + 1 == kMaxDumpFrames) {
-                self->m_dumpFile.flush();
-                self->m_dumpFile.close();
-                LOG(info) << "BaslerStreamProducer[" << self->m_streamId
-                          << "]: H.264 dump complete (" << kMaxDumpFrames << " frames)"
-                          << std::endl;
-            }
-        }
         // Hand the encoded access unit to registered consumers (recorder, live,
         // etc.). byte-stream H.264 AU; consumers parse it (m_needParsing default).
         FrameParams frameParams;
@@ -387,12 +361,6 @@ GstFlowReturn BaslerStreamProducer::onNewEncodedSample(GstElement* appsink, gpoi
         gettimeofday(&frameParams.m_presentationTime, nullptr);
         self->distributeToConsumers(frameParams);
 
-        if (self->m_encodedFrames % kLogEveryNFrames == 0) {
-            LOG(info) << "BaslerStreamProducer[" << self->m_streamId << "]: encoded frame "
-                      << self->m_encodedFrames << " bytes=" << map.size
-                      << " consumers=" << self->getConsumerCount() << std::endl;
-        }
-        ++self->m_encodedFrames;
         gst_buffer_unmap(buffer, &map);
     }
     gst_sample_unref(sample);
@@ -410,9 +378,6 @@ void BaslerStreamProducer::teardownPipeline()
     m_appsrc = m_converter = m_capsBeforeEnc = m_encoder = nullptr;
     m_parser = m_capsAfterEnc = m_appsink = nullptr;
     m_pipelineBuilt = false;
-    if (m_dumpFile.is_open()) {
-        m_dumpFile.close();
-    }
 }
 
 void BaslerStreamProducer::grabLoop()

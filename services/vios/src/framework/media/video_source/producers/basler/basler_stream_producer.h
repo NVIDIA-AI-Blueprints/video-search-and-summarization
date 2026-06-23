@@ -23,7 +23,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <fstream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -37,11 +36,10 @@ namespace nv_vms {
 // ordinary consumer. The pylon SDK is used only in the .cpp, so this producer
 // can live in libbasler_producer.so without leaking pylon into any other lib.
 //
-// Stage 2.2: a pylon grab thread feeds I420 frames into a GStreamer encode
-// pipeline (appsrc -> [nvvideoconvert] -> H.264 encoder -> h264parse -> appsink)
-// with HW/SW chosen via NvHwDetection. Encoded frames are dumped to a .h264 file
-// for playback verification. Consumer fan-out (distributeToConsumers) replaces
-// the file dump in a later stage; the consumer-facing methods are inert here.
+// A pylon grab thread feeds I420 frames into a GStreamer encode pipeline
+// (appsrc -> [nvvideoconvert] -> H.264 encoder -> h264parse -> appsink) with
+// HW/SW chosen via NvHwDetection. Encoded access units are fanned out to the
+// registered consumers (recorder, live) via distributeToConsumers.
 class BaslerStreamProducer : public IMediaDataProducer
 {
 public:
@@ -89,10 +87,6 @@ private:
     GstElement* m_capsAfterEnc{nullptr};
     GstElement* m_appsink{nullptr};
     bool        m_pipelineBuilt{false};
-
-    // Stage 2.2 acceptance: dump encoded H.264 (Annex-B) for playback checking.
-    std::ofstream m_dumpFile;
-    uint64_t      m_encodedFrames{0};
 
     // SPS/PPS captured once (with start codes) and reported to BaslerStreamMonitor
     // for the RTSP SDP; not refreshed, mirroring the WebRTC encoder.
