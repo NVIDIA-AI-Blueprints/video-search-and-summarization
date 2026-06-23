@@ -50,7 +50,7 @@ global:
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nvidia/cosmos-reason2-8b"
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
   # When true (default), vss-vios-sensor uses the same PVC base name as vss-vios-streamprocessing for vst-data / vst-video. Keep aligned with vios.vstStorage.createSharedPvcs.
   createSharedVstPvcs: true
 
@@ -297,7 +297,7 @@ agent:
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos-reason2-8b") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_bf16-final") }}'
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
@@ -356,7 +356,7 @@ vss-alert-bridge:
   redisPort: "6379"
   elasticHosts: ""
   vlmBaseUrl: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
-  vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
   vstBaseUrl: ""
   alertReviewMediaBaseDir: ""
   configVariant: ""

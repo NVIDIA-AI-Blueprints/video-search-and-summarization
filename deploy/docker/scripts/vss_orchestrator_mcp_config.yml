@@ -120,16 +120,16 @@ function_groups:
               # ALERT_AGENT_NUM_WORKERS: "4"
           IGX-THOR:
             VLM_NAME_SLUG: none
-            VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
-            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
-            RTVI_VLM_MODEL_TO_USE: cosmos-reason2
+            VLM_NAME: nim_nvidia_cosmos3-nano-reasoner_bf16-final
+            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+            RTVI_VLM_MODEL_TO_USE: cosmos-reason3
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
             VLM_MODEL_TYPE: rtvi
           AGX-THOR:
             VLM_NAME_SLUG: none
-            VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
-            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
-            RTVI_VLM_MODEL_TO_USE: cosmos-reason2
+            VLM_NAME: nim_nvidia_cosmos3-nano-reasoner_bf16-final
+            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+            RTVI_VLM_MODEL_TO_USE: cosmos-reason3
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
             VLM_MODEL_TYPE: rtvi
     profile_mode_to_env_modes:

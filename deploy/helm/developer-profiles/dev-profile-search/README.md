@@ -36,7 +36,7 @@ The stack requests GPUs (`nvidia.com/gpu: 1` each) for the workloads listed belo
 
 ### With Local NIMs (Option B)
 
-The critic agent and Cosmos NIM are **enabled by default** (`global.enableCritic=true`, `nims.cosmos.enabled=true`). To reduce GPU requirements, disable them with `--set global.enableCritic=false,nims.cosmos.enabled=false` (saves 1 GPU).
+The critic agent and Cosmos3 NIM are **enabled by default** (`global.enableCritic=true`, `nims.cosmos3.enabled=true`). To reduce GPU requirements, disable them with `--set global.enableCritic=false,nims.cosmos3.enabled=false` (saves 1 GPU).
 
 | Workload | GPU | Notes |
 |----------|-----|-------|
@@ -44,12 +44,12 @@ The critic agent and Cosmos NIM are **enabled by default** (`global.enableCritic
 | `vss-rtvi-embed` (Cosmos Embed) | 1 | |
 | `vss-vios-streamprocessing` | 1 | |
 | `nvidia-nemotron-nano-9b-v2` (NIM) | 1 | |
-| `nvidia-cosmos-reason2-8b` (NIM) | 1 | Critic agent VLM — enabled by default |
+| `nvidia-cosmos3-reasoner` (NIM) | 1 | Critic agent VLM — enabled by default |
 | **Total** | **5** | **4** if critic is disabled |
 
-> **Note:** By default, `nvidia-cosmos-reason2-8b` requests **1 full GPU** (`nvidia.com/gpu: "1"`).
+> **Note:** By default, `nvidia-cosmos3-reasoner` requests **1 full GPU** (`nvidia.com/gpu: "1"`).
 > If you are using GPU time-slicing, adjust the resource request in `values.yaml` as needed
-> (e.g. `nims.cosmos.resources.limits."nvidia.com/gpu": "2"` for two time-sliced replicas).
+> (e.g. `nims.cosmos3.resources.limits."nvidia.com/gpu": "2"` for two time-sliced replicas).
 
 ### GPU Time-Slicing (Limited GPU Environments)
 
@@ -60,9 +60,9 @@ For setup instructions, refer to [Time-Slicing GPUs in Kubernetes](https://docs.
 When time-slicing is enabled, each time-sliced partition appears as a separate `nvidia.com/gpu` resource. Adjust the GPU resource requests in `values.yaml` to match your time-slicing configuration:
 
 ```bash
-# Example: Cosmos NIM needs 1 full GPU but with 2x time-slicing per GPU
---set nims.cosmos.resources.limits."nvidia.com/gpu"="2" \
---set nims.cosmos.resources.requests."nvidia.com/gpu"="2"
+# Example: Cosmos3 NIM needs 1 full GPU but with 2x time-slicing per GPU
+--set nims.cosmos3.resources.limits."nvidia.com/gpu"="2" \
+--set nims.cosmos3.resources.requests."nvidia.com/gpu"="2"
 ```
 
 ## Prerequisites
@@ -124,7 +124,7 @@ export STORAGE_CLASS='<Storage Class Name>'
 export GPU_NAME='H100'  # One of: H100, L40S, RTXPRO6000BW
 ```
 
-> **Critic agent behavior** is enabled by default (`global.enableCritic=true`). With NVIDIA Build Endpoint (Option A), local Nemotron and Cosmos NIMs are disabled by `values-build-endpoint.yaml`; disable critic verification with `--set global.enableCritic=false`. With Local NIMs (Option B), disable both critic verification and the local Cosmos NIM with `--set global.enableCritic=false,nims.cosmos.enabled=false`. See [Disabling the Critic Agent](#disabling-the-critic-agent).
+> **Critic agent behavior** is enabled by default (`global.enableCritic=true`). With NVIDIA Build Endpoint (Option A), local Nemotron and Cosmos3 NIMs are disabled by `values-build-endpoint.yaml`; disable critic verification with `--set global.enableCritic=false`. With Local NIMs (Option B), disable both critic verification and the local Cosmos3 NIM with `--set global.enableCritic=false,nims.cosmos3.enabled=false`. See [Disabling the Critic Agent](#disabling-the-critic-agent).
 
 ## Step 1: Volume provisioner (bare metal, optional)
 
@@ -212,7 +212,7 @@ helm upgrade --install vss-search ./dev-profile-search \
   --wait=false
 ```
 
-> **Option A note:** `values-build-endpoint.yaml` disables local Nemotron and Cosmos NIM deployments (`nims.nemotron.enabled=false`, `nims.cosmos.enabled=false`). Critic verification is still enabled by default and uses the hosted VLM endpoint. To disable critic verification, add `--set global.enableCritic=false`.
+> **Option A note:** `values-build-endpoint.yaml` disables local Nemotron and Cosmos3 NIM deployments (`nims.nemotron.enabled=false`, `nims.cosmos3.enabled=false`). Critic verification is still enabled by default and uses the hosted VLM endpoint. To disable critic verification, add `--set global.enableCritic=false`.
 
 **Custom remote NIM (self-hosted or external endpoints)**
 
@@ -234,7 +234,7 @@ helm upgrade --install vss-search ./dev-profile-search \
   --set global.storageClass=$STORAGE_CLASS \
   --set nims.enabled=false \
   --set agent.vss-agent.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
-  --set agent.vss-agent.vlmName="nvidia/cosmos-reason2-8b" \
+  --set agent.vss-agent.vlmName="nvidia/cosmos3-nano-reasoner" \
   --set agent.vss-agent.llmBaseUrl="$LLM_BASE_URL" \
   --set agent.vss-agent.vlmBaseUrl="$VLM_BASE_URL" \
   --wait=false
@@ -246,7 +246,7 @@ Runs all LLM/VLM NIMs on-cluster via the NIM Operator. Requires additional GPUs 
 
 **Prerequisite:** Install the [NVIDIA NIM Operator](#prerequisites) before deploying.
 
-Shared **`helm/services/nims`** only gates Cosmos on **`nims.cosmos.enabled`** (it does not read **`global.enableCritic`**). Both default to `true`. To disable critic and skip the Cosmos NIM, pass both keys in a **single** `--set` (comma-separated): `--set global.enableCritic=false,nims.cosmos.enabled=false`.
+Shared **`helm/services/nims`** only gates Cosmos3 on **`nims.cosmos3.enabled`** (it does not read **`global.enableCritic`**). Both default to `true`. To disable critic and skip the Cosmos3 NIM, pass both keys in a **single** `--set` (comma-separated): `--set global.enableCritic=false,nims.cosmos3.enabled=false`.
 
 ```bash
 helm upgrade --install vss-search ./dev-profile-search \
@@ -289,25 +289,25 @@ This single chart deploys all application components:
 
 ### Disabling the Critic Agent
 
-The critic agent (VLM-based verification of search results) is **enabled by default**. With NVIDIA Build Endpoint (Option A), it uses the hosted VLM endpoint and local Cosmos NIM is not deployed. With Local NIMs (Option B), its backing **Cosmos Reason2 8B** NIM is enabled by default.
+The critic agent (VLM-based verification of search results) is **enabled by default**. With NVIDIA Build Endpoint (Option A), it uses the hosted VLM endpoint and local Cosmos3 NIM is not deployed. With Local NIMs (Option B), its backing **Cosmos3 Reasoner** NIM is enabled by default.
 For NVIDIA Build Endpoint or another remote VLM endpoint, disable critic verification with:
 
 ```bash
 --set global.enableCritic=false
 ```
 
-For Local NIM deployments, disable both critic verification and the local Cosmos NIM with:
+For Local NIM deployments, disable both critic verification and the local Cosmos3 NIM with:
 
 ```bash
---set global.enableCritic=false,nims.cosmos.enabled=false
+--set global.enableCritic=false,nims.cosmos3.enabled=false
 ```
 
 This has two effects:
 
 1. **Agent config**: `enable_critic` is set to `false` in the vss-agent `config.yml`, so the search and search_agent functions skip VLM verification.
-2. **Cosmos NIM**: For Local NIM deployments, the `nvidia-cosmos-reason2-8b` NIM pod is not deployed, freeing 1 GPU (see [GPU Requirements](#with-local-nims-option-b)).
+2. **Cosmos3 NIM**: For Local NIM deployments, the `nvidia-cosmos3-reasoner` NIM pod is not deployed, freeing 1 GPU (see [GPU Requirements](#with-local-nims-option-b)).
 
-> **Note:** `global.enableCritic` controls the agent behavior. `nims.cosmos.enabled` controls the Cosmos NIM pod. The shared **`helm/services/nims`** subchart does not read `global.enableCritic`, so Local NIM deployments should set both keys together. When using a **remote VLM** endpoint (`nims.enabled=false` + `agent.vss-agent.vlmBaseUrl`), set only `global.enableCritic=false` to disable the critic while keeping the remote VLM URL configured for other uses.
+> **Note:** `global.enableCritic` controls the agent behavior. `nims.cosmos3.enabled` controls the Cosmos3 NIM pod. The shared **`helm/services/nims`** subchart does not read `global.enableCritic`, so Local NIM deployments should set both keys together. When using a **remote VLM** endpoint (`nims.enabled=false` + `agent.vss-agent.vlmBaseUrl`), set only `global.enableCritic=false` to disable the critic while keeping the remote VLM URL configured for other uses.
 
 To re-enable critic verification with NVIDIA Build Endpoint or another remote VLM endpoint:
 
@@ -322,7 +322,7 @@ To re-enable critic verification and the local Cosmos NIM with Local NIMs:
 ```bash
 helm upgrade vss-search ./dev-profile-search \
   --reuse-values \
-  --set global.enableCritic=true,nims.cosmos.enabled=true
+  --set global.enableCritic=true,nims.cosmos3.enabled=true
 ```
 
 ## Verify Deployment
