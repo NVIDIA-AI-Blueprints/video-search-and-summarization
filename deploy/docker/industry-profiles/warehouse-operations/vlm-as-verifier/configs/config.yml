@@ -26,7 +26,7 @@ ALERT_REVIEW_MEDIA_BASE_DIR: ""
 # VST Configuration
 vst_config:
   # Base URL for general VST APIs already used elsewhere in the codebase
-  base_url: "http://localhost:30888"
+  base_url: "http://vst-ingress:30888"
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
   add_overlay: false
   segment_duration_seconds: 15
@@ -37,13 +37,13 @@ vst_config:
   url_retention_minutes: 20160
   # Storage service configuration (separate base URL and endpoint similar to vss_agent)
   storage:
-    base_url: "http://localhost:30888"
+    base_url: "http://vst-ingress:30888"
     # Endpoint to fetch media file path by VST id
     media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
 
 # Kafka Configuration - Message Processing
 kafka:
-  bootstrap_servers: "localhost:9092"
+  bootstrap_servers: "kafka:29092"
   group_id: 'kafka-incidents-dumper'
   enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"     # Output topic for enhanced results
   incidents_topic: "alert-bridge-incidents"             # Output topic for incidents
@@ -93,7 +93,7 @@ event_bridge:
 
   # Redis Streams Configuration
   redis_source:
-    host: "localhost"
+    host: "redis"
     port: 6379
     db: 0
     dedup_ttl_seconds: 2
@@ -112,7 +112,7 @@ event_bridge:
       enabled: true
   
   redis_sink:
-    host: "localhost"
+    host: "redis"
     port: 6379
     db: 0
     streams:
@@ -137,7 +137,7 @@ alert_agent:
 elastic:
   enabled: true
   hosts:
-    - http://localhost:9200
+    - http://elasticsearch:9200
 
 vlm_enhanced_sink:
   incident:
