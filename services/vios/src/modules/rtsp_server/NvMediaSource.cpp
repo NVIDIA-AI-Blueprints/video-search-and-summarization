@@ -26,11 +26,23 @@
 #ifdef ENABLE_NATIVE_STREAM_MONITOR
 #include "native_stream_monitor.h"
 #endif
+#include "basler_stream_monitor.h"
 
 #define RTSP_SERVER_MAX_OUTPUT_BUFFER_SIZE 500*1000
 #define AUDIO_CODEC_CONFIG_ID_16K_STEREO "1410"
 
 using namespace std;
+
+namespace {
+// A SourceTypeLive session is served by either a WebRTC (stream-bridge) producer
+// or a Basler producer. Decide by stream identity, not by whether a producer is
+// currently registered: Basler stream ids carry the "basler-" prefix (see
+// buildSensorIdFromSerial); WebRTC peer ids do not.
+bool isBaslerLiveStream(const std::string& streamId)
+{
+    return streamId.rfind("basler-", 0) == 0;
+}
+}  // namespace
 
 NvMediaSource
 ::NvMediaSource (const std::string& filename, eMediaType mediaType, eSourceType sourceType, string url_params, string session_id)
@@ -71,7 +83,16 @@ NvMediaSource
     else if (m_sourceType == SourceTypeLive && m_mediaType == MediaTypeVideo)
     {
         OutPacketBuffer::maxSize = RTSP_SERVER_MAX_OUTPUT_BUFFER_SIZE;
-        m_videoHeaderFrames = WebrtcStreamProducer::getInstance()->getVideoHeaders(m_filename);
+        // Pre-fetch SPS/PPS so the SDP (sprop-parameter-sets) is complete at DESCRIBE,
+        // before any frame flows. Basler reports its cached headers to the monitor.
+        if (isBaslerLiveStream(m_filename))
+        {
+            m_videoHeaderFrames = BaslerStreamMonitor::getInstance()->getVideoHeaders(m_filename);
+        }
+        else
+        {
+            m_videoHeaderFrames = WebrtcStreamProducer::getInstance()->getVideoHeaders(m_filename);
+        }
     }
     else if (m_sourceType == SourceTypeNative && m_mediaType == MediaTypeVideo)
     {
@@ -169,7 +190,22 @@ void NvMediaSource::play()
     }
     else if (m_sourceType == SourceTypeLive)
     {
-        WebrtcStreamProducer::getInstance()->registerDataCallback(m_filename, getself());
+        if (isBaslerLiveStream(m_filename))
+        {
+            auto producer = BaslerStreamMonitor::getInstance()->getProducer(m_filename);
+            if (producer)
+            {
+                producer->registerConsumer(getself(), m_filename);
+            }
+            else
+            {
+                LOG(error) << "Basler producer not found for stream: " << m_filename << endl;
+            }
+        }
+        else
+        {
+            WebrtcStreamProducer::getInstance()->registerDataCallback(m_filename, getself());
+        }
         m_streamBuf.play();
     }
     else if (m_sourceType == SourceTypeNative)
@@ -458,6 +494,10 @@ string NvMediaSource::getVideoCodec()
     }
     else if (m_sourceType == SourceTypeLive)
     {
+        if (isBaslerLiveStream(m_filename))
+        {
+            return BaslerStreamMonitor::getInstance()->getVideoCodec(m_filename);
+        }
         return WebrtcStreamProducer::getInstance()->getVideoCodec(m_filename);
     }
     else if (m_sourceType == SourceTypeNative)
@@ -814,7 +854,18 @@ void NvMediaSource::destroy()
     }
     else if (m_sourceType == SourceTypeLive)
     {
-        WebrtcStreamProducer::getInstance()->deregisterDataCallback(getself(), m_filename);
+        if (isBaslerLiveStream(m_filename))
+        {
+            auto producer = BaslerStreamMonitor::getInstance()->getProducer(m_filename);
+            if (producer)
+            {
+                producer->unregisterConsumer(getself(), m_filename);
+            }
+        }
+        else
+        {
+            WebrtcStreamProducer::getInstance()->deregisterDataCallback(getself(), m_filename);
+        }
     }
     else if (m_sourceType == SourceTypeNative)
     {

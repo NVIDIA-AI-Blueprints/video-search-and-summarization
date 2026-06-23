@@ -37,7 +37,8 @@ OBJS     := $(SRCS:.cpp=.o)
 # it transitively pulls in (media_utils). The remaining headers (gstreamer, glib,
 # stats.h, nvbufsurface.h) are already on the global CPPFLAGS include path.
 BASLER_INC := -I $(TOP)/src/framework/media/media_pipelines \
-              -I $(TOP)/src/framework/media/media_utils
+              -I $(TOP)/src/framework/media/media_utils \
+              -I $(TOP)/src/framework/media/video_source/producers
 # Link the GStreamer libs the encode pipeline uses (appsrc/appsink, buffers,
 # caps). -shared still allows unresolved symbols, so pylon stays deferred (bound
 # at runtime via the dlopen(RTLD_GLOBAL) in BaslerStreamMonitor) and VIOS

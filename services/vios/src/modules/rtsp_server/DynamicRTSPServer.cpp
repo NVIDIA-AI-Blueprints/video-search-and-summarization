@@ -36,6 +36,16 @@
 #include <cstdlib>
 #endif
 
+namespace {
+// Basler live streams reuse SourceTypeLive but are sourced from BaslerStreamProducer,
+// not WebRTC. They carry the "basler-" prefix (see buildSensorIdFromSerial), mirroring
+// the discriminator in NvMediaSource.cpp.
+bool isBaslerLiveStream(const std::string& streamId)
+{
+    return streamId.rfind("basler-", 0) == 0;
+}
+}  // namespace
+
 DynamicRTSPServer*
 DynamicRTSPServer::createNew(UsageEnvironment& env, Port ourPort,
 			     UserAuthenticationDatabase* authDatabase,
@@ -365,6 +375,39 @@ void DynamicRTSPServer
     }
   }
 #endif /* UNIT_TEST */
+  else if(stream_name.find(NV_BASLER_SENSOR) != std::string::npos)
+  {
+      LOG(info) << "RTSP lookup: Basler Stream Name: " << stream_name << std::endl;
+      string token(string(NV_BASLER_SENSOR) + string("/"));
+      string url = stream_name.substr(stream_name.find(token) + token.size());
+
+      string sensorId, url_params;
+      if (url.find("?") != string::npos)
+      {
+          sensorId = url.substr(0, url.find("?"));
+          url_params = url.substr(url.find("?") + 1);
+      }
+      else
+      {
+          sensorId = url;
+          url_params = "";
+      }
+
+      if (sensorId.empty())
+      {
+        if (completionFunc != nullptr)
+        {
+            (*completionFunc)(completionClientData, sms);
+        }
+        return;
+      }
+
+      LOG(info) << "Basler sensorId: " << sensorId << ", url_params:" << url_params << endl;
+      // Basler is an in-process encoded producer (like WebRTC live), so it reuses
+      // SourceTypeLive; NvMediaSource sources it from BaslerStreamProducer.
+      sms = createNewSMS(envir(), sensorId, SourceTypeLive, url_params);
+      addServerMediaSession(sms);
+  }
   else if(stream_name.find(NV_CSI_SENSOR) != std::string::npos)
   {
       LOG(info) << "RTSP lookup: CSI Stream Name: " << stream_name << std::endl;
@@ -443,8 +486,19 @@ static ServerMediaSession* createNewSMS(UsageEnvironment& env,
         video_session = true;
         if (sourceType == SourceTypeLive)
         {
-            video_session = WebrtcStreamProducer::getInstance()->isVideoTrackEnabled(streamName);
-            audio_session = WebrtcStreamProducer::getInstance()->isAudioTrackEnabled(streamName);
+            if (isBaslerLiveStream(streamName))
+            {
+                // Basler producer is video-only H.264; it has no WebRTC track to
+                // query, so force a single video subsession (otherwise the SMS
+                // would be created with no media and the SDP would be empty).
+                video_session = true;
+                audio_session = false;
+            }
+            else
+            {
+                video_session = WebrtcStreamProducer::getInstance()->isVideoTrackEnabled(streamName);
+                audio_session = WebrtcStreamProducer::getInstance()->isAudioTrackEnabled(streamName);
+            }
         }
     }
 

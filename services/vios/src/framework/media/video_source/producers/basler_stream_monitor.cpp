@@ -101,6 +101,10 @@ void BaslerStreamMonitor::removeStream(const std::string& streamId)
         it->second->stop();
     }
     m_producers.erase(it);  // last owner; deleter calls destroyBaslerProducer
+    {
+        std::lock_guard<std::mutex> hlock(m_headersMutex);
+        m_videoHeaders.erase(streamId);
+    }
     LOG(info) << "BaslerStreamMonitor: removed basler stream " << streamId << std::endl;
 }
 
@@ -109,6 +113,33 @@ std::shared_ptr<IMediaDataProducer> BaslerStreamMonitor::getProducer(const std::
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_producers.find(streamId);
     return it != m_producers.end() ? it->second : nullptr;
+}
+
+std::string BaslerStreamMonitor::getVideoCodec(const std::string& streamId)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    // The Basler producer encodes H.264; codec is constant for a known stream.
+    return m_producers.count(streamId) != 0 ? "h264" : "";
+}
+
+void BaslerStreamMonitor::setVideoHeaders(const std::string& streamId,
+                                          std::vector<std::vector<uint8_t>> headers)
+{
+    std::lock_guard<std::mutex> lock(m_headersMutex);
+    m_videoHeaders[streamId] = std::move(headers);
+}
+
+std::queue<std::vector<uint8_t>> BaslerStreamMonitor::getVideoHeaders(const std::string& streamId)
+{
+    std::lock_guard<std::mutex> lock(m_headersMutex);
+    std::queue<std::vector<uint8_t>> result;
+    auto it = m_videoHeaders.find(streamId);
+    if (it != m_videoHeaders.end()) {
+        for (const auto& nal : it->second) {
+            result.push(nal);
+        }
+    }
+    return result;
 }
 
 } // namespace nv_vms

@@ -94,6 +94,12 @@ private:
     std::ofstream m_dumpFile;
     uint64_t      m_encodedFrames{0};
 
+    // SPS/PPS captured once (with start codes) and reported to BaslerStreamMonitor
+    // for the RTSP SDP; not refreshed, mirroring the WebRTC encoder.
+    std::vector<uint8_t> m_sps;
+    std::vector<uint8_t> m_pps;
+    bool                 m_headersReported{false};
+
     mutable std::mutex                               m_consumersMutex;
     std::vector<std::shared_ptr<IMediaDataConsumer>> m_consumers;
 };

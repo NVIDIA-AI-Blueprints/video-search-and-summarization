@@ -19,10 +19,13 @@
 
 #include "media_producer.h"  // IMediaDataProducer
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <string>
+#include <vector>
 
 namespace nv_vms {
 
@@ -48,6 +51,17 @@ public:
     // or nullptr if none.
     std::shared_ptr<IMediaDataProducer> getProducer(const std::string& streamId);
 
+    // Video codec of the stream, for the RTSP SDP (mirrors the registry-keyed
+    // accessor WebrtcStreamProducer/NativeStreamMonitor expose). The Basler
+    // producer always encodes H.264.
+    std::string getVideoCodec(const std::string& streamId);
+
+    // SPS/PPS for the RTSP SDP (sprop-parameter-sets). The producer reports its
+    // cached headers via setVideoHeaders once captured; NvMediaSource reads them
+    // at DESCRIBE via getVideoHeaders (mirrors WebrtcStreamProducer::getVideoHeaders).
+    void setVideoHeaders(const std::string& streamId, std::vector<std::vector<uint8_t>> headers);
+    std::queue<std::vector<uint8_t>> getVideoHeaders(const std::string& streamId);
+
 private:
     BaslerStreamMonitor() = default;
 
@@ -61,6 +75,11 @@ private:
     DestroyFn m_destroyFn{nullptr};
     std::map<std::string, std::shared_ptr<IMediaDataProducer>> m_producers;
     std::mutex m_mutex;
+
+    // RTSP SDP headers (SPS/PPS) per stream. Separate lock from m_mutex so the
+    // producer's grab thread can report headers without contending with addStream.
+    std::map<std::string, std::vector<std::vector<uint8_t>>> m_videoHeaders;
+    std::mutex m_headersMutex;
 };
 
 } // namespace nv_vms

@@ -19,6 +19,7 @@
 
 #include "logger.h"
 #include "nvhwdetection.h"
+#include "basler_stream_monitor.h"  // report cached SPS/PPS back to the registry
 
 #include <gst/app/gstappsrc.h>
 #include <gst/app/gstappsink.h>
@@ -47,6 +48,21 @@ constexpr uint32_t kHwBitrateBps = 5000000;             // nvv4l2h264enc bitrate
 constexpr int kSwBitrateKbps = 5000;                    // x264enc bitrate (kbps)
 constexpr uint64_t kMaxDumpFrames = 300;                // bound the S2.2 debug dump
 constexpr const char* kDumpDirEnv = "BASLER_DUMP_DIR";  // override the dump directory
+
+// Annex-B H.264 NAL type from a start-code-prefixed buffer (SPS=7, PPS=8);
+// -1 if it is not a recognisable NAL.
+int h264NalType(const uint8_t* data, size_t size)
+{
+    size_t off = 0;
+    if (size >= 4 && data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 1) {
+        off = 4;
+    } else if (size >= 3 && data[0] == 0 && data[1] == 0 && data[2] == 1) {
+        off = 3;
+    } else {
+        return -1;
+    }
+    return off < size ? (data[off] & 0x1F) : -1;
+}
 }  // namespace
 
 BaslerStreamProducer::BaslerStreamProducer(std::string streamId, std::string serial)
@@ -331,6 +347,25 @@ GstFlowReturn BaslerStreamProducer::onNewEncodedSample(GstElement* appsink, gpoi
     GstBuffer* buffer = gst_sample_get_buffer(sample);
     GstMapInfo map;
     if (buffer && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+        // Cache SPS/PPS once for the RTSP SDP (sprop-parameter-sets). The encoder
+        // re-emits them at every IDR (config-interval=-1); like WebRTC we keep the
+        // first pair and report it to the registry rather than refreshing.
+        if (!self->m_headersReported) {
+            const int nt = h264NalType(map.data, map.size);
+            if (nt == 7 && self->m_sps.empty()) {
+                self->m_sps.assign(map.data, map.data + map.size);
+            } else if (nt == 8 && self->m_pps.empty()) {
+                self->m_pps.assign(map.data, map.data + map.size);
+            }
+            if (!self->m_sps.empty() && !self->m_pps.empty()) {
+                BaslerStreamMonitor::getInstance()->setVideoHeaders(
+                    self->m_streamId, {self->m_sps, self->m_pps});
+                self->m_headersReported = true;
+                LOG(info) << "BaslerStreamProducer[" << self->m_streamId
+                          << "]: cached SPS/PPS for SDP (sps=" << self->m_sps.size()
+                          << "B pps=" << self->m_pps.size() << "B)" << std::endl;
+            }
+        }
         if (self->m_dumpFile.is_open() && self->m_encodedFrames < kMaxDumpFrames) {
             self->m_dumpFile.write(reinterpret_cast<const char*>(map.data),
                                    static_cast<std::streamsize>(map.size));
