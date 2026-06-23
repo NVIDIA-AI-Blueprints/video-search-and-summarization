@@ -52,8 +52,13 @@ services:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
     container_name: vss-vios-sensor
+    ports:
+      - ${SENSOR_HTTP_HOST_PORT:-30000}:${SENSOR_HTTP_PORT:-30000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-sensor
     restart: on-failure    # Restart only if the container exits with non-zero status
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
@@ -97,8 +102,13 @@ services:
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
     container_name: vss-vios-sensor
+    ports:
+      - ${SENSOR_HTTP_HOST_PORT:-30000}:${SENSOR_HTTP_PORT:-30000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-sensor
     restart: on-failure
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
@@ -141,8 +151,13 @@ services:
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
     container_name: vss-vios-sensor
+    ports:
+      - ${SENSOR_HTTP_HOST_PORT:-30000}:${SENSOR_HTTP_PORT:-30000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-sensor
     restart: on-failure
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
@@ -182,8 +197,13 @@ services:
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
     container_name: vss-vios-sensor
+    ports:
+      - ${SENSOR_HTTP_HOST_PORT:-30000}:${SENSOR_HTTP_PORT:-30000}
+    networks:
+      default:
+        aliases:
+          - vss-vios-sensor
     restart: on-failure
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
