@@ -22,7 +22,7 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
     ports:
-      - "9400:9400"
+      - "${DCGM_EXPORTER_HOST_PORT:-9400}:9400"
     restart: always
 
   prometheus:
@@ -32,7 +32,7 @@ services:
     volumes:
       - $VSS_APPS_DIR/services/monitoring/config/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_HOST_PORT:-9090}:9090"
     restart: always
 
   grafana:
@@ -40,7 +40,7 @@ services:
     container_name: grafana
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d"]
     ports:
-      - "35000:3000"
+      - "${GRAFANA_HOST_PORT:-35000}:3000"
     volumes:
       - grafana-storage:/var/lib/grafana
       - $VSS_APPS_DIR/services/monitoring/config/grafana-dashboard:/etc/grafana/dashboards
@@ -55,7 +55,7 @@ services:
     image: quay.io/prometheus/node-exporter:v1.11.1
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d"]
     ports:
-      - "19100:9100"
+      - "${NODE_EXPORTER_HOST_PORT:-19100}:9100"
     restart: always
     volumes:
       - /proc:/host/proc:ro
@@ -70,7 +70,7 @@ services:
     image: ghcr.io/google/cadvisor:0.56.2
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d"]
     ports:
-      - "18080:8080"
+      - "${CADVISOR_HOST_PORT:-18080}:8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
