@@ -19,11 +19,12 @@ services:
   vss-va-mcp:
     image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-va-mcp
-    network_mode: host
     profiles:
     - bp_wh_2d
     - bp_developer_alerts_2d_cv
     - bp_developer_alerts_2d_vlm
+    ports:
+    - ${VSS_VA_MCP_HOST_PORT:-9901}:${VSS_VA_MCP_PORT:-9901}
     volumes:
     - ${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro
     environment:
@@ -64,7 +65,6 @@ services:
     # public release, switch the registry from nvstaging to nvidia.
     image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-agent
-    network_mode: host
     profiles:
     - bp_wh_2d
     - bp_developer_base_2d
@@ -72,6 +72,8 @@ services:
     - bp_developer_lvs_2d
     - bp_developer_alerts_2d_cv
     - bp_developer_alerts_2d_vlm
+    ports:
+    - ${VSS_AGENT_HOST_PORT:-8000}:${VSS_AGENT_PORT:-8000}
     environment:
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
@@ -99,15 +101,15 @@ services:
       VST_MCP_URL: ${VST_MCP_URL}
 
       # MCP Server
-      VIDEO_ANALYSIS_MCP_URL: http://${VSS_AGENT_HOST}:${VSS_VA_MCP_PORT}
+      VIDEO_ANALYSIS_MCP_URL: ${VIDEO_ANALYSIS_MCP_URL:-http://vss-va-mcp:${VSS_VA_MCP_PORT:-9901}}
 
       # LLM Endpoints
       LLM_NAME: ${LLM_NAME}
-      LLM_BASE_URL: ${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}
+      LLM_BASE_URL: ${LLM_BASE_URL}
       VLM_NAME: ${VLM_NAME}
-      VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
+      VLM_BASE_URL: ${VLM_BASE_URL}
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
-      ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}}
+      ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://alert-bridge:${ALERT_BRIDGE_PORT:-9080}}
 
       # Audio Configuration
       ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
