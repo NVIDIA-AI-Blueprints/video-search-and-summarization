@@ -135,14 +135,14 @@ spec:
             {{- $subVlm := trim (default "" .Values.vlmBaseUrl) }}
             {{- $globVlm := trim (default "" (index $g "vlmBaseUrl")) }}
             {{- $vlmBase := $subVlm | default $globVlm }}
-            {{- $slug := trim (default "nvidia-cosmos-reason2-8b" .Values.vlmNameSlug) }}
+            {{- $slug := trim (default "nvidia-cosmos3-reasoner" .Values.vlmNameSlug) }}
             {{- $nimHost := ternary (printf "%s-%s" .Release.Name $slug) $slug $pfx }}
             {{- $localSvc := coalesce .Values.sharedNimService $nimHost }}
             {{- $inClusterEp := printf "http://%s:%s/v1" $localSvc .Values.sharedNimPort }}
             {{- $useRemote := or (not $nimsEnabled) (ne $vlmBase "") }}
             {{- $viaEp := $inClusterEp }}
-            {{- /* NGC model id (e.g. nvidia/cosmos-reason2-8b). Do not derive from vlmNameSlug (that yields nvidia/nvidia-cosmos-reason2-8b). */}}
-            {{- $vlmModel := trim (default "" (coalesce .Values.vlmName (index $g "vlmName") "nvidia/cosmos-reason2-8b")) }}
+            {{- /* NGC model id (e.g. nvidia/cosmos3-nano-reasoner). Do not derive from vlmNameSlug. */}}
+            {{- $vlmModel := trim (default "" (coalesce .Values.vlmName (index $g "vlmName") "nvidia/cosmos3-nano-reasoner")) }}
             {{- $deployName := .Values.viaVlmOpenAiModelDeploymentName | default $vlmModel }}
             {{- if $useRemote }}
             {{- if ne $vlmBase "" }}
@@ -164,7 +164,7 @@ spec:
               value: {{ $deployName | quote }}
             {{- else }}
             - name: MODEL_PATH
-              value: {{ .Values.modelPath | default "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" | quote }}
+              value: {{ .Values.modelPath | default "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" | quote }}
             {{- end }}
             {{- $ngcSecret := .Values.ngcApiSecret.name | default (index (index .Values.global "ngcApiSecret") "name") | default "ngc-api" }}
             {{- $ngcKey := .Values.ngcApiSecret.key | default (index (index .Values.global "ngcApiSecret") "key") | default "NGC_API_KEY" }}

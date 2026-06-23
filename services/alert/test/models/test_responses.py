@@ -599,6 +599,14 @@ class TestModelTypeDetection:
         )
         assert response.verdict == "YES"
 
+    def test_detect_cosmos3_reasoner(self):
+        """Test cosmos3 reasoner model auto-detects to cosmos-reason parser."""
+        response = VLMResponse.model_validate_text(
+            "<think>test</think>\n\nYES",
+            model_name="nvidia/cosmos3-nano-reasoner"
+        )
+        assert response.verdict == "YES"
+
     def test_detect_other(self):
         """Test unknown model name falls back to 'other' parser."""
         response = VLMResponse.model_validate_text(
