@@ -19,7 +19,8 @@ services:
 
     container_name: vss-auto-calibration
     profiles: ["auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
-    network_mode: "host"
+    ports:
+      - ${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}:${VSS_AUTO_CALIBRATION_PORT:-8010}
     
     # GPU support
     runtime: nvidia
