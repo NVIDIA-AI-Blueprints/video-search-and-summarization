@@ -72,6 +72,7 @@ vlm:
   max_pixels: 8388608
   enable_sampling: true
   sampling_fps: 4
+  response_format: "cosmos-reason"
 
 # Event Bridge Configuration - Choose between kafka and redisStream
 event_bridge:
