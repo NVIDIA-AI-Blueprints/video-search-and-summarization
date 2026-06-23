@@ -1,7 +1,7 @@
 
 {
 	"kafka": {
-		"brokers": "localhost:9092",
+		"brokers": "kafka:29092",
 		"group": "mdx-fusion-search-analytics-app",
 		"consumer": {
 			"autoOffsetReset": "latest",
