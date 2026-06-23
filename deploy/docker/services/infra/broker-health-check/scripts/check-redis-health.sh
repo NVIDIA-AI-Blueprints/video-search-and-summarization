@@ -22,7 +22,7 @@ echo "Redis health check service started..."
 # Configuration with defaults
 MAX_RETRIES=${MAX_RETRIES:-60}                        # Max retries for Redis connection
 RETRY_INTERVAL=${RETRY_INTERVAL:-2}                   # Seconds between retries
-REDIS_HOST=${BOOTSTRAP_HOST:-localhost}
+REDIS_HOST=${BOOTSTRAP_HOST:-redis}
 REDIS_PORT=${REDIS_PORT:-6379}
 
 echo "Configuration:"
