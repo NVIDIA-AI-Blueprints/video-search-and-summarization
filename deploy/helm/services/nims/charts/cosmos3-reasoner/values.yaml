@@ -52,6 +52,16 @@ tolerations:
 #   super — needs a dedicated VLM GPU
 nimModelSize: "nano"
 
+# Optional NGC model name / local-weights override. Empty by default so the NIM
+# uses its built-in manifest and selects the profile pinned by nimModelProfile.
+nimModelName: ""
+
+# Pins a specific profile from the NIM's built-in manifest by ID. Set to the
+# BF16 (precision: bf16) profile, which is GPU-agnostic — the same hash applies
+# to H100 / L40S / RTXPRO6000BW. Re-derive via `list-model-profiles` if the
+# image tag changes.
+nimModelProfile: "e55fdb44f41441032f546360d0dcf61caa8b39fa2852d31124c03953d01e1cb3"
+
 # GPU-specific env vars. Populated by the umbrella chart via gpuProfiles lookup.
 env:
   NIM_KVCACHE_PERCENT: "0.7"
