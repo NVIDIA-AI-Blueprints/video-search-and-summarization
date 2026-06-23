@@ -43,12 +43,15 @@ def load_config(
 ) -> Dict[str, Any]:
     """Load a YAML config file.
 
-    - ``config_file=None`` resolves via ``CONFIG_PATH`` (falling back to
-      ``config.yaml``); an explicit ``config_file`` is opened as-is.
+    - The ``CONFIG_PATH`` env var always wins; ``config_file`` (or
+      ``config.yaml``) is only the fallback when ``CONFIG_PATH`` is unset.
+      This keeps every caller consistent — a literal ``"config.yaml"`` passed
+      by ``setup_logging`` / ``AlertSubmissionService`` no longer bypasses the
+      ``CONFIG_PATH`` override.
     - ``default_on_missing=True`` returns ``{}`` instead of raising when the
       file is absent.
     """
-    path = config_file if config_file is not None else resolve_config_path()
+    path = resolve_config_path(config_file)
     try:
         with open(path, "r") as fh:
             return yaml.safe_load(fh) or {}
