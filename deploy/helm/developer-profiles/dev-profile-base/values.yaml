@@ -456,7 +456,8 @@ nims:
     storage:
       pvc:
         storageClass: ""
-        size: 120Gi
+        size: 200Gi
+      sharedMemorySizeLimit: 32Gi
     service:
       type: ClusterIP
       port: 8000
