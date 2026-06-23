@@ -1,0 +1,44 @@
+version = "1.0.0"
+
+# nspect scans the whole git repo (it is given only the .git URL + branch, with no way to point it at
+# a subfolder). This blueprint is a monorepo, but only the VIOS service (services/vios) is owned here
+# for nspect purposes. So everything that is NOT services/vios is excluded below, leaving services/vios
+# as the only scanned source. Keep this list in sync when top-level dirs or sibling services change.
+
+[oss]
+
+[oss.excluded]
+
+# Exclude every non-VIOS top-level directory and every sibling service so only services/vios is scanned.
+[[oss.excluded.directories]]
+paths = [
+    'assets',
+    'deploy',
+    'libs',
+    'skills',
+    'tools',
+    '.github',
+    '.openclaw',
+    'services/agent',
+    'services/alert',
+    'services/analytics',
+    'services/rtvi',
+    'services/ui',
+    'services/video-summarization',
+]
+comment = 'Scan VIOS service only; exclude all other services and non-VIOS top-level directories'
+
+# Exclude VIOS automation/test packages from the scan.
+[[oss.excluded.directories]]
+paths = [
+    'services/vios/test',
+    'services/vios/test/bdd_tests',
+    'services/vios/test/gtests',
+]
+comment = 'Automation test packages'
+
+[[pulse-trufflehog.files]]
+file = "services/vios/src/framework/database/include/database_schema.h"
+  [[pulse-trufflehog.files.secrets]]
+  type = "Password"
+  values = [ "pas**************ORD\"" ]

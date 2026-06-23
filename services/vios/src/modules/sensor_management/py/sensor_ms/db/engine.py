@@ -17,7 +17,7 @@ def build_url(cfg: Config) -> str:
         host = cfg.centralize_remote_db_hostaddr or "localhost"
         port = cfg.centralize_remote_db_port or "5432"
         return (
-            f"postgresql+psycopg://{cfg.centralize_db_username}:"
+            f"postgresql+pg8000://{cfg.centralize_db_username}:"
             f"{cfg.centralize_remote_db_password}@{host}:{port}/{cfg.centralize_db_name}"
         )
     return f"sqlite:///{cfg.sqlite_db_path}"

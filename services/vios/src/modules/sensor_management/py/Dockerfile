@@ -20,11 +20,11 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Install the package and its dependencies (fastapi, uvicorn, sqlalchemy, psycopg, redis,
+# Install the package and its dependencies (fastapi, uvicorn, sqlalchemy, pg8000, redis,
 # cryptography, onvif-zeep-async) from pyproject into the venv.
 COPY pyproject.toml README.md ./
 COPY sensor_ms ./sensor_ms
-RUN pip install . && pip list | grep -Ei "fastapi|uvicorn|sqlalchemy|psycopg|redis|onvif|cryptography"
+RUN pip install . && pip list | grep -Ei "fastapi|uvicorn|sqlalchemy|pg8000|redis|onvif|cryptography"
 
 RUN useradd --create-home --uid 10001 sensor && chown -R sensor:sensor /app
 USER sensor

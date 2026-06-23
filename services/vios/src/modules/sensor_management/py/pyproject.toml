@@ -21,7 +21,7 @@ dependencies = [
     "redis>=5.0",              # notification backend: redis
     "paho-mqtt>=2.0",          # notification backend: mqtt
     "confluent-kafka>=2.3",    # notification backend: kafka (bundles librdkafka)
-    "psycopg[binary]>=3.1",    # PostgreSQL (centralized DB)
+    "pg8000>=1.30",            # PostgreSQL driver (centralized DB) -- pure-Python, BSD-3-Clause
 ]
 
 [project.optional-dependencies]
