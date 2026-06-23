@@ -15,7 +15,7 @@
 
 services:
   rtvi-server:
-    image: ${RTVI_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0}
+    image: ${RTVI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.06.2}
     shm_size: '16gb'
     runtime: nvidia
     user: "1001:1001"
@@ -35,7 +35,7 @@ services:
     environment:
       AZURE_OPENAI_API_KEY: "${AZURE_OPENAI_API_KEY:-}"
       AZURE_OPENAI_ENDPOINT: "${AZURE_OPENAI_ENDPOINT:-}"
-      MODEL_PATH: "${MODEL_PATH:-ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8}"
+      MODEL_PATH: "${MODEL_PATH:-ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final}"
       MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-}"
       NGC_API_KEY: "${NGC_API_KEY:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
@@ -49,7 +49,7 @@ services:
       VIA_VLM_ENDPOINT: "${VIA_VLM_ENDPOINT:-}"
       VIA_VLM_API_KEY: "${VIA_VLM_API_KEY:-}"
       VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
-      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-cosmos-reason2}"
+      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-cosmos-reason3}"
       NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
       NUM_GPUS: "${NUM_GPUS:-}"
       VLM_INPUT_WIDTH: "${VLM_INPUT_WIDTH:-}"

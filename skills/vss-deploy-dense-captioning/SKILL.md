@@ -53,7 +53,7 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 # Deploy and Use RT-VLM Dense Captioning (VSS 3.2)
 
 RT-VLM is NVIDIA's real-time vision-language microservice: decode video (file or
-RTSP), segment it into chunks, run a VLM (`cosmos-reason1`, `cosmos-reason2`, or any
+RTSP), segment it into chunks, run a VLM (`cosmos-reason1`, `cosmos-reason2`, `cosmos-reason3`, or any
 OpenAI-compatible model), stream dense captions back over SSE/HTTP, and publish
 captions, incident alerts, and errors to Kafka. Use this skill to deploy the
 standalone RT-VLM service when a full VSS profile is not already running, then call
@@ -130,8 +130,8 @@ Minimum standalone `.env` values:
 | `RTVI_VLM_PORT` | Always | Host API port mapped to container `8000` |
 | `HOST_IP` | Always | Kafka bootstrap host (`${HOST_IP}:9092`) |
 | `VSS_DATA_DIR` | Always | Required clip-storage bind mount |
-| `RTVI_VLM_MODEL_TO_USE` | Always for standalone | Backend selector; use `cosmos-reason2` for the default local model or `openai-compat` for a remote/sibling endpoint |
-| `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason 2 path: `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` |
+| `RTVI_VLM_MODEL_TO_USE` | Always for standalone | Backend selector; use `cosmos-reason3` for the default local model or `openai-compat` for a remote/sibling endpoint |
+| `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason3 Nano BF16 path: `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | `RTVI_VLM_ENDPOINT` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Remote/sibling OpenAI-compatible VLM endpoint |
 | `VLM_NAME` | `RTVI_VLM_MODEL_TO_USE=openai-compat` | Model/deployment name exposed by that endpoint |
 
@@ -216,8 +216,8 @@ Core paths for VSS 3.2 are:
 - `POST /v1/files` for multipart media upload; pass the returned file `id` into
   caption generation and delete the file when finished.
 - `POST /v1/generate_captions` for file or stream captioning. Use the exact
-  model id returned by `GET /v1/models`; aliases such as `cosmos-reason2` are
-  backend selectors, not request model ids.
+  model id returned by `GET /v1/models`; aliases such as `cosmos-reason2` or
+  `cosmos-reason3` are backend selectors, not request model ids.
 - `POST /v1/streams/add`, `GET /v1/streams/get-stream-info`, and
   `DELETE /v1/streams/delete/{stream_id}` for RTSP lifecycle. Parse stream ids
   from `results[0].id`.

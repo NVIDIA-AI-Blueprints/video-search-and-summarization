@@ -25,7 +25,7 @@ description: |
     - analytics             : VSS analytics umbrella (vss-behavior-analytics fusion_search for Search + vss-video-analytics-api)
     - agent                 : VSS agent umbrella (vss-agent; vss-va-mcp off by default)
     - vss-agent-ui          : VSS UI frontend
-    - nims                  : NVIDIA NIM models (Nemotron Nano 9B v2 LLM + Cosmos Reason2 8B VLM)
+    - nims                  : NVIDIA NIM models (Nemotron Nano 9B v2 LLM + Cosmos3 Reasoner VLM)
 
   Installation – from deploy/helm/developer-profiles, vendor subcharts (required):
     helm dependency build ./dev-profile-search

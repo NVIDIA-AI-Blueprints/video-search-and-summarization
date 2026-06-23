@@ -21,7 +21,7 @@
 
 profile: alerts
 mode: real-time
-vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 ngc:
   createSecrets: true
@@ -39,7 +39,7 @@ global:
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nvidia/cosmos-reason2-8b"
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 infra:
   sdrc:
@@ -53,7 +53,7 @@ agent:
     rtviVlmEnabled: true
     rtviVlmServiceName: "vss-rtvi-vlm"
     cosmosEmbedEnabled: false
-    vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+    vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 # No alert-bridge; do not set NEXT_PUBLIC_ALERTS_API_URL
 vss-agent-ui:
@@ -81,7 +81,7 @@ rtvi:
       - name: NVIDIA_VISIBLE_DEVICES
         value: "all"
       - name: VLM_MODEL_TO_USE
-        value: "cosmos-reason2"
+        value: "cosmos-reason3"
       - name: KAFKA_ENABLED
         value: "true"
       # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)

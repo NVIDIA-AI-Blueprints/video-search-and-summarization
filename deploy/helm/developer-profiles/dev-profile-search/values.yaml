@@ -16,7 +16,7 @@
 global:
   # Bare node IP, or full main hostname (e.g. vss-search.<ip>.nip.io) for install --set global.externalHost=…
   externalHost: ''
-  # Search: critic behavior in vss-agent configs (vss-agent / search config.yml). Cosmos NIM is toggled with nims.cosmos.enabled — keep the same boolean (defaults below match true).
+  # Search: critic behavior in vss-agent configs (vss-agent / search config.yml). Cosmos NIM is toggled with nims.cosmos3.enabled — keep the same boolean (defaults below match true).
   enableCritic: true
   ngcApiKey: ''
   imagePullPolicy: IfNotPresent
@@ -461,7 +461,7 @@ agent:
     replicas: 1
     rtviEmbedModelName: cosmos-embed1-448p-anomaly-detection
     llmName: nvidia/nvidia-nemotron-nano-9b-v2
-    vlmName: nvidia/cosmos-reason2-8b
+    vlmName: nvidia/cosmos3-nano-reasoner
     llmBaseUrl: ''
     vlmBaseUrl: ''
     evalLlmJudgeName: nvidia/nvidia-nemotron-nano-9b-v2
@@ -566,7 +566,7 @@ agent:
       - name: LLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $vlm := default "" (coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $vlm := default "" (coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos3-reasoner:8000" .Release.Name) "http://nvidia-cosmos3-reasoner:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
       - name: VST_EXTERNAL_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{- $vstPubExplicit := coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl }}{{ if $vstPubExplicit }}{{ $vstPubExplicit }}{{ else if and $useNip (ne $nipBase "") }}{{ $nipBase }}{{ else }}{{ coalesce $globalBase $vssAgentHttp }}{{ end }}'
       - name: VST_INTERNAL_URL
@@ -574,7 +574,7 @@ agent:
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos-reason2-8b") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos3-nano-reasoner") }}'
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
@@ -759,13 +759,17 @@ nims:
         effect: NoSchedule
     env:
       CUDA_VISIBLE_DEVICES: '0'
-  cosmos:
+  cosmos3:
     enabled: true
     image:
-      repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
-      tag: 1.6.0
+      repository: nvcr.io/nim/nvidia/cosmos3-reasoner
+      tag: '1.7'
       pullPolicy: IfNotPresent
     replicas: 1
+    nimModelSize: 'nano'
+    # Empty so the NIM uses its built-in manifest; BF16 pinned via nimModelProfile.
+    nimModelName: ''
+    nimModelProfile: 'e55fdb44f41441032f546360d0dcf61caa8b39fa2852d31124c03953d01e1cb3'
     resources:
       limits:
         nvidia.com/gpu: '1'
@@ -775,6 +779,7 @@ nims:
       pvc:
         storageClass: ''
         size: 200Gi
+      sharedMemorySizeLimit: 32Gi
     service:
       type: ClusterIP
       port: 8000
@@ -786,5 +791,5 @@ nims:
     env:
       CUDA_VISIBLE_DEVICES: '1'
       NIM_KVCACHE_PERCENT: '0.75'
-      NIM_MAX_MODEL_LEN: '16384'
-      NIM_LOW_MEMORY_MODE: 'true'
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: '1'
+      NIM_DELETE_LAST_FRAMES: '1'

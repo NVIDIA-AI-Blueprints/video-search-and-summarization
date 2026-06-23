@@ -21,7 +21,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | RT-CV (DeepStream perception) | `vss-rtvi-cv` | — (host net) | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
 | RT-Embed (Cosmos Embed1) | `vss-rtvi-embed` | 8017 | Video + text embedding generation |
 | LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. |
-| VLM | depends on placement; default `nvidia-cosmos-reason2-8b` (NIM) or `vss-rtvi-vlm` (RT-VLM) | 30082 (NIM) / 8018 (RT-VLM) | **Only if Critique enabled** — see [VLM placement](#vlm-placement) |
+| VLM | depends on placement; default `nvidia-cosmos3-reasoner` (NIM) or `vss-rtvi-vlm` (RT-VLM) | 30082 (NIM) / 8018 (RT-VLM) | **Only if Critique enabled** — see [VLM placement](#vlm-placement) |
 | VSS Agent | `vss-agent` | 8000 | Orchestrates tool calls, embed search, critique |
 | VSS Agent UI | `vss-agent-ui` | 3000 | Search tab |
 | VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest |
@@ -36,7 +36,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
 | Embed (RT-Embed) | `nvidia/Cosmos-Embed1-448p-anomaly-detection` | — | RT-Embed (port 8017), `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` |
 | Perception (RT-CV) | siglip2 v1.1 + RTDETR (warehouse) | — | RT-CV (DeepStream pipeline) |
-| VLM (only when Critique on) | `nvidia/cosmos-reason2-8b` (default) | `cosmos-reason2-8b` | NIM or RT-VLM — see [VLM placement](#vlm-placement) |
+| VLM (only when Critique on) | `nvidia/cosmos3-nano-reasoner` (default) | `cosmos3-reasoner` | NIM or RT-VLM — see [VLM placement](#vlm-placement) |
 
 ## VLM placement
 
@@ -132,7 +132,7 @@ Sizing notes:
 
 - **GPU 0 (RT-CV) — full GPU.** With no co-resident, RT-CV's DeepStream pipeline runs `NUM_STREAMS=16` comfortably on any supported GPU (H100, RTX PRO 6000, L40S). The upstream perf guide doesn't publish a single GB number for RT-CV; the [RT-Embed max-streams table](#rt-embed-sizing) is for the embedding service, not perception. If you push beyond 16 streams, watch GPU 0 utilization with `nvidia-smi -l 5` and back off if it saturates.
 - **GPU 1 (LLM + RT-Embed)** — for the default Cosmos-Embed1 (Triton/ONNX), no util override is needed. The LLM keeps a normal `NIM_KVCACHE_PERCENT` per the per-GPU table in [Worked example](#worked-example--llm--rt-embed-on-gpu-1). Only override RT-Embed's `VLLM_GPU_MEMORY_UTILIZATION` if you've switched to `VLM_MODEL_TO_USE=vllm-compatible` — see [RT-Embed sizing](#rt-embed-sizing) below.
-- **GPU 2 (VLM) — dedicated.** Use the relevant compose under `nim/<vlm-slug>/` per [`base.md` § Swapping a different LLM/VLM](base.md#swapping-a-different-llmvlm). For default `cosmos-reason2-8b` at FP16, NIM defaults are fine.
+- **GPU 2 (VLM) — dedicated.** Use the relevant compose under `nim/<vlm-slug>/` per [`base.md` § Swapping a different LLM/VLM](base.md#swapping-a-different-llmvlm). For default `cosmos3-reasoner` (nano FP8), NIM defaults are fine.
 
 ## Sizing — RT-Embed and RT-CV knobs
 
