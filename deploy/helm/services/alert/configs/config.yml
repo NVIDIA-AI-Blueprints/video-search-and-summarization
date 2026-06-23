@@ -90,7 +90,7 @@ vlm:
   max_tokens: 4096
   request_timeout: 5
   vlm_media_source_using_base64: false
-  response_format: "auto"
+  response_format: "cosmos-reason"
   use_vlm_media_defaults: false
   temperature: 0.6
   do_resize: true
