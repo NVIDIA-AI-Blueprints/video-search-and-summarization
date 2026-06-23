@@ -55,7 +55,7 @@ function_groups:
 functions:
   video_understanding:
     _type: video_understanding
-    vlm_name: vlm
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
     max_frames: 30
     min_pixels: 3136
     max_pixels: 12845056
@@ -108,7 +108,7 @@ functions:
     template_path: ${VSS_AGENT_TEMPLATE_PATH}
     template_name: ${VSS_AGENT_TEMPLATE_NAME}
     agent_version: ${VSS_AGENT_VERSION}
-    llm_name: llm
+    llm_name: ${LLM_MODEL_TYPE:-nim}_llm
     video_understanding_tool: video_understanding
     picture_url_tool: vst_picture_url
     video_url_tool: vst_video_url
@@ -200,7 +200,7 @@ llms:
 
 workflow:
   _type: top_agent
-  llm_name: llm
+  llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   log_level: INFO
   max_retries: 3
   max_iterations: 15
@@ -212,6 +212,8 @@ workflow:
   - video_analytics_mcp.video_analytics__get_sensor_ids
   - video_analytics_mcp.video_analytics__get_places
   - vst_picture_url
+  - rtvi_vlm_alert
+  - rtvi_prompt_gen
   subagent_names:
   - report_agent
   - multi_report_agent
