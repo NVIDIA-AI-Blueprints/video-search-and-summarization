@@ -37,7 +37,7 @@ global:
 # ---------------------------------------------------------------------------
 # GPU selection
 # Sets which entry in gpuProfiles is used when rendering the nim-env ConfigMaps.
-# Valid values: H100 | L40S | RTXPRO6000BW
+# Valid values: H100 | L40S | RTXPRO6000BW | OTHER
 # ---------------------------------------------------------------------------
 gpuType: "H100"
 
@@ -88,6 +88,7 @@ gpuProfiles:
       NIM_MAX_MODEL_LEN: "32768"
       NIM_MAX_NUM_SEQS: "4"
       MAX_JOBS: "4"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
   # Matches live nim-env ConfigMaps when gpuType=RTXPRO6000BW (e.g. vss-summarization namespace).
@@ -109,6 +110,15 @@ gpuProfiles:
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
+
+  # Generic fallback for GPUs outside the validated list. Mirrors the Docker
+  # hw-OTHER.env profiles exactly: no GPU tuning at all — the NIM applies its own
+  # defaults, since we have no validated numbers for unknown GPUs. The rendered
+  # ConfigMaps are intentionally empty.
+  OTHER:
+    nemotron: {}
+    cosmos: {}
+    cosmos3: {}
 
 # ---------------------------------------------------------------------------
 # Nemotron Nano 9B v2 – LLM NIM (alias: nemotron)
@@ -255,6 +265,15 @@ cosmos3:
 
   # Selects the model variant: nano (default) or super.
   nimModelSize: "nano"
+
+  # Optional NGC model name / local-weights override. Empty by default so the NIM
+  # uses its built-in manifest and selects the profile pinned by nimModelProfile.
+  nimModelName: ""
+
+  # Pins the BF16 (precision: bf16) profile from the NIM's built-in manifest by
+  # ID. GPU-agnostic — the same hash applies to H100 / L40S / RTXPRO6000BW.
+  # Re-derive via `list-model-profiles` if the image tag changes.
+  nimModelProfile: "e55fdb44f41441032f546360d0dcf61caa8b39fa2852d31124c03953d01e1cb3"
 
   # Imported from <cosmos3-fullname>-nim-env ConfigMap into NIMService.spec.env.
   # Missing keys are ignored (optional: true).

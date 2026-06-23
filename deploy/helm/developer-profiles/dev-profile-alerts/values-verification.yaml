@@ -22,7 +22,7 @@
 
 profile: alerts
 mode: verification
-vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 ngc:
   createSecrets: true
@@ -39,7 +39,7 @@ global:
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nvidia/cosmos-reason2-8b"
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 # Shared umbrella helm/services/nims — override gpuType here (see dev-profile-alerts/values.yaml for full nims.* defaults).
 nims:
@@ -55,7 +55,7 @@ agent:
   vss-agent:
     rtviVlmEnabled: true
     cosmosEmbedEnabled: false
-    vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+    vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 vssIngress:
   enabled: true
@@ -86,7 +86,7 @@ rtvi:
       - name: NVIDIA_VISIBLE_DEVICES
         value: "all"
       - name: VLM_MODEL_TO_USE
-        value: "cosmos-reason2"
+        value: "cosmos-reason3"
       - name: KAFKA_ENABLED
         value: "true"
       # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)

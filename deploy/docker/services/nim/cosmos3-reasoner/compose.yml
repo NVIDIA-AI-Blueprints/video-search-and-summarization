@@ -31,7 +31,7 @@ services:
      - ${VLM_PORT:-30082}:8000
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
-      NIM_MODEL_NAME: "${VLM_CUSTOM_WEIGHTS:-}"
+      NIM_MODEL_NAME: "${VLM_NIM_MODEL_NAME:-${VLM_CUSTOM_WEIGHTS:-}}"
       NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
       VLM_NIM_KVCACHE_PERCENT: "${VLM_NIM_KVCACHE_PERCENT}"
     env_file:
@@ -72,7 +72,7 @@ services:
      - ${VLM_PORT:-30082}:8000
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
-      NIM_MODEL_NAME: "${VLM_CUSTOM_WEIGHTS:-}"
+      NIM_MODEL_NAME: "${VLM_NIM_MODEL_NAME:-${VLM_CUSTOM_WEIGHTS:-}}"
       NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
     env_file:
       - ${VSS_APPS_DIR}/services/nim/cosmos3-reasoner/hw-${HARDWARE_PROFILE}-shared.env

@@ -40,6 +40,14 @@ spec:
   env:
     - name: NIM_MODEL_SIZE
       value: {{ .Values.nimModelSize | default "nano" | quote }}
+    {{- if .Values.nimModelName }}
+    - name: NIM_MODEL_NAME
+      value: {{ .Values.nimModelName | quote }}
+    {{- end }}
+    {{- if .Values.nimModelProfile }}
+    - name: NIM_MODEL_PROFILE
+      value: {{ .Values.nimModelProfile | quote }}
+    {{- end }}
     {{- range $key := (.Values.envConfigMapKeys | default (list "NIM_KVCACHE_PERCENT" "NIM_DISABLE_MM_PREPROCESSOR_CACHE")) }}
     - name: {{ $key }}
       valueFrom:

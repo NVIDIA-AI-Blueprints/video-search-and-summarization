@@ -3,8 +3,8 @@
 ## 1. Overview
 
 **Service**: `rtvi-vlm` (container name `vss-rtvi-vlm`)
-**Image (default multiarch: x86 / Jetson-Tegra / non-Spark non-SBSA)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0`
-**Image (Spark / GB10 / SBSA / Grace)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.0-sbsa`
+**Image (default multiarch: x86 / Jetson-Tegra / non-Spark non-SBSA)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-26.06.2`
+**Image (Spark / GB10 / SBSA / Grace)**: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-26.06.2-sbsa`
 **Primary port**: `${RTVI_VLM_PORT}` → container `8000` (FastAPI REST, `/v1`)
 **Validated GPUs**: H100 · RTX PRO 6000 Blackwell · L40S · DGX SPARK · IGX Thor · AGX Thor
 
@@ -167,10 +167,10 @@ sudo -n chown 1001:1001 ./rtvi-logs || {
 | `VSS_DATA_DIR` | **YES (effectively)** | — | Interpolated into VST clip-storage bind mount; no fallback |
 | `NGC_CLI_API_KEY` | **YES for documented pull / local NGC model path** | — | `docker login nvcr.io`, image pull, and NGC model/artifact download |
 | `RTVI_VLM_API_KEY` | optional / backend-dependent | `${NGC_CLI_API_KEY}` fallback in compose | RT-VLM bearer auth or non-NGC backend auth; does not replace `NGC_CLI_API_KEY` for registry pulls |
-| `RTVI_VLM_MODEL_TO_USE` | effectively required | `openai-compat` | `cosmos-reason1` / `cosmos-reason2` / `openai-compat` / `custom` |
+| `RTVI_VLM_MODEL_TO_USE` | effectively required | `openai-compat` | `cosmos-reason1` / `cosmos-reason2` / `cosmos-reason3` / `openai-compat` / `custom` |
 | `RTVI_VLM_ENDPOINT` | if `openai-compat` | — | Remote/sibling OpenAI-compatible VLM endpoint |
 | `VLM_NAME` | if `openai-compat` | — | Model name exposed by the remote/sibling VLM endpoint |
-| `RTVI_VLM_MODEL_PATH` | conditional | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Needed when not `openai-compat`. Keep the source-backed `:hf-1208` default unless the deployment source explicitly overrides it. |
+| `RTVI_VLM_MODEL_PATH` | conditional | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Needed when not `openai-compat`. Keep the source-backed Cosmos3 Nano BF16 default unless the deployment source explicitly overrides it. |
 | `HF_TOKEN` | only for gated HF models | — | Hugging Face token for gated Qwen3-VL or other HF downloads |
 | `NVIDIA_API_KEY` | backend-dependent | `NOAPIKEYSET` | Generic NVIDIA API token for non-NGC backends |
 | `OPENAI_API_KEY` | backend-dependent | `NOAPIKEYSET` | OpenAI-compatible backend token |
@@ -281,15 +281,15 @@ OPENAI_API_KEY=sk-...                                 # some code paths read thi
 
 ---
 
-### Option C — Self-hosted NGC NIM (cosmos-reason1 or cosmos-reason2)
+### Option C — Self-hosted NGC NIM (Cosmos Reason models)
 
 Model is downloaded and served by vLLM inside the container. Requires ~16–20 GB
 VRAM for the 8B models.
 
 ```bash
-# .env for cosmos-reason2 (source-backed default used by VSS alerts/LVS):
-RTVI_VLM_MODEL_TO_USE=cosmos-reason2
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+# .env for Cosmos Reason3 Nano BF16 (source-backed default used by VSS alerts/LVS):
+RTVI_VLM_MODEL_TO_USE=cosmos-reason3
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 
 # .env for cosmos-reason1:
@@ -326,10 +326,10 @@ but are not officially validated.
 
 ### Option E — Custom NGC artifact or local vLLM-compatible model
 
-For a custom NGC artifact, use `cosmos-reason2` (same NGC NIM loader):
+For a custom NGC artifact, use `cosmos-reason3` with the NGC model path:
 
 ```bash
-RTVI_VLM_MODEL_TO_USE=cosmos-reason2
+RTVI_VLM_MODEL_TO_USE=cosmos-reason3
 RTVI_VLM_MODEL_PATH=ngc:org/team/model:version
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 ```
@@ -482,8 +482,8 @@ VSS_DATA_DIR=${VSS_DATA_DIR}
 RTVI_VLM_IMAGE_TAG=${VLM_TAG}
 RT_VLM_DEVICE_ID=0
 # Model config (choose one option from §11):
-RTVI_VLM_MODEL_TO_USE=cosmos-reason2
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+RTVI_VLM_MODEL_TO_USE=cosmos-reason3
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 EOF
 chmod 600 .env
 grep -qxF .env .gitignore 2>/dev/null || printf '.env\n' >> .gitignore
@@ -701,8 +701,8 @@ docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
   deliberately more lenient for model-download-on-first-boot. Not a bug.
 - **🟢 Source-backed MODEL_PATH default**: compose, `vss-deploy-profile`, and
   the default alerts/LVS paths use
-  `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208`. Keep that default for standalone
-  local Cosmos Reason 2 validation unless the source profile explicitly changes
+  `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`. Keep that default for standalone
+  local Cosmos Reason3 validation unless the source profile explicitly changes
   it. RTX PRO 4500 Blackwell uses the same default with tighter sizing
   caps for the smaller VRAM target. Model tags are not interchangeable; swapping tags on a live
   cache volume can trigger a `torch_aot_compile` / `_Missing has no attribute
@@ -740,7 +740,7 @@ docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
   `RTVI_VLLM_*` and rewrite to canonical names inside the container.
 - **`VLM_MODEL_TO_USE=openai-compat` by default**: this stack expects a sibling
   NIM on the same network, not a self-hosted vLLM. Standalone operation
-  requires `RTVI_VLM_ENDPOINT` or switching to `cosmos-reason2` + `MODEL_PATH`.
+  requires `RTVI_VLM_ENDPOINT` or switching to `cosmos-reason3` + `MODEL_PATH`.
 - **Parser volume-split warnings**: the compose's `${VAR:-default}:path` mount
   syntax trips the pyyaml-fallback parser's colon-splitting heuristic. Re-read
   the raw compose (§6 cites the raw text). `up` is unaffected.
