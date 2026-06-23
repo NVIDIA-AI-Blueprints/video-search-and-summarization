@@ -26,6 +26,10 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
     container_name: vss-behavior-analytics
+    networks:
+      default:
+        aliases:
+          - vss-behavior-analytics
     command: python3 apps/analytics/main_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
     depends_on:
       broker-health-check:
@@ -239,6 +243,10 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_redis_2d"]
     container_name: vss-video-analytics-api
+    networks:
+      default:
+        aliases:
+          - vss-video-analytics-api
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
