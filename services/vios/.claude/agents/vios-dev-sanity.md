@@ -354,19 +354,38 @@ Environment resolved:
 
 > Example prompt: "No local NvStreamer was detected. Please provide a NvStreamer IP/host to use for the sanity run, and I'll use http://<ip>:31000."
 
-**NvStreamer stream-count check (at start):** Once the NvStreamer URL is resolved, query its stream list and count the available streams. Several tests need at least two streams (e.g. Video Wall requires multiple sensors), and the H265 codec test needs at least one H265 stream. If fewer than two streams are present, **ask the user to add more streams before continuing**, and tell them to keep a mix of H264 and H265 streams — this is a start-of-run ask, not a mid-run one.
+**NvStreamer stream check (at start):** Once the NvStreamer URL is resolved, query its stream list and check both the total stream count and the codecs present. Several tests need at least two streams (e.g. Video Wall requires multiple sensors), and the H265 codec test needs at least one H265 stream. If fewer than two streams are present, or none of them is H265, **ask the user to add the missing streams before continuing** (keep a mix of H264 and H265) — this is a start-of-run ask, not a mid-run one.
 
 ```bash
-NVSTREAMER_STREAM_COUNT=$(curl -s "$NVSTREAMER_URL/api/v1/sensor/streams" 2>/dev/null \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); a=d if isinstance(d,list) else d.get('streams',d.get('sensors',[])); print(len(a))" 2>/dev/null)
-echo "NvStreamer streams: ${NVSTREAMER_STREAM_COUNT:-0}"
+# Count total streams AND H265 streams. The codec field name varies across NvStreamer
+# builds, so check the common keys and fall back to a substring scan of each stream's JSON.
+NVSTREAMER_COUNTS=$(curl -s "$NVSTREAMER_URL/api/v1/sensor/streams" 2>/dev/null | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("0 0"); sys.exit(0)
+streams = d if isinstance(d, list) else d.get("streams", d.get("sensors", []))
+def is_h265(s):
+    if isinstance(s, dict):
+        for k in ("codec", "videoCodec", "encoding", "encodeType", "type", "format"):
+            v = str(s.get(k, "")).lower()
+            if "265" in v or "hevc" in v:
+                return True
+    return "h265" in json.dumps(s).lower() or "hevc" in json.dumps(s).lower()
+print(len(streams), sum(1 for s in streams if is_h265(s)))
+' 2>/dev/null)
+NVSTREAMER_STREAM_COUNT=${NVSTREAMER_COUNTS%% *}
+NVSTREAMER_H265_COUNT=${NVSTREAMER_COUNTS##* }
+: "${NVSTREAMER_STREAM_COUNT:=0}" "${NVSTREAMER_H265_COUNT:=0}"
+echo "NvStreamer streams: ${NVSTREAMER_STREAM_COUNT} (H265: ${NVSTREAMER_H265_COUNT})"
 ```
 
-If `NVSTREAMER_STREAM_COUNT` is less than 2, prompt the user, then re-check after they confirm:
+If `NVSTREAMER_STREAM_COUNT` is less than 2 **or** `NVSTREAMER_H265_COUNT` is 0, prompt the user, then re-check after they confirm:
 
-> Example prompt: "NvStreamer currently has <N> stream(s). The sanity suite needs at least two (Video Wall and multi-sensor tests require multiple streams), with a mix of H264 and H265 streams (the H265 codec test needs at least one H265 stream). Please add more streams to NvStreamer — e.g. upload files at http://<nvstreamer-host>:31000/#/media-upload — then reply when ready and I'll re-check."
+> Example prompt: "NvStreamer currently has <N> stream(s), <H> of them H265. The sanity suite needs at least two streams (Video Wall and multi-sensor tests require multiple streams) **and at least one H265 stream** (the H265 codec regression test needs an H265 source). Please add the missing streams to NvStreamer — e.g. upload files at http://<nvstreamer-host>:31000/#/media-upload — then reply when ready and I'll re-check."
 
-Do not proceed past the preflight until at least two streams are available.
+Do not proceed past the preflight until at least two streams are available and at least one of them is H265. If the user cannot provide an H265 stream, mark the H265 codec test BLOCKED (not FAIL) and note the environment gap.
 
 If a required value cannot be resolved and no running deployment exists to probe, either start one via `vios-deployment` (Step 3a) or — if that is not possible — **ask the user for the missing value(s) in a single consolidated question at the start, then continue**. Do not invent a value and do not silently skip.
 
