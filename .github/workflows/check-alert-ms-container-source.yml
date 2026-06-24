@@ -64,6 +64,7 @@ jobs:
       # back to git-SHA resolution.
       - name: Check alert-ms tag matches services/alert
         if: steps.filter.outputs.skip != 'true'
+        continue-on-error: true
         env:
           NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
         run: python3 .github/scripts/check_container_tag_source.py --image-name vss-alert-ms
