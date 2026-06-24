@@ -31,7 +31,7 @@ vst_config:
   segment_anchor: "end"          # enable end-anchored window
   segment_duration_seconds: 10   # M (already used today)
   add_overlay: false
-  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  # Storage service configuration (separate base URL and endpoint)
   storage:
     base_url: "http://localhost:30888"
     # Endpoint to fetch media file path by VST id
