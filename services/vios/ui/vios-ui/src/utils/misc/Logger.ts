@@ -45,7 +45,10 @@ const LEVEL_NAMES: Record<LogLevel, string> = {
 const resolveInitialLevel = (): LogLevel => {
     try {
         const override = typeof localStorage !== 'undefined' ? localStorage.getItem('LOG_LEVEL') : null;
-        if (override && override.toUpperCase() in LogLevel) {
+        // Numeric enums emit reverse mappings ('0' -> 'VERBOSE'), so guard against numeric keys:
+        // only accept named levels, otherwise LogLevel['0'] would return the string 'VERBOSE'.
+        const nameKeys = Object.keys(LogLevel).filter((k) => isNaN(Number(k)));
+        if (override && nameKeys.includes(override.toUpperCase())) {
             return LogLevel[override.toUpperCase() as keyof typeof LogLevel];
         }
     } catch {

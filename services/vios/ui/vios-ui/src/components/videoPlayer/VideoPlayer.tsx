@@ -293,12 +293,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     // Callback for handling WebRTC issues
     const onWebRTCIssueDetected = useCallback((issue: WebRTCIssue) => {
         LOG.info('WebRTC Issue detected:', issue);
-        LOG.info('WebRTC Issue:', issue);
     }, []);
 
     // Callback for handling WebRTC network scores
     const onWebRTCNetworkScoresUpdated = useCallback((scores: WebRTCNetworkScores) => {
-        LOG.info('WebRTC Network Scores:', scores);
         LOG.info('WebRTC Network Scores:', scores);
     }, []);
 
@@ -1932,6 +1930,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                     ref={videoWrapperRef}
                                     sx={muiStyles.videoWrapper}
                                     onMouseMove={showControls}
+                                    onTouchStart={showControls}
                                     onMouseLeave={() => {
                                         // Only auto-hide on leave when nothing is open; never hide the
                                         // cursor/controls while a dialog or menu is in use.
@@ -1959,6 +1958,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                         <Box
                                             onMouseMove={showControls}
                                             onMouseEnter={showControls}
+                                            onTouchStart={showControls}
                                             sx={{
                                                 position: 'absolute',
                                                 bottom: 0,
