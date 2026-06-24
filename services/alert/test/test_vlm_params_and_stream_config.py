@@ -55,11 +55,10 @@ class TestVlmParams:
             num_frames=20,
             enable_sampling=True,
             sampling_fps=8,
-            cr1_optimization=False,
             max_retries=3,
         )
         dumped = vp.model_dump(exclude_none=True)
-        assert len(dumped) == 13
+        assert len(dumped) == 12
 
 
 class TestAlertTypeConfigVlmParams:

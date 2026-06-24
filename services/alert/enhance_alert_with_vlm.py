@@ -97,7 +97,6 @@ from utils.logging_config import setup_logging, get_logger, enforce_log_level
 from utils.schema_util import protobuf_anomalies_to_json_string_list
 from vlm.vlm_client import VLMClient, AsyncVLMRuntime
 from vlm.warmup import warmup_vlm, WARMUP_VIDEO
-from vss import VSSHandler
 from metrics.recorder import (
     inc_events_after_dedup,
     inc_events_dropped,
@@ -187,18 +186,6 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 self.prompt_manager, "alert_config_store", None
             ),
         )
-
-        # Initialize VSS handler only if enabled
-        if self.config.get('vss_agent', {}).get('enabled', False):
-            logger.info("VSS is enabled, initializing VSS handler...")
-            self.vss_handler = VSSHandler(self.config)
-            # Initialize VSS handler (will try up to 3 times)
-            logger.info("Initializing VSS handler - will retry up to 3 times...")
-            self.vss_handler.initialize()
-            logger.info("VSS handler initialization completed")
-        else:
-            logger.info("VSS is disabled, skipping VSS handler initialization")
-            self.vss_handler = None
 
         self.num_workers = self.config.get('alert_agent', {}).get(
             'num_workers', 1)  # Default to sequential
@@ -709,28 +696,21 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                                 #     len(sub_batch_messages),
                                 #     str(batch_worker_id),
                                 # )
-                                if not self.config.get("vss_agent", {}).get("enabled", False):
-                                    batch_kind = (batch.get("kind") or "").lower()
-                                    batch_message_type = (
-                                        "Incident"
-                                        if batch_kind == "incident"
-                                        else "Behavior"
-                                    )
-                                    future: Future = executor.submit(
-                                        self.process_batch_vlm,
-                                        batch_worker_id,
-                                        sub_batch_messages,
-                                        batch_message_type,
-                                        batch.get("kafka_consumed_at"),
-                                        batch.get("kafka_published_at"),
-                                        batch_worker_assigned_at,
-                                    )
-                                else:
-                                    future: Future = executor.submit(
-                                        self.process_batch_vss,
-                                        batch_worker_id,
-                                        sub_batch_messages,
-                                    )
+                                batch_kind = (batch.get("kind") or "").lower()
+                                batch_message_type = (
+                                    "Incident"
+                                    if batch_kind == "incident"
+                                    else "Behavior"
+                                )
+                                future: Future = executor.submit(
+                                    self.process_batch_vlm,
+                                    batch_worker_id,
+                                    sub_batch_messages,
+                                    batch_message_type,
+                                    batch.get("kafka_consumed_at"),
+                                    batch.get("kafka_published_at"),
+                                    batch_worker_assigned_at,
+                                )
 
                                 # When the sub-batch is done, release the worker slot back to the pool
                                 future.add_done_callback(
@@ -797,8 +777,6 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 self._webhook_forwarder.close()
             if self._openclaw_notifier is not None:
                 self._openclaw_notifier.close()
-            if self.vss_handler:
-                self.vss_handler.close()
             self.sink.close()
             self.source.close()
             logger.info("Resources closed successfully")
@@ -2114,164 +2092,6 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         # can still see the event class the same way
         # ``EVENTS_DROPPED{reason="unknown"}`` works for filter drops.
         return "vst_unknown"
-
-    def process_batch_vss(self, worker_id, messages):
-        """
-        Processes a batch of messages from the event bridge source.
-        :param worker_id: ID of the worker processing the batch.
-        :param messages: List of simple JSON messages.
-        """
-        try:
-            logger.info("Processing batch", extra={
-                "worker_id": worker_id,
-                "batch_size": len(messages)
-            })
-
-            if not messages:
-                logger.debug("Empty batch received", extra={"worker_id": worker_id})
-                return
-
-            # Debug logging for received messages with full payload details
-            for i, message in enumerate(messages):
-                if isinstance(message, str):
-                    logger.debug(f"Processing Alert message in JSON {i+1}/{len(messages)} - Worker {worker_id} - Payload: {message}")
-                else:
-                    logger.debug(f"Processing Alert message in dict {i+1}/{len(messages)} - Worker {worker_id} - Payload: {json.dumps(message, indent=2)}")
-
-           # Validate and build AlertRequestEntity objects (EntityValidator now handles JSON parsing)
-            alert_entities = self.entity_validator.validate_and_build(messages)
-            logger.debug("AlertRequestEntity objects built from messages", extra={
-                "worker_id": worker_id,
-                "entity_count": len(alert_entities)
-            })
-
-            # Resolve media file path via VST (when vst_id is present)
-            if alert_entities:
-                alert_entities = [self._resolve_media_path_if_needed(entity) for entity in alert_entities]
-
-            # Handle validation failures - create and send error responses
-            if len(alert_entities) != len(messages):
-                failed_count = len(messages) - len(alert_entities)
-                logger.info(f"Creating error responses for {failed_count} validation failures", extra={
-                    "worker_id": worker_id,
-                    "failed_count": failed_count,
-                    "total_messages": len(messages)
-                })
-
-                # Create error responses for failed validation messages
-                error_responses = self._create_validation_error_responses(messages, alert_entities)
-
-                # Send error responses to Redis
-                if error_responses:
-                    self._send_error_responses(error_responses, worker_id)
-
-            if not alert_entities:
-                logger.debug("No entities to process after building", extra={"worker_id": worker_id})
-                return
-
-            # Process AlertRequestEntity objects through VSS
-            entities_with_vss_results = self.vss_handler.process_video_batch(alert_entities)
-
-            # Debug: Log VSS Handler results before ResponseBuilder
-            logger.debug(f"VSS Handler completed - Worker {worker_id}: {len(entities_with_vss_results)} VSS results → ResponseBuilder")
-
-            for i, vss_result in enumerate(entities_with_vss_results):
-                if isinstance(vss_result, dict) and 'raw_vss_result' in vss_result:
-                    raw_result = vss_result['raw_vss_result']
-                    original_entity = vss_result['original_entity']
-                    entity_id = original_entity.id if hasattr(original_entity, 'id') else 'N/A'
-                    logger.debug(f"VSS Result {i} for {entity_id}: Success={raw_result.get('success', False)}, Evaluations={len(raw_result.get('evaluations', []))}, Error={raw_result.get('error') is not None}")
-
-            # Build responses using ResponseBuilder - clean single method call
-            enhanced_anomalies = self.response_builder.build_redis_responses_from_vss_results(entities_with_vss_results)
-
-            # Debug: Log ResponseBuilder results
-            logger.debug(f"ResponseBuilder completed - Worker {worker_id}: {len(entities_with_vss_results)} VSS results → {len(enhanced_anomalies)} Redis anomalies")
-
-            # Publish enhanced anomalies using new sink interface
-            incidents = []
-            for i, anomaly in enumerate(enhanced_anomalies):
-                from mdx.stream_message import StreamMessage
-
-                # Debug: Log the JSON structure being sent to Redis
-                anomaly_json = json.dumps(anomaly)
-                logger.debug(f"Creating StreamMessage for Redis - Worker {worker_id}, Event {anomaly.get('id', 'N/A')}, Size: {len(anomaly_json)} bytes")
-
-                incident_message = StreamMessage.from_json_with_schema(
-                    anomaly_json, 'response_schema.yaml'
-                )
-                incidents.append(incident_message)
-
-            # Debug: Log Redis write operation
-            logger.debug(f"Writing {len(incidents)} incidents to Redis stream - Worker {worker_id}")
-
-            # Debug: Show complete JSON being written to Redis (for debugging)
-            if enhanced_anomalies:
-                complete_json = json.dumps(enhanced_anomalies[0], indent=2)
-                logger.debug(f"COMPLETE JSON being written to Redis for {enhanced_anomalies[0].get('id', 'N/A')}:")
-                logger.debug(complete_json)
-
-            self.sink.write(incidents)  # Fixed: Send all processed alerts to enhanced stream
-
-            logger.info("Batch processing completed", extra={
-                "worker_id": worker_id,
-                "published_count": len(incidents)
-            })
-
-            # Debug: Log successful Redis write with details
-            total_json_bytes = sum(len(json.dumps(anomaly)) for anomaly in enhanced_anomalies)
-            logger.debug(f"Successfully wrote to Redis stream - Worker {worker_id}: {len(incidents)} incidents, {total_json_bytes} total bytes")
-
-        except Exception as e:
-            logger.error("Error processing batch", extra={
-                "worker_id": worker_id,
-                "error": str(e),
-                "error_type": type(e).__name__
-            }, exc_info=True)
-
-    def _resolve_media_path_if_needed(self, entity):
-        """If entity has vst_id, resolve media path from VST and update video_path.
-        Returns the original entity on failure or when vst_id is absent.
-        """
-        try:
-            vst_id = getattr(entity, 'vst_id', None)
-            if not vst_id:
-                return entity
-
-            # Lazy init VST handler
-            if self._vst_handler is None:
-                try:
-                    from vst.its_vst_handler import ITS_VST_HANDLER
-                    self._vst_handler = ITS_VST_HANDLER(self.config)
-                except Exception as init_err:
-                    logger.error("Failed to initialize VST handler", extra={
-                        "eventId": getattr(entity, 'id', 'N/A'),
-                        "error": str(init_err)
-                    }, exc_info=True)
-                    return entity
-
-            resolved_path = self._vst_handler.get_media_file_path_by_vst_id(vst_id)
-            if not resolved_path:
-                logger.warning("VST media path not resolved; using original videoPath", extra={
-                    "eventId": getattr(entity, 'id', 'N/A'),
-                    "vst_id": vst_id
-                })
-                return entity
-
-            # Update entity immutably
-            new_entity = entity.model_copy(update={'video_path': resolved_path})
-            logger.info(
-                f"VST media path merged into entity: eventId={getattr(entity, 'id', 'N/A')}, "
-                f"vst_id={vst_id}, videoPath={resolved_path}"
-            )
-            return new_entity
-
-        except Exception as e:
-            logger.error("Error resolving VST media path", extra={
-                "eventId": getattr(entity, 'id', 'N/A'),
-                "error": str(e)
-            }, exc_info=True)
-            return entity
 
     def _create_validation_error_responses(self, original_messages, validated_entities):
         """

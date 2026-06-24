@@ -133,7 +133,6 @@ The system validates that all required sections and parameters are present:
 ```yaml
 # These sections MUST exist:
 vlm_params: { ... }      # ALL VLM parameters required
-vss_params: { ... }      # ALL VSS parameters required  
 request_defaults: { ... } # Request defaults required
 ```
 
@@ -150,7 +149,7 @@ Clear error messages help identify missing or invalid configuration:
 
 ```
 RuntimeError: External configuration is required but failed to load: 
-Configuration missing required sections: ['vss_params']
+Configuration missing required sections: ['vlm_params']
 Ensure schemas/config/defaults.yaml exists and is valid.
 ```
 
@@ -169,7 +168,6 @@ try:
     config = loader.load_defaults()
     print("Configuration loaded successfully")
     print(f"VLM params: {len(config.vlm_params)} parameters")
-    print(f"VSS params: {len(config.vss_params)} parameters")
 except Exception as e:
     print(f"Configuration error: {e}")
 ```
