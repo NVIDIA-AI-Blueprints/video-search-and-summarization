@@ -1201,6 +1201,15 @@ for _env in \
   fi
 done
 
+# Search vss-agent config validates RTVI_CV_ENDPOINT at startup; compose must export it.
+if grep -q "RTVI_CV_ENDPOINT: \${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:\${RTVI_CV_PORT:-9000}}" "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
+  echo "PASS: vss-agent compose exports RTVI_CV_ENDPOINT for search config"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: vss-agent compose should export RTVI_CV_ENDPOINT for search config"
+  ((TESTS_FAILED++)) || true
+fi
+
 # Alert bridge verifier configs need the internal VST URL for media lookup.
 for _cfg in \
   "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml" \
