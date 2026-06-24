@@ -23,6 +23,10 @@ services:
     shm_size: 32gb
     ports:
      - ${VLM_PORT:-30082}:8000
+    networks:
+      default:
+        aliases:
+          - vss-vlm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
       NIM_MODEL_NAME: "${VLM_CUSTOM_WEIGHTS:-}"
@@ -65,6 +69,10 @@ services:
     shm_size: 32gb
     ports:
      - ${VLM_PORT:-30082}:8000
+    networks:
+      default:
+        aliases:
+          - vss-vlm-nim
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
       NIM_MODEL_NAME: "${VLM_CUSTOM_WEIGHTS:-}"
