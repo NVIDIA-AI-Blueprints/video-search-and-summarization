@@ -92,18 +92,28 @@ bool BaslerStreamMonitor::addStream(const std::string& streamId, const std::stri
 
 void BaslerStreamMonitor::removeStream(const std::string& streamId)
 {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = m_producers.find(streamId);
-    if (it == m_producers.end()) {
-        return;
+    // Move ownership out of the map under the lock, then release it before the
+    // teardown. stop() joins the grab thread, which can block up to ~5s in
+    // RetrieveResult; destruction (deleter -> destroyBaslerProducer) runs when
+    // `producer` goes out of scope. Doing both outside m_mutex keeps a slow
+    // teardown from stalling addStream/getProducer/getVideoCodec for other
+    // streams (the RTSP DESCRIBE and recorder-setup paths).
+    std::shared_ptr<IMediaDataProducer> producer;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_producers.find(streamId);
+        if (it == m_producers.end()) {
+            return;
+        }
+        producer = std::move(it->second);  // last owner; kept alive past the lock
+        m_producers.erase(it);
     }
-    if (it->second) {
-        it->second->stop();
-    }
-    m_producers.erase(it);  // last owner; deleter calls destroyBaslerProducer
     {
         std::lock_guard<std::mutex> hlock(m_headersMutex);
         m_videoHeaders.erase(streamId);
+    }
+    if (producer) {
+        producer->stop();  // joins grab thread; deleter destroys on scope exit
     }
     LOG(info) << "BaslerStreamMonitor: removed basler stream " << streamId << std::endl;
 }
