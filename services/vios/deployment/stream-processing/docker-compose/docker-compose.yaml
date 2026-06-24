@@ -24,22 +24,24 @@ services:
     runtime: nvidia
     # Install/activate the Basler pylon SDK (tools/install_pylon.sh) before
     # launch_vst when INSTALL_PYLON=1 - mirrors how sdr/nvstreamer invoke
-    # user_additional_install.sh. $$ defers expansion to the container shell.
-    entrypoint: ["/bin/bash", "-c", "if [ \"$$INSTALL_PYLON\" = \"1\" ]; then /home/vst/vst_release/tools/install_pylon.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    # user_additional_install.sh. LD_PRELOAD is exported only inside that branch
+    # (after install) so a default INSTALL_PYLON=0 image never preloads absent
+    # pylon libs. $$ defers expansion to the container shell.
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$INSTALL_PYLON\" = \"1\" ]; then /home/vst/vst_release/tools/install_pylon.sh; export LD_PRELOAD=/opt/pylon/lib/libpylonbase.so:/opt/pylon/lib/libpylonutility.so; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - CONTAINER_NAME=sensor-ms
       - ADAPTOR=${VST_ADAPTOR}
       # Basler pylon: install_pylon.sh runs at startup when INSTALL_PYLON=1,
       # registers ldconfig + ld.so.preload, and (with /opt/pylon bind-mounted
-      # below) skips extraction. LD_PRELOAD ensures libbasler_discovery.so
-      # resolves GenICam GenericException typeinfo at dlopen time (typeinfo
-      # symbols cannot bind lazily).
+      # below) skips extraction. The entrypoint then exports LD_PRELOAD (both
+      # libpylonbase for grab/transport and libpylonutility for the I420
+      # CImageFormatConverter, which the RTLD_NOW adaptor load needs in the
+      # symbol space) so libbasler_discovery.so resolves GenICam GenericException
+      # typeinfo at dlopen time. Gating that export on INSTALL_PYLON=1 keeps the
+      # default image from preloading absent libs (which the loader logs as
+      # "cannot be preloaded ... ignored" for every exec).
       - INSTALL_PYLON=${INSTALL_PYLON:-0}
       - PYLON_ROOT=/opt/pylon
-      # Preload both libs: the adaptor loader uses RTLD_NOW, so every pylon symbol
-      # (libpylonbase: grab/transport; libpylonutility: CImageFormatConverter for
-      # the I420 conversion) must be in the symbol space before the adaptor loads.
-      - LD_PRELOAD=/opt/pylon/lib/libpylonbase.so:/opt/pylon/lib/libpylonutility.so
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false

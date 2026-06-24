@@ -13,12 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Basler discovery is opt-in. Its Makefile hard-requires the pylon SDK, so only
+# recurse into it when pylon-config is present in the build environment (mirrors
+# the producer guard in framework/media/video_source/Makefile). Without pylon the
+# adaptor is skipped and the remaining adaptors build normally.
+PYLON_ROOT ?= /opt/pylon
+BUILD_BASLER_DISCOVERY := $(wildcard $(PYLON_ROOT)/bin/pylon-config)
+
 all:
 	$(MAKE) -C ./milestone/
 	$(MAKE) -C ./onvif/
 	$(MAKE) -C ./sensors_discovery/onvif
 	$(MAKE) -C ./sensors_discovery/native_sensors
+ifneq ($(BUILD_BASLER_DISCOVERY),)
 	$(MAKE) -C ./sensors_discovery/basler
+endif
 	$(MAKE) -C ./streamer/
 	$(MAKE) -C ./rtsp_streams/
 	$(MAKE) -C ./remote_device/
@@ -31,7 +40,9 @@ all:
 	$(MAKE) -C ./onvif/ soclean
 	$(MAKE) -C ./sensors_discovery/onvif soclean
 	$(MAKE) -C ./sensors_discovery/native_sensors soclean
+ifneq ($(BUILD_BASLER_DISCOVERY),)
 	$(MAKE) -C ./sensors_discovery/basler soclean
+endif
 	$(MAKE) -C ./rtsp_streams/ clean
 	$(MAKE) -C ./remote_device/ clean
 	$(MAKE) -C ./native_sensors/ clean
