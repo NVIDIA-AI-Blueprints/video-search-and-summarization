@@ -22,10 +22,8 @@ Contains AlertRequestEntity and related parameter schemas.
 
 from .requests import AlertRequestEntity, AlertInfo, EventInfo
 from .parameters import (
-    AlertParameters,
     EventParameters,
     VLMParams,
-    VSSParams,
     MetaLabel
 )
 
@@ -33,9 +31,7 @@ __all__ = [
     'AlertRequestEntity',
     'AlertInfo',
     'EventInfo',
-    'AlertParameters',
     'EventParameters',
     'VLMParams',
-    'VSSParams',
     'MetaLabel'
 ] 

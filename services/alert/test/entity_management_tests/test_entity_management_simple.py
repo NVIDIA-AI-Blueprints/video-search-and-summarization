@@ -70,7 +70,6 @@ def test_config_loading():
     
     assert config is not None
     assert hasattr(config, 'vlm_params')
-    assert hasattr(config, 'vss_params')
     print("✅ Configuration loaded successfully")
 
 

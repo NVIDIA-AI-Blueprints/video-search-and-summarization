@@ -172,7 +172,7 @@ Tests pass when:
 
 ### **Common Issues**
 1. **Import Errors**: Ensure `PYTHONPATH` includes project root
-2. **Config Loading Errors**: Verify `entity_management/config/defaults.yaml` exists
+2. **Config Loading Errors**: Verify `src/schemas/config/defaults.yaml` exists
 3. **Validation Errors**: Check field names and data types match schema
 
 ### **Debug Mode**

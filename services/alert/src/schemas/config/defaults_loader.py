@@ -38,7 +38,6 @@ class AlertsDefaultConfig:
     """
     # Core parameter defaults
     vlm_params: Dict[str, Any] = field(default_factory=dict)
-    vss_params: Dict[str, Any] = field(default_factory=dict)
     request_defaults: Dict[str, Any] = field(default_factory=dict)
     
     # Validation configuration
@@ -118,8 +117,7 @@ class AlertsDefaultsConfigLoader:
                 "Successfully loaded defaults configuration",
                 extra={
                     "config_source": defaults_config.config_source,
-                    "vlm_params_count": len(defaults_config.vlm_params),
-                    "vss_params_count": len(defaults_config.vss_params)
+                    "vlm_params_count": len(defaults_config.vlm_params)
                 }
             )
             
@@ -160,7 +158,7 @@ class AlertsDefaultsConfigLoader:
     def _validate_configuration(self, config: Dict[str, Any]) -> None:
         """Validate the loaded configuration."""
         # Validate required sections
-        required_sections = ['vlm_params', 'vss_params', 'request_defaults']
+        required_sections = ['vlm_params', 'request_defaults']
         missing_sections = [section for section in required_sections if section not in config]
         
         if missing_sections:
@@ -200,7 +198,6 @@ class AlertsDefaultsConfigLoader:
         """Create AlertsDefaultConfig object from loaded configuration."""
         return AlertsDefaultConfig(
             vlm_params=config.get('vlm_params', {}),
-            vss_params=config.get('vss_params', {}),
             request_defaults=config.get('request_defaults', {}),
             validation_config=config.get('validation', {}),
             field_validation=config.get('field_validation', {}),
@@ -227,7 +224,6 @@ class AlertsDefaultsConfigLoader:
             "config_source": self._loaded_config.config_source,
             "parameter_counts": {
                 "vlm_params": len(self._loaded_config.vlm_params),
-                "vss_params": len(self._loaded_config.vss_params),
                 "request_defaults": len(self._loaded_config.request_defaults)
             }
         } 
