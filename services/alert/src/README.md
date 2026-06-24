@@ -26,7 +26,7 @@ flowchart LR
     subgraph Core["Verification pipeline"]
         ORC["enhance_alert_with_vlm.py<br/>(orchestrator, repo root)"]
         H["handlers/<br/>config · prompt · enrichment · direct_media"]
-        VID["vst/ + vss/<br/>resolve video clip"]
+        VID["vst/<br/>resolve video clip"]
         VLM["vlm/<br/>VLM client (OpenAI-compatible)"]
     end
 
@@ -64,7 +64,6 @@ Two secondary entry paths share the same packages:
 | `mdx/` | **Alert ingestion transport** (NvSchema). Sources/sinks over Kafka, Redis Streams, Elasticsearch; protobuf schemas; dedup fingerprints. |
 | `handlers/` | **Core alert handlers** — alert-type config store, prompt rendering, enrichment, direct-media mode, exception handling, async mixins. |
 | `vlm/` | **VLM client** (OpenAI-compatible NIM): sync/async clients, async runtime, NIM warmup. |
-| `vss/` | **VSS integration** — orchestrates the clip-verification request to the VSS/VLM backend (media upload/delete, sessions, workflow, retries). |
 | `vst/` | **VST video-storage client** — resolves the video segment for an alert from `sensorId` + timestamps (timelines, clip extraction). |
 | `schemas/` | **Data models / NvSchema entities** — request/response entities, VLM response model + pluggable parser registry, shared enums, config defaults. |
 | `custom_parsers/` | **Sample/pluggable VLM-response parsers**, loaded dynamically via config. |
@@ -126,20 +125,11 @@ Two secondary entry paths share the same packages:
 | `realtime/schemas/` | Alert-config + always-on-config schemas. |
 | `realtime/config/` | Service config + constants. |
 
-### `vss/` — VSS integration
-| Path | Purpose |
-|---|---|
-| `vss/vss_handler.py`, `component_factory.py`, `retry_manager.py` | Verification orchestration + retries. |
-| `vss/media_handler/` | Media upload / delete. |
-| `vss/session_handler/` | Thread-safe session manager. |
-| `vss/vss_request_handler/` | Alert-verification client. |
-| `vss/workflow/` | Workflow executor. |
-
 ## Conventions
 
 - **Imports are top-level** (`from <package>... import ...`); `src/` is placed on
   `sys.path` by the launcher (runtime) and `conftest.py` (tests).
 - **`clients/`** holds connection wrappers; higher layers (`persistence/`,
   `handlers/alert_config/`, `web/`) compose on top of them.
-- **`mdx/`** keeps its legacy name (NvSchema "anomaly" transport); `vst` = video
-  storage client, `vss` = the VSS verification workflow — they are distinct.
+- **`mdx/`** keeps its legacy name (NvSchema "anomaly" transport); `vst/` is the
+  VST video-storage client used to resolve an alert's video clip.
