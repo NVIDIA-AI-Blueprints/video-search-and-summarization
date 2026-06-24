@@ -373,7 +373,7 @@ public:
 
     uint64_t m_resume_time_in_epoch;
 private:
-    char        m_stop = 0;
+    EventLoopWatchVariable m_stop{0};
     Environment m_env;
 
 protected:

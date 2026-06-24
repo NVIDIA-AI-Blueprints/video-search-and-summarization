@@ -31,6 +31,17 @@ VISION_ENCODER_STORAGE="/opt/storage"
 DS_APP_DIR="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app"
 
 # ---------------------------------------------------------------------------
+# DeepStream runtime paths
+#
+# Compose sets GST_PLUGIN_PATH to gst-nvdstextembedder only. Prepend core DeepStream
+# plugin dirs here so GStreamer can find elements like nvvideoconvert for the
+# visionencoder bin, while keeping the embedder path from compose at the end.
+# ---------------------------------------------------------------------------
+_ARCH="$(uname -m)"
+export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
+unset _ARCH
+
+# ---------------------------------------------------------------------------
 # Verify model artifacts exist (downloaded by perception-2d-init container)
 # ---------------------------------------------------------------------------
 MARKER="${VISION_ENCODER_STORAGE}/.${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}.done"
