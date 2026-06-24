@@ -464,10 +464,28 @@ import sys, json, re, urllib.request
 base = sys.argv[1]
 arr = json.load(urllib.request.urlopen(base + "/api/v1/sensor/list"))
 arr = arr if isinstance(arr, list) else arr.get("sensors", [])
-# Baseline = NvStreamer auto-discovered streams currently online with a plain (non-duplicate) name.
-TEST_PAT = re.compile(r'(^SENSOR$)|(^sensor_\d+$)|(_test)|(^sanity_)|(_run\d*)|(_\d+_\d+$)|(_[2-9]$)', re.I)
+# Test-created patterns. Tail-anchored so legit names like camera_test_east or
+# pipeline_run are NOT matched (unanchored _test / zero-digit _run would over-match).
+TEST_PAT = re.compile(r'(^SENSOR$)|(^sensor_\d+$)|(_test\b)|(^sanity_)|(_run\d+$)|(_\d+_\d+$)|(_[2-9]$)', re.I)
+def ids(seq):  # non-empty sensorId/name keys from a sensor list
+    return {v for s in seq if isinstance(s, dict) for v in (s.get("sensorId"), s.get("name")) if v}
+# (a) Protected baseline = the LEGITIMATE (non-test-named) streams present in the step-1 snapshot.
+#     These are auto-discovered NvStreamer streams; never delete them, even if transiently offline now.
+#     Debris-named sensors that happen to be in the snapshot are NOT protected -> they stay removable,
+#     otherwise prior-run debris captured at snapshot time would never get cleaned.
+try:
+    with open("/tmp/vios-baseline-sensors.json") as f:
+        base_arr = json.load(f)
+    base_arr = base_arr if isinstance(base_arr, list) else base_arr.get("sensors", [])
+    baseline = ids(s for s in base_arr if isinstance(s, dict) and not TEST_PAT.search(s.get("name") or ""))
+except FileNotFoundError:
+    # No snapshot -> cannot prove what is a product stream. Fail safe: protect everything (delete nothing).
+    print("WARN: baseline snapshot missing; skipping cleanup", file=sys.stderr)
+    baseline = ids(arr)
+# (b) Removable only if NOT a baseline stream AND (offline/removed OR name matches a test pattern).
 to_delete = [s for s in arr
-             if (s.get("state") in ("offline", "removed")) or TEST_PAT.search(s.get("name") or "")]
+             if s.get("sensorId") not in baseline and (s.get("name") or "") not in baseline
+             and ((s.get("state") in ("offline", "removed")) or TEST_PAT.search(s.get("name") or ""))]
 for s in to_delete:
     sid = s.get("sensorId") or s.get("name")
     print("DELETE", sid, s.get("state"), s.get("name"))
@@ -477,7 +495,9 @@ PYEOF
 
 ```bash
 # 3. Delete each identified orphan via the sensor remove API (RTSP-aware). Verify count returns to baseline.
-for sid in $(python3 -c "import json;print(' '.join(json.load(open('/tmp/vios-cleanup-ids.json'))))"); do
+python3 -c "import json
+for sid in json.load(open('/tmp/vios-cleanup-ids.json')):
+    print(sid)" | while IFS= read -r sid; do
   curl -s -X DELETE "$BASE_URL/api/v1/sensor/$sid" -o /dev/null -w "removed $sid -> %{http_code}\n"
 done
 echo "[$(date +%H:%M:%S)] Baseline cleanup: removed $(python3 -c "import json;print(len(json.load(open('/tmp/vios-cleanup-ids.json'))))") test-created sensors" >> /tmp/vios-sanity-progress.log
