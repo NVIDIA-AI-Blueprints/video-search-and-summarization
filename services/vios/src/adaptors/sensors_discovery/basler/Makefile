@@ -56,7 +56,7 @@ $(TARGET): $(OBJS)
 
 include $(TOP)/Makefile.dep
 clean:
-	rm -rf *.o *.a *.so $(TARGET)
+	rm -rf *.o *.a *.so *.d $(TARGET)
 
 soclean:
-	rm -rf *.o *.a *.so $(TARGET)
+	rm -rf *.o *.a *.so *.d $(TARGET)
