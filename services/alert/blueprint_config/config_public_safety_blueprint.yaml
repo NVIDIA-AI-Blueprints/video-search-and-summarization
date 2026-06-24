@@ -30,7 +30,7 @@ vst_config:
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
   segment_duration_seconds: 10
   add_overlay: false
-  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  # Storage service configuration (separate base URL and endpoint)
   storage:
     base_url: "http://localhost:30888"
     # Endpoint to fetch media file path by VST id

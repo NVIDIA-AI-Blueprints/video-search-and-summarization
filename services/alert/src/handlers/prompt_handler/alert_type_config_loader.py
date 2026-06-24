@@ -63,7 +63,6 @@ class VlmParams(BaseModel):
     num_frames: Optional[int] = None
     enable_sampling: Optional[bool] = None
     sampling_fps: Optional[int] = None
-    cr1_optimization: Optional[bool] = None
     max_retries: Optional[int] = None
     chunk_duration: Optional[int] = None
     num_frames_per_second_or_fixed_frames_chunk: Optional[int] = None

@@ -25,7 +25,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, validator
 from ...shared.enums import AlertSeverity, AlertStatus
-from .parameters import VSSParams, MetaLabel
+from .parameters import VLMParams, MetaLabel
 
 
 def _get_request_defaults() -> Dict[str, Any]:
@@ -134,7 +134,7 @@ class AlertRequestEntity(BaseModel):
     event: EventInfo = Field(..., description="Event information")
 
     # Processing parameters
-    vss_params: Optional[VSSParams] = Field(default=None, description="VSS processing parameters (optional in HTTP; defaults will be injected)")
+    vlm_params: Optional[VLMParams] = Field(default=None, description="VLM processing parameters (optional in HTTP; defaults will be injected)")
 
     # Optional metadata - only included if provided in input OR defined in config
     confidence: Optional[float] = Field(

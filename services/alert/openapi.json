@@ -3339,17 +3339,6 @@
                         ],
                         "title": "Sampling Fps"
                     },
-                    "cr1_optimization": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Cr1 Optimization"
-                    },
                     "max_retries": {
                         "anyOf": [
                             {
