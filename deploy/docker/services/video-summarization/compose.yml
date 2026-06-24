@@ -58,7 +58,7 @@ services:
 
       # LLM configuration
       - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME}
-      - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://nvidia-nemotron-nano-9b-v2-shared-gpu:8000}/v1
+      - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://vss-llm-nim:8000}/v1
       - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
       - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://rtvi-vlm:8000}/v1/
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
