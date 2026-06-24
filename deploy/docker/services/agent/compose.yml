@@ -89,6 +89,7 @@ services:
       RTVI_EMBED_MODEL: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       RTVI_EMBED_PORT: ${RTVI_EMBED_PORT}
       RTVI_CV_PORT: ${RTVI_CV_PORT}
+      RTVI_CV_ENDPOINT: ${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:${RTVI_CV_PORT:-9000}}
       VSS_ES_PORT: ${VSS_ES_PORT}
 
       # Phoenix Telemetry
