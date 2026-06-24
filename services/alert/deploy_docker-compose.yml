@@ -44,10 +44,6 @@ services:
       # Storage service endpoint override for VST media path resolution
       # Example resolves to: http://127.0.0.1:30000
       - STORAGE_MODULE_ENDPOINT=http://${HOST_IP:-127.0.0.1}:${STORAGE_HTTP_PORT:-30000}
-      # VSS Agent base URL override (takes precedence over config.yaml vss_agent.base_url)
-      # Example:
-      - VSS_BASE_URL=http://localhost:8000
-      #- VSS_BASE_URL=${VSS_BASE_URL:-}
     volumes:
       - ${ALERT_BRIDGE_CONFIG_FILE:-./config.yaml}:/app/config.yaml
 

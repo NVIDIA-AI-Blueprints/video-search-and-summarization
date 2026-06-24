@@ -35,7 +35,7 @@ vst_config:
   retry_without_overlay: true
   verify_time_existence: true
 
-  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  # Storage service configuration (separate base URL and endpoint)
   storage:
     base_url: "http://localhost:30888"
     # Endpoint to fetch media file path by VST id

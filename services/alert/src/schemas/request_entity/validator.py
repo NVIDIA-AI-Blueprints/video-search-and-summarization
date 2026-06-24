@@ -27,7 +27,7 @@ from typing import Dict, Any, List, Optional
 from pydantic import ValidationError as PydanticValidationError
 
 
-from .models import AlertRequestEntity, VSSParams
+from .models import AlertRequestEntity, VLMParams
 from .exceptions import ValidationError, InvalidPayloadError
 
 
@@ -153,14 +153,19 @@ class EntityValidator:
         message_id = self._extract_id_for_logging(message)
         
         try:
-            # Use Pydantic validation with automatic defaults
-            # Inject config defaults for vss_params and nested vlm_params
-            vss_params_input = message.get('vss_params', message.get('vssParams', {}))
-            vss_params = VSSParams.create_with_defaults(**vss_params_input)
-            # Build the entity, replacing vssParams with the merged version
+            # Use Pydantic validation with automatic defaults.
+            # Inject config defaults for vlm_params. Back-compat: accept the
+            # legacy nested ``vss_params.vlm_params`` shape from older clients.
+            legacy_vss = message.get('vss_params') or message.get('vssParams') or {}
+            vlm_params_input = (
+                message.get('vlm_params')
+                or message.get('vlmParams')
+                or (legacy_vss.get('vlm_params') if isinstance(legacy_vss, dict) else None)
+                or {}
+            )
+            vlm_params = VLMParams.create_with_defaults(**vlm_params_input)
             message_with_defaults = dict(message)
-            message_with_defaults['vss_params'] = vss_params.model_dump(exclude_none=False)
-            message_with_defaults['vssParams'] = vss_params.model_dump(by_alias=True, exclude_none=False)
+            message_with_defaults['vlm_params'] = vlm_params.model_dump(exclude_none=False)
 
             entity = AlertRequestEntity.model_validate(message_with_defaults)
 
@@ -248,8 +253,8 @@ class EntityValidator:
         """Count how many default values were applied during validation."""
         defaults_count = 0
         
-        # Check if vss_params was auto-created
-        if 'vss_params' not in original_message and entity.vss_params:
+        # Check if vlm_params was auto-created
+        if 'vlm_params' not in original_message and entity.vlm_params:
             defaults_count += 1
         # No need to check for top-level vlmParams anymore
         

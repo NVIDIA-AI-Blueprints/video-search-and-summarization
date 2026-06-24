@@ -31,10 +31,8 @@ from .exceptions import (
 # Import models for external use
 from .models.requests import AlertRequestEntity
 from .models.parameters import (
-    AlertParameters,
     EventParameters, 
     VLMParams,
-    VSSParams,
     MetaLabel
 )
 
@@ -45,10 +43,8 @@ __all__ = [
     
     # Models
     'AlertRequestEntity',
-    'AlertParameters',
     'EventParameters',
     'VLMParams', 
-    'VSSParams',
     'MetaLabel',
     
     # Exceptions
