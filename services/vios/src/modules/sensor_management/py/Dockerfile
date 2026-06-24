@@ -1,10 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# VIOS Sensor Management microservice (Python). Control-plane only — no GStreamer/CUDA, so a small
-# base is sufficient (contrast with the multi-GB C++ vst-sensor image). Uses ubuntu:24.04 (ships
-# Python 3.12) installed into a venv to satisfy PEP 668.
-FROM ubuntu:24.04 AS base
+FROM nvcr.io/nvidia/cuda:13.3.0-base-ubuntu24.04 AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
