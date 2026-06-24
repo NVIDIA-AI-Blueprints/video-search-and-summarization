@@ -1168,6 +1168,31 @@ run_dry_run_up_and_check_generated_env "generated.env other VLM model Qwen/Qwen3
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "qwen3-vl-8b-instruct" "VLM_NAME" "Qwen/Qwen3-VL-8B-Instruct"
 
+# Native docker compose uses these .env defaults directly, so agent config paths must be container paths.
+for _env in \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-base/.env" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/.env" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  "${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/.env"; do
+  if grep -q "^VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/" "${_env}"; then
+    echo "PASS: ${_env} uses an in-container VSS_AGENT_CONFIG_FILE path"
+    ((TESTS_PASSED++)) || true
+  else
+    echo "FAIL: ${_env} should use an in-container VSS_AGENT_CONFIG_FILE path"
+    ((TESTS_FAILED++)) || true
+  fi
+  if grep -q "^VSS_VA_MCP_CONFIG_FILE=" "${_env}"; then
+    if grep -q "^VSS_VA_MCP_CONFIG_FILE=/vss-agent/deploy/docker/" "${_env}"; then
+      echo "PASS: ${_env} uses an in-container VSS_VA_MCP_CONFIG_FILE path"
+      ((TESTS_PASSED++)) || true
+    else
+      echo "FAIL: ${_env} should use an in-container VSS_VA_MCP_CONFIG_FILE path"
+      ((TESTS_FAILED++)) || true
+    fi
+  fi
+done
+
 # Alert bridge verifier configs need the internal VST URL for media lookup.
 for _cfg in \
   "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml" \
