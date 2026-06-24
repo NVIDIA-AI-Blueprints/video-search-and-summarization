@@ -99,9 +99,8 @@ ifneq ($(JETSON_PLATFORM),) # Jetson only
 endif
 endif
 
-# Build the optional Basler producer .so (libbasler_producer.so) only when the
-# pylon SDK is present in the build environment. Basler is opt-in: without pylon
-# the producer is skipped and libnvvideo_source itself stays pylon-free.
+# Build libbasler_producer.so only when pylon is present.
+# Without pylon the producer is skipped; libnvvideo_source stays pylon-free.
 PYLON_ROOT ?= /opt/pylon
 BUILD_BASLER_PRODUCER := $(wildcard $(PYLON_ROOT)/bin/pylon-config)
 

@@ -15,32 +15,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# install_pylon.sh — activate the Basler pylon runtime at container startup,
-# meant to be run from the entrypoint BEFORE launch_vst.
+# install_pylon.sh — activate the Basler pylon SDK at container startup (run from entrypoint before launch_vst).
 #
-# Why a runtime script instead of baking pylon into the image: pylon is
-# proprietary and large (~1.3 GB of libs). Keeping it out of the image avoids
-# redistribution concerns and image bloat. The basler discovery adaptor
-# dlopen()s libpylonbase at runtime, so the SDK only needs to be present when
-# the container actually runs. This script supplies it from a bind-mounted host
-# location (or an internal mirror URL) and makes it loadable.
+# Pylon is proprietary and large (~1.3 GB); kept out of the image to avoid redistribution concerns and bloat.
+# Opt-in: no-op unless INSTALL_PYLON=1, safe to ship in every image.
+# Source resolution order (first match wins):
+#   1. PYLON_ROOT already populated (bind-mounted extracted SDK)
+#   2. PYLON_SDK_ARCHIVE=<tarball>  (bind-mounted .tar.gz)
+#   3. PYLON_SDK_URL=<url>          (internal mirror, fetched with curl/wget)
 #
-# Opt-in: does nothing unless INSTALL_PYLON=1, so it is harmless to ship in
-# every image and enable only on services that need Basler.
-#
-# Pylon source is resolved in this order (first match wins):
-#   1. PYLON_ROOT already populated  - e.g. an extracted SDK bind-mounted at
-#      /opt/pylon (fastest; no per-start extraction).
-#   2. PYLON_SDK_ARCHIVE=<tarball>   - a pylon *.tar.gz bind-mounted into the
-#      container; handles both the official "setup" wrapper and the inner SDK
-#      tarball.
-#   3. PYLON_SDK_URL=<http(s) url>   - an internal mirror, fetched with curl/wget.
-#
-# Env:
-#   INSTALL_PYLON       1 to enable (default: 0 / no-op)
+# Env vars:
+#   INSTALL_PYLON       1 to enable (default: 0)
 #   PYLON_ROOT          install/lookup dir (default: /opt/pylon)
-#   PYLON_SDK_ARCHIVE   path to a bind-mounted pylon tarball (optional)
-#   PYLON_SDK_URL       internal mirror URL (optional)
+#   PYLON_SDK_ARCHIVE   path to a bind-mounted pylon tarball
+#   PYLON_SDK_URL       internal mirror URL
 
 set -euo pipefail
 
@@ -53,10 +41,7 @@ fi
 
 PYLON_ROOT="${PYLON_ROOT:-/opt/pylon}"
 
-# Extract a pylon tarball into PYLON_ROOT. Accepts either the official "setup"
-# wrapper (which contains a nested pylon-*_linux-*.tar.gz plus an INSTALL file)
-# or the inner SDK tarball (bin/ lib/ include/ at the archive root). Both forms
-# land as ${PYLON_ROOT}/{bin,lib,include,share}.
+# Handles both the official setup wrapper and the inner SDK tarball.
 extract_tarball() {
   local src="$1" tmp inner
   tmp="$(mktemp -d)"
@@ -102,12 +87,8 @@ if [[ ! -e "${PYLON_ROOT}/lib/libpylonbase.so" ]]; then
   exit 1
 fi
 
-# Make the libs discoverable, and preload libpylonbase so the adaptor .so's
-# GenICam GenericException typeinfo resolves at dlopen time (typeinfo symbols
-# cannot bind lazily, so pylon must already be in the process before the
-# adaptor loader runs). Writing /etc/ld.so.preload makes the next exec'd
-# program (launch_vst) preload it without a per-service LD_PRELOAD. Both steps
-# require root; if not root, declare LD_LIBRARY_PATH/LD_PRELOAD on the service.
+# Preload libpylonbase so GenICam typeinfo resolves at dlopen time (typeinfo cannot bind lazily).
+# Both ldconfig and ld.so.preload require root; without root, export the vars on the service instead.
 if [[ "$(id -u)" == "0" ]]; then
   echo "${PYLON_ROOT}/lib" > /etc/ld.so.conf.d/pylon.conf
   ldconfig

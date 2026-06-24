@@ -40,10 +40,8 @@ x-streamprocessing-base: &streamprocessing_base
   network_mode: host
   runtime: nvidia
   user: "0:0"
-  # LD_PRELOAD is exported only inside the INSTALL_PYLON=1 branch (after install)
-  # so a default INSTALL_PYLON=0 pod never preloads absent pylon libs. This
-  # entrypoint is shared via the base anchor, so every streamprocessing-ms-* pod
-  # inherits the gated export.
+  # LD_PRELOAD export is gated on INSTALL_PYLON=1 to avoid preloading absent pylon libs.
+  # Shared via the base anchor so every streamprocessing-ms-* pod inherits the gated export.
   entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && if [ \"$$INSTALL_PYLON\" = \"1\" ]; then /home/vst/vst_release/tools/install_pylon.sh; export LD_PRELOAD=/opt/pylon/lib/libpylonbase.so:/opt/pylon/lib/libpylonutility.so; fi && exec /home/vst/vst_release/launch_vst"]
   restart: unless-stopped
   ulimits:
@@ -63,12 +61,9 @@ services:
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB:-}
       - CONTAINER_NAME=streamprocessing-ms-1
       - ADAPTOR=${VST_ADAPTOR}
-      # Basler pylon: the BaslerStreamProducer (camera grab + encode) runs in the
-      # stream-processor, so the pod needs pylon just like sensor-ms. install_pylon.sh
-      # runs at startup when INSTALL_PYLON=1; the (shared) entrypoint then exports
-      # LD_PRELOAD so libbasler_producer.so resolves pylon symbols at dlopen time
-      # (typeinfo cannot bind lazily). The export is gated on INSTALL_PYLON=1 to
-      # avoid preloading absent libs in the default image.
+      # LD_PRELOAD is required so libbasler_producer.so resolves pylon typeinfo at
+      # dlopen time (typeinfo cannot bind lazily); gated on INSTALL_PYLON=1 to avoid
+      # preloading absent libs in the default image.
       - INSTALL_PYLON=${INSTALL_PYLON:-0}
       - PYLON_ROOT=/opt/pylon
       - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT_1}

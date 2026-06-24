@@ -16,33 +16,24 @@
 # Basler pylon SDK location. Override with: make PYLON_ROOT=/path/to/pylon
 PYLON_ROOT ?= /opt/pylon
 
-# Verify pylon-config exists - hard fail with a helpful message if not.
 PYLON_CONFIG := $(PYLON_ROOT)/bin/pylon-config
 ifeq ($(wildcard $(PYLON_CONFIG)),)
 $(error pylon SDK not found at $(PYLON_ROOT). Install pylon or set PYLON_ROOT)
 endif
 
-# Compile against pylon headers (build host needs the SDK), but defer all pylon
-# symbol resolution to runtime: the .so has no DT_NEEDED entry for pylon and is
-# only dlopened by BaslerStreamMonitor when a basler stream is active, in a
-# process that LD_PRELOADs pylon. Convert pylon's -I flags to -isystem so
-# warnings inside pylon headers don't fail the build under -Wall -Werror.
+# Defer pylon symbol resolution to runtime (no DT_NEEDED for pylon libs).
+# -isystem avoids -Wall -Werror failures from warnings inside pylon headers.
 PYLON_CFLAGS := $(patsubst -I%,-isystem %,$(shell $(PYLON_CONFIG) --cflags))
 
 PREBUILT := $(TOP)/$(PREBUILT_DIR)
 TARGET   := $(PREBUILT)libbasler_producer.so
 SRCS     := basler_stream_producer.cpp
 OBJS     := $(SRCS:.cpp=.o)
-# -I for the IMediaDataProducer interface (media_pipelines) and the gstnvvstmeta.h
-# it transitively pulls in (media_utils). The remaining headers (gstreamer, glib,
-# stats.h, nvbufsurface.h) are already on the global CPPFLAGS include path.
+# Extra include paths for IMediaDataProducer and its transitive headers.
 BASLER_INC := -I $(TOP)/src/framework/media/media_pipelines \
               -I $(TOP)/src/framework/media/media_utils \
               -I $(TOP)/src/framework/media/video_source/producers
-# Link the GStreamer libs the encode pipeline uses (appsrc/appsink, buffers,
-# caps). -shared still allows unresolved symbols, so pylon stays deferred (bound
-# at runtime via the dlopen(RTLD_GLOBAL) in BaslerStreamMonitor) and VIOS
-# framework symbols (Logger, ...) resolve against the executable loading this .so.
+# Pylon symbols stay unresolved at link time, bound at runtime via dlopen(RTLD_GLOBAL).
 LDFLAGS  := -shared -rdynamic -ldl -lgstreamer-1.0 -lgstapp-1.0 -lgobject-2.0 -lglib-2.0
 
 all: $(TARGET)

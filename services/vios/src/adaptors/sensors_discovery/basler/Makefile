@@ -16,32 +16,20 @@
 # Basler pylon SDK location. Override with: make PYLON_ROOT=/path/to/pylon
 PYLON_ROOT ?= /opt/pylon
 
-# Verify pylon-config exists - hard fail with a helpful message if not.
 PYLON_CONFIG := $(PYLON_ROOT)/bin/pylon-config
 ifeq ($(wildcard $(PYLON_CONFIG)),)
 $(error pylon SDK not found at $(PYLON_ROOT). Install pylon or set PYLON_ROOT)
 endif
 
-# Compile against pylon headers (build host still needs the SDK installed),
-# but defer all pylon symbol resolution to runtime via dlopen. The adaptor
-# .so therefore has no DT_NEEDED entries for pylon and loads cleanly on
-# systems where pylon is absent; basler_discovery.cpp gates pylon calls on
-# a runtime dlopen of libpylonbase.so.
-#
-# Convert pylon's -I include flags to -isystem so warnings inside pylon's
-# own headers don't fail the build under -Wall -Werror (pylon has e.g.
-# overloaded-virtual hits in pylon/ArrayParameter.h that we don't control).
+# Defer pylon symbol resolution to runtime (no DT_NEEDED for pylon libs).
+# -isystem avoids -Wall -Werror failures from warnings inside pylon headers.
 PYLON_CFLAGS := $(patsubst -I%,-isystem %,$(shell $(PYLON_CONFIG) --cflags))
 
 PREBUILT := $(TOP)/$(PREBUILT_DIR)
 TARGET   := $(PREBUILT)libbasler_discovery.so
 SRCS     := basler_discovery.cpp
 OBJS     := $(SRCS:.cpp=.o)
-# -shared already allows unresolved symbols at link time; pylon symbols stay
-# unresolved here and get bound at runtime via the dlopen(RTLD_GLOBAL) call
-# inside basler_discovery.cpp. VIOS framework symbols (Logger, SensorInfo,
-# VmsConfigManager, ...) are resolved by the executable loading this .so,
-# same as for onvif_discovery.so.
+# Pylon symbols stay unresolved at link time, bound at runtime via dlopen(RTLD_GLOBAL).
 LDFLAGS  := -shared -rdynamic -ldl
 
 all: $(TARGET)

@@ -144,9 +144,7 @@ add_common_files() {
 	mappings+=("prebuilts/${ARCH}/libnvsystemmonitoring.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvsystemmonitoring.so")
 	mappings+=("prebuilts/${ARCH}/libnvvideo_source.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvvideo_source.so")
 	mappings+=("prebuilts/${ARCH}/libnvoverlays.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvoverlays.so")
-	# Basler producer (pylon). Built only when the pylon SDK is present, dlopened by
-	# BaslerStreamMonitor in the stream-processor. Package it where it is built; skip
-	# silently if the build did not produce it (basler/pylon is opt-in).
+	# Basler producer: opt-in, package only if built (requires pylon SDK).
 	if [[ -f "${TOP}/prebuilts/${ARCH}/libbasler_producer.so" ]] && { [[ -z ${MODULE} ]] || [[ ${MODULE} = streamprocessing ]]; }; then
 		mappings+=("prebuilts/${ARCH}/libbasler_producer.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libbasler_producer.so")
 	fi
