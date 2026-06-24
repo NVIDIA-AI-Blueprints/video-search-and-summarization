@@ -145,7 +145,7 @@ services:
       ENABLE_CRITIC: ${ENABLE_CRITIC:-true}
       # Evaluation, used with nat eval workflow
       EVAL_LLM_JUDGE_NAME: ${EVAL_LLM_JUDGE_NAME}
-      EVAL_LLM_JUDGE_BASE_URL: ${EVAL_LLM_JUDGE_BASE_URL:-http://${LLM_NAME_SLUG}:8000}
+      EVAL_LLM_JUDGE_BASE_URL: ${EVAL_LLM_JUDGE_BASE_URL:-http://vss-llm-nim:8000}
       EVAL_DIR: ${EVAL_DIR}
       DATASET_DIR: ${DATASET_DIR}
       DATASET_FILE_NAME: ${DATASET_FILE_NAME}
