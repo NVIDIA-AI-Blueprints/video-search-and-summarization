@@ -190,6 +190,22 @@ Report to the user:
 
 ---
 
+## Sample Video Files
+
+Deployments now start **without** any pre-seeded videos -- the sample clips are
+no longer shipped under `tools/data/` (they are baked into the BDD test image
+and used only by the BDD suite). NVStreamer comes up with no streams.
+
+If a deployment needs a video source:
+
+- **Ask the user to point to a directory that contains valid video files**
+  (MP4/MKV/TS carrying H.264 or H.265). Do not assume `tools/data/` exists.
+- Upload those files to NVStreamer (`PUT /vst/api/v1/storage/file/<name>`), then
+  run a sensor scan from the VST UI (or `POST /vst/api/v1/sensor/scan`) so VIOS
+  imports the RTSP streams.
+
+---
+
 ## Image Tag Flags Reference
 
 | Flag | Controls |
