@@ -1176,6 +1176,20 @@ run_dry_run_up_and_check_generated_env "generated.env other VLM model Qwen/Qwen3
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "qwen3-vl-8b-instruct" "VLM_NAME" "Qwen/Qwen3-VL-8B-Instruct"
 
+# Alert bridge verifier configs need the internal VST URL for media lookup.
+for _cfg in \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/EDGE-LOCAL-VLM-config.yml"; do
+  _vst_base_count="$(grep -c "base_url: \${VST_INTERNAL_URL}" "${_cfg}" || true)"
+  if [[ "${_vst_base_count}" -eq 2 ]]; then
+    echo "PASS: alert verifier config ${_cfg} uses VST_INTERNAL_URL for media lookup"
+    ((TESTS_PASSED++)) || true
+  else
+    echo "FAIL: alert verifier config ${_cfg} should set both VST base_url entries to VST_INTERNAL_URL"
+    ((TESTS_FAILED++)) || true
+  fi
+done
+
 # Real-time (2d_vlm) with local VLM: script does NOT override VLM_PORT, RTVI_VLM_ENDPOINT, or RTVI_VLM_MODEL_TO_USE; values come from profile .env defaults (rtvi-vlm on the Compose network, cosmos-reason3).
 run_dry_run_up_and_check_generated_env "generated.env alerts real-time local VLM preserves .env defaults (rtvi-vlm on the Compose network)" "alerts" \
  -i 127.0.0.1 -m real-time -d -- \
