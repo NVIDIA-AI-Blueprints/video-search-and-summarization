@@ -19,6 +19,11 @@ include:
 
 services:
   sensor-ms:
+    # C++ control-plane sensor service. Enabled by default via COMPOSE_PROFILES=sensor-cpp (set in
+    # compose.env), so a plain `docker compose up` launches it. Running `docker compose --profile
+    # sensor-py up` makes the CLI flag override COMPOSE_PROFILES, so ONLY sensor-py starts -- the two
+    # are mutually exclusive and share the same port (SENSOR_HTTP_PORT), no ingress change needed.
+    profiles: ["sensor-cpp"]
     image: ${VST_SENSOR_IMAGE}
     user: "0:0"
     runtime: nvidia
@@ -108,8 +113,15 @@ services:
       retries: 60
       start_period: 2s
     depends_on:
+      # Either the C++ (sensor-ms) or the Python (sensor-py) service binds the sensor port; both are
+      # optional (required: false) so the ingress comes up with whichever profile is active and does
+      # NOT drag the inactive one in (which would collide on the shared port).
       sensor-ms:
         condition: service_healthy
+        required: false
+      sensor-py:
+        condition: service_healthy
+        required: false
 
   redis:
     image: ${REDIS_IMAGE}
@@ -124,6 +136,51 @@ services:
       timeout: 3s
       retries: 60
       start_period: 2s
+
+  # Python reimplementation of the control-plane sensor service. Drop-in replacement for the C++
+  # sensor-ms: it binds the SAME port (SENSOR_HTTP_PORT), uses the SAME image var (VST_SENSOR_IMAGE),
+  # and the two are mutually exclusive via profiles, so no ingress change is needed to switch.
+  #   C++ :                docker compose up -d                       (VST_SENSOR_IMAGE = vss-vios-sensor)
+  #   Python (default):    docker compose --profile sensor-py up -d   (VST_SENSOR_IMAGE = vst-sensor-py)
+  # The --profile flag overrides COMPOSE_PROFILES=sensor-cpp, so only ONE sensor service runs.
+  sensor-py:
+    profiles: ["sensor-py"]
+    image: ${VST_SENSOR_IMAGE}
+    user: "0:0"            # read the root-owned self_signed_certificate.pem (AES key parity)
+    environment:
+      - CONTAINER_NAME=sensor-py
+      - HTTP_PORT=${SENSOR_HTTP_PORT}
+      - ADAPTOR=${VST_ADAPTOR}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - CENTRALIZE_DB_PASSWORD=${CENTRALIZE_DB_PASSWORD}
+      - CENTRALIZE_DB_PORT=${CENTRALIZE_DB_PORT}
+      - CENTRALIZE_DB_HOSTADDR=${CENTRALIZE_DB_HOSTADDR}
+    volumes:
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data:ro
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs:ro
+    network_mode: host
+    container_name: sensor-py
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python3 -c "import os,urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:'+os.environ['HTTP_PORT']+'/v1/ready')"
+      timeout: 3s
+      interval: 15s
+      retries: 30
+      start_period: 5s
+    depends_on:
+      redis:
+        condition: service_healthy
+      centralizedb:
+        condition: service_healthy
+      sdr-streamprocessing:
+        condition: service_started
+      envoy-streamprocessing:
+        condition: service_started
 
 volumes:
   vst_pg_data:

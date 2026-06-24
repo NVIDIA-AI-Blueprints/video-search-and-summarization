@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vios-sensor-ms"
+version = "0.1.0"
+description = "VIOS Sensor Management microservice (Python reimplementation of the C++ control plane)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "sqlalchemy>=2.0",
+    "cryptography>=42.0",
+    "onvif-zeep-async>=4.0",   # MIT — replaces proprietary nvsoap
+    "redis>=5.0",              # notification backend: redis
+    "paho-mqtt>=2.0",          # notification backend: mqtt
+    "confluent-kafka>=2.3",    # notification backend: kafka (bundles librdkafka)
+    "pg8000>=1.30",            # PostgreSQL driver (centralized DB) -- pure-Python, BSD-3-Clause
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27", "ruff>=0.4"]
+
+[project.scripts]
+vios-sensor-ms = "sensor_ms.main:run"
+
+[tool.setuptools.packages.find]
+include = ["sensor_ms*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
