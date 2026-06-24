@@ -1202,6 +1202,26 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# Helm passes bare VST host aliases as well as URL-form endpoints; Docker agent needs the same contract.
+_agent_compose="${REPO_ROOT}/deploy/docker/services/agent/compose.yml"
+if grep -Fq "EXTERNAL_IP:" "${_agent_compose}" && grep -Fq "INTERNAL_IP:" "${_agent_compose}" && grep -Fq "VST_BASE_URL:" "${_agent_compose}"; then
+  echo "PASS: vss-agent compose exports Helm-compatible VST host aliases"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: vss-agent compose should export Helm-compatible VST host aliases"
+  ((TESTS_FAILED++)) || true
+fi
+
+for _env in "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-base/.env" "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/.env" "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" "${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/.env"; do
+  if grep -Fq "VST_INTERNAL_IP=" "${_env}" && grep -Fq "VST_INGRESS_ENDPOINT=" "${_env}" && grep -Fq "VST_BASE_URL=" "${_env}"; then
+    echo "PASS: ${_env} exposes Helm-compatible VST endpoint variables"
+    ((TESTS_PASSED++)) || true
+  else
+    echo "FAIL: ${_env} should expose Helm-compatible VST endpoint variables"
+    ((TESTS_FAILED++)) || true
+  fi
+done
+
 # Alert bridge verifier configs need the internal VST URL for media lookup.
 for _cfg in \
   "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml" \
