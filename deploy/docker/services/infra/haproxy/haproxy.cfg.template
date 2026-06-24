@@ -53,6 +53,11 @@ backend bk_vst_storage_compat
     http-request replace-path ^/storage$ /vst/storage
     server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
 
+backend bk_vst_prefixed_compat
+    http-request replace-path ^/[^/]+:[0-9]+/vst/(.*) /vst/\1
+    http-request replace-path ^/[^/]+:[0-9]+/vst$ /vst
+    server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
+
 backend bk_behavior_analytics
     server s1 "${BEHAVIOR_ANALYTICS_SERVICE_HOST}:${BEHAVIOR_ANALYTICS_PORT}" check resolvers docker init-addr none
 
@@ -112,14 +117,17 @@ frontend fe_http
 
     acl p_vst_storage path /vst/storage
     acl p_vst_storage path_beg /vst/storage/
+    acl p_vst_prefixed_storage path_reg ^/[^/]+:[0-9]+/vst/storage(/|$)
     acl p_storage path /storage
     acl p_storage path_beg /storage/
     acl m_head method HEAD
     acl m_options method OPTIONS
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_storage
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_storage
+    http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_prefixed_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_storage
+    http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_prefixed_storage
     use_backend bk_vst_storage_compat if h_main p_storage
 
     acl p_video_analytics path /video-analytics-api
@@ -160,6 +168,8 @@ frontend fe_http
 
     acl p_vst path /vst
     acl p_vst path_beg /vst/
+    acl p_vst_prefixed path_reg ^/[^/]+:[0-9]+/vst(/|$)
+    use_backend bk_vst_prefixed_compat if h_main p_vst_prefixed
     use_backend bk_vst_ingress if h_main p_vst
 
     acl p_behavior path /behavior-analytics
