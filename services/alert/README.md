@@ -32,16 +32,21 @@ endpoint.
 
 ## Project Structure
 
+All importable packages live under `src/` (see [`src/README.md`](src/README.md)
+for a detailed layout + data-flow diagram).
+
 | Path | Purpose |
 |------|---------|
-| `enhance_alert_with_vlm.py` | Alert-verification pipeline orchestrator (entrypoint) |
-| `handlers/` | Alert-type config (RedisJSON), direct-media, and prompt handling |
-| `vlm/` | VLM client (OpenAI-compatible) and warmup |
-| `models/`, `entity_management/` | NvSchema request/response schemas and pluggable response parsers |
-| `realtime/` | Realtime + always-on alert rules and the RTVI VLM client |
-| `alert-agent-web/` | REST + WebSocket API and on-demand verification service |
-| `persistence/` | Elasticsearch + Redis stores |
-| `mdx/` | Alert ingestion sources/sinks (Kafka, Redis, Elasticsearch) |
+| `enhance_alert_with_vlm.py` | Alert-verification pipeline orchestrator (entrypoint, repo root) |
+| `src/handlers/` | Alert-type config (RedisJSON), direct-media, and prompt handling |
+| `src/vlm/` | VLM client (OpenAI-compatible) and warmup |
+| `src/schemas/` | NvSchema request/response entities, VLM response model, and pluggable response parsers |
+| `src/realtime/` | Realtime + always-on alert rules and the RTVI VLM client |
+| `src/web/` | REST + WebSocket API and on-demand verification service |
+| `src/vst/` | VST video-clip resolution (sensor ID + timestamps) |
+| `src/clients/` | Elasticsearch + Redis clients |
+| `src/persistence/` | Elasticsearch persistence store |
+| `src/mdx/` | Alert ingestion sources/sinks (Kafka, Redis, Elasticsearch) |
 | `blueprint_config/` | Example configs for the warehouse / public-safety / smart-city blueprints |
 | `test/` | Unit, functional, and end-to-end tests (see `test/TEST_README.md`) |
 

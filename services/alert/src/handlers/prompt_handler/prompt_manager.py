@@ -91,15 +91,15 @@ class PromptManager:
             return None
         
         def _get_embedded_system_prompt():
-            # Prefer snake_case schema; fall back to legacy camelCase if present
-            if 'vss_params' in entity and 'vlm_params' in entity['vss_params']:
-                vlm_params = entity['vss_params']['vlm_params']
-                if isinstance(vlm_params, dict) and 'system_prompt' in vlm_params:
-                    sp = vlm_params['system_prompt']
-                    if sp and isinstance(sp, str) and sp.strip():
-                        return sp
-            if 'vssParams' in entity and 'vlmParams' in entity['vssParams']:
-                vlm_params = entity['vssParams']['vlmParams']
+            # Prefer top-level vlm_params; fall back to legacy nested
+            # ``vss_params.vlm_params`` / camelCase shapes if present.
+            candidates = [
+                entity.get('vlm_params'),
+                entity.get('vlmParams'),
+                (entity.get('vss_params') or {}).get('vlm_params') if isinstance(entity.get('vss_params'), dict) else None,
+                (entity.get('vssParams') or {}).get('vlmParams') if isinstance(entity.get('vssParams'), dict) else None,
+            ]
+            for vlm_params in candidates:
                 if isinstance(vlm_params, dict) and 'system_prompt' in vlm_params:
                     sp = vlm_params['system_prompt']
                     if sp and isinstance(sp, str) and sp.strip():
