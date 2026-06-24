@@ -29,36 +29,24 @@
 
 namespace nv_vms {
 
-// Registry that owns the per-camera Basler producers (each an IMediaDataProducer),
-// analogous to NativeStreamMonitor. It is a plain owner/lifecycle manager -- it
-// does not implement IMediaDataProducer itself; the per-camera producer does.
-// It lazily dlopens libbasler_producer.so (which links pylon) on first use, so
-// this translation unit -- compiled into libnvvideo_source.so, shipped in every
-// image -- carries no pylon link/load dependency. Where pylon is absent the
-// dlopen fails gracefully and basler streams simply do not start.
+// Owns per-camera Basler producers, analogous to NativeStreamMonitor. Lazily
+// dlopens libbasler_producer.so so this translation unit carries no pylon link dependency.
 class BaslerStreamMonitor
 {
 public:
     static BaslerStreamMonitor* getInstance();
 
-    // Open the camera identified by serial and start grabbing for streamId.
-    // Idempotent per streamId. Returns false if pylon / libbasler_producer.so is
-    // unavailable or the producer failed to start.
+    // Start grabbing from serial for streamId. Idempotent; returns false if pylon unavailable.
     bool addStream(const std::string& streamId, const std::string& serial);
     void removeStream(const std::string& streamId);
 
-    // The producer for streamId (e.g. for the recorder to register a consumer),
-    // or nullptr if none.
+    // Returns the producer for streamId, or nullptr if not started.
     std::shared_ptr<IMediaDataProducer> getProducer(const std::string& streamId);
 
-    // Video codec of the stream, for the RTSP SDP (mirrors the registry-keyed
-    // accessor WebrtcStreamProducer/NativeStreamMonitor expose). The Basler
-    // producer always encodes H.264.
+    // Returns "h264" when the stream is active, "" otherwise.
     std::string getVideoCodec(const std::string& streamId);
 
-    // SPS/PPS for the RTSP SDP (sprop-parameter-sets). The producer reports its
-    // cached headers via setVideoHeaders once captured; NvMediaSource reads them
-    // at DESCRIBE via getVideoHeaders (mirrors WebrtcStreamProducer::getVideoHeaders).
+    // SPS/PPS headers for the RTSP SDP sprop-parameter-sets.
     void setVideoHeaders(const std::string& streamId, std::vector<std::vector<uint8_t>> headers);
     std::queue<std::vector<uint8_t>> getVideoHeaders(const std::string& streamId);
 
@@ -76,8 +64,7 @@ private:
     std::map<std::string, std::shared_ptr<IMediaDataProducer>> m_producers;
     std::mutex m_mutex;
 
-    // RTSP SDP headers (SPS/PPS) per stream. Separate lock from m_mutex so the
-    // producer's grab thread can report headers without contending with addStream.
+    // Separate lock from m_mutex so the grab thread can report headers without blocking addStream.
     std::map<std::string, std::vector<std::vector<uint8_t>>> m_videoHeaders;
     std::mutex m_headersMutex;
 };

@@ -37,9 +37,7 @@
 #endif
 
 namespace {
-// Basler live streams reuse SourceTypeLive but are sourced from BaslerStreamProducer,
-// not WebRTC. They carry the "basler-" prefix (see buildSensorIdFromSerial), mirroring
-// the discriminator in NvMediaSource.cpp.
+// Basler streams reuse SourceTypeLive; distinguish them from WebRTC by the "basler-" prefix.
 bool isBaslerLiveStream(const std::string& streamId)
 {
     return streamId.rfind("basler-", 0) == 0;
@@ -403,8 +401,7 @@ void DynamicRTSPServer
       }
 
       LOG(info) << "Basler sensorId: " << sensorId << ", url_params:" << url_params << endl;
-      // Basler is an in-process encoded producer (like WebRTC live), so it reuses
-      // SourceTypeLive; NvMediaSource sources it from BaslerStreamProducer.
+      // In-process producer: reuse SourceTypeLive like WebRTC.
       sms = createNewSMS(envir(), sensorId, SourceTypeLive, url_params);
       addServerMediaSession(sms);
   }
@@ -488,9 +485,7 @@ static ServerMediaSession* createNewSMS(UsageEnvironment& env,
         {
             if (isBaslerLiveStream(streamName))
             {
-                // Basler producer is video-only H.264; it has no WebRTC track to
-                // query, so force a single video subsession (otherwise the SMS
-                // would be created with no media and the SDP would be empty).
+                // Basler is video-only; skip WebRTC track query to avoid an empty SDP.
                 video_session = true;
                 audio_session = false;
             }

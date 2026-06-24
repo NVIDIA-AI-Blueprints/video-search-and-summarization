@@ -472,11 +472,7 @@ int SensorManagement::getAndAddProxyUrl(shared_ptr<SensorInfo>& sensorInfo, cons
             }
             else if (sensorInfo->type == SENSOR_TYPE_BASLER)
             {
-                // Basler is a local (pylon) producer with no RTSP backend. Mint a
-                // synthetic URL carrying the basler token + stream id and hand the
-                // stream off to the stream-processor via a camera_proxy event; the
-                // pod recognises the token and brings the stream to streaming state
-                // (the producer + recorder are wired in a later stage).
+                // Basler has no RTSP backend; mint a synthetic URL and notify via camera_proxy.
                 if (stream->live_proxy_url.empty())
                 {
                     stream->live_url = stream->replay_url = stream->live_proxy_url =

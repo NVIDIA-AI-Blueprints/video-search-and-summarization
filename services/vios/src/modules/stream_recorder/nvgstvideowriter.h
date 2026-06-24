@@ -121,8 +121,7 @@ namespace nv_vms
                 }
                 else if (m_uri.find(NV_BASLER_SENSOR) != std::string::npos)
                 {
-                    // Basler frames come from a local pylon producer, not an RTSP
-                    // source: consume directly from BaslerStreamProducer (no RTSP pull).
+                    // Basler frames come from BaslerStreamProducer, not an RTSP source.
                     m_baslerStream = true;
                     m_mux->setConsumerMediaType(MediaTypeVideo);
                     auto producer = BaslerStreamMonitor::getInstance()->getProducer(m_streamId);

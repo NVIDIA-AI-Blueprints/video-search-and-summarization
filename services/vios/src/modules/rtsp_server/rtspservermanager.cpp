@@ -259,10 +259,7 @@ void RtspServerManager::handleRESTAPIs()
             }
         }
 
-        // Basler (a local pylon producer) has no RTSP backend to proxy. Recognise
-        // the basler token in the URL, register the stream on a server and bring it
-        // to streaming state directly -- mirroring how a native/CSI local producer
-        // reaches streaming -- without creating a live555 proxy / DESCRIBE.
+        // Basler has no RTSP backend; register the stream directly without a live555 proxy.
         if (url.find(NV_BASLER_SENSOR) != string::npos || sensor_type == SENSOR_TYPE_BASLER)
         {
             string prefixUrl;
@@ -287,10 +284,7 @@ void RtspServerManager::handleRESTAPIs()
             params["tags"]       = tags;
             server->registerStreamAsync(id, name, live_proxy_url, params);
 
-            // Start the local pylon producer for this camera. The sensor id has the
-            // form "basler-<serial>"; strip the prefix to recover the serial used to
-            // open the device. Lazily loads libbasler_producer.so; on hosts without
-            // pylon this is a graceful no-op.
+            // Strip "basler-" prefix to recover the serial, then start the producer.
             string serial = id;
             const string baslerPrefix = string("basler-");
             if (serial.rfind(baslerPrefix, 0) == 0)

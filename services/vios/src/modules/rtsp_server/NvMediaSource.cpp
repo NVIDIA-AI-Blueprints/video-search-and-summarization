@@ -34,10 +34,7 @@
 using namespace std;
 
 namespace {
-// A SourceTypeLive session is served by either a WebRTC (stream-bridge) producer
-// or a Basler producer. Decide by stream identity, not by whether a producer is
-// currently registered: Basler stream ids carry the "basler-" prefix (see
-// buildSensorIdFromSerial); WebRTC peer ids do not.
+// Basler streams reuse SourceTypeLive; distinguish them from WebRTC by the "basler-" prefix.
 bool isBaslerLiveStream(const std::string& streamId)
 {
     return streamId.rfind("basler-", 0) == 0;
@@ -83,8 +80,7 @@ NvMediaSource
     else if (m_sourceType == SourceTypeLive && m_mediaType == MediaTypeVideo)
     {
         OutPacketBuffer::maxSize = RTSP_SERVER_MAX_OUTPUT_BUFFER_SIZE;
-        // Pre-fetch SPS/PPS so the SDP (sprop-parameter-sets) is complete at DESCRIBE,
-        // before any frame flows. Basler reports its cached headers to the monitor.
+        // Pre-fetch SPS/PPS for the RTSP SDP before any frame flows.
         if (isBaslerLiveStream(m_filename))
         {
             m_videoHeaderFrames = BaslerStreamMonitor::getInstance()->getVideoHeaders(m_filename);

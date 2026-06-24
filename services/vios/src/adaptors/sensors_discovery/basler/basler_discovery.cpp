@@ -36,28 +36,15 @@ namespace {
 
 constexpr const char* kManufacturer = "Basler";
 
-// Lazily dlopen the pylon runtime so the adaptor .so itself can load on
-// systems without pylon installed. RTLD_GLOBAL is required so that pylon's
-// own libraries can resolve each other's symbols, and so the adaptor's
-// deferred symbols (left unresolved by --unresolved-symbols=ignore-in-shared-libs
-// at link time) bind against this handle. The static + C++17 thread-safe
-// initialisation guarantees the dlopen runs exactly once per process.
+// Lazily dlopen pylon so the adaptor .so loads without pylon installed.
+// RTLD_GLOBAL is required so pylon's internal libraries can resolve each other's symbols.
 bool loadPylonRuntime()
 {
     struct Loader {
         void* base{nullptr};
         Loader()
         {
-            // libpylonbase: core camera/transport/enumeration classes + GenICam.
-            // Discovery only enumerates devices, so libpylonbase is sufficient;
-            // the producer that grabs/converts frames (stream-processor) loads
-            // libpylonutility itself.
-            // NOTE: the adaptor loader dlopens this .so with RTLD_NOW, so all
-            // pylon symbols must already be in the process symbol space at
-            // adaptor-load time - that is provided by LD_PRELOAD in the
-            // deployment. This dlopen runs later (in start()) and therefore only
-            // serves as an explicit handle + the basis for graceful-disable when
-            // pylon is absent.
+            // libpylonbase covers enumeration; libpylonutility (frame conversion) is loaded by the producer.
             base = dlopen("libpylonbase.so", RTLD_NOW | RTLD_GLOBAL);
             if (!base) {
                 const char* err = dlerror();
@@ -109,8 +96,6 @@ void BaslerDiscovery::start()
         LOG(info) << "BaslerDiscovery already running" << endl;
         return;
     }
-    // Resolve the pylon SDK at runtime. If it's not installed, leave the
-    // discovery task unstarted — other adaptors continue to function.
     if (!loadPylonRuntime()) {
         return;
     }
@@ -149,8 +134,7 @@ void BaslerDiscovery::stop()
 
 std::string BaslerDiscovery::buildSensorIdFromSerial(const std::string& serial)
 {
-    // Map serial -> deterministic UUID-like string so successive discoveries
-    // resolve to the same sensor id without depending on database state.
+    // Stable sensor id across discovery cycles, without relying on DB state.
     if (serial.empty()) {
         return generate_uuid();
     }
@@ -168,7 +152,6 @@ void BaslerDiscovery::doBaslerDiscovery(std::map<std::string, SensorInfo>& fresh
         for (const auto& dev : devices) {
             const std::string deviceClass(dev.GetDeviceClass().c_str());
             const std::string vendor(dev.GetVendorName().c_str());
-            // Only surface Basler-manufactured devices.
             if (vendor.find(kManufacturer) == std::string::npos) {
                 continue;
             }
@@ -196,21 +179,16 @@ void BaslerDiscovery::doBaslerDiscovery(std::map<std::string, SensorInfo>& fresh
 
             sensor.updateHttpErrorStatus(translateVmsErrorCodeToCameraHttpErrorCode(NoError));
 
-            // Advertise a single main stream. The real capture geometry/codec
-            // are finalised by the producer when it opens the camera (later
-            // stage); sane H.264/1080p defaults here are enough to take the
-            // sensor to streaming state in the stream-processor.
+            // Advertise one stream with sane defaults; geometry/codec are finalised by the producer.
             auto stream = std::make_shared<StreamInfo>();
             stream->sensorId     = sensor.id;
             stream->id           = sensor.id;
             stream->name         = sensor.name;
             stream->isMainStream = true;
             stream->updateStreamtype(StreamType::Rtsp);
-            // In-memory only (updateDB=false): the discovery loop rebuilds this
-            // fresh stream object every poll cycle. Persisting here would stamp
-            // ONLINE over the runtime STREAMING status that the stream processor
-            // sets, every ~5s. Persistence happens once via the add path
-            // (addNewSensor -> publishOnSensorFound), matching the ONVIF adaptor.
+            // updateDB=false: the loop rebuilds this every ~5s and persisting would
+            // overwrite the STREAMING status set by the stream-processor with ONLINE.
+            // Persistence happens once via addNewSensor -> publishOnSensorFound.
             stream->updateErrorStatus(std::make_pair(StreamStatus::STREAM_STATUS_ONLINE,
                 translateStreamStatusToString(StreamStatus::STREAM_STATUS_ONLINE)), /*updateDB=*/false);
             SensorVideoEncoderSettingsValues encValues;
@@ -253,7 +231,6 @@ void BaslerDiscovery::discoveryTask()
             refreshCacheSensorList();
             std::vector<shared_ptr<SensorInfo>> cacheList = getCacheSensorList();
 
-            // Detect removed sensors (in cache but not in fresh list).
             for (const auto& cache : cacheList) {
                 if (!cache || cache->type != SENSOR_TYPE_BASLER) {
                     continue;
@@ -265,7 +242,6 @@ void BaslerDiscovery::discoveryTask()
                 }
             }
 
-            // Detect new or returning sensors.
             for (auto& kv : m_freshList) {
                 SensorInfo& fresh = kv.second;
                 shared_ptr<SensorInfo> cacheMatch;

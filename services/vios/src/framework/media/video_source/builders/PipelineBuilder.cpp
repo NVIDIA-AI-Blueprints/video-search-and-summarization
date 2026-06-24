@@ -43,10 +43,7 @@ std::shared_ptr<IMediaDataProducer> PipelineBuilder::createSourceProducer(
     
     // Determine the type of source producer based on URL
 
-    // Basler: encoded H.264 comes from the shared in-process BaslerStreamProducer
-    // (a local pylon producer), not an RTSP pull. Resolve it from the monitor by the
-    // stream id embedded in the synthetic URL (".../basler_sensor/<streamId>").
-    // Checked before the rtsp:// branch, since the basler URL scheme is rtsp://.
+    // Basler uses a synthetic rtsp:// URL; check before the generic rtsp:// branch.
     if (url.find(NV_BASLER_SENSOR) != std::string::npos)
     {
         const std::string token = std::string(NV_BASLER_SENSOR) + "/";

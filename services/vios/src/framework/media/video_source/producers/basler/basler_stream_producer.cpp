@@ -101,7 +101,7 @@ void BaslerStreamProducer::unregisterConsumer(std::shared_ptr<IMediaDataConsumer
 bool BaslerStreamProducer::start()
 {
     if (!m_exit) {
-        return true;  // already grabbing
+        return true;
     }
     m_exit = false;
     m_thread = std::thread([this] { this->grabLoop(); });
@@ -148,13 +148,11 @@ bool BaslerStreamProducer::hasConsumers() const
 
 void BaslerStreamProducer::distributeToConsumers(std::shared_ptr<RawFrameParams> /*frameData*/)
 {
-    // Wired in a later stage: forward encoded frames to registered consumers.
 }
 
 void BaslerStreamProducer::distributeToConsumers(FrameParams& frameParams)
 {
-    // Snapshot the consumer list under the lock, then deliver without holding it
-    // (onFrame can be slow / re-enter), mirroring StreamMonitor's fan-out.
+    // Snapshot consumers before delivery to avoid holding the lock during onFrame callbacks.
     std::vector<std::shared_ptr<IMediaDataConsumer>> consumers;
     {
         std::lock_guard<std::mutex> lock(m_consumersMutex);
@@ -246,21 +244,14 @@ bool BaslerStreamProducer::buildPipeline(int width, int height)
         g_object_set(G_OBJECT(m_encoder), "bitrate", kSwBitrateKbps, nullptr);
     }
 
-    // Repeat SPS/PPS before every IDR so a consumer that attaches mid-stream
-    // (e.g. the recorder) can start decoding at the next key frame without an
-    // out-of-band parameter-set exchange.
+    // Prepend SPS/PPS before every IDR so mid-stream consumers can decode from the next key frame.
     {
         GParamSpec* ps = g_object_class_find_property(G_OBJECT_GET_CLASS(m_parser), "config-interval");
         if (ps) g_object_set(G_OBJECT(m_parser), "config-interval", -1, nullptr);
     }
 
-    // Emit one NAL per buffer (alignment=nal), byte-stream. Consumers
-    // (IMediaDataConsumer::parseAndCreateFrame) expect a single NAL per onFrame
-    // call -- they accumulate SPS then PPS across calls and only start consuming
-    // when an IDR slice follows. An au-aligned buffer (SPS+PPS+IDR in one) is
-    // misread as a lone SPS, so m_startConsuming never flips and nothing records.
-    // Concatenated, per-NAL byte-stream is still a valid Annex-B stream; the
-    // muxer side re-parses to its container's stream-format.
+    // alignment=nal: consumers expect one NAL per onFrame call (SPS, then PPS, then IDR).
+    // An AU-aligned buffer misreads as a lone SPS, preventing m_startConsuming from flipping.
     {
         GstCaps* h264Caps = gst_caps_from_string(
             "video/x-h264, stream-format=(string)byte-stream, alignment=(string)nal");
@@ -332,9 +323,7 @@ GstFlowReturn BaslerStreamProducer::onNewEncodedSample(GstElement* appsink, gpoi
     GstBuffer* buffer = gst_sample_get_buffer(sample);
     GstMapInfo map;
     if (buffer && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
-        // Cache SPS/PPS once for the RTSP SDP (sprop-parameter-sets). The encoder
-        // re-emits them at every IDR (config-interval=-1); like WebRTC we keep the
-        // first pair and report it to the registry rather than refreshing.
+        // Cache the first SPS/PPS for RTSP SDP sprop-parameter-sets.
         if (!self->m_headersReported) {
             const int nt = h264NalType(map.data, map.size);
             if (nt == 7 && self->m_sps.empty()) {
@@ -351,8 +340,6 @@ GstFlowReturn BaslerStreamProducer::onNewEncodedSample(GstElement* appsink, gpoi
                           << "B pps=" << self->m_pps.size() << "B)" << std::endl;
             }
         }
-        // Hand the encoded access unit to registered consumers (recorder, live,
-        // etc.). byte-stream H.264 AU; consumers parse it (m_needParsing default).
         FrameParams frameParams;
         frameParams.m_media  = "video";
         frameParams.m_codec  = "h264";

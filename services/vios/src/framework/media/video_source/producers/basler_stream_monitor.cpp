@@ -35,8 +35,7 @@ bool BaslerStreamMonitor::ensureLibraryLoaded()
         return true;
     }
     if (!m_libHandle) {
-        // RTLD_GLOBAL so the producer's deferred pylon symbols bind against the
-        // LD_PRELOADed pylon libs already in the process symbol space.
+        // RTLD_GLOBAL: producer's deferred pylon symbols bind against the preloaded pylon libs.
         m_libHandle = dlopen("libbasler_producer.so", RTLD_NOW | RTLD_GLOBAL);
         if (!m_libHandle) {
             const char* err = dlerror();
@@ -66,9 +65,7 @@ bool BaslerStreamMonitor::addStream(const std::string& streamId, const std::stri
         return false;
     }
 
-    // Own the producer via shared_ptr with a deleter that calls back into the
-    // library that allocated it. This also satisfies the producer's
-    // enable_shared_from_this base used by the consumer fan-out.
+    // Custom deleter calls back into the library that allocated the producer.
     DestroyFn destroyFn = m_destroyFn;
     std::shared_ptr<IMediaDataProducer> producer(
         m_createFn(streamId.c_str(), serial.c_str()),
@@ -92,12 +89,7 @@ bool BaslerStreamMonitor::addStream(const std::string& streamId, const std::stri
 
 void BaslerStreamMonitor::removeStream(const std::string& streamId)
 {
-    // Move ownership out of the map under the lock, then release it before the
-    // teardown. stop() joins the grab thread, which can block up to ~5s in
-    // RetrieveResult; destruction (deleter -> destroyBaslerProducer) runs when
-    // `producer` goes out of scope. Doing both outside m_mutex keeps a slow
-    // teardown from stalling addStream/getProducer/getVideoCodec for other
-    // streams (the RTSP DESCRIBE and recorder-setup paths).
+    // Move out of the map before stop() to avoid holding m_mutex during a potentially slow (~5s) thread join.
     std::shared_ptr<IMediaDataProducer> producer;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
