@@ -36,7 +36,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 // Basic Usage Environment: for a simple, non-scripted, console application
 // C++ header
 
@@ -53,12 +53,6 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 
 #ifndef _DELAY_QUEUE_HH
 #include "DelayQueue.hh"
-#endif
-
-#ifndef NO_STD_LIB
-#ifndef _LIBCPP_ATOMIC
-#include <atomic>
-#endif
 #endif
 
 #define RESULT_MSG_BUFFER_MAX 1000
@@ -120,7 +114,7 @@ public:
 				void* clientData);
   virtual void unscheduleDelayedTask(TaskToken& prevTask);
 
-  virtual void doEventLoop(char volatile* watchVariable);
+  virtual void doEventLoop(EventLoopWatchVariable* watchVariable);
 
   virtual EventTriggerId createEventTrigger(TaskFunc* eventHandlerProc);
   virtual void deleteEventTrigger(EventTriggerId eventTriggerId);

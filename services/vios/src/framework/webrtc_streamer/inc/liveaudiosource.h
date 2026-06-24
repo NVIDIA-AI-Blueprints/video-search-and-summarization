@@ -217,7 +217,7 @@ protected:
     }
 
 private:
-    char m_stop;
+    EventLoopWatchVariable m_stop{0};
     Environment m_env;
 
 private:

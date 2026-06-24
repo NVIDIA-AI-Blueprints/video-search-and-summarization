@@ -1,12 +1,14 @@
 ---
 description: Configure backend IP in config.tsx, install deps, and start the UI dev server
 argument-hint: <ip:port> [/path]
-allowed-tools: AskUserQuestion, Read, Edit, Bash(npm run install:link), Bash(npm run dev)
+allowed-tools: AskUserQuestion, Read, Edit, Bash(cd ui/vios-ui && npm run install:link), Bash(cd ui/vios-ui && npm run dev)
 ---
 
 ## Task
 
 Start the VST UI dev server pointed at a backend host.
+
+The UI project lives at `ui/vios-ui/` (package `vst-ui-ts`) relative to the `services/vios` tree. All `npm` commands below must run from that directory — `cd` into it first. Do not assume the session working directory is the UI project root.
 
 **Arguments provided:** $ARGUMENTS
 
@@ -20,7 +22,7 @@ Start the VST UI dev server pointed at a backend host.
 - Default path is `/vst` if none provided.
 - Construct the full URL: `http://<ip>:<port><path>`
 
-### 2. Edit `src/config.tsx`
+### 2. Edit `ui/vios-ui/src/config.tsx`
 
 Read the file first, then apply **one** of the two cases below:
 
@@ -93,10 +95,22 @@ const url = "<CONSTRUCTED_URL>"
 
 ### 3. Install dependencies
 
-Run `npm run install:link` from the project root.
+Run from `ui/vios-ui`:
+
+```bash
+cd ui/vios-ui && npm run install:link
+```
+
+This builds the sibling `ui/streaming-lib` package and links it as `vst-streaming-lib`.
 
 ### 4. Start the dev server
 
-Run `npm run dev` from the project root.
+Run from `ui/vios-ui`:
+
+```bash
+cd ui/vios-ui && npm run dev
+```
+
+The Vite dev server defaults to `http://localhost:5173`.
 
 Execute steps 2 → 3 → 4 in order.
