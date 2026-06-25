@@ -26,6 +26,10 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
+    networks:
+      default:
+        aliases:
+          - vss-behavior-analytics
     command: python3 apps/analytics/main_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
     depends_on:
       broker-health-check:
@@ -44,6 +48,10 @@ services:
 
   nvstreamer-3d:
     container_name: vss-vios-nvstreamer
+    networks:
+      default:
+        aliases:
+          - vss-vios-nvstreamer
     image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
@@ -53,7 +61,8 @@ services:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
-    network_mode: "host"
+    ports:
+      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
       restart_policy:
         condition: on-failure
@@ -103,14 +112,13 @@ services:
       network: host
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
     container_name: vss-configurator-3d-init
-    network_mode: "host"
     environment:
       BP_PROFILE: $BP_PROFILE
       STREAM_TYPE: $STREAM_TYPE
       MAX_RETRIES: 60
       RETRY_INTERVAL: 2
-      BOOTSTRAP_HOST: localhost
-      KAFKA_PORT: 9092
+      BOOTSTRAP_HOST: ${STREAM_TYPE}
+      KAFKA_PORT: 29092
       REDIS_PORT: 6379
       KAFKA_TOPICS: '[{"name": "mdx-raw"},
         {"name": "mdx-bev"},
@@ -145,7 +153,10 @@ services:
   bp-configurator-3d:
     image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.0
     container_name: vss-configurator
-    network_mode: "host"
+    networks:
+      default:
+        aliases:
+          - vss-configurator
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
     user: "0:0"
     environment:
@@ -171,12 +182,12 @@ services:
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs
       NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs
       MESSAGE_BROKER_TYPE: $STREAM_TYPE
-      WDM_REDIS_HOST: localhost
+      WDM_REDIS_HOST: redis
       WDM_REDIS_PORT: 6379
       WDM_REDIS_STREAM_NAME: vst.event
       WDM_REDIS_MSG_KEY: sensor.id
       WDM_KFK_MSG_KEY: vst.event
-      WDM_KFK_BOOTSTRAP_URL: localhost:9092
+      WDM_KFK_BOOTSTRAP_URL: kafka:29092
       WDM_KFK_TOPIC: mdx-notification
       WDM_WL_ID_FIELD: camera_id
       WDM_WL_EVENT_FIELD: event
@@ -221,10 +232,13 @@ services:
 
   ds-configurator-3d:
     image: nvcr.io/nvidia/vss-core/vss-rt-config-adaptor:3.2.0
-    network_mode: "host"
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
     container_name: vss-rtvi-cv-config-adaptor
     user: "0:0"
+    network_mode: "service:perception-3d"
+    depends_on:
+      perception-3d:
+        condition: service_started
     environment:
       PORT: 9003
       DS_CONFIG_PATH: /opt/data/ds-configurator/config.csv
@@ -238,6 +252,19 @@ services:
     #     condition: service_started
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs:/opt/data/ds-configurator
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os,socket; s=socket.create_connection(('127.0.0.1', int(os.environ.get('PORT', '9003'))), 3); s.close()"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   perception-3d:
     extends:
@@ -283,14 +310,11 @@ services:
         condition: service_completed_successfully
       # bp-configurator-3d:
       #   condition: service_started
-      ds-configurator-3d:
-        condition: service_completed_successfully
 
   kibana-init-container-3d:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app
       dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
-    network_mode: "host"
     profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
     container_name: vss-kibana-init
     volumes:
@@ -306,6 +330,10 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
     container_name: vss-video-analytics-api
+    networks:
+      default:
+        aliases:
+          - vss-video-analytics-api
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
@@ -316,7 +344,6 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app
       dockerfile: Dockerfiles/import-calibration.Dockerfile
-    network_mode: "host"
     profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
     container_name: vss-import-calibration-output
     volumes:

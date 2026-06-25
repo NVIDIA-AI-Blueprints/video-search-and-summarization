@@ -23,6 +23,10 @@ services:
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
     container_name: vss-behavior-analytics
+    networks:
+      default:
+        aliases:
+          - vss-behavior-analytics
     command: python3 apps/fusion_search/main_fusion_search_analytics_app.py --config /resources/vss-search-analytics-config.json
     depends_on:
       broker-health-check:
@@ -34,6 +38,10 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_developer_search_2d"]
     container_name: vss-video-analytics-api
+    networks:
+      default:
+        aliases:
+          - vss-video-analytics-api
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
@@ -43,6 +51,10 @@ services:
 
   nvstreamer-2d-fusion:
     container_name: vss-vios-nvstreamer
+    networks:
+      default:
+        aliases:
+          - vss-vios-nvstreamer
     image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
@@ -52,7 +64,8 @@ services:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
-    network_mode: "host"
+    ports:
+      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
       restart_policy:
         condition: on-failure
@@ -74,7 +87,6 @@ services:
     image: debian:12-slim
     profiles: ["bp_developer_search_2d"]
     container_name: vss-rtvi-cv-init
-    network_mode: "host"
     deploy:
       restart_policy:
         condition: on-failure
