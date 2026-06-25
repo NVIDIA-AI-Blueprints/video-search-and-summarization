@@ -55,6 +55,7 @@ docker-workload-rtvi-cv:
   WDM_XDS_USE_IP_ADDRESS: false
   WDM_REDIS_MSG_KEY: vst.event
   REDIS_MSG_KEY: vst.event
+  WDM_KFK_ENABLE: ${RTVI_CV_WDM_KFK_ENABLE}
   WDM_CLUSTER_TYPE: docker
   WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-rtvi-cv.json
