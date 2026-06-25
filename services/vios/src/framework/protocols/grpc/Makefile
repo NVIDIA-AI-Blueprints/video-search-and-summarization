@@ -16,13 +16,25 @@
 PREBUILT=$(TOP)/$(PREBUILT_DIR)
 TARGET := $(PREBUILT)libgrpc.so
 
-LDFLAGS2 += -L/usr/local/lib `pkg-config --libs protobuf grpc++`\
+# gRPC/protobuf must compile against the same /usr/local headers that produced
+# the /usr/local libraries. The top-level CPPFLAGS includes WebRTC's bundled
+# Abseil headers, which expose different absl symbol names and leave plain
+# absl::Mutex references unresolved against the /usr/local Abseil shared libs.
+WEBRTC_ABSL_INCLUDE := -I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp
+override CPPFLAGS := -I /usr/local/include $(subst $(WEBRTC_ABSL_INCLUDE),,$(CPPFLAGS))
+
+GRPC_PC_LIBS := $(shell pkg-config --libs protobuf grpc++ 2>/dev/null)
+
+LDFLAGS2 += -L/usr/local/lib\
             -pthread\
-            -Wl,--no-as-needed -lgrpc++_reflection -Wl,--as-needed\
-            -ldl -shared
+            -Wl,--no-as-needed $(GRPC_PC_LIBS) -lgrpc++_reflection -Wl,--as-needed\
+            -ldl -shared\
+            -Wl,-rpath,/usr/local/lib,-rpath,/usr/local/lib/x86_64-linux-gnu
 PROTOC = protoc
 GRPC_CPP_PLUGIN = grpc_cpp_plugin
 GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
+# protoc exec()s grpc_cpp_plugin; it must resolve libgrpc_plugin_support from the gRPC prefix.
+GRPC_CPP_PLUGIN_LIBDIRS ?= /usr/local/lib:/usr/local/lib/x86_64-linux-gnu
 
 PROTOS_PATH = ./
 
@@ -44,11 +56,11 @@ nvgrpc.o: vstserver.pb.cc vstserver.grpc.pb.cc
 
 .PRECIOUS: %.grpc.pb.cc
 %.grpc.pb.cc: %.proto
-	$(PROTOC) -I $(PROTOS_PATH) --grpc_out=. --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN_PATH) $<
+	LD_LIBRARY_PATH="$(GRPC_CPP_PLUGIN_LIBDIRS):$$LD_LIBRARY_PATH" $(PROTOC) -I $(PROTOS_PATH) --grpc_out=. --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN_PATH) $<
 
 .PRECIOUS: %.pb.cc
 %.pb.cc: %.proto
-	$(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
+	LD_LIBRARY_PATH="$(GRPC_CPP_PLUGIN_LIBDIRS):$$LD_LIBRARY_PATH" $(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
 
 clean:
 	rm -f *.o *.pb.cc *.pb.h $(TARGET) nvgrpc
