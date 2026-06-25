@@ -1,5 +1,19 @@
 # Testing the Alert Agent with VSS Integration
 
+## Directory Layout
+
+Tests are grouped by type so unit tests stay isolated from the rest:
+
+| Path | Type | How to run |
+|------|------|------------|
+| `test/unit/` | Fast, mocked **unit tests** (pytest) | `pytest test/unit` |
+| `test/functional/` | Functional P1 suite (simulators) | `cd test/functional/p1 && ./run_p1.sh` |
+| `test/e2e/` | End-to-end pipeline tests | `pytest test/e2e` |
+| `test/latency/` | Performance / latency tooling + its unit test | `pytest test/latency` |
+| `test/sanity/` | Deployment sanity checks (shell) | `ES_HOST=... test/sanity/run_sanity.sh` |
+| `test/protobuf/`, `test/sim_scripts/` | Shared tooling (producers, simulators) — used by functional/e2e, not pytest tests | — |
+| `test/test_lite/` | Manual local integration helpers (Kafka/Redis/MinIO) | see below |
+
 ## Prerequisites
 
 1. Make sure you have test video files available
@@ -113,7 +127,7 @@ python3 send_direct_media_payload.py /path/to/media_folder
 
 ```bash
 # Run all Direct Media URL tests
-pytest test/test_direct_media_url.py -v
+pytest test/unit/test_direct_media_url.py -v
 ```
 
 ### Supported Media Formats
