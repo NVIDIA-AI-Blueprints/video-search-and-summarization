@@ -251,10 +251,10 @@ def _load_direct_media_handler():
     installed above for ``handlers.direct_media``."""
     here = os.path.dirname(os.path.abspath(__file__))
     handler_path = os.path.normpath(
-        os.path.join(here, "..", "handlers", "direct_media", "direct_media_handler.py")
+        os.path.join(here, "..", "..", "src", "handlers", "direct_media", "direct_media_handler.py")
     )
     downloader_path = os.path.normpath(
-        os.path.join(here, "..", "handlers", "direct_media", "media_downloader.py")
+        os.path.join(here, "..", "..", "src", "handlers", "direct_media", "media_downloader.py")
     )
 
     pkg_name = "_cfgoverride_dmh_pkg"
@@ -311,6 +311,10 @@ def _make_mode3_handler(use_base64: bool = False):
         },
         pluggable_parser=None,
     )
+    # The image-URL path now runs an SSRF/url-policy check before the VLM call.
+    # These tests exercise config-override forwarding, not the security policy,
+    # so allow the test URL through.
+    handler.downloader.validate_url = Mock(return_value=(True, None))
     return handler, vlm_client
 
 
@@ -409,7 +413,7 @@ class TestR32ImageClientSignatures:
 
         here = os.path.dirname(os.path.abspath(__file__))
         vlm_client_path = os.path.normpath(
-            os.path.join(here, "..", "vlm", "vlm_client.py")
+            os.path.join(here, "..", "..", "src", "vlm", "vlm_client.py")
         )
         spec = importlib.util.spec_from_file_location(
             "_vlm_client_real", vlm_client_path
