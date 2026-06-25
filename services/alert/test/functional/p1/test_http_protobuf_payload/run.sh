@@ -45,6 +45,7 @@ print_status "info" "sensorId: $SENSOR_ID"
 print_status "wait" "Serializing incident to protobuf ..."
 python3 -c "
 import sys, json, os
+sys.path.insert(0, '$REPO_ROOT/src')
 sys.path.insert(0, '$REPO_ROOT')
 from google.protobuf import json_format
 from mdx.protobuf import Incident as NvIncident

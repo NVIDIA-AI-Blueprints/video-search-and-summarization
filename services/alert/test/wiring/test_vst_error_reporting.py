@@ -66,6 +66,26 @@ sys.modules['handlers.enrichment'].EnrichmentProcessor = Mock
 sys.modules['handlers.direct_media'].DirectMediaHandler = Mock
 sys.modules['handlers.prompt_handler.alert_type_config_loader'].AlertTypeConfig = Mock
 sys.modules['handlers.prompt_handler.alert_type_config_loader'].AlertTypeConfigLoader = Mock
+
+# The AnomalyEnhancer subclasses these async mixins, so they must be real
+# classes (not Mocks). Stub the modules + classes here rather than relying on a
+# sibling test file having populated them earlier in the collection order.
+for _mixin_mod in (
+    'handlers.async_dispatch_mixin',
+    'handlers.async_external_io_mixin',
+    'handlers.async_vlm_mode_mixin',
+):
+    if _mixin_mod not in sys.modules:
+        sys.modules[_mixin_mod] = types.ModuleType(_mixin_mod)
+
+
+class _AsyncDispatchMixinStub: pass
+class _AsyncExternalIOMixinStub: pass
+class _AsyncVLMModeMixinStub: pass
+sys.modules['handlers.async_dispatch_mixin'].AsyncDispatchMixin = _AsyncDispatchMixinStub
+sys.modules['handlers.async_external_io_mixin'].AsyncExternalIOMixin = _AsyncExternalIOMixinStub
+sys.modules['handlers.async_vlm_mode_mixin'].AsyncVLMModeMixin = _AsyncVLMModeMixinStub
+
 sys.modules['utils.logging_config'].setup_logging = Mock()
 sys.modules['utils.logging_config'].get_logger = lambda name: logging.getLogger(name)
 sys.modules['utils.logging_config'].enforce_log_level = Mock()
@@ -110,6 +130,15 @@ def _make_enhancer(retry_without_overlay=False):
     stub._vst_handler = Mock()
     stub.vlm_client = Mock()
     stub.vlm_client.config = {'num_frames': 10}
+    stub.vlm_client.model = "test"
+    stub.vlm_client.base_url = "http://localhost:30082/v1"
+    # Upstream refactor reads VLM params (max_retries, num_frames, …) from the
+    # merged per-category config rather than self.config['vlm'] directly.
+    stub._get_merged_vlm_config = Mock(return_value={
+        'model': 'test', 'max_retries': 0, 'dynamic_frame_count': False,
+        'num_frames': 10,
+    })
+    stub.set_max_frames = Mock(return_value=10)
     stub.prompt_manager = Mock()
     stub.prompt_manager.alert_config_loader = None
     stub.prompt_manager.get_prompts_for_message.return_value = ("u", "s")
