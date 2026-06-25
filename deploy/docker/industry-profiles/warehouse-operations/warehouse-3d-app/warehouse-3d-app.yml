@@ -235,6 +235,10 @@ services:
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
     container_name: vss-rtvi-cv-config-adaptor
     user: "0:0"
+    network_mode: "service:perception-3d"
+    depends_on:
+      perception-3d:
+        condition: service_started
     environment:
       PORT: 9003
       DS_CONFIG_PATH: /opt/data/ds-configurator/config.csv
@@ -306,8 +310,6 @@ services:
         condition: service_completed_successfully
       # bp-configurator-3d:
       #   condition: service_started
-      ds-configurator-3d:
-        condition: service_healthy
 
   kibana-init-container-3d:
     build:
