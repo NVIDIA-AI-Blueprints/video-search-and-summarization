@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,7 +43,7 @@ class Behavior {
      * returns the max behaviors that can be present in location query.
      * @public
      * @static
-     * @returns {number} Max behaviors that can be present in location query is returned. The returned value must be an integer.
+     * @returns {number} Max behaviors that can be present in location query is returned. The returned value is an integer.
      * @example
      * let result = mdx.Services.Behavior.getMaxBehaviorsInLocationQuery();
      */
@@ -80,11 +80,11 @@ class Behavior {
      * returns the start timestamp of a behavior.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {string} input.objectId
-     * @param {string} input.timestampWithinBehavior
+     * @param {string} input.sensorId - Sensor ID used to query the behavior.
+     * @param {string} input.objectId - Object ID used to query the behavior.
+     * @param {string} input.timestampWithinBehavior - Timestamp within the behavior in ISO 8601 format.
      * @returns {Promise<?string>} Start timestamp of a behavior is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -179,10 +179,10 @@ class Behavior {
     }
 
     /** 
-     * returns an object containing an array of behaviors.
+     * Returns an object containing an array of behaviors.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
      * @param {string} [input.sensorId] - Either sensorId or place should be present.
      * @param {string} [input.place] - Either sensorId or place should be present.
@@ -190,8 +190,8 @@ class Behavior {
      * @param {string} [input.fromTimestamp] - Either queryString or (fromTimestamp and toTimestamp) or (queryString, fromTimestamp and toTimestamp) should be present.
      * @param {string} [input.toTimestamp] - Either queryString or (fromTimestamp and toTimestamp) or (queryString, fromTimestamp and toTimestamp) should be present.
      * @param {string} [input.queryString] - queryString follows lucene syntax. Either queryString or (fromTimestamp and toTimestamp) or (queryString, fromTimestamp and toTimestamp) should be present. queryString and objectId can't occur together.
-     * @param {string} [input.objectType] - objectType must be a string.
-     * @param {number} [input.maxResultSize=25] - maxResultSize must be an integer. objectId and maxResultSize can't occur together. If objectId is not null, then maxResultSize is set to 1.
+     * @param {string} [input.objectType] - Object type used to filter behaviors.
+     * @param {number} [input.maxResultSize=25] - Maximum number of behaviors returned. objectId and maxResultSize can't occur together. If objectId is not null, then maxResultSize is set to 1.
      * @returns {Promise<Object>} An object containing an array of behaviors is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -385,11 +385,11 @@ class Behavior {
      * returns the start and end pts of a behavior.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.sensorId
-     * @param {number} input.endFrameId - endFrameId must be an integer.
-     * @param {number} input.behaviorTimeInterval
+     * @param {string} input.sensorId - Sensor ID used to query behavior pts.
+     * @param {number} input.endFrameId - End frame ID used to query behavior pts.
+     * @param {number} input.behaviorTimeInterval - Behavior time interval used to query behavior pts.
      * @returns {Promise<Object>} Start and end pts of a behavior is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -476,11 +476,11 @@ class Behavior {
      * returns the locations of a given set of input behaviors.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {string} input.fromTimestamp
-     * @param {string} input.toTimestamp
-     * @param {Array<string>} input.behaviorIds
+     * @param {string} input.fromTimestamp - fromTimestamp for the query in ISO 8601 format.
+     * @param {string} input.toTimestamp - toTimestamp for the query in ISO 8601 format.
+     * @param {Array<string>} input.behaviorIds - Behavior IDs used to query locations.
      * @returns {Promise<Object>} An object containing locations of the input behaviors is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -579,9 +579,9 @@ class Behavior {
      * returns an object containing an array of behaviors.
      * @public
      * @async
-     * @param {Database} documentDb - Database Object
+     * @param {Database} documentDb - Database Object.
      * @param {Object} input - Input object.
-     * @param {Array<{sensorId:string,objectId:string,timestamp:string}>} input.behaviorInfo
+     * @param {Array<{sensorId:string,objectId:string,timestamp:string}>} input.behaviorInfo - Behavior identifiers and timestamps used to query behaviors.
      * @returns {Promise<Object>} An object containing an array of behaviors is returned
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");

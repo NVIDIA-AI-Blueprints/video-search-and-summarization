@@ -2,7 +2,7 @@
 
 Load this reference when the user wants to **verify a fresh AMC install** by running calibration on the bundled sample dataset (`sdg_08_2_sample_data_010926.zip`, 4 synthetic warehouse cameras with ground truth). Useful before throwing real data at it.
 
-For your own pre-recorded MP4s, see [`videos.md`](videos.md). For live RTSP streams, see [`rtsp.md`](rtsp.md).
+For your own pre-recorded MP4s, see `videos.md`. For live RTSP streams, see `rtsp.md`.
 
 The sample includes GT, so the run produces evaluation metrics (L2 distance, reprojection error) — no calibration parameter tuning needed.
 
@@ -13,13 +13,13 @@ The sample includes GT, so the run produces evaluation metrics (L2 distance, rep
   - The inline run block self-heals: if `requests` is missing it creates a throwaway venv under `${TMPDIR:-/tmp}/amc-sample-test-venv` (nothing written to the repo).
   - If `python3 -m venv` itself fails with `ensurepip not available`, the inline block falls back to [`uv`](https://astral.sh/uv) (sudo-free, installed via `curl -LsSf https://astral.sh/uv/install.sh | sh`). If neither path is available: `sudo apt install -y python3-venv python3-pip` as a last resort.
 
-The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-modes) section.
+The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-calibration-modes) section.
 
 ## Quick Start for Agents
 
 **"launch AMC and test sample dataset" (or similar):**
 
-1. Walk [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) first to bring up the AMC stack.
+1. Walk `deploy-auto-calibration-service.md` first to bring up the AMC stack.
 2. Wait for `/v1/ready` to return OK.
 3. Extract sample data (snippet below) — idempotent, safe to re-run.
 4. Run the inline block in [Run Inline (No File Written)](#run-inline-no-file-written). Do **not** save it as a `.py` file — pipe via heredoc so the user's repo stays clean.
@@ -28,7 +28,7 @@ The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SK
 **"test sample dataset" (MS already running):**
 
 1. Detect backend: scan ports 8000–8009 (and 8010) for a `/v1/ready` response.
-2. If none → walk [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) first.
+2. If none → walk `deploy-auto-calibration-service.md` first.
 3. Extract sample data if not already cached.
 4. Run the inline block (heredoc-piped Python — no file written).
 5. Report metrics.
@@ -210,20 +210,24 @@ print(f"Videos:     {[v.name for v in videos]}")
 
 s = requests.Session()
 
-# Step 1 — Create project
+# Create the sample-dataset project
 project_name = f"sample_test_{int(time.time())}"
 r = s.post(f"{BASE_URL}/create_project", data={"project_name": project_name})
 r.raise_for_status()
 project_id = r.json()["project_id"]
 print(f"[1] Created project {project_name} → {project_id}")
 
-# Step 2 — Upload videos (sorted alphabetically; upload order defines camera indices)
-files, handles = [], []
-for v in videos:
-    f = open(v, "rb"); handles.append(f)
-    files.append(("files", (v.name, f, "video/mp4")))
-r = s.post(f"{BASE_URL}/upload_video_files/{project_id}", files=files, timeout=300)
-for f in handles: f.close()
+# Upload the bundled sample cameras; order defines camera indices.
+upload_parts, open_files = [], []
+try:
+    for video_path in videos:
+        handle = video_path.open("rb")
+        open_files.append(handle)
+        upload_parts.append(("files", (video_path.name, handle, "video/mp4")))
+    r = s.post(f"{BASE_URL}/upload_video_files/{project_id}", files=upload_parts, timeout=300)
+finally:
+    for handle in open_files:
+        handle.close()
 r.raise_for_status()
 print(f"[2] Uploaded {len(videos)} videos")
 
@@ -248,38 +252,12 @@ with open(gt_zip, "rb") as f:
     r.raise_for_status()
 print(f"[5] Uploaded GT zip")
 
-# Shared Calibration Tail — see SKILL.md
-r = s.post(f"{BASE_URL}/verify_project/{project_id}")
-r.raise_for_status()
-state = r.json()["project_state"]
-print(f"[A] verify_project → {state}")
-assert state == "READY", f"Expected READY, got {state}"
-
-r = s.post(f"{BASE_URL}/calibrate/{project_id}", json={"detector_type": "resnet"})
-r.raise_for_status()
-print(f"[B] Calibration started (detector=resnet)")
-
-print(f"[C] Polling (expect 10–30 min)...")
-start = time.time()
-last_state = ""
-while time.time() - start < 3600:
-    r = s.get(f"{BASE_URL}/get_project_info/{project_id}")
-    r.raise_for_status()
-    st = r.json()["project_info"]["project_state"]
-    elapsed = int(time.time() - start)
-    if st != last_state:
-        print(f"    [{elapsed:>4}s] {st}", flush=True)
-        last_state = st
-    if st == "COMPLETED":
-        print(f"[C] Completed in {elapsed}s")
-        break
-    if st == "ERROR":
-        sys.exit(f"Calibration failed. Pull log: GET {BASE_URL}/amc/calibrate/{project_id}/log")
-    time.sleep(10)
-else:
-    sys.exit("Timed out after 60 min")
-
-# Step D — Evaluation statistics (GT was uploaded, so this should return metrics)
+# Shared Calibration Tail — see references/calibration-tail.md for the snippet
+# (verify_project → calibrate → poll → fetch evaluation_statistics)
+# Note: detector_type is hard-coded to "resnet" for the sample dataset.
+DETECTOR_TYPE = "resnet"
+# Run the snippet from references/calibration-tail.md here.
+# Then fetch the evaluation statistics:
 r = s.get(f"{BASE_URL}/result/{project_id}/evaluation_statistics")
 if r.status_code == 200:
     stats = r.json().get("statistics", r.json())
@@ -335,8 +313,10 @@ Average reprojection error 0(px)     : < 10
 
 ```bash
 PROJECT_ID=<id_from_step_1>
-# Calibration log lives inside the MS container's working dir.
-docker exec vss-auto-calibration tail -F server/projects/project_${PROJECT_ID}/calibration.log
+# Calibration log lives under the projects dir, relative to the container
+# working directory. Use projects/...; do not prefix it with the
+# working-directory basename.
+docker exec vss-auto-calibration tail -F projects/project_${PROJECT_ID}/calibration.log
 ```
 
 Or stream MS logs:
@@ -351,11 +331,12 @@ docker logs -f vss-auto-calibration
 |---|---|
 | `requests` not installed | Inside a venv: `python3 -m venv venv && ./venv/bin/pip install requests`. If `python3 -m venv` fails (no `python3-venv` package, no sudo): use `uv` instead — `curl -LsSf https://astral.sh/uv/install.sh \| sh` then `uv venv venv && uv pip install --python venv/bin/python requests`. The inline run block already does this fallback chain automatically. |
 | `[2] Uploaded N videos` where N >> 4 | `SAMPLE_DIR` resolved to the repo root (or another over-broad path) and `rglob("cam_*.mp4")` swept stale videos from `.cache/`, `projects/`, etc. Stop the run (`POST /v1/stop_calibration/{id}`), delete the project (`DELETE /v1/delete_project/{id}`), set `SAMPLE_DIR` explicitly to the extracted sample dir, re-run. The script anchors on `videos/` and asserts `len(videos) <= 16` to fail loud. |
+| `create_project` returns `[Errno 13] Permission denied` | The host projects directory isn't writable by the container user (UID 1000). Run the write test in `deploy-auto-calibration-service.md` § Step 5, then grant access with `setfacl -m u:1000:rwx ${VSS_APPS_DIR}/services/auto-calibration/projects` and retry. |
 | `verify_project` returns state `!= READY` | Confirm all 4 videos + alignment + layout + GT uploaded; inspect `GET /v1/get_project_info/{id}` response. |
 | Sample zip not present at `assets/sdg_08_2_sample_data_010926.zip` | The VSS repo does not bundle it. Pull from GitHub LFS or a sibling AMC checkout — see [Obtain the sample zip](#obtain-the-sample-zip). |
 | Sample not extracted | `unzip <repo_root>/assets/sdg_08_2_sample_data_010926.zip -d <repo_root>/assets/.cache/sdg_08_2_sample_data_010926/` |
 | `cam_*.mp4` glob finds 0 files | Check wrapper-folder depth: `find <sample_dir> -name "cam_*.mp4"`. |
 | Upload returns 413 | Raise server upload limit, or split files (sample files are <200 MB total so this is unusual). |
-| Port scan finds no backend | Backend not running — walk [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) first. |
+| Port scan finds no backend | Backend not running — walk `deploy-auto-calibration-service.md` first. |
 
 See the [Cross-cutting Troubleshooting](../SKILL.md#cross-cutting-troubleshooting) table in SKILL.md for issues that span all modes.

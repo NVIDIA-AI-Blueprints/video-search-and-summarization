@@ -71,6 +71,14 @@ PERMISSIVE_LICENSE_PATTERNS = [
     # license_allowlist_overrides.txt pending explicit OSRB confirmation.
     r"^LGPL[ -]?(?:v)?2\.1(?:\+|[ -]?(?:only|or[ -]later))?$",
     r"^GNU Lesser General Public License(?:[ -]?v?2\.1)?(?:[ -]?or[ -]later)?(?:\s*\(LGPL[^)]*\))?$",
+    # Universal Permissive License 1.0 — Oracle's permissive license,
+    # OSI-approved, similar in scope to MIT/BSD/Apache-2 (full rights,
+    # patent grant). Used by `oci`, `langchain-oci`, `oci-openai`. Accepts
+    # the SPDX form (`UPL-1.0`) and the Trove classifier form
+    # ("Universal Permissive License (UPL)"). Confirmed permissive via
+    # NVBug 6111789 comments tracking the PEP 639 fallback work.
+    r"^UPL(?:[ -]?1\.0)?$",
+    r"^Universal Permissive License(?:\s*\(UPL\))?(?:[ -]?1\.0)?$",
 ]
 
 COMPILED_ALLOWLIST = re.compile(
@@ -94,6 +102,52 @@ def shorten_license_field(license_field: str) -> str:
         if candidate:
             return candidate
     return s
+
+
+def resolve_license_pep639(name: str, csv_license: str) -> str:
+    """Fall back to PEP 639 `License-Expression` (and Trove classifiers) when
+    the legacy `License:` field is empty or `UNKNOWN`.
+
+    `pip-licenses` (4.x) reads only the legacy `License:` METADATA field.
+    Packages following PEP 639 (e.g. `langchain-oci`, `oci-openai`) populate
+    only `License-Expression` and leave `License:` empty, so they appear as
+    `UNKNOWN` in the CSV. This function consults the installed wheel's
+    METADATA directly via `importlib.metadata` and returns the first
+    non-empty source.
+
+    Precedence (highest first):
+      1. CSV License (legacy METADATA, what pip-licenses already gave us)
+      2. METADATA `License-Expression` (PEP 639 SPDX expression)
+      3. Trove classifier `License :: OSI Approved :: <name>`
+    """
+    if csv_license and csv_license.strip().upper() not in ("UNKNOWN", "NONE"):
+        return csv_license
+    try:
+        from importlib.metadata import PackageNotFoundError, metadata
+    except ImportError:
+        return csv_license
+    try:
+        md = metadata(name)
+    except PackageNotFoundError:
+        return csv_license
+    expr = md.get("License-Expression")
+    if expr and expr.strip():
+        return expr.strip()
+    classifiers = md.get_all("Classifier") or []
+    osi = [c for c in classifiers if c.startswith("License :: OSI Approved ::")]
+    if osi:
+        # Trove classifiers form a taxonomy from general to specific:
+        # e.g. "License :: OSI Approved" (vague) →
+        # "License :: OSI Approved :: MIT License" (specific). The longest
+        # entry is the most specific, which is the actual license name we
+        # want to compare against the allowlist. Multi-classifier packages
+        # (dual-licensed) are uncommon enough that one-name-wins is fine —
+        # if it ever matters, an entry in license_allowlist_overrides.txt
+        # covers it.
+        # Drop the "License :: OSI Approved ::" prefix so the allowlist
+        # regex sees the bare license name (the last `::` segment).
+        return max(osi, key=len).rsplit("::", 1)[-1].strip()
+    return csv_license
 
 
 def load_overrides(path: Path) -> set[str]:
@@ -345,6 +399,10 @@ def main() -> int:
         name = row[name_idx].strip()
         version = row[version_idx].strip()
         license_field = row[license_idx].strip()
+        # PEP 639 fallback: if pip-licenses reported UNKNOWN/empty (legacy
+        # `License:` field), consult the wheel METADATA for
+        # `License-Expression` or a Trove classifier before failing.
+        license_field = resolve_license_pep639(name, license_field)
         total += 1
         # 1. Hard denylist wins over everything (override cannot rescue).
         if name.lower() in denylist:

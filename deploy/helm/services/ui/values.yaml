@@ -18,8 +18,8 @@ global: {}
 serviceAccount:
   create: false
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-  tag: "3.2.0-26.05.2-fab1d8616882"
+  repository: nvcr.io/nvidia/vss-core/vss-agent-ui
+  tag: "3.2.0"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -113,7 +113,7 @@ env:
   - name: NEXT_PUBLIC_ENABLE_SEARCH_TAB
     value: "false"
   - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
-    value: "true"
+    value: "false"
   # Optional: set when tabs are enabled (override from parent or leave empty)
   - name: NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL
     value: ""

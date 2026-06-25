@@ -4,10 +4,22 @@
 
 """Generate a license-diff CSV between two git refs for OSRB review.
 
-Walks every `uv.lock` (Python) and `package-lock.json` (Node) tracked by the
-repo at the base and head refs, diffs the (package, version) sets, and writes
-one CSV row per change. Python rows are enriched with license + repository URL
-from PyPI; Node rows use the metadata embedded in the lockfile.
+Walks every Python lockfile (`uv.lock`, `Pipfile.lock`) and Node lockfile
+(`package-lock.json`) tracked by the repo at the base and head refs — at any
+nesting depth (services/*, tools/*, repo root) — diffs the (package, version)
+sets, and writes one CSV row per change. Python rows are enriched with license
++ repository URL from PyPI; Node rows use the metadata embedded in the lockfile.
+
+For Pipfile.lock only the `default` (runtime) section is inventoried — dev-only
+deps never ship, so OSRB does not review them.
+
+Services that ship a plain `requirements.txt` (no lockfile) get a lighter,
+name-level pass: direct dependencies ADDED to / REMOVED from a requirements.txt
+are reported (with the license of the pinned version, or of the latest release
+when the line is unpinned), and `==`-pinned bumps are flagged. This is driven
+by the committed file diff, so it is deterministic — unchanged unpinned lines
+never produce phantom rows. It does NOT resolve the transitive closure; a
+committed lockfile remains the way to get full coverage.
 
 CSV columns: language, package, change, old_version, new_version, old_license,
 new_license, repository_url, notes.
@@ -21,6 +33,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -84,6 +97,145 @@ def parse_uv_lock(data: bytes) -> Inventory:
         repo = source.get("git") or source.get("url") or ""
         out[(name, version)] = {"repository_url": str(repo)}
     return out
+
+
+def parse_pipfile_lock(data: bytes) -> Inventory:
+    """Return {(name, version): {repository_url}} parsed from Pipfile.lock.
+
+    Pipfile.lock is JSON with `default` (runtime) and `develop` (dev-only)
+    sections; each maps a package name to `{"version": "==X.Y.Z", ...}`. Only
+    `default` is inventoried — those are the packages that actually ship, which
+    is what OSRB reviews (dev-only tools like linters never reach a release
+    artifact). Versions are pinned as `==X.Y.Z`; strip the `==`. No license or
+    repository_url is embedded in the lock, so (like uv.lock registry packages)
+    those fields are left empty and filled from PyPI metadata downstream.
+    """
+    doc = json.loads(data.decode("utf-8"))
+    out: Inventory = {}
+    for name, meta in (doc.get("default") or {}).items():
+        lname = (name or "").lower()
+        version = str((meta or {}).get("version") or "").lstrip("=").strip()
+        if not lname or not version:
+            continue
+        out[(lname, version)] = {"repository_url": ""}
+    return out
+
+
+_REQ_NAME_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def parse_requirements(data: bytes) -> dict[str, str]:
+    """Return {canonical_name: pinned_version_or_''} from a requirements.txt.
+
+    requirements.txt is NOT a lockfile — it lists direct deps, usually with
+    version ranges and no transitive closure — so it cannot be diffed by
+    resolved version the way uv.lock / Pipfile.lock are (a `>=` floor would
+    re-resolve as PyPI moves, flagging upstream releases as PR changes). This
+    parser extracts only what is deterministic from the committed file: the set
+    of direct package NAMES, plus an exact version when (and only when) the line
+    is `==`-pinned. Everything else maps to an empty version, meaning
+    "unpinned — license looked up against latest at report time".
+
+    Skips non-dependency lines: blanks, comments, option flags (`-r`, `-e`,
+    `-c`, `--hash`, etc.), and VCS/URL installs (no PyPI name to resolve).
+    """
+    out: dict[str, str] = {}
+    for raw in data.decode("utf-8", errors="replace").splitlines():
+        line = raw.split(" #", 1)[0].strip()
+        if not line or line.startswith("#") or line.startswith("-"):
+            continue
+        if "://" in line or line.startswith(("git+", "http", "file:")):
+            continue
+        # Strip environment markers and inline hashes.
+        line = line.split(";", 1)[0].split(" --hash", 1)[0].strip()
+        m = _REQ_NAME_RE.match(line)
+        if not m:
+            continue
+        name = m.group(1).lower()
+        rest = line[m.end():].lstrip()
+        # Skip an optional extras group: name[extra1,extra2]
+        if rest.startswith("["):
+            rest = rest.split("]", 1)[-1].lstrip() if "]" in rest else ""
+        version = ""
+        if rest.startswith("=="):
+            version = rest[2:].strip().rstrip(",").split(",")[0].strip()
+        out[name] = version
+    return out
+
+
+def requirements_inventory(ref: str) -> dict[str, str]:
+    """Merge every requirements*.txt at `ref` into {name: pinned_version_or_''}.
+
+    `requirements_apt.txt` (system/apt packages, not PyPI) is excluded.
+    """
+    merged: dict[str, str] = {}
+    for path in _ls_tree(ref):
+        base = path.rsplit("/", 1)[-1]
+        if not (base == "requirements.txt" or
+                (base.startswith("requirements") and base.endswith(".txt"))):
+            continue
+        if "node_modules/" in path or "apt" in base:
+            continue
+        data = _git_show(ref, path)
+        if data is None:
+            continue
+        for name, version in parse_requirements(data).items():
+            # Prefer a pinned version over unpinned; among multiple pinned
+            # entries use first-seen so the same service consistently wins
+            # across base and head refs (last-pinned-wins would let one
+            # service's unchanged pin silently mask another's version bump).
+            if name not in merged or (version and not merged[name]):
+                merged[name] = version
+    return merged
+
+
+def diff_requirements(
+    base: dict[str, str], head: dict[str, str], covered_names: set[str]
+) -> list[dict[str, str]]:
+    """Diff direct-dependency NAME sets across requirements.txt files.
+
+    Reports packages added to / removed from requirements.txt, and `==`-pinned
+    version bumps. Packages already inventoried by a lockfile (`covered_names`)
+    are skipped — the lockfile diff covers them more accurately. Driven purely
+    by the committed file contents, so it is deterministic: unchanged unpinned
+    lines never produce phantom rows.
+    """
+    rows: list[dict[str, str]] = []
+    for name in sorted(set(base) | set(head)):
+        if name in covered_names:
+            continue
+        in_base, in_head = name in base, name in head
+        bv, hv = base.get(name, ""), head.get(name, "")
+
+        if not in_base and in_head:  # newly added direct dependency
+            meta = pypi_metadata(name, hv)
+            resolved = meta.get("version") or hv
+            note = "new requirements.txt dependency"
+            if not hv:
+                note += "; unpinned (license shown for latest)"
+            rows.append({
+                "language": "python", "package": name, "change": "added",
+                "old_version": "", "new_version": (hv or f"latest ({resolved})"),
+                "old_license": "", "new_license": meta.get("license", ""),
+                "repository_url": meta.get("repository_url", ""), "notes": note,
+            })
+        elif in_base and not in_head:  # removed direct dependency
+            rows.append({
+                "language": "python", "package": name, "change": "removed",
+                "old_version": bv or "(unpinned)", "new_version": "",
+                "old_license": "", "new_license": "",
+                "repository_url": "", "notes": "removed from requirements.txt",
+            })
+        elif bv != hv and bv and hv:  # pinned == bump on both sides
+            meta = pypi_metadata(name, hv)
+            rows.append({
+                "language": "python", "package": name, "change": "updated",
+                "old_version": bv, "new_version": hv,
+                "old_license": "", "new_license": meta.get("license", ""),
+                "repository_url": meta.get("repository_url", ""),
+                "notes": "requirements.txt version pin changed",
+            })
+    return rows
 
 
 def parse_node_lock(data: bytes) -> Inventory:
@@ -159,16 +311,21 @@ def _project_url(urls: dict[str, str], home_page: str) -> str:
 
 
 def pypi_metadata(name: str, version: str) -> dict[str, str]:
-    """Return license + repository_url for one PyPI package version."""
+    """Return license + repository_url for one PyPI package version.
+
+    An empty ``version`` resolves the package's latest release (the
+    unversioned PyPI endpoint); the resolved version is returned under the
+    ``version`` key so callers can label an otherwise-unpinned dependency.
+    """
     key = (name.lower(), version)
     if key in _pypi_cache:
         return _pypi_cache[key]
-    url = f"{PYPI_INDEX}/{name}/{version}/json"
+    url = f"{PYPI_INDEX}/{name}/{version}/json" if version else f"{PYPI_INDEX}/{name}/json"
     try:
         with urllib.request.urlopen(url, timeout=PYPI_TIMEOUT) as response:
             doc = json.load(response)
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
-        result = {"license": "", "repository_url": ""}
+        result = {"license": "", "repository_url": "", "version": version}
     else:
         info = doc.get("info") or {}
         lic = (info.get("license") or "").strip()
@@ -179,7 +336,7 @@ def pypi_metadata(name: str, version: str) -> dict[str, str]:
             if classifier_lic:
                 lic = classifier_lic
         repo = _project_url(info.get("project_urls") or {}, info.get("home_page") or "")
-        result = {"license": lic, "repository_url": repo}
+        result = {"license": lic, "repository_url": repo, "version": str(info.get("version") or version)}
     _pypi_cache[key] = result
     return result
 
@@ -306,14 +463,37 @@ def main() -> int:
 
     _log(f"Comparing {args.base_ref} -> {args.head_ref}")
 
-    py_base = _inventory_at_ref(args.base_ref, "uv.lock", parse_uv_lock)
-    py_head = _inventory_at_ref(args.head_ref, "uv.lock", parse_uv_lock)
+    # Each (filename, parser) is scanned recursively across the whole repo tree
+    # at the given ref (_list_lockfiles uses `git ls-tree -r`), so lockfiles at
+    # any nesting depth — services/<svc>/..., tools/<tool>/..., or the repo
+    # root — are all picked up. Python deps may be locked by uv (uv.lock) or
+    # pipenv (Pipfile.lock); merge both into one Python inventory.
+    PYTHON_LOCKS = [("uv.lock", parse_uv_lock), ("Pipfile.lock", parse_pipfile_lock)]
+
+    def python_inventory(ref: str) -> Inventory:
+        merged: Inventory = {}
+        for filename, parser_fn in PYTHON_LOCKS:
+            for key, meta in _inventory_at_ref(ref, filename, parser_fn).items():
+                merged.setdefault(key, meta)
+        return merged
+
+    py_base = python_inventory(args.base_ref)
+    py_head = python_inventory(args.head_ref)
     nd_base = _inventory_at_ref(args.base_ref, "package-lock.json", parse_node_lock)
     nd_head = _inventory_at_ref(args.head_ref, "package-lock.json", parse_node_lock)
 
     rows: list[dict[str, str]] = []
     rows.extend(diff_language("python", py_base, py_head))
     rows.extend(diff_language("node", nd_base, nd_head))
+
+    # Minimal requirements.txt coverage: catch direct deps added to (or removed
+    # from) plain requirements.txt files that have no lockfile. Deduped against
+    # names already in the lockfile inventory, which the diff above covers more
+    # accurately (resolved version + transitive closure).
+    lock_names = {name for name, _ in py_base} | {name for name, _ in py_head}
+    req_base = requirements_inventory(args.base_ref)
+    req_head = requirements_inventory(args.head_ref)
+    rows.extend(diff_requirements(req_base, req_head, lock_names))
 
     with open(args.output, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=HEADERS)

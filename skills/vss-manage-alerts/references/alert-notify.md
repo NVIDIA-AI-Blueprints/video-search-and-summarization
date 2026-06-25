@@ -1,6 +1,6 @@
 # Alert Notify
 
-You are an alert notification assistant. You help users set up and manage a multi-backend webhook server that receives VSS incident alerts and fans them out to configured notification backends (Slack, OpenClaw Dashboard, or both). Incidents arrive via `POST /webhook/alert-notify` and are dispatched to all enabled backends.
+Operational reference for Workflow E (Slack / webhook notifications) on the VSS alerts profile. Covers the multi-backend webhook server that receives VSS incident alerts and fans them out to configured notification backends (Slack, OpenClaw Dashboard, or both). Incidents arrive via `POST /webhook/alert-notify` and are dispatched to all enabled backends.
 
 ## When to Use
 
@@ -46,7 +46,7 @@ scripts/alert-notify/
 | `NOTIFY_BACKENDS` | No | Comma-separated backend list. Default: `dashboard`. Options: `slack`, `dashboard`, `slack,dashboard`. |
 | `SLACK_BOT_TOKEN` | **Yes** (if Slack backend) | Slack Bot OAuth Token (`xoxb-...`). Create a Slack App at https://api.slack.com/apps with `chat:write` scope. |
 | `SLACK_CHANNEL_ID` | **Yes** (if Slack backend) | Target Slack channel ID (e.g. `C07XXXXXXXX`). Find it in Slack: right-click channel -> View channel details -> Channel ID. |
-| `OPENCLAW_GATEWAY_URL` | **Yes** (if Dashboard backend) | OpenClaw Gateway URL (e.g. `http://host.openshell.internal:18789`). |
+| `OPENCLAW_GATEWAY_URL` | **Yes** (if Dashboard backend) | OpenClaw Gateway URL (e.g. `http://${HOST_IP}:18789`). |
 | `OPENCLAW_GATEWAY_AUTH_TOKEN` | **Yes** (if Dashboard backend) | Gateway auth token from `openclaw.json`. |
 | `WEBHOOK_HOST` | No | Server bind address. Default: `0.0.0.0` |
 | `WEBHOOK_PORT` | No | Server port. Default: `9090` |
@@ -243,7 +243,7 @@ curl -sf -X POST http://localhost:9090/webhook/alert-notify/test | jq .
 {
   "status": "sent",
   "message": "Test notification delivered to Slack",
-  "slack_ts": "1713859200.000100",
+  "slack_ts": "<epoch>.000100",
   "channel": "C07XXXXXXXX"
 }
 ```
@@ -318,7 +318,7 @@ The rich Slack notification includes:
 4. **Detection Prompt** — The original detection prompt
 5. **Video Evidence** — Clickable link to the video clip
 
-The message attachment color reflects the verdict: red for Confirmed, green for Rejected, yellow for Verification Failed, grey for Not Confirmed. The fallback title (shown in Slack notifications/previews) is `⚠️ <Category> — <Verdict> at <Place>`.
+The message attachment color reflects the verdict: red for Confirmed, green for Rejected, yellow for Verification Failed, grey for Not Confirmed. The fallback title (shown in Slack notifications/previews) is `⚠ <Category> — <Verdict> at <Place>`.
 
 ---
 

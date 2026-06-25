@@ -1,0 +1,35 @@
+{
+  "sensorId": "HWY_20_AND_LOCUST__WBA",
+  "timestamp": "2025-09-26T23:04:39.302Z",
+  "end": "2025-09-26T23:11:41.196Z",
+  "objectIds": [
+    "36044",
+    "35836",
+    "35729",
+    "35776",
+    "36166"
+  ],
+  "place": {
+    "name": "city=Dubuque/intersection=HWY_20_AND_LOCUST",
+    "id": "",
+    "type": "",
+    "info": {}
+  },
+  "analyticsModule": {
+    "id": "Collision Detection Module",
+    "description": "Potential collision detected between 5 vehicles",
+    "info": {
+      "triggerModules": "Sudden Stop, Unexpected Stop"
+    },
+    "source": "",
+    "version": ""
+  },
+  "category": "collision",
+  "isAnomaly": true,
+  "info": {
+    "location": "42.49195495327119,-90.66448025923353,0.0",
+    "primaryObjectId": "35836"
+  },
+  "frameIds": [],
+  "embeddings": []
+}

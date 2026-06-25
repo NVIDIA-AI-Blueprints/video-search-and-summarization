@@ -1,0 +1,164 @@
+{
+	"mqtt": {
+		"host": "localhost",
+		"port": 1883,
+		"clientId": "mdx-spatial-analytics-3d-app",
+		"keepAliveSec": 60,
+		"consumer": {
+			"qos": 1,
+			"maxPollCount": 1000,
+			"pollTimeoutSec": 0.01
+		},
+		"producer": {
+			"qos": 1,
+			"retain": true
+		},
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-bev"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "spaceUtilization",
+				"value": "mdx-space-utilization"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		]
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "proximityDetectionEnable",
+					"value": "true"
+				},
+				{
+					"name": "proximityDetectionThreshold",
+					"value": "2"
+				},
+				{
+					"name": "proximityDetectionCenterClasses",
+					"value": "[\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\"]"
+				},
+				{
+					"name": "proximityDetectionSurroundingClasses",
+					"value": "[\"Person\"]"
+				}
+			]
+		}
+	],
+	"app": [
+		{
+			"name": "spaceAnalyticsIntervalSec",
+			"value": "1.0"
+		},
+		{
+			"name": "spaceAnalyticsCalibSensorsOnly",
+			"value": "false"
+		},
+		{
+			"name": "spaceAnalyticsGridSize",
+			"value": "0.2"
+		},
+		{
+			"name": "spaceAnalyticsUnsafeSize",
+			"value": "0.5"
+		},
+		{
+			"name": "spaceAnalyticsTargetClasses",
+			"value": "[\"Box\", \"Pallet\"]"
+		},
+		{
+			"name": "spaceAnalyticsUseGA",
+			"value": "false"
+		},
+		{
+			"name": "spaceAnalyticsPopulationSizeGA",
+			"value": "100"
+		},
+		{
+			"name": "spaceAnalyticsNumGenerationsGA",
+			"value": "100"
+		},
+		{
+			"name": "behaviorStateTimeout",
+			"value": "20"
+		},
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "300"
+		},
+		{
+			"name": "in3dMode",
+			"value": "true"
+		},
+		{
+			"name": "compactFrame",
+			"value": "true"
+		},
+		{
+			"name": "stateManagementFilter",
+			"value": "[\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\",\"Person\",\"NovaCarter\",\"Transporter\",\"Forklift\"]"
+		},
+		{
+			"name": "playbackLoop",
+			"value": "1"
+		},
+		{
+			"name": "playbackFilterEmptyObjects",
+			"value": "true"
+		},
+		{
+			"name": "playbackStartUpDelaySec",
+			"value": "90"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "euclidean"
+		},
+		{
+			"name": "sourceType",
+			"value": "mqtt"
+		},
+		{
+			"name": "sinkType",
+			"value": "mqtt"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "1"
+		},
+		{
+			"name": "numWorkersForFrameEnhancement",
+			"value": "1"
+		},
+		{
+			"name": "numWorkersForSpaceEstimation",
+			"value": "1"
+		}
+	]
+}

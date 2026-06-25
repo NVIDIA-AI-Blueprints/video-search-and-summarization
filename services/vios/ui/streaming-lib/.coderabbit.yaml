@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# CodeRabbit Configuration for VST Web Streamer
+# Industry-standard configuration for TypeScript WebRTC streaming library
+
+language: en
+
+# Review configuration
+reviews:
+  # Profile determines review thoroughness: 'chill' for less verbose, 'assertive' for thorough
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: true
+  review_status: true
+
+  # Auto review settings
+  auto_review:
+    enabled: true
+    base_branches:
+      - main
+      - master
+      - develop
+    drafts: false
+
+  # Path-based review instructions
+  path_instructions:
+    - path: "**/*.ts"
+      instructions: |
+        For TypeScript files:
+        - Avoid using 'any' type; use specific types or generics instead
+        - Add explicit return types for public API methods
+        - Handle null/undefined cases explicitly
+        - Use consistent naming conventions (camelCase for variables/functions, PascalCase for classes/interfaces)
+        - Remove unused imports to keep code clean
+        - Use readonly for immutable properties
+        - Replace console statements with proper logging utility
+
+    - path: "src/webrtc/**/*.ts"
+      instructions: |
+        For WebRTC-related files:
+        - Always clean up RTCPeerConnection objects to prevent memory leaks
+        - Properly handle ICE candidate collection and failures
+        - Clean up MediaStream tracks when no longer needed
+        - Implement comprehensive error handling for WebRTC operations
+        - Monitor and handle connection state changes
+        - Consider implementing WebRTC stats monitoring for debugging
+        - Ensure proper cleanup of event listeners
+
+    - path: "src/websocket/**/*.ts"
+      instructions: |
+        For WebSocket-related files:
+        - Use secure WebSocket connections (wss://) in production
+        - Implement robust reconnection strategies with exponential backoff
+        - Handle connection errors gracefully with appropriate fallbacks
+        - Clean up WebSocket connections properly
+        - Validate and sanitize all incoming messages
+
+    - path: "src/utils/**/*.ts"
+      instructions: |
+        For utility files:
+        - Ensure functions are pure when possible
+        - Add comprehensive JSDoc documentation
+        - Handle edge cases and error conditions
+        - Use specific error types instead of generic Error
+        - Consider performance implications for frequently called functions
+
+    - path: "src/StreamManager.ts"
+      instructions: |
+        For the main StreamManager class:
+        - Maintain consistent interface design across the library
+        - Consider backward compatibility when modifying public APIs
+        - Document all public methods with JSDoc comments
+        - Implement proper stream lifecycle management (start, stop, cleanup)
+        - Use consistent event handling patterns
+        - Handle memory cleanup for all resources
+
+    - path: "**/*.test.ts"
+      instructions: |
+        For test files:
+        - Add unit tests for new functionality
+        - Consider integration tests for WebRTC flows
+        - Mock external dependencies in tests
+        - Test error conditions and edge cases
+        - Use descriptive test names that clearly convey intent
+        - Ensure tests are isolated and don't depend on external state
+
+  # Tool integrations
+  tools:
+    eslint:
+      enabled: true
+
+  # File patterns to ignore during review
+  path_filters:
+    - "!dist/**"
+    - "!node_modules/**"
+    - "!**/*.lock"
+    - "!**/*.log"
+    - "!coverage/**"
+    - "!**/*.min.js"
+    - "!**/*.bundle.js"
+    - "!**/.git/**"
+    - "!**/.vscode/**"
+    - "!**/.idea/**"
+    - "!**/*.map"
+
+# Knowledge base configuration
+knowledge_base:
+  learnings:
+    scope: global

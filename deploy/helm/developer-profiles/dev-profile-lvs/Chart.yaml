@@ -17,35 +17,35 @@ apiVersion: v2
 name: vss
 description: "VSS stack - Helm chart for developer profiles - LVS (Long Video Summarization)"
 type: application
-version: 26.04.2
+version: 3.2.0
 appVersion: "1.0"
 dependencies:
   - name: infra
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/infra"
     condition: infra.enabled
   - name: vios
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/vios"
     condition: vios.enabled
   - name: agent
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/agent"
     condition: agent.enabled
   - name: vss-agent-ui
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/ui"
     condition: vss-agent-ui.enabled
   - name: nims
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/nims"
     condition: nims.enabled
   - name: vss-summarization
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/video-summarization"
     condition: vss-summarization.enabled
   - name: rtvi
-    version: 26.04.2
+    version: 3.2.0
     repository: "file://../../services/rtvi"
     condition: rtvi.enabled
   # Optional HAProxy Kubernetes Ingress controller was previously vendored here; it pulled

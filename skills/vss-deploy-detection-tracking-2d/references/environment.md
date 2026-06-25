@@ -89,7 +89,7 @@ docker run --runtime nvidia --gpus '"device=0"' ...
 
 **Default for the vss-deploy-detection-tracking-2d skill: `--gpus '"device=$DEFAULT_GPU_ID"'`.**
 `DEFAULT_GPU_ID` is emitted by `scripts/load_defaults.sh` from
-`references/deploy-defaults.yml > runtime.gpu_id` (ships at `0`).
+`assets/deploy-defaults.yml > runtime.gpu_id` (ships at `0`).
 Pinning a specific device avoids accidentally claiming every GPU on
 a multi-GPU host (a common surprise during smoke-testing on a shared
 workstation). The agent uses the YAML value unless the user

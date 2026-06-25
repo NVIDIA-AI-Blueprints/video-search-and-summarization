@@ -235,11 +235,8 @@ Both boxes use the universal 128-wide box format from SKILL.md.
 
 ### Per-mode flag table (drives the Launch row)
 
-| Sink     | App flags emitted by `run_app_and_wait.sh`              | Why                                                       |
-|----------|---------------------------------------------------------|-----------------------------------------------------------|
-| fakesink | `-c <main-config>`                                       | No display, no overlay needed.                            |
-| eglsink  | `-c <main-config> --tiledtext`                           | Source-name overlay on the tiled display.                 |
-| filedump | `-c <main-config> --tiledtext`                           | Same overlay so the dumped file is self-describing.       |
+See [App command flags by sink mode](#app-command-flags-by-sink-mode) above for
+the canonical sink→flags table; the same mapping drives the Launch row.
 
 ### Per-mode REST table (drives the Stream addition row)
 

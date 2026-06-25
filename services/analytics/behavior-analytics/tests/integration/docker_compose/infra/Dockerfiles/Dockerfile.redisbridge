@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+ARG PYTHON_VERSION=3.11
+ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.5
+ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
+
+# Build stage
+FROM python:${PYTHON_VERSION}-bookworm AS builder
+
+RUN pip install --no-cache-dir redis==6.0.0 confluent-kafka==2.3.0
+
+# Deploy stage
+FROM ${DISTROLESS_IMG}:${DISTROLESS_TAG}
+
+ENV LD_LIBRARY_PATH=/lib/distroless/
+
+# Copy installed python libraries
+COPY --from=builder /usr/local/lib/python${PY_VERSION}/site-packages /usr/local/lib/python3.11/site-packages
+
+# Copy the bridge script
+COPY ./scripts/redis_to_kafka_bridge.py /app/redis_to_kafka_bridge.py
+
+# Run the bridge
+CMD ["python", "/app/redis_to_kafka_bridge.py"]

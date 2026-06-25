@@ -1,0 +1,44 @@
+# Sanity Drop 02 — Prometheus metrics endpoint exposes canonical AB metrics
+#
+# Verifies the /metrics endpoint (port 9081) is reachable and emits the
+# load-bearing 4 counters + 3 histograms from the prometheus_metrics spec.
+#
+# Apply phase (optional): toggling PROMETHEUS_METRICS_ENABLED requires editing
+# the compose .env file or compose env section, then restarting alert-bridge.
+# If AB_COMPOSE_FILE is unset, assumes the deployment already has metrics
+# enabled and just probes.
+
+PROBE="probes/assert_metrics_present.sh"
+PROBE_ENV_REQUIRED_METRICS="alert_bridge_events_after_dedup_total,alert_bridge_events_total,alert_bridge_verification_failures_total,alert_bridge_events_dropped_total,alert_bridge_e2e_duration_seconds_bucket,alert_bridge_vlm_duration_seconds_bucket,alert_bridge_worker_processing_seconds_bucket"
+WAIT_TRAFFIC_SECONDS=0
+
+apply() {
+    if [[ -z "${AB_COMPOSE_FILE:-}" ]]; then
+        log_info "[apply] skipped (AB_COMPOSE_FILE not set — assuming PROMETHEUS_METRICS_ENABLED=true on deployment)"
+        return 0
+    fi
+
+    # Write/overwrite .env override line; idempotent
+    local env_file="${AB_COMPOSE_ENV_FILE:-$(dirname "$AB_COMPOSE_FILE")/.env}"
+    touch "$env_file"
+    if grep -q "^PROMETHEUS_METRICS_ENABLED=" "$env_file"; then
+        sed -i.bak "s|^PROMETHEUS_METRICS_ENABLED=.*|PROMETHEUS_METRICS_ENABLED=true|" "$env_file" && rm -f "${env_file}.bak"
+    else
+        echo "PROMETHEUS_METRICS_ENABLED=true" >> "$env_file"
+    fi
+    log_info "[apply] set PROMETHEUS_METRICS_ENABLED=true in $env_file"
+
+    docker compose -f "$AB_COMPOSE_FILE" up -d alert-bridge >/dev/null 2>&1 || return 1
+    log_info "[apply] re-upped alert-bridge with new env"
+
+    # Wait for /metrics to come up (timeout 60s)
+    local metrics_url="http://${METRICS_HOST:-${ES_HOST:-localhost}}:${METRICS_PORT:-9081}/metrics"
+    for i in $(seq 1 60); do
+        curl -sf --max-time 2 "$metrics_url" >/dev/null 2>&1 && {
+            log_info "[apply] metrics endpoint ready at $metrics_url"
+            return 0
+        }
+        sleep 1
+    done
+    return 1
+}

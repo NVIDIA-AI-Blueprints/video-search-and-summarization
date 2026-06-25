@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+FROM nvcr.io/nvidia/cuda:13.0.0-runtime-ubuntu24.04
+
+# Install all the dependent packages
+RUN apt-get update && \
+	DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        libcurl4 \
+        libxml2 \
+        libssl-dev \
+        libjsoncpp-dev \
+        sqlite3 \
+        uuid \
+        gstreamer1.0-plugins-base \
+        gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-ugly \
+        gstreamer1.0-plugins-bad \
+        gstreamer1.0-libav \
+        libgstreamer1.0-0 \
+        libgstreamer-plugins-base1.0 \
+        libboost-filesystem-dev \
+        libboost-regex-dev \
+        libboost-thread-dev \
+        libyaml-cpp-dev \
+        gstreamer1.0-tools \
+        libjansson-dev \
+        librdkafka-dev \
+        libcogl-pango-dev \
+        libopencv-dev \
+        libpq-dev \
+        libpqxx-dev \
+        libhiredis1.1.0 \
+	libpaho-mqttpp-dev \
+        && apt-get clean
+
+# To get video driver libraries at runtime (libnvidia-encode.so/libnvcuvid.so)
+ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video,compute,graphics,utility
+RUN ln -s /usr/lib/x86_64-linux-gnu/libnvcuvid.so.1 /usr/lib/x86_64-linux-gnu/libnvcuvid.so
+RUN ln -s /usr/lib/x86_64-linux-gnu/libnvidia-encode.so.1 /usr/lib/x86_64-linux-gnu/libnvidia-encode.so
+
+# OSRB requirement, GPL licensed packages removal
+RUN rm -f /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaudioparsers.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstx264.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstfaad.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvoaacenc.so*
+
+RUN rm -f /usr/lib/x86_64-linux-gnu/libavresample* /usr/lib/x86_64-linux-gnu/libavutil* \
+        /usr/lib/x86_64-linux-gnu/libavcodec* /usr/lib/x86_64-linux-gnu/libavformat* \
+        /usr/lib/x86_64-linux-gnu/libavfilter*  /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstde265.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstx265.so* /usr/lib/x86_64-linux-gnu/libde265.so* /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvpx.so*
+
+RUN rm -f /usr/lib/x86_64-linux-gnu/libmpeg2.so* /usr/lib/x86_64-linux-gnu/libmpeg2encpp-2.1.so* /usr/lib/x86_64-linux-gnu/libmpg123.so*  \
+        /usr/lib/x86_64-linux-gnu/libx265.so* /usr/lib/x86_64-linux-gnu/libx264.so* /usr/lib/x86_64-linux-gnu/libvpx.so*  \
+        /usr/lib/x86_64-linux-gnu/libmpeg2convert.so* /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopenh264.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstnvcodec.so*
+
+RUN rm -f /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstuvch264.so* /usr/lib/x86_64-linux-gnu/libopenh264.so* \
+        /usr/lib/x86_64-linux-gnu/libvo-aacenc.so* /usr/lib/x86_64-linux-gnu/libmp3lame.so* \
+        /usr/lib/x86_64-linux-gnu/libfaad* /usr/lib/x86_64-linux-gnu/libFLAC.so* \
+        /usr/lib/x86_64-linux-gnu/libmjpegutils-2.1.so.0* /usr/lib/x86_64-linux-gnu/libxvidcore.so* /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmpegpsmux.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstflac.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmpeg2enc.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmpeg2dec.so*
+
+RUN rm -f /usr/lib/x86_64-linux-gnu/mfx/libmfx_h264la_hw64.so*
+
+RUN rm -f /usr/lib/x86_64-linux-gnu/liba52* /usr/lib/x86_64-linux-gnu/libcdio.so* /usr/lib/x86_64-linux-gnu/libsidplay.so* \
+        /usr/lib/x86_64-linux-gnu/liblrdf.so*  /usr/lib/x86_64-linux-gnu/libneon.so* \
+        /usr/lib/x86_64-linux-gnu/libbs2b.so* /usr/lib/x86_64-linux-gnu/libdca.so* /usr/lib/x86_64-linux-gnu/libdvdnav.so* \
+        /usr/lib/x86_64-linux-gnu/libdvdread.so* /usr/lib/x86_64-linux-gnu/libmplex2-2.1.so* /usr/lib/x86_64-linux-gnu/libsbc.so* \
+        /usr/lib/x86_64-linux-gnu/libzvbi* && \
+    rm -rf /usr/share/doc/libreadline8 /usr/lib/x86_64-linux-gnu/libreadline*
+
+# Microservice compliance requirements
+LABEL com.nvidia.mm.nspect="NSPECT-1H82-JYCQ"

@@ -1,0 +1,15 @@
+# Sanity Drop 04 — Document Schema (required fields present)
+#
+# Mirrors test/functional/p1/test_document_schema/run.sh. Inject one incident,
+# assert the ES doc has all required fields populated.
+
+PROBE="probes/assert_es_doc_has_key.sh"
+PROBE_ENV_KEYS="sensorId,category,timestamp,info.verdict,info.verificationResponseCode,info.verificationResponseStatus"
+PROBE_ENV_LOOKBACK_MINUTES=5
+WAIT_TRAFFIC_SECONDS=5
+
+apply() {
+    SENSOR_ID=$(inject_rest_incident "schema" "1") || return 1
+    PROBE_ENV_SENSOR_ID="$SENSOR_ID"
+    log_info "injected sensorId=$SENSOR_ID"
+}

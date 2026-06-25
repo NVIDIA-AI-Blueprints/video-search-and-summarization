@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+
+  # Redis service - default (no profile)
+  alert-bridge-redis:
+    image: redis/redis-stack-server:7.2.0-v9
+    container_name: alert-bridge-redis
+    ports:
+      - "6379:6379"
+    # Remove custom command to let Redis Stack load all modules automatically
+    # command: redis-server --appendonly yes --appendfsync everysec
+    network_mode: "host"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Alert bridge service - runs with either profile
+  alert-bridge:
+    image: nvcr.io/nv-metropolis-dev/metropolis-analytic/alert-bridge:0.19.0-multiarch
+    #image: alert-bridge:19
+    user: "0:0"
+    network_mode: "host"
+    environment:
+      - FASTAPI_PORT=${FASTAPI_PORT:-9080}
+      - ALERT_REVIEW_MEDIA_BASE_DIR=${ALERT_REVIEW_MEDIA_BASE_DIR:-}
+      # Storage service endpoint override for VST media path resolution
+      # Example resolves to: http://127.0.0.1:30000
+      - STORAGE_MODULE_ENDPOINT=http://${HOST_IP:-127.0.0.1}:${STORAGE_HTTP_PORT:-30000}
+      # VSS Agent base URL override (takes precedence over config.yaml vss_agent.base_url)
+      # Example:
+      - VSS_BASE_URL=http://localhost:8000
+      #- VSS_BASE_URL=${VSS_BASE_URL:-}
+    volumes:
+      - ${ALERT_BRIDGE_CONFIG_FILE:-./config.yaml}:/app/config.yaml
+
+
+    container_name: alert-bridge
+    depends_on:
+      - alert-bridge-redis
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9080/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  redis_data:

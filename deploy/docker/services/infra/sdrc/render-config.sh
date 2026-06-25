@@ -25,7 +25,7 @@ OUT="${2:-$SCRIPT_DIR/configs/config.yml}"
 
 # Allowlist of variables to expand. Add new placeholders here when the
 # template starts referencing additional variables.
-ALLOWED_VARS='${HOST_IP} ${NUM_STREAMS} ${NUM_SENSORS}'
+ALLOWED_VARS='${HOST_IP} ${NUM_STREAMS} ${NUM_SENSORS} ${ALERTS_2D_ENABLE} ${RTVI_CV_WDM_KFK_ENABLE}'
 
 if [ ! -f "$TMPL" ]; then
   echo "render-config.sh: template not found: $TMPL" >&2
@@ -39,7 +39,37 @@ if [ -z "${NUM_STREAMS:-}" ] && [ -z "${NUM_SENSORS:-}" ]; then
 fi
 NUM_STREAMS="${NUM_STREAMS:-$NUM_SENSORS}"
 NUM_SENSORS="${NUM_SENSORS:-$NUM_STREAMS}"
-export NUM_STREAMS NUM_SENSORS
+
+# Auto-derive ALERTS_2D_ENABLE from COMPOSE_PROFILES: true iff the active
+# profile set contains "bp_wh_2d" (the only variant that runs
+# docker-workload-alerts-2d). Comma boundaries on both sides prevent partial
+# matches like "bp_wh_2d_extra".
+#
+# A pre-set ALERTS_2D_ENABLE is left untouched so callers can force one, and
+# the derivation is skipped when COMPOSE_PROFILES is not present (e.g. callers
+# who invoked `docker compose --profile ...` without exporting the env var, or
+# direct host invocations as documented in the header). The fallback below
+# then guarantees envsubst always receives a well-formed boolean, so the
+# rendered template never emits `enable: ` (null) for the 2D-alerts workload.
+if [ -n "${COMPOSE_PROFILES:-}" ] && [ -z "${ALERTS_2D_ENABLE:-}" ]; then
+  case ",${COMPOSE_PROFILES}," in
+    *,bp_wh_2d,*) ALERTS_2D_ENABLE=true ;;
+    *)            ALERTS_2D_ENABLE=false ;;
+  esac
+fi
+ALERTS_2D_ENABLE="${ALERTS_2D_ENABLE:-false}"
+
+# RT-CV SDR consumes Kafka notifications for Kafka-backed warehouse profiles and
+# Redis stream events for Redis-backed profiles. Derive this from COMPOSE_PROFILES
+# so native docker compose and blueprint-deploy render the same workload config.
+if [ -n "${COMPOSE_PROFILES:-}" ] && [ -z "${RTVI_CV_WDM_KFK_ENABLE:-}" ]; then
+  case ",${COMPOSE_PROFILES}," in
+    *,bp_wh_redis_2d,*|*,bp_wh_redis_3d,*|*,bp_wh_redis_mv3dt,*) RTVI_CV_WDM_KFK_ENABLE=false ;;
+    *) RTVI_CV_WDM_KFK_ENABLE=true ;;
+  esac
+fi
+RTVI_CV_WDM_KFK_ENABLE="${RTVI_CV_WDM_KFK_ENABLE:-true}"
+export NUM_STREAMS NUM_SENSORS ALERTS_2D_ENABLE RTVI_CV_WDM_KFK_ENABLE
 
 if ! command -v envsubst >/dev/null 2>&1; then
   if command -v apk >/dev/null 2>&1; then

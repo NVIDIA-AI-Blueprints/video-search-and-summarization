@@ -1,0 +1,3405 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Alert Agent API",
+        "description": "HTTP API for alert submission, prompt management, and WebSocket real-time alert broadcasting",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "/",
+            "description": "Alert Verification microservice endpoint"
+        }
+    ],
+    "paths": {
+        "/api/v1/realtime": {
+            "post": {
+                "tags": [
+                    "realtime"
+                ],
+                "summary": "Create a real-time VLM alert rule",
+                "description": "Start monitoring a live RTSP stream for a single `alert_type`. On success returns the rule's `id`, which you pass as `alert_rule_id` to `GET` / `DELETE /api/v1/realtime/{alert_rule_id}`.\n\n### Stream sharing\nProvide `sensor_id` to share one underlying RTVI stream across multiple rules:\n- If RTVI already has a stream registered with that id, it is reused — no extra connection to the camera.\n- Otherwise a new stream is opened.\n- The stream is only torn down when the **last** rule using it is deleted.\n\n### How a create is validated\n1. The rule is persisted (if persistence is enabled).\n2. The RTVI stream is opened (or reused).\n3. The service waits briefly for caption generation to start and, for new streams, polls RTVI until the stream is visible.\n4. If the RTSP source cannot be opened, you get a `502` with `rtvi_stream_not_readable` — no silent late failure.\n\n### When you might get blocked\nWhile `POST /api/v1/realtime/replay` is running, this endpoint returns `503 replay_in_progress`. Retry once the replay finishes.",
+                "operationId": "create_realtime_alert_api_v1_realtime_post",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RealtimeAlertRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Alert rule created successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Request rejected before reaching RTVI. Common causes:\n- Invalid payload (missing field, bad RTSP URL, etc.)\n- No VLM model resolved — neither `model` in the request nor `rtvi_vlm.default_model` is set.\n\nReturned with `error: validation_failed`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "An upstream system failed. Check `error` to know which:\n- `rtvi_vlm_unavailable` — RTVI VLM is unreachable or rejected the request at the HTTP layer.\n- `rtvi_stream_not_readable` — RTVI accepted the call but the RTSP source could not be opened in time (camera offline, bad URL, codec mismatch, ...).\n- `rtvi_invalid_response` — RTVI accepted the stream but did not return a stream id; the rule cannot be managed.\n- `elasticsearch_write_failed` — failed to persist the rule to Elasticsearch.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "A replay is currently re-onboarding rules onto RTVI. New rules cannot be created until it finishes. Returned with `error: replay_in_progress`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "get": {
+                "tags": [
+                    "realtime"
+                ],
+                "summary": "List active alert rules",
+                "description": "Return all active real-time VLM alert rules.",
+                "operationId": "list_realtime_alerts_api_v1_realtime_get",
+                "parameters": [
+                    {
+                        "name": "size",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "description": "Maximum number of rules to return",
+                            "default": 100,
+                            "title": "Size"
+                        },
+                        "description": "Maximum number of rules to return"
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of rules to skip (for pagination)",
+                            "default": 0,
+                            "title": "Offset"
+                        },
+                        "description": "Number of rules to skip (for pagination)"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Active alert rules",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/realtime/{alert_rule_id}": {
+            "delete": {
+                "tags": [
+                    "realtime"
+                ],
+                "summary": "Delete an alert rule",
+                "description": "Delete a real-time VLM alert rule.\n\nThe rule is removed from storage first, so it disappears from list/get even if RTVI VLM is unreachable.\n\n### What gets stopped\n- Caption generation for this rule is **always** stopped.\n- The shared RTVI stream is stopped **only** if this was the last rule using it. If other rules still share the stream (same `sensor_id`), it keeps running for them.\n\n### When you might get blocked\nWhile `POST /api/v1/realtime/replay` is running, this endpoint returns `503 replay_in_progress`.",
+                "operationId": "delete_realtime_alert_api_v1_realtime__alert_rule_id__delete",
+                "parameters": [
+                    {
+                        "name": "alert_rule_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Alert Rule Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Alert rule deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertDeleteResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Alert rule not found (`not_found`).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Invalid UUID format",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Upstream failure. Possible `error` codes: `elasticsearch_query_failed` (failed to read the rule before delete), `elasticsearch_write_failed` (failed to delete the rule). RTVI teardown failures are logged but do not surface as 502 — they leave the stream as a tracked orphan.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Replay in progress — rule deletion is gated until `POST /api/v1/realtime/replay` finishes (error code `replay_in_progress`).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "get": {
+                "tags": [
+                    "realtime"
+                ],
+                "summary": "Get a single alert rule",
+                "description": "Retrieve a single real-time VLM alert rule by ID. Reads from Elasticsearch when persistence is enabled, otherwise from the in-memory registry.",
+                "operationId": "get_realtime_alert_api_v1_realtime__alert_rule_id__get",
+                "parameters": [
+                    {
+                        "name": "alert_rule_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Alert Rule Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Alert rule",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertGetResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Alert rule not found (`not_found`).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Invalid UUID format",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Elasticsearch query failed (`elasticsearch_query_failed`).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/realtime/incidents": {
+            "get": {
+                "tags": [
+                    "realtime"
+                ],
+                "summary": "List incidents from Elasticsearch",
+                "description": "Query incidents from Elasticsearch with optional filtering by sensor_id, category, and time range. Supports pagination via limit and offset.",
+                "operationId": "list_incidents_api_v1_realtime_incidents_get",
+                "parameters": [
+                    {
+                        "name": "sensor_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by sensor ID",
+                            "title": "Sensor Id"
+                        },
+                        "description": "Filter by sensor ID"
+                    },
+                    {
+                        "name": "category",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by incident category",
+                            "title": "Category"
+                        },
+                        "description": "Filter by incident category"
+                    },
+                    {
+                        "name": "start_time",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter incidents after this ISO-8601 timestamp (e.g. 2024-01-15T10:30:00Z)",
+                            "title": "Start Time"
+                        },
+                        "description": "Filter incidents after this ISO-8601 timestamp (e.g. 2024-01-15T10:30:00Z)"
+                    },
+                    {
+                        "name": "end_time",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter incidents before this ISO-8601 timestamp (e.g. 2024-01-15T18:00:00Z)",
+                            "title": "End Time"
+                        },
+                        "description": "Filter incidents before this ISO-8601 timestamp (e.g. 2024-01-15T18:00:00Z)"
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "description": "Maximum number of incidents to return",
+                            "default": 100,
+                            "title": "Limit"
+                        },
+                        "description": "Maximum number of incidents to return"
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of incidents to skip (for pagination)",
+                            "default": 0,
+                            "title": "Offset"
+                        },
+                        "description": "Number of incidents to skip (for pagination)"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Incidents list",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/IncidentListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Invalid timestamp format",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Elasticsearch query failed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Elasticsearch unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/realtime/replay": {
+            "post": {
+                "tags": [
+                    "realtime"
+                ],
+                "summary": "Replay all persisted active or failed rules onto RTVI VLM",
+                "description": "Trigger Alert Bridge to re-onboard every persisted active or failed rule from Elasticsearch onto RTVI VLM. Intended for use after RTVI VLM restarts. Returns 409 if a replay is already running. While a replay is in progress, POST and DELETE on /realtime return 503.",
+                "operationId": "replay_realtime_alerts_api_v1_realtime_replay_post",
+                "responses": {
+                    "200": {
+                        "description": "Replay completed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeReplayResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Replay already in progress",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Persistence not configured",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "Elasticsearch read failure",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/realtime/always-on": {
+            "post": {
+                "tags": [
+                    "realtime"
+                ],
+                "summary": "Start/stop always-on alert rules for an incoming camera event",
+                "description": "Starts or stops always-on alert rules in response to a camera lifecycle event.\n\n**Behavior by `event.change`:**\n\n- `camera_streaming` — starts one rule per entry in the always-on rules config. Idempotent per `camera_id`: repeats return reason `STREAM_ADD_ALREADY_ACTIVE`.\n- `camera_remove` — stops every rule previously started for that `camera_id`.\n\nResponses carry a `reason` code (`STREAM_ADD_SUCCESS`, `STREAM_ADD_PARTIAL_SUCCESS`, `STREAM_ADD_ALREADY_ACTIVE`, `STREAM_ADD_FAILED`, or `ALWAYS_ON_DISABLED`) and a `details` array with one entry per rule.",
+                "operationId": "always_on_realtime_api_v1_realtime_always_on_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "source": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "title": "Source",
+                                        "description": "Upstream producer tag (informational; e.g. 'vst')"
+                                    },
+                                    "alert_type": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "title": "Alert Type",
+                                        "description": "Producer-assigned event type, e.g. 'camera_status_change'. Not to be confused with the always-on rule's `alert_type` in the YAML config — this one is informational and passes through unused."
+                                    },
+                                    "created_at": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "title": "Created At",
+                                        "description": "Producer-assigned creation timestamp (informational)"
+                                    },
+                                    "event": {
+                                        "properties": {
+                                            "camera_id": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "title": "Camera Id",
+                                                "description": "Unique camera identifier"
+                                            },
+                                            "camera_name": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "title": "Camera Name",
+                                                "description": "Human-readable camera label. Required on `camera_streaming` (enforced by the handler); ignored on `camera_remove`."
+                                            },
+                                            "camera_url": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "title": "Camera Url",
+                                                "description": "RTSP URL for the live stream. Required on `camera_streaming` (enforced by the handler); ignored on `camera_remove`."
+                                            },
+                                            "camera_vod_url": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "title": "Camera Vod Url",
+                                                "description": "Optional VOD RTSP URL (not used by always-on)"
+                                            },
+                                            "change": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "camera_streaming",
+                                                    "camera_remove"
+                                                ],
+                                                "title": "Change",
+                                                "description": "Lifecycle signal: `camera_streaming` starts the configured always-on rules for this camera; `camera_remove` tears them down."
+                                            },
+                                            "metadata": {
+                                                "anyOf": [
+                                                    {
+                                                        "additionalProperties": true,
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "title": "Metadata",
+                                                "description": "Producer-specific metadata (informational; not used by always-on)"
+                                            }
+                                        },
+                                        "additionalProperties": true,
+                                        "type": "object",
+                                        "required": [
+                                            "camera_id",
+                                            "change"
+                                        ],
+                                        "title": "AlwaysOnEvent",
+                                        "description": "Inner ``event`` object of a VST-style camera lifecycle event.\n\nThe shape mirrors what the real producer emits; extra fields are\ntolerated so producers can add metadata without breaking us."
+                                    }
+                                },
+                                "additionalProperties": true,
+                                "type": "object",
+                                "required": [
+                                    "event"
+                                ],
+                                "title": "AlwaysOnEventRequest",
+                                "description": "Request body for ``POST /api/v1/realtime/always-on``.\n\nOnly the canonical VST shape is accepted:\n\n```json\n{\n  \"source\": \"vst\",\n  \"alert_type\": \"camera_status_change\",\n  \"created_at\": \"2026-04-22T17:38:38Z\",\n  \"event\": {\n    \"camera_id\": \"c0413489-6ca1-422e-a09c-08224169ff6a\",\n    \"camera_name\": \"warehouse\",\n    \"camera_url\": \"rtsp://localhost:8554/live/<id>\",\n    \"camera_vod_url\": \"rtsp://localhost:8554/vod/<id>\",\n    \"change\": \"camera_streaming\",\n    \"metadata\": {\"codec\": \"H264\"}\n  }\n}\n```\n\nProducer-only fields on the outer envelope (``source``,\n``alert_type``, ``created_at``) and inside ``event`` (``metadata``,\n``camera_vod_url``) pass through unused; extra unknown fields are\ntolerated (``extra=\"allow\"``) so upstream changes don't break the\nendpoint."
+                            },
+                            "examples": {
+                                "camera_streaming": {
+                                    "summary": "Start always-on rules for a new camera",
+                                    "value": {
+                                        "source": "vst",
+                                        "alert_type": "camera_status_change",
+                                        "created_at": "2026-04-22T17:38:38Z",
+                                        "event": {
+                                            "camera_id": "c0413489-6ca1-422e-a09c-08224169ff6a",
+                                            "camera_name": "warehouse",
+                                            "camera_url": "rtsp://localhost:8554/live/c0413489-6ca1-422e-a09c-08224169ff6a",
+                                            "camera_vod_url": "rtsp://localhost:8554/vod/c0413489-6ca1-422e-a09c-08224169ff6a",
+                                            "change": "camera_streaming",
+                                            "metadata": {
+                                                "codec": "H264"
+                                            }
+                                        }
+                                    }
+                                },
+                                "camera_remove": {
+                                    "summary": "Tear down rules for a camera going offline",
+                                    "value": {
+                                        "source": "vst",
+                                        "event": {
+                                            "camera_id": "c0413489-6ca1-422e-a09c-08224169ff6a",
+                                            "change": "camera_remove"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Rules started/stopped successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "reason": {
+                                            "type": "string"
+                                        },
+                                        "status": {
+                                            "type": "string"
+                                        },
+                                        "details": {
+                                            "items": {
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "type": "object",
+                                    "required": [
+                                        "reason",
+                                        "status"
+                                    ]
+                                },
+                                "example": {
+                                    "reason": "STREAM_ADD_SUCCESS",
+                                    "status": "HTTP/1.1 200 OK",
+                                    "details": [
+                                        {
+                                            "rule_id": "intrusion-detection",
+                                            "alert_type": "intrusion",
+                                            "status": 201,
+                                            "result": "success",
+                                            "alert_rule_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Invalid payload",
+                        "content": {
+                            "application/json": {
+                                "example": {
+                                    "reason": "INVALID_PAYLOAD",
+                                    "status": "HTTP/1.1 422 Unprocessable Entity"
+                                }
+                            }
+                        }
+                    },
+                    "502": {
+                        "description": "All rules failed to start on RTVI VLM",
+                        "content": {
+                            "application/json": {
+                                "example": {
+                                    "reason": "STREAM_ADD_FAILED",
+                                    "status": "HTTP/1.1 502 Bad Gateway",
+                                    "details": [
+                                        {
+                                            "rule_id": "intrusion-detection",
+                                            "alert_type": "intrusion",
+                                            "status": 502,
+                                            "result": "error",
+                                            "error": {
+                                                "message": "RTVI VLM unreachable"
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Always-on feature disabled or rules config missing",
+                        "content": {
+                            "application/json": {
+                                "example": {
+                                    "reason": "ALWAYS_ON_DISABLED",
+                                    "status": "HTTP/1.1 503 Service Unavailable"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/verification/ondemand": {
+            "post": {
+                "tags": [
+                    "verification"
+                ],
+                "summary": "Verify alert on demand",
+                "description": "Async on-demand verification using category-based prompt lookup. Returns HTTP 202 with a correlationId immediately. VLM processing runs in the background and results are published to Kafka / Elasticsearch via the same sink as the Kafka pipeline.",
+                "operationId": "verify_ondemand_api_v1_verification_ondemand_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OnDemandVerificationRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Verification request accepted for background processing",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string"
+                                        },
+                                        "correlationId": {
+                                            "type": "string"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "timestamp": {
+                                            "type": "string",
+                                            "format": "date-time"
+                                        }
+                                    },
+                                    "type": "object",
+                                    "required": [
+                                        "status",
+                                        "correlationId",
+                                        "message",
+                                        "timestamp"
+                                    ]
+                                },
+                                "example": {
+                                    "status": "accepted",
+                                    "correlationId": "incident-123",
+                                    "message": "Verification request accepted for processing",
+                                    "timestamp": "2025-06-01T12:00:00Z"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Unknown category or invalid request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "status": {
+                                            "type": "string"
+                                        },
+                                        "error": {
+                                            "type": "string"
+                                        },
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "timestamp": {
+                                            "type": "string",
+                                            "format": "date-time"
+                                        }
+                                    },
+                                    "type": "object",
+                                    "required": [
+                                        "status",
+                                        "error",
+                                        "message",
+                                        "timestamp"
+                                    ]
+                                },
+                                "example": {
+                                    "status": "error",
+                                    "error": "unknown_category",
+                                    "message": "No alert config found for category 'unknown_type'",
+                                    "timestamp": "2025-06-01T12:00:00Z"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/verification/config": {
+            "get": {
+                "tags": [
+                    "alert-verification-config"
+                ],
+                "summary": "List All Configs",
+                "description": "Retrieve all alert type configurations",
+                "operationId": "list_configs_api_v1_verification_config_get",
+                "responses": {
+                    "200": {
+                        "description": "Configs retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AlertConfigListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "alert-verification-config"
+                ],
+                "summary": "Create Alert Type Config",
+                "description": "Create a new alert type configuration",
+                "operationId": "create_config_api_v1_verification_config_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AlertConfigRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Config created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AlertConfigResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Config already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/verification/config/{alert_type}": {
+            "get": {
+                "tags": [
+                    "alert-verification-config"
+                ],
+                "summary": "Get Config",
+                "description": "Get configuration for a specific alert type",
+                "operationId": "get_config_api_v1_verification_config__alert_type__get",
+                "parameters": [
+                    {
+                        "name": "alert_type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Alert Type"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Config retrieved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AlertConfigResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Config not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "alert-verification-config"
+                ],
+                "summary": "Update Config",
+                "description": "Update an existing alert type configuration (partial update)",
+                "operationId": "update_config_api_v1_verification_config__alert_type__put",
+                "parameters": [
+                    {
+                        "name": "alert_type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Alert Type"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AlertConfigUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Config updated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AlertConfigResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Config not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "alert-verification-config"
+                ],
+                "summary": "Delete Config",
+                "description": "Delete an alert type configuration",
+                "operationId": "delete_config_api_v1_verification_config__alert_type__delete",
+                "parameters": [
+                    {
+                        "name": "alert_type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Alert Type"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Config deleted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AlertConfigSuccessResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Config not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Backend storage temporarily unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/alerts": {
+            "post": {
+                "tags": [
+                    "alert-submission"
+                ],
+                "summary": "Submit Alert for Processing",
+                "description": "Submit a new alert for processing through the Alert Agent pipeline. Accepts NvSchema Behavior JSON (default) or a serialized Protobuf Behavior (set Content-Type: application/x-protobuf).",
+                "operationId": "submit_alert_api_v1_alerts_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "timestamp": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "end": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "sensor": {
+                                        "properties": {
+                                            "id": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "analyticsModule": {
+                                        "properties": {
+                                            "id": {
+                                                "type": "string"
+                                            },
+                                            "info": {
+                                                "type": "object"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "videoPath": {
+                                        "type": "string"
+                                    },
+                                    "event": {
+                                        "properties": {
+                                            "id": {
+                                                "type": "string"
+                                            },
+                                            "type": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object",
+                                "required": [
+                                    "id",
+                                    "timestamp",
+                                    "sensor",
+                                    "event"
+                                ]
+                            },
+                            "example": {
+                                "id": "alert-12345",
+                                "timestamp": "2025-01-15T14:30:00Z",
+                                "end": "2025-01-15T14:30:00Z",
+                                "sensor": {
+                                    "id": "cam_highway_01"
+                                },
+                                "analyticsModule": {
+                                    "id": "Alert Module",
+                                    "info": {
+                                        "source": "http_ingest"
+                                    }
+                                },
+                                "videoPath": "/media/videos/traffic_incident.mp4",
+                                "event": {
+                                    "id": "alert-12345",
+                                    "type": "alert_event"
+                                }
+                            }
+                        },
+                        "application/x-protobuf": {
+                            "schema": {
+                                "type": "string",
+                                "format": "binary"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Alert accepted and queued for processing",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AlertSubmissionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation error or invalid request format",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/alerts/health": {
+            "get": {
+                "tags": [
+                    "alert-submission"
+                ],
+                "summary": "Alert Submission Health Check",
+                "description": "Check the health status of the alert submission service",
+                "operationId": "alert_submission_health_api_v1_alerts_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Service is healthy",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HealthResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service is unhealthy",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HealthResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/incidents": {
+            "post": {
+                "tags": [
+                    "incident-submission"
+                ],
+                "summary": "Submit Incident for Processing",
+                "description": "Submit a new incident (NvSchema) for processing and publish to Kafka. Accepts NvSchema Incident JSON (default) or a serialized Protobuf Incident (set Content-Type: application/x-protobuf).",
+                "operationId": "submit_incident_api_v1_incidents_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "timestamp": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "end": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    "sensorId": {
+                                        "type": "string"
+                                    },
+                                    "category": {
+                                        "type": "string"
+                                    },
+                                    "info": {
+                                        "type": "object"
+                                    },
+                                    "event": {
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object",
+                                "required": [
+                                    "id",
+                                    "timestamp",
+                                    "sensorId"
+                                ]
+                            },
+                            "example": {
+                                "id": "incident-67890",
+                                "timestamp": "2025-01-15T14:30:00Z",
+                                "end": "2025-01-15T14:30:30Z",
+                                "sensorId": "cam_warehouse_02",
+                                "category": "collision",
+                                "info": {
+                                    "media_urls": [
+                                        "http://localhost:30888/vst/sim/media/incident.mp4"
+                                    ],
+                                    "media_type": "video"
+                                },
+                                "event": {
+                                    "id": "incident-67890",
+                                    "type": "incident_event"
+                                }
+                            }
+                        },
+                        "application/x-protobuf": {
+                            "schema": {
+                                "type": "string",
+                                "format": "binary"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Incident accepted and queued",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AlertSubmissionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid Protobuf payload",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Invalid JSON body",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ws/health": {
+            "get": {
+                "tags": [
+                    "websocket"
+                ],
+                "summary": "Websocket Health",
+                "description": "Health check endpoint for WebSocket service.\n\nReturns:\n    WebSocket service health status and connection count",
+                "operationId": "websocket_health_ws_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/health": {
+            "get": {
+                "summary": "Health Check",
+                "description": "Basic health check for Alert Bridge.",
+                "operationId": "health_check_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics": {
+            "get": {
+                "summary": "Metrics",
+                "description": "Prometheus metrics are served from the main process on port 9081.\nThis endpoint provides guidance for the correct metrics URL.",
+                "operationId": "metrics_metrics_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "AlertConfigListResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "description": "Operation status",
+                        "default": "success"
+                    },
+                    "configs": {
+                        "items": {
+                            "$ref": "#/components/schemas/AlertConfigResponse"
+                        },
+                        "type": "array",
+                        "title": "Configs",
+                        "description": "List of configurations"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "title": "Count",
+                        "description": "Total number of configurations"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "configs",
+                    "count"
+                ],
+                "title": "AlertConfigListResponse",
+                "description": "Response for listing all alert type configurations.",
+                "example": {
+                    "configs": [
+                        {
+                            "alert_type": "collision",
+                            "created_at": "2025-06-01T10:00:00Z",
+                            "output_category": "Vehicle Collision",
+                            "prompt": "Analyze the scene for vehicle collisions.",
+                            "system_prompt": "Answer yes or no",
+                            "updated_at": "2025-06-01T10:00:00Z",
+                            "vlm_params": {
+                                "model": "nvidia/cosmos-reason2-8b",
+                                "num_frames": 10
+                            }
+                        }
+                    ],
+                    "count": 1,
+                    "status": "success"
+                }
+            },
+            "AlertConfigRequest": {
+                "properties": {
+                    "alert_type": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "title": "Alert Type",
+                        "description": "Alert type identifier"
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "maxLength": 5000,
+                        "minLength": 1,
+                        "title": "Prompt",
+                        "description": "User prompt text"
+                    },
+                    "system_prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 5000
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "System Prompt",
+                        "description": "System prompt text"
+                    },
+                    "enrichment_prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 5000
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Enrichment Prompt",
+                        "description": "Optional enrichment prompt for post-verification VLM call"
+                    },
+                    "vlm_params": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/VlmParams"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "VLM parameter overrides"
+                    },
+                    "output_category": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 200
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Output Category",
+                        "description": "Display name for output"
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                    "alert_type",
+                    "prompt"
+                ],
+                "title": "AlertConfigRequest",
+                "description": "Create a new alert type configuration.",
+                "example": {
+                    "alert_type": "collision",
+                    "output_category": "Vehicle Collision",
+                    "prompt": "Analyze the scene for vehicle collisions or near-miss events.",
+                    "system_prompt": "Answer the user's question correctly in yes or no",
+                    "vlm_params": {
+                        "max_tokens": 512,
+                        "model": "nvidia/cosmos-reason2-8b",
+                        "num_frames": 10,
+                        "temperature": 0.6
+                    }
+                }
+            },
+            "AlertConfigResponse": {
+                "properties": {
+                    "alert_type": {
+                        "type": "string",
+                        "title": "Alert Type",
+                        "description": "Alert type identifier"
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "title": "Prompt",
+                        "description": "User prompt text"
+                    },
+                    "system_prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "System Prompt",
+                        "description": "System prompt text"
+                    },
+                    "enrichment_prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Enrichment Prompt",
+                        "description": "Optional enrichment prompt"
+                    },
+                    "vlm_params": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Vlm Params",
+                        "description": "VLM parameter overrides"
+                    },
+                    "output_category": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Output Category",
+                        "description": "Display name for output"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "title": "Created At",
+                        "description": "Creation timestamp (ISO 8601)",
+                        "default": ""
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "title": "Updated At",
+                        "description": "Last update timestamp (ISO 8601)",
+                        "default": ""
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                    "alert_type",
+                    "prompt"
+                ],
+                "title": "AlertConfigResponse",
+                "description": "Response for a single alert type configuration.",
+                "example": {
+                    "alert_type": "collision",
+                    "created_at": "2025-06-01T10:00:00Z",
+                    "output_category": "Vehicle Collision",
+                    "prompt": "Analyze the scene for vehicle collisions or near-miss events.",
+                    "system_prompt": "Answer the user's question correctly in yes or no",
+                    "updated_at": "2025-06-01T10:00:00Z",
+                    "vlm_params": {
+                        "max_tokens": 512,
+                        "model": "nvidia/cosmos-reason2-8b",
+                        "num_frames": 10,
+                        "temperature": 0.6
+                    }
+                }
+            },
+            "AlertConfigSuccessResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "description": "Operation status",
+                        "default": "success"
+                    },
+                    "message": {
+                        "type": "string",
+                        "title": "Message",
+                        "description": "Success message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "message"
+                ],
+                "title": "AlertConfigSuccessResponse",
+                "description": "Generic success response for config operations.",
+                "example": {
+                    "message": "Config 'collision' deleted",
+                    "status": "success"
+                }
+            },
+            "AlertConfigUpdateRequest": {
+                "properties": {
+                    "prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 5000
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Prompt",
+                        "description": "User prompt text"
+                    },
+                    "system_prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 5000
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "System Prompt",
+                        "description": "System prompt text"
+                    },
+                    "enrichment_prompt": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 5000
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Enrichment Prompt",
+                        "description": "Optional enrichment prompt for post-verification VLM call"
+                    },
+                    "vlm_params": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/VlmParams"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "VLM parameter overrides"
+                    },
+                    "output_category": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 200
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Output Category",
+                        "description": "Display name for output"
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "title": "AlertConfigUpdateRequest",
+                "description": "Update an existing alert type configuration. All fields optional (partial update).",
+                "example": {
+                    "prompt": "Detect vehicle collisions, rear-end impacts, and side-swipe events.",
+                    "vlm_params": {
+                        "max_tokens": 1024,
+                        "num_frames": 8
+                    }
+                }
+            },
+            "AlertSubmissionResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "maxLength": 32,
+                        "title": "Status",
+                        "description": "Submission status"
+                    },
+                    "id": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "title": "Id",
+                        "description": "Original event ID (used for correlation)"
+                    },
+                    "message": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "title": "Message",
+                        "description": "Human-readable status message"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "title": "Timestamp",
+                        "description": "Processing timestamp (ISO 8601)"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status",
+                    "id",
+                    "message",
+                    "timestamp"
+                ],
+                "title": "AlertSubmissionResponse",
+                "description": "HTTP response schema for successful alert submission.",
+                "example": {
+                    "id": "evt-12345-67890",
+                    "message": "Alert queued for processing",
+                    "status": "accepted",
+                    "timestamp": "2025-01-15T14:30:05Z"
+                }
+            },
+            "ErrorResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "maxLength": 32,
+                        "title": "Status",
+                        "description": "Error status"
+                    },
+                    "error": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "title": "Error",
+                        "description": "Error type"
+                    },
+                    "message": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "title": "Message",
+                        "description": "Error message"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "title": "Timestamp",
+                        "description": "Error timestamp (ISO 8601)"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status",
+                    "error",
+                    "message",
+                    "timestamp"
+                ],
+                "title": "ErrorResponse",
+                "description": "HTTP error response schema.",
+                "example": {
+                    "error": "validation_failed",
+                    "message": "Request validation failed with 3 error(s). Please check the request format and required fields.",
+                    "status": "error",
+                    "timestamp": "2025-01-15T14:30:05Z"
+                }
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "HealthResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "maxLength": 32,
+                        "title": "Status",
+                        "description": "Health status"
+                    },
+                    "service": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "title": "Service",
+                        "description": "Service name"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "title": "Timestamp",
+                        "description": "Check timestamp (ISO 8601)"
+                    },
+                    "components": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": {
+                                    "type": "string",
+                                    "maxLength": 64
+                                },
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Components",
+                        "description": "Component health status"
+                    },
+                    "error": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 2000
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Error",
+                        "description": "Error message if unhealthy"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status",
+                    "service",
+                    "timestamp"
+                ],
+                "title": "HealthResponse",
+                "description": "HTTP health check response schema.",
+                "example": {
+                    "components": {
+                        "entity_validator": "ok",
+                        "event_bridge": "ok"
+                    },
+                    "service": "alert-submission",
+                    "status": "healthy",
+                    "timestamp": "2025-01-15T14:30:00Z"
+                }
+            },
+            "IncidentListResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "default": "success"
+                    },
+                    "incidents": {
+                        "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "title": "Incidents",
+                        "description": "List of incident documents from Elasticsearch",
+                        "default": []
+                    },
+                    "count": {
+                        "type": "integer",
+                        "title": "Count",
+                        "description": "Number of incidents returned"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "title": "Total",
+                        "description": "Total number of matching incidents in ES"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "title": "Timestamp",
+                        "description": "ISO-8601 response timestamp"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "count",
+                    "total",
+                    "timestamp"
+                ],
+                "title": "IncidentListResponse",
+                "description": "Response for GET /api/v1/realtime/incidents.",
+                "example": {
+                    "count": 1,
+                    "incidents": [
+                        {
+                            "category": "collision",
+                            "description": "Vehicle collision detected at intersection.",
+                            "id": "incident-001",
+                            "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
+                            "timestamp": "2025-06-01T12:00:00Z"
+                        }
+                    ],
+                    "status": "success",
+                    "timestamp": "2025-06-01T12:05:00Z",
+                    "total": 42
+                }
+            },
+            "OnDemandVerificationRequest": {
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "title": "Category"
+                    },
+                    "info": {
+                        "additionalProperties": true,
+                        "type": "object",
+                        "title": "Info",
+                        "description": "Must contain media_urls (list) and media_type ('video'|'image')"
+                    }
+                },
+                "additionalProperties": true,
+                "type": "object",
+                "required": [
+                    "category",
+                    "info"
+                ],
+                "title": "OnDemandVerificationRequest",
+                "description": "Full Incident payload for on-demand verification.\n\nAccepts the same message structure that DirectMedia receives from Kafka.\n``category`` and ``info`` (with ``media_urls`` + ``media_type``) are required;\nall other Incident fields are optional and passed through to the response.",
+                "example": {
+                    "category": "collision",
+                    "end": "2026-04-22T10:00:30Z",
+                    "id": "incident-123",
+                    "info": {
+                        "media_type": "video",
+                        "media_urls": [
+                            "http://localhost:30888/vst/sim/media/incident.mp4"
+                        ]
+                    },
+                    "sensorId": "sensor-01",
+                    "timestamp": "2026-04-22T10:00:00Z"
+                }
+            },
+            "RealtimeAlertDeleteResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "default": "success"
+                    },
+                    "id": {
+                        "type": "string",
+                        "title": "Id"
+                    },
+                    "message": {
+                        "type": "string",
+                        "title": "Message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "message"
+                ],
+                "title": "RealtimeAlertDeleteResponse",
+                "description": "Response for DELETE /api/v1/realtime/{alert_rule_id}.",
+                "example": {
+                    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "message": "Alert rule deleted successfully",
+                    "status": "success"
+                }
+            },
+            "RealtimeAlertErrorResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "default": "error"
+                    },
+                    "error": {
+                        "type": "string",
+                        "title": "Error"
+                    },
+                    "message": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "title": "Timestamp"
+                    },
+                    "correlation_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Correlation Id",
+                        "description": "Per-invocation UUID4 hex, present on replay error responses (501 / 409 / 502) so operators can grep logs by it. Omitted for non-replay error paths."
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "error",
+                    "message",
+                    "timestamp"
+                ],
+                "title": "RealtimeAlertErrorResponse",
+                "description": "Generic error envelope.",
+                "example": {
+                    "error": "validation_error",
+                    "message": "live_stream_url must be an RTSP URL (rtsp://...)",
+                    "status": "error",
+                    "timestamp": "2025-06-01T12:00:00Z"
+                }
+            },
+            "RealtimeAlertGetResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "default": "success"
+                    },
+                    "rule": {
+                        "$ref": "#/components/schemas/RealtimeAlertRule"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "rule"
+                ],
+                "title": "RealtimeAlertGetResponse",
+                "description": "Response for GET /api/v1/realtime/{alert_rule_id}.",
+                "example": {
+                    "rule": {
+                        "alert_type": "collision",
+                        "chunk_duration": 30,
+                        "chunk_overlap_duration": 5,
+                        "created_at": "2025-06-01T12:00:00Z",
+                        "enable_reasoning": true,
+                        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                        "live_stream_url": "rtsp://localhost:8554/media/video1",
+                        "model": "nvidia/cosmos-reason2-8b",
+                        "num_frames_per_second_or_fixed_frames_chunk": 10,
+                        "prompt": "Detect vehicle collisions.",
+                        "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
+                        "sensor_name": "Camera_123",
+                        "status": "active",
+                        "system_prompt": "",
+                        "use_fps_for_chunking": true,
+                        "vlm_input_height": 256,
+                        "vlm_input_width": 256
+                    },
+                    "status": "success"
+                }
+            },
+            "RealtimeAlertListResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "default": "success"
+                    },
+                    "rules": {
+                        "items": {
+                            "$ref": "#/components/schemas/RealtimeAlertRule"
+                        },
+                        "type": "array",
+                        "title": "Rules"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "title": "Count"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "title": "Total",
+                        "description": "Total matching rules",
+                        "default": 0
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "rules",
+                    "count"
+                ],
+                "title": "RealtimeAlertListResponse",
+                "description": "Response for GET /api/v1/realtime.",
+                "example": {
+                    "count": 1,
+                    "rules": [
+                        {
+                            "alert_type": "collision",
+                            "chunk_duration": 30,
+                            "chunk_overlap_duration": 5,
+                            "created_at": "2025-06-01T12:00:00Z",
+                            "enable_reasoning": true,
+                            "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                            "live_stream_url": "rtsp://localhost:8554/media/video1",
+                            "model": "nvidia/cosmos-reason2-8b",
+                            "num_frames_per_second_or_fixed_frames_chunk": 10,
+                            "prompt": "Detect vehicle collisions.",
+                            "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
+                            "sensor_name": "Camera_123",
+                            "status": "active",
+                            "system_prompt": "",
+                            "use_fps_for_chunking": true,
+                            "vlm_input_height": 256,
+                            "vlm_input_width": 256
+                        }
+                    ],
+                    "status": "success",
+                    "total": 1
+                }
+            },
+            "RealtimeAlertRequest": {
+                "properties": {
+                    "live_stream_url": {
+                        "type": "string",
+                        "title": "Live Stream Url",
+                        "description": "RTSP URL of the live stream to monitor",
+                        "example": "rtsp://localhost:8554/media/video1"
+                    },
+                    "sensor_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Sensor Id",
+                        "description": "Sensor ID from VIOS, used as the stream identifier in RTVI VLM. Optional: when omitted, the field is forwarded to RTVI as ``null`` and RTVI assigns its own stream identifier.",
+                        "example": "cc06804c-7f11-4865-bb00-6b2db072086f"
+                    },
+                    "sensor_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Sensor Name",
+                        "description": "Optional human-readable camera/sensor label. Forwarded verbatim to RTVI's /streams/add `sensor_name`; downstream sinks use it to correlate alerts/captions back to a camera. Always-on callers populate this from the VST event's `camera_name` automatically.",
+                        "example": "Camera_123"
+                    },
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description",
+                        "description": "Description of the live stream"
+                    },
+                    "username": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Username",
+                        "description": "RTSP authentication username"
+                    },
+                    "password": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Password",
+                        "description": "RTSP authentication password"
+                    },
+                    "place_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Name",
+                        "description": "Name of the monitored location",
+                        "example": "Dock Entrance-East"
+                    },
+                    "place_type": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Type",
+                        "description": "Type of the monitored location",
+                        "example": "warehouse-bay"
+                    },
+                    "place_lat": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Lat",
+                        "description": "Latitude of the monitored location",
+                        "example": "37.3706"
+                    },
+                    "place_lon": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Lon",
+                        "description": "Longitude of the monitored location",
+                        "example": "-121.9672"
+                    },
+                    "place_alt": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Alt",
+                        "description": "Altitude of the monitored location",
+                        "example": "0"
+                    },
+                    "place_coordinate_x": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Coordinate X",
+                        "description": "X coordinate within the facility map",
+                        "example": "12.5"
+                    },
+                    "place_coordinate_y": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Coordinate Y",
+                        "description": "Y coordinate within the facility map",
+                        "example": "4.2"
+                    },
+                    "alert_type": {
+                        "type": "string",
+                        "title": "Alert Type",
+                        "description": "Alert type label for this rule (e.g. 'collision')"
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "title": "Prompt",
+                        "description": "User prompt describing what to detect / analyse"
+                    },
+                    "system_prompt": {
+                        "type": "string",
+                        "title": "System Prompt",
+                        "description": "Optional system prompt for the VLM",
+                        "default": ""
+                    },
+                    "model": {
+                        "type": "string",
+                        "title": "Model",
+                        "description": "VLM model name. If empty, the service falls back to 'rtvi_vlm.default_model' from the Alert Bridge config. At least one of the two must be non-empty; otherwise the request is rejected with 422.",
+                        "default": ""
+                    },
+                    "chunk_duration": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "title": "Chunk Duration",
+                        "description": "Duration (seconds) of each video chunk sent to VLM",
+                        "default": 30
+                    },
+                    "chunk_overlap_duration": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "title": "Chunk Overlap Duration",
+                        "description": "Overlap (seconds) between consecutive chunks",
+                        "default": 5
+                    },
+                    "num_frames_per_second_or_fixed_frames_chunk": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "title": "Num Frames Per Second Or Fixed Frames Chunk",
+                        "description": "Same as RTVI VLM generate_captions_alerts: FPS when use_fps_for_chunking is true, else fixed frames per chunk",
+                        "default": 10
+                    },
+                    "use_fps_for_chunking": {
+                        "type": "boolean",
+                        "title": "Use Fps For Chunking",
+                        "description": "RTVI VLM: if true, num_frames_per_second_or_fixed_frames_chunk is FPS; if false, fixed frame count per chunk",
+                        "default": true
+                    },
+                    "vlm_input_width": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "title": "Vlm Input Width",
+                        "description": "RTVI: VLM input image width",
+                        "default": 256
+                    },
+                    "vlm_input_height": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "title": "Vlm Input Height",
+                        "description": "RTVI: VLM input image height",
+                        "default": 256
+                    },
+                    "enable_reasoning": {
+                        "type": "boolean",
+                        "title": "Enable Reasoning",
+                        "description": "RTVI: enable VLM reasoning",
+                        "default": true
+                    },
+                    "api_type": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Api Type",
+                        "description": "RTVI: API type hint forwarded verbatim (e.g. 'internal')"
+                    },
+                    "response_format": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Response Format",
+                        "description": "RTVI: response format object (e.g. {\"type\": \"text\"})"
+                    },
+                    "stream_options": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stream Options",
+                        "description": "RTVI: streaming options (e.g. {\"include_usage\": true})"
+                    },
+                    "max_tokens": {
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "minimum": 1
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Max Tokens",
+                        "description": "RTVI: maximum tokens to generate"
+                    },
+                    "temperature": {
+                        "anyOf": [
+                            {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Temperature",
+                        "description": "RTVI: sampling temperature"
+                    },
+                    "top_p": {
+                        "anyOf": [
+                            {
+                                "type": "number",
+                                "maximum": 1,
+                                "minimum": 0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Top P",
+                        "description": "RTVI: nucleus sampling probability"
+                    },
+                    "top_k": {
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Top K",
+                        "description": "RTVI: top-k sampling"
+                    },
+                    "ignore_eos": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Ignore Eos",
+                        "description": "RTVI: ignore end-of-sequence token"
+                    },
+                    "seed": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Seed",
+                        "description": "RTVI: random seed for reproducibility"
+                    },
+                    "media_info": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Media Info",
+                        "description": "RTVI: media window descriptor (e.g. {\"type\": \"offset\", \"start_offset\": 0, \"end_offset\": 4000000000})"
+                    },
+                    "enable_audio": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Enable Audio",
+                        "description": "RTVI: include audio in VLM analysis"
+                    },
+                    "mm_processor_kwargs": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Mm Processor Kwargs",
+                        "description": "RTVI: additional multimodal processor kwargs"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "live_stream_url",
+                    "alert_type",
+                    "prompt"
+                ],
+                "title": "RealtimeAlertRequest",
+                "description": "Request body for POST /api/v1/realtime.",
+                "example": {
+                    "alert_type": "collision",
+                    "chunk_duration": 30,
+                    "chunk_overlap_duration": 5,
+                    "enable_reasoning": true,
+                    "live_stream_url": "rtsp://localhost:8554/media/video1",
+                    "model": "nvidia/cosmos-reason2-8b",
+                    "num_frames_per_second_or_fixed_frames_chunk": 10,
+                    "place_lat": "37.3706",
+                    "place_lon": "-121.9672",
+                    "place_name": "Dock Entrance-East",
+                    "place_type": "warehouse-bay",
+                    "prompt": "Detect vehicle collisions or near-miss events in this traffic camera feed.",
+                    "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
+                    "sensor_name": "Camera_123",
+                    "system_prompt": "You are a traffic safety monitoring assistant.",
+                    "use_fps_for_chunking": true,
+                    "vlm_input_height": 256,
+                    "vlm_input_width": 256
+                }
+            },
+            "RealtimeAlertResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "default": "success"
+                    },
+                    "id": {
+                        "type": "string",
+                        "title": "Id",
+                        "description": "Unique alert rule ID for subsequent management"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "title": "Created At",
+                        "description": "ISO-8601 creation timestamp"
+                    },
+                    "message": {
+                        "type": "string",
+                        "title": "Message",
+                        "default": "Realtime alert rule created"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "created_at"
+                ],
+                "title": "RealtimeAlertResponse",
+                "description": "Response returned when an alert rule is created.",
+                "example": {
+                    "created_at": "2025-06-01T12:00:00Z",
+                    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "message": "Realtime alert rule created",
+                    "status": "success"
+                }
+            },
+            "RealtimeAlertRule": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "title": "Id"
+                    },
+                    "sensor_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Sensor Id",
+                        "description": "Sensor/stream ID in VIOS. Optional in responses to remain backward-compatible with legacy rule documents persisted before the field existed; for rules created or replayed by the current service it is always set."
+                    },
+                    "sensor_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Sensor Name"
+                    },
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description"
+                    },
+                    "live_stream_url": {
+                        "type": "string",
+                        "title": "Live Stream Url"
+                    },
+                    "place_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Name"
+                    },
+                    "place_type": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Type"
+                    },
+                    "place_lat": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Lat"
+                    },
+                    "place_lon": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Lon"
+                    },
+                    "place_alt": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Alt"
+                    },
+                    "place_coordinate_x": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Coordinate X"
+                    },
+                    "place_coordinate_y": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Place Coordinate Y"
+                    },
+                    "alert_type": {
+                        "type": "string",
+                        "title": "Alert Type",
+                        "default": ""
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "title": "Prompt"
+                    },
+                    "system_prompt": {
+                        "type": "string",
+                        "title": "System Prompt"
+                    },
+                    "model": {
+                        "type": "string",
+                        "title": "Model"
+                    },
+                    "chunk_duration": {
+                        "type": "integer",
+                        "title": "Chunk Duration"
+                    },
+                    "chunk_overlap_duration": {
+                        "type": "integer",
+                        "title": "Chunk Overlap Duration"
+                    },
+                    "num_frames_per_second_or_fixed_frames_chunk": {
+                        "type": "integer",
+                        "title": "Num Frames Per Second Or Fixed Frames Chunk"
+                    },
+                    "use_fps_for_chunking": {
+                        "type": "boolean",
+                        "title": "Use Fps For Chunking"
+                    },
+                    "vlm_input_width": {
+                        "type": "integer",
+                        "title": "Vlm Input Width"
+                    },
+                    "vlm_input_height": {
+                        "type": "integer",
+                        "title": "Vlm Input Height"
+                    },
+                    "enable_reasoning": {
+                        "type": "boolean",
+                        "title": "Enable Reasoning"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "default": "active"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "title": "Created At"
+                    },
+                    "updated_at": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Updated At",
+                        "description": "last-update timestamp (set by Elasticsearch)"
+                    },
+                    "api_type": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Api Type"
+                    },
+                    "response_format": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Response Format"
+                    },
+                    "stream_options": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stream Options"
+                    },
+                    "max_tokens": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Max Tokens"
+                    },
+                    "temperature": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Temperature"
+                    },
+                    "top_p": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Top P"
+                    },
+                    "top_k": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Top K"
+                    },
+                    "ignore_eos": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Ignore Eos"
+                    },
+                    "seed": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Seed"
+                    },
+                    "media_info": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Media Info"
+                    },
+                    "enable_audio": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Enable Audio"
+                    },
+                    "mm_processor_kwargs": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Mm Processor Kwargs"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "live_stream_url",
+                    "prompt",
+                    "system_prompt",
+                    "model",
+                    "chunk_duration",
+                    "chunk_overlap_duration",
+                    "num_frames_per_second_or_fixed_frames_chunk",
+                    "use_fps_for_chunking",
+                    "vlm_input_width",
+                    "vlm_input_height",
+                    "enable_reasoning",
+                    "created_at"
+                ],
+                "title": "RealtimeAlertRule",
+                "description": "Representation of a single active realtime alert rule.",
+                "example": {
+                    "alert_type": "collision",
+                    "chunk_duration": 30,
+                    "chunk_overlap_duration": 5,
+                    "created_at": "2025-06-01T12:00:00Z",
+                    "enable_reasoning": true,
+                    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "live_stream_url": "rtsp://localhost:8554/media/video1",
+                    "model": "nvidia/cosmos-reason2-8b",
+                    "num_frames_per_second_or_fixed_frames_chunk": 10,
+                    "prompt": "Detect vehicle collisions.",
+                    "sensor_id": "cc06804c-7f11-4865-bb00-6b2db072086f",
+                    "sensor_name": "Camera_123",
+                    "status": "active",
+                    "system_prompt": "You are a traffic monitoring assistant.",
+                    "use_fps_for_chunking": true,
+                    "vlm_input_height": 256,
+                    "vlm_input_width": 256
+                }
+            },
+            "RealtimeReplayResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status",
+                        "default": "success"
+                    },
+                    "message": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "correlation_id": {
+                        "type": "string",
+                        "title": "Correlation Id",
+                        "description": "Per-invocation UUID4 hex woven through every replay log line (stage=replay_start|replay_rule|replay_end). Operators grep their log aggregator with it to follow one invocation end-to-end across the per-rule fan-out."
+                    },
+                    "replayed": {
+                        "type": "integer",
+                        "title": "Replayed",
+                        "description": "Number of rules successfully re-onboarded"
+                    },
+                    "failed": {
+                        "type": "integer",
+                        "title": "Failed",
+                        "description": "Number of rules that failed re-onboard"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "title": "Total",
+                        "description": "Total rules attempted"
+                    },
+                    "details": {
+                        "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "title": "Details",
+                        "description": "Per-rule outcome: id, alert_type, result, error (if failed)"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "message",
+                    "correlation_id",
+                    "replayed",
+                    "failed",
+                    "total"
+                ],
+                "title": "RealtimeReplayResponse",
+                "description": "Response for POST /api/v1/realtime/replay.",
+                "example": {
+                    "correlation_id": "f47ac10b58cc4372a5670e02b2c3d479",
+                    "details": [
+                        {
+                            "alert_type": "collision",
+                            "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                            "result": "success"
+                        },
+                        {
+                            "alert_type": "intrusion",
+                            "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+                            "result": "success"
+                        }
+                    ],
+                    "failed": 0,
+                    "message": "Replay completed: 3 replayed, 0 failed out of 3 total",
+                    "replayed": 3,
+                    "status": "success",
+                    "total": 3
+                }
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    },
+                    "input": {
+                        "title": "Input"
+                    },
+                    "ctx": {
+                        "type": "object",
+                        "title": "Context"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            },
+            "VlmParams": {
+                "properties": {
+                    "base_url": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Base Url"
+                    },
+                    "model": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Model"
+                    },
+                    "max_tokens": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Max Tokens"
+                    },
+                    "temperature": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Temperature"
+                    },
+                    "request_timeout": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Request Timeout"
+                    },
+                    "use_vlm_media_defaults": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Use Vlm Media Defaults"
+                    },
+                    "do_resize": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Do Resize"
+                    },
+                    "min_pixels": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Min Pixels"
+                    },
+                    "max_pixels": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Max Pixels"
+                    },
+                    "num_frames": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Num Frames"
+                    },
+                    "enable_sampling": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Enable Sampling"
+                    },
+                    "sampling_fps": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Sampling Fps"
+                    },
+                    "cr1_optimization": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Cr1 Optimization"
+                    },
+                    "max_retries": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Max Retries"
+                    },
+                    "chunk_duration": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Chunk Duration"
+                    },
+                    "num_frames_per_second_or_fixed_frames_chunk": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Num Frames Per Second Or Fixed Frames Chunk"
+                    },
+                    "enable_reasoning": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Enable Reasoning"
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "title": "VlmParams",
+                "description": "Optional per-alert-type VLM parameter overrides.\n\nAll fields are optional — only specified fields override the global\n``vlm`` config in config.yaml.  Unspecified fields fall back to global defaults.\n\nUnknown fields (e.g. typos) raise ValidationError at startup so config\nmistakes fail fast instead of being silently ignored."
+            }
+        }
+    }
+}

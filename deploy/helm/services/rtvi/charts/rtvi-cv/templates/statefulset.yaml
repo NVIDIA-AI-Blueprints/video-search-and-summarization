@@ -14,6 +14,11 @@
 # limitations under the License.
 
 {{- if and .Values.enabled (eq .Values.profileMode "alerts") }}
+{{- $engineCache := .Values.engineCache | default dict }}
+{{- $engineCacheEnabled := $engineCache.enabled | default false }}
+{{- $engineCacheSubPath := $engineCache.subPath | default "engines" }}
+{{- $waitForKafkaConfig := .Values.waitForKafka | default dict }}
+{{- $waitForKafka := $waitForKafkaConfig.enabled | default false }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -77,6 +82,21 @@ spec:
             - name: models
               mountPath: /models-data
         {{- end }}
+        {{- if $engineCacheEnabled }}
+        - name: prepare-engine-cache
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              ENGINE_CACHE_ROOT="/models-data/{{ $engineCacheSubPath }}"
+              mkdir -p "${ENGINE_CACHE_ROOT}/gdino" "${ENGINE_CACHE_ROOT}/rtdetr-its"
+              chmod -R a+rwX "${ENGINE_CACHE_ROOT}"
+              chmod -R a+rwX /models-data/rtdetr-its /models-data/gdino 2>/dev/null || true
+          volumeMounts:
+            - name: models
+              mountPath: /models-data
+        {{- end }}
         - name: copy-scripts
           image: {{ include "vss-rtvi-cv.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -87,6 +107,20 @@ spec:
               readOnly: true
             - name: scripts-writable
               mountPath: /wdm-scripts
+        {{- if $waitForKafka }}
+        - name: wait-for-kafka
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka to be ready..."
+              until nc -z {{ include "vss-rtvi-cv.kafkaBootstrap" . | replace ":9092" "" }} 9092; do
+                echo "Kafka not ready yet, waiting..."
+                sleep 5
+              done
+              echo "Kafka is ready!"
+        {{- end }}
       containers:
         - name: vss-rtvi-cv
           image: {{ include "vss-rtvi-cv.image" . }}
@@ -108,15 +142,12 @@ spec:
           volumeMounts:
             - name: scripts-writable
               mountPath: /wdm-scripts
-            - name: storage
+            - name: models
               mountPath: /opt/storage
-            {{- if or .Values.modelsVolume .Values.downloadModelsFromNgc }}
+            {{- if $engineCacheEnabled }}
             - name: models
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/rtdetr-its/model_epoch_035.fp16.onnx
-              subPath: rtdetr-its/model_epoch_035.fp16.onnx
-            - name: models
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
-              subPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
+              mountPath: /opt/engines
+              subPath: {{ $engineCacheSubPath | quote }}
             {{- end }}
             {{- $wd := .Values.workingDir }}
             - name: scripts
@@ -144,8 +175,6 @@ spec:
             name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
             defaultMode: 493
         - name: scripts-writable
-          emptyDir: {}
-        - name: storage
           emptyDir: {}
         - name: models
           {{- if .Values.modelsVolume }}

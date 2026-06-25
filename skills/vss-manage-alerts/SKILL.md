@@ -1,60 +1,67 @@
 ---
 name: vss-manage-alerts
-description: Use when asked about real-time alerts, alert subscription rules (create/list/delete via Alert Bridge), Slack webhook notifications for incidents, incident queries, camera onboarding for alerts, VLM verifier prompt customization, or alert verdicts.
+description: Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, camera onboarding. Not for non-alert analytics.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
+  author: "NVIDIA Video Search and Summarization Team <vss-team@nvidia.com>"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+## Purpose
+
+Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, Slack notifications, queries, camera onboarding, verifier-prompt customization).
+
+## Prerequisites
+
+- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
+- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
+- `curl`, `jq`, and Docker available on the caller.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Runnable end-to-end scenarios live under `evals/` (each `*.json` manifest); inline `curl` blocks appear in each workflow below. Replay with `nv-base validate <this-skill-dir> --agent-eval`.
+
+## Limitations
+
+Requires the matching VSS profile/microservice deployed and reachable. NGC-hosted models/NIMs are subject to rate-limits, GPU-memory needs, and license terms; concurrency and storage limits depend on host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Connection refused** → microservice not running: probe `/docs` or `/health`, redeploy via `vss-deploy-profile`.
+- **HTTP 401/403 on NGC pulls** → missing/expired `NGC_CLI_API_KEY`: `docker login nvcr.io` and re-export the key.
+- **OOM / model load failure** → insufficient GPU memory: use a smaller variant or `docker compose down` to free GPUs.
 
 # VSS Alert Management
 
-The alerts profile is deployed in one of two modes at a time. The mode is chosen at `/vss-deploy-profile -p alerts -m {verification,real-time}`.
-
-- **CV (verification)** mode runs the static CV pipeline (RT-CV + Behavior Analytics + `alert-bridge` VLM verifier) **and** the dynamic `rtvi-vlm` real-time service. Workflow A (static CV alerts) and Workflow B (VLM monitoring) are available; Workflows D and E require VLM real-time mode.
-- **VLM (real-time)** mode runs **only** `rtvi-vlm` for dynamic real-time alerts. CV pipeline (RT-CV, Behavior Analytics) is not running, so Workflow A is unavailable.
-
-This skill routes by **deployed mode + user intent** (monitoring vs subscription CRUD vs Slack webhook operations).
+The alerts profile runs in one of two modes (chosen at `/vss-deploy-profile -p alerts -m {verification,real-time}`) — see **The Two Modes** table below. This skill routes by **deployed mode + user intent** (monitoring vs subscription CRUD vs Slack webhook).
 
 ## When to Use
 
-- Start or stop a real-time alert on a sensor ("Start real-time alert for boxes dropped on sensor warehouse_sample")
-- Create, list, or stop realtime subscription rules on Alert Bridge ("List active realtime rules on warehouse-dock-1")
-- Set up or manage Slack incident notifications ("Start alert Slack webhook and send test notification")
-- List or query detected incidents / alerts
-- Add a new camera to the alerts pipeline
-- Customize the VLM-verifier prompts (CV mode)
-- Check verdicts (confirmed / rejected / unverified)
+- Start/stop a real-time alert on a sensor ("Start real-time alert for boxes dropped on warehouse_sample")
+- Create/list/stop realtime subscription rules on Alert Bridge
+- Set up or manage Slack incident notifications
+- List or query detected incidents / alerts; check verdicts (confirmed/rejected/unverified)
+- Add a new camera to the alerts pipeline; customize VLM-verifier prompts (CV mode)
 
 ---
 
 ## Deployment prerequisite
 
-This skill requires the VSS **alerts** profile running on the host at `$HOST_IP`, in either `verification` or `real-time` mode. Before any request:
+Requires the VSS **alerts** profile on `$HOST_IP` in either `verification` (CV) or `real-time` (VLM) mode.
 
-1. Probe the stack:
-   ```bash
-   # Either perception-alerts (CV mode) OR rtvi-vlm (VLM mode) must be present.
-   curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
-     && docker ps --format '{{.Names}}' \
-        | grep -qE '^(perception-alerts|rtvi-vlm)$'
-   ```
+```bash
+# Either vss-rtvi-cv (CV mode) OR vss-rtvi-vlm (VLM mode) must be present.
+curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
+  && docker ps --format '{{.Names}}' \
+     | grep -qE '^(vss-rtvi-cv|vss-rtvi-vlm)$'
+```
 
-2. **If the probe fails**, ask the user:
-   > *"The VSS `alerts` profile isn't running on `$HOST_IP`. Which mode should I deploy — `verification` (CV) or `real-time` (VLM)?"*
-
-   - Answer → hand off to the `/vss-deploy-profile` skill with `-p alerts -m <mode>`. Return here once it succeeds.
-   - If the user declines → stop. Do not run this skill against a missing stack.
-
-   (If your caller has granted explicit pre-authorization to deploy
-   autonomously — e.g. the request says "pre-authorized to deploy
-   prerequisites", or you are running in a non-interactive evaluation
-   harness with that permission — skip the confirmation and invoke
-   `/vss-deploy-profile` directly. Default the mode to `verification` unless the
-   request specifies otherwise.)
-
-3. If the probe passes, detect the mode per § Step 1 below.
+If the probe fails, ask which mode to deploy and hand off to `/vss-deploy-profile -p alerts -m <mode>` (decline → stop; pre-authorized autonomous deploy → run directly with `verification` by default). If it passes, detect the mode per Step 1.
 
 ---
 
@@ -65,33 +72,33 @@ This skill requires the VSS **alerts** profile running on the host at `$HOST_IP`
 | **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | **Both** static CV pipeline (Workflow A) **and** dynamic VLM real-time alerts (Workflows B/D) |
 | **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | **Only** dynamic VLM real-time alerts (Workflows B/D) and `alert-bridge` backend. No static CV pipeline. |
 
-**Switching modes** requires the `vss-deploy-profile` teardown and deploy flow with the other `-m` flag. Going from VLM → CV adds the static CV pipeline; going from CV → VLM tears down the CV pipeline. `rtvi-vlm` is present in both modes.
+**Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag (VLM → CV adds the CV pipeline; CV → VLM tears it down). `rtvi-vlm` runs in both modes.
 
 ---
 
 ## Step 1 — Detect the Currently Deployed Mode
 
-Before running any alert workflow, check which mode is live. Use **CV-only** containers as the signal — `rtvi-vlm` is **not** a reliable mode signal anymore because it runs in both modes.
+Before running any alert workflow, check which mode is live. Use **CV-only** containers as the signal — `vss-rtvi-vlm` is **not** a reliable mode signal because it runs in both modes.
 
 ```bash
-# CV verification mode (behavior analytics + perception-alerts are CV-only)
-docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics-alerts && echo "mode=CV"
+# CV verification mode (vss-behavior-analytics + vss-rtvi-cv are CV-only)
+docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "mode=CV"
 
-# VLM real-time mode (no CV pipeline; only rtvi-vlm)
-docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics-alerts || \
-  docker ps --format '{{.Names}}' | grep -qx rtvi-vlm && echo "mode=VLM"
+# VLM real-time mode (no CV pipeline; vss-rtvi-vlm still runs)
+docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics || \
+  docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm && echo "mode=VLM"
 ```
 
-If `vss-behavior-analytics-alerts` is present → **CV mode** (which also has `rtvi-vlm`).
-If only `rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
+If `vss-behavior-analytics` is present → **CV mode** (which also has `vss-rtvi-vlm`).
+If only `vss-rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
 If neither matches, the alerts profile is not deployed — direct the user to the `vss-deploy-profile` skill.
 
-Alternative signal (preferred when `docker ps` isn't accessible): check the profile's `.env`:
+Alternative signal (preferred when `docker ps` isn't accessible): check the profile's `generated.env`:
 
 ```bash
-grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
+grep -E '^MODE=' deploy/docker/developer-profiles/dev-profile-alerts/generated.env
 # MODE=2d_cv   → CV mode (full superset)
-# MODE=2d_vlm  → VLM real-time mode (rtvi-vlm only)
+# MODE=2d_vlm  → VLM real-time mode (vss-rtvi-vlm only; no vss-rtvi-cv)
 ```
 
 ---
@@ -100,30 +107,39 @@ grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
 
 | Deployed mode | User asks about… | Action |
 |---|---|---|
-| **VLM real-time** | Slack webhook setup/status/test/stop | Run **Workflow E (Slack Notifications)** — follow `references/alert-notify.md` |
-| **VLM real-time** | subscription / rule CRUD, or **set up / create / watch / flag** a realtime alert on a specific sensor with a detection condition | Run **Workflow D (Alert Subscriptions)** — follow `references/alert-subscriptions.md` for Alert Bridge rule management. |
-| **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see Canonical refusal text below |
-| **CV or VLM** | generic start/stop monitoring via VSS Agent **without** a specific detection condition (e.g. "start real-time alert for sensor warehouse_sample") | Run **Workflow B (VLM)** — call the VSS Agent with a detection prompt. `rtvi-vlm` runs in both modes. |
-| **CV or VLM** | incident lookup / list / query (recent alerts, time-range queries) | Run **Workflow C (Query)** — `video_analytics_mcp.get_incidents` works on both deployments. |
-| **CV** | static CV alert onboarding (just add the camera and let CV pipeline emit alerts) / verdict prompts customization | Run **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage` skill; CV pipeline picks it up automatically. No per-request create call. |
-| **VLM** | specifically a CV / behavior-analytics / PPE-rule alert that requires the static CV pipeline | **Redeployment required.** Confirm with the user first, then point to the `vss-deploy-profile` skill for `-m verification`. |
+| **VLM real-time** | Slack webhook setup/status/test/stop | **Workflow E** — `references/alert-notify.md` |
+| **VLM real-time** | rule CRUD, or a realtime alert on a sensor with a detection condition, or stop/delete a named alert (by `alert_type`/condition or rule ID) | **Workflow D** — `references/alert-subscriptions.md` (incl. two-step stop/confirm) |
+| **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see canonical refusal text below |
+| **CV or VLM** | generic start/stop monitoring **without** a detection condition | **Workflow B (VLM)** — call the VSS Agent; `rtvi-vlm` runs in both modes |
+| **CV or VLM** | incident lookup / *what happened* (recent alerts, time-range, casual "any alerts today?") | **Workflow C (Query)** — works on both; **always run the query, never answer from memory** |
+| **CV** | static CV alert onboarding / verdict-prompt customization | **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage`; pipeline auto-picks it up |
+| **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — confirm first, then `vss-deploy-profile -m verification` |
 
 **Always confirm before triggering a redeploy.** A mode switch stops all currently-running monitoring and restarts services.
 
-### Intent precedence (to avoid overlap)
+### Intent precedence (first match wins)
 
-Apply these matching rules top-to-bottom; first match wins:
+1. **Workflow E (Slack)** — Slack-specific keywords (`slack`, `webhook` + `slack`, `bot token`, `slack channel`). `notify` alone is **not** sufficient.
+2. **Workflow D (Subscriptions)** — sensor **plus** a detection condition, rule CRUD keywords (`rule`, `subscription`, rule ID), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete), never Workflow B.
+3. **Workflow B (VLM monitoring)** — generic start/stop on a sensor with **no** detection condition and **no** alert-type qualifier ("start/stop real-time alert for sensor X"). A stop that names a type ("stop the **PPE** alert") is a rule stop → Workflow D.
+4. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
+5. **Workflow A (CV)** — CV deployment handling for anything not matched above.
 
-1. **Workflow E (Slack):** contains Slack-specific keywords (`slack`, `webhook` **co-occurring with** `slack`, `test notification` **to Slack**, `bot token`, `slack channel`). The word `notify` alone is **not** sufficient — it must appear alongside `slack` or `webhook` to trigger this workflow. Phrases like "notify me when …" or "alert and notify on …" without Slack/webhook context are **not** Slack intents.
-2. **Workflow D (Subscriptions):** the user's message targets a **specific sensor** AND describes a **specific detection condition** (what to watch for). Trigger keywords include `rule`, `subscription`, `create/list/delete realtime rule`, explicit rule ID, **or** natural-language phrasing that pairs a sensor with a condition: `set up … alert on <sensor> for <condition>`, `watch <sensor> for …`, `flag … on <sensor>`, `monitor <sensor> for <condition>`, `create an alert on <sensor> for …`, `alert me if … on <sensor>`. If both a sensor name and a detection condition are present, route here — even without the words "rule" or "subscription".
-3. **Workflow B (VLM monitoring):** generic start/stop/monitor intent that names a sensor but does **not** specify a detection condition (e.g. "Start real-time alert for sensor warehouse_sample", "Stop alert on Camera_02"). This workflow also covers cases where the user explicitly asks the VSS Agent to handle a prompt.
-4. **Workflow C (Query):** incident lookup/reporting requests (`show/list incidents`, `recent alerts`, time-range queries).
-5. **Workflow A (CV):** CV deployment handling when not matched by higher-priority intents.
+> **`alerts` vs `alert rules` (C vs D) — pick exactly one, never both:**
+> *what happened / has been triggered* (incidents) → **Workflow C**
+> (`POST /generate`). *What
+> rules/subscriptions are configured or active* → **Workflow D** (the
+> **bare** `GET /api/v1/realtime`, no `/incidents`). Bare `alerts` =
+> incidents (C); `alert rules` / `subscriptions` / `active rules` =
+> inventory (D). Never answer from memory; run the one correct call —
+> full endpoint detail in Workflow C below.
 
-**Disambiguation rule (B vs D):** If a prompt is ambiguous — it names a sensor and uses start/monitor language but you cannot tell whether a detection condition is present or the user wants ad-hoc agent monitoring vs a persistent subscription rule — ask one clarifying question:
+**Disambiguation (B vs D):** if a sensor is named with start/monitor language but the detection condition is unclear, ask:
 > *"Do you want me to (a) create a persistent alert rule on Alert Bridge that keeps running until you delete it, or (b) start a one-time monitoring session via the VSS Agent?"*
 
-If a prompt mixes two workflows ("start monitoring and send to Slack"), ask one clarifying question to split execution order.
+**Stop routing (B vs D):** "Stop the **&lt;type&gt;** alert" (names an `alert_type`/condition like PPE, collision, fire) = stop a **subscription rule** → **Workflow D** (find via `GET /api/v1/realtime`, then the two-step stop/confirm protocol in `references/alert-subscriptions.md`; do **not** call `POST /generate`). A bare "stop real-time alert / stop monitoring on &lt;sensor&gt;" with **no** type qualifier = Workflow B.
+
+If a prompt mixes workflows ("start monitoring and send to Slack"), ask one clarifying question to split execution order.
 
 ### CV-mode refusal text for D and E intents
 
@@ -137,12 +153,12 @@ No auto-redeploy. The user decides whether to switch modes.
 
 ## Prereq for Either Mode: Sensor Must Be in VIOS
 
-Both modes require the camera to be registered in VIOS first.
+Both modes require the camera registered in VIOS first (via the `vss-manage-video-io-storage` skill):
 
-- If the user hands you only an RTSP URL (or an IP camera) — **defer to the `vss-manage-video-io-storage` skill** to add it via `POST /sensor/add` (see `vss-manage-video-io-storage` skill Section 6). Record the returned `sensorId` / name.
-- If the user names an existing sensor — confirm it is listed by `GET /sensor/list` via the `vss-manage-video-io-storage` skill before proceeding.
+- RTSP URL / IP camera → add it with `POST /sensor/add` (that skill's Section 6); record the `sensorId` / name.
+- Named existing sensor → confirm it appears in `GET /sensor/list` before proceeding.
 
-On a **CV deployment**, adding the RTSP is the *entire* onboarding step — the pipeline picks up the stream automatically once it is in VIOS. On a **VLM deployment**, adding the RTSP is a prerequisite to Workflow B.
+On **CV**, adding the RTSP is the *entire* onboarding step (pipeline auto-picks it up). On **VLM**, it is a prerequisite to Workflow B.
 
 ---
 
@@ -166,194 +182,110 @@ Do not call the `rtvi-vlm` microservice endpoints directly — always go through
 
 ---
 
-## Workflow A — CV Mode (deployment is `-m verification` / `MODE=2d_cv`)
+## Workflow A — CV Mode (`-m verification` / `MODE=2d_cv`)
 
-On a CV deployment, alerts are **deployment-driven, not request-driven**. There is no agent call to "create" an alert.
+CV alerts are **deployment-driven, not request-driven** — there is no agent
+call to "create" one.
 
-1. **Check if the sensor is already in VIOS** (idempotency — never blindly POST `/sensor/add`). Use the `vss-manage-video-io-storage` skill's `GET /sensor/list`:
-   - If the user gave a **sensor name** that matches an existing entry — skip to Step 3 (already onboarded).
-   - If the user gave an **RTSP URL** that matches an existing sensor's stream URL — skip to Step 3 (already onboarded).
-   - Otherwise, the sensor is missing — continue to Step 2.
+1. Check if the sensor is in VIOS via `vss-manage-video-io-storage`'s `GET /sensor/list` (idempotent — don't blindly `POST /sensor/add`).
+2. If missing, onboard via that skill's `POST /sensor/add`. The CV pipeline auto-picks up the stream once registered and online.
+3. Confirm online: `curl -s "http://<VST_ENDPOINT>/vst/api/v1/sensor/<sensorId>/status" | jq .`
+4. Alerts land in Elasticsearch (Behavior Analytics → `alert-bridge` verification per `alert_type_config.json`). Query with **Workflow C**.
 
-2. **Onboard only if missing** — add the RTSP to VIOS via the `vss-manage-video-io-storage` skill (`POST /sensor/add`, see `vss-manage-video-io-storage` skill Section 6). Record the returned `sensorId` / name. Once registered and online, the CV pipeline picks up the stream automatically.
-
-3. **Confirm the sensor is online:**
-
-   ```bash
-   curl -s "http://<VST_ENDPOINT>/vst/api/v1/sensor/<sensorId>/status" | jq .
-   ```
-
-4. **Wait for alerts to land in Elasticsearch.** Behavior Analytics emits candidates that match configured rules; `alert-bridge` calls the VLM to confirm/reject each candidate per `alert_type_config.json`. Use **Workflow C** to query results.
-
-**Idempotent by design** — re-running this workflow on an already-onboarded sensor is safe: Step 1 detects existing registration and skips Step 2.
-
-If the user asks for a static-CV-pipeline alert (driven by Behavior Analytics) on a VLM-only deployment, that is a mode mismatch — see the routing table above.
+A static-CV-pipeline alert on a VLM-only deployment is a mode mismatch — see the routing table above.
 
 ---
 
-## Workflow B — VLM Real-time Monitoring (works on both CV and VLM deployments)
+## Workflow B — VLM Real-time Monitoring (CV or VLM mode)
 
-This workflow handles **generic monitoring intents** (start/stop) via natural-language requests to the VSS Agent — specifically when the user names a sensor but does **not** provide a specific detection condition, or when the user explicitly asks the VSS Agent to handle the request. If the user specifies both a sensor **and** a detection condition (what to watch for), route to **Workflow D** instead.
-
-`rtvi-vlm` runs in both CV and VLM modes, so this workflow is available regardless of the deployed mode. The agent calls `rtvi_prompt_gen` to turn the description into a Yes/No detection question, then `rtvi_vlm_alert` with `action="start"` to register the stream with `rtvi-vlm` and begin continuous monitoring.
-
-**Canonical sample request (generic start — no specific detection condition):**
+Generic start / stop intents through the VSS Agent for a named sensor
+without a detection condition (if a condition is present, route to
+Workflow D). `rtvi-vlm` runs in both modes.
 
 ```bash
-curl -s -X POST "$AGENT/generate" \
-  -H "Content-Type: application/json" \
-  -d '{"input_message": "Start real-time alert for sensor warehouse_sample"}' | jq .
-```
-
-More examples:
-
-```bash
-# Generic start on a different sensor (uses default detection prompt)
+# start: input_message = "Start real-time alert for sensor <id>"
+# stop:  input_message = "Stop real-time alert for sensor <id>"
 curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Start real-time alert on Camera_02"}' | jq .
+  -d '{"input_message": "<start|stop> real-time alert for sensor <id>"}' | jq .
 ```
 
-> **Note:** Requests that include a specific detection condition (e.g. "Start real-time alert for **boxes dropped** on sensor warehouse_sample", "Monitor Warehouse_Dock_3 for **a forklift passing within 1 meter of a pedestrian**") are now routed to **Workflow D** (Alert Subscriptions via Alert Bridge) instead. The examples below are kept for reference on how the VSS Agent processes them under the hood, but the routing entry point is Workflow D.
->
-> ```bash
-> # These route to Workflow D first, which calls Alert Bridge — not this workflow
-> # "Start real-time alert for boxes dropped on sensor warehouse_sample"
-> # "Monitor Warehouse_Dock_3 for a forklift passing within 1 meter of a pedestrian"
-> # "Start real-time alert for vehicle collisions on sensor Camera_02"
-> ```
-
-**What the agent does under the hood (when Workflow B is the active path):**
-1. `rtvi_prompt_gen` — if no detection condition is given, uses a default prompt; otherwise converts the description → `prompt: "Detect for <condition>. Answer in Yes or No"`, `system_prompt: "You are a helpful assistant."`.
-2. `rtvi_vlm_alert action="start"` — looks up the sensor in VIOS live streams, then calls the Alert Bridge realtime API to register the stream with `rtvi-vlm` and start caption generation. Returns an alert rule ID.
-
-**Alert semantics:** every chunk is captioned; a chunk whose VLM response contains **`"yes"` or `"true"`** (case-insensitive) triggers an incident published to the Kafka incident topic (`mdx-vlm-incidents` on the alerts profile). That is why prompts must force a Yes/No answer.
-
-**Stop monitoring:**
-
-```bash
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Stop real-time alert for sensor warehouse_sample"}' | jq .
-```
-
-If the user explicitly asks for a **static CV pipeline** alert (e.g. configured PPE-rule alerts driven by Behavior Analytics, not on-demand VLM detection) on a VLM-only deployment, that is a mode mismatch — see the routing table above. On a CV deployment both styles work.
+Under the hood: `rtvi_prompt_gen` → `rtvi_vlm_alert action="start"`.
+Every chunk is captioned; a chunk whose VLM response contains `yes`/`true`
+(case-insensitive) publishes an incident to `mdx-vlm-incidents`. Prompts
+must force a Yes/No answer. A static-CV-pipeline request on a VLM-only
+deployment is a mode mismatch — see the routing table.
 
 ---
 
-## Workflow D — Alert Subscriptions (VLM real-time mode only, nested workflow)
+## Workflow D — Alert Subscriptions (VLM real-time mode only)
 
-Use this workflow when the user wants to create, list, or delete persistent realtime alert rules on Alert Bridge. This includes both explicit rule-management requests (using words like "rule", "subscription", rule IDs) **and** natural-language requests that pair a specific sensor with a specific detection condition — even without rule/subscription terminology.
+Create / list / delete persistent realtime alert rules on Alert Bridge.
+Route here when the prompt has rule keywords (`rule`, `subscription`, a rule
+ID) **or** when it pairs a specific sensor with a specific detection
+condition (e.g. "Set up a realtime alert on warehouse-dock-1 for PPE
+violations", "Watch sensor entrance-1 for tailgating", "Stop rule
+496aebd1-…").
 
-**Route here when the prompt contains a sensor name + a detection condition**, e.g.:
-- "Set up a realtime alert on warehouse-dock-1 for PPE violations"
-- "Monitor camera-lobby for unauthorized access after hours"
-- "Create an alert on parking-cam-3 for vehicle collisions"
-- "Watch sensor entrance-1 for tailgating"
-- "Alert me if someone enters restricted zone on cam-floor-2"
-- "Flag anyone without a safety vest on warehouse-dock-1"
-- "Show me all active realtime rules"
-- "Stop rule 496aebd1-16d0-4123-81cf-10603e047d02"
-- "List active rules on warehouse-dock-1"
+**Not here:** generic start/stop without a condition (→ Workflow B) or Slack
+operations (→ Workflow E).
 
-**Do NOT route here** for generic start/stop without a detection condition (→ Workflow B) or for Slack-specific operations (→ Workflow E).
-
-Execution rule:
-- Load and follow `references/alert-subscriptions.md` as the authoritative playbook for subscription CRUD.
-- Keep this `alerts` skill as the entrypoint and router; treat `references/alert-subscriptions.md` as a delegated sub-workflow.
-- VLM real-time mode only. Subscription and notification surfaces are scoped to real-time mode by design; refuse and surface the redeploy hint on CV.
+Load and follow `references/alert-subscriptions.md` as the authoritative
+playbook for subscription CRUD. VLM real-time mode only; refuse with the
+canonical refusal text on CV.
 
 ---
 
-## Workflow E — Slack Notifications (nested workflow)
+## Workflow E — Slack Notifications (VLM real-time mode only)
 
-Use this workflow when the user **explicitly mentions Slack or the webhook relay** for incidents (start/stop webhook server, check status/health, send test message, or set Slack channel/token). The word "notify" alone does **not** trigger this workflow — it must co-occur with `slack`, `webhook`, or `bot token`.
+Use when the user **explicitly mentions Slack or the webhook relay** (start/stop webhook server, check status/health, send a test message, set Slack channel/token). The word `notify` alone is **not** enough.
 
-> **`alert-notify` (port 9090) ≠ `vss-alert-bridge` (`/api/v1/realtime`).** Do NOT interact with `vss-alert-bridge` for Slack operations — that service handles VLM verification (Workflow D), not Slack.
+> **`alert-notify` (port 9090) ≠ `vss-alert-bridge` (`/api/v1/realtime`).**
+> Do NOT touch `vss-alert-bridge` for Slack ops.
 
-Examples:
-- "Set up Slack notifications for alerts"
-- "Check if alert-notify is running"
-- "Send a test alert notification to Slack"
-- "Start the alert webhook for Slack"
-- "Slack webhook start"
+Routes here: "Set up Slack notifications", "Check if alert-notify is running", "Send a test alert to Slack". Does **not** route here: "Notify me when someone enters the zone" (→ D/B), "Alert and notify on my phone" (ambiguous — ask).
 
-**Not** this workflow (route elsewhere):
-- "Notify me when someone enters the zone" → this is an alert creation intent (Workflow D or B), not a Slack setup request
-- "Alert and notify on my phone" → not Slack-specific, ask the user to clarify
-
-Execution rule:
-- Load and follow `references/alert-notify.md` as the authoritative playbook. Code lives in `scripts/alert-notify/`.
-- Keep this `alerts` skill as the entrypoint and router; treat `references/alert-notify.md` as a delegated sub-workflow.
-- VLM real-time mode only. Requires the VLM profile deployed; the parent skill verifies mode before invoking E.
+Load and follow `references/alert-notify.md`. Code lives in `scripts/alert-notify/`. VLM real-time mode only.
 
 ---
 
 ## Workflow C — Query / List Alerts (works on either mode)
 
-Both CV- and VLM-generated alerts land in Elasticsearch and are queryable via the agent's `video_analytics_mcp.get_incidents` tool.
+Both CV- and VLM-generated alerts land in Elasticsearch and are
+queryable via the agent's `video_analytics_mcp.get_incidents` tool. POST
+natural-language requests to `$AGENT/generate` — "Show me recent alerts
+for sensor X", "List confirmed alerts from the last hour", "Show
+collision incidents from Camera_02 between `<ISO>` and `<ISO>`".
 
-```bash
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Show me recent alerts for sensor warehouse_sample"}' | jq .
+**Casual phrasings route here too.** Questions like "Any alerts so far
+today?", "Any alerts today?", "What's been triggered?", or "Anything
+detected lately?" are incident queries — issue a `POST /generate` (e.g.
+`{"input_message": "List alerts from today"}`) and summarize the result.
+**Never answer these from memory and never reply "no alerts" without
+running the query.** A bare "alerts" question is *always* an incident
+lookup (Workflow C), not a subscription-rule listing (Workflow D).
 
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "List confirmed alerts from the last hour"}' | jq .
+> **Do NOT list subscription rules for an incident query.** The **bare**
+> `GET /api/v1/realtime` (no `/incidents`) lists *rules* (Workflow D) and
+> is wrong for "what happened" — never call/probe it or load the Workflow
+> D playbook for an incident query.
+>
+> **Empty result is a valid answer.** If no incidents match (e.g. a
+> freshly deployed system with no activity yet), report that **none were
+> found / the count is 0** for the requested period and STOP — do not fall
+> back to listing rules or hunting other endpoints.
 
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Were there any PPE violations today on Camera_02?"}' | jq .
+For
+richer / non-natural-language filtering (sensor-level, time-series,
+counts) use the **`vss-query-analytics` skill** (VA-MCP on port 9901).
 
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Show collision incidents from Camera_02 between 2026-04-23T00:00:00.000Z and 2026-04-23T23:59:59.000Z"}' | jq .
-```
+### Verdict interpretation & CV verifier prompts (CV mode only)
 
-For richer / non-natural-language filtering (sensor-level, time-series, counts): use the **`vss-query-analytics` skill** (VA-MCP on port 9901).
-
-### Verdict interpretation (CV mode only)
-
-Verified alerts carry an extended `info` block:
-
-| `verdict` | Meaning |
-|---|---|
-| `confirmed` | VLM determined the alert is real |
-| `rejected` | VLM determined it is a false positive |
-| `unverified` | Verification could not complete (error) |
-
-Check `verification_response_code` (200 = success) and `reasoning` for the VLM's explanation. VLM-mode incidents are always "confirmed" at source (the trigger itself is a Yes/No VLM answer), so there is no separate verdict field.
-
----
-
-## Customize CV Verifier Prompts (CV mode only)
-
-CV-path verifier prompts live in:
-
-```
-deployments/developer-workflow/dev-profile-alerts/vlm-as-verifier/configs/alert_type_config.json
-```
-
-Each entry maps a CV `alert_type` (the `category` field emitted by Behavior Analytics) to the VLM prompts used for verification:
-
-```json
-{
-  "version": "1.0",
-  "alerts": [
-    {
-      "alert_type": "FOV Count Violation",
-      "output_category": "Ladder PPE Violation",
-      "prompts": {
-        "system": "You are a helpful assistant.",
-        "user": "Is anyone on the ladder without a hardhat and safety vest? Answer yes or no.",
-        "enrichment": "Describe the PPE violation in detail..."
-      }
-    }
-  ]
-}
-```
-
-- **`alert_type`** must match the `category` emitted by Behavior Analytics.
-- **`output_category`** is the display name in Elasticsearch / UI.
-- **`enrichment`** (optional) triggers a second VLM call for a richer description; requires `alert_agent.enrichment.enabled: true`.
-- **Changes require a restart** of the `alert-bridge` (vlm-as-verifier) container.
-
-**VLM real-time prompts are not configured in a file** — they are per-request, shaped by `rtvi_prompt_gen` from the user's natural-language detection description.
+CV alerts carry a VLM verification verdict (`confirmed` / `rejected` /
+`unverified`); VLM real-time incidents have no separate verdict (the
+trigger is itself a Yes/No VLM answer). CV-path verifier prompts are
+customizable via `alert_type_config.json` (restart `alert-bridge` to
+apply). See `references/cv-verifier-prompts.md` for the verdict table,
+field meanings, and the prompt-customization rules.
 
 ---
 
@@ -361,24 +293,21 @@ Each entry maps a CV `alert_type` (the `category` field emitted by Behavior Anal
 
 | Task | Skill |
 |---|---|
-| Deploy, redeploy, or switch alert mode | **`vss-deploy-profile`** skill — `/vss-deploy-profile -p alerts -m {verification,real-time}` |
-| Add an RTSP / IP camera to VIOS | **`vss-manage-video-io-storage`** skill — Section 6 (Add Sensor / Stream) |
-| List sensors, take a snapshot, download a clip | **`vss-manage-video-io-storage`** skill |
-| Time-range incident / occupancy / PPE metrics from Elasticsearch | **`vss-query-analytics`** skill (VA-MCP :9901) |
-| Generate a detailed incident report from an alert | **`vss-generate-video-report`** skill |
-| Alert subscriptions (create/list/delete rules) | Sub-workflow: `references/alert-subscriptions.md` |
-| Forward incidents to Slack webhook | Sub-workflow: `references/alert-notify.md`, code in `scripts/alert-notify/` |
+| Deploy, redeploy, or switch alert mode | **`vss-deploy-profile`** — `-p alerts -m {verification,real-time}` |
+| Add an RTSP/IP camera, list sensors, snapshots, clips | **`vss-manage-video-io-storage`** (Section 6 for Add Sensor) |
+| Time-range incident / occupancy / PPE metrics from Elasticsearch | **`vss-query-analytics`** (VA-MCP :9901) |
+| Detailed incident report from an alert | **`vss-generate-video-report`** |
+| Subscriptions / Slack sub-workflows | `references/alert-subscriptions.md`, `references/alert-notify.md` (code in `scripts/alert-notify/`) |
 
 ---
 
 ## Gotchas
 
-- **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** "Slack webhook" → Workflow E (`alert-notify`). Never route Slack intents to `vss-alert-bridge`'s `/api/v1/realtime`.
-- **Workflow scope by mode:** Workflow A is CV-only. Workflows B and C work on either mode. Workflows D and E (subscriptions and Slack) are VLM real-time only — refuse with the canonical refusal text if attempted on CV.
-- **Don't use `rtvi-vlm` container presence as a mode signal.** It runs in both modes. Use `vss-behavior-analytics-alerts` (CV-only) or the `MODE` env var instead.
-- **A mode switch tears down the current deployment.** Any running VLM monitoring streams and any CV alert state not already in Elasticsearch will be lost.
-- **Don't call the `rtvi-vlm` microservice directly** from this skill. Always go through `$AGENT/generate`. The agent handles sensor→RTSP lookup, stream registration, and teardown.
-- **Sensor must already be in VIOS** for either mode. If the user hands you only an RTSP URL, use the `vss-manage-video-io-storage` skill first.
-- **VLM alert trigger is a `"yes"` / `"true"` token match** on the VLM response (case-insensitive). `rtvi_prompt_gen` enforces the Yes/No pattern — don't hand-craft prompts that break it.
-- **Stopping a VLM alert is one agent call** ("Stop real-time alert…"); the agent handles both the caption-stream and the stream-registration teardown.
-- **Prompt changes to `alert_type_config.json` need an `alert-bridge` restart.** `alert_agent.enrichment.enabled: true` is required for the `enrichment` prompt to fire.
+- **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** Slack ops → Workflow E (`alert-notify`); never route Slack to `vss-alert-bridge`'s `/api/v1/realtime`.
+- **Workflow scope by mode:** A is CV-only; B and C work on either mode; D and E are VLM real-time only (refuse on CV with the canonical text).
+- **Don't use `vss-rtvi-vlm` as a mode signal** — it runs in both modes. Use `vss-behavior-analytics` (CV-only) or the `MODE` env var.
+- **A mode switch tears down the current deployment** — running VLM streams and un-persisted CV alert state are lost.
+- **Always go through `$AGENT/generate`** — never call `rtvi-vlm` directly. The VLM trigger is a `"yes"`/`"true"` token match (case-insensitive); `rtvi_prompt_gen` enforces the Yes/No pattern, so don't hand-craft prompts that break it.
+- **Sensor must already be in VIOS** for either mode (use `vss-manage-video-io-storage` for RTSP-only inputs).
+
+bump:1

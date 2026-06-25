@@ -33,13 +33,16 @@ def sandbox_exec(
         "--",
         *remote_args,
     ]
-    return subprocess.run(
-        cmd,
-        check=True,
-        text=True,
-        capture_output=capture_output,
-        input=input_text,
-    )
+    run_kwargs = {
+        "check": True,
+        "text": True,
+        "capture_output": capture_output,
+    }
+    if input_text is None:
+        run_kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        run_kwargs["input"] = input_text
+    return subprocess.run(cmd, **run_kwargs)
 
 
 def read_etc_environment() -> dict[str, str]:
@@ -158,6 +161,7 @@ def get_dashboard_token(
             check=True,
             text=True,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
         )
         token = result.stdout.strip()
         if token:
@@ -301,7 +305,7 @@ def main() -> int:
         changed = True
 
     # Set agents.defaults.workspace so the VSS plugin's register hook can locate the
-    # workspace dir and copy AGENTS.md / BOOTSTRAP.md / IDENTITY.md / SOUL.md / TOOLS.md.
+    # workspace dir and copy workspace bootstrap files.
     agents_defaults = data.setdefault("agents", {}).setdefault("defaults", {})
     if agents_defaults.get("workspace") != DEFAULT_WORKSPACE_DIR:
         agents_defaults["workspace"] = DEFAULT_WORKSPACE_DIR

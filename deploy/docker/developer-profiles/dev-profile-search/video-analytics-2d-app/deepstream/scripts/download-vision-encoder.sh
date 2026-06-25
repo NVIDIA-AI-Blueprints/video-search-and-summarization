@@ -26,8 +26,8 @@
 #   STORAGE_UID (optional, default 1001) — UID of the perception container user
 #   STORAGE_GID (optional, default 1001) — GID of the perception container user
 #
-# Convention (org=nvstaging or nvidia, team=tao):
-#   NGC model:  nvstaging/tao/{MODEL}:deployable_{VERSION}
+# Convention (org=nvidia, team=tao):
+#   NGC model:  nvidia/tao/{MODEL}:deployable_{VERSION}
 #   ONNX file:  {MODEL}_{VERSION}.onnx
 #   Weights:    {MODEL}_{VERSION}_weights.bin
 #   Tokenizer:  {MODEL}_{VERSION}_tokenizer
@@ -37,7 +37,7 @@ set -euo pipefail
 MODEL="${VISION_ENCODER_MODEL:?must be set}"
 VERSION="${VISION_ENCODER_VERSION:?must be set}"
 
-NGC_ORG="nvstaging"
+NGC_ORG="nvidia"
 NGC_TEAM="tao"
 ONNX_FILE="${MODEL}_${VERSION}.onnx"
 TOKENIZER_DIR="${MODEL}_${VERSION}_tokenizer"

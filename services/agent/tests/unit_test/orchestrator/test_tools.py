@@ -14,10 +14,16 @@
 # limitations under the License.
 """Tests for vss_agents/orchestrator/tools.py."""
 
+from pathlib import Path
+import subprocess
+from unittest.mock import patch
+
 import pytest
 
+from vss_agents.orchestrator.tools import ComposeDownOperationInput
 from vss_agents.orchestrator.tools import GenerateInput
 from vss_agents.orchestrator.tools import OrchestratorRuntimeSettings
+from vss_agents.orchestrator.tools import _run_deep_clean
 
 
 def test_generate_input_does_not_expose_runtime_secret_fields():
@@ -88,3 +94,192 @@ def test_runtime_settings_allows_missing_runtime_env(tmp_path, monkeypatch: pyte
     assert settings.ngc_cli_api_key == ""
     assert settings.nvidia_api_key == ""
     assert settings.hardware_profile == ""
+
+
+def test_compose_down_input_deep_clean_defaults_to_false():
+    inp = ComposeDownOperationInput(docker_compose_id="base")
+    assert inp.deep_clean is False
+    assert inp.remove_volumes is True
+    assert inp.remove_orphans is True
+
+
+def test_compose_down_input_deep_clean_can_be_enabled():
+    inp = ComposeDownOperationInput(docker_compose_id="base", deep_clean=True)
+    assert inp.deep_clean is True
+
+
+def _make_completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def test_run_deep_clean_skips_missing_data_directory(tmp_path: Path):
+    missing = tmp_path / "does-not-exist"
+    logs: list[str] = []
+
+    with patch("vss_agents.orchestrator.tools.subprocess.run") as mock_run:
+        _run_deep_clean(missing, logs.append)
+
+    # No subprocess at all: compose-down already handled volumes, and the data dir is missing.
+    assert mock_run.call_count == 0
+    assert any("Data directory does not exist" in line for line in logs)
+
+
+def test_run_deep_clean_does_not_invoke_docker_volume_prune(tmp_path: Path):
+    """deep_clean must NOT shell out to `docker volume prune` (host-wide blast radius)."""
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    captured_cmds: list[list[str]] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        captured_cmds.append(list(cmd))
+        import shutil as _sh
+
+        _sh.rmtree(data_dir, ignore_errors=True)
+        return _make_completed(returncode=0)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    assert all(cmd[:1] != ["docker"] for cmd in captured_cmds), captured_cmds
+
+
+def test_run_deep_clean_removes_existing_data_directory(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    (data_dir / "marker").write_text("x")
+    logs: list[str] = []
+
+    with (
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    assert not data_dir.exists()
+    assert any("Data directory deleted" in line for line in logs)
+
+
+def test_run_deep_clean_uses_sudo_when_non_root_and_available(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    captured_cmds: list[list[str]] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        captured_cmds.append(list(cmd))
+        import shutil as _sh
+
+        _sh.rmtree(data_dir, ignore_errors=True)
+        return _make_completed(returncode=0)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value="/usr/bin/sudo"),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    assert len(captured_cmds) == 1
+    rm_cmd = captured_cmds[0]
+    assert rm_cmd[:3] == ["sudo", "-n", "rm"]
+    assert rm_cmd[3] == "-rf"
+    assert rm_cmd[4] == str(data_dir)
+
+
+def test_run_deep_clean_skips_sudo_when_root(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    captured_cmds: list[list[str]] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        captured_cmds.append(list(cmd))
+        import shutil as _sh
+
+        _sh.rmtree(data_dir, ignore_errors=True)
+        return _make_completed(returncode=0)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value="/usr/bin/sudo"),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    assert len(captured_cmds) == 1
+    rm_cmd = captured_cmds[0]
+    assert rm_cmd[0] == "rm"
+    assert "sudo" not in rm_cmd
+
+
+def test_run_deep_clean_raises_when_rm_returns_nonzero(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        # Simulate permission denied: dir remains, exit code 1.
+        return _make_completed(returncode=1, stderr="rm: cannot remove ...: Permission denied\n")
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        with pytest.raises(RuntimeError, match="Failed to delete data directory"):
+            _run_deep_clean(data_dir, logs.append)
+
+    assert data_dir.exists()
+    assert any("root-owned" in line for line in logs) or any("Permission denied" in line for line in logs)
+
+
+def test_run_deep_clean_raises_when_rm_times_out(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=300)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        with pytest.raises(RuntimeError, match=r"rm -rf .* timed out"):
+            _run_deep_clean(data_dir, logs.append)
+
+    assert data_dir.exists()
+    assert any("timed out" in line and "slow or hung mount" in line for line in logs)
+
+
+def test_run_deep_clean_passes_rm_timeout_to_subprocess(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    captured_timeouts: list[object] = []
+
+    def fake_run(cmd, *_args, **kwargs):
+        captured_timeouts.append(kwargs.get("timeout"))
+        import shutil as _sh
+
+        _sh.rmtree(data_dir, ignore_errors=True)
+        return _make_completed(returncode=0)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    assert captured_timeouts == [300]

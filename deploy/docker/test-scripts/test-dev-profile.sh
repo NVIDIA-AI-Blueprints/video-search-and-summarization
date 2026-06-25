@@ -474,10 +474,10 @@ LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 ru
 LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 run_negative_test "base on AGX-THOR rejects --use-remote-vlm" 1 up -p base -i 127.0.0.1 -H AGX-THOR --use-remote-llm --llm x --use-remote-vlm --vlm y -d
 run_dry_run_up_and_check_generated_env "generated.env base IGX-THOR VLM and RTVI vars and device IDs" "base" \
  -i 127.0.0.1 -H IGX-THOR -d -- \
-  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://127.0.0.1:8018" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
+  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
 run_dry_run_up_and_check_generated_env "generated.env base AGX-THOR VLM and RTVI vars (same as IGX-THOR)" "base" \
  -i 127.0.0.1 -H AGX-THOR -d -- \
-  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://127.0.0.1:8018" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
+  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
 run_negative_test "base on IGX-THOR rejects --vlm" 1 up -p base -i 127.0.0.1 -H IGX-THOR --vlm nvidia/cosmos-reason2-8b -d
 run_negative_test "base on AGX-THOR rejects --vlm" 1 up -p base -i 127.0.0.1 -H AGX-THOR --vlm nvidia/cosmos-reason2-8b -d
 run_negative_test "base on IGX-THOR rejects --vlm-env-file" 1 up -p base -i 127.0.0.1 -H IGX-THOR --vlm-env-file /some/vlm.env -d
@@ -531,10 +531,10 @@ run_dry_run_test "edge (AGX-THOR) alerts real-time uses device ID 0 (no VLM over
 # Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION is an option (mirrors NIM hw-H100.env pattern: ${VLM_NIM_KVCACHE_PERCENT}), flows through from env (unset → empty).
 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://127.0.0.1:8018" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RT_VLM_DEVICE_ID" "0"
 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://127.0.0.1:8018" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "RT_VLM_DEVICE_ID" "0"
 # Alerts on IGX-THOR/AGX-THOR: RTVI_VLLM_GPU_MEMORY_UTILIZATION env var flows through to generated.env (option pattern, like ${VLM_NIM_KVCACHE_PERCENT} in NIM hw-H100.env).
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
@@ -563,10 +563,10 @@ run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLL
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
 run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
   -i 127.0.0.1 -m verification -H RTXPRO4500BW -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480"
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
 run_dry_run_up_and_check_generated_env "generated.env lvs RTXPRO4500BW RTVI tuning" "lvs" \
   -i 127.0.0.1 -H RTXPRO4500BW -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480"
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "20480" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
 run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
@@ -691,9 +691,14 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU disables ENABLE_CRITIC" "search" \
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 2 GPU rejects default local critic" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_negative_test "search Brev 2 GPU rejects explicitly enabled local critic" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows explicit ENABLE_CRITIC=false" "search" \
   -i 127.0.0.1 -d -- \
   "ENABLE_CRITIC" "false" "VLM_NAME_SLUG" "none" "VLM_DEVICE_ID" "2"
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote critic VLM" "search" \
+  -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
+  "ENABLE_CRITIC" "true" "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_BASE_URL" "http://127.0.0.1:9998"
 _mock_brev_three_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_three_gpu_dir}")
 cat > "${_mock_brev_three_gpu_dir}/nvidia-smi" <<'EOF'
@@ -774,17 +779,182 @@ else
 fi
 rm -f "${_out_alerts}"
 
-# Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvstaging TAO).
+# Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvidia TAO).
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvstaging/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvstaging" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
+if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvidia/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvidia" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
   echo "PASS: search dry-run output includes NGC model download steps"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvstaging/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvstaging, ngc registry model)"
+  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvidia/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvidia, ngc registry model)"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"
+
+# NGC download failures must stop before kernel setup, docker login, or compose.
+run_ngc_download_fail_fast_test() {
+  local name="${1}"
+  local scenario="${2}"
+  local expected_error="${3}"
+  shift 3
+  local args=("$@")
+  local mock_dir
+  mock_dir="$(mktemp -d)"
+  CLEANUP_DIRS+=("${mock_dir}")
+  local ngc_state_file="${mock_dir}/ngc-state"
+
+  cat > "${mock_dir}/ngc" <<'EOF'
+#!/bin/bash
+scenario="${NGC_FAIL_SCENARIO:-}"
+state_file="${NGC_MOCK_STATE_FILE:-}"
+case "${scenario}" in
+  search)
+    echo "mock ngc RT-DETR warehouse failure" >&2
+    exit 42
+    ;;
+  alerts-first)
+    echo "mock ngc trafficcamnet failure" >&2
+    exit 42
+    ;;
+  alerts-second)
+    count=0
+    if [[ -n "${state_file}" && -f "${state_file}" ]]; then
+      count="$(cat "${state_file}")"
+    fi
+    count=$((count + 1))
+    if [[ -n "${state_file}" ]]; then
+      echo "${count}" > "${state_file}"
+    fi
+    if [[ ${count} -eq 1 ]]; then
+      mkdir -p trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
+      printf 'mock trafficcamnet onnx\n' > trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx
+      exit 0
+    fi
+    echo "mock ngc grounding DINO failure" >&2
+    exit 43
+    ;;
+  *)
+    echo "unknown NGC mock scenario: ${scenario}" >&2
+    exit 44
+    ;;
+esac
+EOF
+  cat > "${mock_dir}/docker" <<'EOF'
+#!/bin/bash
+echo "MOCK_DOCKER_REACHED $*" >&2
+exit 0
+EOF
+  cat > "${mock_dir}/sudo" <<'EOF'
+#!/bin/bash
+echo "MOCK_SUDO_REACHED $*" >&2
+exit 0
+EOF
+  cat > "${mock_dir}/sysctl" <<'EOF'
+#!/bin/bash
+echo "MOCK_SYSCTL_REACHED $*" >&2
+exit 0
+EOF
+  cat > "${mock_dir}/bash" <<'EOF'
+#!/bin/bash
+echo "MOCK_BASH_REACHED $*" >&2
+exit 0
+EOF
+  cat > "${mock_dir}/chmod" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+  cat > "${mock_dir}/id" <<'EOF'
+#!/bin/bash
+if [[ "${1:-}" == "-u" ]]; then
+  echo 1000
+else
+  /usr/bin/id "$@"
+fi
+EOF
+  chmod +x "${mock_dir}"/*
+
+  local ngc_profiles=(base lvs search alerts)
+  local ngc_gen_envs=()
+  local ngc_backups=()
+  local ngc_profile ngc_gen_env ngc_backup
+  for ngc_profile in "${ngc_profiles[@]}"; do
+    ngc_gen_env="$(generated_env_path "${ngc_profile}")"
+    ngc_gen_envs+=("${ngc_gen_env}")
+    if [[ -f "${ngc_gen_env}" ]]; then
+      ngc_backup="$(mktemp)"
+      cp "${ngc_gen_env}" "${ngc_backup}"
+      CLEANUP_RESTORES+=("${ngc_backup}|${ngc_gen_env}")
+    else
+      ngc_backup=""
+    fi
+    ngc_backups+=("${ngc_backup}")
+  done
+
+  local out_file err_file exit_code failed
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  cd "${REPO_ROOT}"
+  set +e
+  NGC_FAIL_SCENARIO="${scenario}" NGC_MOCK_STATE_FILE="${ngc_state_file}" PATH="${mock_dir}:${PATH}" timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up "${args[@]}" > "${out_file}" 2> "${err_file}"
+  exit_code=$?
+  set -e
+  failed=0
+
+  if [[ ${exit_code} -eq 124 ]]; then
+    echo "FAIL: ${name} (timed out)"
+    ((failed++)) || true
+  elif [[ ${exit_code} -ne 1 ]]; then
+    echo "FAIL: ${name} (expected exit 1, got ${exit_code})"
+    ((failed++)) || true
+  fi
+  if ! grep -q "${expected_error}" "${out_file}" "${err_file}"; then
+    echo "FAIL: ${name} (missing download failure error: ${expected_error})"
+    ((failed++)) || true
+  fi
+  if grep -q "Logging into nvcr.io" "${out_file}" "${err_file}" || grep -q "Starting docker compose" "${out_file}" "${err_file}" || grep -q "MOCK_DOCKER_REACHED login" "${out_file}" "${err_file}" || grep -q "MOCK_DOCKER_REACHED compose --env-file" "${out_file}" "${err_file}"; then
+    echo "FAIL: ${name} (docker login/compose up path was reached)"
+    ((failed++)) || true
+  fi
+  if grep -q "Applying VSS Linux kernel settings" "${out_file}" "${err_file}" || grep -q "MOCK_SUDO_REACHED bash -c" "${out_file}" "${err_file}" || grep -q "MOCK_SUDO_REACHED sysctl" "${out_file}" "${err_file}" || grep -q "MOCK_BASH_REACHED" "${out_file}" "${err_file}" || grep -q "MOCK_SYSCTL_REACHED" "${out_file}" "${err_file}"; then
+    echo "FAIL: ${name} (kernel settings path was reached)"
+    ((failed++)) || true
+  fi
+
+  local ngc_idx
+  for ngc_idx in "${!ngc_gen_envs[@]}"; do
+    ngc_gen_env="${ngc_gen_envs[${ngc_idx}]}"
+    ngc_backup="${ngc_backups[${ngc_idx}]}"
+    if [[ -n "${ngc_backup}" && -f "${ngc_backup}" ]]; then
+      mv "${ngc_backup}" "${ngc_gen_env}"
+    else
+      rm -f "${ngc_gen_env}"
+    fi
+  done
+  rm -f "${out_file}" "${err_file}"
+
+  if [[ ${failed} -gt 0 ]]; then
+    ((TESTS_FAILED++)) || true
+  else
+    echo "PASS: ${name}"
+    ((TESTS_PASSED++)) || true
+  fi
+}
+
+run_ngc_download_fail_fast_test \
+  "NGC search RT-DETR download failure fails fast" \
+  "search" \
+  "\\[ERROR\\] Failed to download RT-DETR model from NGC (exit 42)" \
+  -p search -i 127.0.0.1 -H OTHER
+run_ngc_download_fail_fast_test \
+  "NGC alerts trafficcamnet download failure fails fast" \
+  "alerts-first" \
+  "\\[ERROR\\] Failed to download trafficcamnet RT-DETR model from NGC (exit 42)" \
+  -p alerts -i 127.0.0.1 -m verification -H OTHER
+run_ngc_download_fail_fast_test \
+  "NGC alerts grounding DINO download failure fails fast" \
+  "alerts-second" \
+  "\\[ERROR\\] Failed to download grounding DINO model from NGC (exit 43)" \
+  -p alerts -i 127.0.0.1 -m verification -H OTHER
 
 # --- generated.env content: dry-run up still writes/updates the file ---
 # Run up with specific options and assert generated.env contains expected vars, then restore.
@@ -998,10 +1168,78 @@ run_dry_run_up_and_check_generated_env "generated.env other VLM model Qwen/Qwen3
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "qwen3-vl-8b-instruct" "VLM_NAME" "Qwen/Qwen3-VL-8B-Instruct"
 
-# Real-time (2d_vlm) with local VLM: script does NOT override VLM_PORT, RTVI_VLM_ENDPOINT, or RTVI_VLM_MODEL_TO_USE; values come from profile .env defaults (rtvi-vlm on 8018, cosmos-reason2).
-run_dry_run_up_and_check_generated_env "generated.env alerts real-time local VLM preserves .env defaults (rtvi-vlm on 8018)" "alerts" \
+# Native docker compose uses these .env defaults directly, so agent config paths must be container paths.
+for _env in \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-base/.env" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/.env" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  "${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/.env"; do
+  if grep -q "^VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/" "${_env}"; then
+    echo "PASS: ${_env} uses an in-container VSS_AGENT_CONFIG_FILE path"
+    ((TESTS_PASSED++)) || true
+  else
+    echo "FAIL: ${_env} should use an in-container VSS_AGENT_CONFIG_FILE path"
+    ((TESTS_FAILED++)) || true
+  fi
+  if grep -q "^VSS_VA_MCP_CONFIG_FILE=" "${_env}"; then
+    if grep -q "^VSS_VA_MCP_CONFIG_FILE=/vss-agent/deploy/docker/" "${_env}"; then
+      echo "PASS: ${_env} uses an in-container VSS_VA_MCP_CONFIG_FILE path"
+      ((TESTS_PASSED++)) || true
+    else
+      echo "FAIL: ${_env} should use an in-container VSS_VA_MCP_CONFIG_FILE path"
+      ((TESTS_FAILED++)) || true
+    fi
+  fi
+done
+
+# Search vss-agent config validates RTVI_CV_ENDPOINT at startup; compose must export it.
+if grep -q "RTVI_CV_ENDPOINT: \${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:\${RTVI_CV_PORT:-9000}}" "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
+  echo "PASS: vss-agent compose exports RTVI_CV_ENDPOINT for search config"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: vss-agent compose should export RTVI_CV_ENDPOINT for search config"
+  ((TESTS_FAILED++)) || true
+fi
+
+# Helm passes bare VST host aliases as well as URL-form endpoints; Docker agent needs the same contract.
+_agent_compose="${REPO_ROOT}/deploy/docker/services/agent/compose.yml"
+if grep -Fq "EXTERNAL_IP:" "${_agent_compose}" && grep -Fq "INTERNAL_IP:" "${_agent_compose}" && grep -Fq "VST_BASE_URL:" "${_agent_compose}"; then
+  echo "PASS: vss-agent compose exports Helm-compatible VST host aliases"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: vss-agent compose should export Helm-compatible VST host aliases"
+  ((TESTS_FAILED++)) || true
+fi
+
+for _env in "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-base/.env" "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/.env" "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" "${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/.env"; do
+  if grep -Fq "VST_INTERNAL_IP=" "${_env}" && grep -Fq "VST_INGRESS_ENDPOINT=" "${_env}" && grep -Fq "VST_BASE_URL=" "${_env}"; then
+    echo "PASS: ${_env} exposes Helm-compatible VST endpoint variables"
+    ((TESTS_PASSED++)) || true
+  else
+    echo "FAIL: ${_env} should expose Helm-compatible VST endpoint variables"
+    ((TESTS_FAILED++)) || true
+  fi
+done
+
+# Alert bridge verifier configs need the internal VST URL for media lookup.
+for _cfg in \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml" \
+  "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/EDGE-LOCAL-VLM-config.yml"; do
+  _vst_base_count="$(grep -c "base_url: \${VST_INTERNAL_URL}" "${_cfg}" || true)"
+  if [[ "${_vst_base_count}" -eq 2 ]]; then
+    echo "PASS: alert verifier config ${_cfg} uses VST_INTERNAL_URL for media lookup"
+    ((TESTS_PASSED++)) || true
+  else
+    echo "FAIL: alert verifier config ${_cfg} should set both VST base_url entries to VST_INTERNAL_URL"
+    ((TESTS_FAILED++)) || true
+  fi
+done
+
+# Real-time (2d_vlm) with local VLM: script does NOT override VLM_PORT, RTVI_VLM_ENDPOINT, or RTVI_VLM_MODEL_TO_USE; values come from profile .env defaults (rtvi-vlm on the Compose network, cosmos-reason2).
+run_dry_run_up_and_check_generated_env "generated.env alerts real-time local VLM preserves .env defaults (rtvi-vlm on the Compose network)" "alerts" \
  -i 127.0.0.1 -m real-time -d -- \
-  "MODE" "2d_vlm" "VLM_PORT" "8018" "RTVI_VLM_ENDPOINT" "http://\${HOST_IP}:8018/v1" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2"
+  "MODE" "2d_vlm" "VLM_PORT" "8018" "RTVI_VLM_ENDPOINT" "http://rtvi-vlm:8000/v1" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2"
 
 # Real-time (2d_vlm) with remote VLM: script overrides VLM_PORT to 30082 and RTVI_VLM_MODEL_TO_USE to openai-compat; RTVI_VLM_ENDPOINT comes from --vlm-base-url.
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env alerts real-time remote VLM sets VLM_PORT=30082 and openai-compat" "alerts" \
@@ -1012,7 +1250,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
 run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM integrated checkpoint" "lvs" \
  -i 127.0.0.1 -H OTHER -d -- \
   "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208" "VLM_NAME_SLUG" "none" \
-  "VLM_BASE_URL" "http://127.0.0.1:8018" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" \
   "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'" \
   "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}'
@@ -1137,8 +1375,7 @@ BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env Brev 
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
   "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
-  "VSS_PUBLIC_PORT" "443" \
-  "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
+  "VSS_PUBLIC_PORT" "443"
 
 # Brev with custom PROXY_PORT in env: same literals in generated.env (compose expands using env)
 BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT (templates unchanged)" "base" \
@@ -1147,8 +1384,7 @@ BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "gen
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
   "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
-  "VSS_PUBLIC_PORT" "443" \
-  "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
+  "VSS_PUBLIC_PORT" "443"
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)
 run_dry_run_up_and_check_generated_env "generated.env no Brev HAProxy overrides when BREV_ENV_ID unset" "base" \

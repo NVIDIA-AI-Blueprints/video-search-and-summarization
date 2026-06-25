@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,18 +42,8 @@ class Elasticsearch extends Database{
         super({name: "Elasticsearch", client: esClient, configs});
     }
 
-    /** 
-      * @static 
-      * @private
-    */
     static #indices = this.#initIndices();
 
-    /**
-      * Initializes all the index names in a map
-      * @static 
-      * @private
-      * @returns {Map<string,string>} Returns map containing all the index names used by mdx.
-     */
     static #initIndices() {
         let indices = new Map();
         indices.set("calibration", "calibration");
@@ -99,7 +89,7 @@ class Elasticsearch extends Database{
      * Used to format elasticsearch result object
      * @public
      * @static
-     * @param {Object} esResult Elasticsearch Result Object
+     * @param {Object} esResult - Elasticsearch result object.
      * @returns {Array<Object>} Array of documents obtained by searching Elasticsearch
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -112,10 +102,10 @@ class Elasticsearch extends Database{
     }
 
     /**
-     * Used to return index
+     * Returns index.
      * @public
      * @static
-     * @param {string} indexType 
+     * @param {string} indexType - Index type used to retrieve the configured index.
      * @returns {string|undefined} Returns index
      * @example
      * const mdx = require("@nvidia-mdx/web-api-core");
@@ -134,7 +124,7 @@ class Elasticsearch extends Database{
      * @public
      * @static
      * @async
-     * @param {Object} client
+     * @param {Object} client - Elasticsearch client object.
      * @param {Object} queryObject - queryObject
      * @param {boolean} [indexAbsentErr=true] - Throw an error when index doesn't exist
      * @returns {Promise<{body:?Object,indexAbsent:boolean}>} Elasticsearch result object
@@ -159,6 +149,16 @@ class Elasticsearch extends Database{
         }
     }
 
+    /**
+     * Executes a scrolling Elasticsearch search and returns all hit sources.
+     * @public
+     * @static
+     * @async
+     * @param {Object} client - Elasticsearch client.
+     * @param {Object} queryObject - Elasticsearch search request object.
+     * @param {boolean} [indexAbsentErr=true] - Whether to throw when the target index does not exist.
+     * @returns {Promise<Object>} Aggregated hit sources and index-presence metadata.
+     */
     static async getScrollSearchResults(client, queryObject, indexAbsentErr = true) {
         let indexExist = await client.indices.exists({ index: queryObject.index, allow_no_indices: false });
         if (indexExist) {
@@ -195,7 +195,7 @@ class Elasticsearch extends Database{
      * @public
      * @static
      * @async
-     * @param {Object} client
+     * @param {Object} client - Elasticsearch client object.
      * @param {Object} queryObject - queryObject
      * @param {boolean} [indexAbsentErr=true] - Throw an error when index doesn't exist
      * @returns {Promise<{count:number,indexAbsent:boolean}>} Elasticsearch result object

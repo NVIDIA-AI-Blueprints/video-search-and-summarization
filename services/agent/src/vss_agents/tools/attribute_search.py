@@ -552,25 +552,29 @@ async def search_by_object_embedding(
 
 async def enrich_attribute_results(
     results: list["AttributeSearchResult"],
-    vst_url: str | None,
+    vst_internal_url: str | None,
+    vst_external_url: str | None = None,
 ) -> None:
     """Enrich attribute search results with screenshot URLs and resolved stream IDs.
 
     Mutates results in-place: resolves sensor_id → stream_id (UUID) and builds
-    screenshot URLs via VST.
+    screenshot URLs via VST. Stream resolution prefers the internal VST URL;
+    returned screenshot URLs prefer the external VST URL.
     """
-    if not vst_url:
+    resolution_base_url = vst_internal_url or vst_external_url
+    screenshot_base_url = vst_external_url or vst_internal_url
+    if not resolution_base_url or not screenshot_base_url:
         return
     from vss_agents.tools.vst.utils import get_stream_id
 
     async def _enrich_result(r: AttributeSearchResult) -> None:
         if r.metadata and r.metadata.sensor_id and not r.screenshot_url:
             try:
-                stream_id = await get_stream_id(r.metadata.sensor_id, vst_url)
+                ts = r.metadata.start_time or r.metadata.frame_timestamp
+                stream_id = await get_stream_id(r.metadata.sensor_id, resolution_base_url)
                 if stream_id:
-                    ts = r.metadata.start_time or r.metadata.frame_timestamp
                     if ts:
-                        r.screenshot_url = build_screenshot_url(vst_url, stream_id, ts)
+                        r.screenshot_url = build_screenshot_url(screenshot_base_url, stream_id, ts)
                     r.metadata.sensor_id = stream_id
             except Exception as e:
                 logger.warning(f"Failed to enrich result for sensor {r.metadata.sensor_id}: {e}")

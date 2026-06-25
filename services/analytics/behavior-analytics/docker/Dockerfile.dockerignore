@@ -1,0 +1,31 @@
+# VCS + CI
+.git*
+Jenkins*
+.gitlab-ci.yml
+
+# Tests and local test data
+tests/
+data/
+
+# Editor/IDE
+.idea/
+.vscode/
+.claude/
+
+# Python build and cache artifacts
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage*
+build/
+dist/
+*.egg-info/
+.venv/
+cache/
+
+# Tooling configs irrelevant in the image
+pyrightconfig.json
+
+# OS
+.DS_Store

@@ -7,7 +7,7 @@ All paths below are **inside the RTVI-CV container** unless marked "(host)".
 > **Local-path alternative (NGC is not required).** Every NGC reference
 > shown below can be swapped for a local path on the host — the user
 > picks the source per asset in Step 1.d (see
-> [`resource-plan.md`](resource-plan.md)). When the user chooses
+> `resource-plan.md`). When the user chooses
 > `local`, `fetch_resources.sh` `cp`s the file/directory into
 > `$HOME/rtvicv-storage/resources/local-<role>/`, and the container
 > sees it at `/opt/storage/resources/local-<role>/`. The
@@ -54,17 +54,8 @@ Shared paths (inside container):
 
 ### NGC resources
 
-| Asset | NGC path |
-|---|---|
-| App data (model + videos) | `<WAREHOUSE_APP_DATA_NGC>` |
-
-Download command:
-
-```bash
-cd $RESOURCES
-ngc registry resource download-version <WAREHOUSE_APP_DATA_NGC>
-cd <WAREHOUSE_APP_DATA_DIR> && tar -xvf *.tar.gz
-```
+See [`ngc-setup.md` § Warehouse](ngc-setup.md#warehouse-2d-and-3d-share-the-same-resource) — the canonical `<WAREHOUSE_APP_DATA_NGC>` download command lives there
+and the resource ships both the 2D and 3D assets.
 
 ### Key asset paths
 
@@ -123,13 +114,8 @@ cd $DS_APP_DIR
 
 ### NGC resources
 
-Same as warehouse-2d — the resource includes both 2D and 3D assets.
-
-```bash
-cd $RESOURCES
-ngc registry resource download-version <WAREHOUSE_APP_DATA_NGC>
-cd <WAREHOUSE_APP_DATA_DIR> && tar -xvf *.tar.gz
-```
+Same `<WAREHOUSE_APP_DATA_NGC>` as warehouse-2d (resource ships both 2D and 3D
+assets) — see [`ngc-setup.md` § Warehouse](ngc-setup.md#warehouse-2d-and-3d-share-the-same-resource).
 
 ### Key asset paths
 
@@ -182,9 +168,9 @@ update_yaml_flat $CONFIGS/warehouse-3d/config.yaml engine_file  "$ENGINE_CACHE_D
 update_yaml_flat $CONFIGS/warehouse-3d/config.yaml labels_file  "$SPARSE4D_LABELS"
 update_yaml_flat $CONFIGS/warehouse-3d/config.yaml anchor       "$SPARSE4D_ANCHOR"
 
-# If NGC resource ships its own calibration.json, copy it over the repo default:
-[[ -n "$SPARSE4D_CALIB" && "$SPARSE4D_CALIB" != "$CONFIGS/warehouse-3d/calibration.json" ]] && \
-    cp "$SPARSE4D_CALIB" "$CONFIGS/warehouse-3d/calibration.json"
+# Calibration: see apply-config.md § "NGC-supplied calibration.json" for the
+# canonical NGC-first-then-repo-fallback resolution + copy logic. Same flow
+# applies here.
 ```
 
 ### Extra setup
@@ -212,16 +198,9 @@ cd $DS_APP_DIR
 
 ### CRITICAL — camera_id must match `calibration.json`
 
-Sparse4D looks up each stream's projection matrix by `camera_id`. The id you pass (dynamic REST `camera_id`, or static `sensor-id-list`/`sensor-name-list`) **MUST exactly match** a sensor `id` in `$CONFIGS/warehouse-3d/calibration.json`. Otherwise Sparse4D silently falls back to the identity matrix and BEV boxes are wrong; the log spams `Warning: No projection matrix found for camera <name>. Using identity matrix.`
-
-Discover the valid ids before adding streams:
-
-```bash
-python3 -c 'import json; d=json.load(open("/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs/warehouse-3d/calibration.json")); [print(s["id"]) for s in d["sensors"]]'
-# Default resource prints: Camera, Camera_01, Camera_02, Camera_03 — matching the .mp4 filename stems.
-```
-
-Safe convention: pass the `.mp4` filename stem as `camera_id` (e.g. `Camera_01.mp4` → `camera_id=Camera_01`). Never use opaque names like `cam1/cam2/cam3/cam4` for warehouse-3d. See `apply-config.md` § 4.e for static/dynamic examples and the `/stream/remove` requirements (remove requires both `camera_id` AND `camera_url`).
+See [`apply-config.md` § camera_id MUST match `calibration.json` for warehouse-3d](apply-config.md#critical--camera_id-must-match-calibrationjson-for-warehouse-3d)
+for the full rule, the discovery snippet, and the safe `.mp4`-stem
+convention. The same constraint applies to every warehouse-3d deploy.
 
 ---
 
@@ -231,22 +210,10 @@ Smart city 2D detection using **RT-DETR** (TrafficCamNet), 5 classes.
 
 ### NGC resources
 
-```bash
-cd $RESOURCES
-
-# RT-DETR model
-ngc registry model download-version <RTDETR_MODEL_NGC>
-
-# Smart city test videos
-ngc registry resource download-version <SMARTCITY_APP_DATA_NGC>
-cd <SMARTCITY_APP_DATA_DIR> && tar -xvf *.tar.gz
-cd $RESOURCES
-
-# ReID model for NvDCF tracker (stable URL)
-mkdir -p /opt/nvidia/deepstream/deepstream/samples/models/Tracker/
-wget 'https://api.ngc.nvidia.com/v2/models/nvidia/tao/reidentificationnet/versions/deployable_v1.0/files/resnet50_market1501.etlt' \
-  -O /opt/nvidia/deepstream/deepstream/samples/models/Tracker/resnet50_market1501.etlt
-```
+See `ngc-setup.md` for the canonical download commands
+(`<RTDETR_MODEL_NGC>`, `<SMARTCITY_APP_DATA_NGC>` resolution + tar
+extraction). The ReID model for NvDCF tracker is fetched separately via the
+stable URL documented there.
 
 ### Key asset paths
 
@@ -304,14 +271,9 @@ Smart city open-vocabulary detection using **Grounding DINO** via Triton (`nvinf
 
 ### NGC resources
 
-Same videos + ReID as smartcity-rtdetr, **plus** the GDINO model:
-
-```bash
-cd $RESOURCES
-ngc registry model download-version <GDINO_MODEL_NGC>
-```
-
-(Also download the smart city videos + ReID model as shown in smartcity-rtdetr if not already.)
+Same videos + ReID as smartcity-rtdetr, **plus** the GDINO model — see
+[`ngc-setup.md` § Smart City GDINO](ngc-setup.md#smart-city-gdino) for the
+download command.
 
 ### Key asset paths
 

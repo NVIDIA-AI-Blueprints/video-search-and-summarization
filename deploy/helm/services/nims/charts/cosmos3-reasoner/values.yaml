@@ -17,8 +17,8 @@
 # These are overridden by the parent nims chart via alias "cosmos3".
 
 image:
-  repository: nvcr.io/nvstaging/nim/cosmos3-reasoner
-  tag: "1.7.1.rc0-51870194"
+  repository: nvcr.io/nim/nvidia/cosmos3-reasoner
+  tag: "1.7"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -47,7 +47,7 @@ tolerations:
     operator: "Exists"
     effect: "NoSchedule"
 
-# Cosmos3 Reasoner only. Selects model size baked into the staging NIM:
+# Cosmos3 Reasoner only. Selects model size baked into the NIM:
 #   nano  — default; fits on shared GPU layouts
 #   super — needs a dedicated VLM GPU
 nimModelSize: "nano"
@@ -55,6 +55,7 @@ nimModelSize: "nano"
 # GPU-specific env vars. Populated by the umbrella chart via gpuProfiles lookup.
 env:
   NIM_KVCACHE_PERCENT: "0.7"
+  NIM_GPU_MEMORY_UTILIZATION: "0.7"
   NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
   NIM_MAX_MODEL_LEN: ""
   NIM_MAX_NUM_SEQS: ""
@@ -63,8 +64,10 @@ env:
 # Missing keys are skipped due to optional: true.
 envConfigMapKeys:
   - NIM_KVCACHE_PERCENT
+  - NIM_GPU_MEMORY_UTILIZATION
   - NIM_PASSTHROUGH_ARGS
   - NIM_DISABLE_MM_PREPROCESSOR_CACHE
+  - NIM_DELETE_LAST_FRAMES
 
 global:
   pullSecretName: "ngc-nim-docker-reg-secret"

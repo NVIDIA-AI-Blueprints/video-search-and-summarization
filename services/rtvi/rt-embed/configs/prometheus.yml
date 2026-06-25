@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+global:
+  scrape_interval: 1s
+  evaluation_interval: 1s
+
+scrape_configs:
+  # Scrape metrics from OpenTelemetry Collector
+  - job_name: "otel-collector"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # Scrape metrics from Prometheus itself
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Scrape GPU metrics from DCGM Exporter
+  - job_name: "dcgm-exporter"
+    scrape_interval: 1s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["dcgm-exporter:9400"]
+
+  # Scrape CPU and system metrics from Node Exporter
+  - job_name: "node-exporter"
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["node-exporter:9100"]

@@ -20,6 +20,6 @@ include:
   - path: initiator/docker-compose.yaml
     env_file:
       - ${VSS_APPS_DIR}/services/vios/vst.env
-  - path: sdr/streamprocessing/docker-compose.yaml
+  - path: streamprocessing/docker-compose.yaml
     env_file:
       - ${VSS_APPS_DIR}/services/vios/vst.env

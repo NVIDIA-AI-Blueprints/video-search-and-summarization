@@ -1,0 +1,134 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+ALERT_REVIEW_MEDIA_BASE_DIR: ""
+
+vst_config:
+  base_url: "http://127.0.0.1:30888"
+  sensor_list_endpoint: "/vst/api/v1/live/streams"
+  segment_anchor: "middle"
+  segment_duration_seconds: 10
+  add_overlay: false
+  storage:
+    base_url: "http://127.0.0.1:30888"
+    media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+kafka:
+  bootstrap_servers: "127.0.0.1:9092"
+  group_id: "kafka-p1-functional"
+  anomalyTopic: "mdx-incidents"
+  enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"
+  incidents_topic: "alert-bridge-incidents"
+  max_poll_records: 1
+  auto_offset_reset: "latest"
+  enable_auto_commit: false
+  max_poll_interval_ms: 300000
+  poll_timeout: 500
+  message_type: "Incident"
+  session_timeout_ms: 10000
+  heartbeat_interval_ms: 3000
+
+vlm:
+  base_url: "http://127.0.0.1:18081/v1"
+  model: "nvidia/cosmos-reason2-8b"
+  max_tokens: 256
+  min_pixels: 1568
+  max_pixels: 345600
+  num_frames: 18
+  enable_sampling: false
+  sampling_fps: 4
+
+event_bridge:
+  sourceType: "kafka"
+  sinkType: "kafka"
+
+  kafka_source:
+    group_id: "alert-bridge-vlm-group-p1"
+    topics:
+      incident: "mdx-incidents"
+      alert: "mdx-alerts"
+
+  kafka_sink:
+    topics:
+      enhanced_anomaly: "alert-bridge-enhanced-alerts"
+      incidents: "alert-bridge-incidents"
+
+  redis_source:
+    host: "localhost"
+    port: 6379
+    db: 0
+    dedup_ttl_seconds: 3
+    end_time_in_dedup_key_categories: []
+    protect_confirmed_verdicts:
+      enabled: false
+      ttl_seconds: 600
+    streams:
+      anomaly_stream: "alert-bridge-input-stream"
+      heartbeat_stream: "alert-bridge-heartbeats-stream"
+    consumer_group: "vlm_agents_group"
+    consumer_config:
+      block_time: 10
+      count: 1
+      batch_size: 1
+
+  redis_sink:
+    host: "localhost"
+    port: 6379
+    db: 0
+    streams:
+      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
+      incidents_stream: "alert-bridge-incidents-stream"
+
+prompt:
+  prefer_payload_prompt: true
+  override_prompts_on_start: true
+
+alert_type_config_file: "alert_type_config.json"
+
+alert_agent:
+  num_workers: 1
+  max_allowed_stream_size: 2
+  default_stream_interval: 1
+  vst_pass_through_mode: false
+  chunk_size: 1
+
+websocket:
+  enabled: false
+  consumer_group_prefix: "websocket_instance"
+  redis_consumer:
+    block_time: 1000
+    count: 1
+    reconnect_delay: 5
+
+elastic:
+  enabled: true
+  hosts:
+    - http://127.0.0.1:9200
+  index_name: "mdx-vlm-incidents"
+
+vlm_enhanced_sink:
+  incident:
+    type: "elastic"
+    elastic:
+      index: "mdx-vlm-incidents"
+  alert:
+    type: "elastic"
+    elastic:
+      index: "mdx-vlm-alerts"
+
+logging:
+  level: "DEBUG"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  third_party_level: "WARNING"

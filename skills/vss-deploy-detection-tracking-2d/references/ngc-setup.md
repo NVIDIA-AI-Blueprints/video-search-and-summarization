@@ -7,7 +7,7 @@ How to configure NGC CLI once, store it safely, and reuse on every run.
 > `RESOURCE_PLAN` has source `ngc` (the `NEEDS_NGC=1` flag from Step
 > 1.f). If every asset is local or RTSP-only (`NEEDS_NGC=0`), **skip this
 > file entirely** — do NOT ask for an API key, do NOT check
-> `~/.ngc/config`. See [`resource-plan.md`](resource-plan.md) for the
+> `~/.ngc/config`. See `resource-plan.md` for the
 > decision logic.
 >
 > **Host-only.** NGC creds are read on the host by

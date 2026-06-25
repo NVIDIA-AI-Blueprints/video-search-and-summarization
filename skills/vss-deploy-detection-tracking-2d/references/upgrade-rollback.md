@@ -46,7 +46,7 @@ docker pull "$RTVI_CV_IMAGE"
 
 If you need a hard reset, use `teardown` mode and select the
 "engine cache + resources" cleanup scope explicitly. See
-[`teardown-flow.md`](teardown-flow.md).
+`teardown-flow.md`.
 
 ---
 

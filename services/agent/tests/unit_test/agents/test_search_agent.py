@@ -25,7 +25,10 @@ import pytest
 from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.search_agent import SearchAgentConfig
 from vss_agents.agents.search_agent import SearchAgentInput
+from vss_agents.agents.search_agent import _apply_final_result_limit
+from vss_agents.agents.search_agent import _candidate_top_k
 from vss_agents.agents.search_agent import _effective_search_runtime_options
+from vss_agents.agents.search_agent import _explicit_max_results
 from vss_agents.agents.search_agent import _helper_markdown_bullet_list
 from vss_agents.agents.search_agent import _to_chat_response
 from vss_agents.agents.search_agent import _to_chat_response_chunk
@@ -104,7 +107,6 @@ class TestSearchAgentInput:
         assert input_data.agent_mode is True
         assert input_data.use_attribute_search is None
         assert input_data.max_results == 5
-        assert input_data.top_k is None
         assert input_data.start_time is None
         assert input_data.end_time is None
         assert input_data.request_options is None
@@ -116,7 +118,6 @@ class TestSearchAgentInput:
             agent_mode=False,
             use_attribute_search=False,
             max_results=10,
-            top_k=20,
             start_time="2025-01-01T14:00:00Z",
             end_time="2025-01-01T16:00:00Z",
         )
@@ -124,7 +125,6 @@ class TestSearchAgentInput:
         assert input_data.agent_mode is False
         assert input_data.use_attribute_search is False
         assert input_data.max_results == 10
-        assert input_data.top_k == 20
         assert input_data.start_time == "2025-01-01T14:00:00Z"
         assert input_data.end_time == "2025-01-01T16:00:00Z"
 
@@ -152,15 +152,57 @@ class TestSearchAgentInput:
         )
         assert input_data.max_results == 15
 
-    def test_top_k_override(self):
-        """Test with top_k override."""
-        input_data = SearchAgentInput(
-            query="test query",
-            max_results=5,
-            top_k=50,
-        )
-        assert input_data.top_k == 50
+    def test_top_k_not_exposed_on_search_agent_input(self):
+        """Test top_k is not part of the chat-facing search_agent schema."""
+        input_data = SearchAgentInput(query="test query", max_results=5, top_k=50)
+
+        assert "top_k" not in SearchAgentInput.model_fields
+        assert "top_k" not in input_data.model_dump()
+
+    def test_explicit_max_results_detected(self):
+        """Test explicit max_results is distinguishable from the schema default."""
+        input_data = SearchAgentInput(query="test query", max_results=5)
+
+        assert _explicit_max_results(input_data) == 5
+
+    def test_default_max_results_not_treated_as_explicit_limit(self):
+        """Test omitted max_results preserves existing default result behavior."""
+        input_data = SearchAgentInput(query="test query")
+
         assert input_data.max_results == 5
+        assert _explicit_max_results(input_data) is None
+
+    def test_apply_final_result_limit_caps_when_explicit(self):
+        """Test explicit max_results caps the final returned results."""
+        input_data = SearchAgentInput(query="test query", max_results=2)
+        results = _make_search_output(5).data
+
+        assert len(_apply_final_result_limit(results, input_data)) == 2
+
+    def test_apply_final_result_limit_does_not_cap_when_omitted(self):
+        """Test omitted max_results leaves backend top_k/default behavior untouched."""
+        input_data = SearchAgentInput(query="test query")
+        results = _make_search_output(5).data
+
+        assert len(_apply_final_result_limit(results, input_data)) == 5
+
+    def test_candidate_top_k_uses_default_when_max_results_omitted(self):
+        """Test omitted max_results keeps the configured internal search depth."""
+        input_data = SearchAgentInput(query="test query")
+
+        assert _candidate_top_k(input_data, default_top_k=10) == 10
+
+    def test_candidate_top_k_grows_to_explicit_max_results(self):
+        """Test a large explicit result count increases internal search depth."""
+        input_data = SearchAgentInput(query="test query", max_results=25)
+
+        assert _candidate_top_k(input_data, default_top_k=10) == 25
+
+    def test_candidate_top_k_keeps_default_for_smaller_explicit_max_results(self):
+        """Test a small final result cap does not reduce internal search depth."""
+        input_data = SearchAgentInput(query="test query", max_results=3)
+
+        assert _candidate_top_k(input_data, default_top_k=10) == 10
 
     def test_time_filters(self):
         """Test with time filters."""

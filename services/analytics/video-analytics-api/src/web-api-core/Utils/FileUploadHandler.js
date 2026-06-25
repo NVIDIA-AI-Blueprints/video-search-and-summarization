@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,8 +34,8 @@ class FileUploadHandler {
       * handles errors which occur during file upload
       * @public
       * @static
-      * @param {Error} error
-      * @param {Array<{name:string, maxCount:number, validFileExtensions: Set<string>}>} formFields
+     * @param {Error} error - Upload error object.
+     * @param {Array<{name:string, maxCount:number, validFileExtensions: Set<string>}>} formFields - Form fields configured for upload validation.
       * @example
       * const mdx = require("@nvidia-mdx/web-api-core");
       * mdx.Utils.FileUploadHandler.errorHandler(error,formFields);
@@ -61,7 +61,7 @@ class FileUploadHandler {
       * returns modified file name 
       * @public
       * @static
-      * @param {string} originalFileName
+     * @param {string} originalFileName - Original uploaded file name.
       * @returns {string} - Modified file name is returned
       * @example
       * const mdx = require("@nvidia-mdx/web-api-core");
@@ -80,9 +80,9 @@ class FileUploadHandler {
       * returns the result of Multer.fields which is used to obtain the uploaded files
       * @public
       * @static
-      * @param {Array<{name:string, maxCount:number, validFileExtensions: Set<string>}>} formFields
-      * @param {string} fileUploadLocation
-      * @param {boolean} [modifyFileName=true]
+     * @param {Array<{name:string, maxCount:number, validFileExtensions: Set<string>}>} formFields - Form fields configured for upload validation.
+     * @param {string} fileUploadLocation - Directory used to store uploaded files.
+     * @param {boolean} [modifyFileName=true] - Whether to modify uploaded file names.
       * @returns {Object} Result of Multer.fields is returned
       */
     static getMulterUpload(formFields, fileUploadLocation, modifyFileName = true){

@@ -177,12 +177,6 @@ vios:
   vss-vios-postgres:
     enabled: true
 
-  vss-vios-envoy-proxy:
-    enabled: false
-
-  vss-vios-sdr:
-    enabled: false
-
   vss-vios-sensor:
     enabled: true
     streamProcessorService: sdrc
@@ -276,6 +270,14 @@ agent:
         value: ''
       - name: OPENAI_API_KEY
         value: ''
+      # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
+      # deploy/docker/services/agent/compose.yml.
+      - name: RAG_SERVER_URL
+        value: 'http://rag-server:8081/v1'
+      - name: RAG_API_KEY
+        value: ''
+      - name: KNOWLEDGE_COLLECTION
+        value: 'default'
       - name: COSMOS_EMBED_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-embed:8000" .Release.Name) "http://vss-rtvi-embed:8000" $pfx }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
       - name: ELASTIC_SEARCH_ENDPOINT
@@ -307,7 +309,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-b0ba77ae135d" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0" }}'
     waitForDependencies:
       enabled: true
   vss-va-mcp:
@@ -404,7 +406,7 @@ analytics:
             {"name": "numWorkersForIncidentGeneration", "value": "2"},
             {"name": "fovCountViolationIncidentEnable", "value": "true"},
             {"name": "fovCountViolationIncidentObjectThreshold", "value": "1"},
-            {"name": "fovCountViolationIncidentThreshold", "value": "0.1"},
+            {"name": "fovCountViolationIncidentThreshold", "value": "2"},
             {"name": "fovCountViolationIncidentExpirationWindow", "value": "0.5"},
             {"name": "fovCountViolationIncidentObjectType", "value": "person"}
           ]
@@ -425,8 +427,12 @@ rtvi:
   vss-rtvi-cv:
     enabled: true
     profileMode: alerts
+    # Primary detector: env.MODEL_NAME_2D=GDINO (default) or RTDETR; NUM_SENSORS must match TensorRT batch.
+    # Configs/scripts come from this profile (ConfigMap); workload is the shared rtvi-cv subchart.
     downloadModelsFromNgc: true
     downloadModelsFromNgcWaitSeconds: 900
+    waitForKafka:
+      enabled: true
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcOrg: nvidia
@@ -437,11 +443,9 @@ rtvi:
       - model: nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
         sourcePath: mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx
         destPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
-  vss-rtvi-cv-sdr:
-    enabled: false
-    perceptionProvisioningAddress: ""
-    vstStatusEndpoint: ""
-    vstStreamsEndpoint: ""
+    engineCache:
+      enabled: true
+      subPath: engines
   vss-rtvi-vlm:
     enabled: false
     useSharedNim: false

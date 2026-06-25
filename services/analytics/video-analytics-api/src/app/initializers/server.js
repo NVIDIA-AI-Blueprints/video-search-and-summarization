@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -44,6 +44,11 @@ const logger = winston.createLogger({
 
 
 module.exports = {
+    /**
+     * Starts the web API server and initializes its dependencies.
+     * @param {string|null} bootstrapConfigPath - Optional path to a bootstrap config override file.
+     * @returns {void}
+     */
     start: (bootstrapConfigPath) => {
 
         logger.info('[APP] Starting server initialization');

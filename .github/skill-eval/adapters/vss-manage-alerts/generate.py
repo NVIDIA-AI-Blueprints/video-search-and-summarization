@@ -33,10 +33,10 @@ Directory layout (one platform × mode per directory):
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-manage-alerts/generate.py \\
-        --output-dir /tmp/skill-eval/datasets/vss-manage-alerts \\
+        --output-dir "$SCRATCH/datasets/vss-manage-alerts" \\
         --skill-dir   skills/vss-manage-alerts \\
         --deploy-skill-dir skills/vss-deploy-profile \\
-        --spec        skills/vss-manage-alerts/eval/alerts_vlm_real_time.json
+        --spec        skills/vss-manage-alerts/evals/alerts_vlm_real_time.json
 """
 from __future__ import annotations
 
@@ -58,7 +58,13 @@ PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "setup action the trial requires. This pre-authorization covers "
+    "deployment and setup ONLY. It does NOT waive a user-facing safety "
+    "confirmation that a skill's own protocol requires before a destructive "
+    "action (for example, the two-step stop/delete protocol for an alert "
+    "rule): for those, still follow the skill — ask the yes/no confirmation "
+    "question and do NOT perform the destructive call, since no interactive "
+    "user will answer here."
 )
 
 # ---------------------------------------------------------------------------
@@ -169,7 +175,6 @@ def _task_toml(
     pspec: dict,
     spec_stem: str,
     step_suffix: str,
-    prerequisite_deploy_mode: str,
 ) -> str:
     short = pspec["short_name"]
     lines = [
@@ -188,7 +193,6 @@ def _task_toml(
         "",
         "[metadata]",
         'skill = "vss-manage-alerts"',
-        f'profile = "{profile}"',
         f'platform = "{platform}"',
         f'mode = "{mode}"',
         f'gpu_type = "{pspec["gpu_type"]}"',
@@ -198,8 +202,6 @@ def _task_toml(
         "gpu_count = 1",
         f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
         "min_root_disk_gb = 200",
-        "requires_deployed_vss = true",
-        f'prerequisite_deploy_mode = "{prerequisite_deploy_mode}"',
         f"step_index = {step_idx}",
         f"step_count = {step_count}",
         f"check_count = {check_count}",
@@ -223,11 +225,6 @@ def generate_platform_mode(
     short = pspec["short_name"]
     expects = rendered_spec.get("expects") or []
     profile: str = str(spec.get("profile", "alerts"))
-    # prerequisite_deploy_mode drives the /vss-deploy-profile -m flag the coordinator
-    # injects before this task. Read from spec, fall back to `real-time`.
-    prerequisite_deploy_mode: str = str(
-        spec.get("deploy_mode") or spec.get("prerequisite_deploy_mode") or "real-time"
-    )
 
     platform_dir = output_root / spec_stem / f"{short}-{mode}"
     platform_dir.mkdir(parents=True, exist_ok=True)
@@ -276,7 +273,14 @@ def generate_platform_mode(
                 "as separate trials — do not pre-execute them in this one."
             )
             instruction_lines.append("")
-        instruction_lines.append("Run autonomously without prompting for confirmation.")
+        instruction_lines.append(
+            "Run autonomously without prompting for confirmation, EXCEPT where the "
+            "skill's own protocol requires an explicit user confirmation before a "
+            "destructive action (e.g. the two-step stop/delete protocol for an alert "
+            "rule). In that case, follow the skill: ask the yes/no confirmation "
+            "question, state the rule ID and sensor, and stop without deleting "
+            "(there is no interactive user to answer 'yes')."
+        )
         instruction_lines.append("")
         (step_dir / "instruction.md").write_text("\n".join(instruction_lines) + "\n")
 
@@ -291,7 +295,6 @@ def generate_platform_mode(
             pspec=pspec,
             spec_stem=spec_stem,
             step_suffix=step_suffix,
-            prerequisite_deploy_mode=prerequisite_deploy_mode,
         )
         (step_dir / "task.toml").write_text(toml_content)
 
@@ -316,15 +319,35 @@ def generate_platform_mode(
         (solution_dir / "solve.sh").write_text(_solve_sh(platform, mode))
 
         # ---- skills/ -------------------------------------------------------
-        for src_dir, skill_name in [
+        # Always register the primary skill + deploy skill. Additionally
+        # register any extra skills the spec declares in its `skills` list
+        # (e.g. vss-manage-video-io-storage, needed so the agent has the
+        # NVStreamer/VIOS onboarding playbook for subscription specs that
+        # target sensors which a clean deploy does not seed). Extra skills
+        # are resolved as siblings of the primary skill dir.
+        skills_to_copy: list[tuple[Path | None, str]] = [
             (skill_dir, "vss-manage-alerts"),
             (deploy_skill_dir, "vss-deploy-profile"),
-        ]:
+        ]
+        already = {name for _, name in skills_to_copy}
+        for extra_name in spec.get("skills") or []:
+            if extra_name in already:
+                continue
+            extra_dir = skill_dir.parent / extra_name
+            skills_to_copy.append((extra_dir, extra_name))
+            already.add(extra_name)
+
+        for src_dir, skill_name in skills_to_copy:
             if src_dir and src_dir.exists():
                 dst = step_dir / "skills" / skill_name
                 if dst.exists():
                     shutil.rmtree(dst)
                 shutil.copytree(src_dir, dst)
+            elif src_dir is not None:
+                print(
+                    f"  WARN  declared skill '{skill_name}' not found at {src_dir} — skipped",
+                    file=sys.stderr,
+                )
 
     print(
         f"  GEN  vss-manage-alerts/{spec_stem}/{short}-{mode}  "
@@ -343,13 +366,13 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--output-dir", required=True,
-                        help="Dataset output root (e.g. /tmp/skill-eval/datasets/vss-manage-alerts)")
+                        help='Dataset output root (e.g. "$SCRATCH/datasets/vss-manage-alerts")')
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/vss-manage-alerts")
     parser.add_argument("--deploy-skill-dir", default=None,
                         help="Path to skills/vss-deploy-profile (included so agent can diagnose issues)")
     parser.add_argument("--spec", default=None,
-                        help=f"Path to spec JSON (default: <skill-dir>/eval/{DEFAULT_SPEC})")
+                        help=f"Path to spec JSON (default: <skill-dir>/evals/{DEFAULT_SPEC})")
     parser.add_argument("--platform", default=None,
                         choices=list(PLATFORMS.keys()),
                         help="Generate for this platform only")
@@ -360,7 +383,7 @@ def main() -> None:
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     spec_path = (
         Path(args.spec) if args.spec
-        else (skill_dir / "eval" / DEFAULT_SPEC)
+        else (skill_dir / "evals" / DEFAULT_SPEC)
     )
 
     if not spec_path.exists():

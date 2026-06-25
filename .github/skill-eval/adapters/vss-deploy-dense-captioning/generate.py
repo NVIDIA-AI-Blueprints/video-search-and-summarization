@@ -7,6 +7,7 @@ The vss-deploy-dense-captioning skill tests the RTVI VLM microservice API direct
 cover either the standalone RT-VLM compose service or RT-VLM as part of
 the full VSS alerts real-time profile.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -16,16 +17,36 @@ import sys
 from pathlib import Path
 
 PLATFORMS: dict[str, dict] = {
-    "H100": {"short_name": "h100", "gpu_type": "H100", "min_vram_per_gpu": 80, "brev_search": "H100"},
-    "L40S": {"short_name": "l40s", "gpu_type": "L40S", "min_vram_per_gpu": 48, "brev_search": "L40S"},
+    "H100": {
+        "short_name": "h100",
+        "gpu_type": "H100",
+        "min_vram_per_gpu": 80,
+        "brev_search": "H100",
+    },
+    "L40S": {
+        "short_name": "l40s",
+        "gpu_type": "L40S",
+        "min_vram_per_gpu": 48,
+        "brev_search": "L40S",
+    },
     "RTXPRO6000BW": {
         "short_name": "rtxpro6000bw",
         "gpu_type": "RTX PRO 6000",
         "min_vram_per_gpu": 96,
         "brev_search": "RTX PRO",
     },
-    "DGX-SPARK": {"short_name": "spark", "gpu_type": "GB10", "min_vram_per_gpu": 96, "brev_search": "GB10"},
-    "IGX-THOR": {"short_name": "thor", "gpu_type": "Thor", "min_vram_per_gpu": 64, "brev_search": "Thor"},
+    "DGX-SPARK": {
+        "short_name": "spark",
+        "gpu_type": "GB10",
+        "min_vram_per_gpu": 96,
+        "brev_search": "GB10",
+    },
+    "IGX-THOR": {
+        "short_name": "thor",
+        "gpu_type": "Thor",
+        "min_vram_per_gpu": 64,
+        "brev_search": "Thor",
+    },
 }
 
 DEFAULT_PLATFORM = "L40S"
@@ -35,8 +56,9 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
-    "You are pre-authorized to run required setup actions autonomously — "
-    "do not pause to ask for confirmation on setup actions the trial requires."
+    "You are pre-authorized to deploy prerequisites autonomously — "
+    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "setup action the trial requires."
 )
 
 
@@ -52,7 +74,9 @@ def _substitute_spec(spec: dict, platform: str, mode: str) -> dict:
 
     def _sub(value):
         if isinstance(value, str):
-            return pattern.sub(lambda m: str(substitutions.get(m.group(1), m.group(0))), value)
+            return pattern.sub(
+                lambda m: str(substitutions.get(m.group(1), m.group(0))), value
+            )
         if isinstance(value, list):
             return [_sub(v) for v in value]
         if isinstance(value, dict):
@@ -62,10 +86,19 @@ def _substitute_spec(spec: dict, platform: str, mode: str) -> dict:
     return _sub(spec)
 
 
-def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[tuple[str, str]]:
-    declared = ((spec.get("resources") or {}).get("platforms") or {})
+def _is_profile_spec(spec: dict) -> bool:
+    """A spec is profile-bound (uses the full VSS deploy path) iff its
+    `skills[]` includes `vss-deploy-profile`. Standalone specs only
+    bring up the RT-VLM compose service via this skill itself."""
+    return "vss-deploy-profile" in (spec.get("skills") or [])
+
+
+def _platform_modes_from_spec(
+    spec: dict, platform_filter: str | None
+) -> list[tuple[str, str]]:
+    declared = (spec.get("resources") or {}).get("platforms") or {}
     if not declared:
-        default_mode = "remote-all" if spec.get("profile") else "standalone"
+        default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
         declared = {DEFAULT_PLATFORM: {"modes": [default_mode]}}
 
     tasks: list[tuple[str, str]] = []
@@ -74,35 +107,28 @@ def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[t
             continue
         if platform not in PLATFORMS:
             continue
-        default_mode = "remote-all" if spec.get("profile") else "standalone"
+        default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
         for mode in (cfg or {}).get("modes") or [default_mode]:
             tasks.append((platform, mode))
-    fallback_mode = "remote-all" if spec.get("profile") else "standalone"
+    fallback_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
     return tasks or [(platform_filter or DEFAULT_PLATFORM, fallback_mode)]
 
 
-def _is_profile_spec(spec: dict) -> bool:
-    return bool(spec.get("profile"))
-
-
 def _dataset_group(spec: dict) -> str:
-    if _is_profile_spec(spec):
-        profile = str(spec.get("profile"))
-        deploy_mode = str(spec.get("deploy_mode", ""))
-        return f"{profile}-{deploy_mode}" if deploy_mode else profile
-    return "standalone"
+    """Group output dirs by spec stem so multiple specs on the same
+    adapter don't collide. e.g. `alerts_profile_api` vs `standalone_api`."""
+    stem = Path(spec.get("_source_path", DEFAULT_SPEC)).stem
+    return stem or ("alerts-real-time" if _is_profile_spec(spec) else "standalone")
 
 
 def _instruction_intro(spec: dict) -> str:
     if _is_profile_spec(spec):
-        profile = spec.get("profile")
-        deploy_mode = spec.get("deploy_mode")
+        # Spec's own expects[0] carries the deploy instruction; the
+        # adapter doesn't need to repeat it. Just describe what the
+        # skill is for so the agent has the right framing.
         return (
-            "Use `/vss-deploy-dense-captioning` against the already-deployed full VSS "
-            f"`{profile}` profile"
-            + (f" in `{deploy_mode}` mode" if deploy_mode else "")
-            + ". The eval harness predeploys that prerequisite before this task starts; do not "
-            + "invoke `/vss-deploy-profile`, `scripts/dev-profile.sh`, or redeploy the stack."
+            "Use `/vss-deploy-dense-captioning` against the deployed VSS "
+            "stack to exercise the RT-VLM dense-captioning add-on."
         )
 
     return (
@@ -174,10 +200,6 @@ def generate_task(
             "",
             expect.get("query", ""),
             "",
-            "## Environment notes",
-            "",
-            rendered_spec.get("env", ""),
-            "",
             "Run autonomously without prompting for confirmation.",
             "",
         ]
@@ -208,7 +230,7 @@ def generate_task(
             # RT-VLM alerts real-time in remote-all still needs one local GPU
             # for the continuous video processor.
             "gpu_count = 1",
-            f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            f"min_vram_gb_per_gpu = {pspec['min_vram_per_gpu']}",
             "min_root_disk_gb = 160",
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
@@ -216,23 +238,16 @@ def generate_task(
             "",
         ]
         if profile_spec:
-            meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'profile = "{spec.get("profile")}"')
             if spec.get("deploy_mode"):
                 meta_lines.insert(
                     meta_lines.index(f'platform = "{platform}"'),
                     f'deploy_mode = "{spec.get("deploy_mode")}"',
                 )
-                # prerequisite_deploy_mode is alerts-only — it selects
-                # which alerts stack (verification vs real-time) the
-                # trial requires. The deploy marker is profile-name
-                # only for non-alerts (base/lvs/search), so we skip
-                # this field when spec.deploy_mode is unset.
-                meta_lines.insert(
-                    meta_lines.index(f'platform = "{platform}"'),
-                    f'prerequisite_deploy_mode = "{spec.get("deploy_mode")}"',
-                )
         else:
-            meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'compose_profile = "{COMPOSE_PROFILE}"')
+            meta_lines.insert(
+                meta_lines.index(f'platform = "{platform}"'),
+                f'compose_profile = "{COMPOSE_PROFILE}"',
+            )
         (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
         env_dir = step_dir / "environment"
@@ -262,7 +277,9 @@ def generate_task(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--skill-dir", required=True)
     parser.add_argument("--deploy-skill-dir", default=None)
@@ -273,7 +290,14 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
-    spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / DEFAULT_SPEC)
+    if args.spec:
+        spec_path = Path(args.spec)
+    else:
+        spec_path = skill_dir / "evals" / DEFAULT_SPEC
+        if not spec_path.exists():
+            legacy = skill_dir / "eval" / DEFAULT_SPEC
+            if legacy.exists():
+                spec_path = legacy
 
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)
@@ -289,11 +313,15 @@ def main() -> None:
     print(f"  spec         : {spec_path}")
     print(f"  tasks        : {tasks}")
     print(f"  queries      : {len(spec.get('expects', []))}")
-    print(f"  total checks : {sum(len(q.get('checks', [])) for q in spec.get('expects', []))}")
+    print(
+        f"  total checks : {sum(len(q.get('checks', [])) for q in spec.get('expects', []))}"
+    )
     print()
 
     for platform, mode in tasks:
-        print(f"  GEN  vss-deploy-dense-captioning/{_dataset_group(spec)}/{PLATFORMS[platform]['short_name']}-{mode}")
+        print(
+            f"  GEN  vss-deploy-dense-captioning/{_dataset_group(spec)}/{PLATFORMS[platform]['short_name']}-{mode}"
+        )
         generate_task(platform, mode, spec, output_root, skill_dir, deploy_skill_dir)
 
     print()
