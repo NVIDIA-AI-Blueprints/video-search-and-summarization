@@ -1141,9 +1141,10 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                         else
                         {
                             // Handle bboxObjectId
-                            if (opts.count("bboxObjectId") && !opts.at("bboxObjectId").empty())
+                            if ((opts.count("bboxObjectId") && !opts.at("bboxObjectId").empty()) ||
+                                (opts.count("overlayObjectId") && !opts.at("overlayObjectId").empty()))
                             {
-                                string bboxIds = opts.at("bboxObjectId");
+                                string bboxIds = opts.count("bboxObjectId") ? opts.at("bboxObjectId") : opts.at("overlayObjectId");
                                 auto tokens = splitString(bboxIds, ",");
                                 for (const auto& token : tokens)
                                 {
@@ -1155,9 +1156,10 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                             }
 
                             // Handle bboxClassType
-                            if (opts.count("bboxClassType") && !opts.at("bboxClassType").empty())
+                            if ((opts.count("bboxClassType") && !opts.at("bboxClassType").empty()) ||
+                                (opts.count("overlayClassType") && !opts.at("overlayClassType").empty()))
                             {
-                                string classTypes = opts.at("bboxClassType");
+                                string classTypes = opts.count("bboxClassType") ? opts.at("bboxClassType") : opts.at("overlayClassType");
                                 auto tokens = splitString(classTypes, ",");
                                 for (const auto& token : tokens)
                                 {
@@ -1224,9 +1226,50 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                 {
                     olParams.m_bboxDebug = opts.at("overlayDebug") == "true";
                 }
+                if (opts.count("overlayDebugFontSize") && !opts.at("overlayDebugFontSize").empty())
+                {
+                    olParams.m_bboxDebugFontSize = stringToInt(opts.at("overlayDebugFontSize"), 0);
+                }
                 if (opts.count("overlayPose"))
                 {
                     olParams.m_enablePose = opts.at("overlayPose") == "true";
+                }
+                if (opts.count("overlayProximityClass") && !opts.at("overlayProximityClass").empty())
+                {
+                    olParams.m_proximityClass = opts.at("overlayProximityClass");
+                }
+                if (opts.count("overlayEntrantClass") && !opts.at("overlayEntrantClass").empty())
+                {
+                    olParams.m_entrantClass = opts.at("overlayEntrantClass");
+                }
+                if (opts.count("overlayColorCode") && !opts.at("overlayColorCode").empty())
+                {
+                    string colorCode = opts.at("overlayColorCode");
+                    auto tokens = splitString(colorCode, ",");
+                    for (uint i = 0; i < tokens.size(); i++)
+                    {
+                        // key=r:g:b:a,key=r:g:b:a,....
+                        auto keyValue = splitString(tokens[i], "=");
+                        if (keyValue.size() < 2)
+                        {
+                            continue;
+                        }
+                        auto rgba = splitString(keyValue[1], ":");
+                        std::vector<int> rgba_values;
+                        for (const auto& value : rgba)
+                        {
+                            rgba_values.push_back(std::stoi(value));
+                        }
+                        olParams.m_colorCode[keyValue[0]] = rgba_values;
+                    }
+                }
+                if (opts.count("overlayProximityAreaFactor") && !opts.at("overlayProximityAreaFactor").empty())
+                {
+                    olParams.m_proximityAreaFactor = stringToDouble(opts.at("overlayProximityAreaFactor"), DEFAULT_PROXIMITY_AREA_FACTOR);
+                }
+                if (opts.count("overlayProximityAnimation") && !opts.at("overlayProximityAnimation").empty())
+                {
+                    olParams.m_proximityAnimation = opts.at("overlayProximityAnimation");
                 }
             }
         }
