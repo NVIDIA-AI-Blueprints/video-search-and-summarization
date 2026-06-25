@@ -250,7 +250,7 @@ int RtspServer::start()
     DeviceConfig& config = GET_CONFIG();
     string k8s_pod_name;
     LOG(info) << "LIVE555 Media Server stating....\n";
-    LOG(verbose) << "\tversion " << MEDIA_SERVER_VERSION_STRING
+    LOG(info) << "\tversion " << MEDIA_SERVER_VERSION_STRING
         << " (LIVE555 Streaming Media library version "
         << LIVEMEDIA_LIBRARY_VERSION_STRING << ").\n";
 
