@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) profiles to GPU-accelerated infrastructure for video analytics applications. <br>
+Developers and engineers deploying, configuring, and managing NVIDIA Video Search and Summarization (VSS) profiles on GPU-equipped hosts. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -20,15 +20,15 @@ Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Base Profile](references/base.md) <br>
-- [Search Profile](references/search.md) <br>
-- [LVS Profile](references/lvs-profile.md) <br>
-- [Warehouse Profile](references/warehouse.md) <br>
-- [Edge Profile](references/edge.md) <br>
 - [Alerts Profile](references/alerts.md) <br>
+- [LVS Profile](references/lvs-profile.md) <br>
+- [Search Profile](references/search.md) <br>
+- [Warehouse Profile](references/warehouse.md) <br>
+- [Edge Deployment](references/edge.md) <br>
 - [Prerequisites](references/prerequisites.md) <br>
+- [Environment Overrides](references/env-overrides.md) <br>
 - [Troubleshooting](references/troubleshooting.md) <br>
 
 
@@ -39,13 +39,13 @@ Mitigation: Review and scan skill before deployment. <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- claude-code <br>
+- codex <br>
 
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 5 internal skill-activation tasks (NVSkills-Eval `external` profile). <br>
+Evaluated against 5 internal evaluation tasks using NVSkills-Eval external profile in astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -70,10 +70,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 5 | 100% (+0%) | 100% (+10%) |
-| Correctness | 5 | 94% (+66%) | 88% (+52%) |
-| Discoverability | 5 | 94% (+56%) | 85% (+28%) |
-| Effectiveness | 5 | 69% (+63%) | 64% (+58%) |
-| Efficiency | 5 | 78% (+41%) | 81% (+31%) |
+| Correctness | 5 | 94% (+69%) | 84% (+47%) |
+| Discoverability | 5 | 95% (+62%) | 78% (+19%) |
+| Effectiveness | 5 | 56% (+52%) | 54% (+48%) |
+| Efficiency | 5 | 79% (+46%) | 72% (+17%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

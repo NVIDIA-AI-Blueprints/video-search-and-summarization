@@ -14,12 +14,15 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // Version information for the "liveMedia" library
-// Copyright (c) 1996-2023 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2026 Live Networks, Inc.  All rights reserved.
 
 #ifndef _LIVEMEDIA_VERSION_HH
 #define _LIVEMEDIA_VERSION_HH
 
-#define LIVEMEDIA_LIBRARY_VERSION_STRING	"2023.07.24"
-#define LIVEMEDIA_LIBRARY_VERSION_INT		1690156800
+#define LIVEMEDIA_LIBRARY_VERSION_STRING	"2026.04.22"
+#define LIVEMEDIA_LIBRARY_VERSION_INT		1776816000
+
+extern char const* const liveMediaLibraryVersionStr;
+extern int const liveMediaLibraryVersionInt;
 
 #endif
