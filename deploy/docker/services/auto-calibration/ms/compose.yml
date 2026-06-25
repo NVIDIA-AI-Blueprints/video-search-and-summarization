@@ -57,7 +57,7 @@ services:
     
     # Health check
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready"]
+      test: ["CMD", "curl", "-f", "http://vss-auto-calibration:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}/v1/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
