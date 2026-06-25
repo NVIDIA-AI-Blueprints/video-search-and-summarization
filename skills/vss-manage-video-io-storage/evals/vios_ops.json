@@ -66,21 +66,21 @@
       ]
     },
     {
-      "query": "List all media files VIOS knows about and report the container, codec, resolution, and duration of the uploaded sample warehouse video.",
+      "query": "List all media files VIOS knows about and report the container, codec, **Width and Height as separate integers** (exactly as returned by `/storage/file/mediainfo`), and duration of the uploaded sample warehouse video.",
       "checks": [
         "GET /vst/api/v1/storage/file/list returns a JSON object keyed by sensorId; the uploaded sensor's id appears as a key",
         "The entry for the uploaded sensor contains `mediaFilePath`, `metadataFilePath`, and a `metadata` object with `id`, `sensorId`, and `timestamp`",
         "GET /vst/api/v1/storage/file/mediainfo?sensorId=<sensorId> returns a JSON object whose `Codec` (string) contains `h264` or `H264`",
-        "The mediainfo response's `Width` and `Height` are numbers greater than 0",
+        "The mediainfo response's `Width` and `Height` are present as positive integers; the agent may surface them either as discrete numeric fields (per the raw mediainfo JSON) or as the parsed `\"WxH\"` form (e.g. `\"1920x1080\"`) where both dimensions are > 0 — both are acceptable shapes since the same `Width`/`Height` data is exposed by `/storage/file/mediainfo` directly and by `/sensor/streams` under `metadata.resolution`.",
         "The mediainfo response's `Duration` is a number greater than 0"
       ]
     },
     {
-      "query": "Show the recorder microservice status for all streams.",
+      "query": "Show the recorder microservice status for all sensors. Note: file-uploaded sensors are not recorded (their content already exists on disk), so the recorder reports them with `recordingStatus: \"off\"` and they do not appear in `/record/streams` (which lists only actively-recording RTSP streams). To enumerate all known streams regardless of recording state, use `/sensor/streams` or `/storage/streams` instead.",
       "checks": [
         "GET /vst/api/v1/record/status returns a JSON object keyed by streamId; each value has `id` and `recording_status`",
-        "GET /vst/api/v1/record/streams returns a JSON array",
-        "GET /vst/api/v1/record/<streamId>/status for one of the listed streams returns a JSON object with `recordingStatus` (camelCase) and no `id` field",
+        "GET /vst/api/v1/record/streams returns either a JSON array (when at least one RTSP sensor is actively recording) or `null` (the expected state when only file-uploaded sensors are present — file sensors are never enumerated here)",
+        "GET /vst/api/v1/record/<streamId>/status for the uploaded sensor returns a JSON object with `recordingStatus: \"off\"` (file-uploaded sensors are not recorded) and no `id` field",
         "Every `recording_status` value returned by /record/status is one of: `off`, `schedule`, `user`, `event`, `alwaysOn`, `error`, `statusUnknown`"
       ]
     },
