@@ -53,7 +53,7 @@ void WebrtcSinkConsumer::setWebrtcBroadcaster(void* broadcaster)
     }
     if (m_videowebRTCSender)
     {
-        m_videowebRTCSender->appendWebrtcBroacaster(m_peerIdStreamId, (rtc::VideoBroadcaster*)broadcaster);
+        m_videowebRTCSender->appendWebrtcBroacaster(m_peerIdStreamId, (webrtc::VideoBroadcaster*)broadcaster);
     }
 }
 
@@ -77,7 +77,7 @@ void WebrtcSinkConsumer::onFrame(std::shared_ptr<RawFrameParams> frame_data)
 
     if (frame_data->m_isYuvBuffer && frame_data->m_buffer != nullptr)
     {
-        rtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer = rtc::scoped_refptr<webrtc::I420Buffer>(static_cast<webrtc::I420Buffer*>(static_cast<void*>(frame_data->m_buffer)));
+        webrtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer = webrtc::scoped_refptr<webrtc::I420Buffer>(static_cast<webrtc::I420Buffer*>(static_cast<void*>(frame_data->m_buffer)));
 
         /* Create a VideoFrame to pass it further in webRTC framework */
         if (yuv_buffer.get() != nullptr)
@@ -88,7 +88,7 @@ void WebrtcSinkConsumer::onFrame(std::shared_ptr<RawFrameParams> frame_data)
             std::lock_guard<std::mutex> lock(m_broadcasterMutex);
             if (m_broadcaster != nullptr)
             {
-                ((rtc::VideoBroadcaster *)m_broadcaster)->OnFrame(webRTC_input_video_frame);
+                ((webrtc::VideoBroadcaster *)m_broadcaster)->OnFrame(webRTC_input_video_frame);
             }
         }
     }

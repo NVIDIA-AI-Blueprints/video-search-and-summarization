@@ -71,6 +71,10 @@ RUN git clone --recurse-submodules -b v1.50.0 --depth 1 --shallow-submodules htt
 RUN cd /var/local/git/grpc && \
     mkdir -p cmake/build && \
 	cd cmake/build && \
-	cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=$MY_INSTALL_DIR ../.. && \
+	cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DCMAKE_CXX_STANDARD=20 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_INSTALL_PREFIX=$MY_INSTALL_DIR ../.. && \
     make -j12 && \
     make install
+
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/usr-local-lib.conf && \
+    echo /usr/local/lib/x86_64-linux-gnu >> /etc/ld.so.conf.d/usr-local-lib.conf && \
+    ldconfig

@@ -481,11 +481,11 @@ void NvLLTransform::doTransformTask()
                 else
                 {
                     // case 2 enc not present
-                    rtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer    (new rtc::RefCountedObject<webrtc::I420Buffer>(sink_frame->m_targetWidth, sink_frame->m_targetHeight));
+                    webrtc::scoped_refptr<webrtc::I420Buffer> yuv_buffer    (new webrtc::RefCountedObject<webrtc::I420Buffer>(sink_frame->m_targetWidth, sink_frame->m_targetHeight));
 
                     if (is_sw_mode) // Input is sw buffer
                     {
-                        rtc::scoped_refptr<webrtc::I420Buffer> decoded_buffer(new rtc::RefCountedObject<webrtc::I420Buffer>(m_width, m_height));
+                        webrtc::scoped_refptr<webrtc::I420Buffer> decoded_buffer(new webrtc::RefCountedObject<webrtc::I420Buffer>(m_width, m_height));
 
                         /* Use src stride from frame_data when set (decoder output), else use width (contiguous) */
                         const int src_stride_y = (sink_frame->m_srcStrideY > 0) ? sink_frame->m_srcStrideY : m_width;

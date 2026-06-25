@@ -1271,7 +1271,7 @@ class NvBufWrapper
             }
         }
 
-        int getSwNvBufSurface(rtc::scoped_refptr<webrtc::I420Buffer> buffer, NvBufSurface* sw_surf)
+        int getSwNvBufSurface(webrtc::scoped_refptr<webrtc::I420Buffer> buffer, NvBufSurface* sw_surf)
         {
             if (!sw_surf || !sw_surf->surfaceList)
             {

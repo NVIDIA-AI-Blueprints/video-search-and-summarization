@@ -32,7 +32,7 @@ class PeerConnection;
 namespace vst_webrtc
 {
 class PeerConnectionObserver;
-class VideoSink : public rtc::VideoSinkInterface<webrtc::VideoFrame>
+class VideoSink : public webrtc::VideoSinkInterface<webrtc::VideoFrame>
 {
 public:
     VideoSink(webrtc::VideoTrackInterface* track,
@@ -47,7 +47,7 @@ public:
     std::atomic<bool>   m_webrtcVideoInDataFlow{false};
     std::string         m_fpsValues;
 protected:
-    rtc::scoped_refptr<webrtc::VideoTrackInterface> m_track;
+    webrtc::scoped_refptr<webrtc::VideoTrackInterface> m_track;
     std::shared_ptr<WebrtcStream>                   m_producer;
     bool                                            m_notify {true};
     std::string                                     m_deviceId {""};
@@ -74,7 +74,7 @@ public:
 
     std::atomic<bool>   m_webrtcAudioInDataFlow{false};
 protected:
-    rtc::scoped_refptr<webrtc::AudioTrackInterface> m_track;
+    webrtc::scoped_refptr<webrtc::AudioTrackInterface> m_track;
     std::shared_ptr<WebrtcStream>                   m_producer;
     bool                                            m_notify {true};
     std::string                                     m_deviceId {""};
@@ -86,7 +86,7 @@ class SetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserv
     public:
         static SetSessionDescriptionObserver* Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
         {
-            return new rtc::RefCountedObject<SetSessionDescriptionObserver>(pc, promise, sdp);
+            return new webrtc::RefCountedObject<SetSessionDescriptionObserver>(pc, promise, sdp);
         }
         virtual void OnSuccess();
         virtual void OnFailure(webrtc::RTCError error);
@@ -104,7 +104,7 @@ class CreateSessionDescriptionObserver : public webrtc::CreateSessionDescription
     public:
         static CreateSessionDescriptionObserver* Create(webrtc::PeerConnectionInterface* pc, std::promise<const webrtc::SessionDescriptionInterface*> & promise, std::string &sdp)
         {
-            return new rtc::RefCountedObject<CreateSessionDescriptionObserver>(pc,promise, sdp);
+            return new webrtc::RefCountedObject<CreateSessionDescriptionObserver>(pc,promise, sdp);
         }
         virtual void OnSuccess(webrtc::SessionDescriptionInterface* desc);
         virtual void OnFailure(webrtc::RTCError error);
@@ -126,7 +126,7 @@ class PeerConnectionStatsCollectorCallback : public webrtc::RTCStatsCollectorCal
         std::string getTransportID() { return m_transportId; }
 
     protected:
-        virtual void OnStatsDelivered(const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
+        virtual void OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report);
 
         Json::Value m_report;
         std::string m_transportId;
@@ -141,19 +141,21 @@ public:
     void getIceCandidateList(Json::Value& out) { out = m_iceCandidateList; }
 
     // PeerConnectionObserver interface
-    virtual void OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
-    virtual void OnRemoveStream(rtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
-    virtual void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> channel);
+    virtual void OnAddStream(webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
+    virtual void OnRemoveStream(webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream);
+    virtual void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> channel);
     virtual void OnRenegotiationNeeded();
 
     virtual void OnIceCandidate(const webrtc::IceCandidateInterface* candidate);
 
-    virtual void OnIceCandidateError(const std::string& host_candidate,
-                            const std::string& url,
-                            int error_code,
-                            const std::string& error_text);
+    virtual void OnIceCandidateError(const std::string& address,
+                                     int port,
+                                     const std::string& url,
+                                     int error_code,
+                                     const std::string& error_text) override;
 
-    virtual void OnIceSelectedCandidatePairChanged(const cricket::CandidatePairChangeEvent &event);
+    virtual void OnIceSelectedCandidatePairChanged(
+        const webrtc::CandidatePairChangeEvent& event) override;
 
     virtual void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState state);
 
@@ -189,7 +191,7 @@ private:
     std::string                                              m_deviceId;
     std::string                                              m_deviceName;
     Json::Value                                              m_iceCandidateList;
-    rtc::scoped_refptr<PeerConnectionStatsCollectorCallback> m_statsCallback;
+    webrtc::scoped_refptr<PeerConnectionStatsCollectorCallback> m_statsCallback;
     std::unique_ptr<vst_webrtc::VideoSink>                   m_videosink;
     std::unique_ptr<AudioSink>                               m_audiosink;
     std::unique_ptr<Bosma::Scheduler>                        m_peerConnectionTimeout;

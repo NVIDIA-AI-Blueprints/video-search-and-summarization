@@ -89,7 +89,7 @@ class GstNvVideoEncoder
         struct timeval          m_prevDumpTime {0, 0};
         std::vector<int>        m_latencyVector;
         std::mutex                                      m_videoFrameDataMapLock;
-        std::map<int, rtc::scoped_refptr<NvVideoFrameBuffer>> m_videoFrameDataMap;
+        std::map<int, webrtc::scoped_refptr<NvVideoFrameBuffer>> m_videoFrameDataMap;
 
 public:
         std::atomic<bool>       m_resetInProgress{false};

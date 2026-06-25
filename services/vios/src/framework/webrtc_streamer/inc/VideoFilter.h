@@ -30,12 +30,12 @@
 template<class T>
 class VideoFilter : public webrtc::VideoTrackSource {
 public:
-	static rtc::scoped_refptr<VideoFilter> Create(rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource, const std::map<std::string, std::string> &opts) {
+	static webrtc::scoped_refptr<VideoFilter> Create(webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource, const std::map<std::string, std::string> &opts) {
 		std::unique_ptr<T> source = absl::WrapUnique(new T(videoSource, opts));
 		if (!source) {
 			return nullptr;
 		}
-		return new rtc::RefCountedObject<VideoFilter>(std::move(source));
+		return new webrtc::RefCountedObject<VideoFilter>(std::move(source));
 	}
 
 protected:
@@ -57,7 +57,7 @@ protected:
   }        
 
 private:
-	rtc::VideoSourceInterface<webrtc::VideoFrame>* source() override {
+	webrtc::VideoSourceInterface<webrtc::VideoFrame>* source() override {
 		return m_source.get();
 	}
 	std::unique_ptr<T> m_source;

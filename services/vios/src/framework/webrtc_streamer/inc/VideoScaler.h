@@ -29,11 +29,11 @@
 #include "media/base/video_broadcaster.h"
 #include "api/media_stream_interface.h"
 
-class VideoScaler :  public rtc::VideoSinkInterface<webrtc::VideoFrame>,  public rtc::VideoSourceInterface<webrtc::VideoFrame> 
+class VideoScaler :  public webrtc::VideoSinkInterface<webrtc::VideoFrame>,  public webrtc::VideoSourceInterface<webrtc::VideoFrame> 
 {
 public:
 
-    VideoScaler(rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource, const std::map<std::string, std::string> &opts) :
+    VideoScaler(webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> videoSource, const std::map<std::string, std::string> &opts) :
                 m_videoSource(videoSource),
                 m_width(0), m_height(0), 
                 m_rotation(webrtc::kVideoRotation_0),
@@ -158,7 +158,7 @@ public:
             {
                 width = (m_roi_width * height) / m_roi_height;
             }
-            rtc::scoped_refptr<webrtc::I420Buffer> scaled_buffer = webrtc::I420Buffer::Create(width, height);
+            webrtc::scoped_refptr<webrtc::I420Buffer> scaled_buffer = webrtc::I420Buffer::Create(width, height);
             if (m_roi_width != frame.width() || m_roi_height != frame.height())
             {
                 scaled_buffer->CropAndScaleFrom(*frame.video_frame_buffer()->ToI420(), m_roi_x, m_roi_y, m_roi_width, m_roi_height);
@@ -167,21 +167,21 @@ public:
             {
                 scaled_buffer->ScaleFrom(*frame.video_frame_buffer()->ToI420());
             }
-            webrtc::VideoFrame scaledFrame = webrtc::VideoFrame(scaled_buffer, frame.timestamp(),
-                                                          frame.render_time_ms(), m_rotation);
+            webrtc::VideoFrame scaledFrame =
+                webrtc::VideoFrame(scaled_buffer, m_rotation, frame.timestamp_us());
 
             m_broadcaster.OnFrame(scaledFrame);
         }
     }
 
-    void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const rtc::VideoSinkWants &wants) override
+    void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const webrtc::VideoSinkWants &wants) override
     {
         m_videoSource->AddOrUpdateSink(this,wants);
 
         m_broadcaster.AddOrUpdateSink(sink, wants);
     }
 
-    void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink) override
+    void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink) override
     {
         m_videoSource->RemoveSink(this);
 
@@ -192,8 +192,8 @@ public:
     int height() { return m_roi_height;  }
 
 private:
-    rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> m_videoSource;
-    rtc::VideoBroadcaster  m_broadcaster;
+    webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> m_videoSource;
+    webrtc::VideoBroadcaster  m_broadcaster;
 
     int                    m_width;
     int                    m_height;

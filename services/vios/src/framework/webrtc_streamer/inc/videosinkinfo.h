@@ -36,7 +36,7 @@ struct VideoSinkInfo
 {
     VideoSinkInfo(): m_broadcaster(nullptr), m_quality(""), m_isSinkReady{false}
     {}
-    rtc::VideoBroadcaster* m_broadcaster;
+    webrtc::VideoBroadcaster* m_broadcaster;
     DecoderStats m_decoderStats;
     CodecStats m_decoderLatencyStats;
     FrameSize m_frameSize;

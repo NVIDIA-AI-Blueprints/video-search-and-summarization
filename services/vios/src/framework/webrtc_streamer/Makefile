@@ -38,7 +38,14 @@ OBJS := $(SRCS:.cpp=.o)
 
 CPPFLAGS += -I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp \
 			-I $(TOP)/src/framework/media/video_source/core
-LDFLAGS := -ljsoncpp -rdynamic -shared -L$(PREBUILT) -lnvvideo_source -lnvoverlays
+# Sub-make may not inherit root CPPFLAGS in all CI images; keep WebRTC deprecations non-fatal.
+CPPFLAGS += -Wno-error=deprecated
+# Pull libwebrtc.a into this DSO: PeerConnection.cpp calls
+# webrtc::CreateBuiltinAudioDecoderFactory(), which in the prebuilt is
+# GLOBAL HIDDEN in builtin_audio_decoder_factory.o. If we do not link webrtc
+# here, the .so keeps UND for that symbol; at launch_vst link GNU ld errors
+# "hidden symbol ... in libwebrtc.a is referenced by DSO".
+LDFLAGS := -rdynamic -shared -L$(PREBUILT) -Wl,--start-group -ljsoncpp -lnvvideo_source -lnvoverlays -lwebrtc -Wl,--end-group -pthread -ldl
 
 all: $(TARGET)
 
