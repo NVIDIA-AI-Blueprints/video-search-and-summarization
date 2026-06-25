@@ -62,6 +62,20 @@ constexpr const char* ANALYTICS_API_GET_ROI_STATS = "/api/v2/metrics/occupancy/r
 constexpr int ARROW_SIZE_SCALE_PARAMETER = 10;
 constexpr int DEFAULT_FONT_SIZE = 12;
 constexpr int DEFAULT_FONT_SIZE_COORDINATES = 5;
+
+static int GetBboxDebugFontSize(const OverlayBBoxParams& overlay)
+{
+    if (overlay.m_bboxDebugFontSize > 0)
+    {
+        return overlay.m_bboxDebugFontSize;
+    }
+    if (GET_CONFIG().bbox_debug_font_size > 0)
+    {
+        return GET_CONFIG().bbox_debug_font_size;
+    }
+    return DEFAULT_FONT_SIZE_COORDINATES;
+}
+
 constexpr int MAX_CLASSES = 15;
 constexpr float DEFAULT_ELLIPSE_SCALE_FACTOR = 1.5f;
 constexpr float DEFAULT_ELLIPSE_HEIGHT_FACTOR = 0.5f;
@@ -1013,7 +1027,7 @@ int NvLLOverlayInternal::draw_3d_bbox(const vector<Point2D>& corners2d, const st
             Point text_pos = interpolateCoordinate(text_x, text_y, m_sourceWidth, m_sourceHeight, m_width, m_height);
             text_params->pos_x = text_pos.x;
             text_params->pos_y = text_pos.y;
-            text_params->font_size = DEFAULT_FONT_SIZE_COORDINATES;
+            text_params->font_size = GetBboxDebugFontSize(box_params->m_overlay);
             text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
             // Use same color as the box lines
@@ -1308,7 +1322,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
 
                 text_params->pos_x = left;
                 text_params->pos_y = top;
-                text_params->font_size = DEFAULT_FONT_SIZE_COORDINATES;
+                text_params->font_size = GetBboxDebugFontSize(box_params->m_overlay);
                 text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
                 text_params->border_color = (OSD_ColorParams){255,255,255,255};
@@ -1344,7 +1358,7 @@ void NvLLOverlayInternal::draw_bbox_cuosd(Json::Value & objects, BBoxDrawingData
 
                     text_params->pos_x = left;
                     text_params->pos_y = bottom;
-                    text_params->font_size = DEFAULT_FONT_SIZE_COORDINATES;
+                    text_params->font_size = GetBboxDebugFontSize(box_params->m_overlay);
                     text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
                     text_params->border_color = (OSD_ColorParams){255,255,255,255};

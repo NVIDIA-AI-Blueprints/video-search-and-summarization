@@ -259,6 +259,7 @@ class NvLLOverlayInternal
         void setBboxHalos(bool halos) { m_bboxParams.m_overlay.m_enableHalos = halos; }
         void setBboxThickness(uint16_t thickness) { m_bboxParams.m_overlay.m_bboxThickness = thickness; }
         void setBboxDebug(bool debug) { m_bboxParams.m_overlay.m_bboxDebug = debug; }
+        void setBboxDebugFontSize(int fontSize) { m_bboxParams.m_overlay.m_bboxDebugFontSize = fontSize; }
         void setBboxOpacity(uint8_t opacity) { m_bboxParams.m_overlay.m_bboxOpacity = opacity; }
         void setBboxId(bool enableBboxId) { m_bboxParams.m_overlay.m_enableBboxId = enableBboxId; }
         void setBboxIdPosition(BBoxIdPosition position) { m_bboxParams.m_overlay.m_bboxIdPosition = position; }
