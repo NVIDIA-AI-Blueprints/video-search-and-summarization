@@ -256,7 +256,7 @@ services:
     environment:
       MAX_RETRIES: 60
       RETRY_INTERVAL: 2
-      BOOTSTRAP_HOST: ${KAFKA_BOOTSTRAP_HOST:-kafka}
+      BOOTSTRAP_HOST: ${BROKER_BOOTSTRAP_HOST:-${STREAM_TYPE:-kafka}}
       KAFKA_PORT: ${KAFKA_INTERNAL_PORT:-29092}
       REDIS_PORT: 6379
       KAFKA_TOPICS: '[{"name": "mdx-raw"},
