@@ -15,5 +15,6 @@
 from .cosmos_embed import CosmosEmbedClient
 from .embed import EmbedClient
 from .rtvi_cv_embed import RTVICVEmbedClient
+from .twelvelabs_embed import TwelveLabsEmbedClient
 
-__all__ = ["CosmosEmbedClient", "EmbedClient", "RTVICVEmbedClient"]
+__all__ = ["CosmosEmbedClient", "EmbedClient", "RTVICVEmbedClient", "TwelveLabsEmbedClient"]

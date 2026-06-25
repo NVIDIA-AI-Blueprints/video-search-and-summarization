@@ -205,6 +205,33 @@ or are only needed for specific features.
 | `EVAL_LLM_JUDGE_BASE_URL` | no | same as `LLM_BASE_URL` | Endpoint for evaluation judge |
 | `NGC_CLI_API_KEY` | cond. | — | Required when `LLM_MODE` / `VLM_MODE` is `local` or `local_shared` (Docker Compose) |
 | `NVIDIA_API_KEY` | cond. | — | Required for build.nvidia.com remote endpoints |
+| `TWELVELABS_API_KEY` | cond. | — | Required only when using the opt-in TwelveLabs embedding backend (see below) |
+| `TWELVELABS_EMBED_MODEL` | no | `marengo3.0` | TwelveLabs Marengo model name for the opt-in embedding backend |
+
+## Embedding backends
+
+The default semantic-search embedding backend is NVIDIA Cosmos
+(`CosmosEmbedClient`). As an **opt-in, non-breaking** alternative,
+`vss_agents.embed.TwelveLabsEmbedClient` provides text, image and video
+embeddings from [TwelveLabs](https://twelvelabs.io) Marengo — a multimodal
+model that maps all three modalities into one shared 512-dimensional space, so
+a text query and the media it is compared against live in the same vector space.
+
+It implements the same `EmbedClient` interface as the built-in backends, so it
+is a drop-in replacement anywhere an `EmbedClient` is constructed. Install the
+optional dependency and set your API key:
+
+```bash
+uv sync --extra twelvelabs
+export TWELVELABS_API_KEY=...   # free tier at https://twelvelabs.io
+```
+
+```python
+from vss_agents.embed import TwelveLabsEmbedClient
+
+client = TwelveLabsEmbedClient()          # reads TWELVELABS_API_KEY
+vec = await client.get_text_embedding("a person walking a dog")  # 512-dim
+```
 
 ## Testing
 
