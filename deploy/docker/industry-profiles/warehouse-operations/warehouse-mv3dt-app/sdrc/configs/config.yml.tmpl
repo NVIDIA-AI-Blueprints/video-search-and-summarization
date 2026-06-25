@@ -4,8 +4,8 @@ docker-workload-streamprocessing:
   enable: true
   WDM_CONSUMER_GRP_ID: sdr-streamprocessing-vios-cg
   WDM_REDIS_CACHE_OBJECT: streamprocessing-data
-  WDM_XDS_USE_POD_DNS: false
-  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_XDS_USE_POD_DNS: true
+  WDM_XDS_USE_IP_ADDRESS: false
   WDM_REDIS_MSG_KEY: vst.event
   REDIS_MSG_KEY: vst.event
 #  WDM_REAPPLY_ON_WL_RESTART: true
@@ -51,8 +51,8 @@ docker-workload-rtvi-cv-mv3dt:
   WDM_WL_OBJECT_NAME: vss-rtvi-cv-mv3dt
   WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-mv3dt-cg
   WDM_REDIS_CACHE_OBJECT: rtvi-cv-mv3dt-data
-  WDM_XDS_USE_POD_DNS: false
-  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_XDS_USE_POD_DNS: true
+  WDM_XDS_USE_IP_ADDRESS: false
   WDM_REDIS_MSG_KEY: vst.event
   REDIS_MSG_KEY: vst.event
   WDM_CLUSTER_TYPE: docker
