@@ -9,19 +9,25 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to select, configure, deploy, verify, debug, or tear down NVIDIA Video Search and Summarization (VSS) profiles on GPU-equipped hosts. <br>
+Developers and engineers use this skill to select, configure, deploy, verify, debug, or tear down NVIDIA VSS (Video Search and Summarization) compose-based profiles on GPU-equipped hosts. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
+
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Yes] <br>
+**Credential Type(s):** [API key] <br>  
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Prerequisites Documentation](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 
 
 ## Skill Output: <br>
@@ -37,7 +43,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 5 evaluation tasks in the NVSkills-Eval external profile (astra-sandbox environment). <br>
+Evaluated against 5 deployment tasks in the NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -61,11 +67,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 5 | 100% (+0%) | 100% (+10%) |
-| Correctness | 5 | 80% (+68%) | 92% (+56%) |
-| Discoverability | 5 | 93% (+78%) | 85% (+29%) |
-| Effectiveness | 5 | 63% (+58%) | 68% (+61%) |
-| Efficiency | 5 | 77% (+48%) | 78% (+27%) |
+| Security | 5 | 100% (+0%) | 100% (+20%) |
+| Correctness | 5 | 88% (+66%) | 87% (+50%) |
+| Discoverability | 5 | 88% (+62%) | 74% (+22%) |
+| Effectiveness | 5 | 66% (+61%) | 70% (+64%) |
+| Efficiency | 5 | 69% (+40%) | 69% (+24%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
