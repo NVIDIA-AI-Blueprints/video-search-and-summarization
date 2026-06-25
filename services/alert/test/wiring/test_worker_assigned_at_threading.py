@@ -87,7 +87,7 @@ for mod_name in _stub_modules:
 # real package directory so Python's finders find the real file on disk
 # instead of treating ``handlers`` as an empty package.
 import os as _os
-_HANDLERS_DIR = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "handlers")
+_HANDLERS_DIR = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "src", "handlers")
 sys.modules['handlers'].__path__ = [_HANDLERS_DIR]
 sys.modules['handlers.prompt_handler'].__path__ = []
 sys.modules['metrics'].__path__ = []
