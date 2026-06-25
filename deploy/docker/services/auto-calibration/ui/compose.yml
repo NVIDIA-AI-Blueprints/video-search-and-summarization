@@ -20,7 +20,7 @@ services:
     profiles: ["auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
 
     ports:
-      - ${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}}:5000
+      - ${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}:5000
     
     # IPC settings for GPU memory sharing
     ipc: host
