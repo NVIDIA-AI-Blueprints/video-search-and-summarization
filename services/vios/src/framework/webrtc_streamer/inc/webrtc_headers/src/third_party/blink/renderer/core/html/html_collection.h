@@ -26,6 +26,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_HTML_COLLECTION_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/live_node_list_base.h"
 #include "third_party/blink/renderer/core/html/collection_items_cache.h"
 #include "third_party/blink/renderer/core/html/collection_type.h"
@@ -61,6 +62,8 @@ class HTMLCollectionIterator {
     return iterator;
   }
 
+  bool AtEnd() const { return index_ == collection_->length(); }
+
  private:
   const CollectionType* collection_;
   unsigned index_ = 0;
@@ -93,6 +96,7 @@ class CORE_EXPORT HTMLCollection : public ScriptWrappable,
 
   // Non-DOM API
   void NamedItems(const AtomicString& name, HeapVector<Member<Element>>&) const;
+  bool HasNamedItems(const AtomicString& name) const;
   bool IsEmpty() const { return collection_items_cache_.IsEmpty(*this); }
   bool HasExactlyOneItem() const {
     return collection_items_cache_.HasExactlyOneNode(*this);
@@ -116,24 +120,29 @@ class CORE_EXPORT HTMLCollection : public ScriptWrappable,
 
   void Trace(Visitor*) const override;
 
+  bool NamedItemsEmpty() const {
+    UpdateIdNameCache();
+    return !GetNamedItemCache().empty();
+  }
+
  protected:
   class NamedItemCache final : public GarbageCollected<NamedItemCache> {
    public:
     NamedItemCache();
 
-    const HeapVector<Member<Element>>* GetElementsById(
+    const GCedHeapVector<Member<Element>>* GetElementsById(
         const AtomicString& id) const {
       auto it = id_cache_.find(id);
       if (it == id_cache_.end())
         return nullptr;
-      return it->value;
+      return it->value.Get();
     }
-    const HeapVector<Member<Element>>* GetElementsByName(
+    const GCedHeapVector<Member<Element>>* GetElementsByName(
         const AtomicString& name) const {
       auto it = name_cache_.find(name);
       if (it == name_cache_.end())
         return nullptr;
-      return it->value;
+      return it->value.Get();
     }
     void AddElementWithId(const AtomicString& id, Element* element) {
       AddElementToMap(id_cache_, id, element);
@@ -147,15 +156,18 @@ class CORE_EXPORT HTMLCollection : public ScriptWrappable,
       visitor->Trace(name_cache_);
     }
 
+    bool empty() const { return id_cache_.empty() && name_cache_.empty(); }
+
    private:
-    typedef HeapHashMap<AtomicString, Member<HeapVector<Member<Element>>>>
+    typedef HeapHashMap<AtomicString, Member<GCedHeapVector<Member<Element>>>>
         StringToElementsMap;
     static void AddElementToMap(StringToElementsMap& map,
                                 const AtomicString& key,
                                 Element* element) {
-      HeapVector<Member<Element>>* vector =
-          map.insert(key, MakeGarbageCollected<HeapVector<Member<Element>>>())
-              .stored_value->value;
+      GCedHeapVector<Member<Element>>* vector =
+          map.insert(key,
+                     MakeGarbageCollected<GCedHeapVector<Member<Element>>>())
+              .stored_value->value.Get();
       vector->push_back(element);
     }
 

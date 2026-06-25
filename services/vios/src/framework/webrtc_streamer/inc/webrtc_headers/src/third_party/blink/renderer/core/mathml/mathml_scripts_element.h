@@ -27,15 +27,14 @@ class CORE_EXPORT MathMLScriptsElement : public MathMLElement {
   MathScriptType GetScriptType() const { return script_type_; }
 
   MathMLScriptsElement(const QualifiedName& tagName, Document& document);
+  ElementType GetElementType() const override {
+    return ElementType::kMathMLScriptsElement;
+  }
 
  private:
   const MathScriptType script_type_;
 };
 
-template <>
-inline bool IsElementOfType<const MathMLScriptsElement>(const Node& node) {
-  return IsA<MathMLScriptsElement>(node);
-}
 template <>
 struct DowncastTraits<MathMLScriptsElement> {
   static bool AllowFrom(const Node& node) {

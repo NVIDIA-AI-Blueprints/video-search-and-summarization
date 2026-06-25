@@ -5,12 +5,14 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_EXCEPTION_CONTEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_EXCEPTION_CONTEXT_H_
 
+#include <variant>
+
 #include "base/check_op.h"
 #include "base/dcheck_is_on.h"
-#include "base/notreached.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "v8/include/v8-exception.h"
 
 namespace blink {
 
@@ -23,94 +25,45 @@ class PLATFORM_EXPORT ExceptionContext final {
   DISALLOW_NEW();
 
  public:
-  enum class Context : int16_t {
-    kEmpty,
-    kUnknown,  // TODO(crbug.com/270033): Remove this item.
-    // IDL Interface, IDL Namespace
-    kAttributeGet,
-    kAttributeSet,
-    kConstantGet,
-    kConstructorOperationInvoke,
-    kOperationInvoke,
-    kIndexedPropertyGet,
-    kIndexedPropertySet,
-    kIndexedPropertyDefine,
-    kIndexedPropertyDelete,
-    kIndexedPropertyQuery,
-    kIndexedPropertyEnumerate,
-    kNamedPropertyGet,
-    kNamedPropertySet,
-    kNamedPropertyDefine,
-    kNamedPropertyDelete,
-    kNamedPropertyQuery,
-    kNamedPropertyEnumerate,
-    // IDL Dictionary
-    kDictionaryMemberGet,
-    kDictionaryMemberSet,
-    // IDL Callback Function
-    kCallbackFunctionConstruct,
-    kCallbackFunctionInvoke,
-    // IDL Callback Interface
-    kCallbackInterfaceOperationInvoke,
-    // Operating on a function argument
-    kFunctionArgument,
-  };
-
-  ExceptionContext() = default;
-
   // Note `class_name` and `property_name` accept only string literals.
-  explicit ExceptionContext(Context context,
-                            const char* class_name,
-                            const char* property_name)
-      : context_(context),
-        class_name_(class_name),
-        property_name_(property_name) {
+  ExceptionContext(v8::ExceptionContext type,
+                   const char* class_name,
+                   const char* property_name)
+      : type_(type), class_name_(class_name), property_name_(property_name) {
 #if DCHECK_IS_ON()
-    switch (context) {
-      case Context::kAttributeGet:
-      case Context::kAttributeSet:
-      case Context::kConstantGet:
-      case Context::kOperationInvoke:
-      case Context::kDictionaryMemberGet:
-      case Context::kDictionaryMemberSet:
-      case Context::kCallbackInterfaceOperationInvoke:
+    switch (type) {
+      case v8::ExceptionContext::kAttributeGet:
+      case v8::ExceptionContext::kAttributeSet:
+      case v8::ExceptionContext::kOperation:
+      case v8::ExceptionContext::kIndexedGetter:
+      case v8::ExceptionContext::kIndexedDescriptor:
+      case v8::ExceptionContext::kIndexedSetter:
+      case v8::ExceptionContext::kIndexedDefiner:
+      case v8::ExceptionContext::kIndexedDeleter:
+      case v8::ExceptionContext::kIndexedQuery:
+      case v8::ExceptionContext::kNamedGetter:
+      case v8::ExceptionContext::kNamedDescriptor:
+      case v8::ExceptionContext::kNamedSetter:
+      case v8::ExceptionContext::kNamedDefiner:
+      case v8::ExceptionContext::kNamedDeleter:
+      case v8::ExceptionContext::kNamedQuery:
         DCHECK(class_name);
         DCHECK(property_name);
         break;
-      case Context::kConstructorOperationInvoke:
-      case Context::kIndexedPropertyGet:
-      case Context::kIndexedPropertySet:
-      case Context::kIndexedPropertyDefine:
-      case Context::kIndexedPropertyDelete:
-      case Context::kIndexedPropertyQuery:
-      case Context::kIndexedPropertyEnumerate:
-      case Context::kNamedPropertyGet:
-      case Context::kNamedPropertySet:
-      case Context::kNamedPropertyDefine:
-      case Context::kNamedPropertyDelete:
-      case Context::kNamedPropertyQuery:
-      case Context::kNamedPropertyEnumerate:
-      case Context::kCallbackFunctionConstruct:
-      case Context::kCallbackFunctionInvoke:
+      case v8::ExceptionContext::kConstructor:
+      case v8::ExceptionContext::kNamedEnumerator:
         DCHECK(class_name);
         break;
-      case Context::kEmpty:
-      case Context::kFunctionArgument:
-        NOTREACHED();
-        break;
-      case Context::kUnknown:
+      case v8::ExceptionContext::kUnknown:
         break;
     }
 #endif  // DCHECK_IS_ON()
   }
 
-  explicit ExceptionContext(Context context, const char* class_name)
-      : ExceptionContext(context, class_name, nullptr) {}
-
-  explicit ExceptionContext(Context context, int16_t argument_index)
-      : context_(context), argument_index_(argument_index) {
-    DCHECK_EQ(Context::kFunctionArgument, context);
-  }
+  constexpr ExceptionContext()
+      : type_(v8::ExceptionContext::kUnknown),
+        class_name_(nullptr),
+        property_name_(nullptr) {}
 
   ExceptionContext(const ExceptionContext&) = default;
   ExceptionContext(ExceptionContext&&) = default;
@@ -119,21 +72,12 @@ class PLATFORM_EXPORT ExceptionContext final {
 
   ~ExceptionContext() = default;
 
-  Context GetContext() const { return context_; }
+  v8::ExceptionContext GetType() const { return type_; }
   const char* GetClassName() const { return class_name_; }
   const char* GetPropertyName() const { return property_name_; }
-  int16_t GetArgumentIndex() const { return argument_index_; }
-
-  // This is used for a performance hack to reduce the number of construction
-  // and destruction times of ExceptionContext when iterating over properties.
-  // Only the generated bindings code is allowed to use this hack.
-  void ChangePropertyNameAsOptimizationHack(const char* property_name) {
-    property_name_ = property_name;
-  }
 
  private:
-  Context context_ = Context::kEmpty;
-  int16_t argument_index_ = 0;
+  v8::ExceptionContext type_;
   const char* class_name_ = nullptr;
   const char* property_name_ = nullptr;
 };

@@ -10,12 +10,12 @@
 #ifndef CALL_AUDIO_STATE_H_
 #define CALL_AUDIO_STATE_H_
 
+#include "api/audio/audio_device.h"
 #include "api/audio/audio_mixer.h"
+#include "api/audio/audio_processing.h"
+#include "api/ref_count.h"
 #include "api/scoped_refptr.h"
 #include "modules/async_audio_processing/async_audio_processing.h"
-#include "modules/audio_device/include/audio_device.h"
-#include "modules/audio_processing/include/audio_processing.h"
-#include "rtc_base/ref_count.h"
 
 namespace webrtc {
 
@@ -23,7 +23,7 @@ class AudioTransport;
 
 // AudioState holds the state which must be shared between multiple instances of
 // webrtc::Call for audio processing purposes.
-class AudioState : public rtc::RefCountInterface {
+class AudioState : public RefCountInterface {
  public:
   struct Config {
     Config();
@@ -31,16 +31,15 @@ class AudioState : public rtc::RefCountInterface {
 
     // The audio mixer connected to active receive streams. One per
     // AudioState.
-    rtc::scoped_refptr<AudioMixer> audio_mixer;
+    scoped_refptr<AudioMixer> audio_mixer;
 
     // The audio processing module.
-    rtc::scoped_refptr<webrtc::AudioProcessing> audio_processing;
+    scoped_refptr<webrtc::AudioProcessing> audio_processing;
 
     // TODO(solenberg): Temporary: audio device module.
-    rtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device_module;
+    scoped_refptr<webrtc::AudioDeviceModule> audio_device_module;
 
-    rtc::scoped_refptr<AsyncAudioProcessing::Factory>
-        async_audio_processing_factory;
+    scoped_refptr<AsyncAudioProcessing::Factory> async_audio_processing_factory;
   };
 
   virtual AudioProcessing* audio_processing() = 0;
@@ -59,8 +58,7 @@ class AudioState : public rtc::RefCountInterface {
 
   virtual void SetStereoChannelSwapping(bool enable) = 0;
 
-  static rtc::scoped_refptr<AudioState> Create(
-      const AudioState::Config& config);
+  static scoped_refptr<AudioState> Create(const AudioState::Config& config);
 
   ~AudioState() override {}
 };

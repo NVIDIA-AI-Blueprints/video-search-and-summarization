@@ -11,11 +11,15 @@
 #ifndef MODULES_RTP_RTCP_SOURCE_VIDEO_FEC_GENERATOR_H_
 #define MODULES_RTP_RTCP_SOURCE_VIDEO_FEC_GENERATOR_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "api/units/data_rate.h"
 #include "modules/include/module_fec_types.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtp_packet_to_send.h"
 
 namespace webrtc {
@@ -28,7 +32,7 @@ class VideoFecGenerator {
   enum class FecType { kFlexFec, kUlpFec };
   virtual FecType GetFecType() const = 0;
   // Returns the SSRC used for FEC packets (i.e. FlexFec SSRC).
-  virtual absl::optional<uint32_t> FecSsrc() = 0;
+  virtual std::optional<uint32_t> FecSsrc() = 0;
   // Returns the overhead, in bytes per packet, for FEC (and possibly RED).
   virtual size_t MaxPacketOverhead() const = 0;
   // Current rate of FEC packets generated, including all RTP-level headers.
@@ -47,7 +51,7 @@ class VideoFecGenerator {
   virtual std::vector<std::unique_ptr<RtpPacketToSend>> GetFecPackets() = 0;
   // Only called on the VideoSendStream queue, after operation has shut down,
   // and only populated if there is an RtpState (e.g. FlexFec).
-  virtual absl::optional<RtpState> GetRtpState() = 0;
+  virtual std::optional<RtpState> GetRtpState() = 0;
 };
 
 }  // namespace webrtc

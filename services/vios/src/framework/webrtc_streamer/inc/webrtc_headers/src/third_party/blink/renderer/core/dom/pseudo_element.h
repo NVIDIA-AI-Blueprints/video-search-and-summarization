@@ -34,76 +34,121 @@
 namespace blink {
 
 class ComputedStyle;
+class ContentData;
 
 class CORE_EXPORT PseudoElement : public Element {
  public:
-  // |view_transition_name| is used to uniquely identify a pseudo element
-  // from a set of pseudo elements which share the same |pseudo_id|. The current
-  // usage of this ID is limited to pseudo elements generated for a
+  // |pseudo_argument| is used to uniquely identify a pseudo-element
+  // from a set of pseudo-elements which share the same |pseudo_id|. The current
+  // usage of this ID is limited to pseudo-elements generated for a
   // ViewTransition. See
   // third_party/blink/renderer/core/view_transition/README.md
   static PseudoElement* Create(
       Element* parent,
       PseudoId pseudo_id,
-      const AtomicString& view_transition_name = g_null_atom);
+      const AtomicString& pseudo_argument = g_null_atom);
 
   PseudoElement(Element*,
                 PseudoId,
-                const AtomicString& view_transition_name = g_null_atom);
+                const AtomicString& pseudo_argument = g_null_atom);
 
-  const AtomicString& view_transition_name() const {
-    return view_transition_name_;
-  }
-  scoped_refptr<const ComputedStyle> CustomStyleForLayoutObject(
+  bool IsPseudoElement() const final { return true; }
+
+  const ComputedStyle* CustomStyleForLayoutObject(
       const StyleRecalcContext&) override;
   void AttachLayoutTree(AttachContext&) override;
   bool LayoutObjectIsNeeded(const DisplayStyle&) const override;
   bool CanGeneratePseudoElement(PseudoId) const override;
 
+  bool CanGenerateContent() const;
+  bool CanHaveNestedPseudoElement() const;
   bool CanStartSelection() const override { return false; }
   bool CanContainRangeEndPoint() const override { return false; }
   PseudoId GetPseudoId() const override { return pseudo_id_; }
-  scoped_refptr<const ComputedStyle> LayoutStyleForDisplayContents(
-      const ComputedStyle&);
+  // PseudoId that can be alias, e.g. kPseudoScrollMarkerGroupAfter is
+  // unresolved = alias, kPseudoScrollMarkerGroup is resolved.
+  // For styling and selector matching, return resolved version.
+  PseudoId GetPseudoIdForStyling() const override;
+  const AtomicString& GetPseudoArgument() const { return pseudo_argument_; }
+
+  // Return the adjusted style needed by layout. In some cases computed style
+  // cannot be used as-is by layout. display:contents needs to be adjusted to
+  // display:inline. Scroll marker pseudo-elements may need to blockify the
+  // display type (depending on the parent). Returns nullptr if no adjustment is
+  // necessary.
+  const ComputedStyle* AdjustedLayoutStyle(
+      const ComputedStyle& style,
+      const ComputedStyle& layout_parent_style);
 
   static AtomicString PseudoElementNameForEvents(Element*);
   static bool IsWebExposed(PseudoId, const Node*);
 
-  // Pseudo element are not allowed to be the inner node for hit testing. Find
-  // the closest ancestor which is a real dom node.
-  virtual Node* InnerNodeForHitTesting() const;
+  // Returns the node to store as |inner_node_| in HitTestResult.
+  //
+  // Always resolves to the originating DOM element, for every pseudo-element
+  // including those with activation behavior (::scroll-marker, ::scroll-button,
+  // ::interest-button). This enforces the invariant that |inner_node_| is
+  // always a real (non-pseudo) Element, which is required for:
+  //   - SelectionController: IsEditable / CanStartSelection / GetPosition
+  //
+  // Dispatch targets the pseudo via InnerPossiblyPseudoElement() instead:
+  //   - DispatchMousePointerEvent uses InnerPossiblyPseudoElement() so
+  //     EventDispatcher::node_ = the pseudo, keeping HasActivationBehavior()
+  //     checks, DefaultEventHandler dispatch, and event.pseudoTarget working.
+  virtual Node* InnerNodeForHitTesting();
+
+  bool SupportsHitTesting() const;
+  static bool SupportsHitTesting(PseudoId pseudo_id);
 
   void AccessKeyAction(SimulatedClickCreationScope creation_scope) override;
 
-  // Returns the DOM element that this pseudo element originates from. If the
-  // pseudo element is nested inside another pseudo element, this returns the
-  // DOM element which the pseudo element tree originates from.
+  // Returns the DOM element that this pseudo-element originates from. If the
+  // pseudo-element is nested inside another pseudo-element, this returns the
+  // DOM element which the pseudo-element tree originates from.
   // This is different from |parentElement()| which returns the element's direct
   // ancestor.
-  Element* OriginatingElement() const;
+  Element& UltimateOriginatingElement() const;
+
+  const ContentData* GetContentData() const;
+  ContentData* CreateMutableAltContentDataForCountersIfNeeded();
 
   virtual void Dispose();
+
+  static bool IsLayoutSiblingOfOriginatingElement(
+      const Element& originating_element,
+      PseudoId pseudo_id);
+  bool IsLayoutSiblingOfOriginatingElement() const;
+
+  bool IsInertRoot() const override;
+
+ protected:
+  void SetIsGeneratedName(bool generated) { is_generated_name_ = generated; }
 
  private:
   class AttachLayoutTreeScope {
     STACK_ALLOCATED();
 
    public:
-    AttachLayoutTreeScope(PseudoElement*);
+    AttachLayoutTreeScope(PseudoElement*, const AttachContext&);
     ~AttachLayoutTreeScope();
 
    private:
     PseudoElement* element_;
-    scoped_refptr<const ComputedStyle> original_style_;
+    const ComputedStyle* original_style_{nullptr};
   };
 
   PseudoId pseudo_id_;
-  const AtomicString view_transition_name_;
+  const AtomicString pseudo_argument_;
+  bool is_generated_name_ = false;
 };
 
 CORE_EXPORT const QualifiedName& PseudoElementTagName(PseudoId);
 
-bool PseudoElementLayoutObjectIsNeeded(const ComputedStyle* pseudo_style,
+bool PseudoElementLayoutObjectIsNeeded(PseudoId pseudo_id,
+                                       const ComputedStyle* pseudo_style,
+                                       const Element* originating_element);
+bool PseudoElementLayoutObjectIsNeeded(PseudoId pseudo_id,
+                                       const DisplayStyle& pseudo_style,
                                        const Element* originating_element);
 
 template <>

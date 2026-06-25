@@ -10,14 +10,16 @@
 
 #ifndef API_TRANSPORT_NETWORK_CONTROL_H_
 #define API_TRANSPORT_NETWORK_CONTROL_H_
-#include <stdint.h>
 
 #include <memory>
+#include <optional>
 
 #include "absl/base/attributes.h"
+#include "api/environment/environment.h"
 #include "api/field_trials_view.h"
-#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/transport/network_types.h"
+#include "api/units/data_rate.h"
+#include "api/units/time_delta.h"
 
 namespace webrtc {
 
@@ -35,6 +37,10 @@ class TargetTransferRateObserver {
 // Configuration sent to factory create function. The parameters here are
 // optional to use for a network controller implementation.
 struct NetworkControllerConfig {
+  explicit NetworkControllerConfig(const Environment& env) : env(env) {}
+
+  Environment env;
+
   // The initial constraints to start with, these can be changed at any later
   // time by calls to OnTargetRateConstraints. Note that the starting rate
   // has to be set initially to provide a starting state for the network
@@ -43,12 +49,10 @@ struct NetworkControllerConfig {
   // Initial stream specific configuration, these are changed at any later time
   // by calls to OnStreamsConfig.
   StreamsConfig stream_based_config;
-
-  // Optional override of configuration of WebRTC internals. Using nullptr here
-  // indicates that the field trial API will be used.
-  const FieldTrialsView* key_value_config = nullptr;
-  // Optional override of event log.
-  RtcEventLog* event_log = nullptr;
+  // Default time window used for calculating how send packets are paced.
+  // Note that a network controller can choose to request the pacer to pace
+  // packets stricter.
+  TimeDelta default_pacing_time_window = PacerConfig::kDefaultTimeInterval;
 };
 
 // NetworkControllerInterface is implemented by network controllers. A network
@@ -97,6 +101,9 @@ class NetworkControllerInterface {
   // Called with network state estimate updates.
   ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnNetworkStateEstimate(
       NetworkStateEstimate) = 0;
+  // Returns true if the network controller supports adaptation to ECN.
+  // https://www.rfc-editor.org/rfc/rfc9331.html
+  virtual bool SupportsEcnAdaptation() const { return false; }
 };
 
 // NetworkControllerFactoryInterface is an interface for creating a network
@@ -118,7 +125,7 @@ class NetworkControllerFactoryInterface {
 class NetworkStateEstimator {
  public:
   // Gets the current best estimate according to the estimator.
-  virtual absl::optional<NetworkStateEstimate> GetCurrentEstimate() = 0;
+  virtual std::optional<NetworkStateEstimate> GetCurrentEstimate() = 0;
   // Called with per packet feedback regarding receive time.
   // Used when the NetworkStateEstimator runs in the sending endpoint.
   virtual void OnTransportPacketsFeedback(const TransportPacketsFeedback&) = 0;

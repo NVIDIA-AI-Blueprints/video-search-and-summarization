@@ -8,9 +8,6 @@
 #ifndef TESTING_LIBFUZZER_PROTO_LPM_INTERFACE_H_
 #define TESTING_LIBFUZZER_PROTO_LPM_INTERFACE_H_
 
-#include "third_party/libprotobuf-mutator/src/src/libfuzzer/libfuzzer_macro.h"
-
-// Silence logging from the protobuf library.
-protobuf_mutator::protobuf::LogSilencer log_silencer;
+#include "third_party/libprotobuf-mutator/src/src/libfuzzer/libfuzzer_macro.h"  // IWYU pragma: export
 
 #endif  // TESTING_LIBFUZZER_PROTO_LPM_INTERFACE_H_

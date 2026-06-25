@@ -15,15 +15,15 @@
 
 #include <memory>
 
-#include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_sink_interface.h"
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
 
-// Creates an instance of rtc::VideoSinkInterface<VideoFrame> from Java
+// Creates an instance of webrtc::VideoSinkInterface<VideoFrame> from Java
 // VideoSink.
-std::unique_ptr<rtc::VideoSinkInterface<VideoFrame>> JavaToNativeVideoSink(
+std::unique_ptr<VideoSinkInterface<VideoFrame>> JavaToNativeVideoSink(
     JNIEnv* jni,
     jobject video_sink);
 

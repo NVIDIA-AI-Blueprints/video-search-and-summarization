@@ -6,9 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_URI_VALUE_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/css_url_data.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
-#include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -16,26 +16,25 @@ namespace blink {
 class Document;
 class KURL;
 class SVGResource;
+class TextEncoding;
 
 namespace cssvalue {
 
 class CORE_EXPORT CSSURIValue : public CSSValue {
  public:
-  CSSURIValue(const AtomicString&, const KURL&);
-  CSSURIValue(const AtomicString& relative_url,
-              const AtomicString& absolute_url);
-  explicit CSSURIValue(const AtomicString& absolute_url);
+  explicit CSSURIValue(const CSSUrlData& url_data);
   ~CSSURIValue();
 
   SVGResource* EnsureResourceReference() const;
   void ReResolveUrl(const Document&) const;
 
   const AtomicString& ValueForSerialization() const {
-    return is_local_ ? relative_url_ : absolute_url_;
+    return UrlData().ValueForSerialization();
   }
 
   String CustomCSSText() const;
 
+  const CSSUrlData& UrlData() const { return *url_data_; }
   bool IsLocal(const Document&) const;
   AtomicString FragmentIdentifier() const;
 
@@ -49,19 +48,16 @@ class CORE_EXPORT CSSURIValue : public CSSValue {
   bool Equals(const CSSURIValue&) const;
 
   CSSURIValue* ComputedCSSValue(const KURL& base_url,
-                                const WTF::TextEncoding&) const;
+                                const TextEncoding&) const;
 
   void TraceAfterDispatch(blink::Visitor*) const;
 
  private:
   KURL AbsoluteUrl() const;
 
-  AtomicString relative_url_;
   mutable AtomicString normalized_fragment_identifier_cache_;
-  bool is_local_;
-
+  const Member<const CSSUrlData> url_data_;
   mutable Member<SVGResource> resource_;
-  mutable AtomicString absolute_url_;
 };
 
 }  // namespace cssvalue

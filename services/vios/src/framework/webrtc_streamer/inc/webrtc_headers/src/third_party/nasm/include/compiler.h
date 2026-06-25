@@ -1,35 +1,5 @@
-/* ----------------------------------------------------------------------- *
- *
- *   Copyright 2007-2020 The NASM Authors - All Rights Reserved
- *   See the file AUTHORS included with the NASM distribution for
- *   the specific copyright holders.
- *
- *   Redistribution and use in source and binary forms, with or without
- *   modification, are permitted provided that the following
- *   conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above
- *     copyright notice, this list of conditions and the following
- *     disclaimer in the documentation and/or other materials provided
- *     with the distribution.
- *
- *     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- *     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- *     MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *     DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- *     CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- *     SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- *     NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- *     LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- *     HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *     CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- *     OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- *     EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * ----------------------------------------------------------------------- */
+/* SPDX-License-Identifier: BSD-2-Clause */
+/* Copyright 2007-2025 The NASM Authors - All Rights Reserved */
 
 /*
  * compiler.h
@@ -53,6 +23,8 @@
 
 /* On Microsoft platforms we support multibyte character sets in filenames */
 #define _MBCS 1
+
+#include "autoconf/attribute.h"
 
 #ifdef HAVE_CONFIG_H
 # include "config/config.h"
@@ -97,13 +69,51 @@
 # include <sys/types.h>
 #endif
 
-#ifdef HAVE_ENDIAN_H
-# include <endian.h>
-#elif defined(HAVE_SYS_ENDIAN_H)
-# include <sys/endian.h>
-#elif defined(HAVE_MACHINE_ENDIAN_H)
-# include <machine/endian.h>
+/*
+ * This is impossible to do 100% accurately, because the actual type
+ * of size_t may differ from its range.
+ */
+#ifdef _WIN32
+# define PRIz "I"               /* Needed for msvcrt, not ucrt */
+#elif defined(PRINTF_SUPPORTS_Z) || \
+    (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L)
+# define PRIz "z"
+#elif SIZE_MAX == UINT_MAX
+# define PRIz ""
+#elif SIZE_MAX == ULONG_MAX
+# define PRIz "l"
+#elif SIZE_MAX == ULONGLONG_MAX
+# define PRIz "ll"
+#else
+# error "Unable to determine printf format for size_t"
 #endif
+#define PRIzd PRIz "u"          /* size_t is always unsigned */
+#define PRIzu PRIz "u"
+#define PRIzu PRIz "u"
+#define PRIzx PRIz "x"
+#define PRIzX PRIz "X"
+
+#ifdef HAVE_STDBIT_H
+
+# include <stdbit.h>
+
+# undef WORDS_LITTLEENDIAN
+# undef WORDS_BIGENDIAN
+# if __STDC_ENDIAN_NATIVE__ == __STDC_ENDIAN_LITTLE__
+#  define WORDS_LITTLEENDIAN 1
+# elif __STDC_ENDIAN_NATIVE__ == __STDC_ENDIAN_BIG__
+#  define WORDS_BIGENDIAN 1
+# endif
+
+#else  /* No <stdbit.h> */
+
+# ifdef HAVE_ENDIAN_H
+#  include <endian.h>
+# elif defined(HAVE_SYS_ENDIAN_H)
+#  include <sys/endian.h>
+# elif defined(HAVE_MACHINE_ENDIAN_H)
+#  include <machine/endian.h>
+# endif
 
 /*
  * If we have BYTE_ORDER defined, or the compiler provides
@@ -111,22 +121,24 @@
  * came up with, especially since autoconf obviously can't figure
  * things out for a universal compiler.
  */
-#if defined(__BIG_ENDIAN__) && !defined(__LITTLE_ENDIAN__)
-# undef WORDS_LITTLEENDIAN
-# undef WORDS_BIGENDIAN
-# define WORDS_BIGENDIAN 1
-#elif defined(__LITTLE_ENDIAN__) && !defined(__BIG_ENDIAN__)
-# undef WORDS_LITTLEENDIAN
-# undef WORDS_BIGENDIAN
-# define WORDS_LITTLEENDIAN 1
-#elif defined(BYTE_ORDER) && defined(LITTLE_ENDIAN) && defined(BIG_ENDIAN)
-# undef WORDS_LITTLEENDIAN
-# undef WORDS_BIGENDIAN
-# if BYTE_ORDER == LITTLE_ENDIAN
-#  define WORDS_LITTLEENDIAN 1
-# elif BYTE_ORDER == BIG_ENDIAN
+# if defined(__BIG_ENDIAN__) && !defined(__LITTLE_ENDIAN__)
+#  undef WORDS_LITTLEENDIAN
+#  undef WORDS_BIGENDIAN
 #  define WORDS_BIGENDIAN 1
+# elif defined(__LITTLE_ENDIAN__) && !defined(__BIG_ENDIAN__)
+#  undef WORDS_LITTLEENDIAN
+#  undef WORDS_BIGENDIAN
+#  define WORDS_LITTLEENDIAN 1
+# elif defined(BYTE_ORDER) && defined(LITTLE_ENDIAN) && defined(BIG_ENDIAN)
+#  undef WORDS_LITTLEENDIAN
+#  undef WORDS_BIGENDIAN
+#  if BYTE_ORDER == LITTLE_ENDIAN
+#   define WORDS_LITTLEENDIAN 1
+#  elif BYTE_ORDER == BIG_ENDIAN
+#   define WORDS_BIGENDIAN 1
+#  endif
 # endif
+
 #endif
 
 /*
@@ -166,21 +178,37 @@ size_t strlcpy(char *, const char *, size_t);
 #endif
 
 #if !defined(HAVE_STRCHRNUL) || !HAVE_DECL_STRCHRNUL
-char *strrchrnul(const char *, int);
+char * pure_func strrchrnul(const char *, int);
 #endif
 
-#ifndef __cplusplus		/* C++ has false, true, bool as keywords */
+#if !defined(__cplusplus) || (__STDC_VERSION >= 202311L)
+/* C++ and C23 have bool, false, and true as proper keywords */
 # ifdef HAVE_STDBOOL_H
+/* If <stdbool.h> exists, include it explicitly to prevent it from
+   begin included later, causing the "bool" macro to be defined. */
 #  include <stdbool.h>
-# elif defined(HAVE__BOOL)
+#  ifdef bool
+/* Force bool to be a typedef instead of a macro. What a "clever" hack
+   this is... */
+    typedef bool                /* The macro definition of bool */
+#  undef bool
+        bool;                   /* No longer the macro definition */
+#  endif
+# elif defined(HAVE___BOOL)
    typedef _Bool bool;
 #  define false 0
 #  define true 1
 # else
-/* This is sort of dangerous, since casts will behave different than
-   casting to the standard boolean type.  Always use !!, not (bool). */
+/* This is a bit dangerous, because casting to this ersatz bool
+   will not produce the same result as the standard (bool) cast.
+   Instead, use the bool() constructor-style macro defined below. */
 typedef enum bool { false, true } bool;
 # endif
+/* This amounts to a C++-style conversion cast to bool.  This works
+   because C ignores an argument-taking macro when used without an
+   argument and because bool was redefined as a typedef if it previously
+   was defined as a macro (see above.) */
+# define bool(x) ((bool)!!(x))
 #endif
 
 /* Create a NULL pointer of the same type as the address of
@@ -252,6 +280,13 @@ static inline void *mempcpy(void *dst, const void *src, size_t n)
 }
 #endif
 
+#ifndef HAVE_MEMPSET
+static inline void *mempset(void *dst, int c, size_t n)
+{
+    return (char *)memset(dst, c, n) + n;
+}
+#endif
+
 /*
  * Hack to support external-linkage inline functions
  */
@@ -292,13 +327,23 @@ static inline void *mempcpy(void *dst, const void *src, size_t n)
  * Hints to the compiler that a particular branch of code is more or
  * less likely to be taken.
  */
-#if HAVE___BUILTIN_EXPECT
-# define likely(x)	__builtin_expect(!!(x), 1)
-# define unlikely(x)	__builtin_expect(!!(x), 0)
+#ifdef HAVE___BUILTIN_EXPECT
+# define likely(x)	__builtin_expect(bool(x), true)
+# define unlikely(x)	__builtin_expect(bool(x), false)
 #else
-# define likely(x)	(!!(x))
-# define unlikely(x)	(!!(x))
+# define likely(x)	bool(x)
+# define unlikely(x)	bool(x)
 #endif
+
+#ifdef HAVE___BUILTIN_PREFETCH
+# define prefetch(x) __builtin_prefetch(x)
+#else
+# define prefetch(x) ((void)(x))
+#endif
+
+/*
+ * Attributes
+ */
 
 #define safe_alloc     never_null     malloc_func
 #define safe_alloc_ptr never_null_ptr malloc_func_ptr
@@ -315,24 +360,49 @@ static inline void *mempcpy(void *dst, const void *src, size_t n)
  */
 #ifdef HAVE_STDNORETURN_H
 # include <stdnoreturn.h>
-# define no_return noreturn void
+# define no_return noreturn
 #elif defined(_MSC_VER)
-# define no_return __declspec(noreturn) void
+# define no_return __declspec(noreturn)
 #else
-# define no_return void noreturn_func
+# define no_return noreturn_func
+#endif
+
+/* Function priority: pure < reproducible < unsequenced < const */
+
+#ifndef HAVE_FUNC_ATTRIBUTE_REPRODUCIBLE
+# undef reproducible_func
+# define reproducible_func pure_func
+# undef reproducible_func_ptr
+# define reproducible_func_ptr pure_func_ptr
+#endif
+
+#ifndef HAVE_FUNC_ATTRIBUTE_UNSEQUENCED
+# undef unsequenced_func
+# define unsequenced_func reproducible_func
+# undef unsequenced_func_ptr
+# define unsequenced_func_ptr reproducible_func_ptr
+#endif
+
+#ifndef HAVE_FUNC_ATTRIBUTE_CONST
+# undef const_func
+# define const_func reproducible_func
+# undef const_func_ptr
+# define const_func_ptr reproducible_func_ptr
 #endif
 
 /*
  * A fatal function is both unlikely and no_return
  */
-#define fatal_func     no_return unlikely_func
-#define fatal_func_ptr no_return unlikely_func_ptr
+#define fatal_func        no_return unlikely_func void
+#define static_fatal_func no_return unlikely_func static void
 
 /*
  * How to tell the compiler that a function takes a printf-like string
  */
 #define printf_func(fmt, list)     format_func3(printf,fmt,list)
 #define printf_func_ptr(fmt, list) format_func3_ptr(printf,fmt,list)
+#define vprintf_func(fmt)          format_func3(printf,fmt,0)
+#define vprintf_func_ptr(fmt)      format_func3_ptr(printf,fmt,0)
 
 /* Determine probabilistically if something is a compile-time constant */
 #ifdef HAVE___BUILTIN_CONSTANT_P
@@ -389,6 +459,15 @@ static inline void *mempcpy(void *dst, const void *src, size_t n)
  */
 #ifndef SIZE_MAX
 # define SIZE_MAX (((size_t)0) - 1)
+#endif
+
+/*
+ * Current function name, if available, otherwise NULL
+ */
+#ifdef HAVE_FUNC_NAME
+# define NASM_FUNC __func__
+#else
+# define NASM_FUNC NULL
 #endif
 
 /* Watcom doesn't handle switch statements with 64-bit types, hack around it */

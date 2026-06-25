@@ -18,6 +18,8 @@
 #define INCLUDE_PERFETTO_EXT_BASE_HTTP_HTTP_SERVER_H_
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <list>
 #include <memory>
@@ -29,8 +31,7 @@
 #include "perfetto/ext/base/string_view.h"
 #include "perfetto/ext/base/unix_socket.h"
 
-namespace perfetto {
-namespace base {
+namespace perfetto::base {
 
 class HttpServerConnection;
 
@@ -158,7 +159,7 @@ class HttpServer : public UnixSocket::EventListener {
  public:
   HttpServer(TaskRunner*, HttpRequestHandler*);
   ~HttpServer() override;
-  void Start(int port);
+  void Start(const std::string& listen_ip, int port);
   void AddAllowedOrigin(const std::string&);
 
  private:
@@ -166,6 +167,9 @@ class HttpServer : public UnixSocket::EventListener {
   size_t ParseOneWebsocketFrame(HttpServerConnection*);
   void HandleCorsPreflightRequest(const HttpRequest&);
   bool IsOriginAllowed(StringView);
+
+  void ListenOnIpV4(const std::string& ip_addr);
+  void ListenOnIpV6(const std::string& ip_addr);
 
   // UnixSocket::EventListener implementation.
   void OnNewIncomingConnection(UnixSocket*,
@@ -183,7 +187,6 @@ class HttpServer : public UnixSocket::EventListener {
   bool origin_error_logged_ = false;
 };
 
-}  // namespace base
-}  // namespace perfetto
+}  // namespace perfetto::base
 
 #endif  // INCLUDE_PERFETTO_EXT_BASE_HTTP_HTTP_SERVER_H_

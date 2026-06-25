@@ -31,12 +31,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_MAC_FONT_PLATFORM_DATA_MAC_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_MAC_FONT_PLATFORM_DATA_MAC_H_
 
+#include <CoreText/CoreText.h>
+
 #include "third_party/blink/renderer/platform/fonts/font_optical_sizing.h"
 #include "third_party/blink/renderer/platform/fonts/resolved_font_features.h"
 #include "third_party/blink/renderer/platform/fonts/text_rendering_mode.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-
-#include <memory>
 
 @class NSFont;
 class SkTypeface;
@@ -44,7 +44,7 @@ typedef uint32_t SkFourByteTag;
 
 namespace blink {
 
-enum class FontOrientation;
+enum class FontOrientation : uint8_t;
 class FontPlatformData;
 class FontVariationSettings;
 
@@ -55,12 +55,12 @@ bool PLATFORM_EXPORT VariableAxisChangeEffective(SkTypeface* typeface,
                                                  SkFourByteTag axis,
                                                  float new_value);
 
-// Creates a FontPlatform object for specified original NSFont and font
-// parameters.  size is scaled size, specified size is passed in to control
+// Creates a FontPlatform object for specified original CTFont and font
+// parameters. `size` is scaled size, `specified_size` is passed in to control
 // optical sizing and tracking, needed in particular for the San Francisco
 // system font.
-std::unique_ptr<FontPlatformData> FontPlatformDataFromNSFont(
-    NSFont*,
+const FontPlatformData* FontPlatformDataFromCTFont(
+    CTFontRef,
     float size,
     float specified_size,
     bool synthetic_bold,
@@ -69,7 +69,7 @@ std::unique_ptr<FontPlatformData> FontPlatformDataFromNSFont(
     ResolvedFontFeatures resolved_font_features,
     FontOrientation,
     OpticalSizing,
-    FontVariationSettings*);
+    const FontVariationSettings*);
 
 }  // namespace blink
 

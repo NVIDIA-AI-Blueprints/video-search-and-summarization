@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_ADAPTERS_ICE_TRANSPORT_PROXY_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_ADAPTERS_ICE_TRANSPORT_PROXY_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
@@ -14,10 +15,6 @@
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/webrtc/p2p/base/p2p_transport_channel.h"
-
-namespace rtc {
-class Thread;
-}
 
 namespace blink {
 
@@ -49,12 +46,11 @@ class IceTransportProxy final {
    public:
     virtual ~Delegate() = default;
 
-    virtual void OnGatheringStateChanged(cricket::IceGatheringState new_state) {
-    }
-    virtual void OnCandidateGathered(const cricket::Candidate& candidate) {}
+    virtual void OnGatheringStateChanged(webrtc::IceGatheringState new_state) {}
+    virtual void OnCandidateGathered(const webrtc::Candidate& candidate) {}
     virtual void OnStateChanged(webrtc::IceTransportState new_state) {}
     virtual void OnSelectedCandidatePairChanged(
-        const std::pair<cricket::Candidate, cricket::Candidate>&
+        const std::pair<webrtc::Candidate, webrtc::Candidate>&
             selected_candidate_pair) {}
   };
 
@@ -76,11 +72,11 @@ class IceTransportProxy final {
  private:
   // Callbacks from RTCIceTransportHost.
   friend class IceTransportHost;
-  void OnGatheringStateChanged(cricket::IceGatheringState new_state);
-  void OnCandidateGathered(const cricket::Candidate& candidate);
+  void OnGatheringStateChanged(webrtc::IceGatheringState new_state);
+  void OnCandidateGathered(const webrtc::Candidate& candidate);
   void OnStateChanged(webrtc::IceTransportState new_state);
   void OnSelectedCandidatePairChanged(
-      const std::pair<cricket::Candidate, cricket::Candidate>&
+      const std::pair<webrtc::Candidate, webrtc::Candidate>&
           selected_candidate_pair);
 
   const scoped_refptr<base::SingleThreadTaskRunner> proxy_thread_;
@@ -88,7 +84,7 @@ class IceTransportProxy final {
   // Since the Host is deleted on the host thread (via OnTaskRunnerDeleter), as
   // long as this is alive it is safe to post tasks to it (using unretained).
   std::unique_ptr<IceTransportHost, base::OnTaskRunnerDeleter> host_;
-  Delegate* const delegate_;
+  const raw_ptr<Delegate> delegate_;
 
   // This handle notifies scheduler about an active connection associated
   // with a frame. Handle should be destroyed when connection is closed.

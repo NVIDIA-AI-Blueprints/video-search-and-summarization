@@ -37,8 +37,17 @@ class CORE_EXPORT HTMLStyleElement final : public HTMLElement,
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  HTMLStyleElement(Document&, const CreateElementFlags);
+  explicit HTMLStyleElement(Document&,
+                            const CreateElementFlags = CreateElementFlags());
   ~HTMLStyleElement() override;
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLStyleElement;
+  }
+
+  // TODO(crbug.com/448174611): Remove this and make IsModule private once we
+  // can test Declarative CSS Modules with WPT's.
+  using StyleElement::IsModule;
 
   using StyleElement::sheet;
 

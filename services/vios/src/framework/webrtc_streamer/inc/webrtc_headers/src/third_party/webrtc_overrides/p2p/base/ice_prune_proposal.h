@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "third_party/webrtc/api/array_view.h"
+#include "base/containers/span.h"
 #include "third_party/webrtc/p2p/base/connection.h"
 #include "third_party/webrtc/rtc_base/system/rtc_export.h"
 #include "third_party/webrtc_overrides/p2p/base/ice_connection.h"
@@ -20,9 +20,8 @@ namespace blink {
 // A proposal to discard some ICE connections.
 class RTC_EXPORT IcePruneProposal : public IceProposal {
  public:
-  IcePruneProposal(
-      const rtc::ArrayView<const cricket::Connection*> connections_to_prune,
-      bool reply_expected);
+  IcePruneProposal(base::span<const webrtc::Connection*> connections_to_prune,
+                   bool reply_expected);
 
   IcePruneProposal(const IcePruneProposal&) = default;
 
@@ -30,7 +29,7 @@ class RTC_EXPORT IcePruneProposal : public IceProposal {
 
   // The ICE connections that will be discarded. Once pruned, these are no
   // longer viable candidates for a STUN ping or to switch the transport to.
-  const rtc::ArrayView<const IceConnection> connections_to_prune() const {
+  base::span<const IceConnection> connections_to_prune() const {
     return connections_to_prune_;
   }
 

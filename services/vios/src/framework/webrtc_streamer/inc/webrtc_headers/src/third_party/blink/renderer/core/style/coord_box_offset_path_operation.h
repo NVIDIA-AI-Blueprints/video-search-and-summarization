@@ -11,19 +11,14 @@ namespace blink {
 
 class CoordBoxOffsetPathOperation final : public OffsetPathOperation {
  public:
-  static scoped_refptr<CoordBoxOffsetPathOperation> Create(CoordBox coord_box) {
-    return base::AdoptRef(new CoordBoxOffsetPathOperation(coord_box));
-  }
+  explicit CoordBoxOffsetPathOperation(CoordBox coord_box)
+      : OffsetPathOperation(coord_box) {}
 
   bool IsEqualAssumingSameType(const OffsetPathOperation& o) const override {
     return true;
   }
 
   OperationType GetType() const override { return kCoordBox; }
-
- private:
-  explicit CoordBoxOffsetPathOperation(CoordBox coord_box)
-      : OffsetPathOperation(coord_box) {}
 };
 
 template <>
@@ -35,4 +30,4 @@ struct DowncastTraits<CoordBoxOffsetPathOperation> {
 
 }  // namespace blink
 
-#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_COORD_BOX_SHAPE_OFFSET_PATH_OPERATION_H_
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_COORD_BOX_OFFSET_PATH_OPERATION_H_

@@ -138,7 +138,6 @@ void BF(dav1d_ipred_z2_fill3, neon)(pixel *dst, ptrdiff_t stride,
                                     const int width, const int height,
                                     const int dx, const int dy);
 
-#if BITDEPTH == 8
 static void ipred_z2_neon(pixel *dst, const ptrdiff_t stride,
                           const pixel *const topleft_in,
                           const int width, const int height, int angle,
@@ -156,11 +155,11 @@ static void ipred_z2_neon(pixel *dst, const ptrdiff_t stride,
     const int upsample_above = enable_intra_edge_filter ?
         get_upsample(width + height, angle - 90, is_sm) : 0;
     pixel buf[3*(64+1)];
-    pixel *left = &buf[0*(64+1)];
-    // The asm can underread below the start of top[]; to avoid surprising
-    // behaviour, make sure this is within the allocated stack space.
+    pixel *left = &buf[2*(64+1)];
+    // The asm can underread below the start of top[] and left[]; to avoid
+    // surprising behaviour, make sure this is within the allocated stack space.
     pixel *top = &buf[1*(64+1)];
-    pixel *flipped = &buf[2*(64+1)];
+    pixel *flipped = &buf[0*(64+1)];
 
     if (upsample_above) {
         BF(dav1d_ipred_z2_upsample_edge, neon)(top, width, topleft_in
@@ -221,7 +220,6 @@ static void ipred_z2_neon(pixel *dst, const ptrdiff_t stride,
                                        dx, dy);
     }
 }
-#endif
 
 void BF(dav1d_ipred_z3_fill1, neon)(pixel *dst, ptrdiff_t stride,
                                     const pixel *const left, const int width,
@@ -310,9 +308,7 @@ static ALWAYS_INLINE void intra_pred_dsp_init_arm(Dav1dIntraPredDSPContext *cons
     c->intra_pred[SMOOTH_H_PRED] = BF(dav1d_ipred_smooth_h, neon);
 #if ARCH_AARCH64
     c->intra_pred[Z1_PRED]       = ipred_z1_neon;
-#if BITDEPTH == 8
     c->intra_pred[Z2_PRED]       = ipred_z2_neon;
-#endif
     c->intra_pred[Z3_PRED]       = ipred_z3_neon;
 #endif
     c->intra_pred[FILTER_PRED]   = BF(dav1d_ipred_filter, neon);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -94,8 +94,8 @@ SIMD_INLINE void v64_store_unaligned(void *p, v64 a) {
 #define v64_align(a, b, c) \
   ((c) ? _mm_srli_si128(_mm_unpacklo_epi64(b, a), (c)) : b)
 #else
-#define v64_align(a, b, c)                                                  \
-  ((c) ? v64_from_64((v64_u64(b) >> (c)*8) | (v64_u64(a) << (8 - (c)) * 8)) \
+#define v64_align(a, b, c)                                                    \
+  ((c) ? v64_from_64((v64_u64(b) >> (c) * 8) | (v64_u64(a) << (8 - (c)) * 8)) \
        : (b))
 #endif
 

@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_element_text.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_linked_hash_set.h"
 
 namespace blink {
 
@@ -46,6 +47,10 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
 
  public:
   HTMLSlotElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLSlotElement;
+  }
 
   const HeapVector<Member<Node>>& AssignedNodes() const;
   const HeapVector<Member<Node>> AssignedNodesForBinding(
@@ -79,7 +84,7 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
       DetachDisplayLockedAssignedNodesLayoutTreeIfNeeded();
   }
 
-  void AttachLayoutTree(AttachContext&) final;
+  void AttachLayoutTreeForSlotChildren(AttachContext&);
   void DetachLayoutTree(bool performing_reattach) final;
   void RebuildDistributedChildrenLayoutTrees(WhitespaceAttacher&);
 
@@ -96,6 +101,11 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
   // recalc. Used by FlatTreeParentForChildDirty() which needs to avoid doing
   // slot assignments while marking the tree style-dirty.
   bool HasAssignedNodesNoRecalc() const { return !assigned_nodes_.empty(); }
+
+  // Returns true if FlattenedAssignedNodes() would be non-empty, without
+  // doing assignment recalc. Used for :has-slotted matching during style
+  // resolution.
+  bool HasFlattenedAssignedNodesNoRecalc() const;
 
   bool SupportsAssignment() const { return IsInShadowTree(); }
 
@@ -122,11 +132,15 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
   void assign(HeapVector<Member<V8UnionElementOrText>>& nodes, ExceptionState&);
   // assign() c++ implementation.
   void Assign(const HeapVector<Member<Node>>& nodes);
+  void Assign(Node* node);
 
   const HeapLinkedHashSet<WeakMember<Node>>& ManuallyAssignedNodes() const {
     return manually_assigned_nodes_;
   }
   void RemoveManuallyAssignedNode(Node&);
+
+  // Override in order to defer this work when needed.
+  bool CalculateAndAdjustAutoDirectionality() final;
 
   void Trace(Visitor*) const override;
 
@@ -157,6 +171,8 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
   void UpdateFlatTreeNodeDataForAssignedNodes();
   void ClearAssignedNodesAndFlatTreeChildren();
   void DetachDisplayLockedAssignedNodesLayoutTreeIfNeeded();
+
+  void UpdateDirAutoAncestorsForSupportsAssignmentChange();
 
   HeapVector<Member<Node>> assigned_nodes_;
   HeapVector<Member<Node>> flat_tree_children_;

@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_LIST_STYLE_TYPE_DATA_H_
 
 #include "base/check_op.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
@@ -20,7 +21,7 @@ class TreeScope;
 class ListStyleTypeData final : public GarbageCollected<ListStyleTypeData> {
  public:
   ~ListStyleTypeData() = default;
-  void Trace(Visitor*) const;
+  CORE_EXPORT void Trace(Visitor*) const;
 
   enum class Type { kCounterStyle, kString };
 
@@ -40,9 +41,6 @@ class ListStyleTypeData final : public GarbageCollected<ListStyleTypeData> {
            name_or_string_value_ == other.name_or_string_value_ &&
            tree_scope_ == other.tree_scope_;
   }
-  bool operator!=(const ListStyleTypeData& other) const {
-    return !operator==(other);
-  }
 
   bool IsCounterStyle() const { return type_ == Type::kCounterStyle; }
   bool IsString() const { return type_ == Type::kString; }
@@ -57,7 +55,7 @@ class ListStyleTypeData final : public GarbageCollected<ListStyleTypeData> {
     return name_or_string_value_;
   }
 
-  const TreeScope* GetTreeScope() const { return tree_scope_; }
+  const TreeScope* GetTreeScope() const { return tree_scope_.Get(); }
 
   // TODO(crbug.com/687225): Try not to pass a Document, which is cumbersome.
   bool IsCounterStyleReferenceValid(Document&) const;

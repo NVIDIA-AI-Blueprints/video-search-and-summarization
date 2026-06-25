@@ -30,7 +30,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_AUDIO_BIQUAD_H_
 
 #include <sys/types.h>
+
 #include <complex>
+
+#include "base/containers/span.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/audio/audio_array.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
@@ -44,15 +47,11 @@ namespace blink {
 //    lowpass, highpass, shelving, parameteric, notch, allpass, ...
 
 class PLATFORM_EXPORT Biquad final {
-  DISALLOW_NEW();
-
  public:
   explicit Biquad(unsigned render_quantum_frames);
   ~Biquad();
 
-  void Process(const float* source_p,
-               float* dest_p,
-               uint32_t frames_to_process);
+  void Process(base::span<const float> source, base::span<float> dest);
 
   bool HasSampleAccurateValues() const { return has_sample_accurate_values_; }
   void SetHasSampleAccurateValues(bool is_sample_accurate) {
@@ -78,15 +77,14 @@ class PLATFORM_EXPORT Biquad final {
   // impulse response of the filter falls below a threshold value.
   // The maximum allowed frame value is given by |max_frame|.  This
   // limits how much work is done in computing the frame numer.
-  double TailFrame(int coef_index, double max_frame);
+  double TailFrame(int coef_index, double max_frame) const;
 
   // Filter response at a set of n frequencies. The magnitude and
   // phase response are returned in magResponse and phaseResponse.
   // The phase response is in radians.
-  void GetFrequencyResponse(int n_frequencies,
-                            const float* frequency,
-                            float* mag_response,
-                            float* phase_response);
+  void GetFrequencyResponse(base::span<const float> frequency,
+                            base::span<float> mag_response,
+                            base::span<float> phase_response) const;
 
  private:
   void SetNormalizedCoefficients(int,
@@ -111,12 +109,10 @@ class PLATFORM_EXPORT Biquad final {
   AudioDoubleArray a2_;
 
 #if BUILDFLAG(IS_MAC)
-  void ProcessFast(const float* source_p,
-                   float* dest_p,
-                   uint32_t frames_to_process);
-  void ProcessSliceFast(double* source_p,
-                        double* dest_p,
-                        double* coefficients_p,
+  void ProcessFast(base::span<const float> source, base::span<float> dest);
+  void ProcessSliceFast(base::span<double> source,
+                        base::span<double> dest,
+                        base::span<const double, 5> coefficients,
                         uint32_t frames_to_process);
 
   AudioDoubleArray input_buffer_;

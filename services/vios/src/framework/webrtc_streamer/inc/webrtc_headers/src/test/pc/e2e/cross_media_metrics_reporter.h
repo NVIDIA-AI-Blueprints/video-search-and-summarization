@@ -15,13 +15,15 @@
 #include <string>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/numerics/samples_stats_counter.h"
+#include "api/scoped_refptr.h"
+#include "api/stats/rtc_stats_report.h"
 #include "api/test/metrics/metrics_logger.h"
 #include "api/test/peerconnection_quality_test_fixture.h"
 #include "api/test/track_id_stream_info_map.h"
-#include "api/units/timestamp.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/thread_annotations.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 namespace webrtc_pc_e2e {
@@ -29,14 +31,14 @@ namespace webrtc_pc_e2e {
 class CrossMediaMetricsReporter
     : public PeerConnectionE2EQualityTestFixture::QualityMetricsReporter {
  public:
-  explicit CrossMediaMetricsReporter(test::MetricsLogger* metrics_logger);
+  CrossMediaMetricsReporter(Clock& clock, test::MetricsLogger* metrics_logger);
   ~CrossMediaMetricsReporter() override = default;
 
   void Start(absl::string_view test_case_name,
              const TrackIdStreamInfoMap* reporter_helper) override;
   void OnStatsReports(
       absl::string_view pc_label,
-      const rtc::scoped_refptr<const RTCStatsReport>& report) override;
+      const scoped_refptr<const RTCStatsReport>& report) override;
   void StopAndReportResults() override;
 
  private:
@@ -53,6 +55,7 @@ class CrossMediaMetricsReporter
   std::string GetTestCaseName(const std::string& stream_label,
                               const std::string& sync_group) const;
 
+  Clock& clock_;
   test::MetricsLogger* const metrics_logger_;
 
   std::string test_case_name_;

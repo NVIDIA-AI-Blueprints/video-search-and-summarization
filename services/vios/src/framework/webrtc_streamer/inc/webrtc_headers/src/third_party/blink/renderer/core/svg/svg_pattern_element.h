@@ -21,7 +21,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SVG_SVG_PATTERN_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SVG_SVG_PATTERN_ELEMENT_H_
 
-#include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/svg/svg_animated_enumeration.h"
 #include "third_party/blink/renderer/core/svg/svg_element.h"
 #include "third_party/blink/renderer/core/svg/svg_fit_to_view_box.h"
@@ -44,6 +43,9 @@ class SVGPatternElement final : public SVGElement,
 
  public:
   explicit SVGPatternElement(Document&);
+  ElementType GetElementType() const final {
+    return ElementType::kSVGPatternElement;
+  }
 
   AffineTransform LocalCoordinateSpaceTransform(CTMScope) const override;
 
@@ -71,7 +73,7 @@ class SVGPatternElement final : public SVGElement,
       const {
     return pattern_content_units_.Get();
   }
-  void InvalidatePattern(LayoutInvalidationReasonForTracing);
+  void InvalidatePattern();
   void InvalidateDependentPatterns();
 
   PatternAttributes CollectPatternAttributes() const;
@@ -81,11 +83,6 @@ class SVGPatternElement final : public SVGElement,
 
  private:
   bool IsValid() const override { return SVGTests::IsValid(); }
-
-  void CollectStyleForPresentationAttribute(
-      const QualifiedName&,
-      const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
 
   void SvgAttributeChanged(const SvgAttributeChangedParams&) override;
   InsertionNotificationRequest InsertedInto(ContainerNode&) final;
@@ -103,7 +100,7 @@ class SVGPatternElement final : public SVGElement,
       const QualifiedName& attribute_name) const override;
   void SynchronizeAllSVGAttributes() const override;
   void CollectExtraStyleForPresentationAttribute(
-      MutableCSSPropertyValueSet* style) override;
+      HeapVector<CSSPropertyValue, 8>& style) override;
 
   Member<SVGAnimatedLength> x_;
   Member<SVGAnimatedLength> y_;

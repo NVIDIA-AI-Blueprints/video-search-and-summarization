@@ -13,8 +13,8 @@
 
 #include <functional>
 #include <memory>
-#include <string>
 
+#include "absl/base/macros.h"
 #include "api/jsep.h"
 #include "p2p/base/transport_info.h"
 #include "pc/session_description.h"
@@ -23,8 +23,12 @@
 namespace webrtc {
 
 // Returns a copy of the given session description.
-RTC_EXPORT std::unique_ptr<SessionDescriptionInterface> CloneSessionDescription(
-    const SessionDescriptionInterface* sdesc);
+// Deprecated in favor of SessionDescriptionInterface::Clone()
+ABSL_DEPRECATE_AND_INLINE()
+inline std::unique_ptr<SessionDescriptionInterface> CloneSessionDescription(
+    const SessionDescriptionInterface* sdesc) {
+  return sdesc->Clone();
+}
 
 // Returns a copy of the given session description with the type changed.
 RTC_EXPORT std::unique_ptr<SessionDescriptionInterface>
@@ -33,29 +37,26 @@ CloneSessionDescriptionAsType(const SessionDescriptionInterface* sdesc,
 
 // Function that takes a single session description content with its
 // corresponding transport and produces a boolean.
-typedef std::function<bool(const cricket::ContentInfo*,
-                           const cricket::TransportInfo*)>
+typedef std::function<bool(const webrtc::ContentInfo*,
+                           const webrtc::TransportInfo*)>
     SdpContentPredicate;
 
 // Returns true if the predicate returns true for all contents in the given
 // session description.
-bool SdpContentsAll(SdpContentPredicate pred,
-                    const cricket::SessionDescription* desc);
+bool SdpContentsAll(SdpContentPredicate pred, const SessionDescription* desc);
 
 // Returns true if the predicate returns true for none of the contents in the
 // given session description.
-bool SdpContentsNone(SdpContentPredicate pred,
-                     const cricket::SessionDescription* desc);
+bool SdpContentsNone(SdpContentPredicate pred, const SessionDescription* desc);
 
 // Function that takes a single session description content with its
 // corresponding transport and can mutate the content and/or the transport.
-typedef std::function<void(cricket::ContentInfo*, cricket::TransportInfo*)>
+typedef std::function<void(webrtc::ContentInfo*, webrtc::TransportInfo*)>
     SdpContentMutator;
 
 // Applies the mutator function over all contents in the given session
 // description.
-void SdpContentsForEach(SdpContentMutator fn,
-                        cricket::SessionDescription* desc);
+void SdpContentsForEach(SdpContentMutator fn, SessionDescription* desc);
 
 }  // namespace webrtc
 

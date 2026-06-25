@@ -23,11 +23,12 @@
 
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
+
 class KeyboardEvent;
+enum class WritingMode : uint8_t;
 
 class CORE_EXPORT EditingBehavior {
   STACK_ALLOCATED();
@@ -45,8 +46,7 @@ class CORE_EXPORT EditingBehavior {
   bool ShouldMoveCaretToHorizontalBoundaryWhenPastTopOrBottom() const {
     return type_ != mojom::blink::EditingBehavior::kEditingWindowsBehavior &&
            type_ != mojom::blink::EditingBehavior::kEditingAndroidBehavior &&
-           !(type_ == mojom::blink::EditingBehavior::kEditingChromeOSBehavior &&
-             RuntimeEnabledFeatures::TouchTextEditingRedesignEnabled());
+           type_ != mojom::blink::EditingBehavior::kEditingChromeOSBehavior;
   }
 
   bool ShouldSelectReplacement() const {
@@ -123,8 +123,7 @@ class CORE_EXPORT EditingBehavior {
   // On ChromeOS, tapping the caret should toggle showing/hiding the touch
   // selection quick menu.
   bool ShouldToggleMenuWhenCaretTapped() const {
-    return type_ == mojom::blink::EditingBehavior::kEditingChromeOSBehavior &&
-           RuntimeEnabledFeatures::TouchTextEditingRedesignEnabled();
+    return type_ == mojom::blink::EditingBehavior::kEditingChromeOSBehavior;
   }
 
   // Support for global selections, used on platforms like the X Window
@@ -136,7 +135,8 @@ class CORE_EXPORT EditingBehavior {
 
   // Convert a KeyboardEvent to a command name like "Copy", "Undo" and so on.
   // If nothing, return empty string.
-  const char* InterpretKeyEvent(const KeyboardEvent&) const;
+  const char* InterpretKeyEvent(const KeyboardEvent&,
+                                WritingMode writing_mode) const;
 
   bool ShouldInsertCharacter(const KeyboardEvent&) const;
 

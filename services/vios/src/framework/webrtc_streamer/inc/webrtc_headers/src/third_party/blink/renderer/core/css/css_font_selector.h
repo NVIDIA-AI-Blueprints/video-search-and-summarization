@@ -47,10 +47,8 @@ class CORE_EXPORT CSSFontSelector : public CSSFontSelectorBase {
   explicit CSSFontSelector(const TreeScope&);
   ~CSSFontSelector() override;
 
-  unsigned Version() const override { return font_face_cache_->Version(); }
-
-  scoped_refptr<FontData> GetFontData(const FontDescription&,
-                                      const FontFamily&) override;
+  const FontData* GetFontData(const FontDescription&,
+                              const FontFamily&) override;
 
   void FontFaceInvalidated(FontInvalidationReason) override;
 
@@ -63,14 +61,14 @@ class CORE_EXPORT CSSFontSelector : public CSSFontSelectorBase {
   ExecutionContext* GetExecutionContext() const override {
     return tree_scope_ ? GetDocument().GetExecutionContext() : nullptr;
   }
-  FontFaceCache* GetFontFaceCache() override { return font_face_cache_; }
+  FontFaceCache* GetFontFaceCache() override { return font_face_cache_.Get(); }
 
   const GenericFontFamilySettings& GetGenericFontFamilySettings() const {
     return generic_font_family_settings_;
   }
   void UpdateGenericFontFamilySettings(Document&);
 
-  const TreeScope* GetTreeScope() const { return tree_scope_; }
+  const TreeScope* GetTreeScope() const { return tree_scope_.Get(); }
   Document& GetDocument() const {
     DCHECK(tree_scope_);
     return tree_scope_->GetDocument();
@@ -83,7 +81,6 @@ class CORE_EXPORT CSSFontSelector : public CSSFontSelectorBase {
 
   // `CSSFontSelectorBase` overrides
   bool IsAlive() const override;
-  FontMatchingMetrics* GetFontMatchingMetrics() const override;
   UseCounter* GetUseCounter() const override;
 
  private:

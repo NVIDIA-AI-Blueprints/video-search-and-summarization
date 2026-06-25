@@ -5,7 +5,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBSOCKETS_WEBSOCKET_STREAM_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBSOCKETS_WEBSOCKET_STREAM_H_
 
+#include <stdint.h>
+
+#include <optional>
+
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -22,12 +27,11 @@ namespace blink {
 
 class ExceptionState;
 class ExecutionContext;
-class ScriptPromise;
-class ScriptPromiseResolver;
 class ScriptState;
 class ScriptValue;
 class WebSocketChannel;
 class WebSocketCloseInfo;
+class WebSocketOpenInfo;
 class WebSocketStreamOptions;
 
 // Implements of JavaScript-exposed WebSocketStream API. See design doc at
@@ -59,8 +63,8 @@ class MODULES_EXPORT WebSocketStream final
 
   // IDL properties
   const KURL& url() const { return common_.Url(); }
-  ScriptPromise connection(ScriptState*) const;
-  ScriptPromise closed(ScriptState*) const;
+  ScriptPromise<WebSocketOpenInfo> opened(ScriptState*) const;
+  ScriptPromise<WebSocketCloseInfo> closed(ScriptState*) const;
 
   // IDL functions
   void close(WebSocketCloseInfo*, ExceptionState&);
@@ -69,7 +73,7 @@ class MODULES_EXPORT WebSocketStream final
   void DidConnect(const String& subprotocol, const String& extensions) override;
   void DidReceiveTextMessage(const String&) override;
   void DidReceiveBinaryMessage(
-      const Vector<base::span<const char>>& data) override;
+      const Vector<base::span<const uint8_t>>& data) override;
   void DidError() override;
   void DidConsumeBufferedAmount(uint64_t consumed) override;
   void DidStartClosingHandshake() override;
@@ -86,6 +90,7 @@ class MODULES_EXPORT WebSocketStream final
   void Trace(Visitor*) const override;
 
  private:
+  class SendCompletionWatcherImpl;
   class UnderlyingSource;
   class UnderlyingSink;
 
@@ -102,26 +107,25 @@ class MODULES_EXPORT WebSocketStream final
   // Closes the connection. If |maybe_reason| is an object with a valid "code"
   // property and optionally a valid "reason" property, will use them as the
   // code and reason, otherwise will close with unspecified close.
-  void CloseMaybeWithReason(ScriptValue maybe_reason);
+  void CloseMaybeWithReason(ScriptValue maybe_reason, ExceptionState&);
 
-  void CloseWithUnspecifiedCode();
-  void CloseInternal(int code,
+  void CloseWithUnspecifiedCode(ExceptionState&);
+  void CloseInternal(std::optional<uint16_t> code,
                      const String& reason,
                      ExceptionState& exception_state);
   void OnAbort();
 
-  v8::Local<v8::Value> CreateNetworkErrorDOMException();
-  static WebSocketCloseInfo* MakeCloseInfo(uint16_t code, const String& reason);
+  // Create a WebSocketError with the supplied arguments.
+  v8::Local<v8::Value> CreateWebSocketError(
+      String message,
+      std::optional<uint16_t> close_code = std::nullopt,
+      String reason = String());
+  static WebSocketCloseInfo* MakeCloseInfo(uint16_t close_code,
+                                           const String& reason);
 
   const Member<ScriptState> script_state_;
-  const Member<ScriptPromiseResolver> connection_resolver_;
-  const Member<ScriptPromiseResolver> closed_resolver_;
-
-  // These need to be cached because the Promise() method on
-  // ScriptPromiseResolver doesn't work any more once the promise is resolved or
-  // rejected.
-  const TraceWrapperV8Reference<v8::Promise> connection_;
-  const TraceWrapperV8Reference<v8::Promise> closed_;
+  const Member<ScriptPromiseProperty<WebSocketOpenInfo, IDLAny>> opened_;
+  const Member<ScriptPromiseProperty<WebSocketCloseInfo, IDLAny>> closed_;
 
   Member<WebSocketChannel> channel_;
 
@@ -133,7 +137,7 @@ class MODULES_EXPORT WebSocketStream final
   WebSocketCommon common_;
 
   // We need to distinguish between "closing during handshake" and "closing
-  // after handshake" in order to reject the |connection_resolver_| correctly.
+  // after handshake" in order to reject the |opened_resolver_| correctly.
   bool was_ever_connected_ = false;
 };
 

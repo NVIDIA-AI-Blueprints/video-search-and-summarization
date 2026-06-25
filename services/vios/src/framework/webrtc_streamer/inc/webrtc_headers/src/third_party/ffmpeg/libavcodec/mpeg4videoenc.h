@@ -25,19 +25,28 @@
 
 #include <stdint.h>
 
-#include "mpegvideo.h"
 #include "put_bits.h"
 
-void ff_mpeg4_encode_mb(MpegEncContext *s,
-                        int16_t block[6][64],
-                        int motion_x, int motion_y);
-void ff_set_mpeg4_time(MpegEncContext *s);
-int ff_mpeg4_encode_picture_header(MpegEncContext *s);
+enum {
+    MAX_PB2_INTRA_SIZE = 1 /* ac_pred */ + 5 /* max cbpy len */ +
+                         2 /* dquant */ + 1 /* interlaced dct */
+                         + 4 * (8 /* longest luma dct_dc_size */ +
+                                9 /* longest dc diff */ + 1 /* marker */)
+                         + 2 * (9 + 9 + 1),
+    MAX_PB2_INTER_SIZE = 5 /* max cbpy len */ +
+                         2 /* dquant */ + 1 /* interlaced_dct */ + 1,
+    MAX_PB2_MB_SIZE    = (FFMAX(MAX_PB2_INTER_SIZE, MAX_PB2_INTRA_SIZE) + 7) / 8,
+    MAX_AC_TEX_MB_SIZE = 64 * 6 * 30 /* longest escape code */ / 8,
+};
 
-void ff_mpeg4_encode_video_packet_header(MpegEncContext *s);
+typedef struct MPVEncContext MPVEncContext;
+
+void ff_set_mpeg4_time(MPVEncContext *s);
+
+void ff_mpeg4_encode_video_packet_header(MPVEncContext *s);
 void ff_mpeg4_stuffing(PutBitContext *pbc);
-void ff_mpeg4_init_partitions(MpegEncContext *s);
-void ff_mpeg4_merge_partitions(MpegEncContext *s);
-void ff_clean_mpeg4_qscales(MpegEncContext *s);
+void ff_mpeg4_init_partitions(MPVEncContext *s);
+void ff_mpeg4_merge_partitions(MPVEncContext *s);
+void ff_clean_mpeg4_qscales(MPVEncContext *s);
 
 #endif

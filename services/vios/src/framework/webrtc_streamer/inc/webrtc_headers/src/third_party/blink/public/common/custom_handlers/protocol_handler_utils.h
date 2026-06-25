@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_CUSTOM_HANDLERS_PROTOCOL_HANDLER_UTILS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_CUSTOM_HANDLERS_PROTOCOL_HANDLER_UTILS_H_
 
-#include "base/strings/string_piece_forward.h"
+#include <string_view>
+
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 
@@ -36,7 +37,7 @@ enum class URLSyntaxErrorCode {
 // starts with a prefix indicating a custom scheme i.e. an ASCII case
 // insensitive match to the string "web+" (or alternatively "ext+" if allowed).
 bool BLINK_COMMON_EXPORT
-IsValidCustomHandlerScheme(const base::StringPiece scheme,
+IsValidCustomHandlerScheme(std::string_view scheme,
                            ProtocolHandlerSecurityLevel security_level,
                            bool* has_custom_scheme_prefix = nullptr);
 
@@ -49,7 +50,11 @@ IsValidCustomHandlerScheme(const base::StringPiece scheme,
 // the spec states that it should throw a SyntaxError DOMException.
 URLSyntaxErrorCode BLINK_COMMON_EXPORT
 IsValidCustomHandlerURLSyntax(const GURL& full_url,
-                              const base::StringPiece& user_url);
+                              std::string_view user_url,
+                              ProtocolHandlerSecurityLevel security_level);
+URLSyntaxErrorCode BLINK_COMMON_EXPORT
+IsValidCustomHandlerURLSyntax(const GURL& full_url,
+                              ProtocolHandlerSecurityLevel security_level);
 
 // This function returns whether the specified URL is allowed as a protocol
 // handler parameter, as described in steps 6 and 7 (except same origin) of the

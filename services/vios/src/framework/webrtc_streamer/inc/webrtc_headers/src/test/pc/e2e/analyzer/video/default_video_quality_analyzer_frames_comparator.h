@@ -11,15 +11,22 @@
 #ifndef TEST_PC_E2E_ANALYZER_VIDEO_DEFAULT_VIDEO_QUALITY_ANALYZER_FRAMES_COMPARATOR_H_
 #define TEST_PC_E2E_ANALYZER_VIDEO_DEFAULT_VIDEO_QUALITY_ANALYZER_FRAMES_COMPARATOR_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <map>
+#include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
-#include "api/array_view.h"
+#include "api/numerics/samples_stats_counter.h"
+#include "api/units/timestamp.h"
+#include "api/video/video_frame.h"
 #include "rtc_base/event.h"
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/thread_annotations.h"
 #include "system_wrappers/include/clock.h"
 #include "test/pc/e2e/analyzer/video/default_video_quality_analyzer_cpu_measurer.h"
 #include "test/pc/e2e/analyzer/video/default_video_quality_analyzer_internal_shared_objects.h"
@@ -88,29 +95,28 @@ class DefaultVideoQualityAnalyzerFramesComparator {
   //     has to be created.
   // `start_time` - call start time.
   void RegisterParticipantInCall(
-      rtc::ArrayView<std::pair<InternalStatsKey, Timestamp>>
-          stream_started_time,
+      std::span<std::pair<InternalStatsKey, Timestamp>> stream_started_time,
       Timestamp start_time);
 
   // `captured` - video frame captured by sender to use for PSNR/SSIM
   //     computation. If `type` is `FrameComparisonType::kRegular` and
-  //     `captured` is `absl::nullopt` comparison is assumed to be overloaded
+  //     `captured` is `std::nullopt` comparison is assumed to be overloaded
   //     due to memory constraints.
   // `rendered` - video frame rendered by receiver to use for PSNR/SSIM
   //     computation. Required only if `type` is
   //     `FrameComparisonType::kRegular`, but can still be omitted if
-  //     `captured` is `absl::nullopt`.
+  //     `captured` is `std::nullopt`.
   void AddComparison(InternalStatsKey stats_key,
-                     absl::optional<VideoFrame> captured,
-                     absl::optional<VideoFrame> rendered,
+                     std::optional<VideoFrame> captured,
+                     std::optional<VideoFrame> rendered,
                      FrameComparisonType type,
                      FrameStats frame_stats);
   // `skipped_between_rendered` - amount of frames dropped on this stream before
   //     last received frame and current frame.
   void AddComparison(InternalStatsKey stats_key,
                      int skipped_between_rendered,
-                     absl::optional<VideoFrame> captured,
-                     absl::optional<VideoFrame> rendered,
+                     std::optional<VideoFrame> captured,
+                     std::optional<VideoFrame> rendered,
                      FrameComparisonType type,
                      FrameStats frame_stats);
 
@@ -127,8 +133,8 @@ class DefaultVideoQualityAnalyzerFramesComparator {
   enum State { kNew, kActive, kStopped };
 
   void AddComparisonInternal(InternalStatsKey stats_key,
-                             absl::optional<VideoFrame> captured,
-                             absl::optional<VideoFrame> rendered,
+                             std::optional<VideoFrame> captured,
+                             std::optional<VideoFrame> rendered,
                              FrameComparisonType type,
                              FrameStats frame_stats)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
@@ -148,8 +154,8 @@ class DefaultVideoQualityAnalyzerFramesComparator {
   std::deque<FrameComparison> comparisons_ RTC_GUARDED_BY(mutex_);
   FramesComparatorStats frames_comparator_stats_ RTC_GUARDED_BY(mutex_);
 
-  std::vector<rtc::PlatformThread> thread_pool_;
-  rtc::Event comparison_available_event_;
+  std::vector<PlatformThread> thread_pool_;
+  Event comparison_available_event_;
 };
 
 }  // namespace webrtc

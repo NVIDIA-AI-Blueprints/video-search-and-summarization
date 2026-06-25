@@ -11,14 +11,18 @@
 #ifndef LOGGING_RTC_EVENT_LOG_EVENTS_RTC_EVENT_AUDIO_NETWORK_ADAPTATION_H_
 #define LOGGING_RTC_EVENT_LOG_EVENTS_RTC_EVENT_AUDIO_NETWORK_ADAPTATION_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
 #include "api/rtc_event_log/rtc_event.h"
 #include "api/units/timestamp.h"
-#include "logging/rtc_event_log/events/rtc_event_field_encoding_parser.h"
+#include "logging/rtc_event_log/events/rtc_event_log_parse_status.h"
 #include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
 
 namespace webrtc {
@@ -44,7 +48,8 @@ class RtcEventAudioNetworkAdaptation final : public RtcEvent {
   static constexpr Type kType = Type::AudioNetworkAdaptation;
 
   explicit RtcEventAudioNetworkAdaptation(
-      std::unique_ptr<AudioEncoderRuntimeConfig> config);
+      const AudioEncoderRuntimeConfig& config);
+
   ~RtcEventAudioNetworkAdaptation() override;
 
   Type GetType() const override { return kType; }
@@ -52,25 +57,38 @@ class RtcEventAudioNetworkAdaptation final : public RtcEvent {
 
   std::unique_ptr<RtcEventAudioNetworkAdaptation> Copy() const;
 
-  const AudioEncoderRuntimeConfig& config() const { return *config_; }
+  const std::optional<int>& bitrate_bps() const { return bitrate_bps_; }
+  const std::optional<int>& frame_length_ms() const { return frame_length_ms_; }
+  const std::optional<float>& uplink_packet_loss_fraction() const {
+    return uplink_packet_loss_fraction_;
+  }
+  const std::optional<bool>& enable_fec() const { return enable_fec_; }
+  const std::optional<bool>& enable_dtx() const { return enable_dtx_; }
+  const std::optional<size_t>& num_channels() const { return num_channels_; }
 
-  static std::string Encode(rtc::ArrayView<const RtcEvent*> batch) {
+  static std::string Encode(std::span<const RtcEvent*> /* batch */) {
     // TODO(terelius): Implement
     return "";
   }
 
   static RtcEventLogParseStatus Parse(
-      absl::string_view encoded_bytes,
-      bool batched,
-      std::vector<LoggedAudioNetworkAdaptationEvent>& output) {
+      absl::string_view /* encoded_bytes */,
+      bool /* batched */,
+      std::vector<LoggedAudioNetworkAdaptationEvent>& /* output */) {
     // TODO(terelius): Implement
     return RtcEventLogParseStatus::Error("Not Implemented", __FILE__, __LINE__);
   }
 
  private:
-  RtcEventAudioNetworkAdaptation(const RtcEventAudioNetworkAdaptation& other);
+  RtcEventAudioNetworkAdaptation(const RtcEventAudioNetworkAdaptation&) =
+      default;
 
-  const std::unique_ptr<const AudioEncoderRuntimeConfig> config_;
+  std::optional<int> bitrate_bps_;
+  std::optional<int> frame_length_ms_;
+  std::optional<float> uplink_packet_loss_fraction_;
+  std::optional<bool> enable_fec_;
+  std::optional<bool> enable_dtx_;
+  std::optional<size_t> num_channels_;
 };
 
 }  // namespace webrtc

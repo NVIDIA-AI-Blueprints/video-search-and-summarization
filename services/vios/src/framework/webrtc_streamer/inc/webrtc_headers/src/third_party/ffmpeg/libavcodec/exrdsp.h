@@ -28,6 +28,7 @@ typedef struct ExrDSPContext {
 } ExrDSPContext;
 
 void ff_exrdsp_init(ExrDSPContext *c);
+void ff_exrdsp_init_riscv(ExrDSPContext *c);
 void ff_exrdsp_init_x86(ExrDSPContext *c);
 
 #endif /* AVCODEC_EXRDSP_H */

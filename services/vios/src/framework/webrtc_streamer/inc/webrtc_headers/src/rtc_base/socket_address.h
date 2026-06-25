@@ -11,12 +11,11 @@
 #ifndef RTC_BASE_SOCKET_ADDRESS_H_
 #define RTC_BASE_SOCKET_ADDRESS_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "absl/strings/string_view.h"
-#ifdef WEBRTC_UNIT_TEST
-#include <ostream>  // no-presubmit-check TODO(webrtc:8982)
-#endif              // WEBRTC_UNIT_TEST
 #include "rtc_base/ip_address.h"
 #include "rtc_base/system/rtc_export.h"
 
@@ -25,7 +24,7 @@
 struct sockaddr_in;
 struct sockaddr_storage;
 
-namespace rtc {
+namespace webrtc {
 
 // Records an IP address and port.
 class RTC_EXPORT SocketAddress {
@@ -133,13 +132,6 @@ class RTC_EXPORT SocketAddress {
   // Parses hostname:port and [hostname]:port.
   bool FromString(absl::string_view str);
 
-#ifdef WEBRTC_UNIT_TEST
-  inline std::ostream& operator<<(  // no-presubmit-check TODO(webrtc:8982)
-      std::ostream& os) {           // no-presubmit-check TODO(webrtc:8982)
-    return os << HostAsURIString() << ":" << port();
-  }
-#endif  // WEBRTC_UNIT_TEST
-
   // Determines whether this represents a missing / any IP address.
   // That is, 0.0.0.0 or ::.
   // Hostname and/or port may be set.
@@ -157,6 +149,9 @@ class RTC_EXPORT SocketAddress {
 
   // Determines whether the hostname has been resolved to an IP.
   bool IsUnresolvedIP() const;
+
+  // Returns the IP Address type as an enum.
+  IPAddressType GetIPAddressType() const;
 
   // Determines whether this address is identical to the given one.
   bool operator==(const SocketAddress& addr) const;
@@ -204,6 +199,7 @@ RTC_EXPORT bool SocketAddressFromSockAddrStorage(const sockaddr_storage& saddr,
                                                  SocketAddress* out);
 SocketAddress EmptySocketAddressWithFamily(int family);
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_SOCKET_ADDRESS_H_

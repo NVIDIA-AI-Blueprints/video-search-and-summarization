@@ -11,12 +11,10 @@
 #ifndef RTC_TOOLS_FRAME_ANALYZER_LINEAR_LEAST_SQUARES_H_
 #define RTC_TOOLS_FRAME_ANALYZER_LINEAR_LEAST_SQUARES_H_
 
-#include <stdint.h>
-
+#include <cstdint>
+#include <optional>
 #include <valarray>
 #include <vector>
-
-#include "absl/types/optional.h"
 
 namespace webrtc {
 namespace test {
@@ -45,9 +43,9 @@ class IncrementalLinearLeastSquares {
 
  private:
   // Running sum of x^T * x.
-  absl::optional<std::valarray<std::valarray<uint64_t>>> sum_xx;
+  std::optional<std::valarray<std::valarray<uint64_t>>> sum_xx;
   // Running sum of x^T * y.
-  absl::optional<std::valarray<std::valarray<uint64_t>>> sum_xy;
+  std::optional<std::valarray<std::valarray<uint64_t>>> sum_xy;
 };
 
 }  // namespace test

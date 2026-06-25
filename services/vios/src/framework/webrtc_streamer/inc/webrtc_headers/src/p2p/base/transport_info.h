@@ -14,12 +14,9 @@
 #include <string>
 #include <vector>
 
-#include "api/candidate.h"
-#include "p2p/base/p2p_constants.h"
 #include "p2p/base/transport_description.h"
-#include "rtc_base/helpers.h"
 
-namespace cricket {
+namespace webrtc {
 
 // A TransportInfo is NOT a transport-info message.  It is comparable
 // to a "ContentInfo". A transport-infos message is basically just a
@@ -37,6 +34,7 @@ struct TransportInfo {
 
 typedef std::vector<TransportInfo> TransportInfos;
 
-}  // namespace cricket
+}  //  namespace webrtc
+
 
 #endif  // P2P_BASE_TRANSPORT_INFO_H_

@@ -29,12 +29,12 @@
 #include "build/build_config.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_regexp.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/create_element_flags.h"
 #include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/html/forms/step_range.h"
 #include "third_party/blink/renderer/core/html/forms/text_control_element.h"
+#include "third_party/blink/renderer/platform/bindings/script_regexp.h"
 #include "third_party/blink/renderer/platform/theme_types.h"
 
 namespace blink {
@@ -44,6 +44,7 @@ class ComputedStyleBuilder;
 class DragData;
 class ExceptionState;
 class FileList;
+class OpaqueRange;
 class HTMLDataListElement;
 class HTMLImageLoader;
 class InputType;
@@ -51,7 +52,7 @@ class InputTypeView;
 class KURL;
 class ListAttributeTargetObserver;
 class RadioButtonGroupScope;
-class ScriptValue;
+class ScriptObject;
 struct DateTimeChooserParameters;
 
 class CORE_EXPORT HTMLInputElement
@@ -60,9 +61,14 @@ class CORE_EXPORT HTMLInputElement
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  HTMLInputElement(Document&, const CreateElementFlags);
+  explicit HTMLInputElement(Document&,
+                            const CreateElementFlags = CreateElementFlags());
   ~HTMLInputElement() override;
   void Trace(Visitor*) const override;
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLInputElement;
+  }
 
   bool HasPendingActivity() const final;
 
@@ -102,18 +108,27 @@ class CORE_EXPORT HTMLInputElement
   // stepUp()/stepDown() for user-interaction.
   bool IsSteppable() const;
 
+  // Returns true if the type is button, reset, submit, or image.
+  bool IsButton() const;
   // Returns true if the type is button, reset, or submit.
   bool IsTextButton() const;
   // Returns true if the type is email, number, password, search, tel, text,
   // or url.
   bool IsTextField() const;
+  // Returns true if type is text, search, url, tel, or password.
+  bool InputSupportsSelectionAPI() const;
+  bool IsTelephone() const;
+  // To override from TextControlElement
+  bool IsAutoDirectionalityFormAssociated() const final;
   // Do not add type check predicates for concrete input types; e.g.  isImage,
   // isRadio, isFile.  If you want to check the input type, you may use
-  // |input->type() == input_type_names::kImage|, etc.
+  // |input->FormControlType() == FormControlType::kInputImage|, etc.
 
-  // Returns whether this field is or has ever been a password field so that
-  // its value can be protected from memorization by autofill or keyboards.
+  // Returns whether this field is or has ever been a password field, or if
+  // autofill classified the field as password by predictions, so that its value
+  // can be protected from memorization by autofill or keyboards.
   bool HasBeenPasswordField() const;
+  void MaybeSetHasBeenPasswordField();
 
   bool IsCheckable() const;
   bool checkedForBinding() const { return Checked(); }
@@ -123,7 +138,6 @@ class CORE_EXPORT HTMLInputElement
       bool,
       TextFieldEventBehavior = TextFieldEventBehavior::kDispatchNoEvent,
       WebAutofillState = WebAutofillState::kNotFilled);
-  void DispatchChangeEventIfNeeded();
   void DispatchInputAndChangeEventIfNeeded();
 
   // 'indeterminate' is a state independent of the checked state that causes the
@@ -141,7 +155,7 @@ class CORE_EXPORT HTMLInputElement
   RadioButtonGroupScope* GetRadioButtonGroupScope() const;
 
   unsigned size() const;
-  bool SizeShouldIncludeDecoration(int& preferred_size) const;
+  bool GetSizeWithDecoration(int& preferred_size) const;
 
   void setType(const AtomicString&);
 
@@ -170,11 +184,12 @@ class CORE_EXPORT HTMLInputElement
   // Sets the suggested value and puts the element into
   // WebAutofillState::kPreviewed state if |value| is non-empty, or
   // WebAutofillState::kNotFilled otherwise.
+  // A null value indicates that the suggested value should be hidden.
   void SetSuggestedValue(const String& value) override;
 
-  ScriptValue valueAsDate(ScriptState* script_state) const;
+  ScriptObject valueAsDate(ScriptState* script_state) const;
   void setValueAsDate(ScriptState* script_state,
-                      const ScriptValue& value,
+                      const ScriptObject& value,
                       ExceptionState& exception_state);
 
   double valueAsNumber() const;
@@ -195,11 +210,11 @@ class CORE_EXPORT HTMLInputElement
   // delay the 'input' event with EventQueueScope.
   void SetValueFromRenderer(const String&);
 
-  absl::optional<uint32_t> selectionStartForBinding(ExceptionState&) const;
-  absl::optional<uint32_t> selectionEndForBinding(ExceptionState&) const;
+  std::optional<uint32_t> selectionStartForBinding(ExceptionState&) const;
+  std::optional<uint32_t> selectionEndForBinding(ExceptionState&) const;
   String selectionDirectionForBinding(ExceptionState&) const;
-  void setSelectionStartForBinding(absl::optional<uint32_t>, ExceptionState&);
-  void setSelectionEndForBinding(absl::optional<uint32_t>, ExceptionState&);
+  void setSelectionStartForBinding(std::optional<uint32_t>, ExceptionState&);
+  void setSelectionEndForBinding(std::optional<uint32_t>, ExceptionState&);
   void setSelectionDirectionForBinding(const String&, ExceptionState&);
   void setSelectionRangeForBinding(unsigned start,
                                    unsigned end,
@@ -266,12 +281,20 @@ class CORE_EXPORT HTMLInputElement
 
   bool WillRespondToMouseClickEvents() override;
 
-  HTMLElement* list() const;
+  // Returns the DataList element associated via the list attribute, if any.
+  // Resolves the reference target if necessary. This element may be inside a
+  // shadow root, and should not be returned to JavaScript.
   HTMLDataListElement* DataList() const;
+  // For JavaScript binding, return the DataList element without resolving the
+  // reference target, to avoid exposing shadow root content to JavaScript.
+  HTMLElement* listForBinding() const;
   bool HasValidDataListOptions() const;
   void ListAttributeTargetChanged();
   // Associated <datalist> options which match to the current INPUT value.
   HeapVector<Member<HTMLOptionElement>> FilteredDataListOptions() const;
+
+  // Returns the select element associated via the filter attribute, if any.
+  HTMLSelectElement* FilterTarget() const;
 
   // Functions for InputType classes.
   void SetNonAttributeValue(const String&);
@@ -311,7 +334,7 @@ class CORE_EXPORT HTMLInputElement
 
   bool MatchesReadOnlyPseudoClass() const final;
   bool MatchesReadWritePseudoClass() const final;
-  ControlPart AutoAppearance() const;
+  AppearanceValue AutoAppearance() const;
 
   void setRangeText(const String& replacement, ExceptionState&) final;
   void setRangeText(const String& replacement,
@@ -319,6 +342,10 @@ class CORE_EXPORT HTMLInputElement
                     unsigned end,
                     const V8SelectionMode& selection_mode,
                     ExceptionState&) final;
+
+  OpaqueRange* createValueRange(unsigned start_offset,
+                                unsigned end_offset,
+                                ExceptionState&) final;
 
   HTMLImageLoader* ImageLoader() const { return image_loader_.Get(); }
   HTMLImageLoader& EnsureImageLoader();
@@ -331,10 +358,7 @@ class CORE_EXPORT HTMLInputElement
   bool ShouldDrawCapsLockIndicator() const;
   void SetShouldRevealPassword(bool value);
   bool ShouldRevealPassword() const { return should_reveal_password_; }
-#if BUILDFLAG(IS_ANDROID)
-  bool IsLastInputElementInForm();
   void DispatchSimulatedEnter();
-#endif
   AXObject* PopupRootAXObject();
   void DidNotifySubtreeInsertionsToDocument() override;
 
@@ -354,26 +378,32 @@ class CORE_EXPORT HTMLInputElement
 
   LayoutBox* GetLayoutBoxForScrolling() const final;
 
-  void SetHasBeenPasswordField() { has_been_password_field_ = true; }
-
   bool IsDraggedSlider() const;
 
-  FormElementPiiType GetFormElementPiiType() const override {
-    return form_element_pii_type_;
-  }
+  mojom::blink::FormControlType FormControlType() const final;
 
-  void SetFormElementPiiType(
-      FormElementPiiType form_element_pii_type) override {
-    form_element_pii_type_ = form_element_pii_type;
-  }
-
+  bool SupportsReadOnly() const override;
   bool isMutable();
   void showPicker(ExceptionState&);
+  bool IsPickerVisible() const;
 
   ShadowRoot* EnsureShadowSubtree();
 
+  bool IsValidBuiltinCommand(HTMLElement& invoker,
+                             CommandEventType command) override;
+  bool HandleCommandInternal(HTMLElement& invoker,
+                             CommandEventType command) override;
+
+  void SetFocused(bool is_focused, mojom::blink::FocusType) override;
+  bool IsKeyboardFocusableSlow(UpdateBehavior update_behavior =
+                                   UpdateBehavior::kStyleAndLayout) const final;
+
+  bool IsBaseAppearanceCombobox() const;
+
  protected:
   void DefaultEventHandler(Event&) override;
+  bool IsInnerEditorValueEmpty() const final;
+  bool SupportsBaseAppearanceInternal(BaseAppearanceValue) const override;
 
  private:
   enum AutoCompleteSetting { kUninitialized, kOn, kOff };
@@ -386,12 +416,12 @@ class CORE_EXPORT HTMLInputElement
   bool HasActivationBehavior() const override;
 
   bool HasCustomFocusLogic() const final;
-  bool IsKeyboardFocusable() const final;
   bool MayTriggerVirtualKeyboard() const final;
   bool ShouldHaveFocusAppearance() const final;
   bool IsEnumeratable() const final;
   bool IsInteractiveContent() const final;
   bool IsLabelable() const final;
+  FocusgroupFlags NativeArrowKeyAxes() const final;
   bool MatchesDefaultPseudoClass() const override;
   bool IsTextControl() const final { return IsTextField(); }
   int scrollWidth() override;
@@ -399,7 +429,7 @@ class CORE_EXPORT HTMLInputElement
 
   bool CanTriggerImplicitSubmission() const final { return IsTextField(); }
 
-  const AtomicString& FormControlType() const final;
+  const AtomicString& FormControlTypeAsString() const override;
 
   bool ShouldSaveAndRestoreFormControlState() const final;
   FormControlState SaveFormControlState() const final;
@@ -409,15 +439,17 @@ class CORE_EXPORT HTMLInputElement
 
   void AccessKeyAction(SimulatedClickCreationScope creation_scope) final;
 
+  void DidRecalcStyle(const StyleRecalcChange) override;
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const final;
-  void CollectStyleForPresentationAttribute(const QualifiedName&,
-                                            const AtomicString&,
-                                            MutableCSSPropertyValueSet*) final;
+  void CollectStyleForPresentationAttribute(
+      const QualifiedName&,
+      const AtomicString&,
+      HeapVector<CSSPropertyValue, 8>&) final;
   void FinishParsingChildren() final;
   void ParserDidSetAttributes() final;
 
-  void CloneNonAttributePropertiesFrom(const Element&, CloneChildrenFlag) final;
+  void CloneNonAttributePropertiesFrom(const Element&, NodeCloningData&) final;
 
   void AttachLayoutTree(AttachContext&) final;
 
@@ -428,21 +460,19 @@ class CORE_EXPORT HTMLInputElement
 
   void ResetImpl() final;
 
-  EventDispatchHandlingState* PreDispatchEventHandler(Event&) final;
-  void PostDispatchEventHandler(Event&, EventDispatchHandlingState*) final;
+  EventDispatchHandlingState* LegacyPreActivationBehavior(Event&) final;
+  void RunActivationBehavior(Event&, EventDispatchHandlingState*) final;
 
   bool IsURLAttribute(const Attribute&) const final;
   bool HasLegalLinkAttribute(const QualifiedName&) const final;
-  const QualifiedName& SubResourceAttributeName() const final;
   bool IsInRange() const final;
   bool IsOutOfRange() const final;
 
   bool TooLong(const String&, NeedsToCheckDirtyFlag) const;
   bool TooShort(const String&, NeedsToCheckDirtyFlag) const;
 
-  TextControlInnerEditorElement* EnsureInnerEditorElement() const final;
-  void UpdatePlaceholderText() final;
-  bool IsEmptyValue() const final { return InnerEditorValue().empty(); }
+  void CreateInnerEditorElementIfNecessary() const final;
+  HTMLElement* UpdatePlaceholderText() final;
   void HandleBlurEvent() final;
   void DispatchFocusInEvent(const AtomicString& event_type,
                             Element* old_focused_element,
@@ -456,7 +486,9 @@ class CORE_EXPORT HTMLInputElement
   void DisabledAttributeChanged() final;
 
   void InitializeTypeInParsing();
-  void UpdateType();
+  void UpdateType(const AtomicString&);
+
+  void UpdateHasBeenPasswordField(const AtomicString& new_type_name);
 
   void SubtreeHasChanged() final;
 
@@ -468,6 +500,8 @@ class CORE_EXPORT HTMLInputElement
   void AdjustStyle(ComputedStyleBuilder&) override;
 
   void MaybeReportPiiMetrics();
+
+  void DidChangeIsCanvasOrInCanvasSubtree() final;
 
   AtomicString name_;
   // The value string in |value| value mode.
@@ -490,6 +524,7 @@ class CORE_EXPORT HTMLInputElement
   unsigned needs_to_update_view_value_ : 1;
   unsigned is_placeholder_visible_ : 1;
   unsigned has_been_password_field_ : 1;
+  unsigned scheduled_create_shadow_tree_ : 1;
   Member<InputType> input_type_;
   Member<InputTypeView> input_type_view_;
   // The ImageLoader must be owned by this element because the loader code
@@ -498,8 +533,6 @@ class CORE_EXPORT HTMLInputElement
   // element lives on.
   Member<HTMLImageLoader> image_loader_;
   Member<ListAttributeTargetObserver> list_attribute_target_observer_;
-
-  FormElementPiiType form_element_pii_type_ = FormElementPiiType::kUnknown;
 
   FRIEND_TEST_ALL_PREFIXES(HTMLInputElementTest, RadioKeyDownDCHECKFailure);
 };

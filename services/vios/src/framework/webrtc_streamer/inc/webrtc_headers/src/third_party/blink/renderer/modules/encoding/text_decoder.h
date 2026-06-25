@@ -32,6 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_ENCODING_TEXT_DECODER_H_
 
 #include <memory>
+#include <optional>
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_typedefs.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_text_decode_options.h"
@@ -53,26 +54,25 @@ class TextDecoder final : public ScriptWrappable {
                              const TextDecoderOptions*,
                              ExceptionState&);
 
-  TextDecoder(const WTF::TextEncoding&, bool fatal, bool ignore_bom);
+  TextDecoder(const TextEncoding&, bool fatal, bool ignore_bom);
   ~TextDecoder() override;
 
   // Implement the IDL
   String encoding() const;
   bool fatal() const { return fatal_; }
   bool ignoreBOM() const { return ignore_bom_; }
-  String decode(const V8BufferSource* input,
+  String decode(std::optional<base::span<const uint8_t>> input,
                 const TextDecodeOptions* options,
                 ExceptionState& exception_state);
   String decode(ExceptionState&);
 
  private:
-  String decode(const char* start,
-                uint32_t length,
+  String Decode(base::span<const uint8_t> input,
                 const TextDecodeOptions*,
                 ExceptionState&);
 
-  WTF::TextEncoding encoding_;
-  std::unique_ptr<WTF::TextCodec> codec_;
+  TextEncoding encoding_;
+  std::unique_ptr<TextCodec> codec_;
   bool do_not_flush_ = false;
   bool fatal_;
   bool ignore_bom_;

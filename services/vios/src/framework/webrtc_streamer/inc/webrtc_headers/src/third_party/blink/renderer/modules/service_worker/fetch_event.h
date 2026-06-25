@@ -47,8 +47,7 @@ class MODULES_EXPORT FetchEvent final
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  using PreloadResponseProperty =
-      ScriptPromiseProperty<Member<Response>, Member<DOMException>>;
+  using PreloadResponseProperty = ScriptPromiseProperty<IDLAny, DOMException>;
   static FetchEvent* Create(ScriptState*,
                             const AtomicString& type,
                             const FetchEventInit*);
@@ -66,9 +65,9 @@ class MODULES_EXPORT FetchEvent final
   String resultingClientId() const;
   bool isReload() const;
 
-  void respondWith(ScriptState*, ScriptPromise, ExceptionState&);
-  ScriptPromise preloadResponse(ScriptState*);
-  ScriptPromise handled(ScriptState*);
+  void respondWith(ScriptState*, ScriptPromise<Response>, ExceptionState&);
+  ScriptPromise<IDLAny> preloadResponse(ScriptState*);
+  ScriptPromise<IDLUndefined> handled(ScriptState*);
 
   void ResolveHandledPromise();
   void RejectHandledPromise(const String& error_message);
@@ -100,8 +99,7 @@ class MODULES_EXPORT FetchEvent final
   Member<PreloadResponseProperty> preload_response_property_;
   std::unique_ptr<WebURLResponse> preload_response_;
   Member<DataPipeBytesConsumer::CompletionNotifier> body_completion_notifier_;
-  Member<ScriptPromiseProperty<ToV8UndefinedGenerator, Member<DOMException>>>
-      handled_property_;
+  Member<ScriptPromiseProperty<IDLUndefined, DOMException>> handled_property_;
   String client_id_;
   String resulting_client_id_;
   bool is_reload_;

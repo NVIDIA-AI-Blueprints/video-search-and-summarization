@@ -86,7 +86,6 @@ typedef struct Jpeg2000DecoderContext {
     uint8_t         *packed_headers; // contains packed headers. Used only along with PPM marker
     int             packed_headers_size;
     GetByteContext  packed_headers_stream;
-    uint8_t         in_tile_headers;
 
     int             cdx[4], cdy[4];
     int             precision;
@@ -111,6 +110,13 @@ typedef struct Jpeg2000DecoderContext {
 
     Jpeg2000Tile    *tile;
     Jpeg2000DSPContext dsp;
+
+    uint8_t         isHT; // HTJ2K?
+    uint8_t         Ccap15_b14_15; // HTONLY(= 0) or HTDECLARED(= 1) or MIXED(= 3) ?
+    uint8_t         Ccap15_b12; // RGNFREE(= 0) or RGN(= 1)?
+    uint8_t         Ccap15_b11; // HOMOGENEOUS(= 0) or HETEROGENEOUS(= 1) ?
+    uint8_t         Ccap15_b05; // HTREV(= 0) or HTIRV(= 1) ?
+    uint8_t         HT_B; // The parameter B for MAGBp value (see Table 4 in the Rec. ITU-T T.814 | ISO/IEC 15444-15)
 
     /*options parameters*/
     int             reduction_factor;

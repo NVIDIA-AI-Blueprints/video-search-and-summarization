@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "base/memory/weak_ptr.h"
 #include "base/task/sequenced_task_runner.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
@@ -17,6 +16,7 @@
 #include "third_party/blink/renderer/modules/webcodecs/image_decoder_core.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
+#include "third_party/blink/renderer/platform/heap/weak_cell.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
 #include "third_party/blink/renderer/platform/loader/fetch/bytes_consumer.h"
 #include "third_party/blink/renderer/platform/wtf/sequence_bound.h"
@@ -31,7 +31,6 @@ class ImageDecoderInit;
 class ImageDecodeResult;
 class ImageTrackList;
 class ReadableStreamBytesConsumer;
-class ScriptPromiseResolver;
 
 class MODULES_EXPORT ImageDecoderExternal final
     : public ScriptWrappable,
@@ -48,15 +47,16 @@ class MODULES_EXPORT ImageDecoderExternal final
   ImageDecoderExternal(ScriptState*, const ImageDecoderInit*, ExceptionState&);
   ~ImageDecoderExternal() override;
 
-  static ScriptPromise isTypeSupported(ScriptState*, String type);
+  static ScriptPromise<IDLBoolean> isTypeSupported(ScriptState*, String type);
 
   // image_decoder.idl implementation.
-  ScriptPromise decode(const ImageDecodeOptions* options = nullptr);
+  ScriptPromise<ImageDecodeResult> decode(
+      const ImageDecodeOptions* options = nullptr);
   void reset(DOMException* exception = nullptr);
   void close();
   String type() const;
   bool complete() const;
-  ScriptPromise completed(ScriptState* script_state);
+  ScriptPromise<IDLUndefined> completed(ScriptState* script_state);
   ImageTrackList& tracks() const;
 
   // BytesConsumer::Client implementation.
@@ -97,7 +97,7 @@ class MODULES_EXPORT ImageDecoderExternal final
   String mime_type_;
 
   // Copy of |preferAnimation| from |init_data_|.
-  absl::optional<bool> prefer_animation_;
+  std::optional<bool> prefer_animation_;
 
   // Currently configured AnimationOption for |decoder_|.
   ImageDecoder::AnimationOption animation_option_ =
@@ -129,7 +129,7 @@ class MODULES_EXPORT ImageDecoderExternal final
 
   // The workhorse which actually does the decoding. Bound to another sequence.
   scoped_refptr<base::SequencedTaskRunner> decode_task_runner_;
-  std::unique_ptr<WTF::SequenceBound<ImageDecoderCore>> decoder_;
+  std::unique_ptr<SequenceBound<ImageDecoderCore>> decoder_;
 
   // List of tracks in this image. Filled in during OnMetadata().
   Member<ImageTrackList> tracks_;
@@ -139,36 +139,35 @@ class MODULES_EXPORT ImageDecoderExternal final
 
   // Pending decode() requests.
   struct DecodeRequest final : public GarbageCollected<DecodeRequest> {
-    DecodeRequest(ScriptPromiseResolver* resolver,
+    DecodeRequest(ScriptPromiseResolver<ImageDecodeResult>* resolver,
                   uint32_t frame_index,
                   bool complete_frames_only);
     ~DecodeRequest();
     void Trace(Visitor*) const;
     bool IsFinal() const;
 
-    Member<ScriptPromiseResolver> resolver;
+    Member<ScriptPromiseResolver<ImageDecodeResult>> resolver;
     uint32_t frame_index;
     bool complete_frames_only;
     bool pending = false;
-    absl::optional<size_t> bytes_read_index;
+    std::optional<size_t> bytes_read_index;
     Member<ImageDecodeResult> result;
     std::unique_ptr<base::AtomicFlag> abort_flag;
 
-    absl::optional<String> range_error_message;
+    String range_error_message;
     Member<DOMException> exception;
   };
   HeapVector<Member<DecodeRequest>> pending_decodes_;
 
-  using CompletedProperty =
-      ScriptPromiseProperty<ToV8UndefinedGenerator, Member<DOMException>>;
+  using CompletedProperty = ScriptPromiseProperty<IDLUndefined, DOMException>;
   Member<CompletedProperty> completed_property_;
 
   // WeakPtrFactory used only for decode() requests. Invalidated upon decoding
   // errors or a call to reset().
-  base::WeakPtrFactory<ImageDecoderExternal> decode_weak_factory_{this};
+  WeakCellFactory<ImageDecoderExternal> decode_weak_factory_{this};
 
   // WeakPtrFactory for all other cancelable tasks.
-  base::WeakPtrFactory<ImageDecoderExternal> weak_factory_{this};
+  WeakCellFactory<ImageDecoderExternal> weak_factory_{this};
 };
 
 }  // namespace blink

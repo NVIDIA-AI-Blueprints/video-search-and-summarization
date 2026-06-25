@@ -32,9 +32,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_COMPOSITOR_ANIMATIONS_H_
 
 #include <memory>
+#include <optional>
+
 #include "base/time/time.h"
 #include "cc/animation/keyframe_model.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/animation/effect_model.h"
 #include "third_party/blink/renderer/core/animation/keyframe.h"
 #include "third_party/blink/renderer/core/animation/timing.h"
@@ -109,14 +110,19 @@ class CORE_EXPORT CompositorAnimations {
     // Cases where the scroll timeline source is not composited.
     kTimelineSourceHasInvalidCompositingState = 1 << 16,
 
-    // Cases where there is an animation of compositor properties but they have
-    // been optimized out so the animation of those properties has no effect.
-    kCompositorPropertyAnimationsHaveNoEffect = 1 << 17,
+    // Cases where there is an animation that has no visible change through the
+    // active phase. This could be due to optimizing out an off-screen
+    // composited animation or due to having only constant valued properties.
+    kAnimationHasNoVisibleChange = 1 << 17,
 
     // Cases where we are animating a property that is marked important.
     kAffectsImportantProperty = 1 << 18,
 
     kSVGTargetHasIndependentTransformProperty = 1 << 19,
+
+    // Currently the compositor does not support any iteration composite mode
+    // other than 'replace'.
+    kEffectHasNonReplaceIterationCompositeMode = 1 << 20,
 
     // When adding new values, update the count below *and* add a description
     // of the value to CompositorAnimationsFailureReason in
@@ -126,7 +132,7 @@ class CORE_EXPORT CompositorAnimations {
     // should increment this number but it should never be decremented because
     // the values are used in UMA histograms. It should also be noted that it
     // excludes the kNoFailure value.
-    kFailureReasonCount = 20,
+    kFailureReasonCount = 21,
   };
 
   static FailureReasons CheckCanStartAnimationOnCompositor(
@@ -137,9 +143,10 @@ class CORE_EXPORT CompositorAnimations {
       const EffectModel&,
       const PaintArtifactCompositor*,
       double animation_playback_rate,
-      PropertyHandleSet* unsupported_properties = nullptr);
+      PropertyHandleSet* unsupported_properties_for_tracing = nullptr);
   static bool CompositorPropertyAnimationsHaveNoEffect(
       const Element& target_element,
+      const Animation* animation,
       const EffectModel& effect,
       const PaintArtifactCompositor*);
   static void CancelIncompatibleAnimationsOnCompositor(const Element&,
@@ -148,8 +155,8 @@ class CORE_EXPORT CompositorAnimations {
   static void StartAnimationOnCompositor(
       const Element&,
       int group,
-      absl::optional<double> start_time,
-      base::TimeDelta time_offset,
+      std::optional<double> start_time,
+      std::optional<base::TimeDelta> hold_time,
       const Timing&,
       const Timing::NormalizedTiming&,
       const Animation*,
@@ -157,7 +164,8 @@ class CORE_EXPORT CompositorAnimations {
       const EffectModel&,
       Vector<int>& started_keyframe_model_ids,
       double animation_playback_rate,
-      bool is_monotonic_timeline);
+      bool is_monotonic_timeline,
+      bool is_boundary_aligned);
   static void CancelAnimationOnCompositor(const Element&,
                                           CompositorAnimation*,
                                           int id,
@@ -165,7 +173,7 @@ class CORE_EXPORT CompositorAnimations {
   static void PauseAnimationForTestingOnCompositor(const Element&,
                                                    const Animation&,
                                                    int id,
-                                                   base::TimeDelta pause_time,
+                                                   base::TimeDelta hold_time,
                                                    const EffectModel&);
 
   static void AttachCompositedLayers(Element&, CompositorAnimation*);
@@ -173,36 +181,41 @@ class CORE_EXPORT CompositorAnimations {
   struct CompositorTiming {
     Timing::PlaybackDirection direction;
     AnimationTimeDelta scaled_duration;
-    base::TimeDelta scaled_time_offset;
+    std::optional<base::TimeDelta> hold_time;
     double adjusted_iteration_count;
     double playback_rate;
     Timing::FillMode fill_mode;
+    bool auto_fills_on_finish;
     double iteration_start;
+    base::TimeDelta start_delay;
   };
 
-  static bool ConvertTimingForCompositor(const Timing&,
-                                         const Timing::NormalizedTiming&,
-                                         base::TimeDelta time_offset,
-                                         CompositorTiming& out,
-                                         double animation_playback_rate,
-                                         bool is_monotonic_timeline = true);
+  static bool ConvertTimingForCompositor(
+      const Timing&,
+      const Timing::NormalizedTiming&,
+      std::optional<base::TimeDelta> hold_time,
+      CompositorTiming& out,
+      double animation_playback_rate,
+      bool is_monotonic_timeline = true,
+      bool is_boundary_aligned = false);
 
   static void GetAnimationOnCompositor(
       const Element&,
       const Timing&,
       const Timing::NormalizedTiming&,
       int group,
-      absl::optional<double> start_time,
-      base::TimeDelta time_offset,
+      std::optional<double> start_time,
+      std::optional<base::TimeDelta> hold_time,
       const KeyframeEffectModelBase&,
       Vector<std::unique_ptr<cc::KeyframeModel>>& animations,
       double animation_playback_rate,
-      bool is_monotonic_timeline);
+      bool is_monotonic_timeline,
+      bool is_boundary_aligned);
 
   static CompositorElementIdNamespace CompositorElementNamespaceForProperty(
       CSSPropertyID property);
 
-  static bool CheckUsesCompositedScrolling(Node* target);
+  static bool CanStartScrollTimelineOnCompositor(Node* target);
 
   static bool CanStartTransformAnimationOnCompositorForSVG(const SVGElement&);
 
@@ -218,7 +231,7 @@ class CORE_EXPORT CompositorAnimations {
       const EffectModel&,
       const PaintArtifactCompositor*,
       double animation_playback_rate,
-      PropertyHandleSet* unsupported_properties = nullptr);
+      PropertyHandleSet* unsupported_properties_for_tracing = nullptr);
   static FailureReasons CheckCanStartElementOnCompositor(
       const Element& element,
       const EffectModel& model);

@@ -18,7 +18,6 @@
 #define SRC_TOOLS_FTRACE_PROTO_GEN_PROTO_GEN_UTILS_H_
 
 #include <map>
-#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -54,7 +53,7 @@ class FtraceEventName {
 };
 
 struct ProtoType {
-  enum Type { INVALID, NUMERIC, STRING };
+  enum Type { INVALID, NUMERIC, STRING, BYTES };
   Type type;
   uint16_t size;
   bool is_signed;
@@ -68,6 +67,7 @@ struct ProtoType {
   static ProtoType Numeric(uint16_t size,
                            bool is_signed,
                            bool is_repeated = false);
+  static ProtoType Bytes(bool is_repeated = false);
   static ProtoType FromDescriptor(google::protobuf::FieldDescriptor::Type type,
                                   bool is_repeated = false);
 };
@@ -93,7 +93,6 @@ struct Proto {
 
 std::string ToCamelCase(const std::string& s);
 ProtoType GetCommon(ProtoType one, ProtoType other);
-std::string ProtoHeader();
 ProtoType InferProtoType(const FtraceEvent::Field& field);
 
 }  // namespace perfetto

@@ -27,7 +27,9 @@
 
 namespace blink {
 
-class StyleContainmentScope;
+template <typename T>
+class OrderedScope;
+
 class LayoutTextFragment;
 class PseudoElement;
 
@@ -38,23 +40,25 @@ class PseudoElement;
 // This object is generated thus always anonymous.
 class LayoutQuote final : public LayoutInline {
  public:
-  LayoutQuote(PseudoElement&, const QuoteType);
+  LayoutQuote(LayoutObject& owner, const QuoteType);
   ~LayoutQuote() override;
   void Trace(Visitor*) const override;
 
+  // Will return nullptr, if this doesn't originate from a pseudo-element, but
+  // rather an @page margin box.
   PseudoElement* GetOwningPseudo() const {
     NOT_DESTROYED();
-    return owning_pseudo_;
+    return owning_pseudo_.Get();
   }
   bool IsInScope() const {
     NOT_DESTROYED();
     return !!scope_;
   }
-  StyleContainmentScope* GetScope() const {
+  OrderedScope<LayoutQuote>* GetScope() const {
     NOT_DESTROYED();
-    return scope_;
+    return scope_.Get();
   }
-  void SetScope(StyleContainmentScope* scope) {
+  void SetScope(OrderedScope<LayoutQuote>* scope) {
     NOT_DESTROYED();
     scope_ = scope;
   }
@@ -83,11 +87,13 @@ class LayoutQuote final : public LayoutInline {
 
  private:
   void WillBeDestroyed() override;
-  bool IsOfType(LayoutObjectType type) const override {
+  bool IsQuote() const final {
     NOT_DESTROYED();
-    return type == kLayoutObjectQuote || LayoutInline::IsOfType(type);
+    return true;
   }
-  void StyleDidChange(StyleDifference, const ComputedStyle*) override;
+  void StyleDidChange(StyleDifference,
+                      const ComputedStyle*,
+                      const StyleChangeContext&) override;
   void WillBeRemovedFromTree() override;
 
   String ComputeText() const;
@@ -112,7 +118,7 @@ class LayoutQuote final : public LayoutInline {
   Member<PseudoElement> owning_pseudo_;
 
   // The contain style scope this quote belongs to.
-  Member<StyleContainmentScope> scope_;
+  Member<OrderedScope<LayoutQuote>> scope_;
 
   // Cached text for this quote.
   String text_;

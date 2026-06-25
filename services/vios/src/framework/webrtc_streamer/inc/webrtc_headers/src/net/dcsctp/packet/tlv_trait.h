@@ -10,17 +10,13 @@
 #ifndef NET_DCSCTP_PACKET_TLV_TRAIT_H_
 #define NET_DCSCTP_PACKET_TLV_TRAIT_H_
 
-#include <stdint.h>
-#include <string.h>
-
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <string>
+#include <cstring>
+#include <optional>
+#include <span>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
 #include "net/dcsctp/packet/bounded_byte_reader.h"
 #include "net/dcsctp/packet/bounded_byte_writer.h"
 
@@ -80,11 +76,11 @@ class TLVTrait {
 
   // Validates the data with regards to size, alignment and type.
   // If valid, returns a bounded buffer.
-  static absl::optional<BoundedByteReader<Config::kHeaderSize>> ParseTLV(
-      rtc::ArrayView<const uint8_t> data) {
+  static std::optional<BoundedByteReader<Config::kHeaderSize>> ParseTLV(
+      std::span<const uint8_t> data) {
     if (data.size() < Config::kHeaderSize) {
       tlv_trait_impl::ReportInvalidSize(data.size(), Config::kHeaderSize);
-      return absl::nullopt;
+      return std::nullopt;
     }
     BoundedByteReader<kTlvHeaderSize> tlv_header(data);
 
@@ -94,7 +90,7 @@ class TLVTrait {
 
     if (type != Config::kType) {
       tlv_trait_impl::ReportInvalidType(type, Config::kType);
-      return absl::nullopt;
+      return std::nullopt;
     }
     const uint16_t length = tlv_header.template Load16<2>();
     if (Config::kVariableLengthAlignment == 0) {
@@ -102,28 +98,28 @@ class TLVTrait {
       if (length != Config::kHeaderSize || data.size() != Config::kHeaderSize) {
         tlv_trait_impl::ReportInvalidFixedLengthField(length,
                                                       Config::kHeaderSize);
-        return absl::nullopt;
+        return std::nullopt;
       }
     } else {
       // Expect variable length data - verify its size alignment.
       if (length > data.size() || length < Config::kHeaderSize) {
         tlv_trait_impl::ReportInvalidVariableLengthField(length, data.size());
-        return absl::nullopt;
+        return std::nullopt;
       }
       const size_t padding = data.size() - length;
       if (padding > 3) {
         // https://tools.ietf.org/html/rfc4960#section-3.2
         // "This padding MUST NOT be more than 3 bytes in total"
         tlv_trait_impl::ReportInvalidPadding(padding);
-        return absl::nullopt;
+        return std::nullopt;
       }
       if (!ValidateLengthAlignment(length, Config::kVariableLengthAlignment)) {
         tlv_trait_impl::ReportInvalidLengthMultiple(
             length, Config::kVariableLengthAlignment);
-        return absl::nullopt;
+        return std::nullopt;
       }
     }
-    return BoundedByteReader<Config::kHeaderSize>(data.subview(0, length));
+    return BoundedByteReader<Config::kHeaderSize>(data.subspan(0, length));
   }
 
   // Allocates space for data with a static header size, as defined by
@@ -137,7 +133,7 @@ class TLVTrait {
     out.resize(offset + size);
 
     BoundedByteWriter<kTlvHeaderSize> tlv_header(
-        rtc::ArrayView<uint8_t>(out.data() + offset, kTlvHeaderSize));
+        std::span<uint8_t>(out.data() + offset, kTlvHeaderSize));
     if (Config::kTypeSizeInBytes == 1) {
       tlv_header.template Store8<0>(static_cast<uint8_t>(Config::kType));
     } else {
@@ -146,7 +142,7 @@ class TLVTrait {
     tlv_header.template Store16<2>(size);
 
     return BoundedByteWriter<Config::kHeaderSize>(
-        rtc::ArrayView<uint8_t>(out.data() + offset, size));
+        std::span<uint8_t>(out.data() + offset, size));
   }
 
  private:

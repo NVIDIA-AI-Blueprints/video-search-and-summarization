@@ -11,9 +11,11 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_MOCK_MOCK_ECHO_REMOVER_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_MOCK_MOCK_ECHO_REMOVER_H_
 
-#include <vector>
+#include <optional>
 
-#include "absl/types/optional.h"
+#include "api/audio/echo_control.h"
+#include "modules/audio_processing/aec3/block.h"
+#include "modules/audio_processing/aec3/delay_estimate.h"
 #include "modules/audio_processing/aec3/echo_path_variability.h"
 #include "modules/audio_processing/aec3/echo_remover.h"
 #include "modules/audio_processing/aec3/render_buffer.h"
@@ -25,13 +27,13 @@ namespace test {
 class MockEchoRemover : public EchoRemover {
  public:
   MockEchoRemover();
-  virtual ~MockEchoRemover();
+  ~MockEchoRemover() override;
 
   MOCK_METHOD(void,
               ProcessCapture,
               (EchoPathVariability echo_path_variability,
                bool capture_signal_saturation,
-               const absl::optional<DelayEstimate>& delay_estimate,
+               const std::optional<DelayEstimate>& delay_estimate,
                RenderBuffer* render_buffer,
                Block* linear_output,
                Block* capture),

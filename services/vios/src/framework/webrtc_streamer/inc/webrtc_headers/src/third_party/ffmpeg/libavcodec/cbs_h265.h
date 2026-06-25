@@ -24,7 +24,8 @@
 
 #include "cbs_h2645.h"
 #include "cbs_sei.h"
-#include "hevc.h"
+
+#include "hevc/hevc.h"
 
 typedef struct H265RawNALUnitHeader {
     uint8_t nal_unit_type;
@@ -247,11 +248,15 @@ typedef struct H265RawSPS {
     uint8_t sps_video_parameter_set_id;
 
     uint8_t sps_max_sub_layers_minus1;
+    uint8_t sps_ext_or_max_sub_layers_minus1;
     uint8_t sps_temporal_id_nesting_flag;
 
     H265RawProfileTierLevel profile_tier_level;
 
     uint8_t sps_seq_parameter_set_id;
+
+    uint8_t update_rep_format_flag;
+    uint8_t sps_rep_format_idx;
 
     uint8_t chroma_format_idc;
     uint8_t separate_colour_plane_flag;
@@ -283,6 +288,8 @@ typedef struct H265RawSPS {
     uint8_t max_transform_hierarchy_depth_intra;
 
     uint8_t scaling_list_enabled_flag;
+    uint8_t sps_infer_scaling_list_flag;
+    uint8_t sps_scaling_list_ref_layer_id;
     uint8_t sps_scaling_list_data_present_flag;
     H265RawScalingList scaling_list;
 
@@ -341,6 +348,9 @@ typedef struct H265RawSPS {
 
     uint8_t motion_vector_resolution_control_idc;
     uint8_t intra_boundary_filtering_disable_flag;
+
+    // Multilayer extension.
+    uint8_t inter_view_mv_vert_constraint_flag;
 } H265RawSPS;
 
 typedef struct H265RawPPS {
@@ -432,6 +442,46 @@ typedef struct H265RawPPS {
     uint8_t luma_bit_depth_entry_minus8;
     uint8_t chroma_bit_depth_entry_minus8;
     uint16_t pps_palette_predictor_initializers[3][128];
+
+    // Multilayer extension.
+    uint8_t poc_reset_info_present_flag;
+    uint8_t pps_infer_scaling_list_flag;
+    uint8_t pps_scaling_list_ref_layer_id;
+    uint8_t num_ref_loc_offsets;
+    uint8_t ref_loc_offset_layer_id[64];
+    uint8_t scaled_ref_layer_offset_present_flag[64];
+    int16_t scaled_ref_layer_left_offset[64];
+    int16_t scaled_ref_layer_top_offset[64];
+    int16_t scaled_ref_layer_right_offset[64];
+    int16_t scaled_ref_layer_bottom_offset[64];
+    uint8_t ref_region_offset_present_flag[64];
+    int16_t ref_region_left_offset[64];
+    int16_t ref_region_top_offset[64];
+    int16_t ref_region_right_offset[64];
+    int16_t ref_region_bottom_offset[64];
+    uint8_t resample_phase_set_present_flag[64];
+    uint8_t phase_hor_luma[64];
+    uint8_t phase_ver_luma[64];
+    uint8_t phase_hor_chroma_plus8[64];
+    uint8_t phase_ver_chroma_plus8[64];
+    uint8_t colour_mapping_enabled_flag;
+    uint8_t num_cm_ref_layers_minus1;
+    uint8_t cm_ref_layer_id[62];
+    uint8_t cm_octant_depth;
+    uint8_t cm_y_part_num_log2;
+    uint8_t luma_bit_depth_cm_input_minus8;
+    uint8_t chroma_bit_depth_cm_input_minus8;
+    uint8_t luma_bit_depth_cm_output_minus8;
+    uint8_t chroma_bit_depth_cm_output_minus8;
+    uint8_t cm_res_quant_bits;
+    uint8_t cm_delta_flc_bits_minus1;
+    int16_t cm_adapt_threshold_u_delta;
+    int16_t cm_adapt_threshold_v_delta;
+    uint8_t split_octant_flag[2];
+    uint8_t coded_res_flag[12][2][2][4];
+    uint8_t res_coeff_q[12][2][2][4][3];
+    uint32_t res_coeff_s[12][2][2][4][3];
+    uint8_t res_coeff_r[12][2][2][4][3];
 } H265RawPPS;
 
 typedef struct H265RawAUD {
@@ -670,10 +720,32 @@ typedef struct H265RawSEIAlphaChannelInfo {
     uint8_t  alpha_channel_clip_type_flag;
 } H265RawSEIAlphaChannelInfo;
 
+typedef struct H265RawSEI3DReferenceDisplaysInfo {
+    uint8_t prec_ref_display_width;
+    uint8_t ref_viewing_distance_flag;
+    uint8_t prec_ref_viewing_dist;
+    uint8_t num_ref_displays_minus1;
+    uint16_t left_view_id[32];
+    uint16_t right_view_id[32];
+    uint8_t exponent_ref_display_width[32];
+    uint8_t mantissa_ref_display_width[32];
+    uint8_t exponent_ref_viewing_distance[32];
+    uint8_t mantissa_ref_viewing_distance[32];
+    uint8_t additional_shift_present_flag[32];
+    uint16_t num_sample_shift_plus512[32];
+    uint8_t three_dimensional_reference_displays_extension_flag;
+} H265RawSEI3DReferenceDisplaysInfo;
+
 typedef struct H265RawSEI {
     H265RawNALUnitHeader nal_unit_header;
     SEIRawMessageList    message_list;
 } H265RawSEI;
+
+typedef struct H265RawFiller {
+    H265RawNALUnitHeader nal_unit_header;
+
+    uint32_t filler_size;
+} H265RawFiller;
 
 typedef struct CodedBitstreamH265Context {
     // Reader/writer context in common with the H.264 implementation.
@@ -681,12 +753,9 @@ typedef struct CodedBitstreamH265Context {
 
     // All currently available parameter sets.  These are updated when
     // any parameter set NAL unit is read/written with this context.
-    AVBufferRef *vps_ref[HEVC_MAX_VPS_COUNT];
-    AVBufferRef *sps_ref[HEVC_MAX_SPS_COUNT];
-    AVBufferRef *pps_ref[HEVC_MAX_PPS_COUNT];
-    H265RawVPS *vps[HEVC_MAX_VPS_COUNT];
-    H265RawSPS *sps[HEVC_MAX_SPS_COUNT];
-    H265RawPPS *pps[HEVC_MAX_PPS_COUNT];
+    H265RawVPS *vps[HEVC_MAX_VPS_COUNT]; ///< RefStruct references
+    H265RawSPS *sps[HEVC_MAX_SPS_COUNT]; ///< RefStruct references
+    H265RawPPS *pps[HEVC_MAX_PPS_COUNT]; ///< RefStruct references
 
     // The currently active parameter sets.  These are updated when any
     // NAL unit refers to the relevant parameter set.  These pointers

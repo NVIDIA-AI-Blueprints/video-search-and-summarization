@@ -42,7 +42,7 @@ namespace blink {
 namespace url_test_helpers {
 
 inline blink::KURL ToKURL(const std::string& url) {
-  WTF::String wtf_string(url.c_str());
+  String wtf_string(url);
   return blink::KURL(wtf_string);
 }
 
@@ -67,26 +67,27 @@ WebURL RegisterMockedURLLoadFromBase(
     const WebString& base_url,
     const WebString& base_path,
     const WebString& file_name,
-    const WebString& mime_type = WebString::FromUTF8("text/html"));
+    const WebString& mime_type = WebString("text/html"));
 
 // Registers from a full URL and a full file path.
-void RegisterMockedURLLoad(
-    const WebURL& full_url,
-    const WebString& file_path,
-    const WebString& mime_type = WebString::FromUTF8("text/html"),
-    URLLoaderMockFactory* mock_factory =
-        URLLoaderMockFactory::GetSingletonInstance(),
-    network::mojom::IPAddressSpace address_space =
-        network::mojom::IPAddressSpace::kPublic);
+void RegisterMockedURLLoad(const WebURL& full_url,
+                           const WebString& file_path,
+                           const WebString& mime_type = WebString("text/html"),
+                           URLLoaderMockFactory* mock_factory =
+                               URLLoaderMockFactory::GetSingletonInstance(),
+                           network::mojom::IPAddressSpace address_space =
+                               network::mojom::IPAddressSpace::kPublic);
 
 // Unregisters a URL that has been registered, so that the same URL can be
 // registered again from the another test.
 void RegisterMockedURLUnregister(const WebURL&);
 
-// Registers with a custom response.
+// Registers with a custom response. The response will contain data in spans of
+// size |chunk_size|. If |chunk_size| is 0, all data will be in a single span.
 void RegisterMockedURLLoadWithCustomResponse(const WebURL& full_url,
                                              const WebString& file_path,
-                                             WebURLResponse);
+                                             WebURLResponse,
+                                             const size_t chunk_size = 0);
 
 // Registers a mock URL that returns a 404 error.
 void RegisterMockedErrorURLLoad(

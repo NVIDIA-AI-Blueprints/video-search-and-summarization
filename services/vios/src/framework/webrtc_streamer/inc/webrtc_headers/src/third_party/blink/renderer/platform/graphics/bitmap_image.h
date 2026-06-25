@@ -29,18 +29,20 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_BITMAP_IMAGE_H_
 
 #include <memory>
-#include "base/memory/weak_ptr.h"
+
+#include "base/memory/raw_ptr.h"
 #include "base/notreached.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
 #include "third_party/blink/renderer/platform/graphics/deferred_image_decoder.h"
+#include "third_party/blink/renderer/platform/graphics/dom_node_id.h"
+#include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_animation.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-#include "ui/gfx/geometry/size.h"
-
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace blink {
 
@@ -63,7 +65,7 @@ class PLATFORM_EXPORT BitmapImage final : public Image {
 
   bool IsBitmapImage() const override { return true; }
 
-  bool CurrentFrameHasSingleSecurityOrigin() const override;
+  bool HasSingleSecurityOrigin() const override;
 
   gfx::Size SizeWithConfig(SizeConfig) const override;
   bool GetHotSpot(gfx::Point&) const override;
@@ -87,14 +89,13 @@ class PLATFORM_EXPORT BitmapImage final : public Image {
 
   scoped_refptr<Image> ImageForDefaultFrame() override;
 
-  // TODO(khushalsagar): These names are bogus, we don't know what the current
-  // frame is.
-  bool CurrentFrameKnownToBeOpaque() override;
-  bool CurrentFrameIsComplete() override;
-  bool CurrentFrameIsLazyDecoded() override;
+  bool IsOpaque() override;
+  bool FirstFrameIsComplete() override;
+  bool IsLazyDecoded() override;
   size_t FrameCount() override;
   PaintImage PaintImageForCurrentFrame() override;
-  ImageOrientation CurrentFrameOrientation() const override;
+  PaintImage PaintImageForCurrentFrameWithInfo(const ImageNodeAnimationInfo*);
+  ImageOrientation Orientation() const override;
 
   PaintImage PaintImageForTesting();
   void AdvanceAnimationForTesting() override {
@@ -107,6 +108,9 @@ class PLATFORM_EXPORT BitmapImage final : public Image {
   // Records the decoded image type in a UseCounter. |use_counter| may be a null
   // pointer.
   void RecordDecodedImageType(UseCounter* use_counter);
+
+  // Records the presence of a C2PA Manifest in a UseCounter.
+  void RecordDecodedImageC2PA(UseCounter* use_counter);
 
  protected:
   bool IsSizeAvailable() override;
@@ -125,7 +129,6 @@ class PLATFORM_EXPORT BitmapImage final : public Image {
     kCertain     // The repetition count is known to be correct.
   };
 
-  BitmapImage(const SkBitmap&, ImageObserver* = nullptr);
   BitmapImage(ImageObserver* = nullptr, bool is_multi_part = false);
 
   void Draw(cc::PaintCanvas*,
@@ -134,7 +137,11 @@ class PLATFORM_EXPORT BitmapImage final : public Image {
             const gfx::RectF& src_rect,
             const ImageDrawOptions&) override;
 
-  PaintImage CreatePaintImage();
+  PaintImage CreatePaintImage(
+      PaintImage::Id paint_id,
+      PaintImage::Id sync_animation_id,
+      PaintImage::AnimationSequenceId sync_animation_sequence_id,
+      int image_animation_repetition_count);
   void UpdateSize() const;
 
   // Called to wipe out the entire frame buffer cache and tell the image
@@ -159,11 +166,26 @@ class PLATFORM_EXPORT BitmapImage final : public Image {
   mutable gfx::Size size_;  // The size to use for the overall image (will just
                             // be the size of the first image).
   mutable gfx::Size density_corrected_size_;
+  struct ImageAnimationData {
+    ImageAnimationEnum previous_image_animation = ImageAnimationEnum::kNormal;
+    // When image-animation is 'normal', all DOM nodes sharing this image
+    // animate in sync and therefore share the same PaintImage Id.
+    // When image-animation is 'paused' or 'running', each element may have an
+    // independent animation timeline. This map tracks the PaintImage Id and
+    // animation sequence Id for each such DOM node. The animation timeline is
+    // managed by the animation controller. The sequence Id is used to pass sync
+    // update information to the animation controller.
+    PaintImage::Id non_normal_paint_id = PaintImage::kInvalidId;
+    PaintImage::AnimationSequenceId non_normal_sequence_id = 0;
+  };
+  HashMap<DOMNodeId, ImageAnimationData> image_animation_map_;
 
   // This caches the PaintImage created with the last updated encoded data to
   // ensure re-use of generated decodes. This is cleared each time the encoded
   // data is updated in DataChanged.
-  PaintImage cached_frame_;
+  // Separated from image_animation_map_ due to the cached frames and image
+  // animation map has different lifycycle.
+  HashMap<DOMNodeId, PaintImage> cached_frames_;
 
   // Whether or not we can play animation.
   mojom::blink::ImageAnimationPolicy animation_policy_ =

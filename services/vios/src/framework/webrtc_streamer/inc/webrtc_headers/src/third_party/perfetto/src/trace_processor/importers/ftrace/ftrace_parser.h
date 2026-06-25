@@ -17,44 +17,67 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_FTRACE_FTRACE_PARSER_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_FTRACE_FTRACE_PARSER_H_
 
-#include "perfetto/trace_processor/status.h"
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "perfetto/base/status.h"
+#include "perfetto/ext/base/flat_hash_map.h"
+#include "perfetto/ext/base/fnv_hash.h"
+#include "perfetto/protozero/field.h"
 #include "src/trace_processor/importers/common/event_tracker.h"
 #include "src/trace_processor/importers/common/parser_types.h"
-#include "src/trace_processor/importers/common/system_info_tracker.h"
-#include "src/trace_processor/importers/common/trace_parser.h"
 #include "src/trace_processor/importers/ftrace/drm_tracker.h"
 #include "src/trace_processor/importers/ftrace/ftrace_descriptors.h"
+#include "src/trace_processor/importers/ftrace/generic_ftrace_tracker.h"
+#include "src/trace_processor/importers/ftrace/gpu_work_period_tracker.h"
 #include "src/trace_processor/importers/ftrace/iostat_tracker.h"
 #include "src/trace_processor/importers/ftrace/mali_gpu_event_tracker.h"
+#include "src/trace_processor/importers/ftrace/pixel_display_tracker.h"
+#include "src/trace_processor/importers/ftrace/pixel_mm_kswapd_event_tracker.h"
 #include "src/trace_processor/importers/ftrace/pkvm_hyp_cpu_tracker.h"
 #include "src/trace_processor/importers/ftrace/rss_stat_tracker.h"
-#include "src/trace_processor/importers/ftrace/sched_event_tracker.h"
+#include "src/trace_processor/importers/ftrace/thermal_tracker.h"
+#include "src/trace_processor/importers/ftrace/v4l2_tracker.h"
 #include "src/trace_processor/importers/ftrace/virtio_gpu_tracker.h"
+#include "src/trace_processor/importers/ftrace/virtio_video_tracker.h"
+#include "src/trace_processor/importers/i2c/i2c_tracker.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
+#include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/types/trace_processor_context.h"
 
-#include <unordered_set>
-
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class FtraceParser {
  public:
-  explicit FtraceParser(TraceProcessorContext* context);
+  explicit FtraceParser(TraceProcessorContext* context,
+                        GenericFtraceTracker* generic_tracker);
 
-  void ParseFtraceStats(protozero::ConstBytes, uint32_t packet_sequence_id);
+  base::Status ParseFtraceStats(protozero::ConstBytes,
+                                uint32_t packet_sequence_id);
 
-  util::Status ParseFtraceEvent(uint32_t cpu,
+  base::Status ParseFtraceEvent(uint32_t cpu,
                                 int64_t ts,
                                 const TracePacketData& data);
-  util::Status ParseInlineSchedSwitch(uint32_t cpu,
+  base::Status ParseInlineSchedSwitch(uint32_t cpu,
                                       int64_t ts,
                                       const InlineSchedSwitch& data);
-  util::Status ParseInlineSchedWaking(uint32_t cpu,
+  base::Status ParseInlineSchedWaking(uint32_t cpu,
                                       int64_t ts,
                                       const InlineSchedWaking& data);
 
  private:
-  void ParseGenericFtrace(int64_t timestamp,
+  void ParseLegacyGenericFtrace(int64_t timestamp,
+                                uint32_t cpu,
+                                uint32_t pid,
+                                protozero::ConstBytes);
+  void ParseGenericFtrace(uint32_t event_proto_id,
+                          int64_t timestamp,
                           uint32_t cpu,
                           uint32_t pid,
                           protozero::ConstBytes);
@@ -65,10 +88,13 @@ class FtraceParser {
                              protozero::ConstBytes,
                              PacketSequenceStateGeneration*);
   void ParseSchedSwitch(uint32_t cpu, int64_t timestamp, protozero::ConstBytes);
+  void ParseKprobe(int64_t timestamp, uint32_t pid, protozero::ConstBytes);
   void ParseSchedWaking(int64_t timestamp, uint32_t pid, protozero::ConstBytes);
   void ParseSchedProcessFree(int64_t timestamp, protozero::ConstBytes);
   void ParseCpuFreq(int64_t timestamp, protozero::ConstBytes);
+  void ParseCpuFreqThrottle(int64_t timestamp, protozero::ConstBytes);
   void ParseGpuFreq(int64_t timestamp, protozero::ConstBytes);
+  void ParseKgslGpuFreq(int64_t timestamp, protozero::ConstBytes);
   void ParseCpuIdle(int64_t timestamp, protozero::ConstBytes);
   void ParsePrint(int64_t timestamp, uint32_t pid, protozero::ConstBytes);
   void ParseZero(int64_t timestamp, uint32_t pid, protozero::ConstBytes);
@@ -81,9 +107,14 @@ class FtraceParser {
   void ParseDpuTracingMarkWrite(int64_t timestamp,
                                 uint32_t pid,
                                 protozero::ConstBytes);
+  void ParseDpuDispDpuUnderrun(int64_t timestamp, protozero::ConstBytes);
+  void ParseGramCollision(int64_t timestamp, protozero::ConstBytes);
   void ParseG2dTracingMarkWrite(int64_t timestamp,
                                 uint32_t pid,
                                 protozero::ConstBytes);
+  void ParseSamsungTracingMarkWrite(int64_t timestamp,
+                                    uint32_t pid,
+                                    protozero::ConstBytes);
   void ParseMaliTracingMarkWrite(int64_t timestamp,
                                  uint32_t pid,
                                  protozero::ConstBytes);
@@ -95,6 +126,7 @@ class FtraceParser {
                                 protozero::ConstBytes,
                                 bool grow);
   void ParseIonStat(int64_t timestamp, uint32_t pid, protozero::ConstBytes);
+  void ParseBclIrq(int64_t timestamp, protozero::ConstBytes);
   void ParseDmaHeapStat(int64_t timestamp, uint32_t pid, protozero::ConstBytes);
   void ParseSignalGenerate(int64_t timestamp, protozero::ConstBytes);
   void ParseSignalDeliver(int64_t timestamp,
@@ -130,6 +162,12 @@ class FtraceParser {
   void ParseBinderTransactionReceived(int64_t timestamp,
                                       uint32_t pid,
                                       protozero::ConstBytes);
+  void ParseBinderCommand(int64_t timestamp,
+                          uint32_t pid,
+                          protozero::ConstBytes);
+  void ParseBinderReturn(int64_t timestamp,
+                         uint32_t pid,
+                         protozero::ConstBytes);
   void ParseBinderTransactionAllocBuf(int64_t timestamp,
                                       uint32_t pid,
                                       protozero::ConstBytes);
@@ -143,15 +181,15 @@ class FtraceParser {
   void ParseClockSetRate(int64_t timestamp, protozero::ConstBytes);
   void ParseClockEnable(int64_t timestamp, protozero::ConstBytes);
   void ParseClockDisable(int64_t timestamp, protozero::ConstBytes);
-  void ClockRate(int64_t timestamp,
-                 base::StringView clock_name,
-                 base::StringView subtitle,
-                 uint64_t rate);
   void ParseScmCallStart(int64_t timestamp,
                          uint32_t pid,
                          protozero::ConstBytes);
   void ParseScmCallEnd(int64_t timestamp, uint32_t pid, protozero::ConstBytes);
   void ParseCmaAllocStart(int64_t timestamp, uint32_t pid);
+  void ParseCmaAllocFinish(int64_t timestamp,
+                           uint32_t pid,
+                           protozero::ConstBytes);
+  void ParseMmAllocContigMigrateRangeInfo(uint32_t pid, protozero::ConstBytes);
   void ParseCmaAllocInfo(int64_t timestamp,
                          uint32_t pid,
                          protozero::ConstBytes);
@@ -182,13 +220,13 @@ class FtraceParser {
   void ParseIrqHandlerExit(uint32_t cpu,
                            int64_t timestamp,
                            protozero::ConstBytes);
+  void ParseLocalTimerEntry(uint32_t cpu, int64_t timestamp);
+  void ParseLocalTimerExit(uint32_t cpu, int64_t timestamp);
   void ParseSoftIrqEntry(uint32_t cpu,
                          int64_t timestamp,
                          protozero::ConstBytes);
   void ParseSoftIrqExit(uint32_t cpu, int64_t timestamp, protozero::ConstBytes);
   void ParseGpuMemTotal(int64_t timestamp, protozero::ConstBytes);
-  void ParseThermalTemperature(int64_t timestamp, protozero::ConstBytes);
-  void ParseCdevUpdate(int64_t timestamp, protozero::ConstBytes);
   void ParseSchedBlockedReason(protozero::ConstBytes,
                                PacketSequenceStateGeneration*);
   void ParseFastRpcDmaStat(int64_t timestamp,
@@ -218,15 +256,20 @@ class FtraceParser {
 
   void ParseWakeSourceActivate(int64_t timestamp, protozero::ConstBytes);
   void ParseWakeSourceDeactivate(int64_t timestamp, protozero::ConstBytes);
-  void ParseSuspendResume(int64_t timestamp, protozero::ConstBytes);
+  void ParseSuspendResume(int64_t timestamp,
+                          uint32_t cpu,
+                          uint32_t pid,
+                          protozero::ConstBytes);
   void ParseSuspendResumeMinimal(int64_t timestamp, protozero::ConstBytes);
-  void ParseSchedCpuUtilCfs(int64_t timestap, protozero::ConstBytes);
+  void ParseSchedCpuUtilCfs(int64_t timestamp, protozero::ConstBytes);
 
   void ParseFuncgraphEntry(int64_t timestamp,
+                           uint32_t cpu,
                            uint32_t pid,
                            protozero::ConstBytes blob,
                            PacketSequenceStateGeneration* seq_state);
   void ParseFuncgraphExit(int64_t timestamp,
+                          uint32_t cpu,
                           uint32_t pid,
                           protozero::ConstBytes blob,
                           PacketSequenceStateGeneration* seq_state);
@@ -270,42 +313,77 @@ class FtraceParser {
   void ParseTrustyIpcPoll(uint32_t pid, int64_t ts, protozero::ConstBytes);
   void ParseTrustyIpcRx(uint32_t pid, int64_t ts, protozero::ConstBytes);
   void ParseTrustyEnqueueNop(uint32_t pid, int64_t ts, protozero::ConstBytes);
-  void ParseMaliKcpuCqsSet(uint32_t pid, int64_t ts);
-  void ParseMaliKcpuCqsWaitStart(uint32_t pid, int64_t ts);
-  void ParseMaliKcpuCqsWaitEnd(uint32_t pid, int64_t ts);
-  void ParseMaliKcpuFenceSignal(uint32_t pid, int64_t ts);
-  void ParseMaliKcpuFenceWaitStart(uint32_t pid, int64_t ts);
-  void ParseMaliKcpuFenceWaitEnd(uint32_t pid, int64_t ts);
+  void ParseAndroidFsDatareadEnd(int64_t timestamp, protozero::ConstBytes);
+  void ParseAndroidFsDatareadStart(int64_t ts,
+                                   uint32_t pid,
+                                   protozero::ConstBytes);
+  StringId GetRpmStatusStringId(int32_t rpm_status_val);
+  void ParseRpmStatus(int64_t ts, protozero::ConstBytes);
+  void ParseDevicePmCallbackStart(int64_t ts,
+                                  uint32_t cpu,
+                                  uint32_t pid,
+                                  protozero::ConstBytes);
+  void ParseDevicePmCallbackEnd(int64_t ts, protozero::ConstBytes);
+  void ParsePanelWriteGeneric(int64_t timestamp,
+                              uint32_t pid,
+                              protozero::ConstBytes);
+  void ParseGoogleIccEvent(int64_t timestamp, protozero::ConstBytes);
+  void ParseGoogleIrmEvent(int64_t timestamp, protozero::ConstBytes);
+  void ParseDeviceFrequency(int64_t ts, protozero::ConstBytes blob);
+  void ParseParamSetValueCpm(protozero::ConstBytes blob);
+  void ParseBlockIoStart(int64_t ts, protozero::ConstBytes blob);
+  void ParseBlockIoDone(int64_t ts, protozero::ConstBytes blob);
+  void ParseCpuhpEnter(uint32_t fld_id,
+                       int64_t ts,
+                       uint32_t cpu,
+                       protozero::ConstBytes blob);
+  void ParseCpuhpExit(int64_t ts, protozero::ConstBytes blob);
+  void ParseHrtimerExpireEntry(uint32_t cpu,
+                               int64_t timestamp,
+                               protozero::ConstBytes blob,
+                               PacketSequenceStateGeneration* seq_state);
+  void ParseHrtimerExpireExit(uint32_t cpu,
+                              int64_t timestamp,
+                              protozero::ConstBytes blob);
+  void ParseMaliGpuPowerState(int64_t ts, protozero::ConstBytes blob);
+  void ParseDmabufRssStat(int64_t ts, uint32_t pid, protozero::ConstBytes blob);
+  void ParseFwtpPerfettoCounter(protozero::ConstBytes blob);
+  void ParseFwtpPerfettoSlice(int64_t ts, protozero::ConstBytes blob);
+  void ParseF2fsWriteCheckpoint(int64_t ts,
+                                uint32_t pid,
+                                protozero::ConstBytes blob);
+  void ParseGpuPowerState(int64_t ts, protozero::ConstBytes blob);
+  void ParseMemcgReclaimBegin(int64_t timestamp,
+                              uint32_t pid,
+                              protozero::ConstBytes);
+  void ParseMemcgReclaimEnd(int64_t timestamp,
+                            uint32_t pid,
+                            protozero::ConstBytes);
 
   TraceProcessorContext* context_;
-  RssStatTracker rss_stat_tracker_;
+  GenericFtraceTracker* generic_tracker_;
+
   DrmTracker drm_tracker_;
+  GpuWorkPeriodTracker gpu_work_period_tracker_;
+  I2cTracker i2c_tracker_;
   IostatTracker iostat_tracker_;
-  VirtioGpuTracker virtio_gpu_tracker_;
   MaliGpuEventTracker mali_gpu_event_tracker_;
+  PixelMmKswapdEventTracker pixel_mm_kswapd_event_tracker_;
   PkvmHypervisorCpuTracker pkvm_hyp_cpu_tracker_;
+  RssStatTracker rss_stat_tracker_;
+  ThermalTracker thermal_tracker_;
+  V4l2Tracker v4l2_tracker_;
+  VirtioGpuTracker virtio_gpu_tracker_;
+  VirtioVideoTracker virtio_video_tracker_;
+  PixelDisplayTracker pixel_display_tracker_;
 
   const StringId sched_wakeup_name_id_;
   const StringId sched_waking_name_id_;
   const StringId cpu_id_;
-  const StringId cpu_freq_name_id_;
-  const StringId gpu_freq_name_id_;
-  const StringId cpu_idle_name_id_;
-  const StringId suspend_resume_name_id_;
-  const StringId suspend_resume_minimal_name_id_;
   const StringId suspend_resume_minimal_slice_name_id_;
-  const StringId kfree_skb_name_id_;
-  const StringId ion_total_id_;
-  const StringId ion_change_id_;
-  const StringId ion_buffer_id_;
-  const StringId dma_heap_total_id_;
-  const StringId dma_heap_change_id_;
-  const StringId dma_buffer_id_;
-  const StringId ion_total_unknown_id_;
-  const StringId ion_change_unknown_id_;
+  const StringId inode_arg_id_;
   const StringId signal_generate_id_;
   const StringId signal_deliver_id_;
-  const StringId oom_score_adj_id_;
   const StringId lmk_id_;
   const StringId comm_name_id_;
   const StringId signal_name_id_;
@@ -316,7 +394,6 @@ class FtraceParser {
   const StringId tcp_event_id_;
   const StringId protocol_arg_id_;
   const StringId napi_gro_id_;
-  const StringId tcp_retransmited_name_id_;
   const StringId ret_arg_id_;
   const StringId len_arg_id_;
   const StringId direct_reclaim_nr_reclaimed_id_;
@@ -324,18 +401,12 @@ class FtraceParser {
   const StringId direct_reclaim_may_writepage_id_;
   const StringId direct_reclaim_gfp_flags_id_;
   const StringId vec_arg_id_;
-  const StringId gpu_mem_total_name_id_;
-  const StringId gpu_mem_total_unit_id_;
-  const StringId gpu_mem_total_global_desc_id_;
-  const StringId gpu_mem_total_proc_desc_id_;
   const StringId io_wait_id_;
   const StringId function_id_;
   const StringId waker_utid_id_;
   const StringId cros_ec_arg_num_id_;
   const StringId cros_ec_arg_ec_id_;
   const StringId cros_ec_arg_sample_ts_id_;
-  const StringId ufs_clkgating_id_;
-  const StringId ufs_command_count_id_;
   const StringId shrink_slab_id_;
   const StringId shrink_name_id_;
   const StringId shrink_total_scan_id_;
@@ -357,7 +428,49 @@ class FtraceParser {
   const StringId syscall_ret_id_;
   const StringId syscall_args_id_;
   const StringId replica_slice_id_;
+  const StringId file_path_id_;
+  const StringId offset_id_start_;
+  const StringId offset_id_end_;
+  const StringId bytes_read_id_start_;
+  const StringId bytes_read_id_end_;
+  const StringId android_fs_data_read_id_;
+  const StringId google_icc_event_id_;
+  const StringId google_irm_event_id_;
+  const StringId runtime_status_invalid_id_;
+  const StringId runtime_status_active_id_;
+  const StringId runtime_status_suspending_id_;
+  const StringId runtime_status_resuming_id_;
+  const StringId suspend_resume_main_event_id_;
+  const StringId suspend_resume_device_pm_event_id_;
+  const StringId suspend_resume_utid_arg_name_;
+  const StringId suspend_resume_device_arg_name_;
+  const StringId suspend_resume_driver_arg_name_;
+  const StringId suspend_resume_callback_phase_arg_name_;
+  const StringId suspend_resume_event_type_arg_name_;
+  const StringId device_name_id_;
+  const StringId block_io_id_;
+  const StringId block_io_arg_sector_id_;
+  const StringId cpuhp_action_cpu_id_;
+  const StringId cpuhp_idx_id_;
+  const StringId hrtimer_id_;
+  const StringId local_timer_id_;
+  const StringId f2fs_checkpoint_name_id_;
+  const StringId f2fs_reason_str_arg_id_;
+  const StringId f2fs_reason_int_arg_id_;
+  const StringId f2fs_dev_arg_id_;
+  const StringId f2fs_checkpoint_unknown_reason_id_;
+  const StringId gpu_power_state_unknown_id_;
+  const StringId gpu_power_state_off_id_;
+  const StringId gpu_power_state_pg_id_;
+  const StringId gpu_power_state_on_id_;
+  const StringId ddic_underrun_id_;
+  std::array<StringId, 8> f2fs_checkpoint_reason_ids_;
+
   std::vector<StringId> syscall_arg_name_ids_;
+  const StringId memcg_reclaim_order_id_;
+  const StringId memcg_reclaim_may_writepage_id_;
+  const StringId memcg_reclaim_gfp_flags_id_;
+  const StringId memcg_reclaim_nr_reclaimed_id_;
 
   struct FtraceMessageStrings {
     // The string id of name of the event field (e.g. sched_switch's id).
@@ -376,19 +489,22 @@ class FtraceParser {
     StringId avg_lat = kNullStringId;
   };
 
-  static constexpr size_t kFastRpcCounterSize = 4;
-  std::array<StringId, kFastRpcCounterSize> fast_rpc_delta_names_;
-  std::array<StringId, kFastRpcCounterSize> fast_rpc_total_names_;
-
   // Keep kMmEventCounterSize equal to mm_event_type::MM_TYPE_NUM in the kernel.
   static constexpr size_t kMmEventCounterSize = 7;
   std::array<MmEventCounterNames, kMmEventCounterSize> mm_event_counter_names_;
 
   // Record number of received bytes from the network interface card.
-  std::unordered_map<StringId, uint64_t> nic_received_bytes_;
+  std::unordered_map<std::string, uint64_t> nic_received_bytes_;
 
   // Record number of transmitted bytes to the network interface card.
-  std::unordered_map<StringId, uint64_t> nic_transmitted_bytes_;
+  std::unordered_map<std::string, uint64_t> nic_transmitted_bytes_;
+
+  struct CmaMigrationInfo {
+    uint64_t nr_migrated = 0;
+    uint64_t nr_reclaimed = 0;
+    uint64_t nr_mapped = 0;
+  };
+  base::FlatHashMap<UniqueTid, CmaMigrationInfo> utid_to_cma_migration_info_;
 
   // Record number of kfree_skb with ip protocol.
   uint64_t num_of_kfree_skb_ip_prot = 0;
@@ -403,14 +519,30 @@ class FtraceParser {
   // with a give name
   std::unordered_map<std::string, uint32_t> active_wakelock_to_count_;
 
-  // Record whether a suspend resume action is ongoing.
-  std::unordered_map<std::string, bool> ongoing_suspend_resume_actions;
+  // Tiny state machine for tracking the suspend_enter bug.
+  enum SuspendEnterBugState {
+    // Nothing special.
+    SUSPEND_STATE_INITIAL,
+    // We are inside a suspend_enter slice.
+    SUSPEND_STATE_ENTER,
+    // We are inside a suspend_enter slice and a freeze_processes slice.
+    SUSPEND_STATE_FREEZE
+  };
+
+  SuspendEnterBugState suspend_state_ = SUSPEND_STATE_INITIAL;
+
+  // cookie for the current suspend_enter slice if any; needed to close it.
+  int64_t suspend_enter_slice_cookie_ = 0;
 
   bool has_seen_first_ftrace_packet_ = false;
 
-  // Stores information about the timestamp from the metadata table which is
-  // used to filter ftrace packets which happen before this point.
+  // Ftrace events before this timestamp get dropped.
   int64_t drop_ftrace_data_before_ts_ = 0;
+
+  // Ftrace events before this timestamp get parsed into the |ftrace_events|
+  // table, but don't get propagated into other tables/trackers.
+  // Must be no less than drop_ftrace_data_before_ts_.
+  int64_t soft_drop_ftrace_data_before_ts_ = 0;
 
   // Does not skip any ftrace events.
   bool preserve_ftrace_buffer_ = false;
@@ -419,9 +551,21 @@ class FtraceParser {
   // putting them in the metadata multiple times (the ftrace data sources
   // re-emits begin stats on every flush).
   std::unordered_set<uint32_t> seen_errors_for_sequence_id_;
+
+  // Tracks Linux devices with active runtime power management (RPM) status
+  // slices.
+  std::unordered_set<TrackId> active_rpm_tracks_;
+
+  struct PairHash {
+    std::size_t operator()(const std::pair<uint64_t, int64_t>& p) const {
+      return base::MurmurHashCombine(p.first, p.second);
+    }
+  };
+
+  base::FlatHashMap<std::pair<uint64_t, int64_t>, uint32_t, PairHash>
+      inode_offset_thread_map_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_FTRACE_FTRACE_PARSER_H_

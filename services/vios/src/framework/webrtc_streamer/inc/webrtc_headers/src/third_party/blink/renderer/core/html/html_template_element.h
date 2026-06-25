@@ -32,27 +32,15 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_HTML_TEMPLATE_ELEMENT_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/shadow_root.h"
+#include "third_party/blink/renderer/core/dom/container_node.h"
+#include "third_party/blink/renderer/core/dom/template_content_document_fragment.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
 class DocumentFragment;
+class Patch;
 class TemplateContentDocumentFragment;
-
-// TODO(crbug.com/1379513, crbug.com/1396384) Only three of these should be
-// needed at a time, depending on the state of the StreamingDeclarativeShadowDOM
-// feature and whether the `shadowroot` or `shadowrootmode` attribute is used.
-// For a given template, either kNone/kOpen/kClosed or
-// kNone/kStreamingOpen/kStreamingClosed are used.
-enum class DeclarativeShadowRootType {
-  kNone,
-  kOpen,
-  kStreamingOpen,
-  kClosed,
-  kStreamingClosed,
-};
 
 class CORE_EXPORT HTMLTemplateElement final : public HTMLElement {
   DEFINE_WRAPPERTYPEINFO();
@@ -61,76 +49,48 @@ class CORE_EXPORT HTMLTemplateElement final : public HTMLElement {
   explicit HTMLTemplateElement(Document&);
   ~HTMLTemplateElement() override;
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLTemplateElement;
+  }
+
   bool HasNonInBodyInsertionMode() const override { return true; }
 
   void Trace(Visitor*) const override;
 
   DocumentFragment* content() const;
 
-  // This gives direct access to ContentInternal, and should *only*
-  // be used by HTMLConstructionSite.
-  DocumentFragment* TemplateContentForHTMLConstructionSite() const {
-    if (declarative_shadow_root_) {
-      DCHECK(RuntimeEnabledFeatures::StreamingDeclarativeShadowDOMEnabled());
-      return declarative_shadow_root_.Get();
-    }
-    return ContentInternal();
+  // This just retrieves existing content, and will not construct a content
+  // DocumentFragment if one does not exist.
+  DocumentFragment* getContent() const {
+    CHECK(!override_insertion_target_ || !content_);
+    return content_;
   }
 
-  // TODO(crbug.com/1396384) Eventually remove this.
-  bool IsNonStreamingDeclarativeShadowRoot() const;
-  // TODO(crbug.com/1396384) Eventually remove this.
-  DocumentFragment* DeclarativeShadowContent() const;
+  // This retrieves either a currently-being-parsed declarative shadow root,
+  // or the content fragment for a "regular" template
+  // element. This should only be used by HTMLConstructionSite.
+  ContainerNode* InsertionTarget() const;
 
-  void SetDeclarativeShadowRootType(DeclarativeShadowRootType val) {
-    declarative_shadow_root_type_ = val;
-  }
-  DeclarativeShadowRootType GetDeclarativeShadowRootType() const {
-    return declarative_shadow_root_type_;
-  }
-  bool IsDeclarativeShadowRoot() const {
-    return declarative_shadow_root_type_ != DeclarativeShadowRootType::kNone;
+  void SetOverrideInsertionTarget(ContainerNode& target) {
+    CHECK(target.IsShadowRoot() || target.IsDocumentFragment());
+    override_insertion_target_ = &target;
   }
 
-  void SetDeclarativeShadowRoot(ShadowRoot& shadow) {
-    DCHECK(RuntimeEnabledFeatures::StreamingDeclarativeShadowDOMEnabled());
-    DCHECK(declarative_shadow_root_type_ ==
-               DeclarativeShadowRootType::kStreamingOpen ||
-           declarative_shadow_root_type_ ==
-               DeclarativeShadowRootType::kStreamingClosed);
-    declarative_shadow_root_ = &shadow;
-  }
+  bool IsShadowRootModeTemplate() const { return override_insertion_target_; }
+
+  void SetPatch(Patch* patch) { patch_ = patch; }
+  Patch* GetPatch() const { return patch_; }
 
  private:
   void CloneNonAttributePropertiesFrom(const Element&,
-                                       CloneChildrenFlag) override;
+                                       NodeCloningData&) override;
   void DidMoveToNewDocument(Document& old_document) override;
-
-  DocumentFragment* ContentInternal() const;
-
+  void FinishParsingChildren() override;
   mutable Member<TemplateContentDocumentFragment> content_;
 
-  Member<ShadowRoot> declarative_shadow_root_;
-  DeclarativeShadowRootType declarative_shadow_root_type_;
+  Member<ContainerNode> override_insertion_target_;
+  Member<Patch> patch_;
 };
-
-// TODO(crbug.com/1396384) Remove this entire function when the older version
-// of declarative shadow DOM is removed.
-ALWAYS_INLINE bool HTMLTemplateElement::IsNonStreamingDeclarativeShadowRoot()
-    const {
-  switch (declarative_shadow_root_type_) {
-    case DeclarativeShadowRootType::kNone:
-      return false;
-    case DeclarativeShadowRootType::kOpen:
-    case DeclarativeShadowRootType::kClosed:
-      DCHECK(!declarative_shadow_root_);
-      return true;
-    case DeclarativeShadowRootType::kStreamingOpen:
-    case DeclarativeShadowRootType::kStreamingClosed:
-      DCHECK(RuntimeEnabledFeatures::StreamingDeclarativeShadowDOMEnabled());
-      return false;
-  }
-}
 
 }  // namespace blink
 

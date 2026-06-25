@@ -14,11 +14,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
-
-namespace rtc {
+namespace webrtc {
 
 // Calculates average over fixed size window. If there are less than window
 // size elements, calculates average of all inserted so far elements.
@@ -38,13 +37,13 @@ class MovingAverage {
   // Returns rounded down average of last `window_size` elements or all
   // elements if there are not enough of them. Returns nullopt if there were
   // no elements added.
-  absl::optional<int> GetAverageRoundedDown() const;
+  std::optional<int> GetAverageRoundedDown() const;
 
   // Same as above but rounded to the closest integer.
-  absl::optional<int> GetAverageRoundedToClosest() const;
+  std::optional<int> GetAverageRoundedToClosest() const;
 
   // Returns unrounded average over the window.
-  absl::optional<double> GetUnroundedAverage() const;
+  std::optional<double> GetUnroundedAverage() const;
 
   // Resets to the initial state before any elements were added.
   void Reset();
@@ -62,5 +61,6 @@ class MovingAverage {
   std::vector<int> history_;
 };
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 #endif  // RTC_BASE_NUMERICS_MOVING_AVERAGE_H_

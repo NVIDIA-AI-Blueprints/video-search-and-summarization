@@ -31,10 +31,12 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SHAPES_RASTER_SHAPE_H_
 
 #include <memory>
+#include <optional>
 
 #include "base/check_op.h"
 #include "third_party/blink/renderer/core/layout/shapes/shape.h"
 #include "third_party/blink/renderer/core/layout/shapes/shape_interval.h"
+#include "third_party/blink/renderer/platform/geometry/path.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "ui/gfx/geometry/rect_f.h"
 
@@ -67,7 +69,7 @@ class RasterShapeIntervals {
   std::unique_ptr<RasterShapeIntervals> ComputeShapeMarginIntervals(
       int shape_margin) const;
 
-  void BuildBoundsPath(Path&) const;
+  Path BuildBoundsPath() const;
 
  private:
   int size() const { return intervals_.size(); }
@@ -87,19 +89,33 @@ class RasterShape final : public Shape {
       : intervals_(std::move(intervals)), margin_rect_size_(margin_rect_size) {
     intervals_->InitializeBounds();
   }
+  RasterShape(std::unique_ptr<RasterShapeIntervals> intervals,
+              const gfx::Size& margin_rect_size,
+              Path display_shape_path)
+      : RasterShape(std::move(intervals), margin_rect_size) {
+    display_shape_path_ = std::move(display_shape_path);
+  }
   RasterShape(const RasterShape&) = delete;
   RasterShape& operator=(const RasterShape&) = delete;
 
-  LayoutRect ShapeMarginLogicalBoundingBox() const override {
-    return static_cast<LayoutRect>(MarginIntervals().Bounds());
+  LogicalRect ShapeMarginLogicalBoundingBox() const override {
+    return LogicalRect(MarginIntervals().Bounds());
   }
   bool IsEmpty() const override { return intervals_->IsEmpty(); }
   LineSegment GetExcludedInterval(LayoutUnit logical_top,
                                   LayoutUnit logical_height) const override;
   void BuildDisplayPaths(DisplayPaths& paths) const override {
-    intervals_->BuildBoundsPath(paths.shape);
-    if (ShapeMargin())
-      MarginIntervals().BuildBoundsPath(paths.margin_shape);
+    DCHECK(paths.shape.IsEmpty());
+    DCHECK(paths.margin_shape.IsEmpty());
+
+    // When the shape was rasterized from an analytical path (path() / shape()
+    // CSS functions), use that path directly so the DevTools overlay matches
+    // the actual shape rather than the pixel-snapped rasterization.
+    paths.shape = display_shape_path_ ? *display_shape_path_
+                                      : intervals_->BuildBoundsPath();
+    if (ShapeMargin()) {
+      paths.margin_shape = MarginIntervals().BuildBoundsPath();
+    }
   }
 
  private:
@@ -108,6 +124,7 @@ class RasterShape final : public Shape {
   std::unique_ptr<RasterShapeIntervals> intervals_;
   mutable std::unique_ptr<RasterShapeIntervals> margin_intervals_;
   gfx::Size margin_rect_size_;
+  std::optional<Path> display_shape_path_;
 };
 
 }  // namespace blink

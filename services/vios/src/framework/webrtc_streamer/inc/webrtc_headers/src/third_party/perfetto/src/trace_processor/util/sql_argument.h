@@ -16,15 +16,19 @@
 
 #ifndef SRC_TRACE_PROCESSOR_UTIL_SQL_ARGUMENT_H_
 #define SRC_TRACE_PROCESSOR_UTIL_SQL_ARGUMENT_H_
-#include <optional>
 
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "perfetto/base/logging.h"
 #include "perfetto/base/status.h"
+#include "perfetto/ext/base/string_view.h"
 #include "perfetto/trace_processor/basic_types.h"
 #include "src/trace_processor/containers/null_term_string_view.h"
 
-namespace perfetto {
-namespace trace_processor {
-namespace sql_argument {
+namespace perfetto::trace_processor::sql_argument {
 
 // Possible types which can be specified in SQL.
 // This differs from SqlValue::Type by allowing specifying richer
@@ -33,22 +37,23 @@ namespace sql_argument {
 // and, when lots of values are stored, reduced memory usage.
 enum class Type {
   kBool,
-  kInt,
-  kUint,
   kLong,
-  kFloat,
   kDouble,
   kString,
-  kProto,
   kBytes,
+  kAny,  // Accepts any type (no type checking)
 };
 
 // Represents the definition of an argument from SQL. See
 // |ParseArgumentDefinitions| for more details.
 class ArgumentDefinition {
  public:
-  ArgumentDefinition(std::string dollar_name, Type type)
-      : dollar_name_(std::move(dollar_name)), type_(type) {
+  ArgumentDefinition(std::string dollar_name,
+                     Type type,
+                     bool is_variadic = false)
+      : dollar_name_(std::move(dollar_name)),
+        type_(type),
+        is_variadic_(is_variadic) {
     PERFETTO_DCHECK(!dollar_name_.empty() && dollar_name_[0] == '$');
   }
 
@@ -63,18 +68,25 @@ class ArgumentDefinition {
 
   Type type() const { return type_; }
 
+  // Returns true if this argument accepts a variable number of values.
+  // Variadic arguments must be the last argument in a function prototype
+  // and are only allowed for delegate functions.
+  bool is_variadic() const { return is_variadic_; }
+
   bool operator==(const ArgumentDefinition& other) const {
-    return dollar_name_ == other.dollar_name_ && type_ == other.type_;
+    return dollar_name_ == other.dollar_name_ && type_ == other.type_ &&
+           is_variadic_ == other.is_variadic_;
   }
 
  private:
   std::string dollar_name_;
   Type type_;
+  bool is_variadic_ = false;
 };
 
 // Returns whether the given |name| is considered valid.
 //
-// Names are valid if they only contain alpha-numeric characters or underscores.
+// Names are valid if they only contain alphanumeric characters or underscores.
 bool IsValidName(base::StringView name);
 
 // Parses a string containing a type from SQL and converts it to a Type enum
@@ -90,10 +102,10 @@ const char* TypeToHumanFriendlyString(sql_argument::Type type);
 SqlValue::Type TypeToSqlValueType(sql_argument::Type type);
 
 // Parses a string containing argument definitions from SQL and converts it into
-// a typed list of ArgumentDefintion structs
+// a typed list of ArgumentDefinition structs
 //
-// An argument defintion is a variable name followed by a type. Variable names
-// only contain alpha-numeric characters or underscores. Types must be one of
+// An argument definition is a variable name followed by a type. Variable names
+// only contain alphanumeric characters or underscores. Types must be one of
 // the types corresponding to the Type enum.
 //
 // The expected form of |args| is comma-separated list of argument definitions.
@@ -101,8 +113,9 @@ SqlValue::Type TypeToSqlValueType(sql_argument::Type type);
 base::Status ParseArgumentDefinitions(const std::string& args,
                                       std::vector<ArgumentDefinition>& out);
 
-}  // namespace sql_argument
-}  // namespace trace_processor
-}  // namespace perfetto
+// Serialises the given argument list into a string.
+std::string SerializeArguments(const std::vector<ArgumentDefinition>& args);
+
+}  // namespace perfetto::trace_processor::sql_argument
 
 #endif  // SRC_TRACE_PROCESSOR_UTIL_SQL_ARGUMENT_H_

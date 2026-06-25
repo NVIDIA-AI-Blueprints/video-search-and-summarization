@@ -6,13 +6,16 @@
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_MODULES_MEDIASTREAM_WEB_PLATFORM_MEDIA_STREAM_SOURCE_H_
 
 #include "base/functional/callback.h"
-#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/common/mediastream/media_stream_controls.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_source.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_private_ptr.h"
+
+namespace base {
+class SingleThreadTaskRunner;
+}
 
 namespace blink {
 
@@ -101,9 +104,9 @@ class BLINK_PLATFORM_EXPORT WebPlatformMediaStreamSource {
  private:
   MediaStreamDevice device_;
   SourceStoppedCallback stop_callback_;
-  WebPrivatePtr<MediaStreamSource,
-                WebPrivatePtrDestruction::kSameThread,
-                WebPrivatePtrStrength::kWeak>
+  WebPrivatePtrForGC<MediaStreamSource,
+                     WebPrivatePtrDestruction::kSameThread,
+                     WebPrivatePtrStrength::kWeak>
       owner_;
 
   // Task runner for the main thread. Also used to check that all methods that

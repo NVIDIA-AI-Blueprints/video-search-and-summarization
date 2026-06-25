@@ -9,14 +9,14 @@
  */
 #ifndef NET_DCSCTP_PACKET_PARAMETER_ADD_INCOMING_STREAMS_REQUEST_PARAMETER_H_
 #define NET_DCSCTP_PACKET_PARAMETER_ADD_INCOMING_STREAMS_REQUEST_PARAMETER_H_
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/packet/parameter/parameter.h"
 #include "net/dcsctp/packet/tlv_trait.h"
@@ -42,8 +42,8 @@ class AddIncomingStreamsRequestParameter
       : request_sequence_number_(request_sequence_number),
         nbr_of_new_streams_(nbr_of_new_streams) {}
 
-  static absl::optional<AddIncomingStreamsRequestParameter> Parse(
-      rtc::ArrayView<const uint8_t> data);
+  static std::optional<AddIncomingStreamsRequestParameter> Parse(
+      std::span<const uint8_t> data);
 
   void SerializeTo(std::vector<uint8_t>& out) const override;
   std::string ToString() const override;

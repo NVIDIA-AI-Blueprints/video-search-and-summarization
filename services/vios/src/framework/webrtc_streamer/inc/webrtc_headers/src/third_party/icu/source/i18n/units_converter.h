@@ -8,6 +8,7 @@
 #define __UNITS_CONVERTER_H__
 
 #include "cmemory.h"
+#include "fixedstring.h"
 #include "measunit_impl.h"
 #include "unicode/errorcode.h"
 #include "unicode/stringpiece.h"
@@ -33,6 +34,10 @@ enum Constants {
     CONSTANT_METERS_PER_AU,
     CONSTANT_SEC_PER_JULIAN_YEAR,
     CONSTANT_SPEED_OF_LIGHT_METERS_PER_SECOND,
+    CONSTANT_SHO_TO_M3,   // https://en.wikipedia.org/wiki/Japanese_units_of_measurement
+    CONSTANT_TSUBO_TO_M2, // https://en.wikipedia.org/wiki/Japanese_units_of_measurement
+    CONSTANT_SHAKU_TO_M,  // https://en.wikipedia.org/wiki/Japanese_units_of_measurement
+    CONSTANT_AMU,         // Atomic Mass Unit https://www.nist.gov/pml/special-publication-811/nist-guide-si-chapter-5-units-outside-si#table7
 
     // Must be the last element.
     CONSTANTS_COUNT
@@ -55,6 +60,10 @@ static const double constantsValues[CONSTANTS_COUNT] = {
     149597870700,              // CONSTANT_METERS_PER_AU
     31557600,                  // CONSTANT_SEC_PER_JULIAN_YEAR
     299792458,                 // CONSTANT_SPEED_OF_LIGHT_METERS_PER_SECOND
+    2401.0 / (1331.0 * 1000.0),
+    400.0 / 121.0,
+    4.0 / 121.0,
+    1.66053878283E-27,         // CONSTANT_AMU
 };
 
 typedef enum Signum {
@@ -63,7 +72,7 @@ typedef enum Signum {
 } Signum;
 
 /* Represents a conversion factor */
-struct U_I18N_API Factor {
+struct U_I18N_API_CLASS Factor {
     double factorNum = 1;
     double factorDen = 1;
     double offset = 0;
@@ -74,6 +83,7 @@ struct U_I18N_API Factor {
 
     void multiplyBy(const Factor &rhs);
     void divideBy(const Factor &rhs);
+    void divideBy(const uint64_t constant);
 
     // Apply the power to the factor.
     void power(int32_t power);
@@ -85,10 +95,10 @@ struct U_I18N_API Factor {
     // constantExponents (resetting the exponents).
     //
     // In ICU4J, see UnitConverter.Factor.getConversionRate().
-    void substituteConstants();
+    U_I18N_API void substituteConstants();
 };
 
-struct U_I18N_API ConversionInfo {
+struct ConversionInfo {
     double conversionRate;
     double offset;
     bool reciprocal;
@@ -102,10 +112,14 @@ void U_I18N_API addSingleFactorConstant(StringPiece baseStr, int32_t power, Sign
 
 /**
  * Represents the conversion rate between `source` and `target`.
+ * TODO ICU-22683: COnsider moving the handling of special mappings (e.g. beaufort) to a separate
+ * struct.
  */
-struct U_I18N_API ConversionRate : public UMemory {
+struct ConversionRate : public UMemory {
     const MeasureUnitImpl source;
     const MeasureUnitImpl target;
+    FixedString specialSource;
+    FixedString specialTarget;
     double factorNum = 1;
     double factorDen = 1;
     double sourceOffset = 0;
@@ -113,7 +127,7 @@ struct U_I18N_API ConversionRate : public UMemory {
     bool reciprocal = false;
 
     ConversionRate(MeasureUnitImpl &&source, MeasureUnitImpl &&target)
-        : source(std::move(source)), target(std::move(target)) {}
+        : source(std::move(source)), target(std::move(target)), specialSource(), specialTarget() {}
 };
 
 enum Convertibility {
@@ -122,9 +136,9 @@ enum Convertibility {
     UNCONVERTIBLE,
 };
 
-MeasureUnitImpl U_I18N_API extractCompoundBaseUnit(const MeasureUnitImpl &source,
-                                                   const ConversionRates &conversionRates,
-                                                   UErrorCode &status);
+MeasureUnitImpl extractCompoundBaseUnit(const MeasureUnitImpl& source,
+                                        const ConversionRates& conversionRates,
+                                        UErrorCode& status);
 
 /**
  * Check if the convertibility between `source` and `target`.
@@ -149,7 +163,7 @@ Convertibility U_I18N_API extractConvertibility(const MeasureUnitImpl &source,
  *    Only works with SINGLE and COMPOUND units. If one of the units is a
  *    MIXED unit, an error will occur. For more information, see UMeasureUnitComplexity.
  */
-class U_I18N_API UnitsConverter : public UMemory {
+class U_I18N_API_CLASS UnitsConverter : public UMemory {
   public:
     /**
      * Constructor of `UnitConverter`.
@@ -163,7 +177,8 @@ class U_I18N_API UnitsConverter : public UMemory {
      * @param targetIdentifier represents the target unit identifier.
      * @param status
      */
-    UnitsConverter(StringPiece sourceIdentifier, StringPiece targetIdentifier, UErrorCode &status);
+    U_I18N_API UnitsConverter(StringPiece sourceIdentifier, StringPiece targetIdentifier,
+                              UErrorCode &status);
 
     /**
      * Constructor of `UnitConverter`.
@@ -176,8 +191,8 @@ class U_I18N_API UnitsConverter : public UMemory {
      * @param ratesInfo Contains all the needed conversion rates.
      * @param status
      */
-    UnitsConverter(const MeasureUnitImpl &source, const MeasureUnitImpl &target,
-                  const ConversionRates &ratesInfo, UErrorCode &status);
+    U_I18N_API UnitsConverter(const MeasureUnitImpl &source, const MeasureUnitImpl &target,
+                              const ConversionRates &ratesInfo, UErrorCode &status);
 
     /**
      * Compares two single units and returns 1 if the first one is greater, -1 if the second
@@ -196,7 +211,7 @@ class U_I18N_API UnitsConverter : public UMemory {
      * @param inputValue the value to be converted.
      * @return the converted value.
      */
-    double convert(double inputValue) const;
+    U_I18N_API double convert(double inputValue) const;
 
     /**
      * The inverse of convert(): convert a measurement expressed in the target
@@ -205,17 +220,32 @@ class U_I18N_API UnitsConverter : public UMemory {
      * @param inputValue the value to be converted.
      * @return the converted value.
      */
-    double convertInverse(double inputValue) const;
+    U_I18N_API double convertInverse(double inputValue) const;
 
-    ConversionInfo getConversionInfo() const;
+    U_I18N_API ConversionInfo getConversionInfo() const;
 
   private:
     ConversionRate conversionRate_;
 
     /**
      * Initialises the object.
-     */ 
+     */
     void init(const ConversionRates &ratesInfo, UErrorCode &status);
+
+    /**
+     * Convert from what should be discrete scale values for a particular unit like beaufort
+     * to a corresponding value in the base unit (which can have any decimal value, like meters/sec).
+     * This can handle different scales, specified by minBaseForScaleValues[].
+     */
+    double scaleToBase(double scaleValue, double minBaseForScaleValues[], int scaleMax) const;
+
+    /**
+     * Convert from a value in the base unit (which can have any decimal value, like meters/sec) to a corresponding
+     * discrete value in a scale (like beaufort), where each scale value represents a range of base values.
+     * This can handle different scales, specified by minBaseForScaleValues[].
+     */
+    double baseToScale(double baseValue, double minBaseForScaleValues[], int scaleMax) const;
+
 };
 
 } // namespace units

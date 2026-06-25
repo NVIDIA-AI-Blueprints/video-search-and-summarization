@@ -11,6 +11,9 @@
 #ifndef TEST_MOCK_TRANSPORT_H_
 #define TEST_MOCK_TRANSPORT_H_
 
+#include <cstdint>
+#include <span>
+
 #include "api/call/transport.h"
 #include "test/gmock.h"
 
@@ -19,13 +22,16 @@ namespace webrtc {
 class MockTransport : public Transport {
  public:
   MockTransport();
-  ~MockTransport();
+  ~MockTransport() override;
 
   MOCK_METHOD(bool,
               SendRtp,
-              (const uint8_t*, size_t, const PacketOptions&),
+              (std::span<const uint8_t>, const PacketOptions&),
               (override));
-  MOCK_METHOD(bool, SendRtcp, (const uint8_t*, size_t len), (override));
+  MOCK_METHOD(bool,
+              SendRtcp,
+              (std::span<const uint8_t>, const PacketOptions&),
+              (override));
 };
 
 }  // namespace webrtc

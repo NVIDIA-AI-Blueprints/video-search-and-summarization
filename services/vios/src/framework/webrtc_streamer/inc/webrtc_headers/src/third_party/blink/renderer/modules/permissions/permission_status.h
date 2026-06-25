@@ -17,22 +17,24 @@
 namespace blink {
 
 class ExecutionContext;
-class ScriptPromiseResolver;
+class ScriptPromiseResolverBase;
+class V8PermissionState;
 
 // Expose the status of a given permission type for the current
 // ExecutionContext.
-class PermissionStatus final : public EventTargetWithInlineData,
-                               public ActiveScriptWrappable<PermissionStatus>,
-                               public ExecutionContextLifecycleStateObserver,
-                               public PermissionStatusListener::Observer {
+class PermissionStatus : public EventTarget,
+                         public ActiveScriptWrappable<PermissionStatus>,
+                         public ExecutionContextLifecycleStateObserver,
+                         public PermissionStatusListener::Observer {
   DEFINE_WRAPPERTYPEINFO();
 
   using MojoPermissionDescriptor = mojom::blink::PermissionDescriptorPtr;
-  using MojoPermissionStatus = mojom::blink::PermissionStatus;
+  using MojoPermissionStatusWithDetails =
+      mojom::blink::PermissionStatusWithDetailsPtr;
 
  public:
   static PermissionStatus* Take(PermissionStatusListener*,
-                                ScriptPromiseResolver*);
+                                ScriptPromiseResolverBase*);
 
   PermissionStatus(PermissionStatusListener*, ExecutionContext*);
   ~PermissionStatus() override;
@@ -56,9 +58,9 @@ class PermissionStatus final : public EventTargetWithInlineData,
   void ContextDestroyed() override {}
 
   // PermissionStatusListener::Observer
-  void OnPermissionStatusChange(MojoPermissionStatus) override;
+  void OnPermissionStatusChange(MojoPermissionStatusWithDetails) override;
 
-  String state() const;
+  V8PermissionState state() const;
 
   String name() const;
 
@@ -66,11 +68,12 @@ class PermissionStatus final : public EventTargetWithInlineData,
 
   void Trace(Visitor*) const override;
 
+ protected:
+  WeakMember<PermissionStatusListener> listener_;
+
  private:
   void StartListening();
   void StopListening();
-
-  WeakMember<PermissionStatusListener> listener_;
 };
 
 }  // namespace blink

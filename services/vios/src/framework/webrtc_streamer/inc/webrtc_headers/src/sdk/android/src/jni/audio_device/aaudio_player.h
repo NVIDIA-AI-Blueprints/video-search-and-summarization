@@ -14,12 +14,12 @@
 #include <aaudio/AAudio.h>
 
 #include <memory>
+#include <optional>
 
-#include "absl/types/optional.h"
+#include "api/audio/audio_device_defines.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/task_queue_base.h"
 #include "modules/audio_device/audio_device_buffer.h"
-#include "modules/audio_device/include/audio_device_defines.h"
 #include "rtc_base/thread_annotations.h"
 #include "sdk/android/src/jni/audio_device/aaudio_wrapper.h"
 #include "sdk/android/src/jni/audio_device/audio_device_module.h"
@@ -71,9 +71,9 @@ class AAudioPlayer final : public AudioOutput, public AAudioObserverInterface {
   // Not implemented in AAudio.
   bool SpeakerVolumeIsAvailable() override;
   int SetSpeakerVolume(uint32_t volume) override;
-  absl::optional<uint32_t> SpeakerVolume() const override;
-  absl::optional<uint32_t> MaxSpeakerVolume() const override;
-  absl::optional<uint32_t> MinSpeakerVolume() const override;
+  std::optional<uint32_t> SpeakerVolume() const override;
+  std::optional<uint32_t> MaxSpeakerVolume() const override;
+  std::optional<uint32_t> MinSpeakerVolume() const override;
 
  protected:
   // AAudioObserverInterface implementation.

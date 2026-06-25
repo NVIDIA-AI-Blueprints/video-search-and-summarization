@@ -12,8 +12,9 @@
 #define MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FEC_CONTROLLER_PLR_BASED_H_
 
 #include <memory>
+#include <optional>
 
-#include "absl/types/optional.h"
+#include "api/environment/environment.h"
 #include "common_audio/smoothing_filter.h"
 #include "modules/audio_coding/audio_network_adaptor/controller.h"
 #include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
@@ -45,10 +46,11 @@ class FecControllerPlrBased final : public Controller {
   };
 
   // Dependency injection for testing.
-  FecControllerPlrBased(const Config& config,
+  FecControllerPlrBased(const Environment& env,
+                        const Config& config,
                         std::unique_ptr<SmoothingFilter> smoothing_filter);
 
-  explicit FecControllerPlrBased(const Config& config);
+  explicit FecControllerPlrBased(const Environment& env, const Config& config);
 
   ~FecControllerPlrBased() override;
 
@@ -60,12 +62,13 @@ class FecControllerPlrBased final : public Controller {
   void MakeDecision(AudioEncoderRuntimeConfig* config) override;
 
  private:
-  bool FecEnablingDecision(const absl::optional<float>& packet_loss) const;
-  bool FecDisablingDecision(const absl::optional<float>& packet_loss) const;
+  bool FecEnablingDecision(const std::optional<float>& packet_loss) const;
+  bool FecDisablingDecision(const std::optional<float>& packet_loss) const;
 
+  const Environment env_;
   const Config config_;
   bool fec_enabled_;
-  absl::optional<int> uplink_bandwidth_bps_;
+  std::optional<int> uplink_bandwidth_bps_;
   const std::unique_ptr<SmoothingFilter> packet_loss_smoother_;
 };
 

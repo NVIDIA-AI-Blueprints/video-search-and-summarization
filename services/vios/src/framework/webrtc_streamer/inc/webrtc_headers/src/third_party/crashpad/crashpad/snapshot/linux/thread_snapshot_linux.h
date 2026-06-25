@@ -44,6 +44,9 @@ class ThreadSnapshotLinux final : public ThreadSnapshot {
   //!     the thread.
   //! \param[in] thread The thread within the ProcessReaderLinux for
   //!     which the snapshot should be created.
+  //! \param[inout] gather_indirectly_referenced_memory_bytes_remaining The
+  //!     remaining budget for indirectly referenced memory, honored on entry
+  //!     and updated on return.
   //!
   //! \return `true` if the snapshot could be created, `false` otherwise with
   //!     a message logged.
@@ -74,6 +77,8 @@ class ThreadSnapshotLinux final : public ThreadSnapshot {
 #elif defined(ARCH_CPU_MIPS_FAMILY)
     CPUContextMIPS mipsel;
     CPUContextMIPS64 mips64;
+#elif defined(ARCH_CPU_RISCV64)
+    CPUContextRISCV64 riscv64;
 #else
 #error Port.
 #endif  // ARCH_CPU_X86_FAMILY

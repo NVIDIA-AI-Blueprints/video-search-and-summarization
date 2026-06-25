@@ -5,12 +5,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SCROLL_PROGRAMMATIC_SCROLL_ANIMATOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SCROLL_PROGRAMMATIC_SCROLL_ANIMATOR_H_
 
-#include <memory>
 #include "base/time/time.h"
 #include "cc/animation/scroll_offset_animation_curve.h"
 #include "third_party/blink/renderer/core/scroll/scroll_animator_compositor_coordinator.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
@@ -25,6 +25,8 @@ class ScrollableArea;
 // ScrollAnimatorMac.
 
 class ProgrammaticScrollAnimator : public ScrollAnimatorCompositorCoordinator {
+  USING_PRE_FINALIZER(ProgrammaticScrollAnimator, Dispose);
+
  public:
   explicit ProgrammaticScrollAnimator(ScrollableArea*);
   ProgrammaticScrollAnimator(const ProgrammaticScrollAnimator&) = delete;
@@ -32,10 +34,12 @@ class ProgrammaticScrollAnimator : public ScrollAnimatorCompositorCoordinator {
       delete;
   ~ProgrammaticScrollAnimator() override;
 
+  void Dispose();
+
   void ScrollToOffsetWithoutAnimation(const ScrollOffset&,
-                                      bool is_sequenced_scroll);
+                                      cc::ScrollSourceType);
   void AnimateToOffset(const ScrollOffset&,
-                       bool is_sequenced_scroll = false,
+                       cc::ScrollSourceType,
                        ScrollableArea::ScrollCallback on_finish =
                            ScrollableArea::ScrollCallback());
 
@@ -44,13 +48,14 @@ class ProgrammaticScrollAnimator : public ScrollAnimatorCompositorCoordinator {
   void CancelAnimation() override;
   void TakeOverCompositorAnimation() override {}
   ScrollableArea* GetScrollableArea() const override {
-    return scrollable_area_;
+    return scrollable_area_.Get();
   }
   void TickAnimation(base::TimeTicks monotonic_time) override;
   void UpdateCompositorAnimations() override;
   void NotifyCompositorAnimationFinished(int group_id) override;
   void NotifyCompositorAnimationAborted(int group_id) override {}
-  void MainThreadScrollingDidChange() override;
+  ScrollOffset TargetOffset() const { return target_offset_; }
+  cc::ScrollSourceType GetScrollSourceType() { return source_type_; }
 
   void Trace(Visitor*) const override;
 
@@ -59,17 +64,14 @@ class ProgrammaticScrollAnimator : public ScrollAnimatorCompositorCoordinator {
   void AnimationFinished();
 
   Member<ScrollableArea> scrollable_area_;
-  std::unique_ptr<cc::ScrollOffsetAnimationCurve> animation_curve_;
   ScrollOffset target_offset_;
   base::TimeTicks start_time_;
-  // is_sequenced_scroll_ is true for the entire duration of an animated scroll
-  // as well as during an instant scroll if that scroll is part of a sequence.
-  // It resets to false at the end of the scroll. It controls whether we should
-  // abort the smooth scroll sequence after an instant SetScrollOffset.
-  bool is_sequenced_scroll_;
   // on_finish_ is a callback to call on animation finished, cancelled, or
   // otherwise interrupted in any way.
   ScrollableArea::ScrollCallback on_finish_;
+
+  // https://drafts.csswg.org/css-scroll-snap-1/#scroll-types
+  cc::ScrollSourceType source_type_;
 };
 
 }  // namespace blink

@@ -25,7 +25,7 @@ class Worklet;
 class CORE_EXPORT WorkletPendingTasks final
     : public GarbageCollected<WorkletPendingTasks> {
  public:
-  WorkletPendingTasks(Worklet*, ScriptPromiseResolver*);
+  WorkletPendingTasks(Worklet*, ScriptPromiseResolver<IDLUndefined>*);
 
   // This must be called after the construction and before decrementing the
   // counter.
@@ -37,14 +37,14 @@ class CORE_EXPORT WorkletPendingTasks final
   // Decrements |counter_| and resolves the promise if the counter becomes 0.
   void DecrementCounter();
 
-  virtual void Trace(Visitor*) const;
+  void Trace(Visitor*) const;
 
  private:
   // The number of pending tasks. -1 indicates these tasks are aborted and
   // |resolver_| already rejected the promise.
   int counter_;
 
-  Member<ScriptPromiseResolver> resolver_;
+  Member<ScriptPromiseResolver<IDLUndefined>> resolver_;
 
   Member<Worklet> worklet_;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -22,9 +22,10 @@ extern "C" {
  * \brief This enum controls to which frames CDEF is applied.
  */
 typedef enum {
-  CDEF_NONE = 0,      /*!< Disable CDEF on all frames. */
-  CDEF_ALL = 1,       /*!< Enable CDEF for all frames. */
-  CDEF_REFERENCE = 2, /*!< Disable CDEF on non reference frames. */
+  CDEF_NONE = 0,      /* Disable CDEF on all frames. */
+  CDEF_ALL = 1,       /* Enable CDEF for all frames. */
+  CDEF_REFERENCE = 2, /* Disable CDEF on non reference frames. */
+  CDEF_ADAPTIVE = 3,  /* Enable CDEF adaptively based on frame qindex */
 } CDEF_CONTROL;
 
 /*!\cond */
@@ -171,7 +172,7 @@ typedef struct {
   bool use_highbitdepth;
 } CdefSearchCtx;
 
-static INLINE int sb_all_skip(const CommonModeInfoParams *const mi_params,
+static inline int sb_all_skip(const CommonModeInfoParams *const mi_params,
                               int mi_row, int mi_col) {
   const int maxr = AOMMIN(mi_params->mi_rows - mi_row, MI_SIZE_64X64);
   const int maxc = AOMMIN(mi_params->mi_cols - mi_col, MI_SIZE_64X64);
@@ -194,7 +195,7 @@ static INLINE int sb_all_skip(const CommonModeInfoParams *const mi_params,
 // Returns:
 //   1/0 will be returned to indicate skip/don't skip cdef processing of sb
 //   respectively.
-static INLINE int cdef_sb_skip(const CommonModeInfoParams *const mi_params,
+static inline int cdef_sb_skip(const CommonModeInfoParams *const mi_params,
                                int fbr, int fbc) {
   const MB_MODE_INFO *const mbmi =
       mi_params->mi_grid_base[MI_SIZE_64X64 * fbr * mi_params->mi_stride +
@@ -213,8 +214,12 @@ static INLINE int cdef_sb_skip(const CommonModeInfoParams *const mi_params,
   return 0;
 }
 
-void av1_cdef_mse_calc_block(CdefSearchCtx *cdef_search_ctx, int fbr, int fbc,
-                             int sb_count);
+void av1_cdef_dealloc_data(CdefSearchCtx *cdef_search_ctx);
+
+void av1_cdef_mse_calc_block(CdefSearchCtx *cdef_search_ctx,
+                             struct aom_internal_error_info *error_info,
+                             int fbr, int fbc, int sb_count,
+                             int adaptive_cdef_mode);
 /*!\endcond */
 
 /*!\brief AV1 CDEF parameter search
@@ -223,19 +228,7 @@ void av1_cdef_mse_calc_block(CdefSearchCtx *cdef_search_ctx, int fbr, int fbc,
  *
  * Searches for optimal CDEF parameters for frame
  *
- * \param[in]      mt_info      Pointer to multi-threading parameters
- * \param[in]      frame        Compressed frame buffer
- * \param[in]      ref          Source frame buffer
- * \param[in,out]  cm           Pointer to top level common structure
- * \param[in]      xd           Pointer to common current coding block structure
- * \param[in]      pick_method  The method used to select params
- * \param[in]      rdmult       rd multiplier to use in making param choices
- * \param[in]      skip_cdef_feature Speed feature to skip cdef
- * \param[in]      cdef_control  Parameter that controls CDEF application
- * \param[in]      is_screen_content   Whether it is screen content type
- * \param[in]      non_reference_frame Indicates if current frame is
- * non-reference
- * \param[in]      rtc_ext_rc   Indicate if external RC is used for testing
+ * \param[in,out]  cpi                 Top level encoder structure
  *
  * \remark Nothing is returned. Instead, optimal CDEF parameters are stored
  * in the \c cdef_info structure of type \ref CdefInfo inside \c cm:
@@ -248,13 +241,7 @@ void av1_cdef_mse_calc_block(CdefSearchCtx *cdef_search_ctx, int fbr, int fbc,
  * \arg \c damping_factor: CDEF damping factor.
  *
  */
-void av1_cdef_search(struct MultiThreadInfo *mt_info,
-                     const YV12_BUFFER_CONFIG *frame,
-                     const YV12_BUFFER_CONFIG *ref, AV1_COMMON *cm,
-                     MACROBLOCKD *xd, CDEF_PICK_METHOD pick_method, int rdmult,
-                     int skip_cdef_feature, CDEF_CONTROL cdef_control,
-                     const int is_screen_content, int non_reference_frame,
-                     int rtc_ext_rc);
+void av1_cdef_search(struct AV1_COMP *cpi);
 
 /*!\brief AV1 CDEF level from QP
  *
@@ -265,10 +252,11 @@ void av1_cdef_search(struct MultiThreadInfo *mt_info,
  * \param[in,out]  cm                 Pointer to top level common structure
  * \param[in]      skip_cdef          Flag to skip CDEF filtering
  * \param[in]      is_screen_content  Flag indicating screen content
+ * \param[in]      avoid_uv_cdef      Flag to avoid assigning UV CDEF strengths
  *
  */
 void av1_pick_cdef_from_qp(AV1_COMMON *const cm, int skip_cdef,
-                           int is_screen_content);
+                           int is_screen_content, bool avoid_uv_cdef);
 
 #ifdef __cplusplus
 }  // extern "C"

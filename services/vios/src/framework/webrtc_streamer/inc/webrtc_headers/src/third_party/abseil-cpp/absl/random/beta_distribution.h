@@ -17,14 +17,16 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <istream>
 #include <limits>
 #include <ostream>
 #include <type_traits>
 
+#include "absl/base/attributes.h"
+#include "absl/base/config.h"
 #include "absl/meta/type_traits.h"
 #include "absl/random/internal/fast_uniform_bits.h"
-#include "absl/random/internal/fastmath.h"
 #include "absl/random/internal/generate_real.h"
 #include "absl/random/internal/iostream_state_saver.h"
 
@@ -181,18 +183,18 @@ class beta_distribution {
     result_type alpha_;
     result_type beta_;
 
-    result_type a_;  // the smaller of {alpha, beta}, or 1.0/alpha_ in JOEHNK
-    result_type b_;  // the larger of {alpha, beta}, or 1.0/beta_ in JOEHNK
-    result_type x_;  // alpha + beta, or the result in degenerate cases
-    result_type log_x_;  // log(x_)
-    result_type y_;      // "beta" in Cheng
-    result_type gamma_;  // "gamma" in Cheng
+    result_type a_{};  // the smaller of {alpha, beta}, or 1.0/alpha_ in JOEHNK
+    result_type b_{};  // the larger of {alpha, beta}, or 1.0/beta_ in JOEHNK
+    result_type x_{};  // alpha + beta, or the result in degenerate cases
+    result_type log_x_{};  // log(x_)
+    result_type y_{};      // "beta" in Cheng
+    result_type gamma_{};  // "gamma" in Cheng
 
-    Method method_;
+    Method method_{};
 
     // Placing this last for optimal alignment.
     // Whether alpha_ != a_, i.e. true iff alpha_ > beta_.
-    bool inverted_;
+    bool inverted_{};
 
     static_assert(std::is_floating_point<RealType>::value,
                   "Class-template absl::beta_distribution<> must be "
@@ -280,7 +282,7 @@ beta_distribution<RealType>::AlgorithmJoehnk(
   using random_internal::GeneratePositiveTag;
   using random_internal::GenerateRealFromBits;
   using real_type =
-      absl::conditional_t<std::is_same<RealType, float>::value, float, double>;
+      std::conditional_t<std::is_same<RealType, float>::value, float, double>;
 
   // Based on Joehnk, M. D. Erzeugung von betaverteilten und gammaverteilten
   // Zufallszahlen. Metrika 8.1 (1964): 5-15.
@@ -338,7 +340,7 @@ beta_distribution<RealType>::AlgorithmCheng(
   using random_internal::GeneratePositiveTag;
   using random_internal::GenerateRealFromBits;
   using real_type =
-      absl::conditional_t<std::is_same<RealType, float>::value, float, double>;
+      std::conditional_t<std::is_same<RealType, float>::value, float, double>;
 
   // Based on Cheng, Russell CH. Generating beta variates with nonintegral
   // shape parameters. Communications of the ACM 21.4 (1978): 317-322.

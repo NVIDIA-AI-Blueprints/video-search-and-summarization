@@ -198,8 +198,7 @@ typedef const struct vpx_codec_ctrl_fn_map {
 typedef vpx_codec_err_t (*vpx_codec_decode_fn_t)(vpx_codec_alg_priv_t *ctx,
                                                  const uint8_t *data,
                                                  unsigned int data_sz,
-                                                 void *user_priv,
-                                                 long deadline);
+                                                 void *user_priv);
 
 /*!\brief Decoded frames iterator
  *
@@ -255,7 +254,7 @@ typedef vpx_codec_err_t (*vpx_codec_encode_fn_t)(vpx_codec_alg_priv_t *ctx,
                                                  vpx_codec_pts_t pts,
                                                  unsigned long duration,
                                                  vpx_enc_frame_flags_t flags,
-                                                 unsigned long deadline);
+                                                 vpx_enc_deadline_t deadline);
 typedef const vpx_codec_cx_pkt_t *(*vpx_codec_get_cx_data_fn_t)(
     vpx_codec_alg_priv_t *ctx, vpx_codec_iter_t *iter);
 
@@ -269,6 +268,8 @@ typedef vpx_image_t *(*vpx_codec_get_preview_frame_fn_t)(
 
 typedef vpx_codec_err_t (*vpx_codec_enc_mr_get_mem_loc_fn_t)(
     const vpx_codec_enc_cfg_t *cfg, void **mem_loc);
+
+typedef void (*vpx_codec_enc_mr_free_mem_loc_fn_t)(void *mem_loc);
 
 /*!\brief usage configuration mapping
  *
@@ -319,6 +320,8 @@ struct vpx_codec_iface {
         get_preview; /**< \copydoc ::vpx_codec_get_preview_frame_fn_t */
     vpx_codec_enc_mr_get_mem_loc_fn_t
         mr_get_mem_loc; /**< \copydoc ::vpx_codec_enc_mr_get_mem_loc_fn_t */
+    vpx_codec_enc_mr_free_mem_loc_fn_t
+        mr_free_mem_loc; /**< \copydoc ::vpx_codec_enc_mr_free_mem_loc_fn_t */
   } enc;
 };
 

@@ -32,20 +32,22 @@
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_export.h"
 
-namespace WTF {
+namespace blink {
 
 class TextCodec;
 class TextEncoding;
 
-// Use TextResourceDecoder::decode to decode resources, since it handles BOMs.
-// Use TextEncoding::encode to encode, since it takes care of normalization.
+// Creates a TextCodec instance for the specified encoding. This function
+// returns a null unique_ptr if an invalid encoding is specified.
+//
+// Use TextResourceDecoder::Decode to decode resources, since it handles BOMs.
+// Use TextEncoding::Encode to encode, since it takes care of normalization.
 WTF_EXPORT std::unique_ptr<TextCodec> NewTextCodec(const TextEncoding&);
 
 // Only TextEncoding should use the following functions directly.
-const char* AtomicCanonicalTextEncodingName(const char* alias);
+AtomicString AtomicCanonicalTextEncodingName(StringView alias);
 template <typename CharacterType>
 const char* AtomicCanonicalTextEncodingName(const CharacterType*, size_t);
-const char* AtomicCanonicalTextEncodingName(const String&);
 bool NoExtendedTextEncodingNameUsed();
 
 // Exposed for testing (via window.internals) that the set of supported
@@ -56,13 +58,6 @@ WTF_EXPORT Vector<String> TextEncodingAliasesForTesting();
 void DumpTextEncodingNameMap();
 #endif
 
-}  // namespace WTF
-
-using WTF::NewTextCodec;
-using WTF::AtomicCanonicalTextEncodingName;
-using WTF::NoExtendedTextEncodingNameUsed;
-#ifndef NDEBUG
-using WTF::DumpTextEncodingNameMap;
-#endif
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_TEXT_ENCODING_REGISTRY_H_

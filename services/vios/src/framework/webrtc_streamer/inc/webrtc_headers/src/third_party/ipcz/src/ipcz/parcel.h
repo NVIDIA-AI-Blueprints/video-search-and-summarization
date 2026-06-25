@@ -5,22 +5,25 @@
 #ifndef IPCZ_SRC_IPCZ_PARCEL_H_
 #define IPCZ_SRC_IPCZ_PARCEL_H_
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "ipcz/api_object.h"
 #include "ipcz/fragment.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/message.h"
+#include "ipcz/node_link.h"
+#include "ipcz/node_link_memory.h"
 #include "ipcz/sequence_number.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -38,8 +41,8 @@ class Parcel {
 
   Parcel();
   explicit Parcel(SequenceNumber sequence_number);
-  Parcel(Parcel&& other);
-  Parcel& operator=(Parcel&& other);
+  Parcel(const Parcel& other) = delete;
+  Parcel& operator=(const Parcel& other) = delete;
   ~Parcel();
 
   void set_sequence_number(SequenceNumber n) { sequence_number_ = n; }
@@ -101,23 +104,18 @@ class Parcel {
   size_t data_size() const { return data_view().size(); }
 
   bool has_data_fragment() const {
-    return absl::holds_alternative<DataFragment>(data_.storage);
+    return std::holds_alternative<DataFragment>(data_.storage);
   }
   const Fragment& data_fragment() const {
     ABSL_ASSERT(has_data_fragment());
-    return absl::get<DataFragment>(data_.storage).fragment();
+    return std::get<DataFragment>(data_.storage).fragment();
   }
   const Ref<NodeLinkMemory>& data_fragment_memory() const {
     ABSL_ASSERT(has_data_fragment());
-    return absl::get<DataFragment>(data_.storage).memory();
+    return std::get<DataFragment>(data_.storage).memory();
   }
 
-  absl::Span<Ref<APIObject>> objects_view() const {
-    if (!objects_) {
-      return {};
-    }
-    return objects_->view;
-  }
+  absl::Span<Ref<APIObject>> objects_view() const { return objects_.view; }
 
   size_t num_objects() const { return objects_view().size(); }
 
@@ -139,6 +137,8 @@ class Parcel {
   // objects_view().
   void ConsumeHandles(absl::Span<IpczHandle> out_handles);
 
+  void SetEnvelope(DriverObject envelope);
+
   // Produces a log-friendly description of the Parcel, useful for various
   // debugging log messages.
   std::string Describe() const;
@@ -157,7 +157,7 @@ class Parcel {
     std::atomic<uint32_t> size;
 
     // Reserved padding for 8-byte parcel data alignment.
-    uint32_t reserved;
+    std::atomic<uint32_t> reserved;
   };
 
   // Holds a Fragment and a reference to its backing memory. Used when a
@@ -172,8 +172,8 @@ class Parcel {
       // Parcels can only be given data fragments which are already addressable.
       ABSL_ASSERT(is_valid());
     }
-    DataFragment(DataFragment&& other);
-    DataFragment& operator=(DataFragment&& other);
+    DataFragment(const DataFragment& other) = delete;
+    DataFragment& operator=(const DataFragment& other) = delete;
     ~DataFragment();
 
     bool is_valid() const { return memory_ && fragment_.is_addressable(); }
@@ -192,10 +192,10 @@ class Parcel {
   // A variant backing type for the parcel's data. Data may be in shared memory,
   // heap-allocated and initialized from within the Parcel, or heap-allocated by
   // a received Message and moved into the Parcel from there.
-  using DataStorage = absl::variant<absl::monostate,
-                                    DataFragment,
-                                    std::vector<uint8_t>,
-                                    Message::ReceivedDataBuffer>;
+  using DataStorage = std::variant<std::monostate,
+                                   DataFragment,
+                                   std::vector<uint8_t>,
+                                   Message::ReceivedDataBuffer>;
 
   // Groups a DataStorage with a view into its data. This defines its own move
   // construction and assignment operators to ensure that moved-from data is
@@ -203,8 +203,8 @@ class Parcel {
   // the DataStorage. This subset is considered the Parcel's data.
   struct DataStorageWithView {
     DataStorageWithView() = default;
-    DataStorageWithView(DataStorageWithView&& other);
-    DataStorageWithView& operator=(DataStorageWithView&& other);
+    DataStorageWithView(const DataStorageWithView& other) = delete;
+    DataStorageWithView& operator=(const DataStorageWithView& other) = delete;
     ~DataStorageWithView() = default;
 
     DataStorage storage;
@@ -235,15 +235,16 @@ class Parcel {
   DataStorageWithView data_;
 
   // The set of APIObjects attached to this parcel, and a view of the objects
-  // not yet consumed from it. Heap-allocated to keep Parcels small in the
-  // common case of no object attachments.
-  std::unique_ptr<ObjectStorageWithView> objects_;
+  // not yet consumed from it.
+  ObjectStorageWithView objects_;
 
   // By default, all parcels have a single subparcel (theirself) at index 0. On
   // any Parcel that exists as a subparcel of another, these fields will be
   // updated by the containing Parcel as needed.
   size_t num_subparcels_ = 1;
   size_t subparcel_index_ = 0;
+
+  DriverObject envelope_;
 };
 
 }  // namespace ipcz

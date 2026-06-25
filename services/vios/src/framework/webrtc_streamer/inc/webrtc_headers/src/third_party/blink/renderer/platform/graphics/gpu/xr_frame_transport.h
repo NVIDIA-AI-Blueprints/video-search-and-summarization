@@ -7,10 +7,13 @@
 
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
+#include "device/vr/public/mojom/layer_id.h"
 #include "device/vr/public/mojom/vr_service.mojom-blink.h"
 #include "third_party/blink/public/platform/web_graphics_context_3d_provider.h"
 #include "third_party/blink/renderer/platform/context_lifecycle_notifier.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.h"
+#include "third_party/blink/renderer/platform/graphics/gpu/webgpu_cpp.h"
+#include "third_party/blink/renderer/platform/graphics/gpu/xr_frame_transport_delegate.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
@@ -20,17 +23,15 @@ namespace gfx {
 class GpuFence;
 }
 
-namespace gpu {
-class SharedImageInterface;
-namespace gles2 {
-class GLES2Interface;
-}
-}  // namespace gpu
-
 namespace blink {
 
-class GpuMemoryBufferImageCopy;
-class Image;
+class ImageToBufferCopier;
+struct SharedImageHolder;
+
+struct XRLayerUpdate {
+  device::LayerId layer_id;
+  std::unique_ptr<SharedImageHolder> current_frame_image;
+};
 
 class PLATFORM_EXPORT XRFrameTransport final
     : public GarbageCollected<XRFrameTransport>,
@@ -53,20 +54,25 @@ class PLATFORM_EXPORT XRFrameTransport final
   bool DrawingIntoSharedBuffer();
 
   // Call before finalizing the frame's image snapshot.
-  void FramePreImage(gpu::gles2::GLES2Interface*);
+  void FramePreImage(XRFrameTransportDelegate* delegate);
 
-  void FrameSubmit(device::mojom::blink::XRPresentationProvider*,
-                   gpu::gles2::GLES2Interface*,
-                   gpu::SharedImageInterface*,
-                   DrawingBuffer::Client*,
-                   scoped_refptr<Image> image_ref,
+  bool FrameSubmit(device::mojom::blink::XRPresentationProvider*,
+                   XRFrameTransportDelegate* delegate,
+                   Vector<XRLayerUpdate> layers,
                    int16_t vr_frame_id);
 
   void FrameSubmitMissing(device::mojom::blink::XRPresentationProvider*,
-                          gpu::gles2::GLES2Interface*,
+                          XRFrameTransportDelegate* delegate,
                           int16_t vr_frame_id);
 
-  virtual void Trace(Visitor*) const;
+  using OnSubmitFrameTransferredCallback = base::RepeatingCallback<
+      void(bool /*succeeded*/, const Vector<device::LayerId>& /*layer_ids*/)>;
+
+  void RegisterFrameTransferredCallback(
+      OnSubmitFrameTransferredCallback callback);
+  void RegisterFrameRenderedCallback(base::RepeatingClosure callback);
+
+  void Trace(Visitor*) const;
 
  private:
   void WaitForPreviousTransfer();
@@ -74,7 +80,8 @@ class PLATFORM_EXPORT XRFrameTransport final
   base::TimeDelta WaitForGpuFenceReceived();
 
   // XRPresentationClient
-  void OnSubmitFrameTransferred(bool success) override;
+  void OnSubmitFrameTransferred(bool success,
+                                const Vector<device::LayerId>& layers) override;
   void OnSubmitFrameRendered() override;
   void OnSubmitFrameGpuFence(gfx::GpuFenceHandle) override;
 
@@ -83,7 +90,7 @@ class PLATFORM_EXPORT XRFrameTransport final
 
   // Used to keep the image alive until the next frame if using
   // waitForPreviousTransferToFinish.
-  scoped_refptr<Image> previous_image_;
+  Vector<std::unique_ptr<SharedImageHolder>> previous_images_;
 
   bool waiting_for_previous_frame_transfer_ = false;
   bool last_transfer_succeeded_ = false;
@@ -97,7 +104,10 @@ class PLATFORM_EXPORT XRFrameTransport final
 
   device::mojom::blink::XRPresentationTransportOptionsPtr transport_options_;
 
-  std::unique_ptr<GpuMemoryBufferImageCopy> frame_copier_;
+  OnSubmitFrameTransferredCallback on_submit_frame_transferred_callback_;
+  base::RepeatingClosure on_submit_frame_rendered_callback_;
+
+  std::unique_ptr<ImageToBufferCopier> frame_copier_;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 };
 

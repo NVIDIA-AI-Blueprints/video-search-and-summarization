@@ -11,8 +11,12 @@
 #ifndef MODULES_AUDIO_CODING_CODECS_TOOLS_AUDIO_CODEC_SPEED_TEST_H_
 #define MODULES_AUDIO_CODING_CODECS_TOOLS_AUDIO_CODEC_SPEED_TEST_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <string>
+#include <tuple>
 
 #include "test/gtest.h"
 
@@ -27,8 +31,8 @@ class AudioCodecSpeedTest : public ::testing::TestWithParam<coding_param> {
   AudioCodecSpeedTest(int block_duration_ms,
                       int input_sampling_khz,
                       int output_sampling_khz);
-  virtual void SetUp();
-  virtual void TearDown();
+  void SetUp() override;
+  void TearDown() override;
 
   // EncodeABlock(...) does the following:
   // 1. encodes a block of audio, saved in `in_data`,

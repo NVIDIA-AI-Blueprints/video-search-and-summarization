@@ -8,12 +8,16 @@
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 class ExceptionState;
+class KURL;
+class ScriptState;
+template <typename IDLType>
+class ScriptPromise;
+struct IDLBoolean;
 
 class MODULES_EXPORT Credential : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -24,6 +28,7 @@ class MODULES_EXPORT Credential : public ScriptWrappable {
 
   virtual bool IsPasswordCredential() const { return false; }
   virtual bool IsFederatedCredential() const { return false; }
+  virtual bool IsDigitalCredential() const { return false; }
   virtual bool IsPublicKeyCredential() const { return false; }
   virtual bool IsOTPCredential() const { return false; }
   virtual bool IsIdentityCredential() const { return false; }
@@ -31,6 +36,8 @@ class MODULES_EXPORT Credential : public ScriptWrappable {
   // Credential.idl
   const String& id() const { return id_; }
   const String& type() const { return type_; }
+  static ScriptPromise<IDLBoolean> isConditionalMediationAvailable(
+      ScriptState*);
 
  protected:
   Credential(const String& id, const String& type);

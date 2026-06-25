@@ -8,23 +8,21 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/span.h"
 #include "base/dcheck_is_on.h"
-#include "base/feature_list.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
-#include "third_party/blink/renderer/modules/indexeddb/idb_any.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_view.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "v8/include/v8.h"
 
 namespace blink {
 
-class Blob;
 class BlobDataHandle;
 class ExceptionState;
 class IDBValue;
@@ -41,7 +39,7 @@ class SerializedScriptValue;
 //    This may be necessary when extracting the primary key and/or index keys
 //    for the serialized value.
 // 2) Wrapping - DoneCloning() transitions the instance to an internal
-//    representation optimized for wrapping via WrapIfBiggerThan().
+//    representation optimized IPC and disk storage. See below for details.
 // 3) Reading results - After any desired wrapping is performed, the Take*()
 //    methods yield the serialized value components passed to the backing store.
 //    To avoid unnecessary copies, the Take*() methods move out parts of the
@@ -49,22 +47,19 @@ class SerializedScriptValue;
 //    once.
 //
 // Example usage:
-//     auto wrapper = new IDBValueWrapper();
+//     IDBValueWrapper wrapper;
 //     wrapper.Clone(...);  // Structured clone used to extract keys.
 //     wrapper.DoneCloning();
-//     wrapper.WrapIfBiggerThan(kIDBWrapThreshold);
-//     wrapper.TakeWireBytes();
-//     wrapper.TakeBlobDataHandles();
-//     wrapper.TakeBlobInfo();
+//     std::unique_ptr<IDBValue> value = std::move(wrapper).Build();
 //
-// V8 values are stored on disk using the format implemented in
-// SerializedScriptValue (SSV), which is essentialy a byte array plus an array
-// of attached Blobs. For "normal" (not too large) V8 values, the SSV output's
-// byte array is stored directly in IndexedDB's backing store, together with
-// references to the attached Blobs.
+// V8 values are first serialized via SerializedScriptValue (SSV), which is
+// essentially a byte array plus an array of attached Blobs. The SSV output's
+// byte array is then further compressed via Snappy. If the compressed array is
+// not too large, it will be stored directly in IndexedDB's backing store,
+// together with references to the attached Blobs.
 //
-// "Large" V8 values are wrapped in Blobs, in order to avoid operating the
-// backing store in a sub-optimal region. Specifically, the byte array in the
+// Values that are still "large" after compression are converted into a Blob
+// (additional to those already attached). Specifically, the byte array in the
 // SSV output is replaced with a "wrapped value" marker, and stored inside a
 // Blob that is tacked to the end of the SSV's Blob array. IndexedDB's backing
 // store receives the "wrapped value" marker and the references to the Blobs,
@@ -72,16 +67,18 @@ class SerializedScriptValue;
 // system.
 //
 // In summary:
-// "normal" v8::Value -> SSV -> IDBValue (stores SSV output) -> LevelDB
-// "large" v8::Value -> SSV -> IDBValue (stores SSV output) ->
+// "normal" v8::Value -> SSV + Snappy -> IDBValue (stores SSV output) -> LevelDB
+// "large" v8::Value -> SSV + Snappy -> IDBValue (stores SSV output) ->
 //     Blob (stores SSV output) + IDBValue (stores Blob reference) -> LevelDB
 //
 // Full picture that accounts for Blob attachments:
-// "normal" v8::Value -> SSV (byte array, Blob attachments) ->
-//     IDBValue (bytes: SSV byte array, blobs: SSV Blob attachments) -> LevelDB
-// "large" v8::Value -> SSV (byte array, Blob attachments) ->
+// "normal" v8::Value -> SSV (byte array, Blob attachments) -> Snappy ->
+//     IDBValue (bytes: compressed SSV byte array, blobs: SSV Blob attachments)
+//     -> LevelDB
+// "large" v8::Value -> SSV (byte array, Blob attachments) -> Snappy ->
 //     IDBValue (bytes: "wrapped value" marker,
-//               blobs: SSV Blob attachments + [wrapper Blob(SSV byte array)] ->
+//               blobs: SSV Blob attachments +
+//                      [wrapper Blob(compressed SSV byte array)] ->
 //     LevelDB
 class MODULES_EXPORT IDBValueWrapper {
   DISALLOW_NEW();
@@ -99,7 +96,8 @@ class MODULES_EXPORT IDBValueWrapper {
       v8::Isolate*,
       v8::Local<v8::Value>,
       SerializedScriptValue::SerializeOptions::WasmSerializationPolicy,
-      ExceptionState&);
+      ExceptionState&,
+      bool backend_uses_sqlite);
   ~IDBValueWrapper();
 
   // Creates a clone of the serialized value.
@@ -118,56 +116,12 @@ class MODULES_EXPORT IDBValueWrapper {
   // is called, Clone() cannot be called anymore.
   void DoneCloning();
 
-  // Conditionally wraps the serialized value's byte array into a Blob.
-  //
-  // The byte array is wrapped if its size exceeds max_bytes. In production, the
-  // max_bytes threshold is currently always kIDBWrapThreshold.
-  //
-  // This method must be called before the Take*() methods are called.
-  bool WrapIfBiggerThan(unsigned max_bytes);
-
-  // Obtains the byte array for the serialized value.
+  // Transfers ownership of the serialized byte array, blob infos, and FSA
+  // tokens to the returned `IDBValue`.
   //
   // This method must be called at most once, and must be called after
   // WrapIfBiggerThan().
-  scoped_refptr<SharedBuffer> TakeWireBytes();
-
-  // Obtains the BlobDataHandles from the serialized value's Blob array.
-  //
-  // This method must be called at most once, and must be called after
-  // DoneCloning().
-  Vector<scoped_refptr<BlobDataHandle>> TakeBlobDataHandles() {
-#if DCHECK_IS_ON()
-    DCHECK(done_cloning_) << __func__ << " called before DoneCloning()";
-    DCHECK(owns_blob_handles_) << __func__ << " called twice";
-    owns_blob_handles_ = false;
-#endif  // DCHECK_IS_ON()
-
-    return std::move(blob_handles_);
-  }
-
-  // Obtains WebBlobInfos for the serialized value's Blob array.
-  //
-  // This method must be called at most once, and must be called after
-  // DoneCloning().
-  inline Vector<WebBlobInfo> TakeBlobInfo() {
-#if DCHECK_IS_ON()
-    DCHECK(done_cloning_) << __func__ << " called before DoneCloning()";
-    DCHECK(owns_blob_info_) << __func__ << " called twice";
-    owns_blob_info_ = false;
-#endif  // DCHECK_IS_ON()
-    return std::move(blob_info_);
-  }
-
-  Vector<mojo::PendingRemote<mojom::blink::FileSystemAccessTransferToken>>
-  TakeFileSystemAccessTransferTokens() {
-#if DCHECK_IS_ON()
-    DCHECK(done_cloning_) << __func__ << " called before DoneCloning()";
-    DCHECK(owns_file_system_handles_) << __func__ << " called twice";
-    owns_file_system_handles_ = false;
-#endif  // DCHECK_IS_ON()
-    return std::move(serialized_value_->FileSystemAccessTokens());
-  }
+  std::unique_ptr<IDBValue> Build() &&;
 
   size_t DataLengthBeforeWrapInBytes() { return original_data_length_; }
 
@@ -177,12 +131,33 @@ class MODULES_EXPORT IDBValueWrapper {
 
   // Used to serialize the wrapped value. Exposed for testing.
   static void WriteVarInt(unsigned value, Vector<char>& output);
-  static void WriteBytes(const Vector<uint8_t>& bytes, Vector<char>& output);
+
+  void set_wrapping_threshold_for_test(unsigned threshold) {
+    wrapping_threshold_override_ = threshold;
+  }
+
+  void set_compression_threshold_for_test(size_t threshold) {
+    compression_threshold_override_ = threshold;
+  }
 
  private:
+  // Evaluates if the specified uncompressed length merits a compression
+  // attempt.
+  bool ShouldCompress(size_t uncompressed_length) const;
+  // Tries to compress `wire_bytes_` via Snappy, storing the output in
+  // `wire_data_buffer_`. If the compression effect is small, the compression
+  // will be discarded and an uncompressed value will be stored in
+  // `wire_data_buffer_` (mainly to avoid an extra memory allocation when later
+  // reading the value).
+  void MaybeCompress();
+
+  // Stores `wire_bytes_` in a Blob if it is over the size threshold.
+  void MaybeStoreInBlob();
+
+  bool backend_uses_sqlite_;
+
   // V8 value serialization state.
   scoped_refptr<SerializedScriptValue> serialized_value_;
-  Vector<scoped_refptr<BlobDataHandle>> blob_handles_;
   Vector<WebBlobInfo> blob_info_;
 
   // Buffer for wire data that is not stored in SerializedScriptValue.
@@ -191,18 +166,19 @@ class MODULES_EXPORT IDBValueWrapper {
   Vector<char> wire_data_buffer_;
 
   // Points into SerializedScriptValue's data buffer, or into wire_data_buffer_.
-  base::span<const uint8_t> wire_data_;
+  // TODO(367764863) Rewrite to base::raw_span.
+  RAW_PTR_EXCLUSION base::span<const uint8_t> wire_data_;
 
   size_t original_data_length_ = 0;
+
+  std::optional<unsigned> wrapping_threshold_override_;
+  std::optional<size_t> compression_threshold_override_;
 
 #if DCHECK_IS_ON()
   // Accounting for lifecycle stages.
   bool had_exception_ = false;
   bool done_cloning_ = false;
-  bool owns_blob_handles_ = true;
-  bool owns_blob_info_ = true;
   bool owns_wire_bytes_ = true;
-  bool owns_file_system_handles_ = true;
 #endif  // DCHECK_IS_ON()
 };
 
@@ -226,13 +202,17 @@ class MODULES_EXPORT IDBValueUnwrapper {
   // True if at least one of the IDBValues' data was wrapped in a Blob.
   static bool IsWrapped(const Vector<std::unique_ptr<IDBValue>>&);
 
-  static bool IsWrapped(const Vector<Vector<std::unique_ptr<IDBValue>>>&);
+  // Unwraps an IDBValue that has wrapped Blob data, placing the result in
+  // `wrapped_value`.
+  static void Unwrap(Vector<char>&& wrapper_blob_content,
+                     IDBValue& wrapped_value);
 
-  // Unwraps an IDBValue that has wrapped Blob data.
-  //
-  // The caller should own the IDBValue (have a std::unique_ptr for it).
-  static void Unwrap(scoped_refptr<SharedBuffer>&& wrapper_blob_content,
-                     IDBValue* wrapped_value);
+  // Decompresses the value in `buffer` and stores in one of the two provided
+  // buffers (exactly one must be provided). Returns true on success.
+  static bool Decompress(
+      base::span<const uint8_t> buffer,
+      Vector<char>* out_buffer,
+      SerializedScriptValue::DataBufferPtr* out_buffer_in_place);
 
   // Parses the wrapper Blob information from a wrapped IDBValue.
   //
@@ -244,10 +224,7 @@ class MODULES_EXPORT IDBValueUnwrapper {
   // Returns the size of the Blob obtained by the last Unwrap() call.
   //
   // Should only be called after a successful result from Unwrap().
-  inline unsigned WrapperBlobSize() const {
-    DCHECK(end_);
-    return blob_size_;
-  }
+  inline unsigned WrapperBlobSize() const { return blob_size_; }
 
   // Returns a handle to the Blob obtained by the last Unwrap() call.
   //
@@ -255,7 +232,6 @@ class MODULES_EXPORT IDBValueUnwrapper {
   scoped_refptr<BlobDataHandle> WrapperBlobHandle();
 
  private:
-  // Only present in tests.
   friend class IDBValueUnwrapperReadTestHelper;
 
   // Used to deserialize the wrapped value.
@@ -265,14 +241,11 @@ class MODULES_EXPORT IDBValueUnwrapper {
   // Resets the parsing state.
   bool Reset();
 
-  // Deserialization cursor in the SharedBuffer of the IDBValue being unwrapped.
-  const uint8_t* current_;
-
-  // Smallest invalid position_ value.
-  const uint8_t* end_;
+  // Deserialization cursor in the `data_` of the IDBValue being unwrapped.
+  base::span<const uint8_t> parse_span_;
 
   // The size of the Blob holding the data for the last unwrapped IDBValue.
-  unsigned blob_size_;
+  unsigned blob_size_ = 0;
 
   // Handle to the Blob holding the data for the last unwrapped IDBValue.
   scoped_refptr<BlobDataHandle> blob_handle_;

@@ -48,6 +48,7 @@ class File;
 class FormControlState;
 class HTMLFormElement;
 class ScriptState;
+class ExecutionContext;
 
 class CORE_EXPORT FormData final : public ScriptWrappable,
                                    public PairSyncIterable<FormData> {
@@ -63,7 +64,7 @@ class CORE_EXPORT FormData final : public ScriptWrappable,
                           HTMLElement* submitter,
                           ExceptionState& exception_state);
 
-  explicit FormData(const WTF::TextEncoding&);
+  explicit FormData(const TextEncoding&);
   // Clones form_data.  This clones |form_data.entries_| Vector, but
   // doesn't clone entries in it because they are immutable.
   FormData(const FormData& form_data);
@@ -85,7 +86,7 @@ class CORE_EXPORT FormData final : public ScriptWrappable,
 
   // Internal functions.
 
-  const WTF::TextEncoding& Encoding() const { return encoding_; }
+  const TextEncoding& Encoding() const { return encoding_; }
   std::string Encode(const String& key) const;
   class Entry;
   const HeapVector<Member<const Entry>>& Entries() const { return entries_; }
@@ -101,19 +102,19 @@ class CORE_EXPORT FormData final : public ScriptWrappable,
   void SetContainsPasswordData(bool flag) { contains_password_data_ = flag; }
 
   scoped_refptr<EncodedFormData> EncodeFormData(
-      EncodedFormData::EncodingType = EncodedFormData::kFormURLEncoded);
+      EncodedFormData::EncodingType = EncodedFormData::kFormUrlEncoded);
   scoped_refptr<EncodedFormData> EncodeMultiPartFormData();
 
   void AppendToControlState(FormControlState& state) const;
-  static FormData* CreateFromControlState(const FormControlState& state,
+  static FormData* CreateFromControlState(ExecutionContext& execution_context,
+                                          const FormControlState& state,
                                           wtf_size_t& index);
 
  private:
   void SetEntry(const Entry*);
-  IterationSource* CreateIterationSource(ScriptState*,
-                                         ExceptionState&) override;
+  IterationSource* CreateIterationSource(ScriptState*) override;
 
-  WTF::TextEncoding encoding_;
+  TextEncoding encoding_;
   // Entry pointers in entries_ never be nullptr.
   HeapVector<Member<const Entry>> entries_;
   bool contains_password_data_ = false;
@@ -129,7 +130,7 @@ class FormData::Entry final : public GarbageCollected<FormData::Entry> {
   void Trace(Visitor*) const;
 
   bool IsString() const { return !blob_; }
-  bool isFile() const { return blob_; }
+  bool isFile() const { return blob_ != nullptr; }
   const String& name() const { return name_; }
   const String& Value() const { return value_; }
   Blob* GetBlob() const { return blob_.Get(); }

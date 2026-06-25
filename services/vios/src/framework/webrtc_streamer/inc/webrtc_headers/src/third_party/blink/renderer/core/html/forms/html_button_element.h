@@ -24,6 +24,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_BUTTON_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_BUTTON_ELEMENT_H_
 
+#include <utility>
+
+#include "third_party/blink/renderer/bindings/core/v8/script_iterator.h"
 #include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
 
@@ -35,6 +38,10 @@ class CORE_EXPORT HTMLButtonElement final : public HTMLFormControlElement {
  public:
   explicit HTMLButtonElement(Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLButtonElement;
+  }
+
   void setType(const AtomicString&);
 
   const AtomicString& Value() const;
@@ -45,12 +52,33 @@ class CORE_EXPORT HTMLButtonElement final : public HTMLFormControlElement {
                          mojom::blink::FocusType,
                          InputDeviceCapabilities*) override;
 
- private:
-  enum Type { kSubmit, kReset, kButton };
+  // This returns a <select> if this button has type=select and is a direct
+  // child of a <select>.
+  HTMLSelectElement* OwnerSelect() const;
 
-  const AtomicString& FormControlType() const override;
+  bool CanBeCommandInvoker() const override;
+  bool IsValidInterestInvoker(Element& target) const override;
+
+ protected:
+  bool SupportsBaseAppearanceInternal(
+      Element::BaseAppearanceValue) const override;
+
+ private:
+  // The type attribute of HTMLButtonElement is an enumerated attribute:
+  // https://html.spec.whatwg.org/multipage/form-elements.html#attr-button-type
+  // These values are a subset of the `FormControlType` enum. They have the same
+  // binary representation so that FormControlType() reduces to a type cast.
+  enum Type : std::underlying_type_t<mojom::blink::FormControlType> {
+    kSubmit = std::to_underlying(mojom::blink::FormControlType::kButtonSubmit),
+    kReset = std::to_underlying(mojom::blink::FormControlType::kButtonReset),
+    kButton = std::to_underlying(mojom::blink::FormControlType::kButtonButton),
+  };
+
+  mojom::blink::FormControlType FormControlType() const override;
+  const AtomicString& FormControlTypeAsString() const override;
 
   LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
+  void AdjustStyle(ComputedStyleBuilder&) override;
 
   // HTMLFormControlElement always creates one, but buttons don't need it.
   bool AlwaysCreateUserAgentShadowRoot() const override { return false; }
@@ -86,6 +114,15 @@ class CORE_EXPORT HTMLButtonElement final : public HTMLFormControlElement {
   bool RecalcWillValidate() const override;
 
   int DefaultTabIndex() const override;
+
+  static Element* RetrieveCommandForTargetElement(const HTMLElement& invoker);
+  static AtomicString GetCommand(const AtomicString& action,
+                                 ExecutionContext* execution_context);
+  bool IsFormAssociatedSubmitButton() const;
+
+  static std::optional<Type> TypeFromString(const AtomicString&);
+
+  void SetTypeInternal(Type type);
 
   Type type_ = kSubmit;
   bool is_activated_submit_ = false;

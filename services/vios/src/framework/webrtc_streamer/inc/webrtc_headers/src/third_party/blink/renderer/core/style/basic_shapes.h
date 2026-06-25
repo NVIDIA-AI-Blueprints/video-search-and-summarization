@@ -30,15 +30,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_BASIC_SHAPES_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_BASIC_SHAPES_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/geometry/length.h"
 #include "third_party/blink/renderer/platform/geometry/length_size.h"
-#include "third_party/blink/renderer/platform/graphics/graphics_types.h"
-#include "third_party/blink/renderer/platform/graphics/path.h"
-#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "third_party/blink/renderer/platform/geometry/path_types.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
-#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace gfx {
@@ -51,28 +48,28 @@ namespace blink {
 
 class Path;
 
-class CORE_EXPORT BasicShape : public RefCounted<BasicShape> {
-  USING_FAST_MALLOC(BasicShape);
-
+class CORE_EXPORT BasicShape : public GarbageCollected<BasicShape> {
  public:
   virtual ~BasicShape() = default;
+  virtual void Trace(Visitor*) const {}
 
   enum ShapeType {
     kBasicShapeEllipseType,
     kBasicShapePolygonType,
     kBasicShapeCircleType,
     kBasicShapeInsetType,
-    kBasicShapeRectType,
-    kBasicShapeXYWHType,
     kStyleRayType,
-    kStylePathType
+    kStylePathType,
+    kStyleShapeType,
   };
 
   bool IsSameType(const BasicShape& other) const {
     return GetType() == other.GetType();
   }
 
-  virtual void GetPath(Path&, const gfx::RectF&, float zoom) const = 0;
+  virtual Path GetPath(const gfx::RectF&,
+                       float zoom,
+                       float path_scale) const = 0;
   bool operator==(const BasicShape& o) const {
     return IsSameType(o) && IsEqualAssumingSameType(o);
   }
@@ -163,10 +160,9 @@ class BasicShapeWithCenterAndRadii : public BasicShape {
   const BasicShapeCenterCoordinate& CenterX() const { return center_x_; }
   const BasicShapeCenterCoordinate& CenterY() const { return center_y_; }
 
-  virtual void GetPathFromCenter(Path&,
-                                 const gfx::PointF&,
+  virtual Path GetPathFromCenter(const gfx::PointF&,
                                  const gfx::RectF&,
-                                 float) const = 0;
+                                 float path_scale) const = 0;
 
  protected:
   BasicShapeCenterCoordinate center_x_;
@@ -187,9 +183,7 @@ struct DowncastTraits<BasicShapeWithCenterAndRadii> {
 
 class CORE_EXPORT BasicShapeCircle final : public BasicShapeWithCenterAndRadii {
  public:
-  static scoped_refptr<BasicShapeCircle> Create() {
-    return base::AdoptRef(new BasicShapeCircle);
-  }
+  BasicShapeCircle() = default;
 
   const BasicShapeRadius& Radius() const { return radius_; }
 
@@ -197,9 +191,8 @@ class CORE_EXPORT BasicShapeCircle final : public BasicShapeWithCenterAndRadii {
                                  const gfx::SizeF& box_size) const;
   void SetRadius(BasicShapeRadius radius) { radius_ = radius; }
 
-  void GetPath(Path&, const gfx::RectF&, float) const override;
-  void GetPathFromCenter(Path&,
-                         const gfx::PointF&,
+  Path GetPath(const gfx::RectF&, float, float) const override;
+  Path GetPathFromCenter(const gfx::PointF&,
                          const gfx::RectF&,
                          float) const override;
 
@@ -209,8 +202,6 @@ class CORE_EXPORT BasicShapeCircle final : public BasicShapeWithCenterAndRadii {
   bool IsEqualAssumingSameType(const BasicShape&) const override;
 
  private:
-  BasicShapeCircle() = default;
-
   BasicShapeRadius radius_;
 };
 
@@ -223,9 +214,7 @@ struct DowncastTraits<BasicShapeCircle> {
 
 class BasicShapeEllipse final : public BasicShapeWithCenterAndRadii {
  public:
-  static scoped_refptr<BasicShapeEllipse> Create() {
-    return base::AdoptRef(new BasicShapeEllipse);
-  }
+  BasicShapeEllipse() = default;
 
   const BasicShapeRadius& RadiusX() const { return radius_x_; }
   const BasicShapeRadius& RadiusY() const { return radius_y_; }
@@ -236,9 +225,8 @@ class BasicShapeEllipse final : public BasicShapeWithCenterAndRadii {
   void SetRadiusX(BasicShapeRadius radius_x) { radius_x_ = radius_x; }
   void SetRadiusY(BasicShapeRadius radius_y) { radius_y_ = radius_y; }
 
-  void GetPath(Path&, const gfx::RectF&, float) const override;
-  void GetPathFromCenter(Path&,
-                         const gfx::PointF&,
+  Path GetPath(const gfx::RectF&, float, float) const override;
+  Path GetPathFromCenter(const gfx::PointF&,
                          const gfx::RectF&,
                          float) const override;
 
@@ -248,7 +236,6 @@ class BasicShapeEllipse final : public BasicShapeWithCenterAndRadii {
   bool IsEqualAssumingSameType(const BasicShape&) const override;
 
  private:
-  BasicShapeEllipse() = default;
 
   BasicShapeRadius radius_x_;
   BasicShapeRadius radius_y_;
@@ -263,19 +250,23 @@ struct DowncastTraits<BasicShapeEllipse> {
 
 class BasicShapePolygon final : public BasicShape {
  public:
-  static scoped_refptr<BasicShapePolygon> Create() {
-    return base::AdoptRef(new BasicShapePolygon);
-  }
+  BasicShapePolygon()
+      : wind_rule_(RULE_NONZERO), rounding_radius_(Length::Fixed(0)) {}
 
   const Vector<Length>& Values() const { return values_; }
+  bool HasRoundingRadius() const { return !rounding_radius_.IsZero(); }
+  const Length& RoundingRadius() const { return rounding_radius_; }
 
   void SetWindRule(WindRule wind_rule) { wind_rule_ = wind_rule; }
+  void SetRoundingRadius(const Length& rounding_radius) {
+    rounding_radius_ = rounding_radius;
+  }
   void AppendPoint(const Length& x, const Length& y) {
     values_.push_back(x);
     values_.push_back(y);
   }
 
-  void GetPath(Path&, const gfx::RectF&, float) const override;
+  Path GetPath(const gfx::RectF&, float, float) const override;
 
   WindRule GetWindRule() const { return wind_rule_; }
 
@@ -285,9 +276,8 @@ class BasicShapePolygon final : public BasicShape {
   bool IsEqualAssumingSameType(const BasicShape&) const override;
 
  private:
-  BasicShapePolygon() : wind_rule_(RULE_NONZERO) {}
-
   WindRule wind_rule_;
+  Length rounding_radius_;
   Vector<Length> values_;
 };
 
@@ -298,8 +288,13 @@ struct DowncastTraits<BasicShapePolygon> {
   }
 };
 
-class BasicShapeRectCommon : public BasicShape {
+class BasicShapeInset final : public BasicShape {
  public:
+  BasicShapeInset() = default;
+
+  ShapeType GetType() const override { return kBasicShapeInsetType; }
+  Path GetPath(const gfx::RectF&, float, float) const override;
+
   const Length& Top() const { return top_; }
   const Length& Right() const { return right_; }
   const Length& Bottom() const { return bottom_; }
@@ -326,10 +321,8 @@ class BasicShapeRectCommon : public BasicShape {
     bottom_left_radius_ = radius;
   }
 
- protected:
-  BasicShapeRectCommon() = default;
+ private:
 
- protected:
   bool IsEqualAssumingSameType(const BasicShape&) const override;
 
   Length right_;
@@ -343,105 +336,10 @@ class BasicShapeRectCommon : public BasicShape {
   LengthSize bottom_left_radius_;
 };
 
-class BasicShapeInset final : public BasicShapeRectCommon {
- public:
-  static scoped_refptr<BasicShapeInset> Create() {
-    return base::AdoptRef(new BasicShapeInset);
-  }
-
-  ShapeType GetType() const override { return kBasicShapeInsetType; }
-  void GetPath(Path&, const gfx::RectF&, float) const override;
-};
-
 template <>
 struct DowncastTraits<BasicShapeInset> {
   static bool AllowFrom(const BasicShape& value) {
     return value.GetType() == BasicShape::kBasicShapeInsetType;
-  }
-};
-
-class BasicShapeRect final : public BasicShapeRectCommon {
- public:
-  static scoped_refptr<BasicShapeRect> Create() {
-    return base::AdoptRef(new BasicShapeRect);
-  }
-
-  ShapeType GetType() const override { return kBasicShapeRectType; }
-  void GetPath(Path&, const gfx::RectF&, float) const override;
-};
-
-template <>
-struct DowncastTraits<BasicShapeRect> {
-  static bool AllowFrom(const BasicShape& value) {
-    return value.GetType() == BasicShape::kBasicShapeRectType;
-  }
-};
-
-template <>
-struct DowncastTraits<BasicShapeRectCommon> {
-  static bool AllowFrom(const BasicShape& value) {
-    return value.GetType() == BasicShape::kBasicShapeRectType ||
-           value.GetType() == BasicShape::kBasicShapeInsetType;
-  }
-};
-
-class BasicShapeXYWH : public BasicShape {
- public:
-  static scoped_refptr<BasicShapeXYWH> Create() {
-    return base::AdoptRef(new BasicShapeXYWH);
-  }
-
-  const Length& X() const { return x_; }
-  const Length& Y() const { return y_; }
-  const Length& Width() const { return width_; }
-  const Length& Height() const { return height_; }
-
-  const LengthSize& TopLeftRadius() const { return top_left_radius_; }
-  const LengthSize& TopRightRadius() const { return top_right_radius_; }
-  const LengthSize& BottomRightRadius() const { return bottom_right_radius_; }
-  const LengthSize& BottomLeftRadius() const { return bottom_left_radius_; }
-
-  void SetX(const Length& x) { x_ = x; }
-  void SetY(const Length& y) { y_ = y; }
-  void SetWidth(const Length& width) { width_ = width; }
-  void SetHeight(const Length& height) { height_ = height; }
-
-  void SetTopLeftRadius(const LengthSize& radius) { top_left_radius_ = radius; }
-  void SetTopRightRadius(const LengthSize& radius) {
-    top_right_radius_ = radius;
-  }
-  void SetBottomRightRadius(const LengthSize& radius) {
-    bottom_right_radius_ = radius;
-  }
-  void SetBottomLeftRadius(const LengthSize& radius) {
-    bottom_left_radius_ = radius;
-  }
-
-  void GetPath(Path&, const gfx::RectF&, float) const override;
-  ShapeType GetType() const override { return kBasicShapeXYWHType; }
-
- protected:
-  BasicShapeXYWH() = default;
-
- protected:
-  bool IsEqualAssumingSameType(const BasicShape&) const override;
-
- private:
-  Length x_;
-  Length y_;
-  Length width_;
-  Length height_;
-
-  LengthSize top_left_radius_;
-  LengthSize top_right_radius_;
-  LengthSize bottom_right_radius_;
-  LengthSize bottom_left_radius_;
-};
-
-template <>
-struct DowncastTraits<BasicShapeXYWH> {
-  static bool AllowFrom(const BasicShape& value) {
-    return value.GetType() == BasicShape::kBasicShapeXYWHType;
   }
 };
 

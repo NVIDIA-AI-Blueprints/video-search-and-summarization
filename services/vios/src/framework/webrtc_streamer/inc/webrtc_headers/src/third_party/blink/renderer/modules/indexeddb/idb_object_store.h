@@ -28,18 +28,14 @@
 
 #include "base/dcheck_is_on.h"
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/public/common/indexeddb/web_idb_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_idb_index_parameters.h"
-#include "third_party/blink/renderer/modules/indexeddb/idb_cursor.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_index.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_key.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_key_range.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_metadata.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_request.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_transaction.h"
-#include "third_party/blink/renderer/modules/indexeddb/web_idb_cursor.h"
-#include "third_party/blink/renderer/modules/indexeddb/web_idb_database.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -48,6 +44,7 @@ namespace blink {
 
 class DOMStringList;
 class ExceptionState;
+class IDBGetAllOptions;
 
 class MODULES_EXPORT IDBObjectStore final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -78,33 +75,31 @@ class MODULES_EXPORT IDBObjectStore final : public ScriptWrappable {
 
   IDBRequest* openCursor(ScriptState*,
                          const ScriptValue& range,
-                         const String& direction,
+                         const V8IDBCursorDirection& direction,
                          ExceptionState&);
   IDBRequest* openKeyCursor(ScriptState*,
                             const ScriptValue& range,
-                            const String& direction,
+                            const V8IDBCursorDirection& direction,
                             ExceptionState&);
   IDBRequest* get(ScriptState*, const ScriptValue& key, ExceptionState&);
   IDBRequest* getKey(ScriptState*, const ScriptValue& key, ExceptionState&);
   IDBRequest* getAll(ScriptState*,
-                     const ScriptValue& range,
+                     const ScriptValue& range_or_options,
                      uint32_t max_count,
                      ExceptionState&);
-  IDBRequest* getAll(ScriptState*, const ScriptValue& range, ExceptionState&);
+  IDBRequest* getAll(ScriptState*,
+                     const ScriptValue& range_or_options,
+                     ExceptionState&);
   IDBRequest* getAllKeys(ScriptState*,
-                         const ScriptValue& range,
+                         const ScriptValue& range_or_options,
                          uint32_t max_count,
                          ExceptionState&);
   IDBRequest* getAllKeys(ScriptState*,
-                         const ScriptValue& range,
+                         const ScriptValue& range_or_options,
                          ExceptionState&);
-  IDBRequest* batchGetAll(ScriptState*,
-                          const HeapVector<ScriptValue>& ranges,
-                          uint32_t max_count,
-                          ExceptionState&);
-  IDBRequest* batchGetAll(ScriptState*,
-                          const HeapVector<ScriptValue>& ranges,
-                          ExceptionState&);
+  IDBRequest* getAllRecords(ScriptState*,
+                            const IDBGetAllOptions*,
+                            ExceptionState&);
   IDBRequest* add(ScriptState*, const ScriptValue& value, ExceptionState&);
   IDBRequest* add(ScriptState*,
                   const ScriptValue& value,
@@ -199,7 +194,7 @@ class MODULES_EXPORT IDBObjectStore final : public ScriptWrappable {
   }
   void RenameIndex(int64_t index_id, const String& new_name);
 
-  WebIDBDatabase* BackendDB() const;
+  IDBDatabase& db() const;
 
  private:
   using IDBIndexMap = HeapHashMap<String, Member<IDBIndex>>;
@@ -216,6 +211,12 @@ class MODULES_EXPORT IDBObjectStore final : public ScriptWrappable {
                     ExceptionState&);
 
   int64_t FindIndexId(const String& name) const;
+
+  IDBRequest* CreateGetAllRequest(IDBRequest::TypeForMetrics,
+                                  ScriptState*,
+                                  const IDBGetAllOptions& options,
+                                  mojom::blink::IDBGetAllResultType,
+                                  ExceptionState&);
 
   // The IDBObjectStoreMetadata is shared with the object store map in the
   // database's metadata.

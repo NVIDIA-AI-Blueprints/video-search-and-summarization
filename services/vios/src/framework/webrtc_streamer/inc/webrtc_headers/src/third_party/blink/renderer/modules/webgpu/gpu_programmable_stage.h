@@ -5,9 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGPU_GPU_PROGRAMMABLE_STAGE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGPU_GPU_PROGRAMMABLE_STAGE_H_
 
-#include <dawn/webgpu.h>
 #include <memory>
+#include <optional>
 #include <string>
+
+#include "third_party/blink/renderer/platform/graphics/gpu/webgpu_cpp.h"
 
 namespace blink {
 
@@ -24,9 +26,9 @@ struct OwnedProgrammableStage {
       delete;
   OwnedProgrammableStage& operator=(OwnedProgrammableStage&& desc) = delete;
 
-  std::string entry_point;
+  std::optional<std::string> entry_point;
   std::unique_ptr<std::string[]> constantKeys;
-  std::unique_ptr<WGPUConstantEntry[]> constants;
+  std::unique_ptr<wgpu::ConstantEntry[]> constants;
   uint32_t constantCount = 0;
 };
 

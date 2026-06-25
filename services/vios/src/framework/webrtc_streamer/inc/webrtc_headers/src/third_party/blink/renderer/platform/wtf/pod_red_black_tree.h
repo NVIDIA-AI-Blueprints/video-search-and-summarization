@@ -23,51 +23,48 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// A red-black tree, which is a form of a balanced binary tree. It
-// supports efficient insertion, deletion and queries of comparable
-// elements. The same element may be inserted multiple times. The
-// algorithmic complexity of common operations is:
+// A red-black tree, which is a form of a balanced binary tree. It supports
+// efficient insertion, deletion and queries of comparable elements. The same
+// element may be inserted multiple times. The algorithmic complexity of common
+// operations is:
 //
 //   Insertion: O(lg(n))
 //   Deletion:  O(lg(n))
 //   Querying:  O(lg(n))
 //
-// The data type T that is stored in this red-black tree must be only
-// Plain Old Data (POD), or bottom out into POD. It must _not_ rely on
-// having its destructor called. This implementation internally
-// allocates storage in large chunks and does not call the destructor
-// on each object.
+// The data type T that is stored in this red-black tree must be only Plain Old
+// Data (POD), or bottom out into POD. It must _not_ rely on having its
+// destructor called. This implementation internally allocates storage in large
+// chunks and does not call the destructor on each object.
 //
-// Type T must supply a default constructor, a copy constructor, and
-// the "<" and "==" operators.
+// Type T must supply a default constructor, a copy constructor, and the "<"
+// and "==" operators.
 //
-// In debug mode, printing of the data contained in the tree is
-// enabled. This requires the template specialization to be available:
+// In debug mode, printing of the data contained in the tree is enabled. This
+// requires the template specialization to be available:
 //
 //   template<> struct ValueToString<T> {
 //       static String toString(const T& t);
 //   };
 //
-// Note that when complex types are stored in this red/black tree, it
-// is possible that single invocations of the "<" and "==" operators
-// will be insufficient to describe the ordering of elements in the
-// tree during queries. As a concrete example, consider the case where
-// intervals are stored in the tree sorted by low endpoint. The "<"
-// operator on the Interval class only compares the low endpoint, but
-// the "==" operator takes into account the high endpoint as well.
-// This makes the necessary logic for querying and deletion somewhat
-// more complex. In order to properly handle such situations, the
-// property "needsFullOrderingComparisons" must be set to true on
-// the tree.
+// Note that when complex types are stored in this red/black tree, it is
+// possible that single invocations of the "<" and "==" operators will be
+// insufficient to describe the ordering of elements in the tree during
+// queries. As a concrete example, consider the case where intervals are stored
+// in the tree sorted by low endpoint. The "<" operator on the Interval class
+// only compares the low endpoint, but the "==" operator takes into account the
+// high endpoint as well. This makes the necessary logic for querying and
+// deletion somewhat more complex. In order to properly handle such situations,
+// this implementation performs full ordering comparisons during tree searches.
 //
-// This red-black tree is designed to be _augmented_; subclasses can
-// add additional and summary information to each node to efficiently
-// store and index more complex data structures. A concrete example is
-// the IntervalTree, which extends each node with a summary statistic
-// to efficiently store one-dimensional intervals.
+// This red-black tree is designed to be _augmented_; subclasses can add
+// additional and summary information to each node to efficiently store and
+// index more complex data structures. A concrete example is the IntervalTree,
+// which extends each node with a summary statistic to efficiently store
+// one-dimensional intervals.
 //
-// The design of this red-black tree comes from Cormen, Leiserson,
-// and Rivest, _Introduction to Algorithms_, MIT Press, 1990.
+// The design of this red-black tree comes from Cormen, Leiserson, and Rivest,
+// _Introduction to Algorithms_, MIT Press, 1990.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_POD_RED_BLACK_TREE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_POD_RED_BLACK_TREE_H_
@@ -80,102 +77,40 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #endif
 
-namespace WTF {
+namespace blink {
 
 #ifndef NDEBUG
 template <class T>
 struct ValueToString;
 #endif
 
-enum UninitializedTreeEnum { kUninitializedTree };
-
 template <class T>
-class PODRedBlackTree {
+class PodRedBlackTree {
   DISALLOW_NEW();
 
  public:
   class Node;
 
-  // Visitor interface for walking all of the tree's elements.
-  class Visitor {
-   public:
-    virtual void Visit(const T& data) = 0;
-
-   protected:
-    virtual ~Visitor() = default;
-  };
-
-  // Constructs a new red-black tree without allocating an arena.
-  // isInitialized will return false in this case. initIfNeeded can be used
-  // to init the structure. This constructor is usefull for creating
-  // lazy initialized tree.
-  explicit PODRedBlackTree(UninitializedTreeEnum)
-      : root_(nullptr),
-        needs_full_ordering_comparisons_(false)
-#ifndef NDEBUG
-        ,
-        verbose_debugging_(false)
-#endif
-  {
-  }
-
   // Constructs a new red-black tree, allocating temporary objects
-  // from a newly constructed PODFreeListArena.
-  PODRedBlackTree()
-      : arena_(PODFreeListArena<Node>::Create()),
-        root_(nullptr),
-        needs_full_ordering_comparisons_(false)
+  // from a newly constructed PodFreeListArena.
+  PodRedBlackTree()
+      : arena_(PodFreeListArena<Node>::Create()),
+        root_(nullptr)
 #ifndef NDEBUG
         ,
         verbose_debugging_(false)
 #endif
   {
   }
-
-  // Constructs a new red-black tree, allocating temporary objects
-  // from the given PODArena.
-  explicit PODRedBlackTree(scoped_refptr<PODFreeListArena<Node>> arena)
-      : arena_(std::move(arena)),
-        root_(nullptr),
-        needs_full_ordering_comparisons_(false)
-#ifndef NDEBUG
-        ,
-        verbose_debugging_(false)
-#endif
-  {
-  }
-
-  virtual ~PODRedBlackTree() = default;
-
-  // Clearing will delete the contents of the tree. After this call
-  // isInitialized will return false.
-  void Clear() {
-    MarkFree(root_);
-    arena_ = nullptr;
-    root_ = nullptr;
-  }
-
-  bool IsInitialized() const { return arena_.get(); }
-
-  void InitIfNeeded() {
-    if (!arena_)
-      arena_ = PODFreeListArena<Node>::Create();
-  }
-
-  void InitIfNeeded(PODFreeListArena<Node>* arena) {
-    if (!arena_)
-      arena_ = arena;
-  }
+  virtual ~PodRedBlackTree() = default;
 
   void Add(const T& data) {
-    DCHECK(IsInitialized());
     Node* node = arena_->template AllocateObject<T>(data);
     InsertNode(node);
   }
 
   // Returns true if the datum was found in the tree.
   bool Remove(const T& data) {
-    DCHECK(IsInitialized());
     Node* node = TreeSearch(data);
     if (node) {
       DeleteNode(node);
@@ -185,31 +120,10 @@ class PODRedBlackTree {
   }
 
   bool Contains(const T& data) const {
-    DCHECK(IsInitialized());
     return TreeSearch(data);
   }
 
-  void VisitInorder(Visitor* visitor) const {
-    DCHECK(IsInitialized());
-    if (!root_)
-      return;
-    VisitInorderImpl(root_, visitor);
-  }
-
-  int size() const {
-    DCHECK(IsInitialized());
-    Counter counter;
-    VisitInorder(&counter);
-    return counter.Count();
-  }
-
-  // See the class documentation for an explanation of this property.
-  void SetNeedsFullOrderingComparisons(bool needs_full_ordering_comparisons) {
-    needs_full_ordering_comparisons_ = needs_full_ordering_comparisons;
-  }
-
   virtual bool CheckInvariants() const {
-    DCHECK(IsInitialized());
     int black_count;
     return CheckInvariantsFromNode(root_, &black_count);
   }
@@ -217,10 +131,7 @@ class PODRedBlackTree {
 #ifndef NDEBUG
   // Dumps the tree's contents to the logging info stream for
   // debugging purposes.
-  void Dump() const {
-    if (arena_)
-      DumpFromNode(root_, 0);
-  }
+  void Dump() const { DumpFromNode(root_, 0); }
 
   // Turns on or off verbose debugging of the tree, causing many
   // messages to be logged during insertion and other operations in
@@ -309,42 +220,25 @@ class PODRedBlackTree {
 
   // Searches the tree for the given datum.
   Node* TreeSearch(const T& data) const {
-    if (needs_full_ordering_comparisons_)
-      return TreeSearchFullComparisons(root_, data);
-
-    return TreeSearchNormal(root_, data);
-  }
-
-  // Searches the tree using the normal comparison operations,
-  // suitable for simple data types such as numbers.
-  Node* TreeSearchNormal(Node* current, const T& data) const {
-    while (current) {
-      if (current->Data() == data)
-        return current;
-      if (data < current->Data())
-        current = current->Left();
-      else
-        current = current->Right();
-    }
-    return nullptr;
+    return TreeSearchFromNode(root_, data);
   }
 
   // Searches the tree using multiple comparison operations, required
   // for data types with more complex behavior such as intervals.
-  Node* TreeSearchFullComparisons(Node* current, const T& data) const {
+  Node* TreeSearchFromNode(Node* current, const T& data) const {
     if (!current)
       return nullptr;
     if (data < current->Data())
-      return TreeSearchFullComparisons(current->Left(), data);
+      return TreeSearchFromNode(current->Left(), data);
     if (current->Data() < data)
-      return TreeSearchFullComparisons(current->Right(), data);
+      return TreeSearchFromNode(current->Right(), data);
     if (data == current->Data())
       return current;
 
     // We may need to traverse both the left and right subtrees.
-    Node* result = TreeSearchFullComparisons(current->Left(), data);
+    Node* result = TreeSearchFromNode(current->Left(), data);
     if (!result)
-      result = TreeSearchFullComparisons(current->Right(), data);
+      result = TreeSearchFromNode(current->Right(), data);
     return result;
   }
 
@@ -473,7 +367,7 @@ class PODRedBlackTree {
     x->SetColor(kRed);
     UpdateNode(x);
 
-    LogIfVerbose("  PODRedBlackTree::InsertNode");
+    LogIfVerbose("  PodRedBlackTree::InsertNode");
 
     // The node from which to start propagating updates upwards.
     Node* update_start = x->Parent();
@@ -681,15 +575,6 @@ class PODRedBlackTree {
     arena_->FreeObject(y);
   }
 
-  // Visits the subtree rooted at the given node in order.
-  void VisitInorderImpl(Node* node, Visitor* visitor) const {
-    if (node->Left())
-      VisitInorderImpl(node->Left(), visitor);
-    visitor->Visit(node->Data());
-    if (node->Right())
-      VisitInorderImpl(node->Right(), visitor);
-  }
-
   void MarkFree(Node* node) {
     if (!node)
       return;
@@ -700,25 +585,6 @@ class PODRedBlackTree {
       MarkFree(node->Right());
     arena_->FreeObject(node);
   }
-
-  //----------------------------------------------------------------------
-  // Helper class for size()
-
-  // A Visitor which simply counts the number of visited elements.
-  class Counter final : public Visitor {
-    DISALLOW_NEW();
-
-   public:
-    Counter() : count_(0) {}
-    Counter(const Counter&) = delete;
-    Counter& operator=(const Counter&) = delete;
-
-    void Visit(const T&) override { ++count_; }
-    int Count() const { return count_; }
-
-   private:
-    int count_;
-  };
 
   //----------------------------------------------------------------------
   // Verification and debugging routines
@@ -776,7 +642,7 @@ class PODRedBlackTree {
     builder.Append('-');
     if (node) {
       builder.Append(' ');
-      builder.Append(ValueToString<T>::GetString(node->Data()));
+      builder.Append(blink::ValueToString<T>::GetString(node->Data()));
       builder.Append((node->GetColor() == kBlack) ? " (black)" : " (red)");
     }
     DLOG(ERROR) << builder.ToString();
@@ -790,14 +656,13 @@ class PODRedBlackTree {
   //----------------------------------------------------------------------
   // Data members
 
-  scoped_refptr<PODFreeListArena<Node>> arena_;
+  scoped_refptr<PodFreeListArena<Node>> arena_;
   Node* root_;
-  bool needs_full_ordering_comparisons_;
 #ifndef NDEBUG
   bool verbose_debugging_;
 #endif
 };
 
-}  // namespace WTF
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_POD_RED_BLACK_TREE_H_

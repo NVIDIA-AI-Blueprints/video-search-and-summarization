@@ -59,8 +59,10 @@ class BLINK_EXPORT WebBlob {
   }
 
   static WebBlob CreateFromSerializedBlob(mojom::SerializedBlobPtr blob);
-  static WebBlob CreateFromFile(const WebString& path, uint64_t size);
-  static WebBlob FromV8Value(v8::Local<v8::Value>);
+  static WebBlob CreateFromFile(v8::Isolate* isolate,
+                                const WebString& path,
+                                uint64_t size);
+  static WebBlob FromV8Value(v8::Isolate* isolate, v8::Local<v8::Value>);
 
   void Reset();
   void Assign(const WebBlob&);
@@ -76,7 +78,7 @@ class BLINK_EXPORT WebBlob {
 #endif
 
  protected:
-  WebPrivatePtr<Blob> private_;
+  WebPrivatePtrForGC<Blob> private_;
 };
 
 }  // namespace blink

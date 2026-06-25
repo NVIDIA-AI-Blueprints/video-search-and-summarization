@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_MESSAGING_BLINK_TRANSFERABLE_MESSAGE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_MESSAGING_BLINK_TRANSFERABLE_MESSAGE_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/public/common/messaging/accelerated_image_info.h"
 #include "third_party/blink/public/common/messaging/message_port_channel.h"
 #include "third_party/blink/public/common/messaging/transferable_message.h"
@@ -40,7 +41,7 @@ struct CORE_EXPORT BlinkTransferableMessage : BlinkCloneableMessage {
   mojom::blink::DelegatedCapability delegated_capability =
       mojom::blink::DelegatedCapability::kNone;
 
-  absl::optional<scheduler::TaskAttributionId> parent_task_id;
+  std::optional<scheduler::TaskAttributionId> task_state_id;
 };
 
 CORE_EXPORT scoped_refptr<blink::StaticBitmapImage> ToStaticBitmapImage(
@@ -50,18 +51,5 @@ CORE_EXPORT scoped_refptr<blink::StaticBitmapImage> WrapAcceleratedBitmapImage(
     AcceleratedImageInfo image);
 
 }  // namespace blink
-
-namespace WTF {
-
-template <>
-struct CrossThreadCopier<blink::BlinkTransferableMessage> {
-  STATIC_ONLY(CrossThreadCopier);
-  using Type = blink::BlinkTransferableMessage;
-  static Type Copy(Type pointer) {
-    return pointer;  // This is in fact a move.
-  }
-};
-
-}  // namespace WTF
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_MESSAGING_BLINK_TRANSFERABLE_MESSAGE_H_

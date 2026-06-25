@@ -10,8 +10,8 @@
 
 #import <AVFoundation/AVFoundation.h>
 
-#import "RTCMacros.h"
 #import "RTCVideoFrameBuffer.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -40,9 +40,9 @@ RTC_OBJC_EXPORT
 - (BOOL)requiresScalingToWidth:(int)width height:(int)height;
 - (int)bufferSizeForCroppingAndScalingToWidth:(int)width height:(int)height;
 
-/** The minimum size of the `tmpBuffer` must be the number of bytes returned from the
- * bufferSizeForCroppingAndScalingToWidth:height: method.
- * If that size is 0, the `tmpBuffer` may be nil.
+/** The minimum size of the `tmpBuffer` must be the number of bytes returned
+ * from the bufferSizeForCroppingAndScalingToWidth:height: method. If that size
+ * is 0, the `tmpBuffer` may be nil.
  */
 - (BOOL)cropAndScaleTo:(CVPixelBufferRef)outputPixelBuffer
         withTempBuffer:(nullable uint8_t *)tmpBuffer;

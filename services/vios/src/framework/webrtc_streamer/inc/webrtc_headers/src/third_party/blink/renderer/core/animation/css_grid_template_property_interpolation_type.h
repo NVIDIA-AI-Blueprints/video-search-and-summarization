@@ -9,6 +9,8 @@
 
 namespace blink {
 
+class CSSProperty;
+
 class CSSGridTemplatePropertyInterpolationType : public CSSInterpolationType {
  public:
   explicit CSSGridTemplatePropertyInterpolationType(PropertyHandle property)
@@ -31,8 +33,9 @@ class CSSGridTemplatePropertyInterpolationType : public CSSInterpolationType {
                  const InterpolationValue& value,
                  double interpolation_fraction) const final;
 
-  static std::unique_ptr<InterpolableValue> CreateInterpolableGridTrackList(
-      const NGGridTrackList& track_list,
+  static InterpolableValue* CreateInterpolableGridTrackList(
+      const GridTrackList& track_list,
+      const CSSProperty& property,
       float zoom);
 
  private:
@@ -43,7 +46,7 @@ class CSSGridTemplatePropertyInterpolationType : public CSSInterpolationType {
   InterpolationValue MaybeConvertInherit(const StyleResolverState&,
                                          ConversionCheckers&) const final;
   InterpolationValue MaybeConvertValue(const CSSValue&,
-                                       const StyleResolverState*,
+                                       const StyleResolverState&,
                                        ConversionCheckers&) const final;
 
   CSSPropertyID property_id_;
@@ -51,4 +54,4 @@ class CSSGridTemplatePropertyInterpolationType : public CSSInterpolationType {
 
 }  // namespace blink
 
-#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_CSS_GRID_TRACK_LIST_INTERPOLATION_TYPE_H_
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_CSS_GRID_TEMPLATE_PROPERTY_INTERPOLATION_TYPE_H_

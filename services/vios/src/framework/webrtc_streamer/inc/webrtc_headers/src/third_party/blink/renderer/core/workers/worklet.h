@@ -6,10 +6,12 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_WORKERS_WORKLET_H_
 
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_request_credentials.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/workers/worklet_global_scope_proxy.h"
 #include "third_party/blink/renderer/core/workers/worklet_module_responses_map.h"
+#include "third_party/blink/renderer/core/workers/worklet_pending_tasks.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -38,10 +40,10 @@ class CORE_EXPORT Worklet : public ScriptWrappable,
 
   // Worklet.idl
   // addModule() imports ES6 module scripts.
-  ScriptPromise addModule(ScriptState*,
-                          const String& module_url,
-                          const WorkletOptions*,
-                          ExceptionState&);
+  ScriptPromise<IDLUndefined> addModule(ScriptState*,
+                                        const String& module_url,
+                                        const WorkletOptions*,
+                                        ExceptionState&);
 
   // ExecutionContextLifecycleObserver
   void ContextDestroyed() override;
@@ -67,6 +69,10 @@ class CORE_EXPORT Worklet : public ScriptWrappable,
     return module_responses_map_.Get();
   }
 
+  // Aborts all pending module loading tasks. This should be called before
+  // terminating global scopes to prevent unresolved promises.
+  void AbortPendingTasks();
+
   // "A Worklet has a list of the worklet's WorkletGlobalScopes. Initially this
   // list is empty; it is populated when the user agent chooses to create its
   // WorkletGlobalScope."
@@ -75,7 +81,7 @@ class CORE_EXPORT Worklet : public ScriptWrappable,
 
  private:
   virtual void FetchAndInvokeScript(const KURL& module_url_record,
-                                    const String& credentials,
+                                    V8RequestCredentials::Enum credentials,
                                     WorkletPendingTasks*);
 
   // Returns true if there are no global scopes or additional global scopes are

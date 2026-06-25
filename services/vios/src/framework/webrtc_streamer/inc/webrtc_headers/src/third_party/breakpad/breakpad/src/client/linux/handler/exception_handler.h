@@ -34,13 +34,12 @@
 #include <stdio.h>
 #include <sys/ucontext.h>
 
+#include <memory>
 #include <string>
 
 #include "client/linux/crash_generation/crash_generation_client.h"
 #include "client/linux/handler/minidump_descriptor.h"
 #include "client/linux/minidump_writer/minidump_writer.h"
-#include "common/scoped_ptr.h"
-#include "common/using_std_string.h"
 #include "google_breakpad/common/minidump_format.h"
 
 #if !defined(__ARM_EABI__) && !defined(__mips__) && !defined(__riscv)
@@ -173,9 +172,8 @@ class ExceptionHandler {
 
   // Convenience form of WriteMinidump which does not require an
   // ExceptionHandler instance.
-  static bool WriteMinidump(const string& dump_path,
-                            MinidumpCallback callback,
-                            void* callback_context);
+  static bool WriteMinidump(const std::string& dump_path,
+                            MinidumpCallback callback, void* callback_context);
 
   // Write a minidump of |child| immediately.  This can be used to
   // capture the execution state of |child| independently of a crash.
@@ -188,9 +186,8 @@ class ExceptionHandler {
   // Otherwise there's a pernicious race condition in which |child|
   // exits, is reaped, another process created with its pid, then that
   // new process dumped.
-  static bool WriteMinidumpForChild(pid_t child,
-                                    pid_t child_blamed_thread,
-                                    const string& dump_path,
+  static bool WriteMinidumpForChild(pid_t child, pid_t child_blamed_thread,
+                                    const std::string& dump_path,
                                     MinidumpCallback callback,
                                     void* callback_context);
 
@@ -207,16 +204,15 @@ class ExceptionHandler {
 
   // Returns whether out-of-process dump generation is used or not.
   bool IsOutOfProcess() const {
-    return crash_generation_client_.get() != NULL;
+    return crash_generation_client_.get() != nullptr;
   }
 
   // Add information about a memory mapping. This can be used if
   // a custom library loader is used that maps things in a way
   // that the linux dumper can't handle by reading the maps file.
-  void AddMappingInfo(const string& name,
+  void AddMappingInfo(const std::string& name,
                       const uint8_t identifier[sizeof(MDGUID)],
-                      uintptr_t start_address,
-                      size_t mapping_size,
+                      uintptr_t start_address, size_t mapping_size,
                       size_t file_offset);
 
   // Register a block of memory of length bytes starting at address ptr
@@ -252,7 +248,7 @@ class ExceptionHandler {
   const MinidumpCallback callback_;
   void* const callback_context_;
 
-  scoped_ptr<CrashGenerationClient> crash_generation_client_;
+  std::unique_ptr<CrashGenerationClient> crash_generation_client_;
 
   MinidumpDescriptor minidump_descriptor_;
 

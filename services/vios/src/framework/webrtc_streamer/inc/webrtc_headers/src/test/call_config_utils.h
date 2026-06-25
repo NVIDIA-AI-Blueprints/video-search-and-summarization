@@ -11,6 +11,7 @@
 #ifndef TEST_CALL_CONFIG_UTILS_H_
 #define TEST_CALL_CONFIG_UTILS_H_
 
+#include "api/call/transport.h"
 #include "call/video_receive_stream.h"
 #include "rtc_base/strings/json.h"
 

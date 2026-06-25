@@ -11,17 +11,17 @@
 #ifndef SDK_ANDROID_SRC_JNI_PC_ADD_ICE_CANDIDATE_OBSERVER_H_
 #define SDK_ANDROID_SRC_JNI_PC_ADD_ICE_CANDIDATE_OBSERVER_H_
 
-#include <memory>
-#include <string>
+#include <jni.h>
 
-#include "api/peer_connection_interface.h"
-#include "sdk/android/src/jni/jni_helpers.h"
+#include "api/ref_counted_base.h"
+#include "api/rtc_error.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
 namespace jni {
 
 class AddIceCandidateObserverJni final
-    : public rtc::RefCountedNonVirtual<AddIceCandidateObserverJni> {
+    : public RefCountedNonVirtual<AddIceCandidateObserverJni> {
  public:
   AddIceCandidateObserverJni(JNIEnv* env, const JavaRef<jobject>& j_observer);
   ~AddIceCandidateObserverJni() = default;

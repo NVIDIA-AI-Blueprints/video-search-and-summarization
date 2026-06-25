@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -12,7 +12,7 @@
 #ifndef AOM_TEST_DECODE_TEST_DRIVER_H_
 #define AOM_TEST_DECODE_TEST_DRIVER_H_
 #include <cstring>
-#include "third_party/googletest/src/googletest/include/gtest/gtest.h"
+#include "gtest/gtest.h"
 
 #include "config/aom_config.h"
 
@@ -153,7 +153,7 @@ class DecoderTest {
   explicit DecoderTest(const CodecFactory *codec)
       : codec_(codec), cfg_(), flags_(0) {}
 
-  virtual ~DecoderTest() {}
+  virtual ~DecoderTest() = default;
 
   const CodecFactory *codec_;
   aom_codec_dec_cfg_t cfg_;

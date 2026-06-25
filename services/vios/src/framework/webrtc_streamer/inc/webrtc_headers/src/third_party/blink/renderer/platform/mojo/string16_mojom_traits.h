@@ -7,7 +7,9 @@
 
 #include <string>
 
+#include "base/compiler_specific.h"
 #include "base/containers/span.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "mojo/public/mojom/base/string16.mojom-blink.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
@@ -19,7 +21,7 @@ class BigBuffer;
 
 namespace mojo {
 
-// WTF::String stores string data as 8-bit strings if only Latin-1 characters
+// blink::String stores string data as 8-bit strings if only Latin-1 characters
 // are present. During Mojo serialization, this helper provides a scratch buffer
 // that can be used for converting an 8-bit string to a 16-bit string.
 class PLATFORM_EXPORT MaybeOwnedString16 {
@@ -33,7 +35,8 @@ class PLATFORM_EXPORT MaybeOwnedString16 {
 
  private:
   std::u16string owned_storage_;
-  base::span<const uint16_t> unowned_;
+  // TODO(367764863) Rewrite to base::raw_span
+  RAW_PTR_EXCLUSION base::span<const uint16_t> unowned_;
 };
 
 template <>
@@ -48,29 +51,29 @@ struct PLATFORM_EXPORT ArrayTraits<MaybeOwnedString16> {
     return input.data();
   }
   static const Element& GetAt(const MaybeOwnedString16& input, size_t index) {
-    return input.data()[index];
+    return UNSAFE_TODO(input.data()[index]);
   }
 };
 
 template <>
-struct PLATFORM_EXPORT
-    StructTraits<mojo_base::mojom::String16DataView, WTF::String> {
-  static bool IsNull(const WTF::String& input) { return input.IsNull(); }
-  static void SetToNull(WTF::String* output) { *output = WTF::String(); }
+struct PLATFORM_EXPORT StructTraits<mojo_base::mojom::String16DataView,
+                                    blink::String> {
+  static bool IsNull(const blink::String& input) { return input.IsNull(); }
+  static void SetToNull(blink::String* output) { *output = blink::String(); }
 
-  static MaybeOwnedString16 data(const WTF::String& input);
+  static MaybeOwnedString16 data(const blink::String& input);
 
-  static bool Read(mojo_base::mojom::String16DataView, WTF::String* out);
+  static bool Read(mojo_base::mojom::String16DataView, blink::String* out);
 };
 
 template <>
-struct PLATFORM_EXPORT
-    StructTraits<mojo_base::mojom::BigString16DataView, WTF::String> {
-  static bool IsNull(const WTF::String& input) { return input.IsNull(); }
-  static void SetToNull(WTF::String* output) { *output = WTF::String(); }
+struct PLATFORM_EXPORT StructTraits<mojo_base::mojom::BigString16DataView,
+                                    blink::String> {
+  static bool IsNull(const blink::String& input) { return input.IsNull(); }
+  static void SetToNull(blink::String* output) { *output = blink::String(); }
 
-  static mojo_base::BigBuffer data(const WTF::String& input);
-  static bool Read(mojo_base::mojom::BigString16DataView, WTF::String* out);
+  static mojo_base::BigBuffer data(const blink::String& input);
+  static bool Read(mojo_base::mojom::BigString16DataView, blink::String* out);
 };
 
 }  // namespace mojo

@@ -31,11 +31,16 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_EFFECT_MODEL_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_EFFECT_MODEL_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
+#include "third_party/blink/renderer/bindings/core/v8/v8_composite_operation.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_composite_operation_or_auto.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_iteration_composite_operation.h"
 #include "third_party/blink/renderer/core/animation/animation_time_delta.h"
 #include "third_party/blink/renderer/core/animation/property_handle.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
+#include "third_party/blink/renderer/platform/animation/timing_function.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 
 namespace blink {
@@ -52,14 +57,26 @@ class CORE_EXPORT EffectModel : public GarbageCollected<EffectModel> {
     kCompositeAdd,
     kCompositeAccumulate,
   };
-  static absl::optional<CompositeOperation> StringToCompositeOperation(
-      const String&);
-  static String CompositeOperationToString(absl::optional<CompositeOperation>);
+  enum IterationCompositeOperation {
+    kIterationCompositeReplace,
+    kIterationCompositeAccumulate,
+  };
+  static CompositeOperation EnumToCompositeOperation(
+      V8CompositeOperation::Enum);
+  static std::optional<CompositeOperation> EnumToCompositeOperation(
+      V8CompositeOperationOrAuto::Enum);
+  static V8CompositeOperation::Enum CompositeOperationToEnum(
+      CompositeOperation);
+  static IterationCompositeOperation EnumToIterationCompositeOperation(
+      V8IterationCompositeOperation::Enum);
+  static V8IterationCompositeOperation::Enum IterationCompositeOperationToEnum(
+      IterationCompositeOperation);
 
   EffectModel() = default;
   virtual ~EffectModel() = default;
   virtual bool Sample(int iteration,
                       double fraction,
+                      TimingFunction::LimitDirection,
                       AnimationTimeDelta iteration_duration,
                       HeapVector<Member<Interpolation>>&) const = 0;
 

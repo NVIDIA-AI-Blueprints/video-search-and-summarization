@@ -5,8 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_FRAME_FRAME_VISUAL_PROPERTIES_MOJOM_TRAITS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_FRAME_FRAME_VISUAL_PROPERTIES_MOJOM_TRAITS_H_
 
+#include <optional>
+
 #include "base/check_op.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/frame/frame_visual_properties.h"
 #include "third_party/blink/public/mojom/frame/frame_visual_properties.mojom-shared.h"
@@ -39,6 +40,10 @@ struct BLINK_COMMON_EXPORT
     return r.zoom_level;
   }
 
+  static double css_zoom_factor(const blink::FrameVisualProperties& r) {
+    return r.css_zoom_factor;
+  }
+
   static double page_scale_factor(const blink::FrameVisualProperties& r) {
     DCHECK_GT(r.page_scale_factor, 0);
     return r.page_scale_factor;
@@ -48,6 +53,12 @@ struct BLINK_COMMON_EXPORT
       const blink::FrameVisualProperties& r) {
     DCHECK_GT(r.compositing_scale_factor, 0);
     return r.compositing_scale_factor;
+  }
+
+  static float cursor_accessibility_scale_factor(
+      const blink::FrameVisualProperties& r) {
+    DCHECK_GE(r.cursor_accessibility_scale_factor, 1.f);
+    return r.cursor_accessibility_scale_factor;
   }
 
   static const gfx::Size& visible_viewport_size(
@@ -65,9 +76,9 @@ struct BLINK_COMMON_EXPORT
     return r.max_size_for_auto_resize;
   }
 
-  static const std::vector<gfx::Rect>& root_widget_window_segments(
+  static const std::vector<gfx::Rect>& root_widget_viewport_segments(
       const blink::FrameVisualProperties& r) {
-    return r.root_widget_window_segments;
+    return r.root_widget_viewport_segments;
   }
 
   static const gfx::Rect& compositor_viewport(

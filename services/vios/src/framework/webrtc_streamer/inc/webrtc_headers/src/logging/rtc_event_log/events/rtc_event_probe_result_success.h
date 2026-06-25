@@ -14,13 +14,14 @@
 #include <stdint.h>
 
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
 #include "api/rtc_event_log/rtc_event.h"
 #include "api/units/timestamp.h"
-#include "logging/rtc_event_log/events/rtc_event_field_encoding_parser.h"
+#include "logging/rtc_event_log/events/rtc_event_log_parse_status.h"
 
 namespace webrtc {
 
@@ -55,21 +56,21 @@ class RtcEventProbeResultSuccess final : public RtcEvent {
   int32_t id() const { return id_; }
   int32_t bitrate_bps() const { return bitrate_bps_; }
 
-  static std::string Encode(rtc::ArrayView<const RtcEvent*> batch) {
+  static std::string Encode(std::span<const RtcEvent*> /* batch */) {
     // TODO(terelius): Implement
     return "";
   }
 
   static RtcEventLogParseStatus Parse(
-      absl::string_view encoded_bytes,
-      bool batched,
-      std::vector<LoggedBweProbeSuccessEvent>& output) {
+      absl::string_view /* encoded_bytes */,
+      bool /* batched */,
+      std::vector<LoggedBweProbeSuccessEvent>& /* output */) {
     // TODO(terelius): Implement
     return RtcEventLogParseStatus::Error("Not Implemented", __FILE__, __LINE__);
   }
 
  private:
-  RtcEventProbeResultSuccess(const RtcEventProbeResultSuccess& other);
+  RtcEventProbeResultSuccess(const RtcEventProbeResultSuccess&) = default;
 
   const int32_t id_;
   const int32_t bitrate_bps_;

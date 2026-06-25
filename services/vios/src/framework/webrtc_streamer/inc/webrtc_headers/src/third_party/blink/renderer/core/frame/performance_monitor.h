@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_PERFORMANCE_MONITOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_PERFORMANCE_MONITOR_H_
 
+#include <array>
+
 #include "base/task/sequence_manager/task_time_observer.h"
 #include "base/time/time.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -12,7 +14,7 @@
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/loader/fetch/resource.h"
+#include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "v8/include/v8.h"
@@ -43,6 +45,8 @@ class SourceLocation;
 class CORE_EXPORT PerformanceMonitor final
     : public GarbageCollected<PerformanceMonitor>,
       public base::sequence_manager::TaskTimeObserver {
+  USING_PRE_FINALIZER(PerformanceMonitor, Dispose);
+
  public:
   enum Violation : size_t {
     kLongTask = 0,
@@ -73,7 +77,7 @@ class CORE_EXPORT PerformanceMonitor final
                                      Violation,
                                      const String& text,
                                      base::TimeDelta time,
-                                     std::unique_ptr<SourceLocation>);
+                                     SourceLocation*);
   static base::TimeDelta Threshold(ExecutionContext*, Violation);
 
   // Instrumenting methods.
@@ -109,7 +113,7 @@ class CORE_EXPORT PerformanceMonitor final
   PerformanceMonitor& operator=(const PerformanceMonitor&) = delete;
   ~PerformanceMonitor() override;
 
-  virtual void Trace(Visitor*) const;
+  void Trace(Visitor*) const;
 
  private:
   friend class PerformanceMonitorTest;
@@ -127,7 +131,7 @@ class CORE_EXPORT PerformanceMonitor final
                                    Violation,
                                    const String& text,
                                    base::TimeDelta time,
-                                   std::unique_ptr<SourceLocation>);
+                                   SourceLocation*);
 
   // TaskTimeObserver implementation
   void WillProcessTask(base::TimeTicks start_time) override;
@@ -144,6 +148,8 @@ class CORE_EXPORT PerformanceMonitor final
       const HeapHashSet<Member<Frame>>& frame_contexts,
       Frame* observer_frame);
 
+  void Dispose();
+
   // This boolean is used to track whether there is any subscription to any
   // Violation other than longtasks.
   bool enabled_ = false;
@@ -153,7 +159,7 @@ class CORE_EXPORT PerformanceMonitor final
   unsigned user_callback_depth_ = 0;
   const void* user_callback_;
 
-  base::TimeDelta thresholds_[kAfterLast];
+  std::array<base::TimeDelta, kAfterLast> thresholds_;
 
   Member<LocalFrame> local_root_;
   Member<ExecutionContext> task_execution_context_;
@@ -161,11 +167,12 @@ class CORE_EXPORT PerformanceMonitor final
   v8::Isolate* const isolate_;
   bool task_has_multiple_contexts_ = false;
   bool task_should_be_reported_ = false;
-  using ClientThresholds = HeapHashMap<WeakMember<Client>, base::TimeDelta>;
+  using ClientThresholds = GCedHeapHashMap<WeakMember<Client>, base::TimeDelta>;
   HeapHashMap<Violation,
               Member<ClientThresholds>,
               IntWithZeroKeyHashTraits<size_t>>
       subscriptions_;
+  bool was_shutdown_ = false;
 };
 
 }  // namespace blink

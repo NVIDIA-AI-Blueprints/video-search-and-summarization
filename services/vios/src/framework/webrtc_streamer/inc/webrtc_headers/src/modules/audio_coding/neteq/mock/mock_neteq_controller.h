@@ -11,6 +11,11 @@
 #ifndef MODULES_AUDIO_CODING_NETEQ_MOCK_MOCK_NETEQ_CONTROLLER_H_
 #define MODULES_AUDIO_CODING_NETEQ_MOCK_MOCK_NETEQ_CONTROLLER_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+
+#include "api/neteq/neteq.h"
 #include "api/neteq/neteq_controller.h"
 #include "test/gmock.h"
 
@@ -39,7 +44,7 @@ class MockNetEqController : public NetEqController {
   MOCK_METHOD(void, ExpandDecision, (NetEq::Operation operation), (override));
   MOCK_METHOD(void, AddSampleMemory, (int32_t value), (override));
   MOCK_METHOD(int, TargetLevelMs, (), (const, override));
-  MOCK_METHOD(absl::optional<int>,
+  MOCK_METHOD(std::optional<int>,
               PacketArrived,
               (int fs_hz,
                bool should_update_stats,

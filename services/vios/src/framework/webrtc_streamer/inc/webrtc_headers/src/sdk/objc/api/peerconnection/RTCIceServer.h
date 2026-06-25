@@ -10,7 +10,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 typedef NS_ENUM(NSUInteger, RTCTlsCertPolicy) {
   RTCTlsCertPolicySecure,
@@ -100,13 +100,14 @@ RTC_OBJC_EXPORT
  * optional credential, TLS cert policy, hostname, ALPN protocols and
  * elliptic curves.
  */
-- (instancetype)initWithURLStrings:(NSArray<NSString *> *)urlStrings
-                          username:(nullable NSString *)username
-                        credential:(nullable NSString *)credential
-                     tlsCertPolicy:(RTCTlsCertPolicy)tlsCertPolicy
-                          hostname:(nullable NSString *)hostname
-                  tlsAlpnProtocols:(nullable NSArray<NSString *> *)tlsAlpnProtocols
-                 tlsEllipticCurves:(nullable NSArray<NSString *> *)tlsEllipticCurves
+- (instancetype)
+    initWithURLStrings:(NSArray<NSString *> *)urlStrings
+              username:(nullable NSString *)username
+            credential:(nullable NSString *)credential
+         tlsCertPolicy:(RTCTlsCertPolicy)tlsCertPolicy
+              hostname:(nullable NSString *)hostname
+      tlsAlpnProtocols:(nullable NSArray<NSString *> *)tlsAlpnProtocols
+     tlsEllipticCurves:(nullable NSArray<NSString *> *)tlsEllipticCurves
     NS_DESIGNATED_INITIALIZER;
 
 @end

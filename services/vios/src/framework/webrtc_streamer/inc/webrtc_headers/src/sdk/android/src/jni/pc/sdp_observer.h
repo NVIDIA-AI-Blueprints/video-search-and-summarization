@@ -11,12 +11,15 @@
 #ifndef SDK_ANDROID_SRC_JNI_PC_SDP_OBSERVER_H_
 #define SDK_ANDROID_SRC_JNI_PC_SDP_OBSERVER_H_
 
-#include <memory>
-#include <string>
+#include <jni.h>
 
-#include "api/peer_connection_interface.h"
-#include "sdk/android/src/jni/jni_helpers.h"
-#include "sdk/android/src/jni/pc/session_description.h"
+#include <memory>
+
+#include "api/jsep.h"
+#include "api/rtc_error.h"
+#include "api/set_local_description_observer_interface.h"
+#include "api/set_remote_description_observer_interface.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
 #include "sdk/media_constraints.h"
 
 namespace webrtc {

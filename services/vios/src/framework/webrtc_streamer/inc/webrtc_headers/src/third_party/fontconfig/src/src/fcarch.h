@@ -24,7 +24,7 @@
 #define _FCARCH_H_
 
 #ifdef HAVE_CONFIG_H
-#include <config.h>
+#  include <config.h>
 #endif
 
 /*
@@ -47,30 +47,30 @@
  */
 
 #if defined(__DARWIN_BYTE_ORDER) && __DARWIN_BYTE_ORDER == __DARWIN_LITTLE_ENDIAN
-# define FC_ARCH_ENDIAN "le"
+#  define FC_ARCH_ENDIAN "le"
 #elif defined(__DARWIN_BYTE_ORDER) && __DARWIN_BYTE_ORDER == __DARWIN_BIG_ENDIAN
-# define FC_ARCH_ENDIAN "be"
+#  define FC_ARCH_ENDIAN "be"
 #elif defined(__DARWIN_BYTE_ORDER) && __DARWIN_BYTE_ORDER == __DARWIN_PDP_ENDIAN
-# define FC_ARCH_ENDIAN "pe"
+#  define FC_ARCH_ENDIAN "pe"
 #elif defined(WORDS_BIGENDIAN) && WORDS_BIGENDIAN
-# define FC_ARCH_ENDIAN "be"
+#  define FC_ARCH_ENDIAN "be"
 #else
-# define FC_ARCH_ENDIAN "le"
+#  define FC_ARCH_ENDIAN "le"
 #endif
 
 #if SIZEOF_VOID_P == 4
-# if ALIGNOF_DOUBLE == 4
-#  define FC_ARCH_SIZE_ALIGN "32d4"
-# else /* ALIGNOF_DOUBLE != 4 */
-#  define FC_ARCH_SIZE_ALIGN "32d8"
-# endif
+#  if ALIGNOF_DOUBLE == 4
+#    define FC_ARCH_SIZE_ALIGN "32d4"
+#  else /* ALIGNOF_DOUBLE != 4 */
+#    define FC_ARCH_SIZE_ALIGN "32d8"
+#  endif
 #else /* SIZEOF_VOID_P != 4 */
-# define FC_ARCH_SIZE_ALIGN "64"
+#  define FC_ARCH_SIZE_ALIGN "64"
 #endif
 
 /* config.h might override this */
 #ifndef FC_ARCHITECTURE
-# define FC_ARCHITECTURE FC_ARCH_ENDIAN FC_ARCH_SIZE_ALIGN
+#  define FC_ARCHITECTURE FC_ARCH_ENDIAN FC_ARCH_SIZE_ALIGN
 #endif
 
 #endif /* _FCARCH_H_ */

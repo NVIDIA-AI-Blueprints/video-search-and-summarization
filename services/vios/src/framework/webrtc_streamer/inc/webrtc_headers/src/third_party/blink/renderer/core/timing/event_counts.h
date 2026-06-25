@@ -33,6 +33,14 @@ class EventCounts final : public ScriptWrappable, public Maplike<EventCounts> {
   // Add multiple events with the same event type.
   void AddMultipleEvents(const AtomicString& event_type, uint64_t count);
 
+  // Checks if this specific event type (by name) is in the list of publicly
+  // exposed events, which is already hard-coded for the
+  // `performance.eventCounts` api.
+  // See: https://www.w3.org/TR/event-timing/#sec-events-exposed
+  bool IsSupportedEventType(const AtomicString& event_type) {
+    return event_count_map_.Contains(event_type);
+  }
+
   void Trace(Visitor* visitor) const override {
     ScriptWrappable::Trace(visitor);
   }
@@ -40,12 +48,8 @@ class EventCounts final : public ScriptWrappable, public Maplike<EventCounts> {
  private:
   // Maplike implementation.
   PairSyncIterable<EventCounts>::IterationSource* CreateIterationSource(
-      ScriptState*,
-      ExceptionState&) override;
-  bool GetMapEntry(ScriptState*,
-                   const String& key,
-                   uint64_t& value,
-                   ExceptionState&) override;
+      ScriptState*) override;
+  bool GetMapEntry(ScriptState*, const String& key, uint64_t& value) override;
 
   HashMap<AtomicString, uint64_t> event_count_map_;
 };

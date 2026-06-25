@@ -11,16 +11,18 @@
 #ifndef TEST_PC_E2E_TEST_ACTIVITIES_EXECUTOR_H_
 #define TEST_PC_E2E_TEST_ACTIVITIES_EXECUTOR_H_
 
+#include <functional>
+#include <optional>
 #include <queue>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_queue_for_test.h"
 #include "rtc_base/task_utils/repeating_task.h"
+#include "rtc_base/thread_annotations.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
@@ -43,17 +45,17 @@ class TestActivitiesExecutor {
   // If test is started, then it will be executed immediately according to its
   // schedule.
   void ScheduleActivity(TimeDelta initial_delay_since_start,
-                        absl::optional<TimeDelta> interval,
+                        std::optional<TimeDelta> interval,
                         std::function<void(TimeDelta)> func);
 
  private:
   struct ScheduledActivity {
     ScheduledActivity(TimeDelta initial_delay_since_start,
-                      absl::optional<TimeDelta> interval,
+                      std::optional<TimeDelta> interval,
                       std::function<void(TimeDelta)> func);
 
     TimeDelta initial_delay_since_start;
-    absl::optional<TimeDelta> interval;
+    std::optional<TimeDelta> interval;
     std::function<void(TimeDelta)> func;
   };
 

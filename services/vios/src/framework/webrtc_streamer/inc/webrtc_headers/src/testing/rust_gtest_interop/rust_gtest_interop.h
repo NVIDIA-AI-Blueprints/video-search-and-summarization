@@ -6,9 +6,10 @@
 #define TESTING_RUST_GTEST_INTEROP_RUST_GTEST_INTEROP_H_
 
 #include <stdint.h>
+
 #include <type_traits>
 
-#include "base/memory/raw_ptr_exclusion.h"
+#include "base/compiler_specific.h"
 
 namespace testing {
 class Test;
@@ -40,16 +41,13 @@ class RustTest : public Subclass {
                   "RustTest's Subclass parameter must be a testing::Test or a "
                   "subclass of it");
   }
+  // TODO(crbug.com/458351803): Figure out why the sanitizer complains here
+  NO_SANITIZE("cfi-icall")
   void TestBody() override { test_fn_(this); }
 
  private:
-  // Not a `raw_ref<T>`, because the pointee (a function) is never
-  // heap/PartitionAlloc-allocated.
-  //
-  // TODO(https://crbug.com/1451571): An explicit exclusion shouldn't be needed
-  // for function pointers. Remove the //base dependency when RAW_PTR_EXCLUSION
-  // isn't needed.
-  void(RAW_PTR_EXCLUSION& test_fn_)(Subclass*);
+  // Not a `raw_ref<T>` because this is a function reference.
+  void (&test_fn_)(Subclass*);
 };
 
 // The TestSuite factory function which will construct a testing::Test subclass
@@ -67,7 +65,8 @@ Subclass* rust_gtest_factory_for_subclass(void (*body)(Subclass*)) {
 
 // Returns a factory that will run the test function. Used for any Rust tests
 // that don't need a specific C++ testing::Test subclass.
-testing::Test* rust_gtest_default_factory(void (*body)());
+extern "C" testing::Test* rust_gtest_default_factory(
+    void (*body)(testing::Test*));
 
 // Register a test to be run via GTest. This must be called before main(), as
 // there's no calls from C++ into Rust to collect tests. Any function given to
@@ -86,12 +85,12 @@ testing::Test* rust_gtest_default_factory(void (*body)());
 //
 // SAFETY: This function makes copies of the strings so the pointers do not need
 // to outlive the function call.
-void rust_gtest_add_test(GtestFactoryFunction gtest_factory,
-                         void (*test_function)(testing::Test*),
-                         const char* test_suite_name,
-                         const char* test_name,
-                         const char* file,
-                         int32_t line);
+extern "C" void rust_gtest_add_test(GtestFactoryFunction gtest_factory,
+                                    void (*test_function)(testing::Test*),
+                                    const char* test_suite_name,
+                                    const char* test_name,
+                                    const char* file,
+                                    int32_t line);
 
 // Report a test failure at a given file and line tuple, with a provided
 // message.
@@ -105,9 +104,9 @@ void rust_gtest_add_test(GtestFactoryFunction gtest_factory,
 //
 // SAFETY: This function makes copies of the strings so the pointers do not need
 // to outlive the function call.
-void rust_gtest_add_failure_at(const char* file,
-                               int32_t line,
-                               const char* message);
+extern "C" void rust_gtest_add_failure_at(const char* file,
+                                          int32_t line,
+                                          const char* message);
 
 }  // namespace rust_gtest_interop
 

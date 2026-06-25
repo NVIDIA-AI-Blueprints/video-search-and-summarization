@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_PERMISSIONS_POLICY_DOCUMENT_POLICY_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_PERMISSIONS_POLICY_DOCUMENT_POLICY_H_
 
+#include <array>
 #include <memory>
 
 #include "base/containers/flat_map.h"
@@ -26,7 +27,7 @@ namespace blink {
 // which embeds the document.
 //
 // See
-// https://github.com/w3c/webappsec-permissions-policy/blob/master/document-policy-explainer.md
+// https://github.com/WICG/document-policy/blob/main/document-policy-explainer.md
 //
 // Key concepts:
 //
@@ -72,6 +73,12 @@ class BLINK_COMMON_EXPORT DocumentPolicy {
     FeatureEndpointMap endpoint_map;
   };
 
+  struct DocumentPolicyBundle {
+    ParsedDocumentPolicy policy;
+    // The Report-Only Document-Policy header value.
+    std::string report_only_header;
+  };
+
   static std::unique_ptr<DocumentPolicy> CreateWithHeaderPolicy(
       const ParsedDocumentPolicy& header_policy);
 
@@ -93,8 +100,8 @@ class BLINK_COMMON_EXPORT DocumentPolicy {
   PolicyValue GetFeatureValue(mojom::DocumentPolicyFeature feature) const;
 
   // Returns the endpoint the given feature should report to.
-  // Returns absl::nullopt if the endpoint is unspecified for given feature.
-  const absl::optional<std::string> GetFeatureEndpoint(
+  // Returns std::nullopt if the endpoint is unspecified for given feature.
+  const std::optional<std::string> GetFeatureEndpoint(
       mojom::DocumentPolicyFeature feature) const;
 
   // Returns true if the incoming policy is compatible with the given required
@@ -104,12 +111,12 @@ class BLINK_COMMON_EXPORT DocumentPolicy {
       const DocumentPolicyFeatureState& incoming_policy);
 
   // Serialize document policy according to http_structured_header.
-  // returns absl::nullopt when http structured header serializer encounters
+  // returns std::nullopt when http structured header serializer encounters
   // problems, e.g. double value out of the range supported.
-  static absl::optional<std::string> Serialize(
+  static std::optional<std::string> Serialize(
       const DocumentPolicyFeatureState& policy);
 
-  static absl::optional<std::string> SerializeInternal(
+  static std::optional<std::string> SerializeInternal(
       const DocumentPolicyFeatureState& policy,
       const DocumentPolicyFeatureInfoMap&);
 

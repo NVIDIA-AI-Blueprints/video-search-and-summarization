@@ -33,37 +33,30 @@
 
 #include "third_party/blink/public/mojom/service_worker/service_worker_error_type.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_error.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "v8/include/v8.h"
 
 namespace blink {
 
 class DOMException;
-class ScriptPromiseResolver;
+class ScriptState;
 
-class ServiceWorkerError {
+struct ServiceWorkerError {
   STATIC_ONLY(ServiceWorkerError);
 
- public:
-  // For CallbackPromiseAdapter
-  using WebType = const WebServiceWorkerError&;
-  static DOMException* Take(ScriptPromiseResolver*,
-                            const WebServiceWorkerError& web_error);
-
-  // TODO(crbug.com/879019): Eventually we'll remove WebServiceWorkerError and
-  // use this GetException() everywhere instead of the above Take().
-  static DOMException* GetException(ScriptPromiseResolver*,
-                                    mojom::blink::ServiceWorkerErrorType error,
-                                    const String& error_msg);
+  static DOMException* AsException(
+      mojom::blink::ServiceWorkerErrorType error_type,
+      const String& message);
 };
 
-class ServiceWorkerErrorForUpdate : public ServiceWorkerError {
+struct ServiceWorkerErrorForUpdate {
   STATIC_ONLY(ServiceWorkerErrorForUpdate);
 
- public:
-  // For CallbackPromiseAdapter
-  static v8::Local<v8::Value> Take(ScriptPromiseResolver* resolver,
-                                   const WebServiceWorkerError& web_error);
+  static v8::Local<v8::Value> AsJSException(
+      ScriptState*,
+      mojom::blink::ServiceWorkerErrorType error_type,
+      const String& message);
 };
 
 }  // namespace blink

@@ -25,9 +25,9 @@ class CORE_EXPORT StylePropertyMapReadOnlyMainThread
       const StylePropertyMapReadOnlyMainThread&) = delete;
   ~StylePropertyMapReadOnlyMainThread() override = default;
 
-  CSSStyleValue* get(const ExecutionContext*,
-                     const String& property_name,
-                     ExceptionState&) const override;
+  V8UnionCSSStyleValueOrUndefined* get(const ExecutionContext*,
+                                       const String& property_name,
+                                       ExceptionState&) const override;
   CSSStyleValueVector getAll(const ExecutionContext*,
                              const String& property_name,
                              ExceptionState&) const override;
@@ -50,8 +50,7 @@ class CORE_EXPORT StylePropertyMapReadOnlyMainThread
   virtual String SerializationForShorthand(const CSSProperty&) const = 0;
 
  private:
-  IterationSource* CreateIterationSource(ScriptState*,
-                                         ExceptionState&) override;
+  IterationSource* CreateIterationSource(ScriptState*) override;
 
   CSSStyleValue* GetShorthandProperty(const CSSPropertyName&) const;
 };

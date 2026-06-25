@@ -24,6 +24,8 @@
 #include <string>
 #include <vector>
 
+#include "perfetto/ext/base/scoped_file.h"
+
 namespace perfetto {
 
 namespace base {
@@ -107,7 +109,7 @@ class StringView;
 // offset of one every kSymIndexSamplinig addresses.
 // The Lookup(ADDR) function operates as follows:
 // 1. Performs a logarithmic binary search in the symbols index, finding the
-//    offset of the closest addres <= ADDR.
+//    offset of the closest address <= ADDR.
 // 2. Skip over at most kSymIndexSamplinig until the symbol is found.
 // 3. For each token index, lookup the corresponding token string and
 //    concatenate them to build the symbol name.
@@ -123,7 +125,8 @@ class KernelSymbolMap {
   static size_t kTokenIndexSampling;
 
   // Parses a kallsyms file. Returns the number of valid symbols decoded.
-  size_t Parse(const std::string& kallsyms_path);
+  // Does not take ownership of the fd.
+  size_t Parse(int fd);
 
   // Looks up the closest symbol (i.e. the one with the highest address <=
   // |addr|) from its absolute 64-bit address.
@@ -131,10 +134,10 @@ class KernelSymbolMap {
   // if the passed |addr| is < min(addr)).
   std::string Lookup(uint64_t addr);
 
-  // Returns the numberr of valid symbols decoded.
+  // Returns the number of valid symbols decoded.
   size_t num_syms() const { return num_syms_; }
 
-  // Returns the size in bytes used by the adddress table (without counting
+  // Returns the size in bytes used by the address table (without counting
   // the tokens).
   size_t addr_bytes() const { return buf_.size() + index_.size() * 8; }
 

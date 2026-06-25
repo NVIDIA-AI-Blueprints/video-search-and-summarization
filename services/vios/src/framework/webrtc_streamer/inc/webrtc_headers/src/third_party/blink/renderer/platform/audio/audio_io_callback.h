@@ -29,7 +29,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_AUDIO_AUDIO_IO_CALLBACK_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_AUDIO_AUDIO_IO_CALLBACK_H_
 
+#include "base/time/time.h"
 #include "third_party/blink/renderer/platform/audio/audio_callback_metric_reporter.h"
+
+namespace media {
+struct AudioGlitchInfo;
+}
 
 namespace blink {
 
@@ -48,14 +53,20 @@ struct AudioIOPosition {
 // Abstract base-class for isochronous audio I/O client.
 class AudioIOCallback {
  public:
+  virtual ~AudioIOCallback() = default;
+
   // Called periodically to get the next render quantum of audio into
   // |destination_bus|.
   virtual void Render(AudioBus* destination_bus,
                       uint32_t frames_to_process,
                       const AudioIOPosition& output_position,
-                      const AudioCallbackMetric& metric) = 0;
+                      const AudioCallbackMetric& metric,
+                      base::TimeDelta playout_delay,
+                      const media::AudioGlitchInfo& glitch_info) = 0;
 
-  virtual ~AudioIOCallback() = default;
+  // Called when an error occurs in the underlying audio stack.
+  // (e.g. bad hardware parameters, or an error while rendering)
+  virtual void OnRenderError() = 0;
 };
 
 }  // namespace blink

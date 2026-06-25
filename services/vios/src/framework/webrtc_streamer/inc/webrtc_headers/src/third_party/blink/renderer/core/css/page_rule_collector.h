@@ -23,24 +23,34 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_PAGE_RULE_COLLECTOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_PAGE_RULE_COLLECTOR_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/cascade_layered.h"
+#include "third_party/blink/renderer/core/css/parser/css_at_rule_id.h"
 #include "third_party/blink/renderer/core/css/resolver/match_result.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
 class CascadeLayerMap;
+class ComputedStyle;
 class StyleRulePage;
 
-class PageRuleCollector {
+class CORE_EXPORT PageRuleCollector {
   STACK_ALLOCATED();
 
  public:
   PageRuleCollector(const ComputedStyle* root_element_style,
+                    CSSAtRuleID at_rule_id,
                     uint32_t page_index,
                     const AtomicString& page_name,
                     MatchResult&);
 
-  void MatchPageRules(RuleSet* rules, const CascadeLayerMap* layer_map);
+  // TreeScope is required for CascadeOrigin::kAuthor,
+  // and ignored for other origins.
+  void MatchPageRules(RuleSet* rules,
+                      CascadeOrigin,
+                      TreeScope*,
+                      const CascadeLayerMap* layer_map);
   const MatchResult& MatchedResult() { return result_; }
 
  private:
@@ -52,11 +62,13 @@ class PageRuleCollector {
   }
   bool IsFirstPage(uint32_t page_index) const;
 
-  void MatchPageRulesForList(HeapVector<Member<StyleRulePage>>& matched_rules,
-                             const HeapVector<Member<StyleRulePage>>& rules);
+  void MatchPageRulesForList(
+      HeapVector<CascadeLayered<StyleRulePage>>& matched_rules,
+      const HeapVector<CascadeLayered<StyleRulePage>>& rules);
 
   const bool is_left_page_;
   const bool is_first_page_;
+  const CSSAtRuleID at_rule_id_;
   const AtomicString page_name_;
 
   MatchResult& result_;

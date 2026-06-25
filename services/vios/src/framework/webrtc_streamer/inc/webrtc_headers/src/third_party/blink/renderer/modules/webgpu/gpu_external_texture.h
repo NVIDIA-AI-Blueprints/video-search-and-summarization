@@ -16,6 +16,10 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 
+namespace media {
+class PaintCanvasVideoRenderer;
+}  // namespace media
+
 namespace blink {
 
 class ExceptionState;
@@ -49,8 +53,7 @@ class ExternalTextureCache : public GarbageCollected<ExternalTextureCache> {
   ExternalTextureCache& operator=(const ExternalTextureCache&) = delete;
 
   // Implement importExternalTexture() auto expiry mechanism.
-  GPUExternalTexture* Import(ExecutionContext* execution_context,
-                             const GPUExternalTextureDescriptor* descriptor,
+  GPUExternalTexture* Import(const GPUExternalTextureDescriptor* descriptor,
                              ExceptionState& exception_state);
 
   // Destroy all cached GPUExternalTexture and clear all lists.
@@ -82,7 +85,7 @@ class ExternalTextureCache : public GarbageCollected<ExternalTextureCache> {
   Member<GPUDevice> device_;
 };
 
-class GPUExternalTexture : public DawnObject<WGPUExternalTexture> {
+class GPUExternalTexture : public DawnObject<wgpu::ExternalTexture> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -102,16 +105,21 @@ class GPUExternalTexture : public DawnObject<WGPUExternalTexture> {
       ExceptionState& exception_state);
   explicit GPUExternalTexture(
       ExternalTextureCache* cache,
-      WGPUExternalTexture external_texture,
+      wgpu::ExternalTexture external_texture,
       scoped_refptr<WebGPUMailboxTexture> mailbox_texture,
       bool is_zero_copy,
-      absl::optional<media::VideoFrame::ID> media_video_frame_unique_id);
+      bool read_lock_fences_enabled,
+      std::optional<media::VideoFrame::ID> media_video_frame_unique_id,
+      const String& label);
 
   GPUExternalTexture(const GPUExternalTexture&) = delete;
   GPUExternalTexture& operator=(const GPUExternalTexture&) = delete;
 
+  // gpu_external_texture.idl {{{
   bool isZeroCopy() const;
+  // }}} End of WebIDL binding implementation.
 
+  bool IsReadLockFenceEnabled() const;
   void Destroy();
   void Expire();
   void Refresh();
@@ -152,12 +160,12 @@ class GPUExternalTexture : public DawnObject<WGPUExternalTexture> {
       const GPUExternalTextureDescriptor* webgpu_desc,
       scoped_refptr<media::VideoFrame> media_video_frame,
       media::PaintCanvasVideoRenderer* video_renderer,
-      absl::optional<media::VideoFrame::ID> media_video_frame_unique_id,
+      std::optional<media::VideoFrame::ID> media_video_frame_unique_id,
       ExceptionState& exception_state);
 
-  void setLabelImpl(const String& value) override {
+  void SetLabelImpl(const String& value) override {
     std::string utf8_label = value.Utf8();
-    GetProcs().externalTextureSetLabel(GetHandle(), utf8_label.c_str());
+    GetHandle().SetLabel(utf8_label.c_str());
   }
 
   bool IsCurrentFrameFromHTMLVideoElementValid();
@@ -172,21 +180,26 @@ class GPUExternalTexture : public DawnObject<WGPUExternalTexture> {
   // frame multiple time cases.
   void RemoveFromCache();
 
-  bool active() const;
-  bool expired() const;
-  bool destroyed() const;
+  bool IsActive() const;
+  bool IsExpired() const;
+  bool IsDestroyed() const;
 
   scoped_refptr<WebGPUMailboxTexture> mailbox_texture_;
   bool is_zero_copy_ = false;
   bool remove_from_cache_task_scheduled_ = false;
 
-  absl::optional<media::VideoFrame::ID> media_video_frame_unique_id_;
+  // read_lock_fences_enabled_ comes from media::VideoFrame metadata.
+  // VideoFrame set this metadata as a hint to ensure all previous gpu
+  // execution complete before returning video frame to producer.
+  bool read_lock_fences_enabled_ = false;
+
+  std::optional<media::VideoFrame::ID> media_video_frame_unique_id_;
   WeakMember<HTMLVideoElement> video_;
   WeakMember<VideoFrame> frame_;
   WeakMember<ExternalTextureCache> cache_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
-  std::atomic<Status> status_ = Status::Expired;
+  std::atomic<Status> status_ = Status::Active;
 };
 
 }  // namespace blink

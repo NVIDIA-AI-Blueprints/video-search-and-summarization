@@ -15,25 +15,37 @@
 
 namespace blink {
 
+class CSSToLengthConversionData;
 class CSSValue;
-class StyleResolverState;
 
 // Represents a blink::TransformOperations, converted into a form that can be
 // interpolated from/to.
 class CORE_EXPORT InterpolableTransformList final : public InterpolableValue {
  public:
-  InterpolableTransformList(TransformOperations&& operations)
-      : operations_(std::move(operations)) {}
+  InterpolableTransformList(
+      TransformOperations&& operations,
+      TransformOperations::BoxSizeDependentMatrixBlending box_size_dependent)
+      : operations_(std::move(operations)),
+        box_size_dependent_(box_size_dependent) {}
 
-  static std::unique_ptr<InterpolableTransformList> ConvertCSSValue(
+  static InterpolableTransformList* ConvertCSSValue(
       const CSSValue&,
-      const StyleResolverState*);
+      const CSSToLengthConversionData&,
+      TransformOperations::BoxSizeDependentMatrixBlending);
 
   // Return the underlying TransformOperations. Usually called after composition
   // and interpolation, to apply the results back to the style.
   TransformOperations operations() const { return operations_; }
 
   void PreConcat(const InterpolableTransformList& underlying);
+
+  // Accumulates |delta| onto this transform list.
+  void Accumulate(const InterpolableTransformList& delta);
+
+  // Accumulates |delta| onto this transform list, |n| times.
+  void AccumulateN(const InterpolableTransformList& delta, int n);
+
+  // Accumulates this transform list onto |underlying|.
   void AccumulateOnto(const InterpolableTransformList& underlying);
 
   // InterpolableValue implementation:
@@ -41,24 +53,25 @@ class CORE_EXPORT InterpolableTransformList final : public InterpolableValue {
                    const double progress,
                    InterpolableValue& result) const final;
   bool IsTransformList() const final { return true; }
-  bool Equals(const InterpolableValue& other) const final {
-    NOTREACHED();
-    return false;
-  }
+  bool Equals(const InterpolableValue& other) const final { NOTREACHED(); }
   void Scale(double scale) final { NOTREACHED(); }
   void Add(const InterpolableValue& other) final { NOTREACHED(); }
   void AssertCanInterpolateWith(const InterpolableValue& other) const final;
 
- private:
-  InterpolableTransformList* RawClone() const final {
-    return new InterpolableTransformList(TransformOperations(operations_));
-  }
-  InterpolableTransformList* RawCloneAndZero() const final {
-    NOTREACHED();
-    return nullptr;
+  void Trace(Visitor* v) const override {
+    InterpolableValue::Trace(v);
+    v->Trace(operations_);
   }
 
+ private:
+  InterpolableTransformList* RawClone() const final {
+    return MakeGarbageCollected<InterpolableTransformList>(
+        TransformOperations(operations_), box_size_dependent_);
+  }
+  InterpolableTransformList* RawCloneAndZero() const final { NOTREACHED(); }
+
   TransformOperations operations_;
+  TransformOperations::BoxSizeDependentMatrixBlending box_size_dependent_;
 };
 
 template <>

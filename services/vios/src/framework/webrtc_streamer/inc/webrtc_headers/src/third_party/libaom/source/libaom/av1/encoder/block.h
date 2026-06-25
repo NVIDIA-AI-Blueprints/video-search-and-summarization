@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -43,8 +43,11 @@ extern "C" {
 /*! Maximum value taken by transform type probabilities */
 #define MAX_TX_TYPE_PROB 1024
 
+/*! Maximum value of inter transform RD records. */
+#define TOP_INTER_TX_NO_SPLIT_COUNT 4
+
 //! Compute color sensitivity index for given plane
-#define COLOR_SENS_IDX(plane) ((plane)-1)
+#define COLOR_SENS_IDX(plane) ((plane) - 1)
 
 //! Enable timer statistics of mode search in non-rd
 #define COLLECT_NONRD_PICK_MODE_STAT 0
@@ -440,6 +443,11 @@ typedef struct {
    * features.
    */
   int use_default_intra_tx_type;
+
+  /*! Whether to limit the intra transform search type to the ones in the table
+   * av1_derived_intra_tx_used_flag[INTRA_MODES].
+   */
+  int use_derived_intra_tx_type_set;
 
   /*! Probability threshold used for conditionally forcing tx type*/
   int default_inter_tx_type_prob_thresh;
@@ -868,6 +876,9 @@ typedef struct SetOffsetsLoc {
 
 /*!\endcond */
 
+//! Maximum number of estimated RD Cost records for compound average.
+#define TOP_COMP_AVG_EST_RD_COUNT 5
+
 /*! \brief Encoder's parameters related to the current coding block.
  *
  * This struct contains most of the information the encoder needs to encode the
@@ -952,6 +963,11 @@ typedef struct macroblock {
    *   prediction.
    */
   uint8_t *tmp_pred_bufs[2];
+
+  /*!
+   *  Buffer used for upsampled prediction.
+   */
+  uint8_t *upsample_pred;
   /**@}*/
 
   /*****************************************************************************
@@ -1322,6 +1338,19 @@ typedef struct macroblock {
   uint8_t color_sensitivity_sb_alt[MAX_MB_PLANE - 1];
   //! Color sensitivity flag for the coding block.
   uint8_t color_sensitivity[MAX_MB_PLANE - 1];
+  //! Coding block distortion value for uv/color, minimum over the inter modes.
+  int64_t min_dist_inter_uv;
+
+  //! Threshold on the number of colors for testing palette mode.
+  int color_palette_thresh;
+
+  //! Used in REALTIME coding mode: flag to indicate if the color_sensitivity
+  // should be checked at the coding block level.
+  int force_color_check_block_level;
+
+  //! The buffer used by search_tx_type() to swap dqcoeff in macroblockd_plane
+  // so we can keep dqcoeff of the best tx_type.
+  tran_low_t *dqcoeff_buf;
   /**@}*/
 
   /*****************************************************************************
@@ -1330,6 +1359,25 @@ typedef struct macroblock {
   /**@{*/
   //! Variance of the source frame.
   unsigned int source_variance;
+  //! Flag to indicate coding block is zero sad.
+  int block_is_zero_sad;
+  //! Flag to indicate superblock ME in variance partition is determined to be
+  // good/reliable, and so the superblock MV will be tested in the
+  // nonrd_pickmode. This is only used for LAST_FRAME.
+  int sb_me_partition;
+  //! Flag to indicate to test the superblock MV for the coding block in the
+  // nonrd_pickmode.
+  int sb_me_block;
+  //! Counter for superblock selected column scroll.
+  int sb_col_scroll;
+  //! Counter for superblock selected row scroll.
+  int sb_row_scroll;
+  //! Motion vector from superblock MV derived from int_pro_motion() in
+  // the variance_partitioning.
+  int_mv sb_me_mv;
+  //! Flag to indicate if a fixed partition should be used, only if the
+  // speed feature rt_sf->use_fast_fixed_part is enabled.
+  int sb_force_fixed_part;
   //! SSE of the current predictor.
   unsigned int pred_sse[REF_FRAMES];
   //! Prediction for ML based partition.
@@ -1366,6 +1414,30 @@ typedef struct macroblock {
    * fast encoding stage for screen content tool detemination.
    */
   int palette_pixels;
+
+  /*! \brief Keep records of top no-split RD Costs of transform size search. */
+  int64_t top_inter_tx_no_split_rd[MAX_TX_BLOCKS_IN_MAX_SB]
+                                  [TOP_INTER_TX_NO_SPLIT_COUNT];
+
+  /*!\brief Pointer to the structure which stores the statistics used by
+   * sb-level multi-pass encoding.
+   */
+  struct SB_FIRST_PASS_STATS *sb_stats_cache;
+
+  /*!\brief Pointer to the structure which stores the statistics used by
+   * first-pass when superblock is searched twice consecutively.
+   */
+  struct SB_FIRST_PASS_STATS *sb_fp_stats;
+
+  /*!\brief Array of best estimated RD Costs of compound average. */
+  int64_t top_comp_avg_est_rd[TOP_COMP_AVG_EST_RD_COUNT];
+
+#if CONFIG_PARTITION_SEARCH_ORDER
+  /*!\brief Pointer to RD_STATS structure to be used in
+   * av1_rd_partition_search().
+   */
+  RD_STATS *rdcost;
+#endif  // CONFIG_PARTITION_SEARCH_ORDER
 } MACROBLOCK;
 #undef SINGLE_REF_MODES
 
@@ -1373,7 +1445,7 @@ typedef struct macroblock {
 // Zeroes out 'n_stats' elements in the array x->winner_mode_stats.
 // It only zeroes out what is necessary in 'color_index_map' (just the block
 // size, not the whole array).
-static INLINE void zero_winner_mode_stats(BLOCK_SIZE bsize, int n_stats,
+static inline void zero_winner_mode_stats(BLOCK_SIZE bsize, int n_stats,
                                           WinnerModeStats *stats) {
   // When winner mode stats are not required, the memory allocation is avoided
   // for x->winner_mode_stats. The stats pointer will be NULL in such cases.
@@ -1395,7 +1467,7 @@ static INLINE void zero_winner_mode_stats(BLOCK_SIZE bsize, int n_stats,
   }
 }
 
-static INLINE int is_rect_tx_allowed_bsize(BLOCK_SIZE bsize) {
+static inline int is_rect_tx_allowed_bsize(BLOCK_SIZE bsize) {
   static const char LUT[BLOCK_SIZES_ALL] = {
     0,  // BLOCK_4X4
     1,  // BLOCK_4X8
@@ -1424,13 +1496,13 @@ static INLINE int is_rect_tx_allowed_bsize(BLOCK_SIZE bsize) {
   return LUT[bsize];
 }
 
-static INLINE int is_rect_tx_allowed(const MACROBLOCKD *xd,
+static inline int is_rect_tx_allowed(const MACROBLOCKD *xd,
                                      const MB_MODE_INFO *mbmi) {
   return is_rect_tx_allowed_bsize(mbmi->bsize) &&
          !xd->lossless[mbmi->segment_id];
 }
 
-static INLINE int tx_size_to_depth(TX_SIZE tx_size, BLOCK_SIZE bsize) {
+static inline int tx_size_to_depth(TX_SIZE tx_size, BLOCK_SIZE bsize) {
   TX_SIZE ctx_size = max_txsize_rect_lookup[bsize];
   int depth = 0;
   while (tx_size != ctx_size) {
@@ -1441,7 +1513,7 @@ static INLINE int tx_size_to_depth(TX_SIZE tx_size, BLOCK_SIZE bsize) {
   return depth;
 }
 
-static INLINE void set_blk_skip(uint8_t txb_skip[], int plane, int blk_idx,
+static inline void set_blk_skip(uint8_t txb_skip[], int plane, int blk_idx,
                                 int skip) {
   if (skip)
     txb_skip[blk_idx] |= 1UL << plane;
@@ -1460,7 +1532,7 @@ static INLINE void set_blk_skip(uint8_t txb_skip[], int plane, int blk_idx,
 #endif
 }
 
-static INLINE int is_blk_skip(uint8_t *txb_skip, int plane, int blk_idx) {
+static inline int is_blk_skip(uint8_t *txb_skip, int plane, int blk_idx) {
 #ifndef NDEBUG
   // Check if this is initialized
   assert(!(txb_skip[blk_idx] & (1UL << (plane + 4))));

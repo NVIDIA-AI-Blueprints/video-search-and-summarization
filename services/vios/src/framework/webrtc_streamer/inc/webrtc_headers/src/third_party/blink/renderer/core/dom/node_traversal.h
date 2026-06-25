@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/container_node.h"
+#include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/traversal_range.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -60,7 +61,9 @@ class CORE_EXPORT NodeTraversal {
     return TraverseNextTemplate(current, stay_within);
   }
 
-  // Like next, but skips children and starts with the next sibling.
+  // Like next, but skips children and starts with the next sibling. If you're
+  // looking for the "Previous" version of this method, see
+  // PreviousAbsoluteSibling().
   static Node* NextSkippingChildren(const Node&);
   static Node* NextSkippingChildren(const Node&, const Node* stay_within);
 
@@ -123,6 +126,7 @@ class CORE_EXPORT NodeTraversal {
   static Node* PreviousSibling(const Node& node) {
     return node.previousSibling();
   }
+  static Node* PreviousAncestorSibling(const Node&, const Node* stay_within);
   static ContainerNode* Parent(const Node& node) { return node.parentNode(); }
   static Node* CommonAncestor(const Node& node_a, const Node& node_b);
   static unsigned Index(const Node& node) { return node.NodeIndex(); }
@@ -230,10 +234,16 @@ inline Node* NodeTraversal::NextSkippingChildren(const Node& current,
   return NextAncestorSibling(current, stay_within);
 }
 
+// Note that `HighestAncestorOrSelf` is used most commonly in `RemovedFrom` and
+// `InsertedInfo`, during which `current.isConnected()` hasn't yet been
+// updated to its new state. Which means `HighestAncestorOrSelf` cannot use
+// `current.TreeRoot()` because it might return the root of the old tree,
+// rather than the highest ancestor of the newly-removed/inserted node.
 inline Node& NodeTraversal::HighestAncestorOrSelf(const Node& current) {
   Node* highest = const_cast<Node*>(&current);
-  while (highest->parentNode())
+  while (highest->parentNode()) {
     highest = highest->parentNode();
+  }
   return *highest;
 }
 

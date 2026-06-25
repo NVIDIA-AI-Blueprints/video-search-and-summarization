@@ -104,6 +104,7 @@ void dav1d_picture_unref_internal(Dav1dPicture *p);
 struct itut_t35_ctx_context {
     Dav1dITUTT35 *itut_t35;
     size_t n_itut_t35;
+    Dav1dRef ref;
 };
 
 void dav1d_picture_free_itut_t35(const uint8_t *data, void *user_data);

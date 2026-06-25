@@ -29,6 +29,12 @@ enum CryptoKeyAlgorithmTag : uint32_t {
   kPbkdf2Tag = 17,
   kEd25519Tag = 18,
   kX25519Tag = 19,
+  kChaCha20Poly1305Tag = 20,
+  kMlDsa44Tag = 21,
+  kMlDsa65Tag = 22,
+  kMlDsa87Tag = 23,
+  kMlKem768Tag = 24,
+  kMlKem1024Tag = 25,
   // Maximum allowed value is 2^32-1
 };
 
@@ -52,6 +58,10 @@ enum CryptoKeyUsage : uint32_t {
   kWrapKeyUsage = 1 << 6,
   kUnwrapKeyUsage = 1 << 7,
   kDeriveBitsUsage = 1 << 8,
+  kEncapsulateKeyUsage = 1 << 9,
+  kEncapsulateBitsUsage = 1 << 10,
+  kDecapsulateKeyUsage = 1 << 11,
+  kDecapsulateBitsUsage = 1 << 12,
   // Maximum allowed value is 1 << 31
 };
 

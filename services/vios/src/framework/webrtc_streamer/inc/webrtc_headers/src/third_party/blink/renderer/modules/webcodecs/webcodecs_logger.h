@@ -14,7 +14,6 @@
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
 namespace blink {
 
@@ -35,7 +34,7 @@ class MODULES_EXPORT WebCodecsLogger : public GarbageCollected<WebCodecsLogger>,
   // without having close() called on them. This is a web page application
   // error which can cause a web page to stall.
   class VideoFrameCloseAuditor
-      : public WTF::ThreadSafeRefCounted<VideoFrameCloseAuditor> {
+      : public ThreadSafeRefCounted<VideoFrameCloseAuditor> {
    public:
     void ReportUnclosedFrame();
     void Clear();
@@ -43,7 +42,7 @@ class MODULES_EXPORT WebCodecsLogger : public GarbageCollected<WebCodecsLogger>,
     bool were_frames_not_closed() { return were_frames_not_closed_; }
 
    private:
-    friend class WTF::ThreadSafeRefCounted<VideoFrameCloseAuditor>;
+    friend class ThreadSafeRefCounted<VideoFrameCloseAuditor>;
     ~VideoFrameCloseAuditor() = default;
 
     bool were_frames_not_closed_ = false;

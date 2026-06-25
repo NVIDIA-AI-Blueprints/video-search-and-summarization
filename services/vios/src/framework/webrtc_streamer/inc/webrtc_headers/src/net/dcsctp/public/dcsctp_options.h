@@ -10,10 +10,10 @@
 #ifndef NET_DCSCTP_PUBLIC_DCSCTP_OPTIONS_H_
 #define NET_DCSCTP_PUBLIC_DCSCTP_OPTIONS_H_
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "net/dcsctp/public/types.h"
 
 namespace dcsctp {
@@ -85,9 +85,19 @@ struct DcSctpOptions {
   // buffer is fully utilized.
   size_t max_receiver_window_buffer_size = 5 * 1024 * 1024;
 
-  // Maximum send buffer size. It will not be possible to queue more data than
-  // this before sending it.
+  // Enables receive pull mode - `DcSctpCallbacks::OnMessageReady` will be
+  // called when there are messages ready to be read instead of
+  // `DcSctpCallbacks::OnMessageReceived`.  It is up to the
+  // caller to call `DcSctpSocket::GetNextMessage()` to receive the messages.
+  bool enable_receive_pull_mode = false;
+
+  // Send queue total size limit. It will not be possible to queue more data if
+  // the queue size is larger than this number.
   size_t max_send_buffer_size = 2'000'000;
+
+  // Per stream send queue size limit. Similar to `max_send_buffer_size`, but
+  // limiting the size of individual streams.
+  size_t per_stream_send_queue_limit = 2'000'000;
 
   // A threshold that, when the amount of data in the send buffer goes below
   // this value, will trigger `DcSctpCallbacks::OnTotalBufferedAmountLow`.
@@ -124,7 +134,7 @@ struct DcSctpOptions {
   // transient network issues. Setting this value may require changing
   // `max_retransmissions` and `max_init_retransmits` to ensure that the
   // connection is not closed too quickly.
-  absl::optional<DurationMs> max_timer_backoff_duration = absl::nullopt;
+  std::optional<DurationMs> max_timer_backoff_duration = std::nullopt;
 
   // Hearbeat interval (on idle connections only). Set to zero to disable.
   DurationMs heartbeat_interval = DurationMs(30000);
@@ -144,8 +154,11 @@ struct DcSctpOptions {
   // processing time of received packets and the clock granularity when setting
   // the delayed ack timer on the peer.
   //
-  // This is described for TCP in
+  // This is defined as "G" in the algorithm for TCP in
   // https://datatracker.ietf.org/doc/html/rfc6298#section-4.
+  //
+  // Note that this value will be further adjusted by scaling factors, so if you
+  // intend to change this, do it incrementally and measure the results.
   DurationMs min_rtt_variance = DurationMs(220);
 
   // The initial congestion window size, in number of MTUs.
@@ -168,6 +181,16 @@ struct DcSctpOptions {
   // creating small fragmented packets.
   size_t avoid_fragmentation_cwnd_mtus = 6;
 
+  // When the congestion window is below this number of MTUs, sent data chunks
+  // will have the "I" (Immediate SACK - RFC7053) bit set. That will prevent the
+  // receiver from delaying the SACK, which result in shorter time until the
+  // sender can send the next packet as its driven by SACKs. This can reduce
+  // latency for low utilized and lossy connections.
+  //
+  // Default value set to be same as initial congestion window. Set to zero to
+  // disable.
+  size_t immediate_sack_under_cwnd_mtus = 10;
+
   // The number of packets that may be sent at once. This is limited to avoid
   // bursts that too quickly fill the send buffer. Typically in a a socket in
   // its "slow start" phase (when it sends as much as it can), it will send
@@ -176,13 +199,13 @@ struct DcSctpOptions {
   // retransmission scenarios.
   int max_burst = 4;
 
-  // Maximum Data Retransmit Attempts (per DATA chunk). Set to absl::nullopt for
+  // Maximum Data Retransmit Attempts (per DATA chunk). Set to std::nullopt for
   // no limit.
-  absl::optional<int> max_retransmissions = 10;
+  std::optional<int> max_retransmissions = 10;
 
   // Max.Init.Retransmits (https://tools.ietf.org/html/rfc4960#section-15). Set
-  // to absl::nullopt for no limit.
-  absl::optional<int> max_init_retransmits = 8;
+  // to std::nullopt for no limit.
+  std::optional<int> max_init_retransmits = 8;
 
   // RFC3758 Partial Reliability Extension
   bool enable_partial_reliability = true;
@@ -196,14 +219,13 @@ struct DcSctpOptions {
   // Disables SCTP packet crc32 verification. For fuzzers only!
   bool disable_checksum_verification = false;
 
-  // Controls the acceptance of zero checksum, as defined in
-  // https://datatracker.ietf.org/doc/draft-tuexen-tsvwg-sctp-zero-checksum/
-  // This should only be enabled if the packet integrity can be ensured by lower
-  // layers, which DTLS will do in WebRTC, as defined by RFC8261.
-  //
-  // This will also enable sending packets without a checksum value (set to 0)
-  // once both peers have negotiated this feature.
-  bool enable_zero_checksum = false;
+  // Controls the "zero checksum option" feature, as defined in
+  // https://www.ietf.org/archive/id/draft-ietf-tsvwg-sctp-zero-checksum-06.html.
+  // To have this feature enabled, both peers must be configured to use the
+  // same (defined, not "none") alternate error detection method.
+  ZeroChecksumAlternateErrorDetectionMethod
+      zero_checksum_alternate_error_detection_method =
+          ZeroChecksumAlternateErrorDetectionMethod::None();
 };
 }  // namespace dcsctp
 

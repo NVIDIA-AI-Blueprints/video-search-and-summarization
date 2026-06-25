@@ -29,13 +29,17 @@
 #ifndef AVFILTER_CCFIFO_H
 #define AVFILTER_CCFIFO_H
 
-#include "libavutil/avutil.h"
+#include <stddef.h>
+#include <stdint.h>
+
 #include "libavutil/frame.h"
-#include "libavutil/fifo.h"
+#include "libavutil/rational.h"
+
+#define CC_BYTES_PER_ENTRY 3
 
 typedef struct CCFifo {
-    AVFifo *cc_608_fifo;
-    AVFifo *cc_708_fifo;
+    struct AVFifo *cc_608_fifo;
+    struct AVFifo *cc_708_fifo;
     AVRational framerate;
     int expected_cc_count;
     int expected_608;
@@ -88,7 +92,11 @@ int ff_ccfifo_extractbytes(CCFifo *ccf, uint8_t *data, size_t len);
  * an appropriately sized buffer and pass it to ff_ccfifo_injectbytes()
  *
  */
-int ff_ccfifo_getoutputsize(const CCFifo *ccf);
+static inline int ff_ccfifo_getoutputsize(const CCFifo *ccf)
+{
+    return ccf->expected_cc_count * CC_BYTES_PER_ENTRY;
+}
+
 
 /**
  * Insert CC data from the FIFO into an AVFrame (as side data)
@@ -113,6 +121,9 @@ int ff_ccfifo_injectbytes(CCFifo *ccf, uint8_t *data, size_t len);
  * Returns 1 if captions have been found as a prior call
  * to ff_ccfifo_extract() or ff_ccfifo_extractbytes()
  */
-int ff_ccfifo_ccdetected(const CCFifo *ccf);
+static inline int ff_ccfifo_ccdetected(const CCFifo *ccf)
+{
+    return ccf->cc_detected;
+}
 
 #endif /* AVFILTER_CCFIFO_H */

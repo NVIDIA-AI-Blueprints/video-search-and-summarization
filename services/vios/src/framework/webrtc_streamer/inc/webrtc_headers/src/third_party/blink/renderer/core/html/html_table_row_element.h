@@ -40,6 +40,10 @@ class CORE_EXPORT HTMLTableRowElement final : public HTMLTablePartElement {
  public:
   explicit HTMLTableRowElement(Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLTableRowElement;
+  }
+
   int rowIndex() const;
 
   int sectionRowIndex() const;
@@ -53,7 +57,6 @@ class CORE_EXPORT HTMLTableRowElement final : public HTMLTablePartElement {
 
  private:
   bool HasLegalLinkAttribute(const QualifiedName&) const override;
-  const QualifiedName& SubResourceAttributeName() const override;
 };
 
 }  // namespace blink

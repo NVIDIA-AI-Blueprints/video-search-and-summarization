@@ -21,7 +21,8 @@
 
 #ifdef _WIN32
 
-#define WIN32_LEAN_AND_MEAN
+#include <errno.h>
+#include <stddef.h>
 #include <windows.h>
 #include "mem.h"
 
@@ -56,7 +57,7 @@ static inline int wchartocp(unsigned int code_page, const wchar_t *filename_w,
         errno = EINVAL;
         return -1;
     }
-    *filename = (char*)av_malloc_array(num_chars, sizeof *filename);
+    *filename = (char *)av_malloc_array(num_chars, sizeof **filename);
     if (!*filename) {
         errno = ENOMEM;
         return -1;

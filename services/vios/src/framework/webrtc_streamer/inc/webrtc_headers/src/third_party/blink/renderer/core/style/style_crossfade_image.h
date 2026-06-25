@@ -6,11 +6,15 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_STYLE_CROSSFADE_IMAGE_H_
 
 #include "third_party/blink/renderer/core/style/style_image.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
+#include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
+
+class CSSLengthResolver;
 
 namespace cssvalue {
 class CSSCrossfadeValue;
@@ -20,20 +24,24 @@ class CSSCrossfadeValue;
 class StyleCrossfadeImage final : public StyleImage {
  public:
   StyleCrossfadeImage(cssvalue::CSSCrossfadeValue&,
-                      StyleImage* from_image,
-                      StyleImage* to_image);
+                      HeapVector<Member<StyleImage>> images,
+                      const CSSLengthResolver&);
   ~StyleCrossfadeImage() override;
 
   CSSValue* CssValue() const override;
   CSSValue* ComputedCSSValue(const ComputedStyle&,
-                             bool allow_visited_style) const override;
+                             bool allow_visited_style,
+                             CSSValuePhase value_phase) const override;
 
   bool CanRender() const override;
   bool IsLoading() const override;
   bool IsLoaded() const override;
   bool ErrorOccurred() const override;
-  bool IsAccessAllowed(String&) const override;
+  bool IsCorsSameOrigin() const override;
 
+  NaturalSizingInfo GetNaturalSizingInfo(
+      float multiplier,
+      RespectImageOrientationEnum) const override;
   gfx::SizeF ImageSize(float multiplier,
                        const gfx::SizeF& default_object_size,
                        RespectImageOrientationEnum) const override;
@@ -44,7 +52,7 @@ class StyleCrossfadeImage final : public StyleImage {
   void RemoveClient(ImageResourceObserver*) override;
 
   scoped_refptr<Image> GetImage(const ImageResourceObserver&,
-                                const Document&,
+                                const Node&,
                                 const ComputedStyle&,
                                 const gfx::SizeF& target_size) const override;
 
@@ -56,9 +64,23 @@ class StyleCrossfadeImage final : public StyleImage {
  private:
   bool IsEqual(const StyleImage&) const override;
 
+  // Can only return true for -webkit-cross-fade, not cross-fade.
+  bool AnyImageIsNone() const;
+
+  // Converts from 0..100 to 0..1, and fills in missing percentages.
+  // If for_sizing is true, skips all <color> StyleImages, since they
+  // do not participate in the sizing algorithms.
+  HeapVector<float> ComputeWeights(const CSSLengthResolver& length_resolver,
+                                   bool for_sizing) const;
+
   Member<cssvalue::CSSCrossfadeValue> original_value_;
-  Member<StyleImage> from_image_;
-  Member<StyleImage> to_image_;
+  HeapVector<Member<StyleImage>> images_;
+
+  // Weights for the actual cross-fade operation.
+  HeapVector<float> weights_;
+
+  // Weights for non-<color> images (see comment on ComputeWeights()).
+  HeapVector<float> weights_for_sizing_;
 };
 
 template <>

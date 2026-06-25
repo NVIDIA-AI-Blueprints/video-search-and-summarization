@@ -1,20 +1,21 @@
-/* Copyright (c) 2014, Google Inc.
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
- * SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
- * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
- * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
+// Copyright 2014 The BoringSSL Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #ifndef HEADER_TEST_CONFIG
 #define HEADER_TEST_CONFIG
 
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,37 +25,78 @@
 
 #include "test_state.h"
 
+enum class CredentialConfigType {
+  kX509,
+  kDelegated,
+  kSPAKE2PlusV1,
+  kPreSharedKey,
+  kRawPublicKey,
+};
+
+struct CredentialConfig {
+  CredentialConfigType type;
+  std::string cert_file;
+  std::string key_file;
+  std::vector<uint16_t> signing_prefs;
+  std::vector<uint8_t> delegated_credential;
+  std::vector<uint8_t> ocsp_response;
+  std::vector<uint8_t> signed_cert_timestamps;
+  bool must_match_issuer = false;
+  std::vector<uint8_t> pake_context;
+  std::vector<uint8_t> pake_client_id;
+  std::vector<uint8_t> pake_server_id;
+  std::vector<uint8_t> pake_password;
+  std::vector<uint8_t> trust_anchor_id;
+  bool wrong_pake_role = false;
+  std::vector<uint8_t> psk;
+  std::vector<uint8_t> psk_identity;
+  std::vector<uint8_t> psk_context;
+  const EVP_MD *psk_hash;
+};
+
 struct TestConfig {
   int port = 0;
+  bool ipv6 = false;
+  uint64_t shim_id = 0;
   bool is_server = false;
   bool is_dtls = false;
   bool is_quic = false;
   int resume_count = 0;
   std::string write_settings;
+#if defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+  bool fuzzer_mode = false;
+#endif
   bool fallback_scsv = false;
   std::vector<uint16_t> signing_prefs;
   std::vector<uint16_t> verify_prefs;
   std::vector<uint16_t> expect_peer_verify_prefs;
   std::vector<uint16_t> curves;
+  std::vector<uint32_t> curves_flags;
+  std::optional<std::vector<uint16_t>> key_shares;
+  std::vector<uint16_t> server_supported_groups_hint;
   std::string key_file;
   std::string cert_file;
+  std::string trust_cert;
   std::string expect_server_name;
   bool enable_ech_grease = false;
-  std::vector<std::string> ech_server_configs;
-  std::vector<std::string> ech_server_keys;
+  std::vector<std::vector<uint8_t>> ech_server_configs;
+  std::vector<std::vector<uint8_t>> ech_server_keys;
   std::vector<int> ech_is_retry_config;
   bool expect_ech_accept = false;
   std::string expect_ech_name_override;
   bool expect_no_ech_name_override = false;
-  std::string expect_ech_retry_configs;
+  std::vector<uint8_t> expect_ech_retry_configs;
   bool expect_no_ech_retry_configs = false;
-  std::string ech_config_list;
-  std::string expect_certificate_types;
+  std::vector<uint8_t> ech_config_list;
+  std::vector<uint8_t> expect_certificate_types;
   bool require_any_client_certificate = false;
   std::string advertise_npn;
+  bool advertise_empty_npn = false;
   std::string expect_next_proto;
+  bool expect_no_next_proto = false;
   bool false_start = false;
   std::string select_next_proto;
+  bool select_empty_next_proto = false;
   bool async = false;
   bool write_different_record_sizes = false;
   bool cbc_record_splitting = false;
@@ -64,14 +106,13 @@ struct TestConfig {
   bool no_tls11 = false;
   bool no_tls1 = false;
   bool no_ticket = false;
-  std::string expect_channel_id;
+  std::vector<uint8_t> expect_channel_id;
   bool enable_channel_id = false;
   std::string send_channel_id;
   bool shim_writes_first = false;
   std::string host_name;
   std::string advertise_alpn;
   std::string expect_alpn;
-  std::string expect_late_alpn;
   std::string expect_advertised_alpn;
   std::string select_alpn;
   bool decline_alpn = false;
@@ -79,9 +120,10 @@ struct TestConfig {
   bool select_empty_alpn = false;
   bool defer_alps = false;
   std::vector<std::pair<std::string, std::string>> application_settings;
-  std::unique_ptr<std::string> expect_peer_application_settings;
-  std::string quic_transport_params;
-  std::string expect_quic_transport_params;
+  std::optional<std::string> expect_peer_application_settings;
+  int alps_use_new_codepoint = 1;
+  std::vector<uint8_t> quic_transport_params;
+  std::vector<uint8_t> expect_quic_transport_params;
   // Set quic_use_legacy_codepoint to 0 or 1 to configure, -1 uses default.
   int quic_use_legacy_codepoint = -1;
   bool expect_session_miss = false;
@@ -90,9 +132,9 @@ struct TestConfig {
   std::string psk_identity;
   std::string srtp_profiles;
   bool enable_ocsp_stapling = false;
-  std::string expect_ocsp_response;
+  std::vector<uint8_t> expect_ocsp_response;
   bool enable_signed_cert_timestamps = false;
-  std::string expect_signed_cert_timestamps;
+  std::vector<uint8_t> expect_signed_cert_timestamps;
   uint16_t min_version = 0;
   uint16_t max_version = 0;
   uint16_t expect_version = 0;
@@ -100,6 +142,7 @@ struct TestConfig {
   bool implicit_handshake = false;
   bool use_early_callback = false;
   bool fail_early_callback = false;
+  bool fail_early_callback_ech_rewind = false;
   bool install_ddos_callback = false;
   bool fail_ddos_callback = false;
   bool fail_cert_callback = false;
@@ -116,17 +159,19 @@ struct TestConfig {
   bool expect_accept_early_data = false;
   bool expect_reject_early_data = false;
   bool expect_no_offer_early_data = false;
+  bool expect_no_server_name = false;
   bool use_ticket_callback = false;
+  bool use_ticket_aead_callback = false;
   bool renew_ticket = false;
+  bool skip_ticket = false;
   bool enable_early_data = false;
-  std::string ocsp_response;
+  std::vector<uint8_t> ocsp_response;
   bool check_close_notify = false;
   bool shim_shuts_down = false;
   bool verify_fail = false;
   bool verify_peer = false;
-  bool verify_peer_if_no_obc = false;
   bool expect_verify_result = false;
-  std::string signed_cert_timestamps;
+  std::vector<uint8_t> signed_cert_timestamps;
   int expect_total_renegotiations = 0;
   bool renegotiate_once = false;
   bool renegotiate_freely = false;
@@ -144,11 +189,12 @@ struct TestConfig {
   bool enable_grease = false;
   bool permute_extensions = false;
   int max_cert_list = 0;
-  std::string ticket_key;
+  std::vector<uint8_t> ticket_key;
   bool use_exporter_between_reads = false;
   uint16_t expect_cipher_aes = 0;
   uint16_t expect_cipher_no_aes = 0;
   uint16_t expect_cipher = 0;
+  bool expect_no_peer_cert = false;
   std::string expect_peer_cert_file;
   int resumption_delay = 0;
   bool retain_only_sha256_client_cert = false;
@@ -186,8 +232,7 @@ struct TestConfig {
   bool server_preference = false;
   bool export_traffic_secrets = false;
   bool key_update = false;
-  bool expect_delegated_credential_used = false;
-  std::string delegated_credential;
+  bool key_update_before_read = false;
   std::string expect_early_data_reason;
   bool expect_hrr = false;
   bool expect_no_hrr = false;
@@ -196,9 +241,24 @@ struct TestConfig {
   int early_write_after_message = 0;
   bool fips_202205 = false;
   bool wpa_202304 = false;
+  bool cnsa_202407 = false;
+  bool cnsa1_202603 = false;
+  bool cnsa2_202603 = false;
+  std::optional<bool> expect_peer_match_trust_anchor;
+  std::optional<std::vector<uint8_t>> expect_peer_available_trust_anchors;
+  std::optional<std::vector<uint8_t>> requested_trust_anchors;
+  std::optional<int> expect_selected_credential;
+  std::vector<CredentialConfig> credentials;
+  int private_key_delay_ms = 0;
+  bool resumption_across_names_enabled = false;
+  std::optional<bool> expect_resumable_across_names;
+  bool no_server_name_ack = false;
+  std::vector<uint8_t> accepted_peer_cert_types;
+  std::vector<uint8_t> available_client_cert_types;
+  std::optional<uint8_t> expect_peer_certificate_type;
+  std::vector<uint8_t> expect_peer_rpk_sha256;
 
-  int argc;
-  char **argv;
+  std::vector<const char *> handshaker_args;
 
   bssl::UniquePtr<SSL_CTX> SetupCtx(SSL_CTX *old_ctx) const;
 

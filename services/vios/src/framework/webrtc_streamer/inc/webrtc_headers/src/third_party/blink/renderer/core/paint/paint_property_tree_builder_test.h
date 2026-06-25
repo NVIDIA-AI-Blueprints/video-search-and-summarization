@@ -7,7 +7,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/paint/paint_controller_paint_test.h"
-#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
+#include "third_party/blink/renderer/platform/geometry/physical_offset.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
 namespace blink {
@@ -16,7 +16,6 @@ class ClipPaintPropertyNode;
 class GeometryMapperTransformCache;
 class ScrollPaintPropertyNode;
 class TransformPaintPropertyNode;
-struct PhysicalOffset;
 
 class PaintPropertyTreeBuilderTest : public PaintControllerPaintTest {
  public:
@@ -46,23 +45,12 @@ class PaintPropertyTreeBuilderTest : public PaintControllerPaintTest {
       const TransformPaintPropertyNode&);
 
   static unsigned NumFragments(const LayoutObject* obj) {
-    unsigned count = 0;
-    auto* fragment = &obj->FirstFragment();
-    while (fragment) {
-      count++;
-      fragment = fragment->NextFragment();
-    }
-    return count;
+    return obj->FragmentList().size();
   }
 
   static const FragmentData& FragmentAt(const LayoutObject* obj,
-                                        unsigned count) {
-    auto* fragment = &obj->FirstFragment();
-    while (count > 0) {
-      count--;
-      fragment = fragment->NextFragment();
-    }
-    return *fragment;
+                                        unsigned index) {
+    return obj->FragmentList().at(index);
   }
 
  private:

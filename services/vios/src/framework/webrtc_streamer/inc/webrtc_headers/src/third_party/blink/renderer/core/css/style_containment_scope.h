@@ -5,57 +5,41 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_STYLE_CONTAINMENT_SCOPE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_STYLE_CONTAINMENT_SCOPE_H_
 
-#include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/css/ordered_scope_tree.h"
 #include "third_party/blink/renderer/core/layout/layout_quote.h"
 
 namespace blink {
 
-// Represents the scope of the subtree that contains style.
-// Manages quotes and child scopes.
-// Managed by StyleContainmentScopeTree.
-class StyleContainmentScope final
-    : public GarbageCollected<StyleContainmentScope> {
- public:
-  explicit StyleContainmentScope(const Element* element)
-      : element_(element), parent_(nullptr) {}
+// Explicit specializations of OrderedScope<LayoutQuote> static methods.
+// These define how LayoutQuote items interact with contain:style scopes.
+// Declared here, defined in style_containment_scope.cc.
 
-  // Handles the self remove.
-  void ReattachToParent();
+template <>
+const Element* OrderedScope<LayoutQuote>::GetItemElement(const LayoutQuote*);
 
-  void AttachQuote(LayoutQuote&);
-  void DetachQuote(LayoutQuote&);
-  void UpdateQuotes() const;
+template <>
+void OrderedScope<LayoutQuote>::OnItemAttached(LayoutQuote*,
+                                               OrderedScope<LayoutQuote>*);
 
-  bool IsAncestorOf(const Element*, const Element* stay_within = nullptr);
+template <>
+void OrderedScope<LayoutQuote>::OnItemDetached(LayoutQuote*);
 
-  void AppendChild(StyleContainmentScope*);
-  void RemoveChild(StyleContainmentScope*);
+template <>
+bool OrderedScope<LayoutQuote>::CreatesScope(const Element&);
 
-  const Element* GetElement() { return element_; }
-  StyleContainmentScope* Parent() { return parent_; }
-  void SetParent(StyleContainmentScope* parent) { parent_ = parent; }
-  const HeapVector<Member<LayoutQuote>>& Quotes() const { return quotes_; }
-  const HeapVector<Member<StyleContainmentScope>>& Children() const {
-    return children_;
-  }
+template <>
+void OrderedScope<LayoutQuote>::UpdateItemsInScope(
+    const OrderedScope<LayoutQuote>*);
 
-  void Trace(Visitor*) const;
+// Explicit template instantiation declarations.
+// These prevent implicit instantiation in every translation unit that includes
+// this header. The actual instantiation is in style_containment_scope.cc.
+extern template class OrderedScope<LayoutQuote>;
+extern template class OrderedScopeTree<LayoutQuote>;
 
- private:
-  // Get the quote which would be the last in preorder traversal before we hit
-  // Element*.
-  const LayoutQuote* FindQuotePrecedingElement(const Element&) const;
-  int ComputeInitialQuoteDepth() const;
-
-  // Element with style containment which is the root of the scope.
-  Member<const Element> element_;
-  // Parent scope.
-  Member<StyleContainmentScope> parent_;
-  // Vector of quotes.
-  HeapVector<Member<LayoutQuote>> quotes_;
-  // Vector of children scope.
-  HeapVector<Member<StyleContainmentScope>> children_;
-};
+// Type alias for backward compatibility.
+using StyleContainmentScope = OrderedScope<LayoutQuote>;
+using StyleContainmentScopeTree = OrderedScopeTree<LayoutQuote>;
 
 }  // namespace blink
 

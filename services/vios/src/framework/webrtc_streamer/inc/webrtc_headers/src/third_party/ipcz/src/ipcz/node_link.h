@@ -6,12 +6,16 @@
 #define IPCZ_SRC_IPCZ_NODE_LINK_H_
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <type_traits>
+#include <vector>
 
 #include "ipcz/driver_memory.h"
 #include "ipcz/driver_transport.h"
+#include "ipcz/features.h"
 #include "ipcz/fragment_ref.h"
 #include "ipcz/link_side.h"
 #include "ipcz/link_type.h"
@@ -22,8 +26,8 @@
 #include "ipcz/sequence_number.h"
 #include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/ref_counted.h"
 
@@ -36,7 +40,7 @@ class RemoteRouterLink;
 class Router;
 
 // A NodeLink instance encapsulates all communication from its owning node to
-// exactly one other remote node in the sytem. Each NodeLink manages a
+// exactly one other remote node in the system. Each NodeLink manages a
 // DriverTransport for general-purpose I/O to and from the remote node.
 //
 // NodeLinks may also allocate an arbitrary number of sublinks which are used
@@ -65,6 +69,7 @@ class NodeLink : public msg::NodeMessageListener {
                                     const NodeName& remote_node_name,
                                     Node::Type remote_node_type,
                                     uint32_t remote_protocol_version,
+                                    const Features& remote_features,
                                     Ref<DriverTransport> transport,
                                     Ref<NodeLinkMemory> memory);
 
@@ -77,6 +82,7 @@ class NodeLink : public msg::NodeMessageListener {
                                       const NodeName& remote_node_name,
                                       Node::Type remote_node_type,
                                       uint32_t remote_protocol_version,
+                                      const Features& remote_features,
                                       Ref<DriverTransport> transport,
                                       Ref<NodeLinkMemory> memory);
 
@@ -86,6 +92,9 @@ class NodeLink : public msg::NodeMessageListener {
   const NodeName& remote_node_name() const { return remote_node_name_; }
   Node::Type remote_node_type() const { return remote_node_type_; }
   uint32_t remote_protocol_version() const { return remote_protocol_version_; }
+  const Features& remote_features() const { return remote_features_; }
+  const Features& available_features() const { return available_features_; }
+
   const Ref<DriverTransport>& transport() const { return transport_; }
 
   NodeLinkMemory& memory() { return *memory_; }
@@ -104,7 +113,6 @@ class NodeLink : public msg::NodeMessageListener {
   // shared RouterLinkState structure for the new link. Only central links
   // require a RouterLinkState.
   Ref<RemoteRouterLink> AddRemoteRouterLink(
-      const OperationContext& context,
       SublinkId sublink,
       FragmentRef<RouterLinkState> link_state,
       LinkType type,
@@ -117,7 +125,7 @@ class NodeLink : public msg::NodeMessageListener {
 
   // Retrieves the Router and RemoteRouterLink currently bound to `sublink`
   // on this NodeLink.
-  absl::optional<Sublink> GetSublink(SublinkId sublink);
+  std::optional<Sublink> GetSublink(SublinkId sublink);
 
   // Retrieves only the Router currently bound to `sublink` on this NodeLink.
   Ref<Router> GetRouter(SublinkId sublink);
@@ -141,6 +149,7 @@ class NodeLink : public msg::NodeMessageListener {
                           LinkSide side,
                           Node::Type remote_node_type,
                           uint32_t remote_protocol_version,
+                          const Features& remote_features,
                           Ref<DriverTransport> transport,
                           DriverMemory memory);
 
@@ -178,7 +187,7 @@ class NodeLink : public msg::NodeMessageListener {
 
   // Sends a request to allocate a new shared memory region and invokes
   // `callback` once the request succeeds or fails. On failure, `callback` is
-  // invoke with an invalid DriverMemory object.
+  // invoked with an invalid DriverMemory object.
   using RequestMemoryCallback = std::function<void(DriverMemory)>;
   void RequestMemory(size_t size, RequestMemoryCallback callback);
 
@@ -202,14 +211,21 @@ class NodeLink : public msg::NodeMessageListener {
   // Must only be called on an activated NodeLink, either one which was created
   // with CreateActive(), or one which was activated later by calling
   // Activate().
-  void Deactivate(const OperationContext& context);
+  void Deactivate();
 
   // Finalizes serialization of DriverObjects within `message` and transmits it
   // to the NodeLink's peer, either over the DriverTransport or through shared
   // memory.
   void Transmit(Message& message);
 
+  void AcceptEarlyParcelsForSublink(SublinkId sublink_id);
+
+  size_t DeletedSublinkCountForTesting();
+  size_t EarlyParcelCountForTesting();
+
  private:
+  friend class RefCounted<NodeLink>;
+
   enum ActivationState {
     kNeverActivated,
     kActive,
@@ -222,6 +238,7 @@ class NodeLink : public msg::NodeMessageListener {
            const NodeName& remote_node_name,
            Node::Type remote_node_type,
            uint32_t remote_protocol_version,
+           const Features& remote_features,
            Ref<DriverTransport> transport,
            Ref<NodeLinkMemory> memory,
            ActivationState initial_activation_state);
@@ -259,22 +276,25 @@ class NodeLink : public msg::NodeMessageListener {
   bool OnAcceptRelayedMessage(msg::AcceptRelayedMessage& accept) override;
   void OnTransportError() override;
 
-  void HandleTransportError(const OperationContext& context);
+  void HandleTransportError();
 
   // Invoked when we receive a Parcel whose data fragment resides in a buffer
   // not yet known to the local node. This schedules the parcel for acceptance
   // as soon as that buffer is available.
   void WaitForParcelFragmentToResolve(SublinkId for_sublink,
-                                      Parcel& parcel,
+                                      std::unique_ptr<Parcel> parcel,
                                       const FragmentDescriptor& descriptor,
                                       bool is_split_parcel);
 
-  bool AcceptParcelWithoutDriverObjects(SublinkId for_sublink, Parcel& parcel);
-  bool AcceptParcelDriverObjects(SublinkId for_sublink, Parcel& parcel);
+  bool AcceptParcelWithoutDriverObjects(SublinkId for_sublink,
+                                        std::unique_ptr<Parcel> parcel);
+  bool AcceptParcelDriverObjects(SublinkId for_sublink,
+                                 std::unique_ptr<Parcel> parcel);
   bool AcceptSplitParcel(SublinkId for_sublink,
-                         Parcel& parcel_without_driver_objects,
-                         Parcel& parcel_with_driver_objects);
-  bool AcceptCompleteParcel(SublinkId for_sublink, Parcel& parcel);
+                         std::unique_ptr<Parcel> parcel_without_driver_objects,
+                         std::unique_ptr<Parcel> parcel_with_driver_objects);
+  bool AcceptCompleteParcel(SublinkId for_sublink,
+                            std::unique_ptr<Parcel> parcel);
 
   const Ref<Node> node_;
   const LinkSide link_side_;
@@ -282,6 +302,8 @@ class NodeLink : public msg::NodeMessageListener {
   const NodeName remote_node_name_;
   const Node::Type remote_node_type_;
   const uint32_t remote_protocol_version_;
+  const Features remote_features_;
+  const Features available_features_;
   const Ref<DriverTransport> transport_;
   const Ref<NodeLinkMemory> memory_;
 
@@ -298,6 +320,36 @@ class NodeLink : public msg::NodeMessageListener {
   using SublinkMap = absl::flat_hash_map<SublinkId, Sublink>;
   SublinkMap sublinks_ ABSL_GUARDED_BY(mutex_);
 
+  // A set of SublinkIds retained for a short period of time. The assumption is
+  // that by the time a sublink from this set needs to be cleared, all the
+  // queued NodeLink messages referencing this sublink will be already
+  // processed.
+  class AutoClearedSublinkSet {
+   public:
+    AutoClearedSublinkSet();
+
+    void Insert(SublinkId id);
+
+    bool Contains(SublinkId id);
+
+    size_t Size();
+
+    void Clear();
+
+   private:
+    void ClearExpiredIdsIfNeeded();
+    static constexpr std::chrono::minutes kClearDurationMinutes{5};
+    absl::flat_hash_set<SublinkId> previous_;
+    absl::flat_hash_set<SublinkId> current_;
+    std::chrono::time_point<std::chrono::steady_clock> last_clear_time_;
+  };
+
+  // SublinkIds that were once associated with Router that is now deactivated.
+  // The auto-clearing heuristic mitigates memory growth for long running
+  // processes. TODO(crbug.com/424438875): Add a Node message to determine the
+  // safe time for purging a deleted SublinkId more reliably.
+  AutoClearedSublinkSet deleted_sublinks_ ABSL_GUARDED_BY(mutex_);
+
   // Pending memory allocation request callbacks. Keyed by request size, when
   // an incoming ProvideMemory message is received, the front of the list for
   // that size is removed from the map and invoked with the new memory object.
@@ -308,7 +360,8 @@ class NodeLink : public msg::NodeMessageListener {
   // Tracks partially received contents of split parcels so they can be
   // reconstructed for dispatch.
   using PartialParcelKey = std::tuple<SublinkId, SequenceNumber>;
-  using PartialParcelMap = absl::flat_hash_map<PartialParcelKey, Parcel>;
+  using PartialParcelMap =
+      absl::flat_hash_map<PartialParcelKey, std::unique_ptr<Parcel>>;
   PartialParcelMap partial_parcels_ ABSL_GUARDED_BY(mutex_);
 
   // Mapping from subparcel index to Parcel object.
@@ -327,10 +380,15 @@ class NodeLink : public msg::NodeMessageListener {
       absl::flat_hash_map<SubparcelTrackerKey, SubparcelTracker>;
   SubparcelTrackerMap subparcel_trackers_ ABSL_GUARDED_BY(mutex_);
 
+  // A queue for parcels arriving before their corresponding Router.
+  using SublinkEarlyParcelsMap =
+      absl::flat_hash_map<SublinkId, std::vector<std::unique_ptr<Parcel>>>;
+  SublinkEarlyParcelsMap early_parcels_for_sublink_ ABSL_GUARDED_BY(mutex_);
+
   // Tracks pending referrals sent to the broker.
   uint64_t next_referral_id_ = 0;
-  absl::flat_hash_map<uint64_t, ReferralCallback> pending_referrals_
-      ABSL_GUARDED_BY(mutex_);
+  using ReferralCallbackMap = absl::flat_hash_map<uint64_t, ReferralCallback>;
+  ReferralCallbackMap pending_referrals_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace ipcz

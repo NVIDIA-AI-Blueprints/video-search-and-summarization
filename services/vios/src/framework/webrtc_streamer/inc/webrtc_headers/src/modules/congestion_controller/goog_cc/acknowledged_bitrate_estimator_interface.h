@@ -11,12 +11,10 @@
 #ifndef MODULES_CONGESTION_CONTROLLER_GOOG_CC_ACKNOWLEDGED_BITRATE_ESTIMATOR_INTERFACE_H_
 #define MODULES_CONGESTION_CONTROLLER_GOOG_CC_ACKNOWLEDGED_BITRATE_ESTIMATOR_INTERFACE_H_
 
-#include <stddef.h>
-
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/field_trials_view.h"
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
@@ -33,7 +31,9 @@ struct RobustThroughputEstimatorSettings {
   explicit RobustThroughputEstimatorSettings(
       const FieldTrialsView* key_value_config);
 
-  bool enabled = false;  // Set to true to use RobustThroughputEstimator.
+  // Set `enabled` to true to use the RobustThroughputEstimator, false to use
+  // the AcknowledgedBitrateEstimator.
+  bool enabled = true;
 
   // The estimator keeps the smallest window containing at least
   // `window_packets` and at least the packets received during the last
@@ -74,8 +74,8 @@ class AcknowledgedBitrateEstimatorInterface {
 
   virtual void IncomingPacketFeedbackVector(
       const std::vector<PacketResult>& packet_feedback_vector) = 0;
-  virtual absl::optional<DataRate> bitrate() const = 0;
-  virtual absl::optional<DataRate> PeekRate() const = 0;
+  virtual std::optional<DataRate> bitrate() const = 0;
+  virtual std::optional<DataRate> PeekRate() const = 0;
   virtual void SetAlr(bool in_alr) = 0;
   virtual void SetAlrEndedTime(Timestamp alr_ended_time) = 0;
 };

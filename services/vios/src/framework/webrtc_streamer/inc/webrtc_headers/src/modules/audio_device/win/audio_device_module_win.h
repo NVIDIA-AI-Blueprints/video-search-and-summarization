@@ -14,9 +14,9 @@
 #include <memory>
 #include <string>
 
+#include "api/audio/audio_device.h"
+#include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
-#include "api/task_queue/task_queue_factory.h"
-#include "modules/audio_device/include/audio_device.h"
 
 namespace webrtc {
 
@@ -74,11 +74,11 @@ class AudioOutput {
 
 // Combines an AudioInput and an AudioOutput implementation to build an
 // AudioDeviceModule. Hides most parts of the full ADM interface.
-rtc::scoped_refptr<AudioDeviceModuleForTest>
+webrtc::scoped_refptr<AudioDeviceModuleForTest>
 CreateWindowsCoreAudioAudioDeviceModuleFromInputAndOutput(
+    const Environment& env,
     std::unique_ptr<AudioInput> audio_input,
-    std::unique_ptr<AudioOutput> audio_output,
-    TaskQueueFactory* task_queue_factory);
+    std::unique_ptr<AudioOutput> audio_output);
 
 }  // namespace webrtc_win
 

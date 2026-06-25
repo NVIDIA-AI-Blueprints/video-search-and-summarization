@@ -31,7 +31,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_ANIMATION_EFFECT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_ANIMATION_EFFECT_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/core/animation/animation_time_delta.h"
 #include "third_party/blink/renderer/core/animation/timing.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -53,7 +54,8 @@ class WorkletAnimation;
 
 enum TimingUpdateReason {
   kTimingUpdateOnDemand,
-  kTimingUpdateForAnimationFrame
+  kTimingUpdateForAnimationFrame,
+  kTimingUpdateCommitStyles
 };
 
 // Represents the content of an Animation and its fractional timing state.
@@ -91,19 +93,17 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   bool IsCurrent() const { return EnsureCalculated().is_current; }
   bool IsInEffect() const { return EnsureCalculated().is_in_effect; }
   bool IsInPlay() const { return EnsureCalculated().is_in_play; }
-  absl::optional<double> CurrentIteration() const {
+  std::optional<double> CurrentIteration() const {
     return EnsureCalculated().current_iteration;
   }
-  absl::optional<double> Progress() const {
-    return EnsureCalculated().progress;
-  }
+  std::optional<double> Progress() const { return EnsureCalculated().progress; }
   AnimationTimeDelta TimeToForwardsEffectChange() const {
     return EnsureCalculated().time_to_forwards_effect_change;
   }
   AnimationTimeDelta TimeToReverseEffectChange() const {
     return EnsureCalculated().time_to_reverse_effect_change;
   }
-  absl::optional<AnimationTimeDelta> LocalTime() const {
+  std::optional<AnimationTimeDelta> LocalTime() const {
     return EnsureCalculated().local_time;
   }
 
@@ -118,7 +118,7 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   void UpdateSpecifiedTiming(const Timing&);
   void SetIgnoreCssTimingProperties();
 
-  EventDelegate* GetEventDelegate() { return event_delegate_; }
+  EventDelegate* GetEventDelegate() { return event_delegate_.Get(); }
   void SetEventDelegate(EventDelegate* delegate) { event_delegate_ = delegate; }
 
   EffectTiming* getTiming() const;
@@ -142,6 +142,8 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
 
   const Animation* GetAnimationForTesting() const { return GetAnimation(); }
 
+  void SetPausedForTrigger(bool paused_for_trigger);
+
   void Trace(Visitor*) const override;
 
  protected:
@@ -150,8 +152,7 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   // When AnimationEffect receives a new inherited time via UpdateInheritedTime
   // it will (if necessary) recalculate timings and (if necessary) call
   // UpdateChildrenAndEffects.
-  void UpdateInheritedTime(absl::optional<AnimationTimeDelta> inherited_time,
-                           bool at_progress_timeline_boundary,
+  void UpdateInheritedTime(std::optional<AnimationTimeDelta> inherited_time,
                            bool is_idle,
                            double inherited_playback_rate,
                            TimingUpdateReason) const;
@@ -172,24 +173,28 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
 
   virtual AnimationTimeDelta CalculateTimeToEffectChange(
       bool forwards,
-      absl::optional<AnimationTimeDelta> local_time,
+      std::optional<AnimationTimeDelta> local_time,
       AnimationTimeDelta time_to_next_iteration) const = 0;
 
   const Animation* GetAnimation() const;
   Animation* GetAnimation();
 
-  virtual absl::optional<AnimationTimeDelta> TimelineDuration() const = 0;
+  virtual std::optional<AnimationTimeDelta> TimelineDuration() const = 0;
 
   Member<AnimationEffectOwner> owner_;
   Timing timing_;
   Member<EventDelegate> event_delegate_;
 
   mutable Timing::CalculatedTiming calculated_;
-  mutable absl::optional<Timing::NormalizedTiming> normalized_;
+  mutable std::optional<Timing::NormalizedTiming> normalized_;
   mutable bool needs_update_;
-  mutable absl::optional<AnimationTimeDelta> last_update_time_;
-  mutable bool last_at_progress_timeline_boundary_ = false;
+  mutable std::optional<AnimationTimeDelta> last_update_time_;
   mutable bool last_is_idle_ = false;
+  // This flag, together with |normalized_.*boundary_aligned|, indicates
+  // whether this AnimationEffect should be endpoint-exclusive.
+  // |normalized_.*boundary_aligned| is not sufficient for this purpose because
+  // it depends on the animation direction whereas paused_for_trigger does not.
+  bool paused_for_trigger_ = false;
   AnimationTimeDelta cancel_time_;
   const Timing::CalculatedTiming& EnsureCalculated() const;
   void EnsureNormalizedTiming() const;

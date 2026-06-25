@@ -26,17 +26,20 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_TEXT_CONTROL_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_TEXT_CONTROL_ELEMENT_H_
 
+#include "base/auto_reset.h"
 #include "base/gtest_prod_util.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.h"
 #include "third_party/blink/renderer/core/html/forms/text_control_inner_elements.h"
+#include "third_party/blink/renderer/core/style/text_overflow_data.h"
 
 namespace blink {
 
 class ExceptionState;
 class V8SelectionMode;
+class OpaqueRange;
 
 enum TextFieldSelectionDirection {
   kSelectionHasNoDirection,
@@ -79,6 +82,8 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   String StrippedPlaceholder() const;
   HTMLElement* PlaceholderElement() const;
   void UpdatePlaceholderVisibility();
+  void UpdatePlaceholderShadowPseudoId(HTMLElement& placeholder);
+  virtual String GetPlaceholderValue() const = 0;
 
   VisiblePosition VisiblePositionForIndex(int) const;
   unsigned selectionStart() const;
@@ -134,9 +139,8 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
       WebAutofillState = WebAutofillState::kNotFilled) = 0;
 
   TextControlInnerEditorElement* InnerEditorElement() const {
-    return inner_editor_;
+    return inner_editor_.Get();
   }
-  virtual TextControlInnerEditorElement* EnsureInnerEditorElement() const = 0;
   HTMLElement* CreateInnerEditorElement();
   void DropInnerEditorElement() { inner_editor_ = nullptr; }
 
@@ -144,10 +148,38 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   bool LastChangeWasUserEdit() const;
 
   virtual void SetInnerEditorValue(const String&);
-  String InnerEditorValue() const;
+  static void AppendTextOrBr(const String& value, ContainerNode& container);
+  // Returns the user-visible editing text.
+  // This cost should be O(1), and may be faster than
+  // SerializeInnerEdtitorValue().
+  virtual String InnerEditorValue() const;
+  // Serialize the user-visible editing text.
+  // This cost might be O(N) where N is the number of InnerEditor children.
+  String SerializeInnerEditorValue() const;
+  // Returns the length of the user-visible editing text, and its is_8bit flag
+  // without serializing the text. `offset_map` can be nullptr.
+  std::pair<wtf_size_t, bool> AnalyzeInnerEditorValue(
+      HeapHashMap<Member<const Text>, unsigned>* offset_map) const;
+  // Returns a selection index value for the specified position.
+  unsigned IndexForPosition(const Position& editor_position) const;
+
   Node* CreatePlaceholderBreakElement() const;
+  // Returns true if the specified node was created by
+  // CreatePlaceholderBreakElement().
+  static bool IsPlaceholderBreakElement(const Node* node);
 
   String DirectionForFormData() const;
+  // https://html.spec.whatwg.org/#auto-directionality-form-associated-elements
+  // Check if, when dir=auto, we should use the value to define text direction.
+  // For example, when value contains a bidirectional character.
+  virtual bool IsAutoDirectionalityFormAssociated() const = 0;
+
+  // Returns whether this element is or has ever been identified as a custom
+  // password field via JS masking heuristics.
+  // This is distinct from native passwords (<input type=password>).
+  bool HasBeenHeuristicCustomPasswordJS() const {
+    return has_been_heuristic_custom_password_js_;
+  }
 
   // Set the value trimmed to the max length of the field and dispatch the input
   // and change events. If |value| is empty, the autofill state is always
@@ -155,17 +187,68 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   void SetAutofillValue(const String& value,
                         WebAutofillState = WebAutofillState::kAutofilled);
 
+  // A null value indicates that the suggested value should be hidden.
   virtual void SetSuggestedValue(const String& value);
   const String& SuggestedValue() const;
 
+  void ScheduleSelectionchangeEvent();
+
+  void ResetEventQueueStatus(const AtomicString& event_type) override {
+    if (event_type == event_type_names::kSelectionchange)
+      has_scheduled_selectionchange_event_ = false;
+  }
+
   void Trace(Visitor*) const override;
 
-  ETextOverflow ValueForTextOverflow() const;
+  TextOverflowData ValueForTextOverflow() const;
+
+  // Register/unregister ranges that need to be notified of value changes.
+  void RegisterOpaqueRange(OpaqueRange* range);
+  void UnregisterOpaqueRange(OpaqueRange* range);
+
+  // Creates and returns a new OpaqueRange for this element's value.
+  // Throws if offsets are out of bounds.
+  virtual OpaqueRange* createValueRange(unsigned start_offset,
+                                        unsigned end_offset,
+                                        ExceptionState&);
+
+  // Use the pre-edit baseline to compute and apply the edit once an observable
+  // value mutation occurs, before 'input' listeners run.
+  void CommitOpaqueRangeEdit();
+
+  // Handles programmatic value changes by diffing the previous contents against
+  // the current InnerEditorValue(), using a selection-bounded replace model.
+  // Used when edits bypass 'beforeinput'.
+  void CommitProgrammaticOpaqueRangeEdit(const String& old_value,
+                                         unsigned old_sel_start,
+                                         unsigned old_sel_end);
+
+  // Update OpaqueRanges by diffing the old and current values,
+  // constrained to the original selection range.
+  void ApplyOpaqueRangeUpdate(const String& old_value,
+                              unsigned old_sel_start,
+                              unsigned old_sel_end);
+
+  // Controls whether the next SetValue() call skips its automatic
+  // OpaqueRange update. When true, the default full-value diff is
+  // suppressed so callers (e.g. setRangeText) can perform their own targeted
+  // update. Cleared immediately after that SetValue() call.
+  void SetSkipNextSetValueAutoDiff(bool should_skip);
+
+  // Returns whether the next SetValue() call should skip its automatic
+  // OpaqueRange update.
+  bool ShouldSkipNextSetValueAutoDiff() const;
 
  protected:
   TextControlElement(const QualifiedName&, Document&);
-  virtual void UpdatePlaceholderText() = 0;
-  virtual String GetPlaceholderValue() const = 0;
+
+  void RemovedFrom(ContainerNode&) override;
+  void DisconnectAllOpaqueRanges();
+  virtual HTMLElement* UpdatePlaceholderText() = 0;
+
+  // Creates the editor if necessary. Implementations that support an editor
+  // should callback to CreateInnerEditorElement().
+  virtual void CreateInnerEditorElementIfNecessary() const = 0;
 
   void ParseAttribute(const AttributeModificationParams&) override;
 
@@ -175,11 +258,42 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   virtual void SubtreeHasChanged() = 0;
 
   void SetLastChangeWasNotUserEdit() { last_change_was_user_edit_ = false; }
-  void AddPlaceholderBreakElementIfNecessary();
+  void AdjustPlaceholderBreakElement();
   String ValueWithHardLineBreaks() const;
 
   void CloneNonAttributePropertiesFrom(const Element&,
-                                       CloneChildrenFlag) override;
+                                       NodeCloningData&) override;
+
+  // Returns the value string. `length` and `is_8bit` must be computed by
+  // AnalyzeInnerEditorValue().
+  String SerializeInnerEditorValueInternal(wtf_size_t length,
+                                           bool is_8bit) const;
+  // Returns true if the inner-editor value is empty. This may be cheaper
+  // than calling InnerEditorValue(), and InnerEditorValue() returns
+  // the wrong thing if the editor hasn't been created yet.
+  virtual bool IsInnerEditorValueEmpty() const = 0;
+
+  TextControlInnerEditorElement* EnsureInnerEditorElement() const {
+    if (!inner_editor_) {
+      CreateInnerEditorElementIfNecessary();
+    }
+    return inner_editor_.Get();
+  }
+
+  // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#barred-from-constraint-validation
+  //
+  // While the 'readonly' attribute technically applies only to specific input
+  // types (e.g., text), Blink and other browsers bar validation for
+  // all input types when the 'readonly' attribute is present. This behavior is
+  // maintained for web compatibility.
+  // See: https://github.com/web-platform-tests/wpt/pull/35389
+  //      https://github.com/whatwg/html/issues/8133
+  //      https://github.com/whatwg/html/issues/8089
+  bool ReadOnlyPreventsConstraintValidation() const final { return true; }
+
+  // Checks the current value and latches as a custom password field if it
+  // matches JS masking heuristics (e.g. "••••a").
+  void MaybeSetHasBeenHeuristicCustomPasswordJS();
 
  private:
   // Used by ComputeSelection() to specify which values are needed.
@@ -213,14 +327,9 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
                          mojom::blink::FocusType,
                          InputDeviceCapabilities* source_capabilities) final;
   void ScheduleSelectEvent();
+  void ScheduleSelectionchangeEventOnThisOrDocument();
   void DisabledOrReadonlyAttributeChanged(const QualifiedName&);
 
-  // Returns true if user-editable value is empty. Used to check placeholder
-  // visibility.
-  virtual bool IsEmptyValue() const = 0;
-  // Returns true if suggested value is empty. Used to check placeholder
-  // visibility.
-  bool IsEmptySuggestedValue() const { return SuggestedValue().empty(); }
   // Called in dispatchFocusEvent(), after placeholder process, before calling
   // parent's dispatchFocusEvent().
   virtual void HandleFocusEvent(Element* /* oldFocusedNode */,
@@ -233,6 +342,17 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   // necessarily match the placeholder_element visibility because it can be used
   // for suggested values too.
   bool PlaceholderShouldBeVisible() const;
+
+  // Notify observers of a single replace in this element’s value at
+  // `change_offset`: removed `deleted_count` and added `inserted_count`
+  // characters.
+  void NotifyOpaqueRangesOfTextChange(unsigned change_offset,
+                                      unsigned deleted_count,
+                                      unsigned inserted_count) const;
+
+  // Capture the control's pre-edit value and selection at 'beforeinput'.
+  // This baseline is held until the first observable value mutation.
+  void CaptureOpaqueRangePreEdit();
 
   // Held directly instead of looked up by ID for speed.
   // Not only is the lookup faster, but for simple text inputs it avoids
@@ -249,12 +369,57 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   unsigned cached_selection_end_;
   TextFieldSelectionDirection cached_selection_direction_;
 
+  // Value to display in the text element without actually changing its
+  // `Value()`. This is introduced to be able to display information on an
+  // element without leaking it to JavaScript. Reasons for that could be
+  // previewing a value to be filled before getting explicit user consent for
+  // filling.
   String suggested_value_;
-  String value_before_set_suggested_value_;
+
+  // Snapshot taken at 'beforeinput' retained until the first observable change.
+  // Selection defines the edit region; that change is treated as one replace
+  // of the region (e.g. replacing "abc" with "xyz") rather than multiple
+  // small diffs, so ranges update consistently.
+  struct PendingUserEditSnapshot {
+    String old_value;
+    unsigned selection_start = 0;
+    unsigned selection_end = 0;
+  };
+
+  // Holds a pending user edit captured at 'beforeinput' until the first
+  // observable value mutation occurs.
+  std::optional<PendingUserEditSnapshot> pending_user_edit_;
+
+  // Holds OpaqueRange instances that observe this text control.
+  HeapVector<Member<OpaqueRange>> opaque_ranges_;
+
+  // RAII helper that temporarily skips SetValue()'s automatic OpaqueRange
+  // full-value diff for this scope. The flag is restored on destruction.
+  class ScopedSkipValueAutoDiff final {
+   public:
+    explicit ScopedSkipValueAutoDiff(TextControlElement& element)
+        : auto_reset_(&element.skip_next_set_value_auto_diff_, true) {}
+    ScopedSkipValueAutoDiff(const ScopedSkipValueAutoDiff&) = delete;
+    ScopedSkipValueAutoDiff& operator=(const ScopedSkipValueAutoDiff&) = delete;
+
+   private:
+    base::AutoReset<bool> auto_reset_;
+  };
+
+  // Skip SetValue's automatic OpaqueRange full-value diff on the next
+  // call. Used by setRangeText(), which issues its own precise, range-scoped
+  // update. Cleared immediately after that SetValue() call.
+  bool skip_next_set_value_auto_diff_ = false;
+
+  // Indicate whether there is one scheduled selectionchange event.
+  bool has_scheduled_selectionchange_event_ = false;
+
+  bool has_been_heuristic_custom_password_js_ = false;
 
   FRIEND_TEST_ALL_PREFIXES(TextControlElementTest, IndexForPosition);
   FRIEND_TEST_ALL_PREFIXES(HTMLTextAreaElementTest, ValueWithHardLineBreaks);
   FRIEND_TEST_ALL_PREFIXES(HTMLTextAreaElementTest, ValueWithHardLineBreaksRtl);
+  FRIEND_TEST_ALL_PREFIXES(OpaqueRangeTest, RemovalClearsOpaqueRanges);
 };
 
 inline bool IsTextControl(const Node& node) {

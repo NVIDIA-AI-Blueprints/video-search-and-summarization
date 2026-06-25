@@ -109,7 +109,7 @@ namespace base::test {
 // `GetRepeatingCallback()` allows you to use a single `TestFuture` in code
 // that invokes the callback multiple times.
 // Your test must take care to consume each value before the next value
-// arrives. You can consume the value by calling either `Take()` or `Clear()`.
+// arrives. You can consume the value by calling either `Take()` or `Reset()`.
 //
 //   Example for reusing a `TestFuture`:
 //
@@ -126,7 +126,7 @@ namespace base::test {
 //       EXPECT_EQ(future.Take(), "expected-second-value");
 //     }
 //
-//   Example for reusing  a `TestFuture` using `Get()` + `Clear()`:
+//   Example for reusing  a `TestFuture` using `Get()` + `Reset()`:
 //
 //     TEST_F(MyTestFixture, MyReuseTest) {
 //       TestFuture<std::string, int> future;
@@ -138,8 +138,8 @@ namespace base::test {
 //       EXPECT_EQ(future.Get<std::string>(), "expected-first-value");
 //       EXPECT_EQ(future.Get<int>(), 5);
 //       // Because we used `Get()`, the test future is not ready for reuse,
-//       //so we need an explicit `Clear()` call.
-//       future.Clear();
+//       //so we need an explicit `Reset()` call.
+//       future.Reset();
 //
 //       object_under_test.DoSomethingElse();
 //       EXPECT_EQ(future.Get<std::string>(), "expected-second-value");
@@ -263,7 +263,7 @@ class TestFuture {
   //
   // You must take care that the stored value is consumed before the callback
   // is invoked a second time.
-  // You can consume the value by calling either `Take()` or `Clear()`.
+  // You can consume the value by calling either `Take()` or `Reset()`.
   //
   // Example usage:
   //
@@ -276,9 +276,9 @@ class TestFuture {
   //   // Because we used `Take()` the test future is ready for reuse.
   //
   //   object_under_test.DoSomethingElse();
-  //   // We can also use `Get()` + `Clear()` to reuse the callback.
+  //   // We can also use `Get()` + `Reset()` to reuse the callback.
   //   EXPECT_EQ(future.Get(), "expected-second-value");
-  //   future.Clear();
+  //   future.Reset();
   //
   //   object_under_test.DoSomethingElse();
   //   EXPECT_EQ(future.Take(), "expected-third-value");
@@ -309,16 +309,16 @@ class TestFuture {
     DCHECK(!values_.has_value())
         << "Overwriting previously stored value of the TestFuture."
            "If you expect this new value, be sure to first "
-           "consume the stored value by calling `Take()` or `Clear()`";
+           "consume the stored value by calling `Take()` or `Reset()`";
 
     values_ = std::make_tuple(std::forward<Types>(values)...);
     run_loop_->Quit();
   }
 
-  // Clears the future, allowing it to be reused and accept a new value.
+  // Resets the future, allowing it to be reused and accept a new value.
   //
   // All outstanding callbacks issued through `GetCallback()` remain valid.
-  void Clear() {
+  void Reset() {
     if (IsReady()) {
       std::ignore = Take();
     }
@@ -424,11 +424,6 @@ class TestFuture<void> {
 
   // Indicates this `TestFuture` is ready, and unblocks any waiters.
   void SetValue() { implementation_.SetValue(true); }
-
-  // Clears the future, allowing it to be reused and accept a new value.
-  //
-  // All outstanding callbacks issued through `GetCallback()` remain valid.
-  void Clear() { implementation_.Clear(); }
 
  private:
   TestFuture<bool> implementation_;

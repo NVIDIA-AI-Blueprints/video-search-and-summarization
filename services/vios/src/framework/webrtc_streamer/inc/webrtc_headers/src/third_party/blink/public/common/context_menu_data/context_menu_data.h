@@ -31,14 +31,16 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_CONTEXT_MENU_DATA_CONTEXT_MENU_DATA_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_CONTEXT_MENU_DATA_CONTEXT_MENU_DATA_H_
 
+#include <optional>
 #include <vector>
 
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/context_menu_data/menu_item_info.h"
-#include "third_party/blink/public/common/input/web_menu_source_type.h"
 #include "third_party/blink/public/common/navigation/impression.h"
+#include "third_party/blink/public/mojom/annotation/annotation.mojom-shared.h"
 #include "third_party/blink/public/mojom/context_menu/context_menu.mojom-shared.h"
+#include "third_party/blink/public/mojom/forms/form_control_type.mojom-shared.h"
+#include "ui/base/mojom/menu_source_type.mojom-shared.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
@@ -63,9 +65,17 @@ struct ContextMenuData {
   // Whether the image in context is a null.
   bool has_image_contents;
 
+  // This is true if the context menu was invoked on an image, media or plugin
+  // document. In these cases the resource for the hit-tested element might be
+  // the main resource, not a subresource.
+  bool is_image_media_plugin_document = false;
+
   // The encoding for the frame in context.
   std::string frame_encoding;
 
+  // A Java counterpart will be generated for this enum.
+  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.blink_public.common
+  // GENERATED_JAVA_CLASS_NAME_OVERRIDE: ContextMenuDataMediaFlags
   enum MediaFlags {
     kMediaNone = 0,
     kMediaInError = 1,
@@ -94,7 +104,7 @@ struct ContextMenuData {
 
   // If the node is a link, the impression declared by the link's conversion
   // measurement attributes.
-  absl::optional<Impression> impression;
+  std::optional<Impression> impression;
 
   // The raw text of the selection in context.
   std::string selected_text;
@@ -119,9 +129,6 @@ struct ContextMenuData {
 
   // Whether context is editable.
   bool is_editable;
-
-  // If this node is an input field, the type of that field.
-  blink::mojom::ContextMenuDataInputFieldType input_field_type;
 
   enum CheckableMenuItemFlags {
     kCheckableMenuItemDisabled = 0x0,
@@ -155,18 +162,38 @@ struct ContextMenuData {
   // the current webpage.
   int selection_start_offset;
 
-  WebMenuSourceType source_type;
+  ui::mojom::MenuSourceType source_type;
 
-  // True when the context contains text selected by a text fragment. See
-  // TextFragmentAnchor.
-  bool opened_from_highlight = false;
+  // Set when the context contains text selected by an annotation (see
+  // third_party/blink/renderer/core/annotation/README.md).
+  std::optional<mojom::AnnotationType> annotation_type;
 
-  // The form's renderer id if the context menu is triggered on the form.
-  absl::optional<uint64_t> form_renderer_id;
+  // True when the context menu was opened from an element with the
+  // `interestfor` attribute.
+  bool opened_from_interest_for = false;
+  // If opened_from_interest_for is true, this will contain the DOMNodeID of the
+  // link that generated the context menu.
+  int interest_for_node_id = 0;
 
-  // The field's renderer id if the context menu is triggered on an input
-  // field or a textarea field.
-  absl::optional<uint64_t> field_renderer_id;
+  // The type of the form control element on which the context menu is invoked,
+  // if any.
+  std::optional<mojom::FormControlType> form_control_type;
+
+  // Indicates whether the context menu is invoked on a non-form,
+  // non-form-control element that is contenteditable. Thus, it is mutually
+  // exclusive with `form_control_type`.
+  bool is_content_editable_for_autofill = false;
+
+  // Identifies the element the context menu was invoked on if either
+  // `form_control_type` is engaged or `is_content_editable_for_autofill` is
+  // true.
+  // See `autofill::FieldRendererId` for the semantics of renderer IDs.
+  uint64_t field_renderer_id = 0;
+
+  // Identifies form to which the field identified by `field_renderer_id` is
+  // associated.
+  // See `autofill::FormRendererId` for the semantics of renderer IDs.
+  uint64_t form_renderer_id = 0;
 
   ContextMenuData()
       : media_type(blink::mojom::ContextMenuDataMediaType::kNone),

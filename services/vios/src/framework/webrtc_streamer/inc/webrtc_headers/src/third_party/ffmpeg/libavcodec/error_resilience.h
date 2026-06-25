@@ -23,10 +23,8 @@
 #include <stdatomic.h>
 
 #include "avcodec.h"
-#include "me_cmp.h"
-#include "threadframe.h"
 
-///< current MB is the first after a resync marker
+/// current MB is the first after a resync marker
 #define VP_START               1
 #define ER_AC_ERROR            2
 #define ER_DC_ERROR            4
@@ -38,9 +36,12 @@
 #define ER_MB_ERROR (ER_AC_ERROR|ER_DC_ERROR|ER_MV_ERROR)
 #define ER_MB_END   (ER_AC_END|ER_DC_END|ER_MV_END)
 
+typedef struct MPVEncContext MPVEncContext;
+
 typedef struct ERPicture {
     AVFrame *f;
-    ThreadFrame *tf;
+    const struct ThreadFrame *tf;
+    const struct ThreadProgress *progress;
 
     // it is the caller's responsibility to allocate these buffers
     int16_t (*motion_val[2])[2];
@@ -53,8 +54,8 @@ typedef struct ERPicture {
 typedef struct ERContext {
     AVCodecContext *avctx;
 
-    me_cmp_func sad;
-    int mecc_inited;
+    int (*sad)(MPVEncContext *unused, const uint8_t *blk1,
+               const uint8_t *blk2, ptrdiff_t stride, int h);
 
     int *mb_index2xy;
     int mb_num;
@@ -89,8 +90,20 @@ typedef struct ERContext {
     void *opaque;
 } ERContext;
 
+int ff_er_init(ERContext *const s);
+
 void ff_er_frame_start(ERContext *s);
-void ff_er_frame_end(ERContext *s);
+
+/**
+ * Indicate that a frame has finished decoding and perform error concealment
+ * in case it has been enabled and is necessary and supported.
+ *
+ * @param s                  ERContext in use
+ * @param decode_error_flags pointer where updated decode_error_flags are written
+ *                           if supplied; if not, the new flags are directly
+ *                           applied to the AVFrame whose errors are concealed
+ */
+void ff_er_frame_end(ERContext *s, int *decode_error_flags);
 void ff_er_add_slice(ERContext *s, int startx, int starty, int endx, int endy,
                      int status);
 

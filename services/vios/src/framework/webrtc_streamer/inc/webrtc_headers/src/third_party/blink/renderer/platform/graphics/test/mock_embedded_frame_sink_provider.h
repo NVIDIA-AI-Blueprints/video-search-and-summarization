@@ -8,6 +8,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/compiler_specific.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -32,6 +33,8 @@ class MockEmbeddedFrameSinkProvider
       void(const viz::FrameSinkId&,
            const viz::FrameSinkId&,
            mojo::PendingRemote<mojom::blink::EmbeddedFrameSinkClient>));
+  MOCK_METHOD2(SetParentFrameSinkId,
+               void(const viz::FrameSinkId&, const viz::FrameSinkId&));
   void RegisterEmbeddedFrameSinkBundle(
       const viz::FrameSinkBundleId&,
       mojo::PendingReceiver<viz::mojom::blink::FrameSinkBundle> receiver,
@@ -84,16 +87,18 @@ class MockEmbeddedFrameSinkProvider
     using mojom::blink::EmbeddedFrameSinkProvider;
 
     return std::make_unique<
-        TestingPlatformSupport::ScopedOverrideMojoInterface>(WTF::BindRepeating(
+        TestingPlatformSupport::ScopedOverrideMojoInterface>(BindRepeating(
         [](mojo::Receiver<EmbeddedFrameSinkProvider>* receiver,
            const char* interface_name, mojo::ScopedMessagePipeHandle pipe) {
-          if (strcmp(interface_name, EmbeddedFrameSinkProvider::Name_))
+          if (UNSAFE_TODO(
+                  strcmp(interface_name, EmbeddedFrameSinkProvider::Name_))) {
             return;
+          }
           receiver->reset();
           receiver->Bind(mojo::PendingReceiver<EmbeddedFrameSinkProvider>(
               std::move(pipe)));
         },
-        WTF::Unretained(receiver)));
+        Unretained(receiver)));
   }
 
   // Similar to above but allows for an override that binds multiple concurrent
@@ -104,16 +109,18 @@ class MockEmbeddedFrameSinkProvider
     using mojom::blink::EmbeddedFrameSinkProvider;
 
     return std::make_unique<
-        TestingPlatformSupport::ScopedOverrideMojoInterface>(WTF::BindRepeating(
+        TestingPlatformSupport::ScopedOverrideMojoInterface>(BindRepeating(
         [](EmbeddedFrameSinkProvider* impl,
            mojo::ReceiverSet<EmbeddedFrameSinkProvider>* receivers,
            const char* interface_name, mojo::ScopedMessagePipeHandle pipe) {
-          if (strcmp(interface_name, EmbeddedFrameSinkProvider::Name_))
+          if (UNSAFE_TODO(
+                  strcmp(interface_name, EmbeddedFrameSinkProvider::Name_))) {
             return;
+          }
           receivers->Add(impl, mojo::PendingReceiver<EmbeddedFrameSinkProvider>(
                                    std::move(pipe)));
         },
-        WTF::Unretained(this), WTF::Unretained(&receivers)));
+        Unretained(this), Unretained(&receivers)));
   }
 
   MockCompositorFrameSink& mock_compositor_frame_sink() const {

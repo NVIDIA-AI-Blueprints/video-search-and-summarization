@@ -10,34 +10,58 @@
 #ifndef TEST_CALL_TEST_H_
 #define TEST_CALL_TEST_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include "api/audio/audio_device.h"
+#include "api/audio/audio_processing.h"
+#include "api/audio_codecs/audio_decoder_factory.h"
+#include "api/audio_codecs/audio_encoder_factory.h"
+#include "api/call/transport.h"
+#include "api/environment/environment.h"
+#include "api/fec_controller.h"
+#include "api/field_trials.h"
+#include "api/media_types.h"
+#include "api/network_state_predictor.h"
 #include "api/rtc_event_log/rtc_event_log.h"
+#include "api/rtp_parameters.h"
+#include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_base.h"
-#include "api/task_queue/task_queue_factory.h"
 #include "api/test/simulated_network.h"
 #include "api/test/video/function_video_decoder_factory.h"
 #include "api/test/video/function_video_encoder_factory.h"
+#include "api/transport/bitrate_settings.h"
+#include "api/transport/network_control.h"
 #include "api/units/time_delta.h"
 #include "api/video/video_bitrate_allocator_factory.h"
+#include "api/video/video_rotation.h"
+#include "api/video_codecs/video_decoder_factory.h"
+#include "call/audio_receive_stream.h"
+#include "call/audio_send_stream.h"
 #include "call/call.h"
-#include "modules/audio_device/include/audio_device.h"
+#include "call/call_config.h"
+#include "call/flexfec_receive_stream.h"
+#include "call/rtp_packet_sink_interface.h"
+#include "call/video_receive_stream.h"
+#include "call/video_send_stream.h"
 #include "modules/audio_device/include/test_audio_device.h"
-#include "test/encoder_settings.h"
-#include "test/fake_decoder.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
+#include "rtc_base/thread.h"
+#include "system_wrappers/include/clock.h"
+#include "test/create_test_field_trials.h"
 #include "test/fake_videorenderer.h"
-#include "test/fake_vp8_encoder.h"
 #include "test/frame_generator_capturer.h"
+#include "test/gtest.h"
 #include "test/rtp_rtcp_observer.h"
 #include "test/run_loop.h"
-#include "test/scoped_key_value_config.h"
 #include "test/test_video_capturer.h"
-#include "test/video_test_constants.h"
+#include "video/config/video_encoder_config.h"
 
 namespace webrtc {
 namespace test {
@@ -46,15 +70,21 @@ class BaseTest;
 
 class CallTest : public ::testing::Test, public RtpPacketSinkInterface {
  public:
-  CallTest();
-  virtual ~CallTest();
+  explicit CallTest(FieldTrials field_trials = CreateTestFieldTrials(""));
+  ~CallTest() override;
 
   static const std::map<uint8_t, MediaType> payload_type_map_;
 
  protected:
+  const Environment& env() const { return env_; }
+  FieldTrials& field_trials() { return field_trials_; }
+
+  void SetSendEventLog(std::unique_ptr<RtcEventLog> event_log);
+  void SetRecvEventLog(std::unique_ptr<RtcEventLog> event_log);
+
   void RegisterRtpExtension(const RtpExtension& extension);
   // Returns header extensions that can be parsed by the transport.
-  rtc::ArrayView<const RtpExtension> GetRegisteredExtensions() {
+  std::span<const RtpExtension> GetRegisteredExtensions() {
     return rtp_extensions_;
   }
 
@@ -62,13 +92,16 @@ class CallTest : public ::testing::Test, public RtpPacketSinkInterface {
   // to simplify test code.
   void RunBaseTest(BaseTest* test);
 
+  CallConfig SendCallConfig() const;
+  CallConfig RecvCallConfig() const;
+
   void CreateCalls();
-  void CreateCalls(const Call::Config& sender_config,
-                   const Call::Config& receiver_config);
+  void CreateCalls(CallConfig sender_config, CallConfig receiver_config);
   void CreateSenderCall();
-  void CreateSenderCall(const Call::Config& config);
-  void CreateReceiverCall(const Call::Config& config);
+  void CreateSenderCall(CallConfig config);
+  void CreateReceiverCall(CallConfig config);
   void DestroyCalls();
+  Thread* network_thread() const { return network_thread_.get(); }
 
   void CreateVideoSendConfig(VideoSendStream::Config* video_config,
                              size_t num_video_streams,
@@ -107,7 +140,7 @@ class CallTest : public ::testing::Test, public RtpPacketSinkInterface {
       const VideoSendStream::Config& video_send_config,
       Transport* rtcp_send_transport,
       VideoDecoderFactory* decoder_factory,
-      absl::optional<size_t> decode_sub_stream,
+      std::optional<size_t> decode_sub_stream,
       bool receiver_reference_time_report,
       int rtp_history_ms);
   void AddMatchingVideoReceiveConfigs(
@@ -115,7 +148,7 @@ class CallTest : public ::testing::Test, public RtpPacketSinkInterface {
       const VideoSendStream::Config& video_send_config,
       Transport* rtcp_send_transport,
       VideoDecoderFactory* decoder_factory,
-      absl::optional<size_t> decode_sub_stream,
+      std::optional<size_t> decode_sub_stream,
       bool receiver_reference_time_report,
       int rtp_history_ms);
 
@@ -123,7 +156,7 @@ class CallTest : public ::testing::Test, public RtpPacketSinkInterface {
   void CreateMatchingAudioConfigs(Transport* transport, std::string sync_group);
   static AudioReceiveStreamInterface::Config CreateMatchingAudioConfig(
       const AudioSendStream::Config& send_config,
-      rtc::scoped_refptr<AudioDecoderFactory> audio_decoder_factory,
+      scoped_refptr<AudioDecoderFactory> audio_decoder_factory,
       Transport* transport,
       std::string sync_group);
   void CreateMatchingFecConfig(
@@ -185,13 +218,11 @@ class CallTest : public ::testing::Test, public RtpPacketSinkInterface {
   void OnRtpPacket(const RtpPacketReceived& packet) override;
 
   test::RunLoop loop_;
+  FieldTrials field_trials_;
+  Environment env_;
+  Environment send_env_;
+  Environment recv_env_;
 
-  Clock* const clock_;
-  test::ScopedKeyValueConfig field_trials_;
-
-  std::unique_ptr<TaskQueueFactory> task_queue_factory_;
-  std::unique_ptr<webrtc::RtcEventLog> send_event_log_;
-  std::unique_ptr<webrtc::RtcEventLog> recv_event_log_;
   std::unique_ptr<Call> sender_call_;
   std::unique_ptr<PacketTransport> send_transport_;
   SimulatedNetworkInterface* send_simulated_network_ = nullptr;
@@ -230,30 +261,31 @@ class CallTest : public ::testing::Test, public RtpPacketSinkInterface {
   size_t num_video_streams_;
   size_t num_audio_streams_;
   size_t num_flexfec_streams_;
-  rtc::scoped_refptr<AudioDecoderFactory> audio_decoder_factory_;
-  rtc::scoped_refptr<AudioEncoderFactory> audio_encoder_factory_;
+  scoped_refptr<AudioDecoderFactory> audio_decoder_factory_;
+  scoped_refptr<AudioEncoderFactory> audio_encoder_factory_;
   test::FakeVideoRenderer fake_renderer_;
 
  private:
-  absl::optional<RtpExtension> GetRtpExtensionByUri(
+  std::optional<RtpExtension> GetRtpExtensionByUri(
       const std::string& uri) const;
 
   void AddRtpExtensionByUri(const std::string& uri,
                             std::vector<RtpExtension>* extensions) const;
 
+  std::unique_ptr<Thread> network_thread_;
   std::unique_ptr<TaskQueueBase, TaskQueueDeleter> task_queue_;
   std::vector<RtpExtension> rtp_extensions_;
-  rtc::scoped_refptr<AudioProcessing> apm_send_;
-  rtc::scoped_refptr<AudioProcessing> apm_recv_;
-  rtc::scoped_refptr<AudioDeviceModule> fake_send_audio_device_;
-  rtc::scoped_refptr<AudioDeviceModule> fake_recv_audio_device_;
+  scoped_refptr<AudioProcessing> apm_send_;
+  scoped_refptr<AudioProcessing> apm_recv_;
+  scoped_refptr<AudioDeviceModule> fake_send_audio_device_;
+  scoped_refptr<AudioDeviceModule> fake_recv_audio_device_;
 };
 
 class BaseTest : public RtpRtcpObserver {
  public:
   BaseTest();
   explicit BaseTest(TimeDelta timeout);
-  virtual ~BaseTest();
+  ~BaseTest() override;
 
   virtual void PerformTest() = 0;
   virtual bool ShouldCreateReceivers() const = 0;

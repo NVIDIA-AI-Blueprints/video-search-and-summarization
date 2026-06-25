@@ -5,6 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BLUETOOTH_BLUETOOTH_REMOTE_GATT_DESCRIPTOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_BLUETOOTH_BLUETOOTH_REMOTE_GATT_DESCRIPTOR_H_
 
+#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_piece.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_data_view.h"
 #include "third_party/blink/renderer/modules/bluetooth/bluetooth.h"
@@ -16,10 +19,8 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
-
 class ExceptionState;
 class BluetoothRemoteGATTCharacteristic;
-class ScriptPromise;
 class ScriptState;
 
 // BluetoothRemoteGATTDescriptor represents a GATT Descriptor, which is
@@ -35,12 +36,15 @@ class BluetoothRemoteGATTDescriptor final : public ScriptWrappable {
 
   // IDL exposed interface:
   BluetoothRemoteGATTCharacteristic* characteristic() {
-    return characteristic_;
+    return characteristic_.Get();
   }
   String uuid() { return descriptor_->uuid; }
-  DOMDataView* value() const { return value_; }
-  ScriptPromise readValue(ScriptState*, ExceptionState&);
-  ScriptPromise writeValue(ScriptState*, const DOMArrayPiece&, ExceptionState&);
+  NotShared<DOMDataView> value() const { return value_; }
+  ScriptPromise<NotShared<DOMDataView>> readValue(ScriptState*,
+                                                  ExceptionState&);
+  ScriptPromise<IDLUndefined> writeValue(ScriptState*,
+                                         base::span<const uint8_t> value,
+                                         ExceptionState&);
 
   // Interface required by garbage collection.
   void Trace(Visitor*) const override;
@@ -55,19 +59,19 @@ class BluetoothRemoteGATTDescriptor final : public ScriptWrappable {
     return characteristic_->device_->GetBluetooth();
   }
 
-  void ReadValueCallback(ScriptPromiseResolver*,
+  void ReadValueCallback(ScriptPromiseResolver<NotShared<DOMDataView>>*,
                          mojom::blink::WebBluetoothResult,
-                         const absl::optional<Vector<uint8_t>>&);
+                         base::span<const uint8_t>);
 
-  void WriteValueCallback(ScriptPromiseResolver*,
-                          const Vector<uint8_t>&,
+  void WriteValueCallback(ScriptPromiseResolver<IDLUndefined>*,
+                          DOMDataView* new_value,
                           mojom::blink::WebBluetoothResult);
 
   String CreateInvalidDescriptorErrorMessage();
 
   mojom::blink::WebBluetoothRemoteGATTDescriptorPtr descriptor_;
   Member<BluetoothRemoteGATTCharacteristic> characteristic_;
-  Member<DOMDataView> value_;
+  NotShared<DOMDataView> value_;
 };
 
 }  // namespace blink

@@ -11,7 +11,7 @@
 #ifndef MEDIA_BASE_MEDIA_CONFIG_H_
 #define MEDIA_BASE_MEDIA_CONFIG_H_
 
-namespace cricket {
+namespace webrtc {
 
 // Construction-time settings, passed on when creating
 // MediaChannels.
@@ -21,6 +21,17 @@ struct MediaConfig {
   // TODO(https://crbug.com/1315574): Remove the ability to set it in Chromium
   // and delete this flag.
   bool enable_dscp = true;
+
+  // If true, RTCStats timestamps are sourced from the monotonically increasing
+  // environment Clock, where the epoch is unspecified (i.e. up to the Clock
+  // implementation). If false, RTCStats timestamps are either sourced from
+  // system clock via TimeUTCMicros() which is relative to 1970 but not
+  // necessarily monotonically increasing, or from a monotonic clock that is
+  // set to TimeUTCMicros() at first call, and then procceeds to
+  // increase monotonically.
+  // TODO: bugs.webrtc.org/370535296 - Change default value to true and delete
+  // this flag once downstream projects have migrated.
+  bool stats_timestamp_with_environment_clock = false;
 
   // Video-specific config.
   struct Video {
@@ -71,6 +82,14 @@ struct MediaConfig {
   struct Audio {
     // Time interval between RTCP report for audio
     int rtcp_report_interval_ms = 5000;
+
+    // The maximum number of packets that can be stored in the NetEq audio
+    // jitter buffer. Can be reduced to lower tolerated audio latency.
+    int audio_jitter_buffer_max_packets = 200;
+
+    // Whether to use the NetEq "fast mode" which will accelerate audio quicker
+    // if it falls behind.
+    bool audio_jitter_buffer_fast_accelerate = false;
   } audio;
 
   bool operator==(const MediaConfig& o) const {
@@ -87,12 +106,17 @@ struct MediaConfig {
            video.rtcp_report_interval_ms == o.video.rtcp_report_interval_ms &&
            video.enable_send_packet_batching ==
                o.video.enable_send_packet_batching &&
-           audio.rtcp_report_interval_ms == o.audio.rtcp_report_interval_ms;
+           audio.rtcp_report_interval_ms == o.audio.rtcp_report_interval_ms &&
+           audio.audio_jitter_buffer_max_packets ==
+               o.audio.audio_jitter_buffer_max_packets &&
+           audio.audio_jitter_buffer_fast_accelerate ==
+               o.audio.audio_jitter_buffer_fast_accelerate;
   }
 
   bool operator!=(const MediaConfig& o) const { return !(*this == o); }
 };
 
-}  // namespace cricket
+}  //  namespace webrtc
+
 
 #endif  // MEDIA_BASE_MEDIA_CONFIG_H_

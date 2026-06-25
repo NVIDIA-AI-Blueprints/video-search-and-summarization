@@ -87,7 +87,7 @@ class PLATFORM_EXPORT SecurityPolicy {
   static bool IsOriginAccessToURLAllowed(const SecurityOrigin* active_origin,
                                          const KURL&);
 
-  static bool ReferrerPolicyFromString(const String& policy,
+  static bool ReferrerPolicyFromString(const StringView& policy,
                                        ReferrerPolicyLegacyKeywordsSupport,
                                        network::mojom::ReferrerPolicy* result);
   static String ReferrerPolicyAsString(network::mojom::ReferrerPolicy policy);
@@ -96,9 +96,6 @@ class PLATFORM_EXPORT SecurityPolicy {
       const String& header_value,
       ReferrerPolicyLegacyKeywordsSupport,
       network::mojom::ReferrerPolicy* result);
-
-  static bool IsSharedArrayBufferAlwaysAllowedForOrigin(
-      const SecurityOrigin* origin);
 };
 
 }  // namespace blink

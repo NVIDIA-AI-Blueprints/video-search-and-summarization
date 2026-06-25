@@ -52,13 +52,12 @@ class SVGTransformList final
 
   AffineTransform Concatenate() const;
 
-  // SVGPropertyBase:
-  SVGPropertyBase* CloneForAnimation(const String&) const override;
   SVGParsingError SetValueAsString(const String&);
-  bool Parse(const UChar*& ptr, const UChar* end);
-  bool Parse(const LChar*& ptr, const LChar* end);
+  bool Parse(const base::span<const UChar> chars, size_t& position);
+  bool Parse(const base::span<const LChar> chars, size_t& position);
 
-  void Add(const SVGPropertyBase*, const SVGElement*) override;
+  // SVGPropertyBase:
+  bool Add(const SVGPropertyBase*, const SVGElement*) override;
   void CalculateAnimatedValue(
       const SMILAnimationEffectParameters&,
       float percentage,
@@ -76,7 +75,8 @@ class SVGTransformList final
 
  private:
   template <typename CharType>
-  SVGParsingError ParseInternal(const CharType*& ptr, const CharType* end);
+  SVGParsingError ParseInternal(const base::span<const CharType> chars,
+                                size_t& position);
 };
 
 template <>

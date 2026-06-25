@@ -13,6 +13,8 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
@@ -28,38 +30,45 @@ class CORE_EXPORT SpeculationRule final
   using RequiresAnonymousClientIPWhenCrossOrigin =
       base::StrongAlias<class RequiresAnonymousClientIPWhenCrossOriginTag,
                         bool>;
+  using FormSubmission = base::StrongAlias<class FormSubmissionTag, bool>;
 
   SpeculationRule(
       Vector<KURL>,
       DocumentRulePredicate*,
       RequiresAnonymousClientIPWhenCrossOrigin,
-      absl::optional<mojom::blink::SpeculationTargetHint> target_hint,
-      absl::optional<network::mojom::ReferrerPolicy>,
+      std::optional<mojom::blink::SpeculationTargetHint> target_hint,
+      std::optional<network::mojom::ReferrerPolicy>,
       mojom::blink::SpeculationEagerness,
       network::mojom::blink::NoVarySearchPtr,
-      mojom::blink::SpeculationInjectionWorld);
+      mojom::blink::SpeculationInjectionType,
+      String ruleset_tag,
+      String rule_tag,
+      FormSubmission);
   ~SpeculationRule();
 
   const Vector<KURL>& urls() const { return urls_; }
-  DocumentRulePredicate* predicate() const { return predicate_; }
+  DocumentRulePredicate* predicate() const { return predicate_.Get(); }
   bool requires_anonymous_client_ip_when_cross_origin() const {
     return requires_anonymous_client_ip_.value();
   }
-  absl::optional<mojom::blink::SpeculationTargetHint>
+  std::optional<mojom::blink::SpeculationTargetHint>
   target_browsing_context_name_hint() const {
     return target_browsing_context_name_hint_;
   }
-  absl::optional<network::mojom::ReferrerPolicy> referrer_policy() const {
+  std::optional<network::mojom::ReferrerPolicy> referrer_policy() const {
     return referrer_policy_;
   }
   mojom::blink::SpeculationEagerness eagerness() const { return eagerness_; }
-  const network::mojom::blink::NoVarySearchPtr& no_vary_search_expected()
-      const {
-    return no_vary_search_expected_;
+  const network::mojom::blink::NoVarySearchPtr& no_vary_search_hint() const {
+    return no_vary_search_hint_;
   }
-  mojom::blink::SpeculationInjectionWorld injection_world() const {
-    return injection_world_;
+  mojom::blink::SpeculationInjectionType injection_type() const {
+    return injection_type_;
   }
+  String ruleset_tag() const { return ruleset_tag_; }
+  String rule_tag() const { return rule_tag_; }
+
+  FormSubmission form_submission() { return form_submission_; }
 
   void Trace(Visitor*) const;
 
@@ -67,13 +76,18 @@ class CORE_EXPORT SpeculationRule final
   const Vector<KURL> urls_;
   const Member<DocumentRulePredicate> predicate_;
   const RequiresAnonymousClientIPWhenCrossOrigin requires_anonymous_client_ip_;
-  const absl::optional<mojom::blink::SpeculationTargetHint>
+  const std::optional<mojom::blink::SpeculationTargetHint>
       target_browsing_context_name_hint_;
-  const absl::optional<network::mojom::ReferrerPolicy> referrer_policy_;
+  const std::optional<network::mojom::ReferrerPolicy> referrer_policy_;
   mojom::blink::SpeculationEagerness eagerness_;
-  network::mojom::blink::NoVarySearchPtr no_vary_search_expected_;
-  mojom::blink::SpeculationInjectionWorld injection_world_ =
-      mojom::blink::SpeculationInjectionWorld::kNone;
+  network::mojom::blink::NoVarySearchPtr no_vary_search_hint_;
+  mojom::blink::SpeculationInjectionType injection_type_ =
+      mojom::blink::SpeculationInjectionType::kNone;
+  // TODO(crbug.com/381687257): make `ruleset_tag_` owned by
+  // `SpeculationRuleSet`.
+  const String ruleset_tag_;
+  const String rule_tag_;
+  const FormSubmission form_submission_;
 };
 
 }  // namespace blink

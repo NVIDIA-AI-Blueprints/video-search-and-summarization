@@ -23,13 +23,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TYPE_TRAITS_H_
 
 #include <cstddef>
+#include <optional>
 #include <type_traits>
 #include <utility>
+#include <variant>
+
 #include "base/compiler_specific.h"
 #include "build/build_config.h"
 #include "v8/include/cppgc/type-traits.h"  // nogncheck
 
-namespace WTF {
+namespace blink {
 
 // Returns a string that contains the type name of |T| as a substring.
 template <typename T>
@@ -108,11 +111,20 @@ template <typename T>
 struct IsTraceable : cppgc::internal::IsTraceable<T> {};
 
 template <typename T>
+concept IsTraceableV = IsTraceable<T>::value;
+
+template <typename T>
 struct IsGarbageCollectedType
     : cppgc::internal::IsGarbageCollectedOrMixinType<T> {};
 
 template <typename T>
+concept IsGarbageCollectedTypeV = IsGarbageCollectedType<T>::value;
+
+template <typename T>
 struct IsWeak : cppgc::internal::IsWeak<T> {};
+
+template <typename T>
+concept IsWeakV = IsWeak<T>::value;
 
 template <typename T>
 struct IsMemberType : std::bool_constant<cppgc::IsMemberTypeV<T>> {};
@@ -134,41 +146,34 @@ template <typename T, typename U>
 struct IsTraceable<std::pair<T, U>>
     : std::bool_constant<IsTraceable<T>::value || IsTraceable<U>::value> {};
 
-// Convenience template wrapping the IsTraceableInCollection template in
-// Collection Traits. It helps make the code more readable.
-template <typename Traits>
-struct IsTraceableInCollectionTrait
-    : std::bool_constant<Traits::template IsTraceableInCollection<>::value> {};
-
 enum WeakHandlingFlag {
   kNoWeakHandling,
   kWeakHandling,
 };
 
+// This is for tracing inside collections that have special support for weak
+// pointers.
+//
+// Structure:
+// - `Trace()`: Traces the contents.
+// - `IsAlive()`: Returns true if the contents are still considered alive, and
+// false otherwise.
+//
+// Default implementation for non-weak types is to use the regular non-weak
+// TraceTrait. Default implementation for types with weakness is to
+// delegate to sub types until reaching WeakMember or KeyValuePair which
+// have defined weakness semantics.
+template <WeakHandlingFlag weakness, typename T, typename Traits>
+struct TraceInCollectionTrait;
+
 template <typename T>
-struct WeakHandlingTrait
-    : std::integral_constant<WeakHandlingFlag,
-                             IsWeak<T>::value ? kWeakHandling
-                                              : kNoWeakHandling> {};
+inline constexpr WeakHandlingFlag kWeakHandlingTrait =
+    IsWeak<T>::value ? kWeakHandling : kNoWeakHandling;
 
 // This is used to check that DISALLOW_NEW objects are not
 // stored in off-heap Vectors, HashTables etc.
 template <typename T>
-struct IsDisallowNew {
- private:
-  using YesType = char;
-  struct NoType {
-    char padding[8];
-  };
-
-  template <typename U>
-  static YesType CheckMarker(typename U::IsDisallowNewMarker*);
-  template <typename U>
-  static NoType CheckMarker(...);
-
- public:
-  static const bool value = sizeof(CheckMarker<T>(nullptr)) == sizeof(YesType);
-};
+concept IsDisallowNew = requires { typename T::IsDisallowNewMarker; };
 
 template <>
 class IsGarbageCollectedType<void> {
@@ -176,32 +181,57 @@ class IsGarbageCollectedType<void> {
   static const bool value = false;
 };
 
-template <typename T,
-          bool = std::is_function<typename std::remove_const<
-                     typename std::remove_pointer<T>::type>::type>::value ||
-                 std::is_void<typename std::remove_const<
-                     typename std::remove_pointer<T>::type>::type>::value>
-class IsPointerToGarbageCollectedType {
+template <typename T>
+concept IsPointerToGarbageCollectedType =
+    std::is_pointer_v<T> &&
+    !std::is_function_v<std::remove_const_t<std::remove_pointer_t<T>>> &&
+    !std::is_void_v<std::remove_const_t<std::remove_pointer_t<T>>> &&
+    IsGarbageCollectedType<
+        std::remove_const_t<std::remove_pointer_t<T>>>::value;
+
+template <typename T>
+concept IsPointerToTraceableType =
+    std::is_pointer_v<T> &&
+    !std::is_function_v<std::remove_const_t<std::remove_pointer_t<T>>> &&
+    !std::is_void_v<std::remove_const_t<std::remove_pointer_t<T>>> &&
+    IsTraceable<std::remove_const_t<std::remove_pointer_t<T>>>::value;
+
+namespace internal {
+
+template <typename T>
+concept HasStackAllocatedMarker =
+    requires { typename T::IsStackAllocatedTypeMarker; };
+
+}  // namespace internal
+
+template <typename T>
+class IsStackAllocatedType {
  public:
-  static const bool value = false;
+  static constexpr bool value = internal::HasStackAllocatedMarker<T>;
+};
+
+template <typename T, typename U>
+class IsStackAllocatedType<std::pair<T, U>> {
+ public:
+  static constexpr bool value =
+      IsStackAllocatedType<T>::value || IsStackAllocatedType<U>::value;
 };
 
 template <typename T>
-class IsPointerToGarbageCollectedType<T*, false> {
+class IsStackAllocatedType<std::optional<T>> {
  public:
-  static const bool value = IsGarbageCollectedType<T>::value;
+  static constexpr bool value = IsStackAllocatedType<T>::value;
 };
 
-template <typename T, typename = void>
-struct IsStackAllocatedType : std::false_type {};
+template <typename... Ts>
+class IsStackAllocatedType<std::variant<Ts...>> {
+ public:
+  static constexpr bool value = std::disjunction_v<IsStackAllocatedType<Ts>...>;
+};
 
 template <typename T>
-struct IsStackAllocatedType<T,
-                            std::void_t<typename T::IsStackAllocatedTypeMarker>>
-    : std::true_type {};
+concept IsStackAllocatedTypeV = IsStackAllocatedType<T>::value;
 
-}  // namespace WTF
-
-using WTF::IsGarbageCollectedType;
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TYPE_TRAITS_H_

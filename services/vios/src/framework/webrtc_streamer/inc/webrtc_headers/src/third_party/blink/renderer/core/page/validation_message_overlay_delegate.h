@@ -12,6 +12,10 @@
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
+namespace gfx {
+class Rect;
+}
+
 namespace blink {
 
 class ChromeClient;
@@ -54,15 +58,13 @@ class CORE_EXPORT ValidationMessageOverlayDelegate
 
  private:
   LocalFrameView& FrameView() const;
-  void WriteDocument(SharedBuffer*);
+  void WriteDocument(SegmentedBuffer&);
   Element& GetElementById(const AtomicString&) const;
   void AdjustBubblePosition(const gfx::Rect& view_rect);
 
   // An internal Page and a ChromeClient for it.
   Persistent<Page> page_;
   Persistent<ChromeClient> chrome_client_;
-
-  gfx::Size bubble_size_;
 
   // A page which triggered this validation message.
   Persistent<Page> main_page_;

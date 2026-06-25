@@ -21,9 +21,7 @@ namespace webrtc {
 const int16_t kNoPictureId = -1;
 const int16_t kNoTl0PicIdx = -1;
 const uint8_t kNoTemporalIdx = 0xFF;
-#ifndef DISABLE_H265
 const uint8_t kNoH265TemporalIdx = 0x7E;
-#endif
 const int kNoKeyIdx = -1;
 
 }  // namespace webrtc

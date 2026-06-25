@@ -8,9 +8,9 @@
 
 // Ensure the included flatbuffers.h is the same version as when this file was
 // generated, otherwise it may not be compatible.
-static_assert(FLATBUFFERS_VERSION_MAJOR == 23 &&
-              FLATBUFFERS_VERSION_MINOR == 5 &&
-              FLATBUFFERS_VERSION_REVISION == 26,
+static_assert(FLATBUFFERS_VERSION_MAJOR == 25 &&
+              FLATBUFFERS_VERSION_MINOR == 9 &&
+              FLATBUFFERS_VERSION_REVISION == 23,
              "Non-compatible flatbuffers version included");
 
 namespace reflection {
@@ -196,7 +196,8 @@ struct Type FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   uint32_t element_size() const {
     return GetField<uint32_t>(VT_ELEMENT_SIZE, 0);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int8_t>(verifier, VT_BASE_TYPE, 1) &&
            VerifyField<int8_t>(verifier, VT_ELEMENT, 1) &&
@@ -274,10 +275,17 @@ struct KeyValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int KeyCompareWithValue(const char *_key) const {
     return strcmp(key()->c_str(), _key);
   }
+  template<typename StringType>
+  int KeyCompareWithValue(const StringType& _key) const {
+    if (key()->c_str() < _key) return -1;
+    if (_key < key()->c_str()) return 1;
+    return 0;
+  }
   const ::flatbuffers::String *value() const {
     return GetPointer<const ::flatbuffers::String *>(VT_VALUE);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_KEY) &&
            verifier.VerifyString(key()) &&
@@ -361,7 +369,8 @@ struct EnumVal FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::KeyValue>> *attributes() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::KeyValue>> *>(VT_ATTRIBUTES);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_NAME) &&
            verifier.VerifyString(name()) &&
@@ -464,6 +473,12 @@ struct Enum FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int KeyCompareWithValue(const char *_name) const {
     return strcmp(name()->c_str(), _name);
   }
+  template<typename StringType>
+  int KeyCompareWithValue(const StringType& _name) const {
+    if (name()->c_str() < _name) return -1;
+    if (_name < name()->c_str()) return 1;
+    return 0;
+  }
   const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::EnumVal>> *values() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::EnumVal>> *>(VT_VALUES);
   }
@@ -483,7 +498,8 @@ struct Enum FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::String *declaration_file() const {
     return GetPointer<const ::flatbuffers::String *>(VT_DECLARATION_FILE);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_NAME) &&
            verifier.VerifyString(name()) &&
@@ -616,6 +632,12 @@ struct Field FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int KeyCompareWithValue(const char *_name) const {
     return strcmp(name()->c_str(), _name);
   }
+  template<typename StringType>
+  int KeyCompareWithValue(const StringType& _name) const {
+    if (name()->c_str() < _name) return -1;
+    if (_name < name()->c_str()) return 1;
+    return 0;
+  }
   const reflection::Type *type() const {
     return GetPointer<const reflection::Type *>(VT_TYPE);
   }
@@ -657,7 +679,8 @@ struct Field FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   bool offset64() const {
     return GetField<uint8_t>(VT_OFFSET64, 0) != 0;
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_NAME) &&
            verifier.VerifyString(name()) &&
@@ -834,6 +857,12 @@ struct Object FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int KeyCompareWithValue(const char *_name) const {
     return strcmp(name()->c_str(), _name);
   }
+  template<typename StringType>
+  int KeyCompareWithValue(const StringType& _name) const {
+    if (name()->c_str() < _name) return -1;
+    if (_name < name()->c_str()) return 1;
+    return 0;
+  }
   const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::Field>> *fields() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::Field>> *>(VT_FIELDS);
   }
@@ -856,7 +885,8 @@ struct Object FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::String *declaration_file() const {
     return GetPointer<const ::flatbuffers::String *>(VT_DECLARATION_FILE);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_NAME) &&
            verifier.VerifyString(name()) &&
@@ -986,6 +1016,12 @@ struct RPCCall FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int KeyCompareWithValue(const char *_name) const {
     return strcmp(name()->c_str(), _name);
   }
+  template<typename StringType>
+  int KeyCompareWithValue(const StringType& _name) const {
+    if (name()->c_str() < _name) return -1;
+    if (_name < name()->c_str()) return 1;
+    return 0;
+  }
   const reflection::Object *request() const {
     return GetPointer<const reflection::Object *>(VT_REQUEST);
   }
@@ -998,7 +1034,8 @@ struct RPCCall FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>> *documentation() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>> *>(VT_DOCUMENTATION);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_NAME) &&
            verifier.VerifyString(name()) &&
@@ -1102,6 +1139,12 @@ struct Service FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int KeyCompareWithValue(const char *_name) const {
     return strcmp(name()->c_str(), _name);
   }
+  template<typename StringType>
+  int KeyCompareWithValue(const StringType& _name) const {
+    if (name()->c_str() < _name) return -1;
+    if (_name < name()->c_str()) return 1;
+    return 0;
+  }
   const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::RPCCall>> *calls() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::RPCCall>> *>(VT_CALLS);
   }
@@ -1115,7 +1158,8 @@ struct Service FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::String *declaration_file() const {
     return GetPointer<const ::flatbuffers::String *>(VT_DECLARATION_FILE);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_NAME) &&
            verifier.VerifyString(name()) &&
@@ -1221,11 +1265,18 @@ struct SchemaFile FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int KeyCompareWithValue(const char *_filename) const {
     return strcmp(filename()->c_str(), _filename);
   }
+  template<typename StringType>
+  int KeyCompareWithValue(const StringType& _filename) const {
+    if (filename()->c_str() < _filename) return -1;
+    if (_filename < filename()->c_str()) return 1;
+    return 0;
+  }
   /// Names of included files, relative to project root.
   const ::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>> *included_filenames() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>> *>(VT_INCLUDED_FILENAMES);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_FILENAME) &&
            verifier.VerifyString(filename()) &&
@@ -1318,7 +1369,8 @@ struct Schema FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::SchemaFile>> *fbs_files() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<reflection::SchemaFile>> *>(VT_FBS_FILES);
   }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffsetRequired(verifier, VT_OBJECTS) &&
            verifier.VerifyVector(objects()) &&
@@ -1456,14 +1508,16 @@ inline bool SizePrefixedSchemaBufferHasIdentifier(const void *buf) {
       buf, SchemaIdentifier(), true);
 }
 
+template <bool B = false>
 inline bool VerifySchemaBuffer(
-    ::flatbuffers::Verifier &verifier) {
-  return verifier.VerifyBuffer<reflection::Schema>(SchemaIdentifier());
+    ::flatbuffers::VerifierTemplate<B> &verifier) {
+  return verifier.template VerifyBuffer<reflection::Schema>(SchemaIdentifier());
 }
 
+template <bool B = false>
 inline bool VerifySizePrefixedSchemaBuffer(
-    ::flatbuffers::Verifier &verifier) {
-  return verifier.VerifySizePrefixedBuffer<reflection::Schema>(SchemaIdentifier());
+    ::flatbuffers::VerifierTemplate<B> &verifier) {
+  return verifier.template VerifySizePrefixedBuffer<reflection::Schema>(SchemaIdentifier());
 }
 
 inline const char *SchemaExtension() {

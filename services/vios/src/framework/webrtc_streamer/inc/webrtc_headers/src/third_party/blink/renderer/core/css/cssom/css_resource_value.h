@@ -31,7 +31,6 @@ class CORE_EXPORT CSSResourceValue : public CSSStyleValue {
         return "error";
       default:
         NOTREACHED();
-        return "";
     }
   }
 

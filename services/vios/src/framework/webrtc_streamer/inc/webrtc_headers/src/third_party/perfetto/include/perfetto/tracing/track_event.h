@@ -133,7 +133,9 @@
 
 // Deprecated; see perfetto::Category().
 #define PERFETTO_CATEGORY(name) \
-  ::perfetto::Category { #name }
+  ::perfetto::Category {        \
+    #name                       \
+  }
 
 // Internal helpers for determining if a given category is defined at build or
 // runtime.
@@ -190,9 +192,7 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
   } /* namespace PERFETTO_TRACK_EVENT_NAMESPACE  */                        \
   using PERFETTO_TRACK_EVENT_NAMESPACE::TrackEvent;                        \
   } /* namespace ns */                                                     \
-  PERFETTO_DECLARE_DATA_SOURCE_STATIC_MEMBERS_WITH_ATTRS(                  \
-      attrs, ns::PERFETTO_TRACK_EVENT_NAMESPACE::TrackEvent,               \
-      ::perfetto::internal::TrackEventDataSourceTraits)
+  PERFETTO_INTERNAL_SWALLOW_SEMICOLON()
 
 // Register the set of available categories by passing a list of categories to
 // this macro: perfetto::Category("cat1"), perfetto::Category("cat2"), ...
@@ -238,9 +238,7 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
   PERFETTO_INTERNAL_DEFINE_TRACK_EVENT_DATA_SOURCE()                           \
   } /* namespace PERFETTO_TRACK_EVENT_NAMESPACE */                             \
   } /* namespace ns */                                                         \
-  PERFETTO_DEFINE_DATA_SOURCE_STATIC_MEMBERS_WITH_ATTRS(                       \
-      attrs, ns::PERFETTO_TRACK_EVENT_NAMESPACE::TrackEvent,                   \
-      ::perfetto::internal::TrackEventDataSourceTraits)
+  PERFETTO_INTERNAL_SWALLOW_SEMICOLON()
 
 // Allocate storage for each category by using this macro once per track event
 // namespace.
@@ -253,9 +251,19 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
 #define PERFETTO_TRACK_EVENT_STATIC_STORAGE() \
   PERFETTO_TRACK_EVENT_STATIC_STORAGE_IN_NAMESPACE(perfetto)
 
-// Ignore GCC warning about a missing argument for a variadic macro parameter.
 #if defined(__GNUC__) || defined(__clang__)
+#if defined(__clang__)
+#pragma clang diagnostic push
+// Fix 'error: #pragma system_header ignored in main file' for clang in Google3.
+#pragma clang diagnostic ignored "-Wpragma-system-header-outside-header"
+#endif
+
+// Ignore GCC warning about a missing argument for a variadic macro parameter.
 #pragma GCC system_header
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #endif
 
 // Begin a slice under |category| with the title |name|. Both strings must be
@@ -288,14 +296,18 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
 // 1. A lambda for writing custom TrackEvent fields:
 //
 //   TRACE_EVENT("category", "Name", [&](perfetto::EventContext ctx) {
-//     ctx.event()->set_custom_value(...);
+//     auto* debug_annotation = ctx.event()->add_debug_annotations();
+//     debug_annotation->set_name("key");
+//     debug_annotation->set_string_value("value");
 //   });
 //
 // 2. A timestamp and a lambda:
 //
 //   TRACE_EVENT("category", "Name", time_in_nanoseconds,
 //       [&](perfetto::EventContext ctx) {
-//     ctx.event()->set_custom_value(...);
+//     auto* debug_annotation = ctx.event()->add_debug_annotations();
+//     debug_annotation->set_name("key");
+//     debug_annotation->set_string_value("value");
 //   });
 //
 //   |time_in_nanoseconds| should be an uint64_t by default. To support custom
@@ -316,7 +328,9 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
 //
 //   TRACE_EVENT("category", "Name", "arg", value,
 //       [&](perfetto::EventContext ctx) {
-//     ctx.event()->set_custom_value(...);
+//     auto* debug_annotation = ctx.event()->add_debug_annotations();
+//     debug_annotation->set_name("key");
+//     debug_annotation->set_string_value("value");
 //   });
 //
 // 5. An overridden track:
@@ -329,7 +343,9 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
 //
 //   TRACE_EVENT("category", "Name", perfetto::Track(1234),
 //       [&](perfetto::EventContext ctx) {
-//     ctx.event()->set_custom_value(...);
+//     auto* debug_annotation = ctx.event()->add_debug_annotations();
+//     debug_annotation->set_name("key");
+//     debug_annotation->set_string_value("value");
 //   });
 //
 // 7. A track and a timestamp:
@@ -341,7 +357,9 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
 //
 //   TRACE_EVENT("category", "Name", perfetto::Track(1234),
 //       time_in_nanoseconds, [&](perfetto::EventContext ctx) {
-//     ctx.event()->set_custom_value(...);
+//     auto* debug_annotation = ctx.event()->add_debug_annotations();
+//     debug_annotation->set_name("key");
+//     debug_annotation->set_string_value("value");
 //   });
 //
 // 9. A track and an arbitrary number of debug annotions:
@@ -351,26 +369,25 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
 //   TRACE_EVENT("category", "Name", perfetto::Track(1234),
 //               "arg", value, "arg2", value2);
 //
-#define TRACE_EVENT_BEGIN(category, name, ...)                  \
-  PERFETTO_INTERNAL_TRACK_EVENT(                                \
-      category, ::perfetto::internal::DecayEventNameType(name), \
+#define TRACE_EVENT_BEGIN(category, name, ...) \
+  PERFETTO_INTERNAL_TRACK_EVENT_WITH_METHOD(   \
+      TraceForCategory, category, name,        \
       ::perfetto::protos::pbzero::TrackEvent::TYPE_SLICE_BEGIN, ##__VA_ARGS__)
 
 // End a slice under |category|.
-#define TRACE_EVENT_END(category, ...) \
-  PERFETTO_INTERNAL_TRACK_EVENT(       \
-      category, /*name=*/nullptr,      \
+#define TRACE_EVENT_END(category, ...)              \
+  PERFETTO_INTERNAL_TRACK_EVENT_WITH_METHOD(        \
+      TraceForCategory, category, /*name=*/nullptr, \
       ::perfetto::protos::pbzero::TrackEvent::TYPE_SLICE_END, ##__VA_ARGS__)
 
 // Begin a slice which gets automatically closed when going out of scope.
 #define TRACE_EVENT(category, name, ...) \
-  PERFETTO_INTERNAL_SCOPED_TRACK_EVENT(  \
-      category, ::perfetto::internal::DecayEventNameType(name), ##__VA_ARGS__)
+  PERFETTO_INTERNAL_SCOPED_TRACK_EVENT(category, name, ##__VA_ARGS__)
 
 // Emit a slice which has zero duration.
-#define TRACE_EVENT_INSTANT(category, name, ...)                \
-  PERFETTO_INTERNAL_TRACK_EVENT(                                \
-      category, ::perfetto::internal::DecayEventNameType(name), \
+#define TRACE_EVENT_INSTANT(category, name, ...) \
+  PERFETTO_INTERNAL_TRACK_EVENT_WITH_METHOD(     \
+      TraceForCategory, category, name,          \
       ::perfetto::protos::pbzero::TrackEvent::TYPE_INSTANT, ##__VA_ARGS__)
 
 // Efficiently determine if the given static or dynamic trace category or
@@ -416,8 +433,8 @@ constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
 //   TRACE_COUNTER("category", "MyCounter", timestamp, value);
 //
 #define TRACE_COUNTER(category, track, ...)                 \
-  PERFETTO_INTERNAL_TRACK_EVENT(                            \
-      category, /*name=*/nullptr,                           \
+  PERFETTO_INTERNAL_TRACK_EVENT_WITH_METHOD(                \
+      TraceForCategory, category, /*name=*/nullptr,         \
       ::perfetto::protos::pbzero::TrackEvent::TYPE_COUNTER, \
       ::perfetto::CounterTrack(track), ##__VA_ARGS__)
 

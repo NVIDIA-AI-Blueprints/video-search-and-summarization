@@ -22,8 +22,26 @@
 #include "libavutil/cpu.h"
 #include "libavutil/cpu_internal.h"
 
-#define have_armv8(flags) CPUEXT(flags, ARMV8)
-#define have_neon(flags) CPUEXT(flags, NEON)
-#define have_vfp(flags)  CPUEXT(flags, VFP)
+#define have_armv8(flags)   CPUEXT(flags, ARMV8)
+#define have_neon(flags)    CPUEXT(flags, NEON)
+#define have_vfp(flags)     CPUEXT(flags, VFP)
+#define have_arm_crc(flags) CPUEXT(flags, ARM_CRC)
+#define have_pmull(flags)   CPUEXT(flags, PMULL)
+#define have_eor3(flags)    CPUEXT(flags, EOR3)
+#define have_dotprod(flags) CPUEXT(flags, DOTPROD)
+#define have_i8mm(flags)    CPUEXT(flags, I8MM)
+#define have_sve(flags)     CPUEXT(flags, SVE)
+#define have_sve2(flags)    CPUEXT(flags, SVE2)
+#define have_sme(flags)     CPUEXT(flags, SME)
+#define have_sme_i16i64(flags) CPUEXT(flags, SME_I16I64)
+#define have_sme2(flags)    CPUEXT(flags, SME2)
+
+#if HAVE_SVE
+int ff_aarch64_sve_length(void);
+#endif
+
+#if HAVE_SME
+int ff_aarch64_sme_length(void);
+#endif
 
 #endif /* AVUTIL_AARCH64_CPU_H */

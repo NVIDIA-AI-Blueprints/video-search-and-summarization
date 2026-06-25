@@ -11,35 +11,34 @@
 #ifndef TEST_FAKE_ENCODED_FRAME_H_
 #define TEST_FAKE_ENCODED_FRAME_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <ostream>  // no-presubmit-check TODO(webrtc:8982)
+#include <optional>
 #include <vector>
 
 #include "api/rtp_packet_infos.h"
+#include "api/units/timestamp.h"
 #include "api/video/encoded_frame.h"
 #include "api/video/video_rotation.h"
+#include "api/video/video_timing.h"
 #include "test/gmock.h"
 
 namespace webrtc {
-
-// For test printing.
-void PrintTo(const EncodedFrame& frame,
-             std::ostream* os);  // no-presubmit-check TODO(webrtc:8982)
-
 namespace test {
 
 class FakeEncodedFrame : public EncodedFrame {
  public:
   // Always 10ms delay and on time.
-  int64_t ReceivedTime() const override;
+  std::optional<Timestamp> ReceivedTimestamp() const override;
   int64_t RenderTime() const override;
 
   // Setters for protected variables.
-  void SetReceivedTime(int64_t received_time);
+  void SetReceivedTime(Timestamp received_time);
   void SetPayloadType(int payload_type);
 
  private:
-  int64_t received_time_;
+  Timestamp received_time_ = Timestamp::Zero();
 };
 
 MATCHER_P(WithId, id, "") {
@@ -51,7 +50,7 @@ MATCHER_P(FrameWithSize, id, "") {
 }
 
 MATCHER_P(RtpTimestamp, ts, "") {
-  return ts == arg.Timestamp();
+  return ts == arg.RtpTimestamp();
 }
 
 class FakeFrameBuilder {
@@ -71,15 +70,15 @@ class FakeFrameBuilder {
   std::unique_ptr<FakeEncodedFrame> Build();
 
  private:
-  absl::optional<uint32_t> rtp_timestamp_;
-  absl::optional<int64_t> frame_id_;
-  absl::optional<VideoPlayoutDelay> playout_delay_;
-  absl::optional<int> spatial_layer_;
-  absl::optional<Timestamp> received_time_;
-  absl::optional<int> payload_type_;
-  absl::optional<Timestamp> ntp_time_;
-  absl::optional<VideoRotation> rotation_;
-  absl::optional<RtpPacketInfos> packet_infos_;
+  std::optional<uint32_t> rtp_timestamp_;
+  std::optional<int64_t> frame_id_;
+  std::optional<VideoPlayoutDelay> playout_delay_;
+  std::optional<int> spatial_layer_;
+  std::optional<Timestamp> received_time_;
+  std::optional<int> payload_type_;
+  std::optional<Timestamp> ntp_time_;
+  std::optional<VideoRotation> rotation_;
+  std::optional<RtpPacketInfos> packet_infos_;
   std::vector<int64_t> references_;
   bool last_spatial_layer_ = false;
   size_t size_ = 10;

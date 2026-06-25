@@ -118,7 +118,7 @@ class DateTimeFieldElement : public HTMLSpanElement {
   bool IsDateTimeFieldElement() const final;
   bool IsFieldOwnerDisabled() const;
   bool IsFieldOwnerReadOnly() const;
-  bool SupportsFocus() const final;
+  FocusableState SupportsFocus(UpdateBehavior update_behavior) const final;
 
   Member<FieldOwner> field_owner_;
   DateTimeField type_;

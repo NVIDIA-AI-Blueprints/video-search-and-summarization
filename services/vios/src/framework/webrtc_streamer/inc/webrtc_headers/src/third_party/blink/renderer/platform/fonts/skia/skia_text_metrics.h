@@ -5,9 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SKIA_SKIA_TEXT_METRICS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SKIA_SKIA_TEXT_METRICS_H_
 
-#include "third_party/blink/renderer/platform/fonts/glyph.h"
-
 #include <hb.h>
+
+#include "base/containers/span.h"
+#include "third_party/blink/renderer/platform/fonts/glyph.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkRect.h"
 
@@ -33,9 +34,10 @@ void SkFontGetGlyphExtentsForHarfBuzz(const SkFont&,
                                       hb_glyph_extents_t*);
 
 void SkFontGetBoundsForGlyph(const SkFont&, Glyph, SkRect* bounds);
+void SkFontGetPreciseBoundsForGlyph(const SkFont&, Glyph, SkRect* bounds);
 void SkFontGetBoundsForGlyphs(const SkFont&,
                               const Vector<Glyph, 256>&,
-                              SkRect*);
+                              base::span<SkRect>);
 float SkFontGetWidthForGlyph(const SkFont&, Glyph);
 
 hb_position_t SkiaScalarToHarfBuzzPosition(SkScalar value);

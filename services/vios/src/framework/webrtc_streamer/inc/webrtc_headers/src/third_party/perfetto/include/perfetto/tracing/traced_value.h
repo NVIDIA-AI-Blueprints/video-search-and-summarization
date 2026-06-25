@@ -27,6 +27,8 @@
 #include "perfetto/tracing/traced_value_forward.h"
 
 #include <memory>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -123,7 +125,7 @@ namespace internal {
 PERFETTO_EXPORT_COMPONENT TracedValue
 CreateTracedValueFromProto(protos::pbzero::DebugAnnotation*,
                            EventContext* = nullptr);
-}
+}  // namespace internal
 
 class PERFETTO_EXPORT_COMPONENT TracedValue {
  public:
@@ -145,6 +147,7 @@ class PERFETTO_EXPORT_COMPONENT TracedValue {
   void WriteString(const char*) &&;
   void WriteString(const char*, size_t len) &&;
   void WriteString(const std::string&) &&;
+  void WriteString(std::string_view) &&;
   void WritePointer(const void* value) &&;
   template <typename MessageType>
   TracedProto<MessageType> WriteProto() &&;
@@ -154,7 +157,7 @@ class PERFETTO_EXPORT_COMPONENT TracedValue {
   // active at the same time. It's only allowed to call methods on the active
   // scope.
   // - When a scope creates a nested scope, the new scope becomes active.
-  // - When a scope is destroyed, it's parent scope becomes active again.
+  // - When a scope is destroyed, its parent scope becomes active again.
   //
   // Typically users will have to create a scope only at the beginning of a
   // conversion function and this scope should be destroyed at the end of it.
@@ -420,12 +423,13 @@ struct is_incomplete_type<const char[]> {
 // class does not have it support, so they are useful in SFINAE and in producing
 // helpful compiler results.
 template <typename T, class Result = void>
-using check_traced_value_support_t = decltype(
-    internal::WriteImpl(
-        std::declval<base::priority_tag<internal::kMaxWriteImplPriority>>(),
-        std::declval<TracedValue>(),
-        std::declval<T>()),
-    std::declval<Result>());
+using check_traced_value_support_t =
+    decltype(internal::WriteImpl(
+                 std::declval<
+                     base::priority_tag<internal::kMaxWriteImplPriority>>(),
+                 std::declval<TracedValue>(),
+                 std::declval<T>()),
+             std::declval<Result>());
 
 // check_traced_value_support<T, V>::type is defined (and equal to V) iff T
 // supports being passed to WriteIntoTracedValue. See the comment in
@@ -623,6 +627,15 @@ template <>
 struct TraceFormatTraits<std::string> {
   inline static void WriteIntoTrace(TracedValue context,
                                     const std::string& value) {
+    std::move(context).WriteString(value);
+  }
+};
+
+// Specialisation for C++ string_views.
+template <>
+struct TraceFormatTraits<std::string_view> {
+  inline static void WriteIntoTrace(TracedValue context,
+                                    std::string_view value) {
     std::move(context).WriteString(value);
   }
 };

@@ -30,12 +30,12 @@ class Animator final : public GarbageCollected<Animator>, public NameClient {
            v8::Local<v8::Value> instance,
            const String& name,
            WorkletAnimationOptions options,
-           const Vector<absl::optional<base::TimeDelta>>& local_times,
+           const Vector<std::optional<base::TimeDelta>>& local_times,
            const Vector<Timing>& timings,
            const Vector<Timing::NormalizedTiming>& normalized_timings);
   ~Animator() final;
   void Trace(Visitor*) const;
-  const char* NameInHeapSnapshot() const override { return "Animator"; }
+  const char* GetHumanReadableName() const override { return "Animator"; }
 
   // Returns true if it successfully invoked animate callback in JS. It receives
   // latest state coming from |AnimationHost| as input and fills

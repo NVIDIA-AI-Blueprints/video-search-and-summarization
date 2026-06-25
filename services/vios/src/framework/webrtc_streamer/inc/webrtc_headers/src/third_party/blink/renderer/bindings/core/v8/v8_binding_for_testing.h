@@ -7,8 +7,10 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_gc_controller.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_microtasks_scope.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
+#include "third_party/blink/renderer/platform/testing/task_environment.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -29,15 +31,13 @@ class V8TestingScope {
   STACK_ALLOCATED();
 
  public:
-  // TODO(keishi): Define CreateDummyPageHolder in DummyPageHolder.
-  static std::unique_ptr<DummyPageHolder> CreateDummyPageHolder(
-      const KURL& url);
   explicit V8TestingScope(const KURL& url = KURL());
+  explicit V8TestingScope(std::unique_ptr<DummyPageHolder> holder);
   ScriptState* GetScriptState() const;
   ExecutionContext* GetExecutionContext() const;
   v8::Isolate* GetIsolate() const;
   v8::Local<v8::Context> GetContext() const;
-  ExceptionState& GetExceptionState();
+  DummyExceptionStateForTesting& GetExceptionState();
   Page& GetPage();
   LocalFrame& GetFrame();
   LocalDOMWindow& GetWindow();
@@ -48,12 +48,13 @@ class V8TestingScope {
   void PerformMicrotaskCheckpoint();
 
  private:
-  std::unique_ptr<DummyPageHolder> holder_;
+  std::unique_ptr<DummyPageHolder> const holder_;
+  v8::Isolate* const isolate_;
   v8::HandleScope handle_scope_;
   v8::Local<v8::Context> context_;
   v8::Context::Scope context_scope_;
   v8::TryCatch try_catch_;
-  v8::MicrotasksScope microtasks_scope_;
+  V8DoNotRunMicrotasksScope microtasks_scope_;
   DummyExceptionStateForTesting exception_state_;
 };
 
@@ -68,7 +69,6 @@ class BindingTestSupportingGC : public testing::Test {
  public:
   void SetIsolate(v8::Isolate* isolate) {
     CHECK(isolate);
-    CHECK_EQ(isolate, ThreadState::Current()->GetIsolate());
     isolate_ = isolate;
   }
   v8::Isolate* GetIsolate() const { return isolate_; }
@@ -89,6 +89,7 @@ class BindingTestSupportingGC : public testing::Test {
   }
 
  private:
+  test::TaskEnvironment task_environment_;
   v8::Isolate* isolate_;
 };
 

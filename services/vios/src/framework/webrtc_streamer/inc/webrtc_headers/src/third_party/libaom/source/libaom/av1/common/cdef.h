@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -56,14 +56,14 @@ typedef struct {
   int roffset;    /*!< current row offset */
 } CdefBlockInfo;
 
-static INLINE int sign(int i) { return i < 0 ? -1 : 1; }
+static inline int sign(int i) { return i < 0 ? -1 : 1; }
 
-static INLINE int constrain(int diff, int threshold, int damping) {
+static inline int constrain(int diff, int threshold, int damping) {
   if (!threshold) return 0;
 
-  const int shift = AOMMAX(0, damping - get_msb(threshold));
-  return sign(diff) *
-         AOMMIN(abs(diff), AOMMAX(0, threshold - (abs(diff) >> shift)));
+  int shift = damping - get_msb(threshold);
+  shift = AOMMAX(0, shift);
+  return sign(diff) * clamp(threshold - (abs(diff) >> shift), 0, abs(diff));
 }
 
 #ifdef __cplusplus
@@ -98,7 +98,8 @@ void av1_cdef_fb_row(const AV1_COMMON *const cm, MACROBLOCKD *xd,
                      uint16_t **const linebuf, uint16_t **const colbuf,
                      uint16_t *const src, int fbr,
                      cdef_init_fb_row_t cdef_init_fb_row_fn,
-                     struct AV1CdefSyncData *const cdef_sync);
+                     struct AV1CdefSyncData *const cdef_sync,
+                     struct aom_internal_error_info *error_info);
 void av1_cdef_init_fb_row(const AV1_COMMON *const cm,
                           const MACROBLOCKD *const xd,
                           CdefBlockInfo *const fb_info,

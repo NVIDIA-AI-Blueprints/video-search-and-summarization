@@ -24,27 +24,28 @@ NS_ASSUME_NONNULL_BEGIN
      * The VideoTrackSourceInterface object passed to this RTCVideoSource during
      * construction.
      */
-    @property(nonatomic,
-              readonly) rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> nativeVideoSource;
+    @property(nonatomic, readonly)
+        webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>
+            nativeVideoSource;
 
 /** Initialize an RTCVideoSource from a native VideoTrackSourceInterface. */
-- (instancetype)initWithFactory:(RTC_OBJC_TYPE(RTCPeerConnectionFactory) *)factory
-              nativeVideoSource:
-                  (rtc::scoped_refptr<webrtc::VideoTrackSourceInterface>)nativeVideoSource
-    NS_DESIGNATED_INITIALIZER;
+- (instancetype)
+      initWithFactory:(RTC_OBJC_TYPE(RTCPeerConnectionFactory) *)factory
+    nativeVideoSource:(webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>)
+                          nativeVideoSource NS_DESIGNATED_INITIALIZER;
 
-- (instancetype)initWithFactory:(RTC_OBJC_TYPE(RTCPeerConnectionFactory) *)factory
-              nativeMediaSource:(rtc::scoped_refptr<webrtc::MediaSourceInterface>)nativeMediaSource
-                           type:(RTCMediaSourceType)type NS_UNAVAILABLE;
+- (instancetype)
+      initWithFactory:(RTC_OBJC_TYPE(RTCPeerConnectionFactory) *)factory
+    nativeMediaSource:
+        (webrtc::scoped_refptr<webrtc::MediaSourceInterface>)nativeMediaSource
+                 type:(RTCMediaSourceType)type NS_UNAVAILABLE;
 
-- (instancetype)initWithFactory:(RTC_OBJC_TYPE(RTCPeerConnectionFactory) *)factory
-                signalingThread:(rtc::Thread *)signalingThread
-                   workerThread:(rtc::Thread *)workerThread;
-
-- (instancetype)initWithFactory:(RTC_OBJC_TYPE(RTCPeerConnectionFactory) *)factory
-                signalingThread:(rtc::Thread *)signalingThread
-                   workerThread:(rtc::Thread *)workerThread
-                   isScreenCast:(BOOL)isScreenCast;
+- (instancetype)
+      initWithFactory:(RTC_OBJC_TYPE(RTCPeerConnectionFactory) *)factory
+      signalingThread:(webrtc::Thread *)signalingThread
+         workerThread:(webrtc::Thread *)workerThread
+    nativeVideoSource:(webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>)
+                          nativeVideoSource;
 
 @end
 

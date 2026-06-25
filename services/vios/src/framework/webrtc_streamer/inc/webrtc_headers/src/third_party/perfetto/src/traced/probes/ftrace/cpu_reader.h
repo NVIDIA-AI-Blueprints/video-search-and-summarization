@@ -17,13 +17,16 @@
 #ifndef SRC_TRACED_PROBES_FTRACE_CPU_READER_H_
 #define SRC_TRACED_PROBES_FTRACE_CPU_READER_H_
 
-#include <stdint.h>
 #include <string.h>
+#include <cstdint>
 
 #include <optional>
 #include <set>
 
+#include "perfetto/base/flat_set.h"
+#include "perfetto/ext/base/paged_memory.h"
 #include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/utils.h"
 #include "perfetto/ext/traced/data_source_types.h"
 #include "perfetto/ext/tracing/core/trace_writer.h"
 #include "perfetto/protozero/message.h"
@@ -38,13 +41,14 @@ namespace perfetto {
 class FtraceDataSource;
 class LazyKernelSymbolizer;
 class ProtoTranslationTable;
-struct FtraceClockSnapshot;
 struct FtraceDataSourceConfig;
+struct GenericEventProtoDescriptors;
 
 namespace protos {
 namespace pbzero {
 class FtraceEventBundle;
 enum FtraceClock : int32_t;
+enum FtraceParseStatus : int32_t;
 }  // namespace pbzero
 }  // namespace protos
 
@@ -52,60 +56,140 @@ enum FtraceClock : int32_t;
 // tracing buffers.
 class CpuReader {
  public:
-  // Helper class to generate `TracePacket`s when needed. Public for testing.
+  // Buffers used when parsing a chunk of ftrace data, allocated by
+  // FtraceController and repeatedly reused by all CpuReaders:
+  // * paged memory into which we read raw ftrace data.
+  // * buffers to accumulate and emit scheduling data in a structure-of-arrays
+  //   format (packed proto fields).
+  class ParsingBuffers {
+   public:
+    void AllocateIfNeeded() {
+      // PagedMemory stays valid as long as it was allocated once.
+      if (!ftrace_data_.IsValid()) {
+        ftrace_data_ = base::PagedMemory::Allocate(base::GetSysPageSize() *
+                                                   kFtraceDataBufSizePages);
+      }
+      // Heap-allocated buffer gets freed and reallocated.
+      if (!compact_sched_) {
+        compact_sched_ = std::make_unique<CompactSchedBuffer>();
+      }
+    }
+
+    void Release() {
+      if (ftrace_data_.IsValid()) {
+        ftrace_data_.AdviseDontNeed(ftrace_data_.Get(), ftrace_data_.size());
+      }
+      compact_sched_.reset();
+    }
+
+   private:
+    friend class CpuReader;
+    // When reading and parsing data for a particular cpu, we do it in batches
+    // of this many pages. In other words, we'll read up to
+    // |kFtraceDataBufSizePages| into memory, parse them, and then repeat if we
+    // still haven't caught up to the writer.
+    static constexpr size_t kFtraceDataBufSizePages = 32;
+
+    uint8_t* ftrace_data_buf() const {
+      return reinterpret_cast<uint8_t*>(ftrace_data_.Get());
+    }
+    size_t ftrace_data_buf_pages() const {
+      PERFETTO_DCHECK(ftrace_data_.size() ==
+                      base::GetSysPageSize() * kFtraceDataBufSizePages);
+      return kFtraceDataBufSizePages;
+    }
+    CompactSchedBuffer* compact_sched_buf() const {
+      return compact_sched_.get();
+    }
+
+    base::PagedMemory ftrace_data_;
+    std::unique_ptr<CompactSchedBuffer> compact_sched_;
+  };
+
+  // Stores the a snapshot of the timestamps from ftrace's trace clock
+  // and CLOCK_BOOTTIME.
+  //
+  // Relevant when not using the "boot" clock for timestamping events (e.g.
+  // on Android O- and 3.x Linux kernels). Trace processor can use this data to
+  // do best-effort clock syncing with non-ftrace parts of the trace.
+  struct FtraceClockSnapshot {
+    protos::pbzero::FtraceClock ftrace_clock{};
+    int64_t ftrace_clock_ts = 0;  // time according to ftrace_clock
+    int64_t boot_clock_ts = 0;    // time according to CLOCK_BOOTTIME
+  };
+
+  // Facilitates lazy proto writing - not every event in the kernel ring buffer
+  // is serialised in the trace, so this class allows for trace packets to be
+  // written only if there's at least one relevant event in the ring buffer
+  // batch. Public for testing.
   class Bundler {
    public:
     Bundler(TraceWriter* trace_writer,
             FtraceMetadata* metadata,
             LazyKernelSymbolizer* symbolizer,
             size_t cpu,
-            const FtraceClockSnapshot* ftrace_clock_snapshot,
-            protos::pbzero::FtraceClock ftrace_clock,
-            bool compact_sched_enabled)
+            const std::optional<FtraceClockSnapshot>& clock_snapshot,
+            CompactSchedBuffer* compact_sched_buf,
+            bool compact_sched_enabled,
+            uint64_t previous_bundle_end_ts,
+            const GenericEventProtoDescriptors* generic_pb_descriptors)
         : trace_writer_(trace_writer),
           metadata_(metadata),
           symbolizer_(symbolizer),
           cpu_(cpu),
-          ftrace_clock_snapshot_(ftrace_clock_snapshot),
-          ftrace_clock_(ftrace_clock),
-          compact_sched_enabled_(compact_sched_enabled) {}
+          clock_snapshot_(clock_snapshot),
+          compact_sched_enabled_(compact_sched_enabled),
+          compact_sched_buf_(compact_sched_buf),
+          initial_previous_bundle_end_ts_(previous_bundle_end_ts),
+          generic_pb_descriptors_(generic_pb_descriptors) {
+      if (compact_sched_enabled_)
+        compact_sched_buf_->Reset();
+    }
 
     ~Bundler() { FinalizeAndRunSymbolizer(); }
 
     protos::pbzero::FtraceEventBundle* GetOrCreateBundle() {
       if (!bundle_) {
-        StartNewPacket(false);
+        StartNewPacket(false, initial_previous_bundle_end_ts_);
       }
       return bundle_;
     }
 
     // Forces the creation of a new TracePacket.
-    void StartNewPacket(bool lost_events);
+    void StartNewPacket(bool lost_events,
+                        uint64_t previous_bundle_end_timestamp);
 
     // This function is called after the contents of a FtraceBundle are written.
     void FinalizeAndRunSymbolizer();
 
-    CompactSchedBuffer* compact_sched_buffer() {
-      // FinalizeAndRunSymbolizer will only process the compact_sched_buffer_ if
+    CompactSchedBuffer* compact_sched_buf() {
+      // FinalizeAndRunSymbolizer will only process the compact_sched_buf_ if
       // there is an open bundle.
       GetOrCreateBundle();
-      return &compact_sched_buffer_;
+      return compact_sched_buf_;
     }
+
+    base::FlatSet<uint32_t>* generic_descriptors_to_write() {
+      return &generic_descriptors_to_write_;
+    }
+
+    void WriteGenericEventDescriptors();
 
    private:
     TraceWriter* const trace_writer_;         // Never nullptr.
     FtraceMetadata* const metadata_;          // Never nullptr.
     LazyKernelSymbolizer* const symbolizer_;  // Can be nullptr.
     const size_t cpu_;
-    const FtraceClockSnapshot* const ftrace_clock_snapshot_;
-    protos::pbzero::FtraceClock const ftrace_clock_;
+    std::optional<FtraceClockSnapshot> clock_snapshot_;
     const bool compact_sched_enabled_;
+    CompactSchedBuffer* const compact_sched_buf_;
+    uint64_t initial_previous_bundle_end_ts_;
+    // Keyed by proto field id within |FtraceEvent|.
+    base::FlatSet<uint32_t> generic_descriptors_to_write_;
+    const GenericEventProtoDescriptors* generic_pb_descriptors_;
 
     TraceWriter::TracePacketHandle packet_;
     protos::pbzero::FtraceEventBundle* bundle_ = nullptr;
-    // Allocate the buffer for compact scheduler events (which will be unused if
-    // the compact option isn't enabled).
-    CompactSchedBuffer compact_sched_buffer_;
   };
 
   struct PageHeader {
@@ -117,17 +201,31 @@ class CpuReader {
   CpuReader(size_t cpu,
             base::ScopedFile trace_fd,
             const ProtoTranslationTable* table,
-            LazyKernelSymbolizer* symbolizer,
-            protos::pbzero::FtraceClock ftrace_clock,
-            const FtraceClockSnapshot* ftrace_clock_snapshot);
+            LazyKernelSymbolizer* symbolizer);
   ~CpuReader();
+
+  // move-only
+  CpuReader(const CpuReader&) = delete;
+  CpuReader& operator=(const CpuReader&) = delete;
+  CpuReader(CpuReader&&) = default;
+  CpuReader& operator=(CpuReader&&) = default;
 
   // Reads and parses all ftrace data for this cpu (in batches), until we catch
   // up to the writer, or hit |max_pages|. Returns number of pages read.
-  size_t ReadCycle(uint8_t* parsing_buf,
-                   size_t parsing_buf_size_pages,
+  size_t ReadCycle(ParsingBuffers* parsing_bufs,
                    size_t max_pages,
-                   const std::set<FtraceDataSource*>& started_data_sources);
+                   const std::set<FtraceDataSource*>& started_data_sources,
+                   const std::optional<FtraceClockSnapshot>& clock_snapshot);
+
+  // Niche version of ReadCycle for FrozenFtraceDataSource, assumes a stopped
+  // tracefs instance. Don't add new callers.
+  size_t ReadFrozen(
+      ParsingBuffers* parsing_bufs,
+      size_t max_pages,
+      const FtraceDataSourceConfig* parsing_config,
+      FtraceMetadata* metadata,
+      base::FlatSet<protos::pbzero::FtraceParseStatus>* parse_errors,
+      TraceWriter* trace_writer);
 
   template <typename T>
   static bool ReadAndAdvance(const uint8_t** ptr, const uint8_t* end, T* out) {
@@ -181,7 +279,7 @@ class CpuReader {
     // ReadSymbolAddr is a bit special. In order to not disclose KASLR layout
     // via traces, we put in the trace only a mangled address (which really is
     // the insertion order into metadata.kernel_addrs). We don't care about the
-    // actual symbol addesses. We just need to match that against the symbol
+    // actual symbol addresses. We just need to match that against the symbol
     // name in the names in the FtraceEventBundle.KernelSymbols.
     T full_addr;
     memcpy(&full_addr, reinterpret_cast<const void*>(start), sizeof(T));
@@ -235,12 +333,14 @@ class CpuReader {
   // which passes it to the CpuReader which passes it here.
   // The caller is responsible for validating that the page_header->size stays
   // within the current page.
-  static size_t ParsePagePayload(const uint8_t* start_of_payload,
-                                 const PageHeader* page_header,
-                                 const ProtoTranslationTable* table,
-                                 const FtraceDataSourceConfig* ds_config,
-                                 Bundler* bundler,
-                                 FtraceMetadata* metadata);
+  static protos::pbzero::FtraceParseStatus ParsePagePayload(
+      const uint8_t* start_of_payload,
+      const PageHeader* page_header,
+      const ProtoTranslationTable* table,
+      const FtraceDataSourceConfig* ds_config,
+      Bundler* bundler,
+      FtraceMetadata* metadata,
+      uint64_t* bundle_end_timestamp);
 
   // Parse a single raw ftrace event beginning at |start| and ending at |end|
   // and write it into the provided bundle as a proto.
@@ -255,7 +355,8 @@ class CpuReader {
                          const ProtoTranslationTable* table,
                          const FtraceDataSourceConfig* ds_config,
                          protozero::Message* message,
-                         FtraceMetadata* metadata);
+                         FtraceMetadata* metadata,
+                         base::FlatSet<uint32_t>* generic_descriptors_to_write);
 
   static bool ParseField(const Field& field,
                          const uint8_t* start,
@@ -268,8 +369,7 @@ class CpuReader {
   static bool ParseSysEnter(const Event& info,
                             const uint8_t* start,
                             const uint8_t* end,
-                            protozero::Message* message,
-                            FtraceMetadata* metadata);
+                            protozero::Message* message);
 
   // Parse a sys_exit event according to the pre-validated expected format
   static bool ParseSysExit(const Event& info,
@@ -278,6 +378,13 @@ class CpuReader {
                            const FtraceDataSourceConfig* ds_config,
                            protozero::Message* message,
                            FtraceMetadata* metadata);
+
+  static bool ParseGenericEventLegacy(const Event& info,
+                                      const uint8_t* start,
+                                      const uint8_t* end,
+                                      const ProtoTranslationTable* table,
+                                      protozero::Message* message,
+                                      FtraceMetadata* metadata);
 
   // Parse a sched_switch event according to pre-validated format, and buffer
   // the individual fields in the given compact encoding batch.
@@ -298,27 +405,28 @@ class CpuReader {
   // Parses & encodes the given range of contiguous tracing pages. Called by
   // |ReadAndProcessBatch| for each active data source.
   //
-  // Returns the number of correctly processed pages. If the return value is
-  // equal to |pages_read|, there was no error. Otherwise, the return value
-  // points to the first page that contains an error.
+  // Returns true if all pages were parsed correctly. In case of parsing
+  // errors, they will be recorded in the FtraceEventBundle proto.
   //
   // public and static for testing
-  static size_t ProcessPagesForDataSource(
+  static bool ProcessPagesForDataSource(
       TraceWriter* trace_writer,
       FtraceMetadata* metadata,
       size_t cpu,
       const FtraceDataSourceConfig* ds_config,
+      base::FlatSet<protos::pbzero::FtraceParseStatus>* parse_errors,
+      uint64_t* bundle_end_timestamp,
       const uint8_t* parsing_buf,
-      const size_t pages_read,
+      size_t pages_read,
+      CompactSchedBuffer* compact_sched_buf,
       const ProtoTranslationTable* table,
       LazyKernelSymbolizer* symbolizer,
-      const FtraceClockSnapshot*,
-      protos::pbzero::FtraceClock);
+      const std::optional<FtraceClockSnapshot>& clock_snapshot);
+
+  // For FtraceController, which manages poll callbacks on per-cpu buffer fds.
+  int RawBufferFd() const { return trace_fd_.get(); }
 
  private:
-  CpuReader(const CpuReader&) = delete;
-  CpuReader& operator=(const CpuReader&) = delete;
-
   // Reads at most |max_pages| of ftrace data, parses it, and writes it
   // into |started_data_sources|. Returns number of pages read.
   // See comment on ftrace_controller.cc:kMaxParsingWorkingSetPages for
@@ -327,14 +435,14 @@ class CpuReader {
       uint8_t* parsing_buf,
       size_t max_pages,
       bool first_batch_in_cycle,
-      const std::set<FtraceDataSource*>& started_data_sources);
+      CompactSchedBuffer* compact_sched_buf,
+      const std::set<FtraceDataSource*>& started_data_sources,
+      const std::optional<FtraceClockSnapshot>& clock_snapshot);
 
-  const size_t cpu_;
-  const ProtoTranslationTable* const table_;
-  LazyKernelSymbolizer* const symbolizer_;
+  size_t cpu_;
+  const ProtoTranslationTable* table_;
+  LazyKernelSymbolizer* symbolizer_;
   base::ScopedFile trace_fd_;
-  protos::pbzero::FtraceClock ftrace_clock_{};
-  const FtraceClockSnapshot* const ftrace_clock_snapshot_;
 };
 
 }  // namespace perfetto

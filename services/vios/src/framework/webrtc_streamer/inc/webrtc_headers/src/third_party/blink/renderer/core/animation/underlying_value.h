@@ -24,15 +24,14 @@ class CORE_EXPORT UnderlyingValue {
  public:
   virtual InterpolableValue& MutableInterpolableValue() = 0;
 
-  virtual void SetInterpolableValue(std::unique_ptr<InterpolableValue>) = 0;
+  virtual void SetInterpolableValue(InterpolableValue*) = 0;
 
   virtual const NonInterpolableValue* GetNonInterpolableValue() const = 0;
 
   // The NonInterpolableValue part of the underlying value may not be mutated,
   // hence there is no MutableNonInterpolableValue function. However, the
   // NonInterpolableValue part may be replaced entirely with this function.
-  virtual void SetNonInterpolableValue(
-      scoped_refptr<const NonInterpolableValue>) = 0;
+  virtual void SetNonInterpolableValue(const NonInterpolableValue*) = 0;
 };
 
 }  // namespace blink

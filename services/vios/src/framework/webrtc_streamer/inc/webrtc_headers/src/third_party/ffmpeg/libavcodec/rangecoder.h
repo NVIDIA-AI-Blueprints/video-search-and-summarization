@@ -61,27 +61,19 @@ void ff_build_rac_states(RangeCoder *c, int factor, int max_p);
 
 static inline void renorm_encoder(RangeCoder *c)
 {
-    // FIXME: optimize
-    while (c->range < 0x100) {
-        if (c->outstanding_byte < 0) {
-            c->outstanding_byte = c->low >> 8;
-        } else if (c->low <= 0xFF00) {
-            *c->bytestream++ = c->outstanding_byte;
-            for (; c->outstanding_count; c->outstanding_count--)
-                *c->bytestream++ = 0xFF;
-            c->outstanding_byte = c->low >> 8;
-        } else if (c->low >= 0x10000) {
-            *c->bytestream++ = c->outstanding_byte + 1;
-            for (; c->outstanding_count; c->outstanding_count--)
-                *c->bytestream++ = 0x00;
-            c->outstanding_byte = (c->low >> 8) & 0xFF;
-        } else {
-            c->outstanding_count++;
-        }
-
-        c->low     = (c->low & 0xFF) << 8;
-        c->range <<= 8;
+    if (c->low - 0xFF01 >= 0x10000 - 0xFF01U) {
+        int mask = c->low - 0xFF01 >> 31;
+        *c->bytestream = c->outstanding_byte + 1 + mask;
+        c->bytestream += c->outstanding_byte >= 0;
+        for (; c->outstanding_count; c->outstanding_count--)
+            *c->bytestream++ = mask;
+        c->outstanding_byte = c->low >> 8;
+    } else {
+        c->outstanding_count++;
     }
+
+    c->low     = (c->low & 0xFF) << 8;
+    c->range <<= 8;
 }
 
 static inline int get_rac_count(RangeCoder *c)
@@ -108,20 +100,19 @@ static inline void put_rac(RangeCoder *c, uint8_t *const state, int bit)
         *state   = c->one_state[*state];
     }
 
-    renorm_encoder(c);
+    if (c->range < 0x100)
+        renorm_encoder(c);
 }
 
 static inline void refill(RangeCoder *c)
 {
-    if (c->range < 0x100) {
-        c->range <<= 8;
-        c->low   <<= 8;
-        if (c->bytestream < c->bytestream_end) {
-            c->low += c->bytestream[0];
-            c->bytestream++;
-        } else
-            c->overread ++;
-    }
+    c->range <<= 8;
+    c->low   <<= 8;
+    if (c->bytestream < c->bytestream_end) {
+        c->low += c->bytestream[0];
+        c->bytestream++;
+    } else
+        c->overread ++;
 }
 
 static inline int get_rac(RangeCoder *c, uint8_t *const state)
@@ -131,13 +122,15 @@ static inline int get_rac(RangeCoder *c, uint8_t *const state)
     c->range -= range1;
     if (c->low < c->range) {
         *state = c->zero_state[*state];
-        refill(c);
+        if (c->range < 0x100)
+            refill(c);
         return 0;
     } else {
         c->low  -= c->range;
         *state   = c->one_state[*state];
         c->range = range1;
-        refill(c);
+        if (c->range < 0x100)
+            refill(c);
         return 1;
     }
 }

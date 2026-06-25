@@ -145,7 +145,7 @@ class PositionTemplate {
   Node* ComputeNodeAfterPosition() const;
 
   // Returns node as |Range::firstNode()|. This position must be a
-  // |PositionAnchorType::OffsetInAhcor| to behave as |Range| boundary point.
+  // |PositionAnchorType::OffsetInAnchor| to behave as |Range| boundary point.
   Node* NodeAsRangeFirstNode() const;
 
   // Similar to |nodeAsRangeLastNode()|, but returns a node in a range.
@@ -153,7 +153,7 @@ class PositionTemplate {
 
   // Returns a node as past last as same as |Range::pastLastNode()|. This
   // function is supposed to used in HTML serialization and plain text
-  // iterator. This position must be a |PositionAnchorType::OffsetInAhcor| to
+  // iterator. This position must be a |PositionAnchorType::OffsetInAnchor| to
   // behave as |Range| boundary point.
   Node* NodeAsRangePastLastNode() const;
 
@@ -174,7 +174,7 @@ class PositionTemplate {
   bool IsValidFor(const Document&) const;
 
   bool IsNull() const { return !anchor_node_; }
-  bool IsNotNull() const { return anchor_node_; }
+  bool IsNotNull() const { return anchor_node_ != nullptr; }
   bool IsOrphan() const { return anchor_node_ && !IsConnected(); }
 
   // Note: Comparison of positions require both parameters are non-null. You
@@ -260,12 +260,6 @@ bool operator==(const PositionTemplate<Strategy>& a,
   // FIXME: In <div><img></div> [div, 0] != [img, 0] even though most of the
   // editing code will treat them as identical.
   return a.OffsetInContainerNode() == b.OffsetInContainerNode();
-}
-
-template <typename Strategy>
-bool operator!=(const PositionTemplate<Strategy>& a,
-                const PositionTemplate<Strategy>& b) {
-  return !(a == b);
 }
 
 CORE_EXPORT PositionInFlatTree ToPositionInFlatTree(const Position&);

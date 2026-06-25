@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_PREFETCHED_SIGNED_EXCHANGE_MANAGER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_PREFETCHED_SIGNED_EXCHANGE_MANAGER_H_
 
+#include "base/functional/callback_forward.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-blink-forward.h"
 #include "third_party/blink/public/web/web_navigation_params.h"
@@ -15,12 +16,16 @@
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
+namespace network {
+struct ResourceRequest;
+}  // namespace network
+
 namespace blink {
 
 class AlternateSignedExchangeResourceInfo;
 class LocalFrame;
 class URLLoader;
-class WebURLRequest;
+class URLLoaderThrottle;
 
 // This class holds the prefetched signed exchange info and will returns
 // loaders for matching requests.
@@ -33,7 +38,8 @@ class PrefetchedSignedExchangeManager final
       LocalFrame* frame,
       const String& outer_link_header,
       const String& inner_link_header,
-      WebVector<std::unique_ptr<WebNavigationParams::PrefetchedSignedExchange>>
+      std::vector<
+          std::unique_ptr<WebNavigationParams::PrefetchedSignedExchange>>
           prefetched_signed_exchanges);
 
   PrefetchedSignedExchangeManager(
@@ -61,7 +67,10 @@ class PrefetchedSignedExchangeManager final
   //
   // The returned loader doesn't start loading until
   // StartPrefetchedLinkHeaderPreloads() will be called.
-  std::unique_ptr<URLLoader> MaybeCreateURLLoader(const WebURLRequest& request);
+  std::unique_ptr<URLLoader> MaybeCreateURLLoader(
+      const network::ResourceRequest& request,
+      base::OnceCallback<Vector<std::unique_ptr<URLLoaderThrottle>>(void)>
+          create_throttles_callback);
 
   // If the all loaders which have been created by MaybeCreateURLLoader() have
   // a matching "alternate" link header in the outer response and the matching
@@ -83,9 +92,11 @@ class PrefetchedSignedExchangeManager final
 
   void TriggerLoad();
   std::unique_ptr<URLLoader> CreateDefaultURLLoader(
-      const WebURLRequest& request);
+      const network::ResourceRequest& request,
+      Vector<std::unique_ptr<URLLoaderThrottle>> throttles);
   std::unique_ptr<URLLoader> CreatePrefetchedSignedExchangeURLLoader(
-      const WebURLRequest& request,
+      const network::ResourceRequest& request,
+      Vector<std::unique_ptr<URLLoaderThrottle>> throttles,
       mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>
           loader_factory);
 
@@ -95,7 +106,7 @@ class PrefetchedSignedExchangeManager final
       prefetched_exchanges_map_;
   bool started_ = false;
 
-  WTF::Vector<base::WeakPtr<PrefetchedSignedExchangeLoader>> loaders_;
+  Vector<base::WeakPtr<PrefetchedSignedExchangeLoader>> loaders_;
 };
 
 }  // namespace blink

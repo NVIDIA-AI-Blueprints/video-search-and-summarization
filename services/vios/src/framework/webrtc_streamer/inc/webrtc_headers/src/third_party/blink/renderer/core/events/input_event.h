@@ -14,14 +14,13 @@ namespace blink {
 
 class DataTransfer;
 
-class InputEvent final : public UIEvent {
+class CORE_EXPORT InputEvent final : public UIEvent {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   static InputEvent* Create(const AtomicString& type,
-                            const InputEventInit* initializer) {
-    return MakeGarbageCollected<InputEvent>(type, initializer);
-  }
+                            const InputEventInit* initializer,
+                            ExceptionState& exception_state);
 
   // https://w3c.github.io/input-events/#h-interface-inputevent-attributes
   enum class InputType {
@@ -39,6 +38,7 @@ class InputEvent final : public UIEvent {
     kInsertTranspose,
     kInsertReplacementText,
     kInsertCompositionText,
+    kInsertLink,
     // Deletion.
     kDeleteWordBackward,
     kDeleteWordForward,
@@ -73,11 +73,6 @@ class InputEvent final : public UIEvent {
     kNumberOfInputTypes,
   };
 
-  enum EventCancelable : bool {
-    kNotCancelable = false,
-    kIsCancelable = true,
-  };
-
   enum EventIsComposing : bool {
     kNotComposing = false,
     kIsComposing = true,
@@ -85,20 +80,32 @@ class InputEvent final : public UIEvent {
 
   static InputEvent* CreateBeforeInput(InputType,
                                        const String& data,
-                                       EventCancelable,
                                        EventIsComposing,
-                                       const StaticRangeVector*);
+                                       const GCedStaticRangeVector*);
   static InputEvent* CreateBeforeInput(InputType,
                                        DataTransfer*,
-                                       EventCancelable,
                                        EventIsComposing,
-                                       const StaticRangeVector*);
+                                       const GCedStaticRangeVector*);
   static InputEvent* CreateInput(InputType,
                                  const String& data,
                                  EventIsComposing,
-                                 const StaticRangeVector*);
+                                 const GCedStaticRangeVector*);
 
-  InputEvent(const AtomicString&, const InputEventInit*);
+  static InputEvent* CreateInput(InputType,
+                                 DataTransfer*,
+                                 EventIsComposing,
+                                 const GCedStaticRangeVector*);
+
+  InputEvent(const AtomicString&, const InputEventInit*, ExceptionState&);
+  // This variant of the constructor is more efficient than the InputEventInit
+  // variant.
+  InputEvent(const AtomicString& type,
+             const UIEventInit& init,
+             InputType input_type,
+             const String& data,
+             DataTransfer* data_transfer,
+             EventIsComposing is_composing,
+             const GCedStaticRangeVector* ranges);
 
   String inputType() const;
   const String& data() const { return data_; }

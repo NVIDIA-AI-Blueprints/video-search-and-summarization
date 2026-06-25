@@ -12,24 +12,35 @@
 #define MODULES_DESKTOP_CAPTURE_WIN_WGC_CAPTURE_SESSION_H_
 
 #include <d3d11.h>
+#include <shellscalingapi.h>
 #include <windows.graphics.capture.h>
 #include <windows.graphics.h>
 #include <wrl/client.h>
+#include <wrl/implements.h>
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 
+#include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
 #include "modules/desktop_capture/desktop_capture_options.h"
+#include "modules/desktop_capture/desktop_frame.h"
+#include "modules/desktop_capture/desktop_region.h"
 #include "modules/desktop_capture/screen_capture_frame_queue.h"
 #include "modules/desktop_capture/shared_desktop_frame.h"
-#include "modules/desktop_capture/win/wgc_capture_source.h"
 #include "rtc_base/event.h"
 
 namespace webrtc {
 
 class WgcCaptureSession final {
  public:
+  // WgcCaptureSession supports capturing a window as well as a screen.
+  // If it is a window, `source_id` is the HWND of the window to be
+  // captured, which is never `0`'. If it is a screen, `source_id` is a number
+  // in a 0-based monitor index.
   WgcCaptureSession(
+      intptr_t source_id,
       Microsoft::WRL::ComPtr<ID3D11Device> d3d11_device,
       Microsoft::WRL::ComPtr<
           ABI::Windows::Graphics::Capture::IGraphicsCaptureItem> item,
@@ -44,19 +55,69 @@ class WgcCaptureSession final {
   HRESULT StartCapture(const DesktopCaptureOptions& options);
 
   // Returns a frame from the local frame queue, if any are present.
-  bool GetFrame(std::unique_ptr<DesktopFrame>* output_frame);
+  bool GetFrame(std::unique_ptr<DesktopFrame>* output_frame,
+                bool source_should_be_capturable);
 
   bool IsCaptureStarted() const {
     RTC_DCHECK_RUN_ON(&sequence_checker_);
     return is_capture_started_;
   }
 
-  // We only keep 1 buffer in the internal frame pool to reduce the latency as
-  // much as possible.
+  // Returns true if the captured frame may contain the cursor. Reads the
+  // actual IsCursorCaptureEnabled state from the WGC capture session.
+  bool MayContainCursor() const;
+
+  // We keep 2 buffers in the frame pool since it results in a good compromise
+  // between latency/capture-rate and the rate at which
+  // Direct3D11CaptureFramePool.TryGetNextFrame returns NULL and we have to fall
+  // back to providing a copy from our external queue instead.
   // We make this public for tests.
-  static constexpr int kNumBuffers = 1;
+  static constexpr int kNumBuffers = 2;
+
+  // When using the texture path (allow_using_texture_), each in-flight frame
+  // holds a reference to the WGC capture frame (via prevent_release) to prevent
+  // the frame pool from recycling the texture. We need more buffers so that the
+  // frame pool has free slots for new captures while downstream consumers still
+  // hold older frames. The queue holds 2 frames, and the downstream consumer
+  // (encoder) may hold 1-2 more, so we use 5 to provide sufficient headroom.
+  static constexpr int kNumBuffersForTexture = 5;
 
  private:
+  class RefCountedEvent : public RefCountedNonVirtual<RefCountedEvent>,
+                          public Event {
+   public:
+    RefCountedEvent(bool manual_reset, bool initially_signaled);
+
+   private:
+    friend class RefCountedNonVirtual<RefCountedEvent>;
+    ~RefCountedEvent();
+  };
+
+  // Handles the arrival of new frames in the Direct3D11CaptureFramePool.
+  // Whenever `Direct3D11CaptureFramePool.FrameArrived` is called,
+  // `AgileFrameArrivedHandler::Invoke` will also be called. This class needs to
+  // implement the IAgileObject interface so that we can create a WGC frame pool
+  // with `Direct3D11CaptureFramePool::CreateFreeThreaded` and be able to call
+  // `Invoke` on a thread different from the one that created this class'
+  // instance. See more:
+  class AgileFrameArrivedHandler
+      : public Microsoft::WRL::RuntimeClass<
+            Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+            ABI::Windows::Foundation::ITypedEventHandler<
+                ABI::Windows::Graphics::Capture::Direct3D11CaptureFramePool*,
+                IInspectable*>,
+            IAgileObject> {
+   public:
+    AgileFrameArrivedHandler(scoped_refptr<RefCountedEvent> event);
+
+    IFACEMETHODIMP Invoke(
+        ABI::Windows::Graphics::Capture::IDirect3D11CaptureFramePool* sender,
+        IInspectable* args) override;
+
+   private:
+    scoped_refptr<RefCountedEvent> frame_arrived_event_;
+  };
+
   // Initializes `mapped_texture_` with the properties of the `src_texture`,
   // overrides the values of some necessary properties like the
   // D3D11_CPU_ACCESS_READ flag. Also has optional parameters for what size
@@ -72,6 +133,13 @@ class WgcCaptureSession final {
       ABI::Windows::Graphics::Capture::IGraphicsCaptureItem* sender,
       IInspectable* event_args);
 
+  // Waits for the first frame to arrive in the `frame_pool_`. We should wait
+  // for a frame if either this is the first frame ever obtained from the
+  // `frame_pool_` or if this is the first frame obtained after a capture
+  // interruption - e.g. when a captured window is brought back after being
+  // minimized.
+  bool WaitForFirstFrame();
+
   // Wraps calls to ProcessFrame and deals with the uniqe start-up phase
   // ensuring that we always have one captured frame available.
   void EnsureFrame();
@@ -79,13 +147,28 @@ class WgcCaptureSession final {
   // Process the captured frame and copy it to the `queue_`.
   HRESULT ProcessFrame();
 
-  void RemoveEventHandler();
+  // Process texture and copy frame with texture to the `queue_`.
+  // `capture_frame` is stored in the DXGIDesktopFrame's FrameTexture to keep
+  // the WGC frame alive, preventing the frame pool from recycling the texture
+  // while downstream consumers still reference this frame.
+  HRESULT ProcessTexture(Microsoft::WRL::ComPtr<ID3D11Texture2D> texture,
+                         Microsoft::WRL::ComPtr<IUnknown> capture_frame);
+
+  void RemoveEventHandlers();
+  void RemoveItemClosedEventHandler();
+  void RemoveFrameArrivedEventHandler();
+  HRESULT AddFrameArrivedEventHandler();
 
   bool FrameContentCanBeCompared();
 
   bool allow_zero_hertz() const { return allow_zero_hertz_; }
 
+  int num_buffers() const {
+    return allow_using_texture_ ? kNumBuffersForTexture : kNumBuffers;
+  }
+
   std::unique_ptr<EventRegistrationToken> item_closed_token_;
+  std::unique_ptr<EventRegistrationToken> frame_arrived_token_;
 
   // A Direct3D11 Device provided by the caller. We use this to create an
   // IDirect3DDevice, and also to create textures that will hold the image data.
@@ -137,11 +220,47 @@ class WgcCaptureSession final {
   // adds complexity since memcmp() is performed on two successive frames.
   bool allow_zero_hertz_ = false;
 
+  // Caches the value of DesktopCaptureOptions.allow_wgc_using_texture() in
+  // StartCapture(). Store texture handle of captured frame in DesktopFrame
+  // instead of mapping texture data which can reduce copy if clients process
+  // textures directly.
+  bool allow_using_texture_ = false;
+
   // Tracks damage region updates that were reported since the last time a frame
   // was captured. Currently only supports either the complete rect being
   // captured or an empty region. Will always be empty if `allow_zero_hertz_` is
   // false.
   DesktopRegion damage_region_;
+
+  // The unique id to represent a Source of current DesktopCapturer.
+  intptr_t source_id_;
+
+  // The monitor that is being captured when the target source_id is a
+  // screen. For window sources, it can't be used because the window can move
+  // around around the different monitors.
+  std::optional<HMONITOR> monitor_;
+
+  // The source type of the capture session. It can be either a window or a
+  // screen.
+  bool is_window_source_;
+
+  // To be shared between `WgcCaptureSession` and `AgileFrameHandler`.
+  // AgileFrameHandler will set this event in a WGC working thread and
+  // `WgcCaptureSession` will check its state in desktopCaptureThread. This is
+  // necessary to avoid race conditions where the desktopCaptureThread preempts
+  // the WGC worker thread and destroys the `WgcCaptureSession` while a new
+  // frame is being processed In this situation, the `AgileFrameHandler` would
+  // end accessing invalid memory, which was previously owned by
+  // `WgcCaptureSession`.
+  //
+  // Will be signaled when the first frame is available in the `frame_pool_` and
+  // should not reset for the lifetime of `WgcCaptureSession`.
+  scoped_refptr<RefCountedEvent> has_first_frame_arrived_event_;
+
+  // Records if the first frame arrived in a stream arrived. Will be reset if a
+  // source becomes momentarilly non-capturable - e.g. a window that gets
+  // minimized.
+  bool has_first_frame_arrived_ = false;
 
   SequenceChecker sequence_checker_;
 };

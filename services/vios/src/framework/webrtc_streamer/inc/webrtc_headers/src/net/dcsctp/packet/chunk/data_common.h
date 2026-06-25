@@ -9,14 +9,17 @@
  */
 #ifndef NET_DCSCTP_PACKET_CHUNK_DATA_COMMON_H_
 #define NET_DCSCTP_PACKET_CHUNK_DATA_COMMON_H_
-#include <stdint.h>
 
+#include <cstdint>
+#include <span>
 #include <utility>
 #include <vector>
 
-#include "api/array_view.h"
+#include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/packet/chunk/chunk.h"
 #include "net/dcsctp/packet/data.h"
+#include "net/dcsctp/public/types.h"
+#include "rtc_base/strong_alias.h"
 
 namespace dcsctp {
 
@@ -48,10 +51,10 @@ class AnyDataChunk : public Chunk {
 
   StreamID stream_id() const { return data_.stream_id; }
   SSN ssn() const { return data_.ssn; }
-  MID message_id() const { return data_.message_id; }
+  MID mid() const { return data_.mid; }
   FSN fsn() const { return data_.fsn; }
   PPID ppid() const { return data_.ppid; }
-  rtc::ArrayView<const uint8_t> payload() const { return data_.payload; }
+  std::span<const uint8_t> payload() const { return data_.payload; }
 
   // Extracts the Data from the chunk, as a destructive action.
   Data extract() && { return std::move(data_); }
@@ -59,7 +62,7 @@ class AnyDataChunk : public Chunk {
   AnyDataChunk(TSN tsn,
                StreamID stream_id,
                SSN ssn,
-               MID message_id,
+               MID mid,
                FSN fsn,
                PPID ppid,
                std::vector<uint8_t> payload,
@@ -67,7 +70,7 @@ class AnyDataChunk : public Chunk {
       : tsn_(tsn),
         data_(stream_id,
               ssn,
-              message_id,
+              mid,
               fsn,
               ppid,
               std::move(payload),

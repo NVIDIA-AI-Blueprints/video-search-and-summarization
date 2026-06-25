@@ -17,18 +17,24 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_TRACK_EVENT_MODULE_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_TRACK_EVENT_MODULE_H_
 
+#include <cstdint>
+#include <memory>
+
+#include "perfetto/trace_processor/ref_counted.h"
+#include "src/trace_processor/importers/common/parser_types.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
 #include "src/trace_processor/importers/proto/proto_importer_module.h"
 #include "src/trace_processor/importers/proto/track_event_parser.h"
 #include "src/trace_processor/importers/proto/track_event_tokenizer.h"
 
 #include "protos/perfetto/trace/trace_packet.pbzero.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TrackEventModule : public ProtoImporterModule {
  public:
-  explicit TrackEventModule(TraceProcessorContext* context);
+  explicit TrackEventModule(ProtoImporterModuleContext* module_context,
+                            TraceProcessorContext* context);
 
   ~TrackEventModule() override;
 
@@ -36,10 +42,13 @@ class TrackEventModule : public ProtoImporterModule {
       const protos::pbzero::TracePacket::Decoder& decoder,
       TraceBlobView* packet,
       int64_t packet_timestamp,
-      PacketSequenceState* state,
+      RefPtr<PacketSequenceStateGeneration> state,
       uint32_t field_id) override;
 
-  void OnIncrementalStateCleared(uint32_t) override;
+  void ParseTracePacketData(const protos::pbzero::TracePacket::Decoder& decoder,
+                            int64_t ts,
+                            const TracePacketData& data,
+                            uint32_t field_id) override;
 
   void OnFirstPacketOnSequence(uint32_t) override;
 
@@ -47,12 +56,7 @@ class TrackEventModule : public ProtoImporterModule {
                            int64_t ts,
                            const TrackEventData& data);
 
-  void ParseTracePacketData(const protos::pbzero::TracePacket::Decoder& decoder,
-                            int64_t ts,
-                            const TracePacketData& data,
-                            uint32_t field_id) override;
-
-  void NotifyEndOfFile() override;
+  void OnEventsFullyExtracted() override;
 
  private:
   std::unique_ptr<TrackEventTracker> track_event_tracker_;
@@ -60,7 +64,6 @@ class TrackEventModule : public ProtoImporterModule {
   TrackEventParser parser_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_TRACK_EVENT_MODULE_H_

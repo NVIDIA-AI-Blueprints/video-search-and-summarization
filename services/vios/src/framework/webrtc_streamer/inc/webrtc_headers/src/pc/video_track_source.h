@@ -11,7 +11,8 @@
 #ifndef PC_VIDEO_TRACK_SOURCE_H_
 #define PC_VIDEO_TRACK_SOURCE_H_
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "api/media_stream_interface.h"
 #include "api/notifier.h"
 #include "api/sequence_checker.h"
@@ -20,7 +21,6 @@
 #include "api/video/video_sink_interface.h"
 #include "api/video/video_source_interface.h"
 #include "media/base/media_channel.h"
-#include "rtc_base/checks.h"
 #include "rtc_base/system/no_unique_address.h"
 #include "rtc_base/system/rtc_export.h"
 #include "rtc_base/thread_annotations.h"
@@ -41,25 +41,23 @@ class RTC_EXPORT VideoTrackSource : public Notifier<VideoTrackSourceInterface> {
   bool remote() const override { return remote_; }
 
   bool is_screencast() const override { return false; }
-  absl::optional<bool> needs_denoising() const override {
-    return absl::nullopt;
-  }
+  std::optional<bool> needs_denoising() const override { return std::nullopt; }
 
   bool GetStats(Stats* stats) override { return false; }
 
-  void AddOrUpdateSink(rtc::VideoSinkInterface<VideoFrame>* sink,
-                       const rtc::VideoSinkWants& wants) override;
-  void RemoveSink(rtc::VideoSinkInterface<VideoFrame>* sink) override;
+  void AddOrUpdateSink(VideoSinkInterface<VideoFrame>* sink,
+                       const VideoSinkWants& wants) override;
+  void RemoveSink(VideoSinkInterface<VideoFrame>* sink) override;
 
   bool SupportsEncodedOutput() const override { return false; }
   void GenerateKeyFrame() override {}
   void AddEncodedSink(
-      rtc::VideoSinkInterface<RecordableEncodedFrame>* sink) override {}
+      VideoSinkInterface<RecordableEncodedFrame>* sink) override {}
   void RemoveEncodedSink(
-      rtc::VideoSinkInterface<RecordableEncodedFrame>* sink) override {}
+      VideoSinkInterface<RecordableEncodedFrame>* sink) override {}
 
  protected:
-  virtual rtc::VideoSourceInterface<VideoFrame>* source() = 0;
+  virtual VideoSourceInterface<VideoFrame>* source() = 0;
 
  private:
   RTC_NO_UNIQUE_ADDRESS SequenceChecker worker_thread_checker_{

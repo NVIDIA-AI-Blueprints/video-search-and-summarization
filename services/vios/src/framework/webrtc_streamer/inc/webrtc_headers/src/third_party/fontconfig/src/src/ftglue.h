@@ -50,61 +50,57 @@
 
 FT_BEGIN_HEADER
 
-
-#define  SET_ERR(c)   ( (error = (c)) != 0 )
+#define SET_ERR(c) ((error = (c)) != 0)
 
 #ifndef FTGLUE_API
-#define FTGLUE_API(x)  extern FcPrivate x
+#  define FTGLUE_API(x) extern FcPrivate x
 #endif
 
 #ifndef FTGLUE_APIDEF
-#define FTGLUE_APIDEF(x)  x
+#  define FTGLUE_APIDEF(x) x
 #endif
 
 /* stream macros used by the OpenType parser */
-#define  FILE_Pos()      ftglue_stream_pos( stream )
-#define  FILE_Seek(pos)  SET_ERR( ftglue_stream_seek( stream, pos ) )
-#define  ACCESS_Frame(size)  SET_ERR( ftglue_stream_frame_enter( stream, size ) )
-#define  FORGET_Frame()      ftglue_stream_frame_exit( stream )
+#define FILE_Pos()         ftglue_stream_pos (stream)
+#define FILE_Seek(pos)     SET_ERR (ftglue_stream_seek (stream, pos))
+#define ACCESS_Frame(size) SET_ERR (ftglue_stream_frame_enter (stream, size))
+#define FORGET_Frame()     ftglue_stream_frame_exit (stream)
 
-#define  GET_Byte()      (*stream->cursor++)
-#define  GET_Short()     (stream->cursor += 2, (FT_Short)( \
-				((FT_ULong)*(((FT_Byte*)stream->cursor)-2) << 8) | \
-				 (FT_ULong)*(((FT_Byte*)stream->cursor)-1) \
-			 ))
-#define  GET_Long()      (stream->cursor += 4, (FT_Long)( \
-				((FT_ULong)*(((FT_Byte*)stream->cursor)-4) << 24) | \
-				((FT_ULong)*(((FT_Byte*)stream->cursor)-3) << 16) | \
-				((FT_ULong)*(((FT_Byte*)stream->cursor)-2) << 8) | \
-				 (FT_ULong)*(((FT_Byte*)stream->cursor)-1) \
-			 ))
+#define GET_Byte()         (*stream->cursor++)
+#define GET_Short()        (stream->cursor += 2, (FT_Short)(((FT_ULong) * (((FT_Byte *)stream->cursor) - 2) << 8) | \
+                                                     (FT_ULong) * (((FT_Byte *)stream->cursor) - 1)))
+#define GET_Long() (stream->cursor += 4, (FT_Long)(((FT_ULong) * (((FT_Byte *)stream->cursor) - 4) << 24) | \
+                                                   ((FT_ULong) * (((FT_Byte *)stream->cursor) - 3) << 16) | \
+                                                   ((FT_ULong) * (((FT_Byte *)stream->cursor) - 2) << 8) |  \
+                                                   (FT_ULong) * (((FT_Byte *)stream->cursor) - 1)))
 
-#define  GET_Char()      ((FT_Char)GET_Byte())
-#define  GET_UShort()    ((FT_UShort)GET_Short())
-#define  GET_ULong()     ((FT_ULong)GET_Long())
-#define  GET_Tag4()      GET_ULong()
+#define GET_Char()   ((FT_Char)GET_Byte())
+#define GET_UShort() ((FT_UShort)GET_Short())
+#define GET_ULong()  ((FT_ULong)GET_Long())
+#define GET_Tag4()   GET_ULong()
 
-#define FT_SET_ERROR( expression ) \
-          ( ( error = (expression) ) != 0 )
+#define FT_SET_ERROR(expression) \
+    ((error = (expression)) != 0)
 
-FTGLUE_API( FT_Long )
-ftglue_stream_pos( FT_Stream   stream );
+FTGLUE_API (FT_Long)
+ftglue_stream_pos (FT_Stream stream);
 
-FTGLUE_API( FT_Error )
-ftglue_stream_seek( FT_Stream   stream,
-                    FT_Long     pos );
+FTGLUE_API (FT_Error)
+ftglue_stream_seek (FT_Stream stream,
+                    FT_Long   pos);
 
-FTGLUE_API( FT_Error )
-ftglue_stream_frame_enter( FT_Stream   stream,
-                           FT_ULong    size );
+FTGLUE_API (FT_Error)
+ftglue_stream_frame_enter (FT_Stream stream,
+                           FT_ULong  size);
 
-FTGLUE_API( void )
-ftglue_stream_frame_exit( FT_Stream  stream );
+FTGLUE_API (void)
+ftglue_stream_frame_exit (FT_Stream stream);
 
-FTGLUE_API( FT_Error )
-ftglue_face_goto_table( FT_Face    face,
-                        FT_ULong   tag,
-                        FT_Stream  stream );
+FTGLUE_API (FT_Error)
+ftglue_face_goto_table (FT_Face   face,
+                        FT_ULong  tag,
+                        FT_Stream stream,
+                        FT_ULong *table_size);
 
 FT_END_HEADER
 

@@ -30,10 +30,15 @@ class SVGDefsElement final : public SVGGraphicsElement {
 
  public:
   explicit SVGDefsElement(Document&);
-
-  bool SupportsFocus() const override { return false; }
+  ElementType GetElementType() const final {
+    return ElementType::kSVGDefsElement;
+  }
 
  private:
+  FocusableState SupportsFocus(UpdateBehavior) const override {
+    return FocusableState::kNotFocusable;
+  }
+
   LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
 };
 

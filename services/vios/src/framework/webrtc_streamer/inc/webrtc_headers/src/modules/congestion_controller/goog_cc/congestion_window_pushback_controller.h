@@ -11,10 +11,10 @@
 #ifndef MODULES_CONGESTION_CONTROLLER_GOOG_CC_CONGESTION_WINDOW_PUSHBACK_CONTROLLER_H_
 #define MODULES_CONGESTION_CONTROLLER_GOOG_CC_CONGESTION_WINDOW_PUSHBACK_CONTROLLER_H_
 
-#include <stddef.h>
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "api/field_trials_view.h"
 #include "api/units/data_size.h"
 
@@ -28,7 +28,7 @@ namespace webrtc {
 class CongestionWindowPushbackController {
  public:
   explicit CongestionWindowPushbackController(
-      const FieldTrialsView* key_value_config);
+      const FieldTrialsView& key_value_config);
   void UpdateOutstandingData(int64_t outstanding_bytes);
   void UpdatePacingQueue(int64_t pacing_bytes);
   uint32_t UpdateTargetBitrate(uint32_t bitrate_bps);
@@ -37,7 +37,7 @@ class CongestionWindowPushbackController {
  private:
   const bool add_pacing_;
   const uint32_t min_pushback_target_bitrate_bps_;
-  absl::optional<DataSize> current_data_window_;
+  std::optional<DataSize> current_data_window_;
   int64_t outstanding_bytes_ = 0;
   int64_t pacing_bytes_ = 0;
   double encoding_rate_ratio_ = 1.0;

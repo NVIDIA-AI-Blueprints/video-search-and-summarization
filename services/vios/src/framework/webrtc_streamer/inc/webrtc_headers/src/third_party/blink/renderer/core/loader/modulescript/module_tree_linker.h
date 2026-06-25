@@ -52,7 +52,9 @@ class CORE_EXPORT ModuleTreeLinker final : public SingleModuleClient {
   void FetchRoot(const KURL&,
                  ModuleType,
                  const ScriptFetchOptions&,
-                 base::PassKey<ModuleTreeLinkerRegistry>);
+                 base::PassKey<ModuleTreeLinkerRegistry>,
+                 v8::ModuleImportPhase,
+                 String referrer);
   void FetchRootInline(ModuleScript*, base::PassKey<ModuleTreeLinkerRegistry>);
 
  private:
@@ -72,11 +74,13 @@ class CORE_EXPORT ModuleTreeLinker final : public SingleModuleClient {
 #endif
   void AdvanceState(State);
 
-  void NotifyModuleLoadFinished(ModuleScript*) override;
+  void NotifyModuleLoadFinished(ModuleScript*, v8::ModuleImportPhase) override;
   void FetchDescendants(const ModuleScript*);
 
   // Completion of [FD].
   void FinalizeFetchDescendantsForOneModuleScript();
+
+  bool AbortBeforeFinalizingIfNecessary(const ModuleScript* module_script);
 
   // [FDaI] Steps 4--8.
   void Instantiate();

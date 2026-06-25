@@ -35,22 +35,61 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/forms/html_data_list_options_collection.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
+#include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 
 namespace blink {
 
 class CORE_EXPORT HTMLDataListElement final : public HTMLElement {
   DEFINE_WRAPPERTYPEINFO();
+  USING_PRE_FINALIZER(HTMLDataListElement, Prefinalize);
 
  public:
-  HTMLDataListElement(Document&);
+  enum class Direction {
+    kForwards,
+    kBackwards,
+  };
+
+  explicit HTMLDataListElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLDataListElement;
+  }
 
   HTMLDataListOptionsCollection* options();
 
   void OptionElementChildrenChanged();
 
+  HTMLOptionElement* ActiveOption() const { return active_option_; }
+
+  PopoverHideResult HidePopoverInternal(
+      Element* invoker,
+      HidePopoverFocusBehavior focus_behavior,
+      HidePopoverTransitionBehavior event_firing,
+      ExceptionState* exception_state) override;
+
+  void MoveActiveOption(Direction);
+
+  // If this datalist is being shown as a popover with base appearance for a
+  // base appearance input element (meaning that it's part of a customizable
+  // combobox), then this method will return that input element, otherwise null.
+  HTMLInputElement* ComboboxInput();
+
+  void Trace(Visitor*) const override;
+
+ protected:
+  bool SupportsBaseAppearanceInternal(BaseAppearanceValue) const override;
+
  private:
   void ChildrenChanged(const ChildrenChange&) override;
   void FinishParsingChildren() override;
+  void DidMoveToNewDocument(Document&) override;
+
+  // Called when no longer reachable and about to be deleted.
+  void Prefinalize();
+
+  // The option which should match the :active-option pseudo-class. Only used
+  // for base appearance when the CustomizableCombobox flag is enabled.
+  Member<HTMLOptionElement> active_option_;
 };
 
 }  // namespace blink

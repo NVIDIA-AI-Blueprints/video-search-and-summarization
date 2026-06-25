@@ -38,10 +38,10 @@
 #include <mach/mach.h>
 #include <TargetConditionals.h>
 
+#include <memory>
 #include <string>
 
 #include "client/mac/handler/ucontext_compat.h"
-#include "common/scoped_ptr.h"
 
 #if !TARGET_OS_IPHONE
 #include "client/mac/crash_generation/crash_generation_client.h"
@@ -159,7 +159,7 @@ class ExceptionHandler {
 #if TARGET_OS_IPHONE
     return false;
 #else
-    return crash_generation_client_.get() != NULL;
+    return crash_generation_client_.get() != nullptr;
 #endif
   }
 
@@ -267,11 +267,11 @@ class ExceptionHandler {
 
   // Old signal handler for SIGABRT. Used to be able to restore it when
   // uninstalling.
-  scoped_ptr<struct sigaction> old_handler_;
+  std::unique_ptr<struct sigaction> old_handler_;
 
 #if !TARGET_OS_IPHONE
   // Client for out-of-process dump generation.
-  scoped_ptr<CrashGenerationClient> crash_generation_client_;
+  std::unique_ptr<CrashGenerationClient> crash_generation_client_;
 #endif
 };
 

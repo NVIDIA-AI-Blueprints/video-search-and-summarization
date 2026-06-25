@@ -6,8 +6,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_PEERCONNECTION_RTC_RTP_SENDER_PLATFORM_H_
 
 #include <memory>
+#include <optional>
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_stats.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -37,7 +37,7 @@ class PLATFORM_EXPORT RTCRtpSenderPlatform {
   // the same |id|. IDs are guaranteed to be unique amongst senders but they are
   // allowed to be reused after a sender is destroyed.
   virtual uintptr_t Id() const = 0;
-  virtual rtc::scoped_refptr<webrtc::DtlsTransportInterface>
+  virtual webrtc::scoped_refptr<webrtc::DtlsTransportInterface>
   DtlsTransport() = 0;
   // Note: For convenience, DtlsTransportInformation always returns a value.
   // The information is only interesting if DtlsTransport() is non-null.
@@ -51,7 +51,7 @@ class PLATFORM_EXPORT RTCRtpSenderPlatform {
   virtual std::unique_ptr<RtcDtmfSenderHandler> GetDtmfSender() const = 0;
   virtual std::unique_ptr<webrtc::RtpParameters> GetParameters() const = 0;
   virtual void SetParameters(Vector<webrtc::RtpEncodingParameters>,
-                             absl::optional<webrtc::DegradationPreference>,
+                             std::optional<webrtc::DegradationPreference>,
                              RTCVoidRequest*) = 0;
   virtual void GetStats(RTCStatsReportCallback) = 0;
   virtual void SetStreams(const Vector<String>& stream_ids) = 0;

@@ -37,6 +37,10 @@ class CORE_EXPORT HTMLTableColElement final : public HTMLTablePartElement {
  public:
   HTMLTableColElement(const QualifiedName& tag_name, Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLTableColElement;
+  }
+
   unsigned span() const { return span_; }
   void setSpan(unsigned);
 
@@ -50,16 +54,12 @@ class CORE_EXPORT HTMLTableColElement final : public HTMLTablePartElement {
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
   const CSSPropertyValueSet* AdditionalPresentationAttributeStyle() override;
 
   unsigned span_;
 };
 
-template <>
-inline bool IsElementOfType<const HTMLTableColElement>(const Node& node) {
-  return IsA<HTMLTableColElement>(node);
-}
 template <>
 struct DowncastTraits<HTMLTableColElement> {
   static bool AllowFrom(const Node& node) {

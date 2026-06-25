@@ -27,39 +27,40 @@ typedef enum FilterMode {
 } FilterModeEnum;
 
 // Scale a YUV plane.
+// Returns 0 if successful.
 LIBYUV_API
-void ScalePlane(const uint8_t* src,
-                int src_stride,
-                int src_width,
-                int src_height,
-                uint8_t* dst,
-                int dst_stride,
-                int dst_width,
-                int dst_height,
-                enum FilterMode filtering);
+int ScalePlane(const uint8_t* src,
+               int src_stride,
+               int src_width,
+               int src_height,
+               uint8_t* dst,
+               int dst_stride,
+               int dst_width,
+               int dst_height,
+               enum FilterMode filtering);
 
 LIBYUV_API
-void ScalePlane_16(const uint16_t* src,
-                   int src_stride,
-                   int src_width,
-                   int src_height,
-                   uint16_t* dst,
-                   int dst_stride,
-                   int dst_width,
-                   int dst_height,
-                   enum FilterMode filtering);
+int ScalePlane_16(const uint16_t* src,
+                  int src_stride,
+                  int src_width,
+                  int src_height,
+                  uint16_t* dst,
+                  int dst_stride,
+                  int dst_width,
+                  int dst_height,
+                  enum FilterMode filtering);
 
 // Sample is expected to be in the low 12 bits.
 LIBYUV_API
-void ScalePlane_12(const uint16_t* src,
-                   int src_stride,
-                   int src_width,
-                   int src_height,
-                   uint16_t* dst,
-                   int dst_stride,
-                   int dst_width,
-                   int dst_height,
-                   enum FilterMode filtering);
+int ScalePlane_12(const uint16_t* src,
+                  int src_stride,
+                  int src_width,
+                  int src_height,
+                  uint16_t* dst,
+                  int dst_stride,
+                  int dst_width,
+                  int dst_height,
+                  enum FilterMode filtering);
 
 // Scales a YUV 4:2:0 image from the src width and height to the
 // dst width and height.
@@ -273,6 +274,21 @@ int I422Scale_12(const uint16_t* src_y,
 
 LIBYUV_API
 int NV12Scale(const uint8_t* src_y,
+              int src_stride_y,
+              const uint8_t* src_uv,
+              int src_stride_uv,
+              int src_width,
+              int src_height,
+              uint8_t* dst_y,
+              int dst_stride_y,
+              uint8_t* dst_uv,
+              int dst_stride_uv,
+              int dst_width,
+              int dst_height,
+              enum FilterMode filtering);
+
+LIBYUV_API
+int NV24Scale(const uint8_t* src_y,
               int src_stride_y,
               const uint8_t* src_uv,
               int src_stride_uv,

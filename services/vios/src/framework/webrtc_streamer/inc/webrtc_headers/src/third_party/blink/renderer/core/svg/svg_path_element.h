@@ -35,9 +35,12 @@ class SVGPathElement final : public SVGGeometryElement {
 
  public:
   explicit SVGPathElement(Document&);
+  ElementType GetElementType() const final {
+    return ElementType::kSVGPathElement;
+  }
 
   Path AsPath() const override;
-  Path AttributePath() const;
+  PathBuilder AsMutablePath() const override;
 
   float getTotalLength(ExceptionState&) override;
   SVGPointTearOff* getPointAtLength(float distance, ExceptionState&) override;
@@ -54,12 +57,8 @@ class SVGPathElement final : public SVGGeometryElement {
  private:
   const StylePath* GetStylePath() const;
 
+  void DidRecalcStyle(const StyleRecalcChange) override;
   void SvgAttributeChanged(const SvgAttributeChangedParams&) override;
-
-  void CollectStyleForPresentationAttribute(
-      const QualifiedName&,
-      const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
 
   Node::InsertionNotificationRequest InsertedInto(ContainerNode&) override;
   void RemovedFrom(ContainerNode&) override;
@@ -70,7 +69,7 @@ class SVGPathElement final : public SVGGeometryElement {
       const QualifiedName& attribute_name) const override;
   void SynchronizeAllSVGAttributes() const override;
   void CollectExtraStyleForPresentationAttribute(
-      MutableCSSPropertyValueSet* style) override;
+      HeapVector<CSSPropertyValue, 8>& style) override;
 
   Member<SVGAnimatedPath> path_;
 };

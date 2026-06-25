@@ -16,9 +16,8 @@
 
 #include <jni.h>
 
-#include <string>
-
 #include "sdk/android/native_api/jni/java_types.h"
+#include "sdk/android/native_api/jni/jvm.h"
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 #include "sdk/android/src/jni/jvm.h"
 
@@ -38,9 +37,6 @@
 
 namespace webrtc {
 namespace jni {
-
-// TODO(sakal): Remove once clients have migrated.
-using ::webrtc::JavaToStdMapStrings;
 
 // Deprecated, use NativeToJavaPointer.
 inline long jlongFromPointer(void* ptr) {
@@ -69,13 +65,5 @@ class ScopedLocalRefFrame {
 
 }  // namespace jni
 }  // namespace webrtc
-
-// TODO(magjed): Remove once external clients are updated.
-namespace webrtc_jni {
-
-using webrtc::AttachCurrentThreadIfNeeded;
-using webrtc::jni::InitGlobalJniVariables;
-
-}  // namespace webrtc_jni
 
 #endif  // SDK_ANDROID_SRC_JNI_JNI_HELPERS_H_

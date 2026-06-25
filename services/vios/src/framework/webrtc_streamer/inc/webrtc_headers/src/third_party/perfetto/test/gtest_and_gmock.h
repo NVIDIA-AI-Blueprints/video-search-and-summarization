@@ -46,8 +46,19 @@
 
 #endif  // defined(__clang__)
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
+#include "gmock/gmock-actions.h"              // IWYU pragma: export
+#include "gmock/gmock-function-mocker.h"      // IWYU pragma: export
+#include "gmock/gmock-matchers.h"             // IWYU pragma: export
+#include "gmock/gmock-more-matchers.h"        // IWYU pragma: export
+#include "gmock/gmock-nice-strict.h"          // IWYU pragma: export
+#include "gmock/gmock-spec-builders.h"        // IWYU pragma: export
+#include "gmock/gmock.h"                      // IWYU pragma: export
+#include "gtest/gtest-matchers.h"             // IWYU pragma: export
+#include "gtest/gtest-param-test.h"           // IWYU pragma: export
+#include "gtest/gtest-typed-test.h"           // IWYU pragma: export
+#include "gtest/gtest.h"                      // IWYU pragma: export
+#include "gtest/internal/gtest-param-util.h"  // IWYU pragma: export
+#include "gtest/internal/gtest-type-util.h"   // IWYU pragma: export
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop

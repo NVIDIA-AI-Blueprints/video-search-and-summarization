@@ -12,13 +12,11 @@
 #define API_AUDIO_CODECS_G711_AUDIO_DECODER_G711_H_
 
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/audio_codecs/audio_codec_pair_id.h"
 #include "api/audio_codecs/audio_decoder.h"
 #include "api/audio_codecs/audio_format.h"
-#include "api/field_trials_view.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
@@ -36,12 +34,9 @@ struct RTC_EXPORT AudioDecoderG711 {
     Type type;
     int num_channels;
   };
-  static absl::optional<Config> SdpToConfig(const SdpAudioFormat& audio_format);
+  static std::optional<Config> SdpToConfig(const SdpAudioFormat& audio_format);
   static void AppendSupportedDecoders(std::vector<AudioCodecSpec>* specs);
-  static std::unique_ptr<AudioDecoder> MakeAudioDecoder(
-      const Config& config,
-      absl::optional<AudioCodecPairId> codec_pair_id = absl::nullopt,
-      const FieldTrialsView* field_trials = nullptr);
+  static std::unique_ptr<AudioDecoder> MakeAudioDecoder(const Config& config);
 };
 
 }  // namespace webrtc

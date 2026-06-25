@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2019, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -30,10 +30,8 @@ struct AV1Common;
 #define CNN_MAX_BRANCHES 4
 #define CNN_MAX_THREADS 32
 
-#define NO_BRANCH_CONFIG \
-  { 0, 0, 0 }
-#define NO_BN_PARAMS \
-  { NULL, NULL, NULL, NULL }
+#define NO_BRANCH_CONFIG { 0, 0, 0 }
+#define NO_BN_PARAMS { NULL, NULL, NULL, NULL }
 
 enum {
   PADDING_SAME_ZERO,       // tensorflow's SAME padding with pixels outside

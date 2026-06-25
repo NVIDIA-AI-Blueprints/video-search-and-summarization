@@ -20,15 +20,11 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <set>
-#include <string>
-#include <utility>
 
-#include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/base/flat_set.h"
 #include "perfetto/ext/base/weak_ptr.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
 #include "perfetto/ext/tracing/core/trace_writer.h"
-#include "perfetto/protozero/message_handle.h"
 #include "src/traced/probes/ftrace/ftrace_config_utils.h"
 #include "src/traced/probes/ftrace/ftrace_metadata.h"
 #include "src/traced/probes/ftrace/ftrace_stats.h"
@@ -43,7 +39,7 @@ struct FtraceDataSourceConfig;
 
 namespace protos {
 namespace pbzero {
-class FtraceEventBundle;
+enum FtraceParseStatus : int32_t;
 }  // namespace pbzero
 }  // namespace protos
 
@@ -58,9 +54,15 @@ class FtraceDataSource : public ProbesDataSource {
 
   FtraceDataSource(base::WeakPtr<FtraceController>,
                    TracingSessionID,
-                   const FtraceConfig&,
+                   FtraceConfig,
                    std::unique_ptr<TraceWriter>);
   ~FtraceDataSource() override;
+
+  // Hands out internal pointers to callbacks.
+  FtraceDataSource(const FtraceDataSource&) = delete;
+  FtraceDataSource& operator=(const FtraceDataSource&) = delete;
+  FtraceDataSource(FtraceDataSource&&) = delete;
+  FtraceDataSource& operator=(FtraceDataSource&&) = delete;
 
   // Called by FtraceController soon after ProbesProducer creates the data
   // source, to inject ftrace dependencies.
@@ -81,24 +83,34 @@ class FtraceDataSource : public ProbesDataSource {
   }
 
   FtraceMetadata* mutable_metadata() { return &metadata_; }
-  FtraceSetupErrors* mutable_setup_errors() { return &setup_errors_; }
+  FtraceSetupErrors* mutable_setup_errors() {
+    return &stats_before_.setup_errors;
+  }
+  base::FlatSet<protos::pbzero::FtraceParseStatus>* mutable_parse_errors() {
+    return &parse_errors_;
+  }
   TraceWriter* trace_writer() { return writer_.get(); }
 
- private:
-  // Hands out internal pointers to callbacks.
-  FtraceDataSource(const FtraceDataSource&) = delete;
-  FtraceDataSource& operator=(const FtraceDataSource&) = delete;
-  FtraceDataSource(FtraceDataSource&&) = delete;
-  FtraceDataSource& operator=(FtraceDataSource&&) = delete;
+  uint64_t* mutable_bundle_end_timestamp(size_t cpu) {
+    if (cpu >= bundle_end_ts_by_cpu_.size())
+      bundle_end_ts_by_cpu_.resize(cpu + 1);
+    return &bundle_end_ts_by_cpu_[cpu];
+  }
 
+ private:
   void WriteStats();
-  void DumpFtraceStats(FtraceStats*);
 
   const FtraceConfig config_;
   FtraceMetadata metadata_;
+  // Stats as saved during data source setup, will be emitted with phase
+  // START_OF_TRACE on every flush:
   FtraceStats stats_before_{};
-  FtraceSetupErrors setup_errors_{};
+  // Accumulates errors encountered while parsing the binary ftrace data (e.g.
+  // data disagreeing with our understanding of the ring buffer ABI):
+  base::FlatSet<protos::pbzero::FtraceParseStatus> parse_errors_;
   std::map<FlushRequestID, std::function<void()>> pending_flushes_;
+  // Remembers, for each per-cpu buffer, the last written event's timestamp.
+  std::vector<uint64_t> bundle_end_ts_by_cpu_;
 
   // -- Fields initialized by the Initialize() call:
   FtraceConfigId config_id_ = 0;

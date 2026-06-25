@@ -53,12 +53,12 @@ class ComputedStyleBuilder;
 class Element;
 class Event;
 class FormControlState;
+class HTMLElement;
 class HTMLFormElement;
 class HTMLInputElement;
 class KeyboardEvent;
 class LayoutObject;
 class MouseEvent;
-class TextControlInnerEditorElement;
 
 class ClickHandlingState final : public EventDispatchHandlingState {
  public:
@@ -82,15 +82,17 @@ class CORE_EXPORT InputTypeView : public GarbageCollectedMixin {
   virtual ~InputTypeView();
   void Trace(Visitor*) const override;
 
-  virtual bool SizeShouldIncludeDecoration(int default_size,
-                                           int& preferred_size) const;
+  virtual bool GetSizeWithDecoration(int default_size,
+                                     int& preferred_size) const;
 
   // Event handling functions
 
   virtual void HandleClickEvent(MouseEvent&);
   virtual void HandleMouseDownEvent(MouseEvent&);
-  virtual ClickHandlingState* WillDispatchClick();
-  virtual void DidDispatchClick(Event&, const ClickHandlingState&);
+  // https://html.spec.whatwg.org/C#the-input-element:legacy-pre-activation-behavior.
+  virtual ClickHandlingState* LegacyPreActivationBehavior();
+  // https://html.spec.whatwg.org/C#input-activation-behavior.
+  virtual void RunInputActivationBehavior(Event&, const ClickHandlingState&);
   virtual void HandleKeydownEvent(KeyboardEvent&);
   virtual void HandleKeypressEvent(KeyboardEvent&);
   virtual void HandleKeyupEvent(KeyboardEvent&);
@@ -110,19 +112,27 @@ class CORE_EXPORT InputTypeView : public GarbageCollectedMixin {
   virtual void SubtreeHasChanged();
   virtual LayoutObject* CreateLayoutObject(const ComputedStyle&) const;
   virtual void AdjustStyle(ComputedStyleBuilder&) {}
-  virtual ControlPart AutoAppearance() const;
+  virtual AppearanceValue AutoAppearance() const;
   virtual TextDirection ComputedTextDirection();
   virtual void OpenPopupView();
   virtual void ClosePopupView();
+  // HasOpenedPopup will return true if the popup has ever been opened on this
+  // element. IsPickerVisible will return true if the popup is currently open.
   virtual bool HasOpenedPopup() const;
+  virtual bool IsPickerVisible() const;
 
   // Functions for shadow trees
 
-  TextControlInnerEditorElement* EnsureInnerEditorElement();
   bool HasCreatedShadowSubtree() const { return has_created_shadow_subtree_; }
-  void CreateShadowSubtreeIfNeeded();
+  // If a shadow tree is needed and it hasn't been created yet, one is created.
+  // `is_type_changing` indicates whether this is being called as a result of
+  // changing the input-type.
+  void CreateShadowSubtreeIfNeeded(bool is_type_changing = false);
+  void set_needs_update_view_in_create_shadow_subtree(bool value) {
+    needs_update_view_in_create_shadow_subtree_ = value;
+  }
+  virtual bool IsInnerEditorValueEmpty() const { return false; }
   virtual bool NeedsShadowSubtree() const;
-  virtual void CreateShadowSubtree();
   virtual void DestroyShadowSubtree();
   virtual HTMLInputElement* UploadButton() const;
   virtual String FileStatusText() const;
@@ -142,7 +152,10 @@ class CORE_EXPORT InputTypeView : public GarbageCollectedMixin {
   virtual void CapsLockStateMayHaveChanged();
   virtual bool ShouldDrawCapsLockIndicator() const;
   virtual void UpdateClearButtonVisibility();
-  virtual void UpdatePlaceholderText(bool is_suggested_value);
+
+  // Updates the text in the placeholder, returning the Element representing the
+  // placeholder. Returns null if there is no placeholder.
+  virtual HTMLElement* UpdatePlaceholderText(bool is_suggested_value);
   virtual AXObject* PopupRootAXObject();
   virtual void EnsureFallbackContent() {}
   virtual void EnsurePrimaryContent() {}
@@ -156,14 +169,20 @@ class CORE_EXPORT InputTypeView : public GarbageCollectedMixin {
 
   virtual wtf_size_t FocusedFieldIndex() const { return 0; }
 
+  virtual bool IsMultipleFieldsTemporal() const { return false; }
+
  protected:
   InputTypeView(HTMLInputElement& element) : element_(&element) {}
   HTMLInputElement& GetElement() const { return *element_; }
+
+  virtual void CreateShadowSubtree();
 
   bool will_be_destroyed_ = false;
 
  private:
   bool has_created_shadow_subtree_ = false;
+  // If true, CreateShadowSubtreeIfNeeded() may also call UpdateView().
+  bool needs_update_view_in_create_shadow_subtree_ = false;
   Member<HTMLInputElement> element_;
 };
 

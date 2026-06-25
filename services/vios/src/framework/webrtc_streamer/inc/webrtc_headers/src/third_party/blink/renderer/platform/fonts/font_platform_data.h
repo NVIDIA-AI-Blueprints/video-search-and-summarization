@@ -31,14 +31,14 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_PLATFORM_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_PLATFORM_DATA_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
-#include "third_party/blink/public/common/privacy_budget/identifiable_token.h"
 #include "third_party/blink/public/platform/web_font_render_style.h"
 #include "third_party/blink/renderer/platform/fonts/font_description.h"
 #include "third_party/blink/renderer/platform/fonts/font_orientation.h"
 #include "third_party/blink/renderer/platform/fonts/resolved_font_features.h"
 #include "third_party/blink/renderer/platform/fonts/small_caps_iterator.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -54,26 +54,19 @@
 typedef const struct __CTFont* CTFontRef;
 #endif  // BUILDFLAG(IS_MAC)
 
-class SkFont;
-class SkTypeface;
-typedef uint32_t SkFontID;
-
 namespace blink {
 
-class Font;
 class HarfBuzzFace;
-class OpenTypeVerticalData;
 
-class PLATFORM_EXPORT FontPlatformData {
-  USING_FAST_MALLOC(FontPlatformData);
-
+class PLATFORM_EXPORT FontPlatformData
+    : public GarbageCollected<FontPlatformData> {
  public:
   // Used for deleted values in the font cache's hash tables. The hash table
   // will create us with this structure, and it will compare other values
   // to this "Deleted" one. It expects the Deleted one to be differentiable
   // from the 0 one (created with the empty constructor), so we can't just
   // set everything to 0.
-  FontPlatformData(WTF::HashTableDeletedValueType);
+  FontPlatformData(HashTableDeletedValueType);
   FontPlatformData();
   FontPlatformData(const FontPlatformData&);
   FontPlatformData(const FontPlatformData& src, float text_size);
@@ -86,6 +79,8 @@ class PLATFORM_EXPORT FontPlatformData {
                    ResolvedFontFeatures resolved_font_features,
                    FontOrientation = FontOrientation::kHorizontal);
   ~FontPlatformData();
+
+  void Trace(Visitor*) const;
 
 #if BUILDFLAG(IS_MAC)
   // Returns nullptr for FreeType backed SkTypefaces, compare
@@ -101,9 +96,10 @@ class PLATFORM_EXPORT FontPlatformData {
   bool SyntheticItalic() const { return synthetic_italic_; }
 
   SkTypeface* Typeface() const;
+  sk_sp<SkTypeface> TypefaceSp() const { return typeface_; }
   HarfBuzzFace* GetHarfBuzzFace() const;
   bool HasSpaceInLigaturesOrKerning(TypesettingFeatures) const;
-  SkFontID UniqueID() const;
+  SkTypefaceID UniqueID() const;
   unsigned GetHash() const;
 
   FontOrientation Orientation() const { return orientation_; }
@@ -112,6 +108,9 @@ class PLATFORM_EXPORT FontPlatformData {
   }
   bool IsVerticalAnyUpright() const {
     return blink::IsVerticalAnyUpright(orientation_);
+  }
+  bool IsVerticalNonCJKUpright() const {
+    return blink::IsVerticalNonCJKUpright(orientation_);
   }
   void SetOrientation(FontOrientation orientation) {
     orientation_ = orientation;
@@ -126,12 +125,11 @@ class PLATFORM_EXPORT FontPlatformData {
     avoid_embedded_bitmaps_ = embedded_bitmaps;
   }
   bool operator==(const FontPlatformData&) const;
-  bool operator!=(const FontPlatformData& a) const { return !operator==(a); }
   FontPlatformData& operator=(const FontPlatformData&) = delete;
 
   bool IsHashTableDeletedValue() const { return is_hash_table_deleted_value_; }
 #if !BUILDFLAG(IS_MAC)
-  bool FontContainsCharacter(UChar32 character);
+  bool FontContainsCharacter(UChar32 character) const;
 #endif
 
 #if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_MAC)
@@ -139,18 +137,6 @@ class PLATFORM_EXPORT FontPlatformData {
 #endif
 
   SkFont CreateSkFont(const FontDescription* = nullptr) const;
-
-  scoped_refptr<OpenTypeVerticalData> CreateVerticalData() const;
-
-  // Computes a digest from the typeface. The digest only depends on the
-  // underlying font itself, and does not vary by the style (size, weight,
-  // italics, etc). This is aimed at discovering the fingerprinting information
-  // a particular local font may provide websites.
-  //
-  // The digest algorithm is designed for fast computation, rather than to be
-  // robust against an attacker with control of local fonts looking to attack
-  // the fingerprinting algorithm.
-  IdentifiableToken ComputeTypefaceDigest() const;
 
   // Gets the postscript name from the typeface.
   String GetPostScriptName() const;
@@ -187,7 +173,7 @@ class PLATFORM_EXPORT FontPlatformData {
   WebFontRenderStyle style_;
 #endif
 
-  mutable scoped_refptr<HarfBuzzFace> harfbuzz_face_;
+  mutable Member<HarfBuzzFace> harfbuzz_face_;
   bool is_hash_table_deleted_value_ = false;
 };
 

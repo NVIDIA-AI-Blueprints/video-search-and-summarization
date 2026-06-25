@@ -14,9 +14,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
+#include "api/units/time_delta.h"
 #include "api/video/video_content_type.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_frame_type.h"
 #include "api/video/video_timing.h"
 #include "api/video_codecs/video_decoder.h"
 
@@ -34,7 +37,7 @@ namespace webrtc {
 enum {
   // Timing frames settings. Timing frames are sent every
   // `kDefaultTimingFramesDelayMs`, or if the frame is at least
-  // `kDefaultOutliserFrameSizePercent` in size of average frame.
+  // `kDefaultOutlierFrameSizePercent` in size of average frame.
   kDefaultTimingFramesDelayMs = 200,
   kDefaultOutlierFrameSizePercent = 500,
   // Maximum number of frames for what we store encode start timing information.
@@ -50,10 +53,16 @@ enum VCMVideoProtection {
 // rendered.
 class VCMReceiveCallback {
  public:
-  virtual int32_t FrameToRender(VideoFrame& videoFrame,  // NOLINT
-                                absl::optional<uint8_t> qp,
-                                TimeDelta decode_time,
-                                VideoContentType content_type) = 0;
+  struct FrameToRender {
+    VideoFrame& video_frame;
+    std::optional<uint8_t> qp;
+    TimeDelta decode_time;
+    VideoContentType content_type;
+    VideoFrameType frame_type;
+    TimingFrameInfo timing_frame_info;
+  };
+
+  virtual int32_t OnFrameToRender(const FrameToRender& arguments) = 0;
 
   virtual void OnDroppedFrames(uint32_t frames_dropped);
 

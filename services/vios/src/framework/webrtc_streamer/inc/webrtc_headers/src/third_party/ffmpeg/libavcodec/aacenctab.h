@@ -30,6 +30,7 @@
 
 #include "libavutil/channel_layout.h"
 #include "aac.h"
+#include "defs.h"
 
 /** Total number of usable codebooks **/
 #define CB_TOT 12
@@ -40,9 +41,7 @@
 #define AAC_MAX_CHANNELS 16
 
 extern const uint8_t *const ff_aac_swb_size_1024[];
-extern const int      ff_aac_swb_size_1024_len;
 extern const uint8_t *const ff_aac_swb_size_128[];
-extern const int      ff_aac_swb_size_128_len;
 
 /* Supported layouts without using a PCE */
 static const AVChannelLayout aac_normal_chan_layouts[7] = {
@@ -124,10 +123,8 @@ static const unsigned char aac_maxval_cb[] = {
 };
 
 static const int aacenc_profiles[] = {
-    FF_PROFILE_AAC_MAIN,
-    FF_PROFILE_AAC_LOW,
-    FF_PROFILE_AAC_LTP,
-    FF_PROFILE_MPEG2_AAC_LOW,
+    AV_PROFILE_AAC_LOW,
+    AV_PROFILE_MPEG2_AAC_LOW,
 };
 
 #endif /* AVCODEC_AACENCTAB_H */

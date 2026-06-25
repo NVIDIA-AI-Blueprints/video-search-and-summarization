@@ -11,12 +11,12 @@
 #ifndef MODULES_VIDEO_CODING_TIMING_JITTER_ESTIMATOR_H_
 #define MODULES_VIDEO_CODING_TIMING_JITTER_ESTIMATOR_H_
 
-#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <queue>
+#include <optional>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/field_trials_view.h"
 #include "api/units/data_size.h"
 #include "api/units/frequency.h"
@@ -52,7 +52,9 @@ class JitterEstimator {
           "num_stddev_delay_outlier", &num_stddev_delay_outlier,
           "num_stddev_size_outlier", &num_stddev_size_outlier,
           "congestion_rejection_factor", &congestion_rejection_factor,
-          "estimate_noise_when_congested", &estimate_noise_when_congested);
+          "estimate_noise_when_congested", &estimate_noise_when_congested,
+          "nack_limit", &nack_limit,
+          "nack_count_timeout", &nack_count_timeout);
       // clang-format on
     }
 
@@ -66,43 +68,51 @@ class JitterEstimator {
 
     // If set, the "max" frame size is calculated as this percentile over a
     // window of recent frame sizes.
-    absl::optional<double> max_frame_size_percentile = absl::nullopt;
+    std::optional<double> max_frame_size_percentile = std::nullopt;
 
     // The length of the percentile filters' window, in number of frames.
-    absl::optional<int> frame_size_window = absl::nullopt;
+    std::optional<int> frame_size_window = std::nullopt;
 
     // The incoming frame delay variation samples are clamped to be at most
     // this number of standard deviations away from zero.
     //
     // Increasing this value clamps fewer samples.
-    absl::optional<double> num_stddev_delay_clamp = absl::nullopt;
+    std::optional<double> num_stddev_delay_clamp = std::nullopt;
 
     // A (relative) frame delay variation sample is an outlier if its absolute
     // deviation from the Kalman filter model falls outside this number of
     // sample standard deviations.
     //
     // Increasing this value rejects fewer samples.
-    absl::optional<double> num_stddev_delay_outlier = absl::nullopt;
+    std::optional<double> num_stddev_delay_outlier = std::nullopt;
 
     // An (absolute) frame size sample is an outlier if its positive deviation
     // from the estimated average frame size falls outside this number of sample
     // standard deviations.
     //
     // Increasing this value rejects fewer samples.
-    absl::optional<double> num_stddev_size_outlier = absl::nullopt;
+    std::optional<double> num_stddev_size_outlier = std::nullopt;
 
     // A (relative) frame size variation sample is deemed "congested", and is
     // thus rejected, if its value is less than this factor times the estimated
     // max frame size.
     //
     // Decreasing this value rejects fewer samples.
-    absl::optional<double> congestion_rejection_factor = absl::nullopt;
+    std::optional<double> congestion_rejection_factor = std::nullopt;
 
     // If true, the noise estimate will be updated for congestion rejected
     // frames. This is currently enabled by default, but that may not be optimal
     // since congested frames typically are not spread around the line with
     // Gaussian noise. (This is the whole reason for the congestion rejection!)
     bool estimate_noise_when_congested = true;
+
+    // The number of frames required to be NACKed within `nack_count_timeout`
+    // in order for RttMult to be enabled.
+    std::optional<int> nack_limit = std::nullopt;
+
+    // The time period in which `nack_limit` number of frames required to be
+    // NACKed in order for RttMult to be enabled.
+    std::optional<TimeDelta> nack_count_timeout = std::nullopt;
   };
 
   JitterEstimator(Clock* clock, const FieldTrialsView& field_trials);
@@ -122,13 +132,7 @@ class JitterEstimator {
 
   // Returns the current jitter estimate and adds an RTT dependent term in cases
   // of retransmission.
-  //  Input:
-  //          - rtt_multiplier   : RTT param multiplier (when applicable).
-  //          - rtt_mult_add_cap : Multiplier cap from the RTTMultExperiment.
-  //
-  // Return value              : Jitter estimate.
-  TimeDelta GetJitterEstimate(double rtt_multiplier,
-                              absl::optional<TimeDelta> rtt_mult_add_cap);
+  TimeDelta GetEstimate();
 
   // Updates the nack counter.
   void FrameNacked();
@@ -187,11 +191,11 @@ class JitterEstimator {
   double startup_frame_size_sum_bytes_;
   size_t startup_frame_size_count_;
 
-  absl::optional<Timestamp> last_update_time_;
+  std::optional<Timestamp> last_update_time_;
   // The previously returned jitter estimate
-  absl::optional<TimeDelta> prev_estimate_;
+  std::optional<TimeDelta> prev_estimate_;
   // Frame size of the previous frame
-  absl::optional<DataSize> prev_frame_size_;
+  std::optional<DataSize> prev_frame_size_;
   // Average of the random jitter. Unit is milliseconds.
   double avg_noise_ms_;
   // Variance of the time-deviation from the line. Unit is milliseconds^2.
@@ -205,11 +209,11 @@ class JitterEstimator {
   Timestamp latest_nack_ = Timestamp::Zero();
   // Keeps track of the number of nacks received, but never goes above
   // kNackLimit.
-  size_t nack_count_;
+  int nack_count_;
   RttFilter rtt_filter_;
 
   // Tracks frame rates in microseconds.
-  rtc::RollingAccumulator<uint64_t> fps_counter_;
+  RollingAccumulator<uint64_t> fps_counter_;
   Clock* clock_;
 };
 

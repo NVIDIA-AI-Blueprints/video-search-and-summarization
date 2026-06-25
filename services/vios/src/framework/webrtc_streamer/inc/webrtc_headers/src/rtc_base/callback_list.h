@@ -16,7 +16,6 @@
 
 #include "api/function_view.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/system/assume.h"
 #include "rtc_base/system/inline.h"
 #include "rtc_base/system/rtc_export.h"
 #include "rtc_base/untyped_function.h"
@@ -49,7 +48,7 @@ class RTC_EXPORT CallbackListReceivers {
 
   void RemoveReceivers(const void* removal_tag);
 
-  void Foreach(rtc::FunctionView<void(UntypedFunction&)> fv);
+  void Foreach(FunctionView<void(UntypedFunction&)> fv);
 
  private:
   // Special protected pointer value that's used as a removal_tag for
@@ -176,6 +175,12 @@ class CallbackList {
   CallbackList(CallbackList&&) = delete;
   CallbackList& operator=(CallbackList&&) = delete;
 
+  // Adds a new receiver with removal tag in constructor.
+  template <typename F>
+  CallbackList(const void* removal_tag, F&& f) {
+    AddReceiver(removal_tag, std::forward<F>(f));
+  }
+
   // Adds a new receiver. The receiver (a callable object or a function pointer)
   // must be movable, but need not be copyable. Its call signature should be
   // `void(ArgT...)`. The removal tag is a pointer to an arbitrary object that
@@ -191,7 +196,7 @@ class CallbackList {
 
   // Adds a new receiver with no removal tag.
   template <typename F>
-  void AddReceiver(F&& f) {
+  [[deprecated]] void AddReceiver(F&& f) {
     receivers_.AddReceiver(
         UntypedFunction::PrepareArgs<void(ArgT...)>(std::forward<F>(f)));
   }

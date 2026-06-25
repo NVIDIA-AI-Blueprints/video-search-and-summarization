@@ -53,13 +53,13 @@
 #ifndef SRTP_RTP_H
 #define SRTP_RTP_H
 
+#include "srtp_priv.h"
+
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #elif defined HAVE_WINSOCK2_H
 #include <winsock2.h>
 #endif
-
-#include "srtp_priv.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -123,14 +123,14 @@ int srtp_sender_init(
     struct sockaddr_in name,           /* socket name             */
     srtp_sec_serv_t security_services, /* sec. servs. to be used  */
     unsigned char *input_key           /* master key/salt in hex  */
-    );
+);
 
 int srtp_receiver_init(
     rtp_receiver_t rtp_ctx,            /* structure to be init'ed */
     struct sockaddr_in name,           /* socket name             */
     srtp_sec_serv_t security_services, /* sec. servs. to be used  */
     unsigned char *input_key           /* master key/salt in hex  */
-    );
+);
 
 int rtp_sender_init_srtp(rtp_sender_t sender, const srtp_policy_t *policy);
 

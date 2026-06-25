@@ -24,7 +24,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
-#include "thread_queue.h"
+#include "ffmpeg_sched.h"
 
 #include "libavformat/avformat.h"
 
@@ -32,84 +32,98 @@
 
 #include "libavutil/dict.h"
 #include "libavutil/fifo.h"
-#include "libavutil/thread.h"
 
 typedef struct MuxStream {
-    OutputStream ost;
+    OutputStream    ost;
+
+    /**
+     * Codec parameters for packets submitted to the muxer (i.e. before
+     * bitstream filtering, if any).
+     */
+    AVCodecParameters *par_in;
 
     // name used for logging
-    char log_name[32];
+    char            log_name[32];
 
-    /* the packets are buffered here until the muxer is ready to be initialized */
-    AVFifo *muxing_queue;
+    AVBSFContext   *bsf_ctx;
+    AVPacket       *bsf_pkt;
 
-    AVBSFContext *bsf_ctx;
+    AVPacket       *pkt;
 
-    EncStats stats;
+    EncStats        stats;
 
-    int64_t max_frames;
+    int             sch_idx;
+    int             sch_idx_enc;
+    int             sch_idx_src;
 
-    /*
-     * The size of the AVPackets' buffers in queue.
-     * Updated when a packet is either pushed or pulled from the queue.
-     */
-    size_t muxing_queue_data_size;
+    int             sq_idx_mux;
 
-    int max_muxing_queue_size;
-
-    /* Threshold after which max_muxing_queue_size will be in effect */
-    size_t muxing_queue_data_threshold;
+    int64_t         max_frames;
 
     // timestamp from which the streamcopied streams should start,
     // in AV_TIME_BASE_Q;
     // everything before it should be discarded
-    int64_t ts_copy_start;
+    int64_t         ts_copy_start;
 
     /* dts of the last packet sent to the muxer, in the stream timebase
      * used for making up missing dts values */
-    int64_t last_mux_dts;
+    int64_t         last_mux_dts;
 
-    // audio streamcopy - state for av_rescale_delta()
-    int64_t ts_rescale_delta_last;
+    int64_t         stream_duration;
+    AVRational      stream_duration_tb;
+
+    // state for av_rescale_delta() call for audio in write_packet()
+    int64_t         ts_rescale_delta_last;
 
     // combined size of all the packets sent to the muxer
-    uint64_t data_size_mux;
+    uint64_t        data_size_mux;
 
-    int copy_initial_nonkeyframes;
-    int copy_prior_start;
-    int streamcopy_started;
+    int             copy_initial_nonkeyframes;
+    int             copy_prior_start;
+    int             streamcopy_started;
+#if FFMPEG_OPT_VSYNC_DROP
+    int             ts_drop;
+#endif
+
+    AVRational      frame_rate;
+    AVRational      max_frame_rate;
+    int             force_fps;
+
+    const char     *apad;
 } MuxStream;
 
 typedef struct Muxer {
-    OutputFile of;
+    OutputFile              of;
 
     // name used for logging
-    char log_name[32];
+    char                    log_name[32];
 
-    AVFormatContext *fc;
+    AVFormatContext        *fc;
 
-    pthread_t    thread;
-    ThreadQueue *tq;
+    Scheduler              *sch;
+    unsigned                sch_idx;
 
-    AVDictionary *opts;
+    // OutputStream indices indexed by scheduler stream indices
+    int                    *sch_stream_idx;
+    int                  nb_sch_stream_idx;
 
-    int thread_queue_size;
+    AVDictionary           *opts;
+
+    // used to validate that all encoder avoptions have been actually used
+    AVDictionary           *enc_opts_used;
 
     /* filesize limit expressed in bytes */
-    int64_t limit_filesize;
-    atomic_int_least64_t last_filesize;
-    int header_written;
+    int64_t                 limit_filesize;
+    atomic_int_least64_t    last_filesize;
+    int                     header_written;
 
-    SyncQueue *sq_mux;
-    AVPacket *sq_pkt;
+    SyncQueue              *sq_mux;
+    AVPacket               *sq_pkt;
 } Muxer;
 
-/* whether we want to print an SDP, set in of_open() */
-extern int want_sdp;
+int mux_check_init(void *arg);
 
-int mux_check_init(Muxer *mux);
-
-static MuxStream *ms_from_ost(OutputStream *ost)
+static inline MuxStream *ms_from_ost(OutputStream *ost)
 {
     return (MuxStream*)ost;
 }

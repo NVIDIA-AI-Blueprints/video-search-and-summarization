@@ -30,7 +30,8 @@ class MODULES_EXPORT UDPReadableStreamWrapper
       CloseOnceCallback,
       const Member<UDPSocketMojoRemote> udp_socket,
       mojo::PendingReceiver<network::mojom::blink::UDPSocketListener>
-          socket_listener);
+          socket_listener,
+      uint64_t inspector_id);
 
   // ReadableStreamWrapper:
   void Pull() override;
@@ -40,8 +41,8 @@ class MODULES_EXPORT UDPReadableStreamWrapper
 
   // network::mojom::blink::UDPSocketListener:
   void OnReceived(int32_t result,
-                  const absl::optional<net::IPEndPoint>& src_addr,
-                  absl::optional<base::span<const uint8_t>> data) override;
+                  const std::optional<net::IPEndPoint>& src_addr,
+                  std::optional<base::span<const uint8_t>> data) override;
 
  private:
   CloseOnceCallback on_close_;
@@ -51,6 +52,9 @@ class MODULES_EXPORT UDPReadableStreamWrapper
   HeapMojoReceiver<network::mojom::blink::UDPSocketListener,
                    UDPReadableStreamWrapper>
       socket_listener_;
+
+  // Unique id for devtools inspector_network_agent.
+  const uint64_t inspector_id_;
 };
 
 }  // namespace blink

@@ -5,8 +5,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_NFC_NFC_PROXY_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_NFC_NFC_PROXY_H_
 
-#include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/nfc.mojom-blink.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
@@ -22,11 +20,17 @@ namespace blink {
 class LocalDOMWindow;
 class NDEFReader;
 
+#if BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_IOS_TVOS)
+using NFCClientType = device::mojom::blink::RawNFCClient;
+#else
+using NFCClientType = device::mojom::blink::NFCClient;
+#endif
+
 // This is a proxy class used by NDEFReader(s) to connect
 // to implementation of device::mojom::blink::NFC interface.
 class MODULES_EXPORT NFCProxy final : public GarbageCollected<NFCProxy>,
                                       public Supplement<LocalDOMWindow>,
-                                      public device::mojom::blink::NFCClient {
+                                      public NFCClientType {
  public:
   static const char kSupplementName[];
   static NFCProxy* From(LocalDOMWindow&);
@@ -53,10 +57,20 @@ class MODULES_EXPORT NFCProxy final : public GarbageCollected<NFCProxy>,
   void CancelMakeReadOnly();
 
  private:
-  // Implementation of device::mojom::blink::NFCClient.
+  void NotifyWatchers(const Vector<uint32_t>& watch_ids,
+                      const String& serial_number,
+                      device::mojom::blink::NDEFMessagePtr message);
+
+  // Implementation of device::mojom::blink::NFCClient and
+  // device::mojom::blink::RawNFCClient.
+#if BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_IOS_TVOS)
+  void OnWatch(const Vector<uint32_t>&,
+               device::mojom::blink::NDEFRawMessagePtr) override;
+#else
   void OnWatch(const Vector<uint32_t>&,
                const String&,
                device::mojom::blink::NDEFMessagePtr) override;
+#endif
   void OnError(device::mojom::blink::NDEFErrorPtr) override;
 
   void OnReaderRegistered(NDEFReader*,
@@ -82,7 +96,7 @@ class MODULES_EXPORT NFCProxy final : public GarbageCollected<NFCProxy>,
   WriterSet writers_;
 
   HeapMojoRemote<device::mojom::blink::NFC> nfc_remote_;
-  HeapMojoReceiver<device::mojom::blink::NFCClient, NFCProxy> client_receiver_;
+  HeapMojoReceiver<NFCClientType, NFCProxy> client_receiver_;
 };
 
 }  // namespace blink

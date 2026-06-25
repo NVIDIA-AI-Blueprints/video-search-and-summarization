@@ -11,9 +11,6 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
 #include "third_party/blink/renderer/platform/timer.h"
-#include "ui/gfx/geometry/point_f.h"
-#include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/geometry/size_f.h"
 #include "ui/native_theme/scrollbar_animator_mac.h"
 
 namespace blink {
@@ -34,11 +31,12 @@ class CORE_EXPORT MacScrollbarImplV2
   // Function to call upon interaction with this scrollbar.
   void MouseDidEnter();
   void MouseDidExit();
-  void DidScroll();
+  bool DidScroll();
+  bool FadeInScrollbarIfExists();
+  void FadeOutScrollbarIfNeeded();
 
   // MacScrollbar:
   void SetEnabled(bool) final {}
-  void SetOverlayColorTheme(ScrollbarOverlayColorTheme) final {}
   float GetKnobAlpha() final;
   float GetTrackAlpha() final;
   int GetTrackBoxWidth() final;
@@ -64,27 +62,16 @@ class CORE_EXPORT MacScrollbarAnimatorV2 : public MacScrollbarAnimator {
   void Trace(Visitor* visitor) const final {
     MacScrollbarAnimator::Trace(visitor);
   }
-  void ContentAreaWillPaint() const final {}
-  void MouseEnteredContentArea() const final {}
-  void MouseExitedContentArea() const final {}
-  void MouseMovedInContentArea() const final {}
   void MouseEnteredScrollbar(Scrollbar&) const final;
   void MouseExitedScrollbar(Scrollbar&) const final;
-  void ContentsResized() const final {}
   void DidAddVerticalScrollbar(Scrollbar&) final;
   void WillRemoveVerticalScrollbar(Scrollbar&) final;
   void DidAddHorizontalScrollbar(Scrollbar&) final;
   void WillRemoveHorizontalScrollbar(Scrollbar&) final;
-  bool SetScrollbarsVisibleForTesting(bool) final { return true; }
   void DidChangeUserVisibleScrollOffset(const ScrollOffset&) final;
-  void UpdateScrollerStyle() final { NOTREACHED(); }
-  bool ScrollbarPaintTimerIsActive() const final {
-    NOTREACHED();
-    return false;
-  }
-  void StartScrollbarPaintTimer() final { NOTREACHED(); }
-  void StopScrollbarPaintTimer() final { NOTREACHED(); }
   void Dispose() final;
+  bool FadeInScrollbarIfExists(bool horizontal, bool vertical) final;
+  void FadeOutScrollbarIfNeeded() final;
 
  private:
   std::unique_ptr<MacScrollbarImplV2> horizontal_scrollbar_;

@@ -40,7 +40,6 @@
 #include "third_party/blink/renderer/core/animation/interpolation.h"
 #include "third_party/blink/renderer/core/animation/timeline_offset.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/css/css_keyframes_rule.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/core/css/properties/css_bitset.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -56,8 +55,10 @@ class ComputedStyleBuilder;
 class Element;
 class StylePropertyShorthand;
 class StyleResolver;
+class StyleRuleKeyframes;
 class StyleTimeline;
 class WritingDirectionMode;
+class TimelineTrigger;
 
 class CORE_EXPORT CSSAnimations final {
   DISALLOW_NEW();
@@ -67,7 +68,15 @@ class CORE_EXPORT CSSAnimations final {
   CSSAnimations(const CSSAnimations&) = delete;
   CSSAnimations& operator=(const CSSAnimations&) = delete;
 
-  static const StylePropertyShorthand& PropertiesForTransitionAll();
+  // When |with_discrete| is set to true, this method returns not just
+  // interpolable properties, but properties which can be transitioned with
+  // transition-behavior:allow-discrete. |with_discrete| returns almost 3x as
+  // many properties, which may result in slower style update performance, so
+  // they are worth separating.
+  static const StylePropertyShorthand& PropertiesForTransitionAll(
+      bool with_discrete,
+      const ExecutionContext* execution_context);
+
   static bool IsAnimationAffectingProperty(const CSSProperty&);
   static bool IsAffectedByKeyframesFromScope(const Element&, const TreeScope&);
   static bool IsAnimatingCustomProperties(const ElementAnimations*);
@@ -77,11 +86,12 @@ class CORE_EXPORT CSSAnimations final {
   static bool IsAnimatingFontAffectingProperties(const ElementAnimations*);
   static bool IsAnimatingLineHeightProperty(const ElementAnimations*);
   static bool IsAnimatingRevert(const ElementAnimations*);
+  static bool IsAnimatingDisplayProperty(const ElementAnimations*);
   static void CalculateTimelineUpdate(CSSAnimationUpdate&,
                                       Element& animating_element,
                                       const ComputedStyleBuilder&);
   static void CalculateAnimationUpdate(CSSAnimationUpdate&,
-                                       const Element& animating_element,
+                                       Element& animating_element,
                                        Element&,
                                        const ComputedStyleBuilder&,
                                        const ComputedStyle* parent_style,
@@ -89,7 +99,7 @@ class CORE_EXPORT CSSAnimations final {
                                        bool can_trigger_animations);
   static void CalculateCompositorAnimationUpdate(
       CSSAnimationUpdate&,
-      const Element& animating_element,
+      Element& animating_element,
       Element&,
       const ComputedStyle&,
       const ComputedStyle* parent_style,
@@ -106,11 +116,13 @@ class CORE_EXPORT CSSAnimations final {
       const AtomicString& animation_name,
       const AnimationEffect::EventDelegate* old_event_delegate);
 
-  static void CalculateTransitionUpdate(CSSAnimationUpdate&,
-                                        Element& animating_element,
-                                        const ComputedStyleBuilder&,
-                                        const ComputedStyle* old_style,
-                                        bool can_trigger_animations);
+  static void CalculateTransitionUpdate(
+      CSSAnimationUpdate&,
+      Element& animating_element,
+      const ComputedStyleBuilder&,
+      const ComputedStyle* old_style,
+      const StyleRecalcContext& style_recalc_context,
+      bool can_trigger_animations);
 
   static void SnapshotCompositorKeyframes(Element&,
                                           CSSAnimationUpdate&,
@@ -120,6 +132,11 @@ class CORE_EXPORT CSSAnimations final {
   static void UpdateAnimationFlags(Element& animating_element,
                                    CSSAnimationUpdate&,
                                    ComputedStyleBuilder&);
+
+  // This performs an update of the given element's set of named triggers, i.e.
+  // triggers declared trigger-instantiating properties like timeline-trigger.
+  static void UpdateNamedTriggers(Element& element,
+                                  const CSSAnimationUpdate& update);
 
   const CSSAnimationUpdate& PendingUpdate() const { return pending_update_; }
   void SetPendingUpdate(const CSSAnimationUpdate& update) {
@@ -157,10 +174,10 @@ class CORE_EXPORT CSSAnimations final {
     AnimationTimeline* Timeline() const {
       return animation->TimelineInternal();
     }
-    const absl::optional<TimelineOffset>& RangeStart() const {
+    const std::optional<TimelineOffset>& RangeStart() const {
       return animation->GetRangeStartInternal();
     }
-    const absl::optional<TimelineOffset>& RangeEnd() const {
+    const std::optional<TimelineOffset>& RangeEnd() const {
       return animation->GetRangeEndInternal();
     }
 
@@ -172,10 +189,7 @@ class CORE_EXPORT CSSAnimations final {
       specified_timing = update.specified_timing;
     }
 
-    void Trace(Visitor* visitor) const {
-      visitor->Trace(animation);
-      visitor->Trace(style_rule);
-    }
+    void Trace(Visitor*) const;
 
     Member<Animation> animation;
     AtomicString name;
@@ -188,14 +202,28 @@ class CORE_EXPORT CSSAnimations final {
 
   struct RunningTransition : public GarbageCollected<RunningTransition> {
    public:
-    virtual ~RunningTransition() = default;
+    RunningTransition(Animation* animation,
+                      const ComputedStyle* from,
+                      const ComputedStyle* to,
+                      const ComputedStyle* reversing_adjusted_start_value,
+                      double reversing_shortening_factor)
+        : animation(animation),
+          from(from),
+          to(to),
+          reversing_adjusted_start_value(reversing_adjusted_start_value),
+          reversing_shortening_factor(reversing_shortening_factor) {}
 
-    void Trace(Visitor* visitor) const { visitor->Trace(animation); }
+    void Trace(Visitor* visitor) const {
+      visitor->Trace(animation);
+      visitor->Trace(from);
+      visitor->Trace(to);
+      visitor->Trace(reversing_adjusted_start_value);
+    }
 
     Member<Animation> animation;
-    scoped_refptr<const ComputedStyle> from;
-    scoped_refptr<const ComputedStyle> to;
-    scoped_refptr<const ComputedStyle> reversing_adjusted_start_value;
+    Member<const ComputedStyle> from;
+    Member<const ComputedStyle> to;
+    Member<const ComputedStyle> reversing_adjusted_start_value;
     double reversing_shortening_factor;
   };
 
@@ -203,34 +231,36 @@ class CORE_EXPORT CSSAnimations final {
     DISALLOW_NEW();
 
    public:
-    void SetScrollTimeline(const ScopedCSSName& name, ScrollTimeline*);
+    void SetScrollTimeline(const AtomicString& name, ScrollTimeline*);
     const CSSScrollTimelineMap& GetScrollTimelines() const {
       return scroll_timelines_;
     }
-    void SetViewTimeline(const ScopedCSSName& name, ViewTimeline*);
+    void SetViewTimeline(const AtomicString& name, ViewTimeline*);
     const CSSViewTimelineMap& GetViewTimelines() const {
       return view_timelines_;
     }
 
-    void SetDeferredTimeline(const ScopedCSSName& name, DeferredTimeline*);
-    const CSSDeferredTimelineMap& GetDeferredTimelines() const {
-      return deferred_timelines_;
+    void SetDeferredTimelineMap(CSSDeferredTimelineMap map) {
+      deferred_timeline_map_ = std::move(map);
+    }
+    const CSSDeferredTimelineMap& GetDeferredTimelineMap() const {
+      return deferred_timeline_map_;
     }
 
-    void SetTimelineAttachment(ScrollSnapshotTimeline*, DeferredTimeline*);
-    DeferredTimeline* GetTimelineAttachment(ScrollSnapshotTimeline*);
+    void SetTimelineAttachment(ScrollTimeline*, DeferredTimeline*);
+    DeferredTimeline* GetTimelineAttachment(ScrollTimeline*);
     const TimelineAttachmentMap& GetTimelineAttachments() const {
       return timeline_attachments_;
     }
 
     bool IsEmpty() const {
       return scroll_timelines_.empty() && view_timelines_.empty() &&
-             deferred_timelines_.empty() && timeline_attachments_.empty();
+             deferred_timeline_map_.IsEmpty() && timeline_attachments_.empty();
     }
     void Clear() {
       scroll_timelines_.clear();
       view_timelines_.clear();
-      deferred_timelines_.clear();
+      deferred_timeline_map_ = CSSDeferredTimelineMap();
       timeline_attachments_.clear();
     }
     void Trace(Visitor*) const;
@@ -238,7 +268,7 @@ class CORE_EXPORT CSSAnimations final {
    private:
     CSSScrollTimelineMap scroll_timelines_;
     CSSViewTimelineMap view_timelines_;
-    CSSDeferredTimelineMap deferred_timelines_;
+    CSSDeferredTimelineMap deferred_timeline_map_;
     TimelineAttachmentMap timeline_attachments_;
   };
 
@@ -261,10 +291,32 @@ class CORE_EXPORT CSSAnimations final {
     Element& animating_element;
     const ComputedStyle& old_style;
     const ComputedStyle& base_style;
-    scoped_refptr<const ComputedStyle> before_change_style;
+    const ComputedStyle* before_change_style;
+    // base_style may include animation effects for properties inherited from
+    // ancestor elements. Since after-change style should not include such
+    // effects, we may need to compute an ancestor chain of after-change styles
+    // when calculating transition updates. This is expensive, so we only do it
+    // for elements which can transition inherited properties when inherited
+    // properties are being animated in an ancestor. In that case we store the
+    // separately cascaded on-demand after-change style here. Otherwise, we use
+    // the base_style as the after_change_style.
+    const ComputedStyle* after_change_style;
     const TransitionMap* active_transitions;
+    // If the performance of this HashSet shows up in profiles, we could
+    // convert any non-custom CSS properties in it to use CSSBitset instead.
     HashSet<PropertyHandle>* listed_properties;
     const CSSTransitionData* transition_data;
+    // The StyleRecalcContext passed to the style resolution for the element
+    // which we are considering transitions for. This contains necessary try-
+    // data for correct after-change style for anchored elements.
+    const StyleRecalcContext& style_recalc_context;
+    // @starting-style should inherited from the parent's after-change style. As
+    // for base_style, when old_style is the @starting-style it will have
+    // inherited from its ancestors with animation effects applied. So we need
+    // to compute the before-change style for the @starting-style case correctly
+    // by cascading after-change style for ancestors as necessary. This flag is
+    // set to true if before_change_style has been cascaded correctly.
+    bool before_change_style_is_accurate_for_starting_style = false;
   };
 
   static HeapHashSet<Member<const Animation>> CreateCancelledTransitionsSet(
@@ -274,19 +326,27 @@ class CORE_EXPORT CSSAnimations final {
   static void CalculateTransitionUpdateForProperty(
       TransitionUpdateState&,
       const CSSTransitionData::TransitionProperty&,
-      size_t transition_index,
+      wtf_size_t transition_index,
       WritingDirectionMode);
 
   static void CalculateTransitionUpdateForCustomProperty(
       TransitionUpdateState&,
       const CSSTransitionData::TransitionProperty&,
-      size_t transition_index);
+      wtf_size_t transition_index);
 
   static void CalculateTransitionUpdateForStandardProperty(
       TransitionUpdateState&,
       const CSSTransitionData::TransitionProperty&,
-      size_t transition_index,
+      wtf_size_t transition_index,
       WritingDirectionMode);
+
+  // Special handling of “transition: all”. May decline, in which case
+  // it returns false and has no effect.
+  static bool CalculateTransitionUpdateForAll(
+      TransitionUpdateState& state,
+      bool with_discrete,
+      wtf_size_t transition_index,
+      WritingDirectionMode writing_direction);
 
   static bool CanCalculateTransitionUpdateForProperty(
       TransitionUpdateState& state,
@@ -294,8 +354,9 @@ class CORE_EXPORT CSSAnimations final {
 
   static void CalculateTransitionUpdateForPropertyHandle(
       TransitionUpdateState&,
+      const CSSTransitionData::TransitionAnimationType type,
       const PropertyHandle&,
-      size_t transition_index,
+      wtf_size_t transition_index,
       bool animate_all);
 
   static void CalculateAnimationActiveInterpolations(
@@ -311,9 +372,9 @@ class CORE_EXPORT CSSAnimations final {
   static void CalculateViewTimelineUpdate(CSSAnimationUpdate&,
                                           Element& animating_element,
                                           const ComputedStyleBuilder&);
-  static void CalculateDeferredTimelineUpdate(CSSAnimationUpdate&,
-                                              Element& animating_element,
-                                              const ComputedStyleBuilder&);
+  static void CalculateDeferredTimelineMapUpdate(CSSAnimationUpdate&,
+                                                 Element& animating_element,
+                                                 const ComputedStyleBuilder&);
 
   static CSSScrollTimelineMap CalculateChangedScrollTimelines(
       Element& animating_element,
@@ -322,10 +383,6 @@ class CORE_EXPORT CSSAnimations final {
   static CSSViewTimelineMap CalculateChangedViewTimelines(
       Element& animating_element,
       const CSSViewTimelineMap* existing_view_timelines,
-      const ComputedStyleBuilder&);
-  static CSSDeferredTimelineMap CalculateChangedDeferredTimelines(
-      Element& animating_element,
-      const CSSDeferredTimelineMap* existing_deferred_timelines,
       const ComputedStyleBuilder&);
 
   template <typename MapType>
@@ -353,22 +410,29 @@ class CORE_EXPORT CSSAnimations final {
 
   static const TimelineData* GetTimelineData(const Element&);
 
-  static ScrollSnapshotTimeline* FindTimelineForNode(const ScopedCSSName& name,
+  static ScrollSnapshotTimeline* FindTimelineForNode(const AtomicString& name,
                                                      Node*,
                                                      const CSSAnimationUpdate*);
   template <typename TimelineType>
-  static TimelineType* FindTimelineForElement(const ScopedCSSName& name,
+  static TimelineType* FindTimelineForElement(const AtomicString& name,
                                               const TimelineData*,
                                               const CSSAnimationUpdate*);
 
+  static DeferredTimeline* FindDeferredTimelineForElement(
+      Document&,
+      const AtomicString& name,
+      const TimelineData*,
+      const CSSAnimationUpdate*);
+
   static ScrollSnapshotTimeline* FindAncestorTimeline(
-      const ScopedCSSName& name,
+      const AtomicString& name,
       Node*,
       const CSSAnimationUpdate*);
 
-  static DeferredTimeline* FindDeferredTimeline(const ScopedCSSName& name,
-                                                Element*,
-                                                const CSSAnimationUpdate*);
+  static DeferredTimeline* FindAncestorDeferredTimeline(
+      const AtomicString& name,
+      Element*,
+      const CSSAnimationUpdate*);
 
   static AnimationTimeline* ComputeTimeline(
       Element*,
@@ -379,10 +443,57 @@ class CORE_EXPORT CSSAnimations final {
   // The before-change style is defined as the computed values of all properties
   // on the element as of the previous style change event, except with any
   // styles derived from declarative animations updated to the current time.
+  //
+  // transitioning_property can only be nullptr if there is no animating
+  // ancestor.
+  //
   // https://drafts.csswg.org/css-transitions-1/#before-change-style
-  static scoped_refptr<const ComputedStyle> CalculateBeforeChangeStyle(
-      Element& animating_element,
-      const ComputedStyle& base_style);
+  static const ComputedStyle& CalculateBeforeChangeStyle(
+      TransitionUpdateState& state,
+      const PropertyHandle* transitioning_property);
+
+  static const ComputedStyle* EnsureAfterChangeStyleIfNecessary(
+      TransitionUpdateState& state,
+      const ComputedStyle& base_style,
+      const PropertyHandle& transitioning_property,
+      bool for_starting_style);
+
+  // Compute the after-change style for animating_element. Used by
+  // CalculateAfterChangeStyle if the base style can not be used for starting
+  // transitions. The after_change_root is the uppermost ancestor which may have
+  // a different computed value, for the property passed into
+  // CalculateAfterChangeStyle, for the after-change style than for the base
+  // style.
+  static const ComputedStyle& EnsureAfterChangeStyle(Element& animating_element,
+                                                     Element& after_change_root,
+                                                     const StyleRecalcContext&,
+                                                     bool for_starting_style);
+
+  // The after-change style is defined as values of all properties on the
+  // element based on the information known at the start of that style change
+  // event, but using the computed values of the animation-* properties from the
+  // before-change style, excluding any styles from CSS Transitions in the
+  // computation, and inheriting from the after-change style of the parent.
+  // https://drafts.csswg.org/css-transitions/#after-change-style
+  //
+  // This method computes the after-change style for an element given by 'state'
+  // if the computed after-change value for 'transitioning-property' may be
+  // different from the base style value for that property. Otherwise it just
+  // returns the base style.
+  //
+  // transitioning_property can only be nullptr if there is no animating
+  // ancestor.
+  static const ComputedStyle& CalculateAfterChangeStyle(
+      TransitionUpdateState& state,
+      const PropertyHandle* transitioning_property);
+
+  static TimelineTrigger* ComputeTimelineTrigger(
+      const CSSAnimationData* data,
+      wtf_size_t animation_index,
+      const CSSAnimationUpdate& update,
+      float zoom,
+      Element* element,
+      TimelineTrigger* existing_trigger);
 
   class AnimationEventDelegate final : public AnimationEffect::EventDelegate {
    public:
@@ -390,7 +501,7 @@ class CORE_EXPORT CSSAnimations final {
         Element* animation_target,
         const AtomicString& name,
         Timing::Phase previous_phase = Timing::kPhaseNone,
-        absl::optional<double> previous_iteration = absl::nullopt)
+        std::optional<double> previous_iteration = std::nullopt)
         : animation_target_(animation_target),
           name_(name),
           previous_phase_(previous_phase),
@@ -400,7 +511,7 @@ class CORE_EXPORT CSSAnimations final {
 
     bool IsAnimationEventDelegate() const override { return true; }
     Timing::Phase getPreviousPhase() const { return previous_phase_; }
-    absl::optional<double> getPreviousIteration() const {
+    std::optional<double> getPreviousIteration() const {
       return previous_iteration_;
     }
 
@@ -417,7 +528,7 @@ class CORE_EXPORT CSSAnimations final {
     Member<Element> animation_target_;
     const AtomicString name_;
     Timing::Phase previous_phase_;
-    absl::optional<double> previous_iteration_;
+    std::optional<double> previous_iteration_;
   };
 
   class TransitionEventDelegate final : public AnimationEffect::EventDelegate {
@@ -438,7 +549,7 @@ class CORE_EXPORT CSSAnimations final {
     void Trace(Visitor*) const override;
 
    private:
-    void EnqueueEvent(const WTF::AtomicString& type,
+    void EnqueueEvent(const AtomicString& type,
                       const AnimationTimeDelta& elapsed_time);
 
     const Element& TransitionTarget() const { return *transition_target_; }

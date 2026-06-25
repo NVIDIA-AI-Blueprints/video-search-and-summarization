@@ -10,6 +10,10 @@
 #ifndef TEST_VIDEO_CODEC_SETTINGS_H_
 #define TEST_VIDEO_CODEC_SETTINGS_H_
 
+#include <cstdint>
+
+#include "api/video/video_codec_type.h"
+#include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder.h"
 
 namespace webrtc {
@@ -42,8 +46,8 @@ static void CodecSettings(VideoCodecType codec_type, VideoCodec* settings) {
   settings->numberOfSimulcastStreams = 0;
 
   settings->timing_frame_thresholds = {
-      kTestTimingFramesDelayMs,
-      kTestOutlierFrameSizePercent,
+      .delay_ms = kTestTimingFramesDelayMs,
+      .outlier_ratio_percent = kTestOutlierFrameSizePercent,
   };
 
   settings->codecType = codec_type;
@@ -58,11 +62,9 @@ static void CodecSettings(VideoCodecType codec_type, VideoCodec* settings) {
       // TODO(brandtr): Set `qpMax` here, when the OpenH264 wrapper supports it.
       *(settings->H264()) = VideoEncoder::GetDefaultH264Settings();
       return;
-#ifndef DISABLE_H265
     case kVideoCodecH265:
       *(settings->H265()) = VideoEncoder::GetDefaultH265Settings();
       return;
-#endif
     default:
       return;
   }

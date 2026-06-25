@@ -13,15 +13,17 @@
 
 #include <stdint.h>
 
-#include "absl/types/optional.h"
-#include "api/network_state_predictor.h"
+#include <optional>
+
+#include "api/transport/bandwidth_usage.h"
 #include "api/units/data_rate.h"
+#include "api/units/time_delta.h"
 
 namespace webrtc {
 
-constexpr DataRate kCongestionControllerMinBitrate = DataRate::BitsPerSec(5000);
-
-static const int64_t kBitrateWindowMs = 1000;
+inline constexpr DataRate kCongestionControllerMinBitrate =
+    DataRate::BitsPerSec(5'000);
+inline constexpr TimeDelta kBitrateWindow = TimeDelta::Seconds(1);
 
 extern const char kBweTypeHistogram[];
 
@@ -35,11 +37,11 @@ enum BweNames {
 
 struct RateControlInput {
   RateControlInput(BandwidthUsage bw_state,
-                   const absl::optional<DataRate>& estimated_throughput);
+                   const std::optional<DataRate>& estimated_throughput);
   ~RateControlInput();
 
   BandwidthUsage bw_state;
-  absl::optional<DataRate> estimated_throughput;
+  std::optional<DataRate> estimated_throughput;
 };
 }  // namespace webrtc
 

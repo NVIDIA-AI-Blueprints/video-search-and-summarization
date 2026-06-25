@@ -29,22 +29,13 @@
 #define AVCODEC_AACENC_UTILS_H
 
 #include "libavutil/ffmath.h"
-#include "aac.h"
+#include "aacenc.h"
 #include "aacenctab.h"
 #include "aactab.h"
 
 #define ROUND_STANDARD 0.4054f
 #define ROUND_TO_ZERO 0.1054f
 #define C_QUANT 0.4054f
-
-static inline void abs_pow34_v(float *out, const float *in, const int size)
-{
-    int i;
-    for (i = 0; i < size; i++) {
-        float a = fabsf(in[i]);
-        out[i] = sqrtf(a * sqrtf(a));
-    }
-}
 
 static inline float pos_pow34(float a)
 {
@@ -60,21 +51,6 @@ static inline int quant(float coef, const float Q, const float rounding)
 {
     float a = coef * Q;
     return sqrtf(a * sqrtf(a)) + rounding;
-}
-
-static inline void quantize_bands(int *out, const float *in, const float *scaled,
-                                  int size, int is_signed, int maxval, const float Q34,
-                                  const float rounding)
-{
-    int i;
-    for (i = 0; i < size; i++) {
-        float qc = scaled[i] * Q34;
-        int tmp = (int)FFMIN(qc + rounding, (float)maxval);
-        if (is_signed && in[i] < 0.0f) {
-            tmp = -tmp;
-        }
-        out[i] = tmp;
-    }
 }
 
 static inline float find_max_val(int group_len, int swb_size, const float *scaled)

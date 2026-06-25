@@ -10,7 +10,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -36,10 +36,11 @@ RTC_OBJC_EXPORT
 - (instancetype)init NS_UNAVAILABLE;
 
 /** Initialize with mandatory and/or optional constraints. */
-- (instancetype)
-    initWithMandatoryConstraints:(nullable NSDictionary<NSString *, NSString *> *)mandatory
-             optionalConstraints:(nullable NSDictionary<NSString *, NSString *> *)optional
-    NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithMandatoryConstraints:
+                    (nullable NSDictionary<NSString *, NSString *> *)mandatory
+                         optionalConstraints:
+                             (nullable NSDictionary<NSString *, NSString *> *)
+                                 optional NS_DESIGNATED_INITIALIZER;
 
 @end
 

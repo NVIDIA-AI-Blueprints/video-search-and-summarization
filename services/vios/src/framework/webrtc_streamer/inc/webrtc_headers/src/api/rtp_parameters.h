@@ -13,21 +13,28 @@
 
 #include <stdint.h>
 
+#include <cstddef>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/media_types.h"
 #include "api/priority.h"
+#include "api/rtc_error.h"
 #include "api/rtp_transceiver_direction.h"
 #include "api/video/resolution.h"
 #include "api/video_codecs/scalability_mode.h"
+#include "rtc_base/strings/str_join.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
+class StringBuilder;
+
+using CodecParameterMap = std::map<std::string, std::string>;
 
 // These structures are intended to mirror those defined by:
 // http://draft.ortc.org/#rtcrtpdictionaries*
@@ -55,13 +62,53 @@ enum class FecMechanism {
 };
 
 // Used in RtcpFeedback struct.
+// Also used as an UMA key.
 enum class RtcpFeedbackType {
+  NONE,
   CCM,
   LNTF,  // "goog-lntf"
   NACK,
   REMB,  // "goog-remb"
   TRANSPORT_CC,
+  CCFB,  // RFC8888
+  MAX = CCFB
 };
+
+template <typename Sink>
+void AbslStringify(Sink& sink, RtcpFeedbackType type) {
+  switch (type) {
+    case RtcpFeedbackType::NONE:
+      sink.Append("NONE");
+      break;
+    case RtcpFeedbackType::CCM:
+      sink.Append("CCM");
+      break;
+    case RtcpFeedbackType::LNTF:
+      sink.Append("LNTF");
+      break;
+    case RtcpFeedbackType::NACK:
+      sink.Append("NACK");
+      break;
+    case RtcpFeedbackType::REMB:
+      sink.Append("REMB");
+      break;
+    case RtcpFeedbackType::TRANSPORT_CC:
+      sink.Append("TRANSPORT_CC");
+      break;
+    case RtcpFeedbackType::CCFB:
+      sink.Append("CCFB");
+      break;
+  }
+}
+
+template <typename Sink>
+void AbslStringify(Sink& sink, std::optional<RtcpFeedbackType> type) {
+  if (!type.has_value()) {
+    sink.Append("nullopt");
+    return;
+  }
+  AbslStringify(sink, *type);
+}
 
 // Used in RtcpFeedback struct when type is NACK or CCM.
 enum class RtcpFeedbackMessageType {
@@ -84,9 +131,13 @@ enum class DtxStatus {
 // maintain-framerate option.
 // TODO(deadbeef): Default to "balanced", as the spec indicates?
 enum class DegradationPreference {
-  // Don't take any actions based on over-utilization signals. Not part of the
-  // web API.
-  DISABLED,
+  // Maintain framerate and resolution regardless of video quality. Frames may
+  // be dropped before encoding if necessary not to overuse network and encoder
+  // resources.
+  MAINTAIN_FRAMERATE_AND_RESOLUTION,
+  // TODO(webrtc:450044904): Switch downstream projects to
+  // MAINTAIN_FRAMERATE_AND_RESOLUTION and remove DISABLED.
+  DISABLED = MAINTAIN_FRAMERATE_AND_RESOLUTION,
   // On over-use, request lower resolution, possibly causing down-scaling.
   MAINTAIN_FRAMERATE,
   // On over-use, request lower frame rate, possibly causing frame drops.
@@ -100,6 +151,17 @@ RTC_EXPORT const char* DegradationPreferenceToString(
 
 RTC_EXPORT extern const double kDefaultBitratePriority;
 
+// Generates an FMTP line based on `parameters`. Please note that some
+// parameters are not considered to be part of the FMTP line, see the function
+// IsFmtpParam(). Returns true if the set of FMTP parameters is nonempty, false
+// otherwise.
+bool WriteFmtpParameters(const CodecParameterMap& parameters,
+                         StringBuilder& os);
+
+// Parses a string into an FMTP parameter set, in key-value format.
+RTCError ParseFmtpParameterSet(absl::string_view line_params,
+                               CodecParameterMap& codec_params);
+
 struct RTC_EXPORT RtcpFeedback {
   RtcpFeedbackType type = RtcpFeedbackType::CCM;
 
@@ -107,7 +169,7 @@ struct RTC_EXPORT RtcpFeedback {
   // 1. It's an enum instead of a string.
   // 2. Generic NACK feedback is represented by a GENERIC_NACK message type,
   //    rather than an unset "parameter" value.
-  absl::optional<RtcpFeedbackMessageType> message_type;
+  std::optional<RtcpFeedbackMessageType> message_type;
 
   // Constructors for convenience.
   RtcpFeedback();
@@ -134,17 +196,17 @@ struct RTC_EXPORT RtpCodec {
   std::string name;
 
   // The media type of this codec. Equivalent to MIME top-level type.
-  cricket::MediaType kind = cricket::MEDIA_TYPE_AUDIO;
+  MediaType kind = MediaType::AUDIO;
 
   // If unset, the implementation default is used.
-  absl::optional<int> clock_rate;
+  std::optional<int> clock_rate;
 
   // The number of audio channels used. Unset for video codecs. If unset for
   // audio, the implementation default is used.
   // TODO(deadbeef): The "implementation default" part isn't fully implemented.
   // Only defaults to 1, even though some codecs (such as opus) should really
   // default to 2.
-  absl::optional<int> num_channels;
+  std::optional<int> num_channels;
 
   // Feedback mechanisms to be used for this codec.
   // TODO(deadbeef): Not implemented with PeerConnection senders/receivers.
@@ -165,6 +227,32 @@ struct RTC_EXPORT RtpCodec {
            parameters == o.parameters;
   }
   bool operator!=(const RtpCodec& o) const { return !(*this == o); }
+  bool IsResiliencyCodec() const;
+  bool IsMediaCodec() const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RtpCodec& c) {
+    absl::Format(&sink, "{mime_type: %s", c.mime_type());
+    if (c.clock_rate) {
+      absl::Format(&sink, ", clock_rate: %d", *c.clock_rate);
+    }
+    if (c.num_channels) {
+      absl::Format(&sink, ", num_channels: %d", *c.num_channels);
+    }
+    if (!c.parameters.empty()) {
+      sink.Append(", parameters: {");
+      bool first = true;
+      for (const auto& kv : c.parameters) {
+        if (!first) {
+          sink.Append(", ");
+        }
+        absl::Format(&sink, "%s: %s", kv.first, kv.second);
+        first = false;
+      }
+      sink.Append("}");
+    }
+    sink.Append("}");
+  }
 };
 
 // RtpCodecCapability is to RtpCodecParameters as RtpCapabilities is to
@@ -172,11 +260,11 @@ struct RTC_EXPORT RtpCodec {
 // implementation of a codec.
 struct RTC_EXPORT RtpCodecCapability : public RtpCodec {
   RtpCodecCapability();
-  virtual ~RtpCodecCapability();
+  ~RtpCodecCapability() override;
 
   // Default payload type for this codec. Mainly needed for codecs that have
   // statically assigned payload types.
-  absl::optional<int> preferred_payload_type;
+  std::optional<int> preferred_payload_type;
 
   // List of scalability modes supported by the video codec.
   absl::InlinedVector<ScalabilityMode, kScalabilityModeCount> scalability_modes;
@@ -187,6 +275,24 @@ struct RTC_EXPORT RtpCodecCapability : public RtpCodec {
            scalability_modes == o.scalability_modes;
   }
   bool operator!=(const RtpCodecCapability& o) const { return !(*this == o); }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RtpCodecCapability& cap) {
+    if (cap.kind == MediaType::AUDIO) {
+      absl::Format(&sink, "[audio/%s/%d/%d]", cap.name,
+                   cap.clock_rate.value_or(0), cap.num_channels.value_or(1));
+    } else {
+      absl::Format(&sink, "[video/%s]", cap.name);
+    }
+  }
+};
+
+enum class RtpTransceiverIdDomain {
+  // Only allocate IDs that fit in one-byte header extensions.
+  kOneByteOnly,
+  // Prefer to allocate one-byte header extension IDs, but overflow to
+  // two-byte if none are left.
+  kTwoByteAllowed,
 };
 
 // Used in RtpCapabilities and RtpTransceiverInterface's header extensions query
@@ -198,17 +304,17 @@ struct RTC_EXPORT RtpCodecCapability : public RtpCodec {
 // RtpHeaderExtensionParameters.
 //
 // Note that ORTC includes a "kind" field, but we omit this because it's
-// redundant; if you call "RtpReceiver::GetCapabilities(MEDIA_TYPE_AUDIO)",
-// you know you're getting audio capabilities.
+// redundant; if you call
+// "RtpReceiver::GetCapabilities(MediaType::AUDIO)", you know you're
+// getting audio capabilities.
 struct RTC_EXPORT RtpHeaderExtensionCapability {
   // URI of this extension, as defined in RFC8285.
   std::string uri;
 
   // Preferred value of ID that goes in the packet.
-  absl::optional<int> preferred_id;
+  std::optional<int> preferred_id;
 
   // If true, it's preferred that the value in the header is encrypted.
-  // TODO(deadbeef): Not implemented.
   bool preferred_encrypt = false;
 
   // The direction of the extension. The kStopped value is only used with
@@ -223,6 +329,10 @@ struct RTC_EXPORT RtpHeaderExtensionCapability {
   RtpHeaderExtensionCapability(absl::string_view uri,
                                int preferred_id,
                                RtpTransceiverDirection direction);
+  RtpHeaderExtensionCapability(absl::string_view uri,
+                               int preferred_id,
+                               bool preferred_encrypt,
+                               RtpTransceiverDirection direction);
   ~RtpHeaderExtensionCapability();
 
   bool operator==(const RtpHeaderExtensionCapability& o) const {
@@ -231,6 +341,17 @@ struct RTC_EXPORT RtpHeaderExtensionCapability {
   }
   bool operator!=(const RtpHeaderExtensionCapability& o) const {
     return !(*this == o);
+  }
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const RtpHeaderExtensionCapability& cap) {
+    absl::Format(&sink, "%s", cap.uri);
+    if (cap.direction != RtpTransceiverDirection::kSendRecv) {
+      absl::Format(&sink, "/%v", cap.direction);
+    }
+    if (cap.preferred_encrypt) {
+      sink.Append(" (encrypt)");
+    }
   }
 };
 
@@ -364,7 +485,7 @@ struct RTC_EXPORT RtpExtension {
   static constexpr char kRepairedRidUri[] =
       "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id";
 
-  // Header extension to propagate webrtc::VideoFrame id field
+  // Header extension to propagate VideoFrame id field
   static constexpr char kVideoFrameTrackingIdUri[] =
       "http://www.webrtc.org/experiments/rtp-hdrext/video-frame-tracking-id";
 
@@ -372,6 +493,10 @@ struct RTC_EXPORT RtpExtension {
   // https://tools.ietf.org/html/rfc6465
   static constexpr char kCsrcAudioLevelsUri[] =
       "urn:ietf:params:rtp-hdrext:csrc-audio-level";
+
+  // Header extension for automatic corruption detection.
+  static constexpr char kCorruptionDetectionUri[] =
+      "http://www.webrtc.org/experiments/rtp-hdrext/corruption-detection";
 
   // Inclusive min and max IDs for two-byte header extensions and one-byte
   // header extensions, per RFC8285 Section 4.2-4.3.
@@ -384,12 +509,21 @@ struct RTC_EXPORT RtpExtension {
   std::string uri;
   int id = 0;
   bool encrypt = false;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RtpExtension& extension) {
+    if (extension.encrypt) {
+      absl::Format(&sink, "[%d %s (encrypted)]", extension.id, extension.uri);
+    } else {
+      absl::Format(&sink, "[%d %s]", extension.id, extension.uri);
+    }
+  }
 };
 
 struct RTC_EXPORT RtpFecParameters {
   // If unset, a value is chosen by the implementation.
   // Works just like RtpEncodingParameters::ssrc.
-  absl::optional<uint32_t> ssrc;
+  std::optional<uint32_t> ssrc;
 
   FecMechanism mechanism = FecMechanism::RED;
 
@@ -409,7 +543,7 @@ struct RTC_EXPORT RtpFecParameters {
 struct RTC_EXPORT RtpRtxParameters {
   // If unset, a value is chosen by the implementation.
   // Works just like RtpEncodingParameters::ssrc.
-  absl::optional<uint32_t> ssrc;
+  std::optional<uint32_t> ssrc;
 
   // Constructors for convenience.
   RtpRtxParameters();
@@ -432,7 +566,15 @@ struct RTC_EXPORT RtpEncodingParameters {
   // may change due to an SSRC conflict, in which case the conflict is handled
   // internally without any event. Another way of looking at this is that an
   // unset SSRC acts as a "wildcard" SSRC.
-  absl::optional<uint32_t> ssrc;
+  std::optional<uint32_t> ssrc;
+
+  // The list of CSRCs to be included in the RTP header. Defaults to an empty
+  // list. At most 15 CSRCs can be specified, and they must be the same for all
+  // encodings in an RtpParameters struct.
+  //
+  // If this field is set, the list is replaced with the specified values.
+  // Otherwise, it is left unchanged. Specify an empty vector to clear the list.
+  std::optional<std::vector<uint32_t>> csrcs;
 
   // The relative bitrate priority of this encoding. Currently this is
   // implemented for the entire rtp sender by using the value of the first
@@ -467,42 +609,35 @@ struct RTC_EXPORT RtpEncodingParameters {
   // bandwidth for the entire bandwidth estimator (audio and video). This is
   // just always how "b=AS" was handled, but it's not correct and should be
   // fixed.
-  absl::optional<int> max_bitrate_bps;
+  std::optional<int> max_bitrate_bps;
 
   // Specifies the minimum bitrate in bps for video.
-  absl::optional<int> min_bitrate_bps;
+  std::optional<int> min_bitrate_bps;
 
   // Specifies the maximum framerate in fps for video.
-  absl::optional<double> max_framerate;
+  std::optional<double> max_framerate;
 
   // Specifies the number of temporal layers for video (if the feature is
   // supported by the codec implementation).
   // Screencast support is experimental.
-  absl::optional<int> num_temporal_layers;
+  std::optional<int> num_temporal_layers;
 
   // For video, scale the resolution down by this factor.
-  absl::optional<double> scale_resolution_down_by;
+  std::optional<double> scale_resolution_down_by;
 
   // https://w3c.github.io/webrtc-svc/#rtcrtpencodingparameters
-  absl::optional<std::string> scalability_mode;
+  std::optional<std::string> scalability_mode;
 
-  // Requested encode resolution.
+  // This is an alternative API to `scale_resolution_down_by` but expressed in
+  // absolute terms (max width and max height) as opposed to relative terms (a
+  // scaling factor that is relative to the input frame size).
   //
-  // This field provides an alternative to `scale_resolution_down_by`
-  // that is not dependent on the video source.
+  // If both `scale_resolution_down_by` and `scale_resolution_down_to` are
+  // specified, the "scale by" value is ignored.
   //
-  // When setting requested_resolution it is not necessary to adapt the
-  // video source using OnOutputFormatRequest, since the VideoStreamEncoder
-  // will apply downscaling if necessary. requested_resolution will also be
-  // propagated to the video source, this allows downscaling earlier in the
-  // pipeline which can be beneficial if the source is consumed by multiple
-  // encoders, but is not strictly necessary.
-  //
-  // The `requested_resolution` is subject to resource adaptation.
-  //
-  // It is an error to set both `requested_resolution` and
-  // `scale_resolution_down_by`.
-  absl::optional<Resolution> requested_resolution;
+  // See spec:
+  // https://w3c.github.io/webrtc-extensions/#dom-rtcrtpencodingparameters-scaleresolutiondownto
+  std::optional<Resolution> scale_resolution_down_to;
 
   // For an RtpSender, set to true to cause this encoding to be encoded and
   // sent, and false for it not to be encoded and sent. This allows control
@@ -515,13 +650,18 @@ struct RTC_EXPORT RtpEncodingParameters {
   // Value to use for RID RTP header extension.
   // Called "encodingId" in ORTC.
   std::string rid;
+  bool request_key_frame = false;
 
   // Allow dynamic frame length changes for audio:
   // https://w3c.github.io/webrtc-extensions/#dom-rtcrtpencodingparameters-adaptiveptime
   bool adaptive_ptime = false;
 
+  // Allow changing the used codec for this encoding.
+  std::optional<RtpCodec> codec;
+
   bool operator==(const RtpEncodingParameters& o) const {
-    return ssrc == o.ssrc && bitrate_priority == o.bitrate_priority &&
+    return ssrc == o.ssrc && csrcs == o.csrcs &&
+           bitrate_priority == o.bitrate_priority &&
            network_priority == o.network_priority &&
            max_bitrate_bps == o.max_bitrate_bps &&
            min_bitrate_bps == o.min_bitrate_bps &&
@@ -530,17 +670,56 @@ struct RTC_EXPORT RtpEncodingParameters {
            scale_resolution_down_by == o.scale_resolution_down_by &&
            active == o.active && rid == o.rid &&
            adaptive_ptime == o.adaptive_ptime &&
-           requested_resolution == o.requested_resolution;
+           scale_resolution_down_to == o.scale_resolution_down_to &&
+           codec == o.codec;
   }
   bool operator!=(const RtpEncodingParameters& o) const {
     return !(*this == o);
+  }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RtpEncodingParameters& p) {
+    sink.Append("{");
+    if (p.ssrc)
+      absl::Format(&sink, "ssrc: %u, ", *p.ssrc);
+    absl::Format(&sink, "active: %s, ", p.active ? "true" : "false");
+    absl::Format(&sink, "rid: '%s', ", p.rid);
+    if (p.max_bitrate_bps) {
+      absl::Format(&sink, "max_bitrate_bps: %d, ", *p.max_bitrate_bps);
+    }
+    if (p.min_bitrate_bps) {
+      absl::Format(&sink, "min_bitrate_bps: %d, ", *p.min_bitrate_bps);
+    }
+    if (p.max_framerate) {
+      absl::Format(&sink, "max_framerate: %.2f, ", *p.max_framerate);
+    }
+    if (p.num_temporal_layers) {
+      absl::Format(&sink, "num_temporal_layers: %d, ", *p.num_temporal_layers);
+    }
+    if (p.scale_resolution_down_by) {
+      absl::Format(&sink, "scale_resolution_down_by: %.2f, ",
+                   *p.scale_resolution_down_by);
+    }
+    if (p.scale_resolution_down_to) {
+      absl::Format(&sink, "scale_resolution_down_to: %dx%d, ",
+                   p.scale_resolution_down_to->width,
+                   p.scale_resolution_down_to->height);
+    }
+    if (p.scalability_mode) {
+      absl::Format(&sink, "scalability_mode: '%s', ", *p.scalability_mode);
+    }
+    if (p.codec) {
+      absl::Format(&sink, "codec: %v, ", *p.codec);
+    }
+    absl::Format(&sink, "adaptive_ptime: %s}",
+                 p.adaptive_ptime ? "true" : "false");
   }
 };
 
 struct RTC_EXPORT RtpCodecParameters : public RtpCodec {
   RtpCodecParameters();
   RtpCodecParameters(const RtpCodecParameters&);
-  virtual ~RtpCodecParameters();
+  ~RtpCodecParameters() override;
 
   // Payload type used to identify this codec in RTP packets.
   // This must always be present, and must be unique across all codecs using
@@ -551,6 +730,11 @@ struct RTC_EXPORT RtpCodecParameters : public RtpCodec {
     return RtpCodec::operator==(o) && payload_type == o.payload_type;
   }
   bool operator!=(const RtpCodecParameters& o) const { return !(*this == o); }
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RtpCodecParameters& p) {
+    absl::Format(&sink, "{payload_type: %d, codec: %v}", p.payload_type,
+                 static_cast<const RtpCodec&>(p));
+  }
 };
 
 // RtpCapabilities is used to represent the static capabilities of an endpoint.
@@ -585,7 +769,7 @@ struct RtcpParameters final {
   // The SSRC to be used in the "SSRC of packet sender" field. If not set, one
   // will be chosen by the implementation.
   // TODO(deadbeef): Not implemented.
-  absl::optional<uint32_t> ssrc;
+  std::optional<uint32_t> ssrc;
 
   // The Canonical Name (CNAME) used by RTCP (e.g. in SDES messages).
   //
@@ -610,6 +794,17 @@ struct RtcpParameters final {
            reduced_size == o.reduced_size && mux == o.mux;
   }
   bool operator!=(const RtcpParameters& o) const { return !(*this == o); }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RtcpParameters& p) {
+    sink.Append("{");
+    if (p.ssrc)
+      absl::Format(&sink, "ssrc: %u, ", *p.ssrc);
+    absl::Format(&sink, "cname: '%s', ", p.cname);
+    absl::Format(&sink, "reduced_size: %s, ",
+                 p.reduced_size ? "true" : "false");
+    absl::Format(&sink, "mux: %s}", p.mux ? "true" : "false");
+  }
 };
 
 struct RTC_EXPORT RtpParameters {
@@ -641,7 +836,7 @@ struct RTC_EXPORT RtpParameters {
   // When bandwidth is constrained and the RtpSender needs to choose between
   // degrading resolution or degrading framerate, degradationPreference
   // indicates which is preferred. Only for video tracks.
-  absl::optional<DegradationPreference> degradation_preference;
+  std::optional<DegradationPreference> degradation_preference;
 
   bool operator==(const RtpParameters& o) const {
     return mid == o.mid && codecs == o.codecs &&
@@ -650,6 +845,29 @@ struct RTC_EXPORT RtpParameters {
            degradation_preference == o.degradation_preference;
   }
   bool operator!=(const RtpParameters& o) const { return !(*this == o); }
+
+  // Returns true if the active encodings use different codecs.
+  // Inactive encodings are ignored.
+  // If at least two active encodings have different codec values
+  // (including one being unset and another set), this is considered mixed.
+  bool IsMixedCodec() const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RtpParameters& p) {
+    sink.Append("{");
+    absl::Format(&sink, "transaction_id: '%s', ", p.transaction_id);
+    absl::Format(&sink, "mid: '%s', ", p.mid);
+    absl::Format(&sink, "codecs: [%v], ", StrJoin(p.codecs, ", "));
+    absl::Format(&sink, "header_extensions: [%v], ",
+                 StrJoin(p.header_extensions, ", "));
+    absl::Format(&sink, "encodings: [%v], ", StrJoin(p.encodings, ", "));
+    absl::Format(&sink, "rtcp: %v", p.rtcp);
+    if (p.degradation_preference) {
+      absl::Format(&sink, ", degradation_preference: %s",
+                   DegradationPreferenceToString(*p.degradation_preference));
+    }
+    sink.Append("}");
+  }
 };
 
 }  // namespace webrtc

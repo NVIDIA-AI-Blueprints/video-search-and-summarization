@@ -17,12 +17,13 @@
 #ifndef SRC_TRACE_PROCESSOR_UTIL_PROTOZERO_TO_TEXT_H_
 #define SRC_TRACE_PROCESSOR_UTIL_PROTOZERO_TO_TEXT_H_
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include "perfetto/protozero/field.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class DescriptorPool;
 
@@ -36,18 +37,6 @@ enum NewLinesMode {
 };
 
 // Given a protozero message |protobytes| which is of fully qualified name
-// |type| within TrackEvent proto messages, we will convert this into a text
-// proto format string.
-//
-// DebugTrackEventProtozeroToText will use new lines between fields, and
-// ShortDebugTrackEventProtozeroToText will use only a single space.
-std::string DebugTrackEventProtozeroToText(const std::string& type,
-                                           protozero::ConstBytes protobytes);
-std::string ShortDebugTrackEventProtozeroToText(
-    const std::string& type,
-    protozero::ConstBytes protobytes);
-
-// Given a protozero message |protobytes| which is of fully qualified name
 // |type|, convert this into a text proto format string. All types used in
 // message definition of |type| must be available in |pool|.
 std::string ProtozeroToText(
@@ -55,24 +44,16 @@ std::string ProtozeroToText(
     const std::string& type,
     protozero::ConstBytes protobytes,
     NewLinesMode new_lines_mode = NewLinesMode::kIncludeNewLines,
-    uint32_t initial_indent_depth = 0);
+    uint32_t initial_indent_depth = 0,
+    bool skip_unknown_fields = false);
 
 std::string ProtozeroToText(const DescriptorPool& pool,
                             const std::string& type,
                             const std::vector<uint8_t>& protobytes,
-                            NewLinesMode new_lines_mode);
-
-// Allow the conversion from a protozero enum to a string. The template is just
-// to allow easy enum passing since we will do the explicit cast to a int32_t
-// for the user.
-std::string ProtozeroEnumToText(const std::string& type, int32_t enum_value);
-template <typename Enum>
-std::string ProtozeroEnumToText(const std::string& type, Enum enum_value) {
-  return ProtozeroEnumToText(type, static_cast<int32_t>(enum_value));
-}
+                            NewLinesMode new_lines_mode,
+                            bool skip_unknown_fields = false);
 
 }  // namespace protozero_to_text
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_UTIL_PROTOZERO_TO_TEXT_H_

@@ -22,9 +22,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SVG_SVG_SVG_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SVG_SVG_SVG_ELEMENT_H_
 
-#include "third_party/blink/renderer/core/svg/svg_fit_to_view_box.h"
-#include "third_party/blink/renderer/core/svg/svg_graphics_element.h"
 #include "third_party/blink/renderer/core/svg/svg_point.h"
+#include "third_party/blink/renderer/core/svg/svg_viewport_container_element.h"
 #include "third_party/blink/renderer/core/svg/svg_zoom_and_pan.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "ui/gfx/geometry/vector2d_f.h"
@@ -38,11 +37,11 @@ class SVGLengthTearOff;
 class SVGMatrixTearOff;
 class SVGNumberTearOff;
 class SVGPointTearOff;
+class SVGRect;
 class SVGTransformTearOff;
 class SVGViewSpec;
 
-class SVGSVGElement final : public SVGGraphicsElement,
-                            public SVGFitToViewBox,
+class SVGSVGElement final : public SVGViewportContainerElement,
                             public SVGZoomAndPan {
   DEFINE_WRAPPERTYPEINFO();
 
@@ -50,12 +49,18 @@ class SVGSVGElement final : public SVGGraphicsElement,
   explicit SVGSVGElement(Document&);
   ~SVGSVGElement() override;
 
-  absl::optional<float> IntrinsicWidth() const;
-  absl::optional<float> IntrinsicHeight() const;
-  gfx::SizeF CurrentViewportSize() const;
-  gfx::RectF CurrentViewBoxRect() const;
-  bool HasEmptyViewBox() const;
-  const SVGPreserveAspectRatio* CurrentPreserveAspectRatio() const;
+  ElementType GetElementType() const final {
+    return ElementType::kSVGSVGElement;
+  }
+
+  std::optional<float> IntrinsicWidth() const;
+  std::optional<float> IntrinsicHeight() const;
+  const SVGRect& CurrentViewBox() const override;
+  // This method, as opposed to the one above, also includes the synthesized
+  // viewBox if one is active. Because of that it shouldn't be used for sizing
+  // calculations.
+  gfx::RectF CurrentViewBoxRect() const override;
+  const SVGPreserveAspectRatio* CurrentPreserveAspectRatio() const override;
 
   float currentScale() const;
   void setCurrentScale(float scale);
@@ -81,8 +86,9 @@ class SVGSVGElement final : public SVGGraphicsElement,
   void unsuspendRedrawAll() {}
   void forceRedraw() {}
 
-  StaticNodeList* getIntersectionList(SVGRectTearOff*,
-                                      SVGElement* reference_element) const;
+  StaticNodeTypeList<Element>* getIntersectionList(
+      SVGRectTearOff*,
+      SVGElement* reference_element) const;
   StaticNodeList* getEnclosureList(SVGRectTearOff*,
                                    SVGElement* reference_element) const;
   bool checkIntersection(SVGElement*, SVGRectTearOff*) const;
@@ -98,10 +104,13 @@ class SVGSVGElement final : public SVGGraphicsElement,
   static SVGTransformTearOff* createSVGTransform();
   static SVGTransformTearOff* createSVGTransformFromMatrix(SVGMatrixTearOff*);
 
-  AffineTransform ViewBoxToViewTransform(const gfx::SizeF& viewport_size) const;
+  AffineTransform ViewBoxToViewTransform(
+      const gfx::SizeF& viewport_size) const override;
 
-  void SetupInitialView(const String& fragment_identifier,
-                        Element* anchor_node);
+  const SVGViewSpec* ParseViewSpec(const String& fragment_identifier,
+                                   Element* anchor_node) const;
+  void SetViewSpec(const SVGViewSpec*);
+
   bool ZoomAndPanEnabled() const;
 
   SVGAnimatedLength* x() const { return x_.Get(); }
@@ -112,14 +121,12 @@ class SVGSVGElement final : public SVGGraphicsElement,
   void Trace(Visitor*) const override;
 
  private:
-  void SetViewSpec(const SVGViewSpec*);
-
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
 
   void AttachLayoutTree(AttachContext&) override;
   bool LayoutObjectIsNeeded(const DisplayStyle&) const override;
@@ -132,33 +139,12 @@ class SVGSVGElement final : public SVGGraphicsElement,
 
   void DidMoveToNewDocument(Document& old_document) override;
 
-  bool SelfHasRelativeLengths() const override;
-
   bool ShouldSynthesizeViewBox() const;
   void UpdateUserTransform();
 
   void FinishParsingChildren() override;
 
-  enum GeometryMatchingMode { kCheckIntersection, kCheckEnclosure };
-
-  bool CheckIntersectionOrEnclosure(const SVGElement&,
-                                    const gfx::RectF&,
-                                    GeometryMatchingMode) const;
-  StaticNodeList* CollectIntersectionOrEnclosureList(
-      const gfx::RectF&,
-      SVGElement*,
-      GeometryMatchingMode) const;
-
-  SVGAnimatedPropertyBase* PropertyFromAttribute(
-      const QualifiedName& attribute_name) const override;
-  void SynchronizeAllSVGAttributes() const override;
-  void CollectExtraStyleForPresentationAttribute(
-      MutableCSSPropertyValueSet* style) override;
-
-  Member<SVGAnimatedLength> x_;
-  Member<SVGAnimatedLength> y_;
-  Member<SVGAnimatedLength> width_;
-  Member<SVGAnimatedLength> height_;
+  bool CheckEnclosure(const SVGElement&, const gfx::RectF&) const;
 
   AffineTransform LocalCoordinateSpaceTransform(CTMScope) const override;
 

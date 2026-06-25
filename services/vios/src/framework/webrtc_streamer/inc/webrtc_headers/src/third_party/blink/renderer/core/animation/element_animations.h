@@ -32,7 +32,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_ELEMENT_ANIMATIONS_H_
 
 #include "base/gtest_prod_util.h"
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/animation/css/css_animations.h"
 #include "third_party/blink/renderer/core/animation/effect_stack.h"
 #include "third_party/blink/renderer/core/animation/worklet_animation_base.h"
@@ -60,14 +59,13 @@ class CORE_EXPORT ElementAnimations final
   ~ElementAnimations();
 
   enum class CompositedPaintStatus {
-    // Either no animation is running that affects the target property, or a
-    // fresh compositing decision is required for an animated property.
+    // A fresh compositing decision is required for an animated property.
     // Any style change for the corresponding property requires paint
     // invalidation. Even if rendered by a composited animation, we need to
     // trigger repaint in order to set up a worklet paint image. If the property
     // is animated, paint will decide if the animation is composited and will
     // update the status accordingly.
-    kNeedsRepaintOrNoAnimation = 0,
+    kNeedsRepaint = 0,
 
     // An animation is affecting the target property, but it is not being
     // composited. Paint can short-circuit setting up a worklet paint image
@@ -79,7 +77,11 @@ class CORE_EXPORT ElementAnimations final
     // compositor. Though repaint won't get triggered by a change to the
     // property, it can still be triggered for other reasons, in which case a
     // worklet paint image must be generated.
-    kComposited = 2
+    kComposited = 2,
+
+    // No animation affects the targeted property, so no paint invalidation or
+    // image generation is required.
+    kNoAnimation = 3
   };
 
   // Animations that are currently active for this element, their effects will
@@ -113,6 +115,13 @@ class CORE_EXPORT ElementAnimations final
   bool UpdateBoxSizeAndCheckTransformAxisAlignment(const gfx::SizeF& box_size);
   bool IsIdentityOrTranslation() const;
 
+  bool HasCompositedPaintWorkletAnimation();
+
+  void RecalcCompositedStatusForKeyframeChange(
+      Element& element,
+      Animation::NativePaintWorkletReasons properties);
+  void RecalcCompositedStatus(Element* element);
+
   // TODO(crbug.com/1301961): Consider converting to an array or flat map of
   // fields for paint properties that can be composited.
   CompositedPaintStatus CompositedBackgroundColorStatus() {
@@ -120,15 +129,25 @@ class CORE_EXPORT ElementAnimations final
         composited_background_color_status_);
   }
 
-  void SetCompositedBackgroundColorStatus(CompositedPaintStatus status);
+  bool SetCompositedBackgroundColorStatus(CompositedPaintStatus status);
+
+  Animation* PaintWorkletClipPathAnimation() {
+    return clip_path_paint_worklet_candidate_;
+  }
 
   CompositedPaintStatus CompositedClipPathStatus() {
     return static_cast<CompositedPaintStatus>(composited_clip_path_status_);
   }
 
-  void SetCompositedClipPathStatus(CompositedPaintStatus status) {
-    composited_clip_path_status_ = static_cast<unsigned>(status);
-  }
+  bool SetCompositedClipPathStatus(CompositedPaintStatus status);
+
+  // Animations affecting properties marked as important cannot be composited.
+  // An animation running on the compositor must be cancelled once the affected
+  // property is added to the important set. Note that a animation affecting
+  // an important property still continues to run on the main thread, but the
+  // property value will not applied by the style cascade.
+  void CancelCompositedAnimationsAffectingProperties(
+      const CSSBitset& property_bitset);
 
   void Trace(Visitor*) const override;
 
@@ -154,6 +173,15 @@ class CORE_EXPORT ElementAnimations final
   // CompositedPaintStatus values to ensure that it can hold the value.
   unsigned composited_background_color_status_ : 2;
   unsigned composited_clip_path_status_ : 2;
+
+  // Stores the current candidate for a composited clip-path animation. The
+  // validity of this variable depends on composited_clip_path_status_. If
+  // status is kNoAnimation or kNotComposited, the value will be nullptr. If the
+  // status is kComposited, the value will be guaranteed to be a clip-path
+  // animation that is eligible to be run on compositor. If the value is
+  // kNeedsRepaint, the value is only guaranteed to be an animation on the
+  // property, but may not necessarily be compositable.
+  WeakMember<Animation> clip_path_paint_worklet_candidate_;
 
   FRIEND_TEST_ALL_PREFIXES(StyleEngineTest, PseudoElementBaseComputedStyle);
 };

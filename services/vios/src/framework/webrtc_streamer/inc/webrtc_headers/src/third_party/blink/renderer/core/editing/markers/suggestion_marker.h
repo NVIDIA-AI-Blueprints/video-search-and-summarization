@@ -29,6 +29,7 @@ class CORE_EXPORT SuggestionMarker final : public StyleableMarker {
     kGrammar,
   };
   enum class RemoveOnFinishComposing { kRemove, kDoNotRemove };
+  enum class HideSuggestionMenu { kNo, kYes };
 
   SuggestionMarker(unsigned start_offset,
                    unsigned end_offset,
@@ -44,8 +45,10 @@ class CORE_EXPORT SuggestionMarker final : public StyleableMarker {
   SuggestionType GetSuggestionType() const;
   const Vector<String>& Suggestions() const;
   bool IsMisspelling() const;
+  bool IsGrammarError() const;
   bool NeedsRemovalOnFinishComposing() const;
   Color SuggestionHighlightColor() const;
+  bool ShouldHideSuggestionMenu() const;
 
   // Replace the suggestion at suggestion_index with new_suggestion.
   void SetSuggestion(unsigned suggestion_index, const String& new_suggestion);
@@ -62,6 +65,7 @@ class CORE_EXPORT SuggestionMarker final : public StyleableMarker {
   const SuggestionType suggestion_type_;
   const RemoveOnFinishComposing remove_on_finish_composing_;
   const Color suggestion_highlight_color_;
+  const HideSuggestionMenu should_hide_suggestion_menu_;
 };
 
 template <>

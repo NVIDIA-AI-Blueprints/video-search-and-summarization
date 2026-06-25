@@ -12,11 +12,12 @@
 #define MODULES_AUDIO_PROCESSING_AEC3_REVERB_MODEL_ESTIMATOR_H_
 
 #include <array>
+#include <cstddef>
 #include <memory>
+#include <optional>
+#include <span>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
 #include "api/audio/echo_canceller3_config.h"
 #include "modules/audio_processing/aec3/aec3_common.h"  // kFftLengthBy2Plus1
 #include "modules/audio_processing/aec3/reverb_decay_estimator.h"
@@ -35,11 +36,11 @@ class ReverbModelEstimator {
 
   // Updates the estimates based on new data.
   void Update(
-      rtc::ArrayView<const std::vector<float>> impulse_responses,
-      rtc::ArrayView<const std::vector<std::array<float, kFftLengthBy2Plus1>>>
+      std::span<const std::vector<float>> impulse_responses,
+      std::span<const std::vector<std::array<float, kFftLengthBy2Plus1>>>
           frequency_responses,
-      rtc::ArrayView<const absl::optional<float>> linear_filter_qualities,
-      rtc::ArrayView<const int> filter_delays_blocks,
+      std::span<const std::optional<float>> linear_filter_qualities,
+      std::span<const int> filter_delays_blocks,
       const std::vector<bool>& usable_linear_estimates,
       bool stationary_block);
 
@@ -53,7 +54,7 @@ class ReverbModelEstimator {
 
   // Return the frequency response of the reverberant echo.
   // TODO(peah): Correct to properly support multiple channels.
-  rtc::ArrayView<const float> GetReverbFrequencyResponse() const {
+  std::span<const float> GetReverbFrequencyResponse() const {
     return reverb_frequency_responses_[0].FrequencyResponse();
   }
 

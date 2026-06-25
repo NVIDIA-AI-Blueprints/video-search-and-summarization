@@ -10,7 +10,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -42,7 +42,8 @@ RTC_OBJC_EXPORT
  */
 - (instancetype)initWithSdp:(NSString *)sdp
               sdpMLineIndex:(int)sdpMLineIndex
-                     sdpMid:(nullable NSString *)sdpMid NS_DESIGNATED_INITIALIZER;
+                     sdpMid:(nullable NSString *)sdpMid
+    NS_DESIGNATED_INITIALIZER;
 
 @end
 

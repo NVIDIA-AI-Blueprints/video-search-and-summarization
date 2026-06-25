@@ -22,7 +22,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_RULE_LIST_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_RULE_LIST_H_
 
-#include "base/memory/scoped_refptr.h"
+#include "third_party/blink/renderer/core/dom/tree_scope.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -33,7 +33,28 @@ namespace blink {
 class CSSRule;
 class CSSStyleSheet;
 
-using RuleIndexList = HeapVector<std::pair<Member<CSSRule>, int>>;
+// A style rule may have a comma-separated list of selectors,
+// e.g. h1,h2,h3 { ... }. This struct represents a style rule, but focusing
+// on just one of the selectors in the list (see `index`).
+//
+// It's primarily intended to be used by the Inspector.
+struct IndexedRule {
+  DISALLOW_NEW();
+
+ public:
+  const Member<CSSRule> rule;
+  // The TreeScope that has the stylesheet containing `rule`.
+  const Member<const TreeScope> tree_scope;
+  // The index into the selector list of `rule`.
+  const int index = 0;
+
+  void Trace(Visitor* visitor) const {
+    visitor->Trace(rule);
+    visitor->Trace(tree_scope);
+  }
+};
+
+using RuleIndexList = GCedHeapVector<IndexedRule>;
 
 class CSSRuleList : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -43,9 +64,19 @@ class CSSRuleList : public ScriptWrappable {
   CSSRuleList& operator=(const CSSRuleList&) = delete;
 
   virtual unsigned length() const = 0;
-  virtual CSSRule* item(unsigned index) const = 0;
+  CSSRule* item(unsigned index) const { return Item(index); }
 
   virtual CSSStyleSheet* GetStyleSheet() const = 0;
+  virtual CSSRule* Item(unsigned index, bool trigger_use_counters) const = 0;
+  CSSRule* Item(unsigned index) const {
+    return Item(index, /*trigger_use_counters=*/true);
+  }
+
+  // Get an item, but signal that it's been requested internally from the
+  // engine, and not directly from a script.
+  CSSRule* ItemInternal(unsigned index) const {
+    return Item(index, /*trigger_use_counters=*/false);
+  }
 
  protected:
   CSSRuleList() = default;
@@ -63,7 +94,9 @@ class LiveCSSRuleList final : public CSSRuleList {
 
  private:
   unsigned length() const override { return rule_->length(); }
-  CSSRule* item(unsigned index) const override { return rule_->Item(index); }
+  CSSRule* Item(unsigned index, bool trigger_use_counters) const override {
+    return rule_->Item(index, trigger_use_counters);
+  }
   CSSStyleSheet* GetStyleSheet() const override {
     return rule_->parentStyleSheet();
   }
@@ -72,5 +105,7 @@ class LiveCSSRuleList final : public CSSRuleList {
 };
 
 }  // namespace blink
+
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(blink::IndexedRule)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_RULE_LIST_H_

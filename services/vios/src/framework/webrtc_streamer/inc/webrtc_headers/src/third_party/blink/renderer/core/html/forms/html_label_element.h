@@ -36,13 +36,35 @@ class CORE_EXPORT HTMLLabelElement final : public HTMLElement {
  public:
   explicit HTMLLabelElement(Document&);
 
-  HTMLElement* control() const;
-  HTMLFormElement* form() const;
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLLabelElement;
+  }
+
+  HTMLElement* controlForBinding() const;
+  HTMLElement* Control() const;
+  HTMLElement* formForBinding() const override;
 
   bool WillRespondToMouseClickEvents() override;
 
+  // Similar to Node::textContent(), but excludes the text from
+  // labelable descendants (See HTMLElement::IsLabelable()).
+  //
+  // This is useful if you want the label text without including
+  // the text content of any implicitly associated form controls.
+  //
+  // For example, this function will return just "LABEL:"
+  // for the following:
+  //
+  //   <label>LABEL:<select><option>OPTION</option></label>
+  //
+  // If you use Node::textContent() instead, it will return "LABEL:OPTION".
+  String TextContentExcludingLabelable() const;
+
  private:
+  // TODO(crbug.com/452084024): Remove this when the
+  // LabelInteractiveContentCheckBeforeHandler flag is removed
   bool IsInInteractiveContent(Node*) const;
+  bool IsInInteractiveContent(Event&) const;
 
   bool IsInteractiveContent() const override;
   void AccessKeyAction(SimulatedClickCreationScope creation_scope) override;
@@ -53,6 +75,7 @@ class CORE_EXPORT HTMLLabelElement final : public HTMLElement {
 
   // Overridden to either click() or focus() the corresponding control.
   void DefaultEventHandler(Event&) override;
+  void DefaultEventHandlerInternal(Event&);
   bool HasActivationBehavior() const override;
 
   void Focus(const FocusParams&) override;

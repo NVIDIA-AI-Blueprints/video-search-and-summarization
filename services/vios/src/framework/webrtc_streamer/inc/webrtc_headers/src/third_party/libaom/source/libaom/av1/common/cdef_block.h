@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -47,9 +47,6 @@ typedef void (*cdef_filter_block_func)(void *dest, int dstride,
                                        int coeff_shift, int block_width,
                                        int block_height);
 
-void copy_cdef_16bit_to_16bit(uint16_t *dst, int dstride, uint16_t *src,
-                              cdef_list *dlist, int cdef_count, int bsize);
-
 void av1_cdef_filter_fb(uint8_t *dst8, uint16_t *dst16, int dstride,
                         const uint16_t *in, int xdec, int ydec,
                         int dir[CDEF_NBLOCKS][CDEF_NBLOCKS], int *dirinit,
@@ -57,7 +54,7 @@ void av1_cdef_filter_fb(uint8_t *dst8, uint16_t *dst16, int dstride,
                         cdef_list *dlist, int cdef_count, int level,
                         int sec_strength, int damping, int coeff_shift);
 
-static INLINE void fill_rect(uint16_t *dst, int dstride, int v, int h,
+static inline void fill_rect(uint16_t *dst, int dstride, int v, int h,
                              uint16_t x) {
   for (int i = 0; i < v; i++) {
     for (int j = 0; j < h; j++) {

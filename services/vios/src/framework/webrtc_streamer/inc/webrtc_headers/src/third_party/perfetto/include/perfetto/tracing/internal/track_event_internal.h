@@ -17,11 +17,16 @@
 #ifndef INCLUDE_PERFETTO_TRACING_INTERNAL_TRACK_EVENT_INTERNAL_H_
 #define INCLUDE_PERFETTO_TRACING_INTERNAL_TRACK_EVENT_INTERNAL_H_
 
+#include "perfetto/base/export.h"
 #include "perfetto/base/flat_set.h"
+#include "perfetto/base/logging.h"
+#include "perfetto/protozero/message_handle.h"
 #include "perfetto/protozero/scattered_heap_buffer.h"
+#include "perfetto/public/compiler.h"
 #include "perfetto/tracing/core/forward_decls.h"
 #include "perfetto/tracing/data_source.h"
 #include "perfetto/tracing/debug_annotation.h"
+#include "perfetto/tracing/string_helpers.h"
 #include "perfetto/tracing/trace_writer_base.h"
 #include "perfetto/tracing/traced_value.h"
 #include "perfetto/tracing/track.h"
@@ -29,7 +34,18 @@
 #include "protos/perfetto/trace/interned_data/interned_data.pbzero.h"
 #include "protos/perfetto/trace/track_event/track_event.pbzero.h"
 
+#include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace perfetto {
 
@@ -83,6 +99,18 @@ class PERFETTO_EXPORT_COMPONENT TrackEventSessionObserver {
       const DataSourceBase::ClearIncrementalStateArgs&);
 };
 
+// A class that the embedder can store arbitrary data user data per thread.
+class PERFETTO_EXPORT_COMPONENT TrackEventTlsStateUserData {
+ public:
+  TrackEventTlsStateUserData() = default;
+  // Not clonable.
+  TrackEventTlsStateUserData(const TrackEventTlsStateUserData&) = delete;
+  TrackEventTlsStateUserData& operator=(const TrackEventTlsStateUserData&) =
+      delete;
+
+  virtual ~TrackEventTlsStateUserData();
+};
+
 namespace internal {
 class TrackEventCategoryRegistry;
 
@@ -100,10 +128,12 @@ struct TrackEventTlsState {
   template <typename TraceContext>
   explicit TrackEventTlsState(const TraceContext& trace_context);
   bool enable_thread_time_sampling = false;
+  uint64_t thread_time_subsampling_ns = 0;
   bool filter_debug_annotations = false;
   bool filter_dynamic_event_names = false;
   uint64_t timestamp_unit_multiplier = 1;
   uint32_t default_clock;
+  std::map<const void*, std::unique_ptr<TrackEventTlsStateUserData>> user_data;
 };
 
 struct TrackEventIncrementalState {
@@ -162,6 +192,22 @@ struct TrackEventIncrementalState {
   // The value is used for delta encoding of counter values.
   std::unordered_map<uint64_t, int64_t> last_counter_value_per_track;
   int64_t last_thread_time_ns = 0;
+  uint64_t last_thread_time_timestamp_ns = 0;
+
+  // Clears the incremental state without destroying and recreating this object.
+  // This allows reusing allocated memory in hash maps and other data structures
+  // instead of deallocating and reallocating them.
+  void Clear() {
+    was_cleared = true;
+    serialized_interned_data.Reset();
+    interned_data_indices = {};
+    seen_tracks.clear();
+    dynamic_categories.clear();
+    last_timestamp_ns = 0;
+    last_counter_value_per_track.clear();
+    last_thread_time_ns = 0;
+    last_thread_time_timestamp_ns = 0;
+  }
 };
 
 // The backend portion of the track event trace point implemention. Outlined to
@@ -169,8 +215,18 @@ struct TrackEventIncrementalState {
 // namespaces.
 class PERFETTO_EXPORT_COMPONENT TrackEventInternal {
  public:
+  static TrackEventInternal& GetInstance();
+
+  std::vector<const TrackEventCategoryRegistry*> AddRegistry(
+      const TrackEventCategoryRegistry*);
+  void EnableTracing(const protos::gen::TrackEventConfig& config,
+                     const DataSourceBase::SetupArgs&);
+  void DisableTracing(uint32_t internal_instance_index);
+
+  void ResetRegistriesForTesting();
+
   static bool Initialize(
-      const TrackEventCategoryRegistry&,
+      const std::vector<const TrackEventCategoryRegistry*> registries,
       bool (*register_data_source)(const DataSourceDescriptor&));
 
   static bool AddSessionObserver(const TrackEventCategoryRegistry&,
@@ -178,17 +234,12 @@ class PERFETTO_EXPORT_COMPONENT TrackEventInternal {
   static void RemoveSessionObserver(const TrackEventCategoryRegistry&,
                                     TrackEventSessionObserver*);
 
-  static void EnableTracing(const TrackEventCategoryRegistry& registry,
-                            const protos::gen::TrackEventConfig& config,
-                            const DataSourceBase::SetupArgs&);
-  static void OnStart(const TrackEventCategoryRegistry&,
-                      const DataSourceBase::StartArgs&);
-  static void OnStop(const TrackEventCategoryRegistry&,
-                     const DataSourceBase::StopArgs&);
-  static void DisableTracing(const TrackEventCategoryRegistry& registry,
+  static void EnableRegistry(const TrackEventCategoryRegistry* registry,
+                             const protos::gen::TrackEventConfig& config,
                              uint32_t internal_instance_index);
+  static void OnStart(const DataSourceBase::StartArgs&);
+  static void OnStop(const DataSourceBase::StopArgs&);
   static void WillClearIncrementalState(
-      const TrackEventCategoryRegistry&,
       const DataSourceBase::ClearIncrementalStateArgs&);
 
   static bool IsCategoryEnabled(const TrackEventCategoryRegistry& registry,
@@ -206,7 +257,7 @@ class PERFETTO_EXPORT_COMPONENT TrackEventInternal {
   static perfetto::EventContext WriteEvent(
       TraceWriterBase*,
       TrackEventIncrementalState*,
-      const TrackEventTlsState& tls_state,
+      TrackEventTlsState& tls_state,
       const Category* category,
       perfetto::protos::pbzero::TrackEvent::Type,
       const TraceTimestamp& timestamp,
@@ -246,22 +297,42 @@ class PERFETTO_EXPORT_COMPONENT TrackEventInternal {
       TrackEventIncrementalState* incr_state,
       const TrackEventTlsState& tls_state,
       const TraceTimestamp& timestamp) {
-    auto it_and_inserted = incr_state->seen_tracks.insert(track.uuid);
-    if (PERFETTO_LIKELY(!it_and_inserted.second))
-      return;
-    WriteTrackDescriptor(track, trace_writer, incr_state, tls_state, timestamp);
+    uint64_t uuid = track.uuid;
+    if (uuid) {
+      auto it_and_inserted = incr_state->seen_tracks.insert(uuid);
+      if (PERFETTO_LIKELY(!it_and_inserted.second))
+        return;
+      uuid = WriteTrackDescriptor(track, trace_writer, incr_state, tls_state,
+                                  timestamp);
+    }
+    while (uuid) {
+      auto it_and_inserted = incr_state->seen_tracks.insert(uuid);
+      if (PERFETTO_LIKELY(!it_and_inserted.second))
+        return;
+      std::optional<TrackRegistry::TrackInfo> track_info =
+          TrackRegistry::Get()->FindTrackInfo(uuid);
+      if (!track_info) {
+        return;
+      }
+      TrackRegistry::WriteTrackDescriptor(
+          std::move(track_info->desc),
+          NewTracePacket(trace_writer, incr_state, tls_state, timestamp));
+      uuid = track_info->parent_uuid;
+    }
   }
 
   // Unconditionally write a track descriptor into the trace.
+  //
+  // Returns the parent track uuid.
   template <typename TrackType>
-  static void WriteTrackDescriptor(const TrackType& track,
-                                   TraceWriterBase* trace_writer,
-                                   TrackEventIncrementalState* incr_state,
-                                   const TrackEventTlsState& tls_state,
-                                   const TraceTimestamp& timestamp) {
+  static uint64_t WriteTrackDescriptor(const TrackType& track,
+                                       TraceWriterBase* trace_writer,
+                                       TrackEventIncrementalState* incr_state,
+                                       const TrackEventTlsState& tls_state,
+                                       const TraceTimestamp& timestamp) {
     ResetIncrementalStateIfRequired(trace_writer, incr_state, tls_state,
                                     timestamp);
-    TrackRegistry::Get()->SerializeTrack(
+    return TrackRegistry::Get()->SerializeTrack(
         track, NewTracePacket(trace_writer, incr_state, tls_state, timestamp));
   }
 
@@ -283,12 +354,21 @@ class PERFETTO_EXPORT_COMPONENT TrackEventInternal {
     disallow_merging_with_system_tracks_ = disallow_merging_with_system_tracks;
   }
 
+  static inline BufferExhaustedPolicy GetBufferExhaustedPolicy() {
+    return buffer_exhausted_policy_;
+  }
+  static inline void SetBufferExhaustedPolicy(BufferExhaustedPolicy policy) {
+    buffer_exhausted_policy_ = policy;
+  }
+
   static int GetSessionCount();
 
   // Represents the default track for the calling thread.
   static const Track kDefaultTrack;
 
  private:
+  std::vector<const TrackEventCategoryRegistry*> GetRegistries();
+
   static void ResetIncrementalState(TraceWriterBase* trace_writer,
                                     TrackEventIncrementalState* incr_state,
                                     const TrackEventTlsState& tls_state,
@@ -314,6 +394,10 @@ class PERFETTO_EXPORT_COMPONENT TrackEventInternal {
 
   static protos::pbzero::BuiltinClock clock_;
   static bool disallow_merging_with_system_tracks_;
+  static BufferExhaustedPolicy buffer_exhausted_policy_;
+
+  std::mutex mu_;
+  std::vector<const TrackEventCategoryRegistry*> registries_;
 };
 
 template <typename TraceContext>
@@ -326,6 +410,7 @@ TrackEventTlsState::TrackEventTlsState(const TraceContext& trace_context) {
     filter_debug_annotations = config.filter_debug_annotations();
     filter_dynamic_event_names = config.filter_dynamic_event_names();
     enable_thread_time_sampling = config.enable_thread_time_sampling();
+    thread_time_subsampling_ns = config.thread_time_subsampling_ns();
     if (config.has_timestamp_unit_multiplier()) {
       timestamp_unit_multiplier = config.timestamp_unit_multiplier();
     }

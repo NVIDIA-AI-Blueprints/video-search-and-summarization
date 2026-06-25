@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_PAGE_STATE_PAGE_STATE_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_PAGE_STATE_PAGE_STATE_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -27,7 +29,7 @@ namespace blink {
 // The format of the encoded data is not exposed by the content API.
 class BLINK_COMMON_EXPORT PageState {
  public:
-  static PageState CreateFromEncodedData(const std::string& data);
+  static PageState CreateFromEncodedData(std::string data);
   static PageState CreateFromURL(const GURL& url);
 
   static PageState CreateForTesting(
@@ -44,6 +46,10 @@ class BLINK_COMMON_EXPORT PageState {
       int64_t document_sequence_number);
 
   PageState();
+  PageState(const PageState&) = default;
+  PageState(PageState&&) = default;
+  PageState& operator=(const PageState&) = default;
+  PageState& operator=(PageState&&) = default;
 
   bool IsValid() const;
   bool Equals(const PageState& page_state) const;
@@ -56,14 +62,11 @@ class BLINK_COMMON_EXPORT PageState {
 
   // Support DCHECK_EQ(a, b), etc.
   bool operator==(const PageState& other) const { return this->Equals(other); }
-  bool operator!=(const PageState& other) const {
-    return !(this->Equals(other));
-  }
 
   void WriteIntoTrace(perfetto::TracedValue context) const;
 
  private:
-  PageState(const std::string& data);
+  explicit PageState(std::string data);
 
   std::string data_;
 };

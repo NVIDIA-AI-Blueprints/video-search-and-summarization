@@ -5,11 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_WORKER_NON_MAIN_THREAD_TASK_QUEUE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_WORKER_NON_MAIN_THREAD_TASK_QUEUE_H_
 
+#include <optional>
+
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/common/lazy_now.h"
-#include "base/task/sequence_manager/task_queue_impl.h"
+#include "base/task/sequence_manager/task_queue.h"
 #include "base/task/single_thread_task_runner.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/scheduler/common/blink_scheduler_single_thread_task_runner.h"
@@ -17,6 +19,7 @@
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/task_queue_throttler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_queue_type.h"
+#include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 
 namespace base::sequence_manager {
 class SequenceManager;
@@ -29,7 +32,7 @@ using TaskQueue = base::sequence_manager::TaskQueue;
 class NonMainThreadSchedulerBase;
 
 class PLATFORM_EXPORT NonMainThreadTaskQueue
-    : public base::RefCountedThreadSafe<NonMainThreadTaskQueue> {
+    : public ThreadSafeRefCounted<NonMainThreadTaskQueue> {
  public:
   struct QueueCreationParams {
     QueueCreationParams() = default;
@@ -40,20 +43,20 @@ class PLATFORM_EXPORT NonMainThreadTaskQueue
     }
 
     QueueCreationParams SetWebSchedulingQueueType(
-        absl::optional<WebSchedulingQueueType> type) {
+        std::optional<WebSchedulingQueueType> type) {
       web_scheduling_queue_type = type;
       return *this;
     }
 
     QueueCreationParams SetWebSchedulingPriority(
-        absl::optional<WebSchedulingPriority> priority) {
+        std::optional<WebSchedulingPriority> priority) {
       web_scheduling_priority = priority;
       return *this;
     }
 
     bool can_be_throttled = false;
-    absl::optional<WebSchedulingQueueType> web_scheduling_queue_type;
-    absl::optional<WebSchedulingPriority> web_scheduling_priority;
+    std::optional<WebSchedulingQueueType> web_scheduling_queue_type;
+    std::optional<WebSchedulingPriority> web_scheduling_priority;
   };
 
   NonMainThreadTaskQueue(
@@ -62,7 +65,6 @@ class PLATFORM_EXPORT NonMainThreadTaskQueue
       NonMainThreadSchedulerBase* non_main_thread_scheduler,
       QueueCreationParams params,
       scoped_refptr<base::SingleThreadTaskRunner> thread_task_runner);
-  ~NonMainThreadTaskQueue();
 
   void OnTaskCompleted(
       const base::sequence_manager::Task& task,
@@ -124,24 +126,27 @@ class PLATFORM_EXPORT NonMainThreadTaskQueue
   }
 
  private:
+  friend class ThreadSafeRefCounted<NonMainThreadTaskQueue>;
+  ~NonMainThreadTaskQueue();
+
   void OnWebSchedulingPriorityChanged();
 
   scoped_refptr<BlinkSchedulerSingleThreadTaskRunner> WrapTaskRunner(
       scoped_refptr<base::SingleThreadTaskRunner>);
 
-  scoped_refptr<TaskQueue> task_queue_;
-  absl::optional<TaskQueueThrottler> throttler_;
+  TaskQueue::Handle task_queue_;
+  std::optional<TaskQueueThrottler> throttler_;
 
   // Not owned.
-  NonMainThreadSchedulerBase* non_main_thread_scheduler_;
+  raw_ptr<NonMainThreadSchedulerBase> non_main_thread_scheduler_;
 
   // Set if this is queue is used for the web-exposed scheduling API. Used to
   // differentiate initial tasks from continuations for prioritization.
-  const absl::optional<WebSchedulingQueueType> web_scheduling_queue_type_;
+  const std::optional<WebSchedulingQueueType> web_scheduling_queue_type_;
 
   // |web_scheduling_priority_| is the priority of the task queue within the web
   // scheduling API. This priority is used to determine the task queue priority.
-  absl::optional<WebSchedulingPriority> web_scheduling_priority_;
+  std::optional<WebSchedulingPriority> web_scheduling_priority_;
 
   scoped_refptr<base::SingleThreadTaskRunner> thread_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner>

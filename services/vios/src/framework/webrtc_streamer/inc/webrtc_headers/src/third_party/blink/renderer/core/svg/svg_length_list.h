@@ -51,11 +51,10 @@ class SVGLengthList final
   SVGParsingError SetValueAsString(const String&);
 
   // SVGPropertyBase:
-  SVGPropertyBase* CloneForAnimation(const String&) const override;
   SVGLengthList* Clone() const override;
   SVGLengthMode UnitMode() const { return mode_; }
 
-  void Add(const SVGPropertyBase*, const SVGElement*) override;
+  bool Add(const SVGPropertyBase*, const SVGElement*) override;
   void CalculateAnimatedValue(
       const SMILAnimationEffectParameters&,
       float percentage,
@@ -75,7 +74,7 @@ class SVGLengthList final
   SVGLength* CreatePaddingItem() const override;
 
   template <typename CharType>
-  SVGParsingError ParseInternal(const CharType* ptr, const CharType* end);
+  SVGParsingError ParseInternal(const base::span<const CharType> chars);
 
   SVGLengthMode mode_;
 };

@@ -15,16 +15,18 @@
 #import "base/RTCVideoCapturer.h"
 
 // include
+#include "api/environment/environment.h"
 #include "api/media_stream_interface.h"
 #include "api/scoped_refptr.h"
 #include "rtc_base/thread.h"
 
 namespace webrtc {
 
-rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> ObjCToNativeVideoCapturer(
+scoped_refptr<VideoTrackSourceInterface> ObjCToNativeVideoCapturer(
     RTC_OBJC_TYPE(RTCVideoCapturer) * objc_video_capturer,
-    rtc::Thread* signaling_thread,
-    rtc::Thread* worker_thread);
+    const Environment& env,
+    Thread* signaling_thread,
+    Thread* worker_thread);
 
 }  // namespace webrtc
 

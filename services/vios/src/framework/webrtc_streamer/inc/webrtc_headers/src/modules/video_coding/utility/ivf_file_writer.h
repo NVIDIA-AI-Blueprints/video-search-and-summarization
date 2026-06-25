@@ -16,6 +16,7 @@
 
 #include <memory>
 
+#include "absl/strings/string_view.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_codec_type.h"
 #include "rtc_base/numerics/sequence_number_unwrapper.h"
@@ -29,8 +30,9 @@ class IvfFileWriter {
   // Close or ~IvfFileWriter. If writing a frame would take the file above the
   // `byte_limit` the file will be closed, the write (and all future writes)
   // will fail. A `byte_limit` of 0 is equivalent to no limit.
-  static std::unique_ptr<IvfFileWriter> Wrap(FileWrapper file,
-                                             size_t byte_limit);
+  static std::unique_ptr<IvfFileWriter> Wrap(absl::string_view filename,
+                                             size_t byte_limit,
+                                             int* error = nullptr);
   ~IvfFileWriter();
 
   IvfFileWriter(const IvfFileWriter&) = delete;

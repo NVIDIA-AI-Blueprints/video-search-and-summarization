@@ -11,9 +11,11 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_ALIGNMENT_MIXER_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_ALIGNMENT_MIXER_H_
 
+#include <array>
+#include <cstddef>
+#include <span>
 #include <vector>
 
-#include "api/array_view.h"
 #include "api/audio/echo_canceller3_config.h"
 #include "modules/audio_processing/aec3/aec3_common.h"
 #include "modules/audio_processing/aec3/block.h"
@@ -34,7 +36,7 @@ class AlignmentMixer {
                  float excitation_limit,
                  bool prefer_first_two_channels);
 
-  void ProduceOutput(const Block& x, rtc::ArrayView<float, kBlockSize> y);
+  void ProduceOutput(const Block& x, std::span<float, kBlockSize> y);
 
   enum class MixingVariant { kDownmix, kAdaptive, kFixed };
 
@@ -49,7 +51,7 @@ class AlignmentMixer {
   int selected_channel_ = 0;
   size_t block_counter_ = 0;
 
-  void Downmix(const Block& x, rtc::ArrayView<float, kBlockSize> y) const;
+  void Downmix(const Block& x, std::span<float, kBlockSize> y) const;
   int SelectChannel(const Block& x);
 };
 }  // namespace webrtc

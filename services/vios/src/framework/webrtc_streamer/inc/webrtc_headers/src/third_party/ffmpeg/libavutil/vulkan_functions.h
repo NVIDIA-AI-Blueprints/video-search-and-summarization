@@ -26,20 +26,52 @@
 #include "hwcontext_vulkan.h"
 
 /* An enum of bitflags for every optional extension we need */
-typedef enum FFVulkanExtensions {
-    FF_VK_EXT_EXTERNAL_DMABUF_MEMORY = 1ULL <<  0, /* VK_EXT_external_memory_dma_buf */
-    FF_VK_EXT_DRM_MODIFIER_FLAGS     = 1ULL <<  1, /* VK_EXT_image_drm_format_modifier */
-    FF_VK_EXT_EXTERNAL_FD_MEMORY     = 1ULL <<  2, /* VK_KHR_external_memory_fd */
-    FF_VK_EXT_EXTERNAL_FD_SEM        = 1ULL <<  3, /* VK_KHR_external_semaphore_fd */
-    FF_VK_EXT_EXTERNAL_HOST_MEMORY   = 1ULL <<  4, /* VK_EXT_external_memory_host */
-    FF_VK_EXT_DEBUG_UTILS            = 1ULL <<  5, /* VK_EXT_debug_utils */
-#ifdef _WIN32
-    FF_VK_EXT_EXTERNAL_WIN32_MEMORY  = 1ULL <<  6, /* VK_KHR_external_memory_win32 */
-    FF_VK_EXT_EXTERNAL_WIN32_SEM     = 1ULL <<  7, /* VK_KHR_external_semaphore_win32 */
-#endif
+typedef uint64_t FFVulkanExtensions;
 
-    FF_VK_EXT_NO_FLAG                = 1ULL << 31,
-} FFVulkanExtensions;
+/* NOTE: when adding new entries, make sure to update ff_vk_extensions_to_mask */
+#define FF_VK_EXT_EXTERNAL_DMABUF_MEMORY (1ULL <<  0) /* VK_EXT_external_memory_dma_buf */
+#define FF_VK_EXT_DRM_MODIFIER_FLAGS     (1ULL <<  1) /* VK_EXT_image_drm_format_modifier */
+#define FF_VK_EXT_EXTERNAL_FD_MEMORY     (1ULL <<  2) /* VK_KHR_external_memory_fd */
+#define FF_VK_EXT_EXTERNAL_FD_SEM        (1ULL <<  3) /* VK_KHR_external_semaphore_fd */
+#define FF_VK_EXT_EXTERNAL_HOST_MEMORY   (1ULL <<  4) /* VK_EXT_external_memory_host */
+#define FF_VK_EXT_DEBUG_UTILS            (1ULL <<  5) /* VK_EXT_debug_utils */
+
+#define FF_VK_EXT_EXTERNAL_WIN32_MEMORY  (1ULL <<  6) /* VK_KHR_external_memory_win32 */
+#define FF_VK_EXT_EXTERNAL_WIN32_SEM     (1ULL <<  7) /* VK_KHR_external_semaphore_win32 */
+
+#define FF_VK_EXT_DEVICE_DRM             (1ULL <<  9) /* VK_EXT_physical_device_drm */
+#define FF_VK_EXT_ATOMIC_FLOAT           (1ULL << 10) /* VK_EXT_shader_atomic_float */
+#define FF_VK_EXT_COOP_MATRIX            (1ULL << 11) /* VK_KHR_cooperative_matrix */
+#define FF_VK_EXT_OPTICAL_FLOW           (1ULL << 12) /* VK_NV_optical_flow */
+#define FF_VK_EXT_SHADER_OBJECT          (1ULL << 13) /* VK_EXT_shader_object */
+#define FF_VK_EXT_PUSH_DESCRIPTOR        (1ULL << 14) /* VK_KHR_push_descriptor */
+#define FF_VK_EXT_RELAXED_EXTENDED_INSTR (1ULL << 15) /* VK_KHR_shader_relaxed_extended_instruction */
+#define FF_VK_EXT_EXPECT_ASSUME          (1ULL << 16) /* VK_KHR_shader_expect_assume */
+#define FF_VK_EXT_SUBGROUP_ROTATE        (1ULL << 17) /* VK_KHR_shader_subgroup_rotate */
+#define FF_VK_EXT_HOST_IMAGE_COPY        (1ULL << 18) /* VK_EXT_host_image_copy */
+#define FF_VK_EXT_ZERO_INITIALIZE        (1ULL << 19) /* VK_EXT_zero_initialize_device_memory */
+#define FF_VK_EXT_EXPLICIT_MEM_LAYOUT    (1ULL << 20) /* VK_KHR_workgroup_memory_explicit_layout */
+#define FF_VK_EXT_REPLICATED_COMPOSITES  (1ULL << 21) /* VK_EXT_shader_replicated_composites */
+#define FF_VK_EXT_LONG_VECTOR            (1ULL << 22) /* VK_EXT_shader_long_vector */
+
+/* Video extensions */
+#define FF_VK_EXT_VIDEO_QUEUE            (1ULL << 36) /* VK_KHR_video_queue */
+#define FF_VK_EXT_VIDEO_MAINTENANCE_1    (1ULL << 37) /* VK_KHR_video_maintenance1 */
+#define FF_VK_EXT_VIDEO_MAINTENANCE_2    (1ULL << 38) /* VK_KHR_video_maintenance2 */
+
+#define FF_VK_EXT_VIDEO_DECODE_QUEUE     (1ULL << 40) /* VK_KHR_video_decode_queue */
+#define FF_VK_EXT_VIDEO_DECODE_H264      (1ULL << 41) /* VK_KHR_video_decode_h264 */
+#define FF_VK_EXT_VIDEO_DECODE_H265      (1ULL << 42) /* VK_KHR_video_decode_h265 */
+#define FF_VK_EXT_VIDEO_DECODE_VP9       (1ULL << 43) /* VK_KHR_video_decode_vp9 */
+#define FF_VK_EXT_VIDEO_DECODE_AV1       (1ULL << 44) /* VK_KHR_video_decode_av1 */
+
+#define FF_VK_EXT_VIDEO_ENCODE_QUEUE     (1ULL << 50) /* VK_KHR_video_encode_queue */
+#define FF_VK_EXT_VIDEO_ENCODE_H264      (1ULL << 51) /* VK_KHR_video_encode_h264 */
+#define FF_VK_EXT_VIDEO_ENCODE_H265      (1ULL << 52) /* VK_KHR_video_encode_h265 */
+#define FF_VK_EXT_VIDEO_ENCODE_AV1       (1ULL << 53) /* VK_KHR_video_encode_av1 */
+
+#define FF_VK_EXT_PORTABILITY_SUBSET     (1ULL << 62)
+#define FF_VK_EXT_NO_FLAG                (1ULL << 63)
 
 /* Macro containing every function that we utilize in our codebase */
 #define FN_LIST(MACRO)                                                                   \
@@ -58,6 +90,9 @@ typedef enum FFVulkanExtensions {
     MACRO(1, 0, FF_VK_EXT_NO_FLAG,              CreateDevice)                            \
     MACRO(1, 0, FF_VK_EXT_NO_FLAG,              GetPhysicalDeviceFeatures2)              \
     MACRO(1, 0, FF_VK_EXT_NO_FLAG,              GetPhysicalDeviceProperties)             \
+    MACRO(1, 0, FF_VK_EXT_NO_FLAG,              GetPhysicalDeviceExternalSemaphoreProperties)          \
+    MACRO(1, 0, FF_VK_EXT_VIDEO_QUEUE,          GetPhysicalDeviceVideoCapabilitiesKHR)     \
+    MACRO(1, 0, FF_VK_EXT_VIDEO_QUEUE,          GetPhysicalDeviceVideoFormatPropertiesKHR) \
     MACRO(1, 0, FF_VK_EXT_NO_FLAG,              DeviceWaitIdle)                          \
     MACRO(1, 0, FF_VK_EXT_NO_FLAG,              DestroyDevice)                           \
                                                                                          \
@@ -69,6 +104,8 @@ typedef enum FFVulkanExtensions {
     MACRO(1, 0, FF_VK_EXT_NO_FLAG,              GetPhysicalDeviceFormatProperties2)      \
     MACRO(1, 0, FF_VK_EXT_NO_FLAG,              GetPhysicalDeviceImageFormatProperties2) \
     MACRO(1, 0, FF_VK_EXT_NO_FLAG,              GetPhysicalDeviceQueueFamilyProperties)  \
+    MACRO(1, 0, FF_VK_EXT_NO_FLAG,              GetPhysicalDeviceQueueFamilyProperties2) \
+    MACRO(1, 0, FF_VK_EXT_COOP_MATRIX,          GetPhysicalDeviceCooperativeMatrixPropertiesKHR) \
                                                                                          \
     /* Command pool */                                                                   \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateCommandPool)                       \
@@ -80,19 +117,23 @@ typedef enum FFVulkanExtensions {
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              EndCommandBuffer)                        \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              FreeCommandBuffers)                      \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdDispatch)                             \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdDispatchBase)                                       \
                                                                                          \
     /* Queue */                                                                          \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              GetDeviceQueue)                          \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              QueueSubmit)                             \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              QueueSubmit2)                              \
                                                                                          \
     /* Fences */                                                                         \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateFence)                             \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              WaitForFences)                           \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              GetFenceStatus)                                        \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              ResetFences)                             \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroyFence)                            \
                                                                                          \
     /* Semaphores */                                                                     \
     MACRO(1, 1, FF_VK_EXT_EXTERNAL_FD_SEM,      GetSemaphoreFdKHR)                       \
+    MACRO(1, 1, FF_VK_EXT_EXTERNAL_FD_SEM,      ImportSemaphoreFdKHR)                                  \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateSemaphore)                         \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              WaitSemaphores)                          \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroySemaphore)                        \
@@ -115,11 +156,16 @@ typedef enum FFVulkanExtensions {
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdPipelineBarrier)                      \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdCopyBufferToImage)                    \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdCopyImageToBuffer)                    \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdClearColorImage)                                    \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdCopyBuffer)                                         \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdUpdateBuffer)                                       \
                                                                                          \
     /* Buffer */                                                                         \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              GetBufferMemoryRequirements2)            \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateBuffer)                            \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              BindBufferMemory)                        \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              GetBufferDeviceAddress)                    \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdFillBuffer)                             \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroyBuffer)                           \
                                                                                          \
     /* Image */                                                                          \
@@ -145,6 +191,46 @@ typedef enum FFVulkanExtensions {
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              UpdateDescriptorSetWithTemplate)         \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateDescriptorUpdateTemplate)          \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroyDescriptorUpdateTemplate)         \
+                                                                                                       \
+    /* Descriptors */                                                                                  \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              UpdateDescriptorSets)                                  \
+    MACRO(1, 1, FF_VK_EXT_PUSH_DESCRIPTOR,      CmdPushDescriptorSetKHR)                               \
+                                                                                           \
+    /* Queries */                                                                          \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateQueryPool)                           \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              GetQueryPoolResults)                       \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              ResetQueryPool)                            \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdBeginQuery)                             \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdEndQuery)                               \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdResetQueryPool)                         \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroyQueryPool)                          \
+                                                                                           \
+    /* sync2 */                                                                            \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CmdPipelineBarrier2)                       \
+                                                                                           \
+    /* Host image copy */                                                                              \
+    MACRO(1, 1, FF_VK_EXT_HOST_IMAGE_COPY,      TransitionImageLayoutEXT)                              \
+    MACRO(1, 1, FF_VK_EXT_HOST_IMAGE_COPY,      CopyMemoryToImageEXT)                                  \
+    MACRO(1, 1, FF_VK_EXT_HOST_IMAGE_COPY,      CopyImageToMemoryEXT)                                  \
+                                                                                                       \
+    /* Video queue */                                                                      \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          CreateVideoSessionKHR)                     \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          CreateVideoSessionParametersKHR)           \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          GetVideoSessionMemoryRequirementsKHR)      \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          BindVideoSessionMemoryKHR)                 \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          CmdBeginVideoCodingKHR)                    \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          CmdControlVideoCodingKHR)                  \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          CmdEndVideoCodingKHR)                      \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          DestroyVideoSessionParametersKHR)          \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_QUEUE,          DestroyVideoSessionKHR)                    \
+                                                                                           \
+    /* Video decoding */                                                                   \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_DECODE_QUEUE,   CmdDecodeVideoKHR)                         \
+                                                                                           \
+    /* Video encoding */                                                                   \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_ENCODE_QUEUE,   CmdEncodeVideoKHR)                         \
+    MACRO(1, 1, FF_VK_EXT_VIDEO_ENCODE_QUEUE,   GetEncodedVideoSessionParametersKHR)       \
+    MACRO(1, 0, FF_VK_EXT_VIDEO_ENCODE_QUEUE,   GetPhysicalDeviceVideoEncodeQualityLevelPropertiesKHR) \
                                                                                          \
     /* Pipeline */                                                                       \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreatePipelineLayout)                    \
@@ -155,12 +241,25 @@ typedef enum FFVulkanExtensions {
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroyPipeline)                         \
                                                                                          \
     /* Sampler */                                                                        \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateSamplerYcbcrConversion)              \
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroySamplerYcbcrConversion)             \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateSampler)                           \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroySampler)                          \
+                                                                                           \
+    /* Optical flow */                                                                     \
+    MACRO(1, 1, FF_VK_EXT_OPTICAL_FLOW,         BindOpticalFlowSessionImageNV)             \
+    MACRO(1, 1, FF_VK_EXT_OPTICAL_FLOW,         CmdOpticalFlowExecuteNV)                   \
+    MACRO(1, 1, FF_VK_EXT_OPTICAL_FLOW,         CreateOpticalFlowSessionNV)                \
+    MACRO(1, 1, FF_VK_EXT_OPTICAL_FLOW,         DestroyOpticalFlowSessionNV)               \
+    MACRO(1, 0, FF_VK_EXT_OPTICAL_FLOW,         GetPhysicalDeviceOpticalFlowImageFormatsNV)\
                                                                                          \
     /* Shaders */                                                                        \
     MACRO(1, 1, FF_VK_EXT_NO_FLAG,              CreateShaderModule)                      \
-    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroyShaderModule)
+    MACRO(1, 1, FF_VK_EXT_NO_FLAG,              DestroyShaderModule)                       \
+    MACRO(1, 1, FF_VK_EXT_SHADER_OBJECT,        CmdBindShadersEXT)                         \
+    MACRO(1, 1, FF_VK_EXT_SHADER_OBJECT,        CreateShadersEXT)                          \
+    MACRO(1, 1, FF_VK_EXT_SHADER_OBJECT,        DestroyShaderEXT)                          \
+    MACRO(1, 1, FF_VK_EXT_SHADER_OBJECT,        GetShaderBinaryDataEXT)
 
 /* Macro containing every win32 specific function that we utilize in our codebase */
 #define FN_LIST_WIN32(MACRO)                                                             \

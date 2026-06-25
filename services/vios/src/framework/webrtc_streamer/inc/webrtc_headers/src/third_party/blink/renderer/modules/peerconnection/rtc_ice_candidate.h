@@ -42,8 +42,13 @@ namespace blink {
 class RTCIceCandidateInit;
 class ExceptionState;
 class ExecutionContext;
+class ScriptObject;
 class ScriptState;
-class ScriptValue;
+class V8RTCIceCandidateType;
+class V8RTCIceComponent;
+class V8RTCIceProtocol;
+class V8RTCIceServerTransportProtocol;
+class V8RTCIceTcpCandidateType;
 
 class MODULES_EXPORT RTCIceCandidate final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -58,20 +63,22 @@ class MODULES_EXPORT RTCIceCandidate final : public ScriptWrappable {
 
   String candidate() const;
   String sdpMid() const;
-  absl::optional<uint16_t> sdpMLineIndex() const;
+  std::optional<uint16_t> sdpMLineIndex() const;
   String foundation() const;
-  String component() const;
-  absl::optional<uint32_t> priority() const;
+  std::optional<V8RTCIceComponent> component() const;
+  std::optional<uint32_t> priority() const;
   String address() const;
-  String protocol() const;
-  absl::optional<uint16_t> port() const;
-  String type() const;
-  absl::optional<String> tcpType() const;
+  std::optional<V8RTCIceProtocol> protocol() const;
+  std::optional<uint16_t> port() const;
+  std::optional<V8RTCIceCandidateType> type() const;
+  std::optional<V8RTCIceTcpCandidateType> tcpType() const;
   String relatedAddress() const;
-  absl::optional<uint16_t> relatedPort() const;
+  std::optional<uint16_t> relatedPort() const;
   String usernameFragment() const;
+  std::optional<V8RTCIceServerTransportProtocol> relayProtocol() const;
+  String url() const;
 
-  ScriptValue toJSONForBinding(ScriptState*);
+  ScriptObject toJSONForBinding(ScriptState*);
 
   RTCIceCandidatePlatform* PlatformCandidate() const;
 

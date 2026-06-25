@@ -40,7 +40,7 @@ typedef struct FilterParams {
     AVLFG lfg;
     int seed;
     int8_t *noise;
-    int8_t *prev_shift[MAX_RES][3];
+    const int8_t *prev_shift[MAX_RES][3];
     int rand_shift[MAX_RES];
     int rand_shift_init;
 } FilterParams;
@@ -50,7 +50,11 @@ typedef struct NoiseContext {
     int nb_planes;
     int bytewidth[4];
     int height[4];
-    FilterParams all;
+    int slice_threading_impossible;
+    struct {
+        int seed, strength;
+        unsigned flags;
+    } all;
     FilterParams param[4];
     void (*line_noise)(uint8_t *dst, const uint8_t *src, const int8_t *noise, int len, int shift);
     void (*line_noise_avg)(uint8_t *dst, const uint8_t *src, int len, const int8_t * const *shift);

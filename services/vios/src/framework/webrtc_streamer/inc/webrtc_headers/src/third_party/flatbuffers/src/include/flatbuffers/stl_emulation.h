@@ -45,8 +45,11 @@
   // Testing __cpp_lib_span requires including either <version> or <span>,
   // both of which were added in C++20.
   // See: https://en.cppreference.com/w/cpp/utility/feature_test
-  #if defined(__cplusplus) && __cplusplus >= 202002L
-    #define FLATBUFFERS_USE_STD_SPAN 1
+  #if defined(__cplusplus) && __cplusplus >= 202002L \
+      || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
+    #if __has_include(<span>)
+      #define FLATBUFFERS_USE_STD_SPAN 1
+    #endif
   #endif
 #endif // FLATBUFFERS_USE_STD_SPAN
 
@@ -272,7 +275,7 @@ template<class T, class U>
 FLATBUFFERS_CONSTEXPR_CPP11 bool operator==(const Optional<T>& lhs, const Optional<U>& rhs) FLATBUFFERS_NOEXCEPT {
   return static_cast<bool>(lhs) != static_cast<bool>(rhs)
               ? false
-              : !static_cast<bool>(lhs) ? false : (*lhs == *rhs);
+              : !static_cast<bool>(lhs) ? true : (*lhs == *rhs);
 }
 #endif // FLATBUFFERS_USE_STD_OPTIONAL
 
@@ -320,7 +323,7 @@ namespace internal {
     SpanIterator(pointer ptr) : ptr_(ptr) {}
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
-    SpanIterator& operator++() { ptr_++; return *this; }  
+    SpanIterator& operator++() { ptr_++; return *this; }
     SpanIterator  operator++(int) { auto tmp = *this; ++(*this); return tmp; }
 
     friend bool operator== (const SpanIterator& lhs, const SpanIterator& rhs) { return lhs.ptr_ == rhs.ptr_; }

@@ -16,9 +16,12 @@
 #include <utility>
 #include <vector>
 
-#include "api/peer_connection_interface.h"
+#include "absl/strings/string_view.h"
+#include "api/scoped_refptr.h"
 #include "api/stats/rtc_stats_collector_callback.h"
+#include "api/stats/rtc_stats_report.h"
 #include "api/test/stats_observer_interface.h"
+#include "api/units/time_delta.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 #include "test/pc/e2e/stats_provider.h"
@@ -27,39 +30,52 @@
 namespace webrtc {
 namespace webrtc_pc_e2e {
 
-// Helper class that will notify all the webrtc::test::StatsObserverInterface
+// Helper class that will notify all the test::StatsObserverInterface
 // objects subscribed.
 class InternalStatsObserver : public RTCStatsCollectorCallback {
  public:
   InternalStatsObserver(absl::string_view pc_label,
                         StatsProvider* peer,
-                        std::vector<StatsObserverInterface*> observers)
-      : pc_label_(pc_label), peer_(peer), observers_(std::move(observers)) {}
+                        std::vector<StatsObserverInterface*> observers,
+                        TimeDelta stats_delay = TimeDelta::Zero())
+      : pc_label_(pc_label),
+        peer_(peer),
+        observers_(std::move(observers)),
+        stats_delay_(stats_delay) {}
 
   std::string pc_label() const { return pc_label_; }
 
   void PollStats();
 
   void OnStatsDelivered(
-      const rtc::scoped_refptr<const RTCStatsReport>& report) override;
+      const scoped_refptr<const RTCStatsReport>& report) override;
+
+  bool IsPolling() const;
 
  private:
   std::string pc_label_;
-  StatsProvider* peer_;
+  StatsProvider* const peer_;
   std::vector<StatsObserverInterface*> observers_;
+  TimeDelta stats_delay_;
+  mutable Mutex mutex_;
+  int pending_requests_ RTC_GUARDED_BY(mutex_) = 0;
 };
 
 // Helper class to invoke GetStats on a PeerConnection by passing a
-// webrtc::StatsObserver that will notify all the
-// webrtc::test::StatsObserverInterface subscribed.
+// StatsObserver that will notify all the test::StatsObserverInterface
+// subscribed.
 class StatsPoller {
  public:
   StatsPoller(std::vector<StatsObserverInterface*> observers,
-              std::map<std::string, StatsProvider*> peers_to_observe);
+              std::map<std::string, StatsProvider*> peers_to_observe,
+              TimeDelta stats_delay = TimeDelta::Zero());
   StatsPoller(std::vector<StatsObserverInterface*> observers,
-              std::map<std::string, TestPeer*> peers_to_observe);
+              std::map<std::string, TestPeer*> peers_to_observe,
+              TimeDelta stats_delay = TimeDelta::Zero());
 
   void PollStatsAndNotifyObservers();
+
+  bool IsPolling() const;
 
   void RegisterParticipantInCall(absl::string_view peer_name,
                                  StatsProvider* peer);
@@ -69,8 +85,8 @@ class StatsPoller {
 
  private:
   const std::vector<StatsObserverInterface*> observers_;
-  webrtc::Mutex mutex_;
-  std::vector<rtc::scoped_refptr<InternalStatsObserver>> pollers_
+  mutable Mutex mutex_;
+  std::vector<scoped_refptr<InternalStatsObserver>> pollers_
       RTC_GUARDED_BY(mutex_);
 };
 

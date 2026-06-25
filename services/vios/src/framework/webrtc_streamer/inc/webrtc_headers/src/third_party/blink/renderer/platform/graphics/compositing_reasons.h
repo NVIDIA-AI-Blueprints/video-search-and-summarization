@@ -31,10 +31,11 @@ using CompositingReasons = uint64_t;
   V(ActiveFilterAnimation)                                                     \
   V(ActiveBackdropFilterAnimation)                                             \
   V(AffectedByOuterViewportBoundsDelta)                                        \
+  V(AffectedBySafeAreaBottom)                                                  \
   V(FixedPosition)                                                             \
   V(UndoOverscroll)                                                            \
   V(StickyPosition)                                                            \
-  V(AnchorScroll)                                                              \
+  V(AnchorPosition)                                                            \
   V(BackdropFilter)                                                            \
   V(BackdropFilterMask)                                                        \
   V(RootScroller)                                                              \
@@ -46,6 +47,9 @@ using CompositingReasons = uint64_t;
   V(WillChangeOpacity)                                                         \
   V(WillChangeFilter)                                                          \
   V(WillChangeBackdropFilter)                                                  \
+  V(WillChangeClipPath)                                                        \
+  V(WillChangeMixBlendMode)                                                    \
+  V(WillChangeMask)                                                            \
   /* This flag is needed only when none of the explicit kWillChange* reasons   \
      are set. */                                                               \
   V(WillChangeOther)                                                           \
@@ -66,10 +70,13 @@ using CompositingReasons = uint64_t;
      See third_party/blink/renderer/core/view_transition/README.md. */         \
   V(ViewTransitionElement)                                                     \
   V(ViewTransitionPseudoElement)                                               \
+  V(ViewTransitionElementDescendantWithClipPath)                               \
                                                                                \
-  /* For composited scrolling. In CompositeScrollAfterPaint, this is           \
-     determined after paint. */                                                \
+  /* For composited scrolling, determined after paint. */                      \
   V(OverflowScrolling)                                                         \
+                                                                               \
+  /* Element is participating in element capture. */                           \
+  V(ElementCapture)                                                            \
                                                                                \
   /* The following reasons are not used in paint properties, but are           \
      determined after paint, for debugging. See PaintArtifactCompositor. */    \
@@ -81,6 +88,7 @@ using CompositingReasons = uint64_t;
   V(Caret)                                                                     \
   V(Video)                                                                     \
   V(Canvas)                                                                    \
+  V(CanvasChild)                                                               \
   V(Plugin)                                                                    \
   V(Scrollbar)                                                                 \
   V(LinkHighlight)                                                             \
@@ -122,31 +130,50 @@ class PLATFORM_EXPORT CompositingReason {
     // that are not IsIdentityOrTranslation().
     kPreventingSubpixelAccumulationReasons =
         kWillChangeTransform | kWillChangeScale | kWillChangeRotate,
+
     kDirectReasonsForPaintOffsetTranslationProperty =
         kFixedPosition | kAffectedByOuterViewportBoundsDelta | kUndoOverscroll |
-        kVideo | kCanvas | kPlugin | kIFrame,
+        kVideo | kCanvas | kCanvasChild | kPlugin | kIFrame |
+        kAffectedBySafeAreaBottom,
+
+    kFixedPositionReasons = kFixedPosition | kUndoOverscroll |
+                            kAffectedByOuterViewportBoundsDelta |
+                            kAffectedBySafeAreaBottom,
+
     // TODO(dbaron): kWillChangeOther probably shouldn't be in this list.
+    // TODO(vmpstr): kViewTransitionElement is needed to make sure that the
+    // capture escapes clips when view transition has a descendant that
+    // naturally escapes clips. See crbug.com/348590918 for details.
     kDirectReasonsForTransformProperty =
         k3DTransform | kTrivial3DTransform | kWillChangeTransform |
         kWillChangeOther | kPerspectiveWith3DDescendants |
-        kPreserve3DWith3DDescendants | kActiveTransformAnimation,
+        kPreserve3DWith3DDescendants | kActiveTransformAnimation |
+        kViewTransitionElementDescendantWithClipPath | kViewTransitionElement,
     kDirectReasonsForScaleProperty =
         k3DScale | kWillChangeScale | kActiveScaleAnimation,
     kDirectReasonsForRotateProperty =
         k3DRotate | kWillChangeRotate | kActiveRotateAnimation,
     kDirectReasonsForTranslateProperty =
         k3DTranslate | kWillChangeTranslate | kActiveTranslateAnimation,
+
     kDirectReasonsForScrollTranslationProperty =
         kRootScroller | kOverflowScrolling,
+
     kDirectReasonsForEffectProperty =
         kActiveOpacityAnimation | kWillChangeOpacity | kBackdropFilter |
-        kWillChangeBackdropFilter | kActiveBackdropFilterAnimation |
-        kViewTransitionPseudoElement | kTransform3DSceneLeaf,
+        kWillChangeBackdropFilter | kWillChangeMixBlendMode |
+        kActiveBackdropFilterAnimation | kViewTransitionPseudoElement |
+        kTransform3DSceneLeaf | kElementCapture | kCanvasChild,
     kDirectReasonsForFilterProperty =
         kActiveFilterAnimation | kWillChangeFilter,
+
     kDirectReasonsForBackdropFilter = kBackdropFilter |
                                       kActiveBackdropFilterAnimation |
                                       kWillChangeBackdropFilter,
+    // These will-change properties create a backdrop root if a child with
+    // backdrop-filter is present, but otherwise do not create an effect node on
+    // their own (and thus do not self-enforce)
+    kAuxiliaryReasonsForBackdropRoot = kWillChangeClipPath | kWillChangeMask,
 
     // These reasons also cause any effect or filter node that exists
     // to be composited. They don't cause creation of a node.
@@ -170,7 +197,7 @@ class PLATFORM_EXPORT CompositingReason {
         // the scroll container, but it needs expansion by itself if there is
         // additional clip between the sticky element and its scroll container.
         // Similar for anchor positioned elements.
-        kStickyPosition | kAnchorScroll,
+        kStickyPosition | kAnchorPosition,
   };
 };
 

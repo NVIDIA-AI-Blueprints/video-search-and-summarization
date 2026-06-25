@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_EVENT_MODULES_FACTORY_H_
 
 #include <memory>
-#include "base/memory/scoped_refptr.h"
+
 #include "third_party/blink/renderer/core/events/event_factory.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
@@ -20,7 +20,9 @@ class EventModulesFactory final : public EventFactoryBase {
     return std::make_unique<EventModulesFactory>();
   }
 
-  Event* Create(ExecutionContext*, const String& event_type) override;
+  Event* Create(ScriptState*,
+                ExecutionContext*,
+                const String& event_type) override;
 };
 
 }  // namespace blink

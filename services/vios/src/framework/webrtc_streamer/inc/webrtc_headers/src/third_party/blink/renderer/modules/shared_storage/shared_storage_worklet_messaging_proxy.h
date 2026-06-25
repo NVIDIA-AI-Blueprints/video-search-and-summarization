@@ -1,4 +1,4 @@
-// Copyright 2023 The Chromium Authors. All rights reserved.
+// Copyright 2023 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,12 @@
 
 #include <memory>
 
-#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/shared_storage/shared_storage_worklet_service.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/worker/worklet_global_scope_creation_params.mojom-blink-forward.h"
+#include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/core/workers/threaded_worklet_messaging_proxy.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
+#include "third_party/blink/renderer/platform/heap/cross_thread_handle.h"
 
 namespace blink {
 
@@ -31,6 +33,8 @@ class MODULES_EXPORT SharedStorageWorkletMessagingProxy final
   SharedStorageWorkletMessagingProxy(
       scoped_refptr<base::SingleThreadTaskRunner> main_thread_runner,
       mojo::PendingReceiver<mojom::blink::SharedStorageWorkletService> receiver,
+      mojom::blink::WorkletGlobalScopeCreationParamsPtr
+          global_scope_creation_params,
       base::OnceClosure worklet_terminated_callback);
 
   void WorkerThreadTerminated() override;
@@ -40,16 +44,18 @@ class MODULES_EXPORT SharedStorageWorkletMessagingProxy final
  private:
   friend class SharedStorageWorkletTest;
 
-  void InitializeSharedStorageWorkletServiceOnWorkletThread(
+  static void InitializeSharedStorageWorkletServiceOnWorkletThread(
+      scoped_refptr<base::SingleThreadTaskRunner> main_thread_runner,
+      CrossThreadHandle<SharedStorageWorkletMessagingProxy>,
       WorkerThread* worker_thread,
       mojo::PendingReceiver<mojom::blink::SharedStorageWorkletService>
           receiver);
 
-  void OnSharedStorageWorkletServiceDisconnectedOnWorkletThread();
+  static void OnSharedStorageWorkletServiceDisconnectedOnWorkletThread(
+      scoped_refptr<base::SingleThreadTaskRunner> main_thread_runner,
+      CrossThreadHandle<SharedStorageWorkletMessagingProxy>);
 
   std::unique_ptr<WorkerThread> CreateWorkerThread() override;
-
-  scoped_refptr<base::SingleThreadTaskRunner> main_thread_runner_;
 
   base::OnceClosure worklet_terminated_callback_;
 };

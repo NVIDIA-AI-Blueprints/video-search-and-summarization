@@ -28,45 +28,68 @@
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/type_traits.h"
 
-namespace WTF {
+namespace blink {
 
+// Vector traits serve two purposes:
+// 1. Faster bulk operations: Instead of invoking proper constructors,
+//    destructors, copy operators, and move operators on individual elements,
+//    the vector implementation will just use `memcpy()` and friends where
+//    possible.
+// 2. Garbage collection support: HeapVector requires certain traits to be set
+//    which is used to acknowledge that semantics are different from regular
+//    `blink::Vector` and `std::vector`.
 template <typename T>
 struct VectorTraitsBase {
+  using TraitType = T;
+
+  // When true, T will be destroyed using `~T`.
   static const bool kNeedsDestruction =
       !std::is_trivially_destructible<T>::value;
 
+  // When true, allows initializing a value for a range with `memset()` instead
+  // of invoking constructors.
   static constexpr bool kCanInitializeWithMemset =
       std::is_trivially_default_constructible<T>::value;
-  // true iff memset(slot, 0, size) constructs an unused slot value that is
-  // valid for Oilpan to trace and if the value needs destruction, its
-  // destructor can be invoked over. The zero'ed value representing an unused
-  // slot in the vector's backing storage; it does not have to be equal to
-  // what its constructor(s) would create, only be valid for those two uses.
-  static constexpr bool kCanClearUnusedSlotsWithMemset =
-      std::is_trivially_destructible<T>::value &&
-      (!IsTraceable<T>::value || (std::is_trivially_constructible<T>::value &&
-                                  std::is_trivially_copyable<T>::value));
 
-  static constexpr bool kCanMoveWithMemcpy =
-      std::is_trivially_move_assignable<T>::value;
-  static constexpr bool kCanCopyWithMemcpy =
-      std::is_trivially_copy_assignable<T>::value;
+  // When true, allows setting a value for a range with `memset(0)` instead of
+  // invoking constructors.
   static constexpr bool kCanFillWithMemset =
       std::is_default_constructible<T>::value && (sizeof(T) == sizeof(char));
+
+  // When true, allows comparing T with `memcmp()`. instead of `std::equals()`.
   static constexpr bool kCanCompareWithMemcmp =
       std::is_scalar<T>::value;  // Types without padding.
 
-  // Supports swapping elements using regular std::swap semantics.
-  static const bool kCanSwapUsingCopyOrMove = true;
+  // When true, allows moving vector backings with memcpy instead of invoking
+  // move operations on every vector slot. There's no move operator being
+  // invoked.
+  //
+  // Garbage collection support: When true, the GC may move vector backings when
+  // they are not referred to from the native stack. This prohibits keeping
+  // inner pointers to vector elements and backing stores across event loop
+  // turns. When elements are moved using copy, their old storage is is just
+  // freed. In essence, no constructor/destructor/move operations will be
+  // invoked.
+  static constexpr bool kCanMoveWithMemcpy =
+      std::is_trivially_move_assignable<T>::value;
 
-  template <typename U = void>
-  struct IsTraceableInCollection {
-    static const bool value = IsTraceable<T>::value;
-  };
+  // When true, allows copying vector backings with memcpy instead of invoking
+  // copy operations on every vector slot. There's no copy operator being
+  // invoked.
+  static constexpr bool kCanCopyWithMemcpy =
+      std::is_trivially_copy_assignable<T>::value;
 
-  // The kCanTraceConcurrently value is used by Oilpan concurrent marking.
-  // Only type for which VectorTraits<T>::kCanTraceConcurrently is true can
-  // be traced on a concurrent thread.
+  // Garbage collection support: Must be true for types used in `HeapVector`.
+  // The reason is that GCed vector backings are initialized to zeroed memory.
+  // The GC assumes that invoking (a) `T::Trace()`, and (b) `T::~T` are no ops
+  // on zeroed memory.
+  static constexpr bool kCanClearUnusedSlotsWithMemset =
+      std::is_trivially_destructible<T>::value &&
+      (!IsTraceableV<T> || (std::is_trivially_constructible<T>::value &&
+                            std::is_trivially_copyable<T>::value));
+
+  // Garbage collection support: When true, the vector invokes `Trace()` methods
+  // concurrently from the non-owning thread.
   static constexpr bool kCanTraceConcurrently = false;
 };
 
@@ -84,9 +107,9 @@ struct SimpleClassVectorTraits : VectorTraitsBase<T> {
   static const bool kCanCompareWithMemcmp = true;
 };
 
-// We know std::unique_ptr and RefPtr are simple enough that initializing to 0
-// and moving with memcpy (and then not destructing the original) will totally
-// work.
+// We know std::unique_ptr and scoped_refptr are simple enough that
+// initializing to 0 and moving with memcpy (and then not destructing the
+// original) will totally work.
 template <typename P>
 struct VectorTraits<scoped_refptr<P>>
     : SimpleClassVectorTraits<scoped_refptr<P>> {
@@ -118,13 +141,13 @@ static_assert(VectorTraits<std::unique_ptr<int>>::kCanCompareWithMemcmp,
 
 template <typename First, typename Second>
 struct VectorTraits<std::pair<First, Second>> {
+  using TraitType = std::pair<First, Second>;
+
   typedef VectorTraits<First> FirstTraits;
   typedef VectorTraits<Second> SecondTraits;
 
-  static_assert(!IsWeak<First>::value,
-                "Weak references are not allowed in Vector");
-  static_assert(!IsWeak<Second>::value,
-                "Weak references are not allowed in Vector");
+  static_assert(!IsWeakV<First>, "Weak references are not allowed in Vector");
+  static_assert(!IsWeakV<Second>, "Weak references are not allowed in Vector");
 
   static const bool kNeedsDestruction =
       FirstTraits::kNeedsDestruction || SecondTraits::kNeedsDestruction;
@@ -141,22 +164,14 @@ struct VectorTraits<std::pair<First, Second>> {
   static const bool kCanClearUnusedSlotsWithMemset =
       FirstTraits::kCanClearUnusedSlotsWithMemset &&
       SecondTraits::kCanClearUnusedSlotsWithMemset;
-  // Supports swapping elements using regular std::swap semantics.
-  static const bool kCanSwapUsingCopyOrMove = true;
-  template <typename U = void>
-  struct IsTraceableInCollection {
-    static const bool value =
-        IsTraceableInCollectionTrait<FirstTraits>::value ||
-        IsTraceableInCollectionTrait<SecondTraits>::value;
-  };
 
   static constexpr bool kCanTraceConcurrently = false;
 };
 
-}  // namespace WTF
+}  // namespace blink
 
 #define WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(ClassName)         \
-  namespace WTF {                                                             \
+  namespace blink {                                                           \
   static_assert(!std::is_trivially_default_constructible<ClassName>::value || \
                     !std::is_trivially_move_assignable<ClassName>::value ||   \
                     !std::is_scalar<ClassName>::value,                        \
@@ -166,7 +181,7 @@ struct VectorTraits<std::pair<First, Second>> {
   }
 
 #define WTF_ALLOW_MOVE_AND_INIT_WITH_MEM_FUNCTIONS(ClassName)                 \
-  namespace WTF {                                                             \
+  namespace blink {                                                           \
   static_assert(!std::is_trivially_default_constructible<ClassName>::value || \
                     !std::is_trivially_move_assignable<ClassName>::value,     \
                 "macro not needed");                                          \
@@ -179,7 +194,7 @@ struct VectorTraits<std::pair<First, Second>> {
   }
 
 #define WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(ClassName)                        \
-  namespace WTF {                                                           \
+  namespace blink {                                                         \
   static_assert(!std::is_trivially_default_constructible<ClassName>::value, \
                 "macro not needed");                                        \
   template <>                                                               \
@@ -190,7 +205,7 @@ struct VectorTraits<std::pair<First, Second>> {
   }
 
 #define WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(ClassName)          \
-  namespace WTF {                                                           \
+  namespace blink {                                                         \
   static_assert(!std::is_trivially_default_constructible<ClassName>::value, \
                 "macro not needed");                                        \
   template <>                                                               \
@@ -198,8 +213,5 @@ struct VectorTraits<std::pair<First, Second>> {
     static const bool kCanClearUnusedSlotsWithMemset = true;                \
   };                                                                        \
   }
-
-using WTF::VectorTraits;
-using WTF::SimpleClassVectorTraits;
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_VECTOR_TRAITS_H_

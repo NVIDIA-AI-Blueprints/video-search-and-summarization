@@ -18,6 +18,7 @@
 
 #include "absl/strings/string_view.h"
 #include "api/numerics/samples_stats_counter.h"
+#include "api/test/metrics/metrics_logger.h"
 #include "api/test/pclf/media_configuration.h"
 #include "api/test/video/video_frame_writer.h"
 #include "api/test/video_quality_analyzer_interface.h"
@@ -32,7 +33,7 @@ namespace webrtc {
 namespace webrtc_pc_e2e {
 
 // A sink to inject video quality analyzer as a sink into WebRTC.
-class AnalyzingVideoSink : public rtc::VideoSinkInterface<VideoFrame> {
+class AnalyzingVideoSink : public VideoSinkInterface<VideoFrame> {
  public:
   struct Stats {
     // Time required to scale video frame to the requested rendered resolution.
@@ -56,6 +57,9 @@ class AnalyzingVideoSink : public rtc::VideoSinkInterface<VideoFrame> {
 
   void OnFrame(const VideoFrame& frame) override;
 
+  void LogMetrics(webrtc::test::MetricsLogger& metrics_logger,
+                  absl::string_view test_case_name) const;
+
   Stats stats() const;
 
  private:
@@ -72,7 +76,7 @@ class AnalyzingVideoSink : public rtc::VideoSinkInterface<VideoFrame> {
 
     // Is set if dumping of output video was requested;
     test::VideoFrameWriter* video_frame_writer = nullptr;
-    std::vector<std::unique_ptr<rtc::VideoSinkInterface<VideoFrame>>> sinks;
+    std::vector<std::unique_ptr<VideoSinkInterface<VideoFrame>>> sinks;
   };
 
   // Scales video frame to `required_resolution` if necessary. Crashes if video

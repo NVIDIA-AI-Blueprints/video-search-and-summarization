@@ -11,13 +11,42 @@
 
 namespace blink {
 
-class AXObject;
+class LayoutBlockFlow;
+class FragmentItems;
 
 // Friendly output of a subtree, useful for debugging.
-std::string TreeToStringHelper(const AXObject* obj, bool verbose = true);
+std::string TreeToStringHelper(const AXObject* obj,
+                               bool verbose = true);
 std::string TreeToStringWithMarkedObjectHelper(const AXObject* obj,
                                                const AXObject* marked_object,
                                                bool verbose = true);
+std::string ParentChainToStringHelper(const AXObject* obj);
+
+// Ensure the tree serializer expects to serializer the same number of included
+// nodes as the AXObjectCache thinks exists.
+void CheckTreeConsistency(
+    AXObjectCacheImpl& cache,
+    ui::AXTreeSerializer<const AXObject*,
+                         HeapVector<Member<const AXObject>>,
+                         ui::AXTreeUpdate*,
+                         ui::AXTreeData*,
+                         ui::AXNodeData>& serializer,
+    ui::AXTreeSerializer<const ui::AXNode*,
+                         std::vector<const ui::AXNode*>,
+                         ui::AXTreeUpdate*,
+                         ui::AXTreeData*,
+                         ui::AXNodeData>* plugin_serializer);
+
+#if DCHECK_IS_ON()
+// Performs a diagnostic dump of block fragmentation.
+// Though not performning DCHECKS the diagnostic tools for block fragmentation
+// are restricted to DCHECK-enabled builds to avoid including in release builds.
+// Launch with --vmodule=ax_debug_utils=2 to see a diagnostic dump of the block
+// fragmentation.
+void DumpBlockFragmentationData(const LayoutBlockFlow* layout_block_flow);
+void DumpBlockFragmentationData(const FragmentItems* fragment_items,
+                                int indent);
+#endif
 
 }  // namespace blink
 

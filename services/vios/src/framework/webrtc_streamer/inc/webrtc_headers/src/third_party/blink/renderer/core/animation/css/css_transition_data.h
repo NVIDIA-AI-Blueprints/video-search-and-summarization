@@ -18,11 +18,13 @@ namespace blink {
 
 class CORE_EXPORT CSSTransitionData final : public CSSTimingData {
  public:
-  enum TransitionPropertyType {
+  enum TransitionAnimationType {
     kTransitionNone,
     kTransitionKnownProperty,
     kTransitionUnknownProperty,
   };
+
+  enum TransitionBehavior { kNormal, kAllowDiscrete };
 
   // FIXME: We shouldn't allow 'none' to be used alongside other properties.
   struct TransitionProperty {
@@ -37,7 +39,7 @@ class CORE_EXPORT CSSTransitionData final : public CSSTimingData {
           unresolved_property(CSSPropertyID::kInvalid),
           property_string(string) {}
 
-    TransitionProperty(TransitionPropertyType type)
+    explicit TransitionProperty(TransitionAnimationType type)
         : property_type(type), unresolved_property(CSSPropertyID::kInvalid) {
       DCHECK_EQ(type, kTransitionNone);
     }
@@ -48,14 +50,13 @@ class CORE_EXPORT CSSTransitionData final : public CSSTimingData {
              property_string == other.property_string;
     }
 
-    TransitionPropertyType property_type;
+    TransitionAnimationType property_type;
     CSSPropertyID unresolved_property;
     AtomicString property_string;
   };
 
-  std::unique_ptr<CSSTransitionData> Clone() {
-    return base::WrapUnique(new CSSTransitionData(*this));
-  }
+  using TransitionPropertyVector = Vector<TransitionProperty, 1>;
+  using TransitionBehaviorVector = Vector<TransitionBehavior, 1>;
 
   CSSTransitionData();
   explicit CSSTransitionData(const CSSTransitionData&);
@@ -67,19 +68,29 @@ class CORE_EXPORT CSSTransitionData final : public CSSTimingData {
 
   Timing ConvertToTiming(size_t index) const;
 
-  const Vector<TransitionProperty>& PropertyList() const {
+  const TransitionPropertyVector& PropertyList() const {
     return property_list_;
   }
-  Vector<TransitionProperty>& PropertyList() { return property_list_; }
+  TransitionPropertyVector& PropertyList() { return property_list_; }
 
-  static absl::optional<double> InitialDuration() { return 0; }
+  const TransitionBehaviorVector& BehaviorList() const {
+    return behavior_list_;
+  }
+  TransitionBehaviorVector& BehaviorList() { return behavior_list_; }
+
+  static std::optional<double> InitialDuration() { return 0; }
 
   static TransitionProperty InitialProperty() {
     return TransitionProperty(CSSPropertyID::kAll);
   }
 
+  static TransitionBehavior InitialBehavior() {
+    return TransitionBehavior::kNormal;
+  }
+
  private:
-  Vector<TransitionProperty> property_list_;
+  TransitionPropertyVector property_list_;
+  TransitionBehaviorVector behavior_list_;
 };
 
 }  // namespace blink

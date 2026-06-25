@@ -33,6 +33,7 @@
 
 #include "base/unguessable_token.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
+#include "third_party/blink/public/common/fingerprinting_protection/noise_token.h"
 #include "third_party/blink/public/common/loader/worker_main_script_load_parameters.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
@@ -60,6 +61,9 @@ struct WebEmbeddedWorkerStartData {
   ukm::SourceId ukm_source_id = ukm::kInvalidSourceId;
 
   WebFetchClientSettingsObject outside_fetch_client_settings_object;
+
+  // Whether the worker has access to cross-origin isolated APIs.
+  bool is_cross_origin_isolated = false;
 
   // Unique token that identifies this worker across the browser and renderer
   // processes. This is not persistent across worker restarts.

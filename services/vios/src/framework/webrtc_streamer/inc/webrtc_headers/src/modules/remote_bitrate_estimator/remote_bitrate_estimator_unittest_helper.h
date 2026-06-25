@@ -11,6 +11,8 @@
 #ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_REMOTE_BITRATE_ESTIMATOR_UNITTEST_HELPER_H_
 #define MODULES_REMOTE_BITRATE_ESTIMATOR_REMOTE_BITRATE_ESTIMATOR_UNITTEST_HELPER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <map>
 #include <memory>
@@ -27,7 +29,7 @@ namespace testing {
 class TestBitrateObserver : public RemoteBitrateObserver {
  public:
   TestBitrateObserver() : updated_(false), latest_bitrate_(0) {}
-  virtual ~TestBitrateObserver() {}
+  ~TestBitrateObserver() override {}
 
   void OnReceiveBitrateChanged(const std::vector<uint32_t>& ssrcs,
                                uint32_t bitrate) override;
@@ -152,14 +154,14 @@ class StreamGenerator {
 class RemoteBitrateEstimatorTest : public ::testing::Test {
  public:
   RemoteBitrateEstimatorTest();
-  virtual ~RemoteBitrateEstimatorTest();
+  ~RemoteBitrateEstimatorTest() override;
 
   RemoteBitrateEstimatorTest(const RemoteBitrateEstimatorTest&) = delete;
   RemoteBitrateEstimatorTest& operator=(const RemoteBitrateEstimatorTest&) =
       delete;
 
  protected:
-  virtual void SetUp() = 0;
+  void SetUp() override = 0;
 
   void AddDefaultStream();
 

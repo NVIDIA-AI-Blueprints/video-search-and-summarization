@@ -124,7 +124,6 @@
   X("navigation")                                                        \
   X("navigation.debug")                                                  \
   X("net")                                                               \
-  X("network.scheduler")                                                 \
   X("netlog")                                                            \
   X("offline_pages")                                                     \
   X("omnibox")                                                           \

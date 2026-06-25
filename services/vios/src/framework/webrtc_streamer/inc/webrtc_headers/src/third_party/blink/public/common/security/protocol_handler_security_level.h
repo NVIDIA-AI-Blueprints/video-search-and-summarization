@@ -14,11 +14,18 @@ enum class ProtocolHandlerSecurityLevel {
   // https://html.spec.whatwg.org/multipage/system-state.html#normalize-protocol-handler-parameters
   kStrict,
 
-  // Allow registration calls to cross-origin URLs.
+  // Similar to kStrict, but allows URLs with non-HTTP(S) schemes.
+  kSameOrigin,
+
+  // Allow registration calls to cross-origin HTTP/HTTPS URLs.
   kUntrustedOrigins,
 
   // Allow extension features: ext+foo schemes and chrome-extension:// URLs.
   kExtensionFeatures,
+
+  // Allow Isolated Web App features: unrestricted ascii schemes and
+  // isolated-app:// URLs.
+  kIsolatedAppFeatures,
 };
 
 inline ProtocolHandlerSecurityLevel ProtocolHandlerSecurityLevelFrom(
@@ -26,7 +33,7 @@ inline ProtocolHandlerSecurityLevel ProtocolHandlerSecurityLevelFrom(
   return security_level < 0 ||
                  security_level >
                      static_cast<int>(
-                         ProtocolHandlerSecurityLevel::kExtensionFeatures)
+                         ProtocolHandlerSecurityLevel::kIsolatedAppFeatures)
              ? ProtocolHandlerSecurityLevel::kStrict
              : static_cast<ProtocolHandlerSecurityLevel>(security_level);
 }

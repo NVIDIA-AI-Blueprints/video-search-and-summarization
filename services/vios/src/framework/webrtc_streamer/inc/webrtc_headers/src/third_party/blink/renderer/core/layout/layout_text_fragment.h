@@ -47,11 +47,7 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
                                     const String&,
                                     int start_offset,
                                     int length);
-  static LayoutTextFragment* CreateAnonymous(PseudoElement&, const String&);
-  static LayoutTextFragment* CreateAnonymous(PseudoElement&,
-                                             const String&,
-                                             unsigned start,
-                                             unsigned length);
+  static LayoutTextFragment* CreateAnonymous(Document&, const String&);
   static LayoutTextFragment* CreateAnonymous(Document&,
                                              const String&,
                                              unsigned start,
@@ -60,7 +56,7 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
   void Trace(Visitor*) const override;
 
   Position PositionForCaretOffset(unsigned) const override;
-  absl::optional<unsigned> CaretOffsetForPosition(
+  std::optional<unsigned> CaretOffsetForPosition(
       const Position&) const override;
 
   unsigned Start() const {
@@ -92,7 +88,7 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
 
   void SetTextFragment(String, unsigned start, unsigned length);
 
-  void TransformText() override;
+  void TransformAndSecureOriginalText() override;
 
   const char* GetName() const override {
     NOT_DESTROYED();
@@ -105,7 +101,7 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
   }
   FirstLetterPseudoElement* GetFirstLetterPseudoElement() const {
     NOT_DESTROYED();
-    return first_letter_pseudo_element_;
+    return first_letter_pseudo_element_.Get();
   }
 
   void SetIsRemainingTextLayoutObject(bool is_remaining_text) {
@@ -139,7 +135,7 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
   void UpdateHitTestResult(HitTestResult&,
                            const PhysicalOffset&) const override;
 
-  DOMNodeId OwnerNodeId() const final;
+  DOMNodeId OwnerNodeId(bool is_internal_content = false) const final;
 
   unsigned start_;
   unsigned fragment_length_;

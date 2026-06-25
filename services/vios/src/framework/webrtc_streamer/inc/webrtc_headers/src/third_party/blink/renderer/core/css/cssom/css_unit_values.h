@@ -51,6 +51,14 @@ class CSSUnitValues {
     return CSSUnitValue::Create(value, CSSPrimitiveValue::UnitType::kRems);
   }
 
+  static CSSUnitValue* cap(double value) {
+    return CSSUnitValue::Create(value, CSSPrimitiveValue::UnitType::kCaps);
+  }
+
+  static CSSUnitValue* rcap(double value) {
+    return CSSUnitValue::Create(value, CSSPrimitiveValue::UnitType::kRcaps);
+  }
+
   static CSSUnitValue* rex(double value) {
     return CSSUnitValue::Create(value, CSSPrimitiveValue::UnitType::kRexs);
   }
@@ -302,7 +310,7 @@ class CSSUnitValues {
 
   // <flex>
   static CSSUnitValue* fr(double value) {
-    return CSSUnitValue::Create(value, CSSPrimitiveValue::UnitType::kFraction);
+    return CSSUnitValue::Create(value, CSSPrimitiveValue::UnitType::kFlex);
   }
 };
 

@@ -46,8 +46,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_PAINT_LAYER_CLIPPER_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
+#include "third_party/blink/renderer/platform/geometry/physical_offset.h"
 #include "third_party/blink/renderer/platform/graphics/overlay_scrollbar_clip_behavior.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -101,8 +101,8 @@ class ClipRectsContext {
 // rect in the space of some ancestor PaintLayer (specified by rootLayer on
 // ClipRectsContext).
 // The only differences are that:
-//   * The unclipped rect at the start is LayoutRect::infiniteIntRect,
-// rather than the local overflow bounds of the PaintLayer.
+//   * The unclipped rect at the start is InfiniteIntRect(), rather than the
+// local overflow bounds of the PaintLayer.
 //   * CSS clip, the extent of visualOverflowRect(), and SVG root viewport
 // clipping is applied.
 // Thus, for example if there are no clips then the background rect will be

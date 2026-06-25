@@ -25,8 +25,6 @@ class UpdateLayout;
 class V8Compile;
 }  // namespace probe
 
-using blink::protocol::Maybe;
-
 class CORE_EXPORT InspectorPerformanceAgent final
     : public InspectorBaseAgent<protocol::Performance::Metainfo>,
       public base::sequence_manager::TaskTimeObserver {
@@ -42,7 +40,7 @@ class CORE_EXPORT InspectorPerformanceAgent final
   void Restore() override;
 
   // Performance protocol domain implementation.
-  protocol::Response enable(Maybe<String> time_domain) override;
+  protocol::Response enable(std::optional<String> time_domain) override;
   protocol::Response disable() override;
   protocol::Response setTimeDomain(const String& time_domain) override;
   protocol::Response getMetrics(
@@ -50,7 +48,7 @@ class CORE_EXPORT InspectorPerformanceAgent final
           out_result) override;
 
   // PerformanceMetrics probes implementation.
-  void ConsoleTimeStamp(const String& title);
+  void ConsoleTimeStamp(v8::Isolate* isolate, v8::Local<v8::String> label);
   void Will(const probe::CallFunction&);
   void Did(const probe::CallFunction&);
   void Will(const probe::ExecuteScript&);

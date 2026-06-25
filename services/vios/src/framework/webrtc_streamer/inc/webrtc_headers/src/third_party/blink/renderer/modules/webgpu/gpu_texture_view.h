@@ -9,19 +9,21 @@
 
 namespace blink {
 
-class GPUTextureView : public DawnObject<WGPUTextureView> {
+class GPUTextureView : public DawnObject<wgpu::TextureView> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  explicit GPUTextureView(GPUDevice* device, WGPUTextureView texture_view);
+  explicit GPUTextureView(GPUDevice* device,
+                          wgpu::TextureView texture_view,
+                          const String& label);
 
   GPUTextureView(const GPUTextureView&) = delete;
   GPUTextureView& operator=(const GPUTextureView&) = delete;
 
  private:
-  void setLabelImpl(const String& value) override {
+  void SetLabelImpl(const String& value) override {
     std::string utf8_label = value.Utf8();
-    GetProcs().textureViewSetLabel(GetHandle(), utf8_label.c_str());
+    GetHandle().SetLabel(utf8_label.c_str());
   }
 };
 

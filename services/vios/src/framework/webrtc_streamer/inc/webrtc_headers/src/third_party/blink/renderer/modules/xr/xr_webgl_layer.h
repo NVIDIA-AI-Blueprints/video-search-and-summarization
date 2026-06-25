@@ -12,22 +12,22 @@
 #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context.h"
 #include "third_party/blink/renderer/modules/webgl/webgl_unowned_texture.h"
 #include "third_party/blink/renderer/modules/xr/xr_layer.h"
+#include "third_party/blink/renderer/modules/xr/xr_layer_client.h"
 #include "third_party/blink/renderer/modules/xr/xr_utils.h"
 #include "third_party/blink/renderer/modules/xr/xr_view.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/graphics/gpu/xr_frame_transport_delegate.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/xr_webgl_drawing_buffer.h"
-#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
+#include "third_party/blink/renderer/platform/graphics/gpu/xr_webgl_frame_transport_delegate.h"
 
 namespace blink {
 
-class ExceptionState;
-class HTMLCanvasElement;
 class WebGLFramebuffer;
 class WebGLRenderingContextBase;
 class XRSession;
 class XRViewport;
 
-class XRWebGLLayer final : public XRLayer {
+class XRWebGLLayer final : public XRLayer, public XrLayerClient {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -44,9 +44,13 @@ class XRWebGLLayer final : public XRLayer {
                               const XRWebGLLayerInit*,
                               ExceptionState&);
 
-  WebGLRenderingContextBase* context() const { return webgl_context_; }
+  // XrLayerClient overrides.
+  XRSession* session() const override;
+  std::unique_ptr<SharedImageHolder> TransferToSharedImageHolder() override;
+  XRFrameTransportDelegate* GetTransportDelegate() override;
+  std::unique_ptr<SharedImageHolder> DoneWithSharedBuffer() override;
 
-  WebGLFramebuffer* framebuffer() const { return framebuffer_; }
+  WebGLFramebuffer* framebuffer() const { return framebuffer_.Get(); }
   uint32_t framebufferWidth() const;
   uint32_t framebufferHeight() const;
 
@@ -63,36 +67,23 @@ class XRWebGLLayer final : public XRLayer {
 
   HTMLCanvasElement* output_canvas() const;
 
-  // Returns WebGLTexture (actually a WebGLUnownedTexture instance)
-  // corresponding to the camera image.
-  // The texture is owned by the XRWebGLLayer and will be freed in OnFrameEnd().
-  // When the texture is deleted by the layer, the returned object will have its
-  // texture name set to 0 to avoid using stale texture names in case the user
-  // code still holds references to this object.
-  // The consumers should not attempt to delete the texture themselves.
-  WebGLTexture* GetCameraTexture();
+  void OnFrameStart() override;
+  void OnFrameEnd() override;
+  void OnResize() override;
 
-  void OnFrameStart(
-      const absl::optional<gpu::MailboxHolder>& buffer_mailbox_holder,
-      const absl::optional<gpu::MailboxHolder>& camera_image_mailbox_holder);
-  void OnFrameEnd();
-  void OnResize();
+  XRLayerType LayerType() const override;
 
-  // Called from XRSession::OnFrame handler. Params are background texture
-  // mailbox holder and its size respectively.
-  void HandleBackgroundImage(const gpu::MailboxHolder&, const gfx::Size&) {}
+  XrLayerClient* LayerClient() override;
 
-  scoped_refptr<StaticBitmapImage> TransferToStaticBitmapImage();
+  WebGLRenderingContextBase* GetWebGLContext() { return webgl_context_; }
 
   void Trace(Visitor*) const override;
 
+ protected:
+  device::mojom::blink::XRCompositionLayerDataPtr CreateLayerData()
+      const override;
+
  private:
-  uint32_t GetBufferTextureId(
-      const absl::optional<gpu::MailboxHolder>& buffer_mailbox_holder);
-
-  void BindCameraBufferTexture(
-      const absl::optional<gpu::MailboxHolder>& buffer_mailbox_holder);
-
   Member<XRViewport> left_viewport_;
   Member<XRViewport> right_viewport_;
 
@@ -107,13 +98,7 @@ class XRWebGLLayer final : public XRLayer {
 
   uint32_t clean_frame_count = 0;
 
-  uint32_t camera_image_texture_id_;
-  // WebGL texture that points to the |camera_image_texture_|. Must be notified
-  // via a call to |WebGLUnownedTexture::OnGLDeleteTextures()| when
-  // |camera_image_texture_id_| is deleted.
-  Member<WebGLUnownedTexture> camera_image_texture_;
-
-  absl::optional<gpu::MailboxHolder> camera_image_mailbox_holder_;
+  Member<XRWebGLFrameTransportDelegate> transport_delegate_;
 };
 
 }  // namespace blink

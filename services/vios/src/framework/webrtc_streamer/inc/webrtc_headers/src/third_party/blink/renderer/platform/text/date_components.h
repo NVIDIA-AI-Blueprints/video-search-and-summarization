@@ -32,6 +32,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_DATE_COMPONENTS_H_
 
 #include <limits>
+
+#include "base/time/time.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -189,10 +191,10 @@ class PLATFORM_EXPORT DateComponents {
   int MaxWeekNumberInYear() const;
   bool ParseYear(const String&, unsigned start, unsigned& end);
   // Helper for MillisecondsSinceEpoch().
-  double MillisecondsSinceEpochForTime() const;
+  base::TimeDelta MillisecondsSinceEpochForTime() const;
   // Helpers for SetMillisecondsSinceEpochFor*().
   bool SetMillisecondsSinceEpochForDateInternal(double ms);
-  void SetMillisecondsSinceMidnightInternal(double ms);
+  void SetMillisecondsSinceMidnightInternal(int ms_in_day);
   // Helper for ToString().
   String ToStringForTime(SecondFormat) const;
 

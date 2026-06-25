@@ -14,6 +14,7 @@
 #include <jni.h>
 
 #include "api/rtp_sender_interface.h"
+#include "api/scoped_refptr.h"
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
@@ -21,7 +22,7 @@ namespace jni {
 
 ScopedJavaLocalRef<jobject> NativeToJavaRtpSender(
     JNIEnv* env,
-    rtc::scoped_refptr<RtpSenderInterface> sender);
+    scoped_refptr<RtpSenderInterface> sender);
 
 }  // namespace jni
 }  // namespace webrtc

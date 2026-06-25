@@ -22,6 +22,7 @@
 #ifndef AVCODEC_AC3DSP_H
 #define AVCODEC_AC3DSP_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /**
@@ -47,13 +48,13 @@ typedef struct AC3DSPContext {
      * [-(1<<24),(1<<24)]
      *
      * @param dst destination array of int32_t.
-     *            constraints: 16-byte aligned
+     *            constraints: 32-byte aligned
      * @param src source array of float.
-     *            constraints: 16-byte aligned
+     *            constraints: 32-byte aligned
      * @param len number of elements to convert.
      *            constraints: multiple of 32 greater than zero
      */
-    void (*float_to_fixed24)(int32_t *dst, const float *src, unsigned int len);
+    void (*float_to_fixed24)(int32_t *dst, const float *src, size_t len);
 
     /**
      * Calculate bit allocation pointers.
@@ -105,10 +106,12 @@ typedef struct AC3DSPContext {
     void (*downmix_fixed)(int32_t **samples, int16_t **matrix, int len);
 } AC3DSPContext;
 
-void ff_ac3dsp_init    (AC3DSPContext *c);
+void ff_ac3dsp_init(AC3DSPContext *c);
+void ff_ac3dsp_init_aarch64(AC3DSPContext *c);
 void ff_ac3dsp_init_arm(AC3DSPContext *c);
 void ff_ac3dsp_init_x86(AC3DSPContext *c);
 void ff_ac3dsp_init_mips(AC3DSPContext *c);
+void ff_ac3dsp_init_riscv(AC3DSPContext *c);
 
 void ff_ac3dsp_downmix(AC3DSPContext *c, float **samples, float **matrix,
                        int out_ch, int in_ch, int len);

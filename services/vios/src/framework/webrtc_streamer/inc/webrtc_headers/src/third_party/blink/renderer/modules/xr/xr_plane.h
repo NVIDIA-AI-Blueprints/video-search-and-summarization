@@ -5,9 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_XR_XR_PLANE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_XR_XR_PLANE_H_
 
+#include <optional>
+
+#include "device/vr/public/mojom/plane_id.h"
 #include "device/vr/public/mojom/pose.h"
 #include "device/vr/public/mojom/vr_service.mojom-blink-forward.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/geometry/dom_point_read_only.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -15,8 +17,12 @@
 
 namespace blink {
 
+class V8XRPlaneOrientation;
 class XRSession;
 class XRSpace;
+
+template <typename IDLType>
+class FrozenArray;
 
 class XRPlane : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -24,21 +30,22 @@ class XRPlane : public ScriptWrappable {
  public:
   enum class Orientation { kHorizontal, kVertical };
 
-  XRPlane(uint64_t id,
+  XRPlane(device::PlaneId id,
           XRSession* session,
           const device::mojom::blink::XRPlaneData& plane_data,
           double timestamp);
 
-  uint64_t id() const;
+  device::PlaneId id() const;
 
   XRSpace* planeSpace() const;
 
-  absl::optional<gfx::Transform> MojoFromObject() const;
+  std::optional<gfx::Transform> MojoFromObject() const;
 
   device::mojom::blink::XRNativeOriginInformationPtr NativeOrigin() const;
 
-  String orientation() const;
-  HeapVector<Member<DOMPointReadOnly>> polygon() const;
+  std::optional<V8XRPlaneOrientation> orientation() const;
+  const FrozenArray<DOMPointReadOnly>& polygon() const;
+  String semanticLabel() const;
   double lastChangedTime() const;
 
   // Updates plane data from passed in |plane_data|. The resulting instance
@@ -57,20 +64,23 @@ class XRPlane : public ScriptWrappable {
   void Trace(Visitor* visitor) const override;
 
  private:
-  XRPlane(uint64_t id,
+  XRPlane(device::PlaneId id,
           XRSession* session,
-          const absl::optional<Orientation>& orientation,
-          const HeapVector<Member<DOMPointReadOnly>>& polygon,
-          const absl::optional<device::Pose>& mojo_from_plane,
+          const std::optional<Orientation>& orientation,
+          HeapVector<Member<DOMPointReadOnly>> polygon,
+          const std::optional<device::Pose>& mojo_from_plane,
+          const String& semantic_label,
           double timestamp);
 
-  const uint64_t id_;
-  HeapVector<Member<DOMPointReadOnly>> polygon_;
-  absl::optional<Orientation> orientation_;
+  const device::PlaneId id_;
+  Member<FrozenArray<DOMPointReadOnly>> polygon_;
+  std::optional<Orientation> orientation_;
 
   // Plane center's pose in device (mojo) space.  Nullptr if the pose of the
   // anchor is unknown in the current frame.
-  absl::optional<device::Pose> mojo_from_plane_;
+  std::optional<device::Pose> mojo_from_plane_;
+
+  String semantic_label_;
 
   Member<XRSession> session_;
 

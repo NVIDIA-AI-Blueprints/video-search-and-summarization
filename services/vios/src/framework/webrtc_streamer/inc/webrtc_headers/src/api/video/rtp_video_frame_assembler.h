@@ -52,11 +52,7 @@ class RtpVideoFrameAssembler {
   // FrameVector is just a vector-like type of std::unique_ptr<EncodedFrame>.
   // The vector type may change without notice.
   using FrameVector = absl::InlinedVector<AssembledFrame, 3>;
-#ifndef DISABLE_H265
-  enum PayloadFormat { kRaw, kH264, kVp8, kVp9, kAv1, kH265, kGeneric };
-#else
-  enum PayloadFormat { kRaw, kH264, kVp8, kVp9, kAv1, kGeneric };
-#endif
+  enum PayloadFormat { kRaw, kH264, kVp8, kVp9, kAv1, kGeneric, kH265 };
 
   explicit RtpVideoFrameAssembler(PayloadFormat payload_format);
   RtpVideoFrameAssembler(const RtpVideoFrameAssembler& other) = delete;

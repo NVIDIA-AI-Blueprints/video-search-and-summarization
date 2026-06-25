@@ -15,31 +15,17 @@
 #include "api/scoped_refptr.h"
 #include "rtc_base/system/rtc_export.h"
 
-namespace cricket {
-class PortAllocator;
-}  // namespace cricket
-
 namespace webrtc {
 
 // Static factory for an IceTransport object that can be created
-// without using a webrtc::PeerConnection.
-// The returned object must be accessed and destroyed on the thread that
-// created it.
-// The PortAllocator must outlive the created IceTransportInterface object.
-// TODO(steveanton): Remove in favor of the overload that takes
-// IceTransportInit.
-RTC_EXPORT rtc::scoped_refptr<IceTransportInterface> CreateIceTransport(
-    cricket::PortAllocator* port_allocator);
-
-// Static factory for an IceTransport object that can be created
-// without using a webrtc::PeerConnection.
+// without using a PeerConnection.
 // The returned object must be accessed and destroyed on the thread that
 // created it.
 // `init.port_allocator()` is required and must outlive the created
 //     IceTransportInterface object.
 // `init.async_resolver_factory()` and `init.event_log()` are optional, but if
 //     provided must outlive the created IceTransportInterface object.
-RTC_EXPORT rtc::scoped_refptr<IceTransportInterface> CreateIceTransport(
+RTC_EXPORT scoped_refptr<IceTransportInterface> CreateIceTransport(
     IceTransportInit);
 
 }  // namespace webrtc

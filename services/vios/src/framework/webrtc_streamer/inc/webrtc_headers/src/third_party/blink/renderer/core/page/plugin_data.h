@@ -44,7 +44,7 @@ class CORE_EXPORT MimeClassInfo final : public GarbageCollected<MimeClassInfo> {
   const String& Type() const { return type_; }
   const String& Description() const { return description_; }
   const Vector<String>& Extensions() const { return extensions_; }
-  const PluginInfo* Plugin() const { return plugin_; }
+  const PluginInfo* Plugin() const { return plugin_.Get(); }
 
  private:
   friend class PluginData;
@@ -106,10 +106,6 @@ class CORE_EXPORT PluginData final : public GarbageCollected<PluginData> {
   bool SupportsMimeType(const String& mime_type) const;
   Color PluginBackgroundColorForMimeType(const String& mime_type) const;
   bool IsExternalPluginMimeType(const String& mime_type) const;
-
-  // refreshBrowserSidePluginCache doesn't update existent instances of
-  // PluginData.
-  static void RefreshBrowserSidePluginCache();
 
  private:
   HeapVector<Member<PluginInfo>> plugins_;

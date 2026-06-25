@@ -17,29 +17,27 @@
 #ifndef SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_OPERATORS_SPAN_JOIN_OPERATOR_H_
 #define SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_OPERATORS_SPAN_JOIN_OPERATOR_H_
 
-#include <sqlite3.h>
-
-#include <array>
-#include <deque>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
-#include <map>
-#include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "perfetto/base/logging.h"
+#include "perfetto/base/status.h"
 #include "perfetto/ext/base/flat_hash_map.h"
+#include "perfetto/ext/base/string_splitter.h"
 #include "perfetto/ext/base/string_utils.h"
 #include "perfetto/trace_processor/basic_types.h"
-#include "perfetto/trace_processor/status.h"
-#include "src/trace_processor/sqlite/scoped_db.h"
-#include "src/trace_processor/sqlite/sqlite_engine.h"
-#include "src/trace_processor/sqlite/sqlite_table.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_module.h"
+#include "src/trace_processor/sqlite/sqlite_connection.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
-class PerfettoSqlEngine;
+class PerfettoSqlConnection;
+struct SpanJoinOperatorModule;
 
 // Implements the SPAN JOIN operation between two tables on a particular column.
 //
@@ -48,7 +46,7 @@ class PerfettoSqlEngine;
 // operations which run for a particular *span* of time.
 //
 // We draw spans like so (time on the x-axis):
-// start of span->[ time where opertion is running ]<- end of span
+// start of span->[ time where operation is running ]<- end of span
 //
 // Multiple spans can happen in parallel:
 // [      ]
@@ -73,9 +71,13 @@ class PerfettoSqlEngine;
 //
 // All other columns apart from timestamp (ts), duration (dur) and the join key
 // are passed through unchanged.
-class SpanJoinOperatorTable final
-    : public TypedSqliteTable<SpanJoinOperatorTable, PerfettoSqlEngine*> {
+struct SpanJoinOperatorModule : public sqlite::Module<SpanJoinOperatorModule> {
  public:
+  static constexpr uint32_t kSourceGeqOpCode =
+      SQLITE_INDEX_CONSTRAINT_FUNCTION + 1;
+
+  struct Vtab;
+
   // Enum indicating whether the queries on the two inner tables should
   // emit shadows.
   enum class EmitShadowType {
@@ -91,6 +93,17 @@ class SpanJoinOperatorTable final
     kNone,
   };
 
+  // Parsed version of a table descriptor.
+  struct TableDescriptor {
+    static base::Status Parse(const std::string& raw_descriptor,
+                              TableDescriptor* descriptor);
+
+    bool IsPartitioned() const { return !partition_col.empty(); }
+
+    std::string name;
+    std::string partition_col;
+  };
+
   // Contains the definition of the child tables.
   class TableDefinition {
    public:
@@ -98,11 +111,24 @@ class SpanJoinOperatorTable final
 
     TableDefinition(std::string name,
                     std::string partition_col,
-                    std::vector<SqliteTable::Column> cols,
+                    std::vector<std::pair<SqlValue::Type, std::string>> cols,
                     EmitShadowType emit_shadow_type,
                     uint32_t ts_idx,
-                    uint32_t dur_idx,
+                    std::optional<uint32_t> dur_idx,
                     uint32_t partition_idx);
+
+    static base::Status Create(PerfettoSqlConnection* connection,
+                               const TableDescriptor& desc,
+                               EmitShadowType emit_shadow_type,
+                               TableDefinition* defn);
+
+    // Creates an SQL query from the constraints and index,
+    std::string CreateSqlQuery(base::StringSplitter&,
+                               sqlite3_value** argv) const;
+
+    // Creates the section of the "CREATE TABLE" corresponding to this
+    // definition.
+    std::string CreateVtabCreateTableSection() const;
 
     // Returns whether this table should emit present partition shadow slices.
     bool ShouldEmitPresentPartitionShadow() const {
@@ -120,10 +146,12 @@ class SpanJoinOperatorTable final
 
     const std::string& name() const { return name_; }
     const std::string& partition_col() const { return partition_col_; }
-    const std::vector<SqliteTable::Column>& columns() const { return cols_; }
+    const std::vector<std::pair<SqlValue::Type, std::string>>& columns() const {
+      return cols_;
+    }
 
     uint32_t ts_idx() const { return ts_idx_; }
-    uint32_t dur_idx() const { return dur_idx_; }
+    std::optional<uint32_t> dur_idx() const { return dur_idx_; }
     uint32_t partition_idx() const { return partition_idx_; }
 
    private:
@@ -131,10 +159,10 @@ class SpanJoinOperatorTable final
 
     std::string name_;
     std::string partition_col_;
-    std::vector<SqliteTable::Column> cols_;
+    std::vector<std::pair<SqlValue::Type, std::string>> cols_;
 
     uint32_t ts_idx_ = std::numeric_limits<uint32_t>::max();
-    uint32_t dur_idx_ = std::numeric_limits<uint32_t>::max();
+    std::optional<uint32_t> dur_idx_;
     uint32_t partition_idx_ = std::numeric_limits<uint32_t>::max();
   };
 
@@ -155,7 +183,7 @@ class SpanJoinOperatorTable final
       // real slice present.
       kPresentPartitionShadow,
 
-      // Encodes that the current slice is on a paritition(s) for which there is
+      // Encodes that the current slice is on a partition(s) for which there is
       // no real slice for those partition(s).
       kMissingPartitionShadow,
 
@@ -163,9 +191,7 @@ class SpanJoinOperatorTable final
       kEof,
     };
 
-    Query(SpanJoinOperatorTable*,
-          const TableDefinition*,
-          PerfettoSqlEngine* engine);
+    Query(Vtab*, const TableDefinition*);
     virtual ~Query();
 
     Query(Query&&) noexcept = default;
@@ -177,18 +203,17 @@ class SpanJoinOperatorTable final
     };
 
     // Initializes the query with the given constraints and query parameters.
-    util::Status Initialize(
-        const QueryConstraints& qc,
-        sqlite3_value** argv,
+    base::Status Initialize(
+        std::string sql,
         InitialEofBehavior eof_behavior = InitialEofBehavior::kTreatAsEof);
 
     // Forwards the query to the next valid slice.
-    util::Status Next();
+    base::Status Next();
 
     // Rewinds the query to the first valid slice
     // This is used in the mixed partitioning case where the query with no
     // partitions is rewound to the start on every new partition.
-    util::Status Rewind();
+    base::Status Rewind();
 
     // Reports the column at the given index to given context.
     void ReportSqliteResult(sqlite3_context* context, size_t index);
@@ -250,16 +275,13 @@ class SpanJoinOperatorTable final
     bool IsValidSlice();
 
     // Forwards the query to the next valid slice.
-    util::Status FindNextValidSlice();
+    base::Status FindNextValidSlice();
 
     // Advances the query state machine by one slice.
-    util::Status NextSliceState();
+    base::Status NextSliceState();
 
     // Forwards the cursor to point to the next real slice.
-    util::Status CursorNext();
-
-    // Creates an SQL query from the given set of constraint strings.
-    std::string CreateSqlQuery(const std::vector<std::string>& cs) const;
+    base::Status CursorNext();
 
     // Returns whether the current slice pointed to is a present partition
     // shadow.
@@ -289,7 +311,10 @@ class SpanJoinOperatorTable final
 
     int64_t CursorDur() const {
       PERFETTO_DCHECK(!cursor_eof_);
-      auto dur_idx = static_cast<int>(defn_->dur_idx());
+      if (!defn_->dur_idx().has_value()) {
+        return 0;
+      }
+      auto dur_idx = static_cast<int>(defn_->dur_idx().value());
       return sqlite3_column_int64(stmt_->sqlite_stmt(), dur_idx);
     }
 
@@ -315,58 +340,12 @@ class SpanJoinOperatorTable final
     int64_t missing_partition_end_ = 0;
 
     std::string sql_query_;
-    std::optional<SqliteEngine::PreparedStatement> stmt_;
+    std::optional<SqliteConnection::PreparedStatement> stmt_;
 
     const TableDefinition* defn_ = nullptr;
-    PerfettoSqlEngine* engine_ = nullptr;
-    SpanJoinOperatorTable* table_ = nullptr;
+    Vtab* vtab_ = nullptr;
   };
 
-  // Base class for a cursor on the span table.
-  class Cursor final : public SqliteTable::BaseCursor {
-   public:
-    Cursor(SpanJoinOperatorTable*, PerfettoSqlEngine*);
-    ~Cursor() final;
-
-    base::Status Filter(const QueryConstraints& qc,
-                        sqlite3_value** argv,
-                        FilterHistory);
-    base::Status Next();
-    base::Status Column(sqlite3_context* context, int N);
-    bool Eof();
-
-   private:
-    Cursor(Cursor&) = delete;
-    Cursor& operator=(const Cursor&) = delete;
-
-    Cursor(Cursor&&) noexcept = default;
-    Cursor& operator=(Cursor&&) = default;
-
-    bool IsOverlappingSpan();
-    util::Status FindOverlappingSpan();
-    Query* FindEarliestFinishQuery();
-
-    Query t1_;
-    Query t2_;
-
-    Query* next_query_ = nullptr;
-
-    // Only valid for kMixedPartition.
-    int64_t last_mixed_partition_ = std::numeric_limits<int64_t>::min();
-
-    SpanJoinOperatorTable* table_;
-  };
-
-  SpanJoinOperatorTable(sqlite3*, PerfettoSqlEngine*);
-  ~SpanJoinOperatorTable() final;
-
-  // Table implementation.
-  util::Status Init(int, const char* const*, SqliteTable::Schema*) final;
-  std::unique_ptr<SqliteTable::BaseCursor> CreateCursor() final;
-  int BestIndex(const QueryConstraints& qc, BestIndexInfo* info) final;
-  int FindFunction(const char* name, FindFunctionFn* fn, void** args) final;
-
- private:
   // Columns of the span operator table.
   enum Column {
     kTimestamp = 0,
@@ -387,60 +366,112 @@ class SpanJoinOperatorTable final
     kMixedPartitioning = 2
   };
 
-  // Parsed version of a table descriptor.
-  struct TableDescriptor {
-    static util::Status Parse(const std::string& raw_descriptor,
-                              TableDescriptor* descriptor);
-
-    bool IsPartitioned() const { return !partition_col.empty(); }
-
-    std::string name;
-    std::string partition_col;
-  };
-
   // Identifier for a column by index in a given table.
   struct ColumnLocator {
     const TableDefinition* defn;
     size_t col_index;
   };
 
-  bool IsLeftJoin() const {
-    return base::CaseInsensitiveEqual(module_name(), "span_left_join");
-  }
-  bool IsOuterJoin() const {
-    return base::CaseInsensitiveEqual(module_name(), "span_outer_join");
-  }
+  struct Context {
+    explicit Context(PerfettoSqlConnection* _connection)
+        : connection(_connection) {}
 
-  const std::string& partition_col() const {
-    return t1_defn_.IsPartitioned() ? t1_defn_.partition_col()
-                                    : t2_defn_.partition_col();
-  }
+    PerfettoSqlConnection* connection;
+  };
+  struct Vtab : public sqlite3_vtab {
+    bool IsLeftJoin() const {
+      return base::CaseInsensitiveEqual(module_name, "span_left_join");
+    }
+    bool IsOuterJoin() const {
+      return base::CaseInsensitiveEqual(module_name, "span_outer_join");
+    }
 
-  util::Status CreateTableDefinition(
-      const TableDescriptor& desc,
-      EmitShadowType emit_shadow_type,
-      SpanJoinOperatorTable::TableDefinition* defn);
+    const std::string& partition_col() const {
+      return t1_defn.IsPartitioned() ? t1_defn.partition_col()
+                                     : t2_defn.partition_col();
+    }
 
-  std::vector<std::string> ComputeSqlConstraintsForDefinition(
-      const TableDefinition& defn,
-      const QueryConstraints& qc,
-      sqlite3_value** argv);
+    std::string GetNameForGlobalColumnIndex(const TableDefinition& defn,
+                                            int global_column);
 
-  std::string GetNameForGlobalColumnIndex(const TableDefinition& defn,
-                                          int global_column);
+    std::string BestIndexStrForDefinition(const sqlite3_index_info* info,
+                                          const TableDefinition& defn);
 
-  void CreateSchemaColsForDefn(const TableDefinition& defn,
-                               std::vector<SqliteTable::Column>* cols);
+    void PopulateColumnLocatorMap(uint32_t);
 
-  TableDefinition t1_defn_;
-  TableDefinition t2_defn_;
-  PartitioningType partitioning_;
-  base::FlatHashMap<size_t, ColumnLocator> global_index_to_column_locator_;
+    PerfettoSqlConnection* connection;
+    std::string module_name;
+    std::string create_table_stmt;
+    TableDefinition t1_defn;
+    TableDefinition t2_defn;
+    PartitioningType partitioning;
+    base::FlatHashMap<size_t, ColumnLocator> global_index_to_column_locator;
+  };
 
-  PerfettoSqlEngine* engine_ = nullptr;
+  // Base class for a cursor on the span table.
+  struct Cursor final : public sqlite3_vtab_cursor {
+    explicit Cursor(Vtab* _vtab)
+        : t1(_vtab, &_vtab->t1_defn), t2(_vtab, &_vtab->t2_defn), vtab(_vtab) {}
+
+    bool IsOverlappingSpan() const;
+    base::Status FindOverlappingSpan();
+    Query* FindEarliestFinishQuery();
+
+    Query t1;
+    Query t2;
+
+    Query* next_query = nullptr;
+
+    // Only valid for kMixedPartition.
+    int64_t last_mixed_partition_ = std::numeric_limits<int64_t>::min();
+
+    Vtab* vtab;
+  };
+
+  static constexpr bool kSupportsWrites = false;
+
+  static int Create(sqlite3*,
+                    void*,
+                    int,
+                    const char* const*,
+                    sqlite3_vtab**,
+                    char**);
+  static int Destroy(sqlite3_vtab*);
+
+  static int Connect(sqlite3*,
+                     void*,
+                     int,
+                     const char* const*,
+                     sqlite3_vtab**,
+                     char**);
+  static int Disconnect(sqlite3_vtab*);
+
+  static int BestIndex(sqlite3_vtab*, sqlite3_index_info*);
+
+  static int Open(sqlite3_vtab*, sqlite3_vtab_cursor**);
+  static int Close(sqlite3_vtab_cursor*);
+
+  static int Filter(sqlite3_vtab_cursor*,
+                    int,
+                    const char*,
+                    int,
+                    sqlite3_value**);
+  static int Next(sqlite3_vtab_cursor*);
+  static int Eof(sqlite3_vtab_cursor*);
+  static int Column(sqlite3_vtab_cursor*, sqlite3_context*, int);
+  static int Rowid(sqlite3_vtab_cursor*, sqlite_int64*);
+
+  static int FindFunction(sqlite3_vtab*,
+                          int,
+                          const char*,
+                          FindFunctionFn**,
+                          void**);
+
+  // This needs to happen at the end as it depends on the functions
+  // defined above.
+  static constexpr sqlite3_module kModule = CreateModule();
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_OPERATORS_SPAN_JOIN_OPERATOR_H_

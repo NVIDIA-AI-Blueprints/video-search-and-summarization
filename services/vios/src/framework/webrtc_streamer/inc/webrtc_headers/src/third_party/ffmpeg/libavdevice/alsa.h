@@ -35,6 +35,7 @@
 #include "libavutil/log.h"
 #include "timefilter.h"
 #include "avdevice.h"
+#include "version.h"
 
 /* XXX: we make the assumption that the soundcard accepts this format */
 /* XXX: find better solution with "preinit" method, needed also in
@@ -51,7 +52,10 @@ typedef struct AlsaData {
     int frame_size;  ///< bytes per sample * channels
     int period_size; ///< preferred size for reads and writes, in frames
     int sample_rate; ///< sample rate set by user
+#if FF_API_ALSA_CHANNELS
     int channels;    ///< number of channels set by user
+#endif
+    AVChannelLayout ch_layout; ///< Channel layout set by user
     int last_period;
     TimeFilter *timefilter;
     void (*reorder_func)(const void *, void *, int);
@@ -68,7 +72,7 @@ typedef struct AlsaData {
  * @param mode either SND_PCM_STREAM_CAPTURE or SND_PCM_STREAM_PLAYBACK
  * @param sample_rate in: requested sample rate;
  *                    out: actually selected sample rate
- * @param channels number of channels
+ * @param layout channel layout
  * @param codec_id in: requested AVCodecID or AV_CODEC_ID_NONE;
  *                 out: actually selected AVCodecID, changed only if
  *                 AV_CODEC_ID_NONE was requested
@@ -78,7 +82,7 @@ typedef struct AlsaData {
 av_warn_unused_result
 int ff_alsa_open(AVFormatContext *s, snd_pcm_stream_t mode,
                  unsigned int *sample_rate,
-                 int channels, enum AVCodecID *codec_id);
+                 const AVChannelLayout *layout, enum AVCodecID *codec_id);
 
 /**
  * Close the ALSA PCM.

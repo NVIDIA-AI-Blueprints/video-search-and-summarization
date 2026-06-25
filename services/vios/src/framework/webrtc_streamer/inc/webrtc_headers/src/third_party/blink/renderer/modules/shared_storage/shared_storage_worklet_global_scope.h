@@ -9,12 +9,10 @@
 
 #include "base/check.h"
 #include "base/functional/callback_forward.h"
-#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "mojo/public/cpp/base/big_buffer.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-blink-forward.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
@@ -36,12 +34,16 @@
 namespace blink {
 
 struct GlobalScopeCreationParams;
+class CodeCacheFetcher;
 class ModuleScriptDownloader;
 class SharedStorageOperationDefinition;
 class V8NoArgumentConstructor;
 class SharedStorage;
+class ScriptCachedMetadataHandler;
+class SharedStorageWorkletNavigator;
 class PrivateAggregation;
 class Crypto;
+class StorageInterestGroup;
 
 // mojom::blink::SharedStorageWorkletService implementation. Responsible for
 // handling worklet operations. This object lives on the worklet thread.
@@ -94,15 +96,15 @@ class MODULES_EXPORT SharedStorageWorkletGlobalScope final
   // reset, thus we cannot rely on observer method like `Dispose()`.
   void NotifyContextDestroyed() override;
 
-  bool FeatureEnabled(OriginTrialFeature feature) const override;
-
   void Trace(Visitor*) const override;
 
   // mojom::blink::SharedStorageWorkletService implementation:
   void Initialize(mojo::PendingAssociatedRemote<
                       mojom::blink::SharedStorageWorkletServiceClient> client,
-                  bool private_aggregation_permissions_policy_allowed,
-                  const String& embedder_context) override;
+                  mojom::blink::SharedStorageWorkletPermissionsPolicyStatePtr
+                      permissions_policy_state,
+                  const String& embedder_context,
+                  InitializeCallback callback) override;
   void AddModule(mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>
                      pending_url_loader_factory,
                  const KURL& script_source_url,
@@ -111,19 +113,22 @@ class MODULES_EXPORT SharedStorageWorkletGlobalScope final
       const String& name,
       const Vector<KURL>& urls,
       BlinkCloneableMessage serialized_data,
-      mojo::PendingRemote<mojom::blink::PrivateAggregationHost>
-          private_aggregation_host,
+      mojom::blink::PrivateAggregationOperationDetailsPtr pa_operation_details,
       RunURLSelectionOperationCallback callback) override;
-  void RunOperation(const String& name,
-                    BlinkCloneableMessage serialized_data,
-                    mojo::PendingRemote<mojom::blink::PrivateAggregationHost>
-                        private_aggregation_host,
-                    RunOperationCallback callback) override;
+  void RunOperation(
+      const String& name,
+      BlinkCloneableMessage serialized_data,
+      mojom::blink::PrivateAggregationOperationDetailsPtr pa_operation_details,
+      RunOperationCallback callback) override;
 
   // SharedStorageWorkletGlobalScope IDL
   SharedStorage* sharedStorage(ScriptState*, ExceptionState&);
   PrivateAggregation* privateAggregation(ScriptState*, ExceptionState&);
   Crypto* crypto(ScriptState*, ExceptionState&);
+  ScriptPromise<IDLSequence<StorageInterestGroup>> interestGroups(
+      ScriptState*,
+      ExceptionState&);
+  SharedStorageWorkletNavigator* Navigator(ScriptState*, ExceptionState&);
 
   // Returns the unique ID for the currently running operation.
   int64_t GetCurrentOperationId();
@@ -135,16 +140,22 @@ class MODULES_EXPORT SharedStorageWorkletGlobalScope final
 
   const String& embedder_context() const { return embedder_context_; }
 
-  bool private_aggregation_permissions_policy_allowed() const {
-    return private_aggregation_permissions_policy_allowed_;
+  const mojom::blink::SharedStorageWorkletPermissionsPolicyStatePtr&
+  permissions_policy_state() const {
+    return permissions_policy_state_;
   }
+
+  bool add_module_finished() const { return add_module_finished_; }
 
  private:
   void OnModuleScriptDownloaded(
       const KURL& script_source_url,
       mojom::blink::SharedStorageWorkletService::AddModuleCallback callback,
-      std::unique_ptr<std::string> response_body,
-      std::string error_message);
+      std::optional<std::string> response_body,
+      std::string error_message,
+      network::mojom::URLResponseHeadPtr response_head);
+
+  void DidReceiveCachedCode();
 
   void RecordAddModuleFinished();
 
@@ -157,26 +168,27 @@ class MODULES_EXPORT SharedStorageWorkletGlobalScope final
       SharedStorageOperationDefinition*& operation_definition);
 
   network::mojom::RequestDestination GetDestination() const override {
-    // Not called as the current implementation uses the custom module script
-    // loader.
-    NOTREACHED();
-
     // Once we migrate to the blink-worklet's script loading infra, this needs
     // to return a valid destination defined in the Fetch standard:
     // https://fetch.spec.whatwg.org/#concept-request-destination
-    return network::mojom::RequestDestination::kEmpty;
+    //
+    // Not called as the current implementation uses the custom module script
+    // loader.
+    NOTREACHED();
   }
 
   // Sets continuation-preserved embedder data to allow us to identify this
   // particular operation invocation later, even after asynchronous operations.
-  // Returns a closure that should be run when the operation finishes.
-  base::OnceClosure StartOperation(
-      mojo::PendingRemote<mojom::blink::PrivateAggregationHost>
-          private_aggregation_host);
+  // Returns a callback that should be run when the operation finishes.
+  base::OnceCallback<void(PrivateAggregation::TerminationStatus)>
+  StartOperation(
+      mojom::blink::PrivateAggregationOperationDetailsPtr pa_operation_details);
 
   // Notifies the `private_aggregation_` that the operation with the given ID
-  // has finished.
-  void FinishOperation(int64_t operation_id);
+  // has finished and whether it finished due to an uncaught error.
+  void FinishOperation(
+      int64_t operation_id,
+      PrivateAggregation::TerminationStatus termination_status);
 
   PrivateAggregation* GetOrCreatePrivateAggregation();
 
@@ -185,6 +197,8 @@ class MODULES_EXPORT SharedStorageWorkletGlobalScope final
   bool add_module_finished_ = false;
 
   int64_t operation_counter_ = 0;
+
+  base::OnceClosure handle_script_download_response_after_code_cache_response_;
 
   // `receiver_`'s disconnect handler explicitly deletes the worklet thread
   // object that owns this service, thus deleting `this` upon disconnect. To
@@ -213,11 +227,17 @@ class MODULES_EXPORT SharedStorageWorkletGlobalScope final
   // `crypto`.
   Member<Crypto> crypto_;
 
+  // The per-global-scope navigator object. Created on the first access of
+  // `navigator`.
+  Member<SharedStorageWorkletNavigator> navigator_;
+
   // The map from the registered operation names to their definition.
   HeapHashMap<String, Member<SharedStorageOperationDefinition>>
       operation_definition_map_;
 
   std::unique_ptr<ModuleScriptDownloader> module_script_downloader_;
+
+  scoped_refptr<CodeCacheFetcher> code_cache_fetcher_;
 
   // This is associated because on the client side (i.e. worklet host), we want
   // the call-in methods (e.g. storage access) and the callback methods
@@ -232,9 +252,10 @@ class MODULES_EXPORT SharedStorageWorkletGlobalScope final
   HeapMojoAssociatedRemote<mojom::blink::SharedStorageWorkletServiceClient>
       client_{this};
 
-  // Whether the "private-aggregation" permissions policy is enabled in the
-  // worklet.
-  bool private_aggregation_permissions_policy_allowed_ = false;
+  // The state of the permissions policy features applicable to the shared
+  // storage worklet.
+  mojom::blink::SharedStorageWorkletPermissionsPolicyStatePtr
+      permissions_policy_state_;
 
   const SharedStorageWorkletToken token_;
 };

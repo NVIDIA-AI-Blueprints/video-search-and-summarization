@@ -11,15 +11,19 @@
 #ifndef MODULES_AUDIO_CODING_NETEQ_TOOLS_NETEQ_DELAY_ANALYZER_H_
 #define MODULES_AUDIO_CODING_NETEQ_TOOLS_NETEQ_DELAY_ANALYZER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
+#include <optional>
 #include <set>
-#include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
-#include "modules/audio_coding/neteq/tools/neteq_input.h"
+#include "api/audio/audio_frame.h"
+#include "api/neteq/neteq.h"
 #include "modules/audio_coding/neteq/tools/neteq_test.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
 
 namespace webrtc {
 namespace test {
@@ -27,7 +31,7 @@ namespace test {
 class NetEqDelayAnalyzer : public test::NetEqPostInsertPacket,
                            public test::NetEqGetAudioCallback {
  public:
-  void AfterInsertPacket(const test::NetEqInput::PacketData& packet,
+  void AfterInsertPacket(const RtpPacketReceived& packet,
                          NetEq* neteq) override;
 
   void BeforeGetAudio(NetEq* neteq) override;
@@ -57,10 +61,10 @@ class NetEqDelayAnalyzer : public test::NetEqPostInsertPacket,
   struct TimingData {
     explicit TimingData(int64_t at) : arrival_time_ms(at) {}
     int64_t arrival_time_ms;
-    absl::optional<int64_t> decode_get_audio_count;
-    absl::optional<int64_t> sync_delay_ms;
-    absl::optional<int> target_delay_ms;
-    absl::optional<int> current_delay_ms;
+    std::optional<int64_t> decode_get_audio_count;
+    std::optional<int64_t> sync_delay_ms;
+    std::optional<int> target_delay_ms;
+    std::optional<int> current_delay_ms;
   };
   std::map<uint32_t, TimingData> data_;
   std::vector<int64_t> get_audio_time_ms_;

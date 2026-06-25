@@ -15,7 +15,7 @@
 
 #include <limits>
 
-#include "third_party/googletest/src/include/gtest/gtest.h"
+#include "gtest/gtest.h"
 
 #include "vpx/vpx_integer.h"
 
@@ -45,16 +45,18 @@ class ACMRandom {
     return static_cast<int16_t>(random_.Generate(65536));
   }
 
-  int16_t Rand13Signed() {
-    // Use 13 bits: values between 4095 and -4096.
-    const uint32_t value = random_.Generate(8192);
-    return static_cast<int16_t>(value) - 4096;
+  uint16_t Rand12() {
+    const uint32_t value =
+        random_.Generate(testing::internal::Random::kMaxRange);
+    // There's a bit more entropy in the upper bits of this implementation.
+    return (value >> 19) & 0xfff;
   }
 
-  int16_t Rand9Signed() {
-    // Use 9 bits: values between 255 (0x0FF) and -256 (0x100).
-    const uint32_t value = random_.Generate(512);
-    return static_cast<int16_t>(value) - 256;
+  uint16_t Rand10() {
+    const uint32_t value =
+        random_.Generate(testing::internal::Random::kMaxRange);
+    // There's a bit more entropy in the upper bits of this implementation.
+    return (value >> 21) & 0x3ff;
   }
 
   uint8_t Rand8() {

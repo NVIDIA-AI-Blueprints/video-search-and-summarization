@@ -30,6 +30,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_NETWORK_RESOURCES_DATA_H_
 
 #include "net/cert/x509_certificate.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/html/parser/text_resource_decoder.h"
 #include "third_party/blink/renderer/core/inspector/inspector_page_agent.h"
@@ -60,16 +61,16 @@ class XHRReplayData final : public GarbageCollected<XHRReplayData> {
 
   void AddHeader(const AtomicString& key, const AtomicString& value);
 
-  ExecutionContext* GetExecutionContext() const { return execution_context_; }
+  ExecutionContext* GetExecutionContext() const {
+    return execution_context_.Get();
+  }
   const AtomicString& Method() const { return method_; }
   const KURL& Url() const { return url_; }
   bool Async() const { return async_; }
   const HTTPHeaderMap& Headers() const { return headers_; }
   bool IncludeCredentials() const { return include_credentials_; }
 
-  virtual void Trace(Visitor* visitor) const {
-    visitor->Trace(execution_context_);
-  }
+  void Trace(Visitor* visitor) const { visitor->Trace(execution_context_); }
 
  private:
   WeakMember<ExecutionContext> execution_context_;
@@ -80,11 +81,11 @@ class XHRReplayData final : public GarbageCollected<XHRReplayData> {
   bool include_credentials_;
 };
 
-class NetworkResourcesData final
+class CORE_EXPORT NetworkResourcesData final
     : public GarbageCollected<NetworkResourcesData> {
  public:
-  class ResourceData final : public GarbageCollected<ResourceData>,
-                             public FontResourceClearDataObserver {
+  class CORE_EXPORT ResourceData final : public GarbageCollected<ResourceData>,
+                                         public FontResourceClearDataObserver {
     friend class NetworkResourcesData;
 
    public:
@@ -129,11 +130,6 @@ class NetworkResourcesData final
       text_encoding_name_ = text_encoding_name;
     }
 
-    scoped_refptr<SharedBuffer> Buffer() const { return buffer_; }
-    void SetBuffer(scoped_refptr<SharedBuffer> buffer) {
-      buffer_ = std::move(buffer);
-    }
-
     const Resource* CachedResource() const { return cached_resource_.Get(); }
     void SetResource(const Resource*);
 
@@ -173,9 +169,11 @@ class NetworkResourcesData final
 
     void Trace(Visitor*) const override;
 
+    const std::optional<SegmentedBuffer>& Data() const { return data_buffer_; }
+
    private:
-    bool HasData() const { return data_buffer_.get(); }
-    void AppendData(const char* data, size_t data_length);
+    bool HasData() const { return data_buffer_.has_value(); }
+    void AppendData(base::span<const char> data);
     // Removes just the response content.
     [[nodiscard]] size_t RemoveResponseContent();
     size_t DecodeDataToContent();
@@ -189,7 +187,7 @@ class NetworkResourcesData final
     String content_;
     Member<XHRReplayData> xhr_replay_data_;
     bool base64_encoded_;
-    scoped_refptr<SharedBuffer> data_buffer_;
+    std::optional<SegmentedBuffer> data_buffer_;
     bool is_content_evicted_;
     InspectorPageAgent::ResourceType type_;
     int http_status_code_;
@@ -198,8 +196,6 @@ class NetworkResourcesData final
     String text_encoding_name_;
     int64_t raw_header_size_;
     int64_t pending_encoded_data_length_;
-
-    scoped_refptr<SharedBuffer> buffer_;
 
     // We use UntracedMember<> here to do custom weak processing.
     UntracedMember<const Resource> cached_resource_;
@@ -227,8 +223,7 @@ class NetworkResourcesData final
                           const String& content,
                           bool base64_encoded = false);
   void MaybeAddResourceData(const String& request_id,
-                            const char* data,
-                            uint64_t data_length);
+                            base::span<const char> data);
   void MaybeDecodeDataToContent(const String& request_id);
   void AddResource(const String& request_id, const Resource*);
   ResourceData const* Data(const String& request_id);

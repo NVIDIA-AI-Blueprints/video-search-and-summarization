@@ -60,15 +60,27 @@ class SelectType : public GarbageCollected<SelectType> {
   // Clear OPTION selection information saved by SaveLastSelection().
   // This is for ListBoxes.
   virtual void ClearLastOnChangeSelection();
+  // Sets the active selection range to just the provided option element. This
+  // will make ActiveSelectionEnd() return the provided option.
+  virtual void SetListBoxActiveSelection(HTMLOptionElement*);
 
-  virtual void CreateShadowSubtree(ShadowRoot& root);
+  virtual void CreateShadowSubtree(ShadowRoot& root) = 0;
+  virtual void ManuallyAssignSlots() = 0;
+  virtual HTMLButtonElement* SlottedButton() const = 0;
+  virtual HTMLElement* PopoverPickerElement() const = 0;
+  virtual bool IsAppearanceBasePicker() const = 0;
+  virtual bool PickerIsPopover() const = 0;
+  virtual void SetIsAppearanceBasePickerForDisplayNone(bool) = 0;
+  virtual HTMLSelectElement::SelectAutofillPreviewElement*
+  GetAutofillPreviewElement() const = 0;
   virtual Element& InnerElement() const;
   virtual void ShowPopup(PopupMenu::ShowEventType type);
-  virtual void HidePopup();
+  virtual void HidePopup(SelectPopupHideBehavior);
   virtual void PopupDidHide();
   virtual bool PopupIsVisible() const;
   virtual PopupMenu* PopupForTesting() const;
   virtual AXObject* PopupRootAXObject() const;
+  virtual void ShowPicker();
 
   enum SkipDirection { kSkipBackwards = -1, kSkipForwards = 1 };
   CORE_EXPORT HTMLOptionElement* NextSelectableOption(HTMLOptionElement*) const;

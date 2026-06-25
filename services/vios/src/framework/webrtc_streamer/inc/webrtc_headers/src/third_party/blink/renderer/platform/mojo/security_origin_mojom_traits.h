@@ -5,11 +5,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_MOJO_SECURITY_ORIGIN_MOJOM_TRAITS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_MOJO_SECURITY_ORIGIN_MOJOM_TRAITS_H_
 
+#include <optional>
+#include <string_view>
+
 #include "mojo/public/cpp/base/unguessable_token_mojom_traits.h"
 #include "mojo/public/cpp/bindings/optional_as_pointer.h"
 #include "mojo/public/cpp/bindings/string_traits_wtf.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "url/mojom/origin.mojom-shared.h"
@@ -24,12 +25,12 @@ struct UrlOriginAdapter {
   }
   static scoped_refptr<blink::SecurityOrigin> CreateSecurityOrigin(
       const url::SchemeHostPort& tuple,
-      const absl::optional<base::UnguessableToken>& nonce_if_opaque) {
+      const std::optional<base::UnguessableToken>& nonce_if_opaque) {
     scoped_refptr<blink::SecurityOrigin> tuple_origin;
     if (tuple.IsValid()) {
       tuple_origin = blink::SecurityOrigin::CreateFromValidTuple(
-          String::FromUTF8(tuple.scheme()), String::FromUTF8(tuple.host()),
-          tuple.port());
+          blink::String::FromUtf8(tuple.scheme()),
+          blink::String::FromUtf8(tuple.host()), tuple.port());
     }
 
     if (nonce_if_opaque) {
@@ -47,12 +48,12 @@ struct UrlOriginAdapter {
 template <>
 struct StructTraits<url::mojom::OriginDataView,
                     scoped_refptr<const ::blink::SecurityOrigin>> {
-  static WTF::String scheme(
+  static blink::String scheme(
       const scoped_refptr<const ::blink::SecurityOrigin>& origin) {
     return UrlOriginAdapter::GetOriginOrPrecursorOriginIfOpaque(origin)
         ->Protocol();
   }
-  static WTF::String host(
+  static blink::String host(
       const scoped_refptr<const ::blink::SecurityOrigin>& origin) {
     return UrlOriginAdapter::GetOriginOrPrecursorOriginIfOpaque(origin)->Host();
   }
@@ -62,17 +63,16 @@ struct StructTraits<url::mojom::OriginDataView,
   }
   static mojo::OptionalAsPointer<const base::UnguessableToken> nonce_if_opaque(
       const scoped_refptr<const ::blink::SecurityOrigin>& origin) {
-    return mojo::MakeOptionalAsPointer(
-        UrlOriginAdapter::nonce_if_opaque(origin));
+    return mojo::OptionalAsPointer(UrlOriginAdapter::nonce_if_opaque(origin));
   }
   static bool Read(url::mojom::OriginDataView data,
                    scoped_refptr<const ::blink::SecurityOrigin>* out) {
     // This implementation is very close to
     // SecurityOrigin::CreateFromUrlOrigin, so keep in sync if modifications
     // are made in that method.
-    base::StringPiece scheme;
-    base::StringPiece host;
-    absl::optional<base::UnguessableToken> nonce_if_opaque;
+    std::string_view scheme;
+    std::string_view host;
+    std::optional<base::UnguessableToken> nonce_if_opaque;
     if (!data.ReadScheme(&scheme) || !data.ReadHost(&host) ||
         !data.ReadNonceIfOpaque(&nonce_if_opaque))
       return false;

@@ -10,13 +10,21 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
 #import "RTCVideoCodecInfo.h"
 #import "RTCVideoEncoder.h"
+#import "sdk/objc/base/RTCMacros.h"
+
+NS_ASSUME_NONNULL_BEGIN
 
 RTC_OBJC_EXPORT
 @interface RTC_OBJC_TYPE (RTCVideoEncoderH264) : NSObject <RTC_OBJC_TYPE(RTCVideoEncoder)>
 
 - (instancetype)initWithCodecInfo:(RTC_OBJC_TYPE(RTCVideoCodecInfo) *)codecInfo;
 
+/** Returns the list of supported codec formats (profiles) for the H264 encoder.
+ */
++ (NSArray<RTC_OBJC_TYPE(RTCVideoCodecInfo) *> *)supportedCodecs;
+
 @end
+
+NS_ASSUME_NONNULL_END

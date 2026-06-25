@@ -25,12 +25,17 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_MARKUP_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_MARKUP_H_
 
-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/wtf/forward.h"
 
 // Helper functions for converting from CSSValues to text.
 
 namespace blink {
 
+struct CSSUrlRequestModifiers;
+
+CORE_EXPORT bool IsCSSTokenizerIdentifier(const StringView&);
+CORE_EXPORT bool IsCSSTokenizerIdentSequence(const StringView&);
 // Common serializing methods. See:
 // https://drafts.csswg.org/cssom/#common-serializing-idioms
 void SerializeIdentifier(const String& identifier,
@@ -38,8 +43,8 @@ void SerializeIdentifier(const String& identifier,
                          bool skip_start_checks = false);
 void SerializeString(const String&, StringBuilder& append_to);
 String SerializeString(const String&);
-String SerializeURI(const String&);
-String SerializeFontFamily(const AtomicString&);
+String SerializeURI(const String&, const CSSUrlRequestModifiers&);
+CORE_EXPORT String SerializeFontFamily(const AtomicString&);
 
 }  // namespace blink
 

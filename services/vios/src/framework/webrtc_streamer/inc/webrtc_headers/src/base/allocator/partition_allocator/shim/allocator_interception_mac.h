@@ -29,13 +29,11 @@ void StoreFunctionsForAllZones();
 // |functions|.
 void ReplaceFunctionsForStoredZones(const MallocZoneFunctions* functions);
 
-BASE_EXPORT extern bool g_replaced_default_zone;
+extern bool g_replaced_default_zone;
 
 // Calls the original implementation of malloc/calloc prior to interception.
-BASE_EXPORT bool UncheckedMallocMac(size_t size, void** result);
-BASE_EXPORT bool UncheckedCallocMac(size_t num_items,
-                                    size_t size,
-                                    void** result);
+bool UncheckedMallocMac(size_t size, void** result);
+bool UncheckedCallocMac(size_t num_items, size_t size, void** result);
 
 // Intercepts calls to default and purgeable malloc zones. Intercepts Core
 // Foundation and Objective-C allocations.

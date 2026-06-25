@@ -10,18 +10,15 @@
 #ifndef MODULES_AUDIO_DEVICE_INCLUDE_TEST_AUDIO_DEVICE_H_
 #define MODULES_AUDIO_DEVICE_INCLUDE_TEST_AUDIO_DEVICE_H_
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <string>
+#include <span>
 
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
+#include "api/audio/audio_device.h"
+#include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
-#include "api/task_queue/task_queue_factory.h"
-#include "modules/audio_device/include/audio_device.h"
-#include "modules/audio_device/include/audio_device_defines.h"
 #include "rtc_base/buffer.h"
 
 namespace webrtc {
@@ -29,9 +26,10 @@ namespace webrtc {
 // This is test API and is in development, so it can be changed/removed without
 // notice.
 
-// TestAudioDeviceModule implements an AudioDevice module that can act both as a
-// capturer and a renderer. It will use 10ms audio frames.
-class TestAudioDeviceModule : public AudioDeviceModule {
+// This class exists for historical reasons. For now it only contains static
+// methods to create test AudioDeviceModule. Implementation details of that
+// module are considered private. This class isn't intended to be instantiated.
+class TestAudioDeviceModule {
  public:
   // Returns the number of samples that Capturers and Renderers with this
   // sampling frequency will work with every time Capture or Render is called.
@@ -48,7 +46,7 @@ class TestAudioDeviceModule : public AudioDeviceModule {
     // Replaces the contents of `buffer` with 10ms of captured audio data
     // (see TestAudioDeviceModule::SamplesPerFrame). Returns true if the
     // capturer can keep producing data, or false when the capture finishes.
-    virtual bool Capture(rtc::BufferT<int16_t>* buffer) = 0;
+    virtual bool Capture(BufferT<int16_t>* buffer) = 0;
   };
 
   class Renderer {
@@ -61,7 +59,7 @@ class TestAudioDeviceModule : public AudioDeviceModule {
     virtual int NumChannels() const = 0;
     // Renders the passed audio data and returns true if the renderer wants
     // to keep receiving data, or false otherwise.
-    virtual bool Render(rtc::ArrayView<const int16_t> data) = 0;
+    virtual bool Render(std::span<const int16_t> data) = 0;
   };
 
   // A fake capturer that generates pulses with random samples between
@@ -73,8 +71,6 @@ class TestAudioDeviceModule : public AudioDeviceModule {
     virtual void SetMaxAmplitude(int16_t amplitude) = 0;
   };
 
-  ~TestAudioDeviceModule() override {}
-
   // Creates a new TestAudioDeviceModule. When capturing or playing, 10 ms audio
   // frames will be processed every 10ms / `speed`.
   // `capturer` is an object that produces audio data. Can be nullptr if this
@@ -82,8 +78,8 @@ class TestAudioDeviceModule : public AudioDeviceModule {
   // `renderer` is an object that receives audio data that would have been
   // played out. Can be nullptr if this device is never used for playing.
   // Use one of the Create... functions to get these instances.
-  static rtc::scoped_refptr<AudioDeviceModule> Create(
-      TaskQueueFactory* task_queue_factory,
+  static scoped_refptr<AudioDeviceModule> Create(
+      const Environment& env,
       std::unique_ptr<Capturer> capturer,
       std::unique_ptr<Renderer> renderer,
       float speed = 1);
@@ -103,8 +99,8 @@ class TestAudioDeviceModule : public AudioDeviceModule {
 
   // WavReader and WavWriter creation based on file name.
 
-  // Returns a Capturer instance that gets its data from a file. The sample rate
-  // and channels will be checked against the Wav file.
+  // Returns a Capturer instance that gets its data from a WAV file. The sample
+  // rate and channels will be checked against the Wav file.
   static std::unique_ptr<Capturer> CreateWavFileReader(
       absl::string_view filename,
       int sampling_frequency_in_hz,
@@ -132,19 +128,23 @@ class TestAudioDeviceModule : public AudioDeviceModule {
       int sampling_frequency_in_hz,
       int num_channels = 1);
 
-  int32_t Init() override = 0;
-  int32_t RegisterAudioCallback(AudioTransport* callback) override = 0;
+  // Returns a Capturer instance that gets its data from a raw file (*.raw).
+  static std::unique_ptr<Capturer> CreateRawFileReader(
+      absl::string_view filename,
+      int sampling_frequency_in_hz = 48000,
+      int num_channels = 2,
+      bool repeat = true);
 
-  int32_t StartPlayout() override = 0;
-  int32_t StopPlayout() override = 0;
-  int32_t StartRecording() override = 0;
-  int32_t StopRecording() override = 0;
+  // Returns a Renderer instance that writes its data to a raw file (*.raw),
+  // cutting off silence at the beginning (not necessarily perfect silence, see
+  // kAmplitudeThreshold) and at the end (only actual 0 samples in this case).
+  static std::unique_ptr<Renderer> CreateRawFileWriter(
+      absl::string_view filename,
+      int sampling_frequency_in_hz = 48000,
+      int num_channels = 2);
 
-  bool Playing() const override = 0;
-  bool Recording() const override = 0;
-
-  // Blocks forever until the Recorder stops producing data.
-  virtual void WaitForRecordingEnd() = 0;
+ private:
+  TestAudioDeviceModule() = default;
 };
 
 }  // namespace webrtc

@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_CSS_INTRINSIC_LENGTH_INTERPOLATION_TYPE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_CSS_INTRINSIC_LENGTH_INTERPOLATION_TYPE_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/core/animation/css_interpolation_type.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 
@@ -36,8 +37,9 @@ class CSSIntrinsicLengthInterpolationType : public CSSInterpolationType {
                  const InterpolationValue&,
                  double interpolation_fraction) const final;
 
-  static std::unique_ptr<InterpolableValue>
-  CreateInterpolableIntrinsicDimension(const StyleIntrinsicLength&);
+  static InterpolableValue* CreateInterpolableIntrinsicDimension(
+      const StyleIntrinsicLength&,
+      float);
 
  private:
   StyleIntrinsicLength GetIntrinsicDimension(const ComputedStyle&) const;
@@ -51,7 +53,7 @@ class CSSIntrinsicLengthInterpolationType : public CSSInterpolationType {
   InterpolationValue MaybeConvertInherit(const StyleResolverState&,
                                          ConversionCheckers&) const final;
   InterpolationValue MaybeConvertValue(const CSSValue&,
-                                       const StyleResolverState*,
+                                       const StyleResolverState&,
                                        ConversionCheckers&) const final;
 };
 

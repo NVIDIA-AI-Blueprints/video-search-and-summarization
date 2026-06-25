@@ -20,17 +20,16 @@
 #include <cstdint>
 
 #include "perfetto/ext/base/flat_hash_map.h"
-
 #include "perfetto/protozero/field.h"
-#include "protos/perfetto/trace/ftrace/virtio_video.pbzero.h"
 #include "src/trace_processor/importers/common/args_tracker.h"
-#include "src/trace_processor/importers/common/async_track_set_tracker.h"
+#include "src/trace_processor/importers/common/track_compressor.h"
 #include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/types/destructible.h"
 #include "src/trace_processor/types/trace_processor_context.h"
 
-namespace perfetto {
-namespace trace_processor {
+#include "protos/perfetto/trace/ftrace/virtio_video.pbzero.h"
+
+namespace perfetto::trace_processor {
 
 class TraceProcessorContext;
 
@@ -42,21 +41,13 @@ class VirtioVideoTracker : public Destructible {
   VirtioVideoTracker& operator=(const VirtioVideoTracker&) = delete;
   ~VirtioVideoTracker() override;
 
-  static VirtioVideoTracker* GetOrCreate(TraceProcessorContext* context) {
-    if (!context->virtio_video_tracker) {
-      context->virtio_video_tracker.reset(new VirtioVideoTracker(context));
-    }
-    return static_cast<VirtioVideoTracker*>(
-        context->virtio_video_tracker.get());
-  }
-
   void ParseVirtioVideoEvent(uint64_t fld_id,
                              int64_t timestamp,
                              const protozero::ConstBytes&);
 
  private:
   struct FieldsStringIds {
-    FieldsStringIds(TraceStorage& storage);
+    explicit FieldsStringIds(TraceStorage& storage);
 
     StringId stream_id;
     StringId resource_id;
@@ -67,10 +58,6 @@ class VirtioVideoTracker : public Destructible {
     StringId data_size3;
     StringId timestamp;
   };
-
-  AsyncTrackSetTracker::TrackSetId InternOrCreateBufferTrack(
-      int32_t stream_id,
-      uint32_t queue_type);
 
   void AddCommandSlice(int64_t timestamp,
                        uint32_t stream_id,
@@ -91,7 +78,6 @@ class VirtioVideoTracker : public Destructible {
   base::FlatHashMap<uint64_t, StringId> command_names_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_FTRACE_VIRTIO_VIDEO_TRACKER_H_

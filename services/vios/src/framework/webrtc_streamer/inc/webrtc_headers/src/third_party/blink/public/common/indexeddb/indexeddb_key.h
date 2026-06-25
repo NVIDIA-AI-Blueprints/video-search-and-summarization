@@ -12,7 +12,7 @@
 
 #include "base/check_op.h"
 #include "third_party/blink/public/common/common_export.h"
-#include "third_party/blink/public/common/indexeddb/web_idb_types.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-shared.h"
 
 namespace blink {
 
@@ -25,21 +25,52 @@ class BLINK_COMMON_EXPORT IndexedDBKey {
   static constexpr size_t kMaximumDepth = 2000;
   static constexpr size_t kMaximumArraySize = 1000000;
 
-  IndexedDBKey();  // Defaults to mojom::IDBKeyType::Invalid.
-  explicit IndexedDBKey(mojom::IDBKeyType);  // must be Null or Invalid
+  IndexedDBKey();  // Defaults to mojom::IDBKeyType::None.
+  explicit IndexedDBKey(mojom::IDBKeyType);  // must be None or Invalid
   explicit IndexedDBKey(KeyArray array);
   explicit IndexedDBKey(std::string binary);
   explicit IndexedDBKey(std::u16string string);
   IndexedDBKey(double number,
                mojom::IDBKeyType type);  // must be date or number
-  IndexedDBKey(const IndexedDBKey& other);
   ~IndexedDBKey();
-  IndexedDBKey& operator=(const IndexedDBKey& other);
+
+  // Move allowed.
+  IndexedDBKey(IndexedDBKey&& other);
+  IndexedDBKey& operator=(IndexedDBKey&& other);
+
+  // "Subtle" copy not allowed, as it's most often a mistake.
+  IndexedDBKey(const IndexedDBKey& other) = delete;
+  IndexedDBKey& operator=(const IndexedDBKey& other) = delete;
+
+  // Explicit copy OK.
+  IndexedDBKey Clone() const;
 
   bool IsValid() const;
 
   bool IsLessThan(const IndexedDBKey& other) const;
   bool Equals(const IndexedDBKey& other) const;
+
+  bool operator==(const IndexedDBKey& other) const { return Equals(other); }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const IndexedDBKey& key) {
+    H hash = H::combine(std::move(h), key.type_);
+    switch (key.type_) {
+      case mojom::IDBKeyType::Array:
+        return H::combine(std::move(hash), key.array_);
+      case mojom::IDBKeyType::Binary:
+        return H::combine(std::move(hash), key.binary_);
+      case mojom::IDBKeyType::String:
+        return H::combine(std::move(hash), key.string_);
+      case mojom::IDBKeyType::Date:
+      case mojom::IDBKeyType::Number:
+        return H::combine(std::move(hash), key.number_);
+      case mojom::IDBKeyType::Invalid:
+      case mojom::IDBKeyType::None:
+      case mojom::IDBKeyType::Min:
+        return hash;
+    }
+  }
 
   mojom::IDBKeyType type() const { return type_; }
   const std::vector<IndexedDBKey>& array() const {

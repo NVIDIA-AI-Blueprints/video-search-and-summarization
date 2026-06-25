@@ -68,10 +68,10 @@ class StringPerfFunction : public UPerfFunction
 {
 public:
 
-    virtual long getEventsPerIteration(){
+    long getEventsPerIteration() override {
         int loops = LOOPS;
-        if (catICU) { delete catICU;}
-        if (catStd) { delete catStd;}
+        delete catICU;
+        delete catStd;
 
         if (bCatenatePrealloc) {
 
@@ -90,7 +90,7 @@ public:
         return -1;
     }
 
-    virtual void call(UErrorCode* status)
+    void call(UErrorCode* status) override
     {
         if(line_mode_==true){
             if(uselen_){
@@ -127,7 +127,7 @@ public:
         }
     }
 
-    virtual long getOperationsPerIteration()
+    long getOperationsPerIteration() override
     {
         if(line_mode_==true){
             return numLines_;
@@ -288,7 +288,7 @@ private:
 
             if(err == U_BUFFER_OVERFLOW_ERROR){
                 err=U_ZERO_ERROR;
-                wDest =(wchar_t*) malloc(sizeof(wchar_t) * (reqLen));
+                wDest = static_cast<wchar_t*>(malloc(sizeof(wchar_t) * (reqLen)));
                 wDestLen = reqLen;
                 u_strToWCS(wDest,wDestLen,&reqLen,uSrc,uSrcLen,&err);
             }
@@ -305,7 +305,7 @@ private:
 
             if(err == U_BUFFER_OVERFLOW_ERROR){
                 err=U_ZERO_ERROR;
-                wDest =(wchar_t*) malloc(sizeof(wchar_t) * (reqLen+1));
+                wDest = static_cast<wchar_t*>(malloc(sizeof(wchar_t) * (reqLen + 1)));
                 wDestLen = reqLen+1;
                 u_strToWCS(wDest,wDestLen,&reqLen,uSrc,uSrcLen-1,&err);
             }
@@ -350,9 +350,9 @@ class StringPerformanceTest : public UPerfTest
 public:
     StringPerformanceTest(int32_t argc, const char *argv[], UErrorCode &status);
     ~StringPerformanceTest();
-    virtual UPerfFunction* runIndexedTest(int32_t index, UBool exec,
-                                          const char *&name,
-                                          char *par = nullptr);
+    UPerfFunction* runIndexedTest(int32_t index, UBool exec,
+                                  const char*& name,
+                                  char* par = nullptr) override;
     UPerfFunction* TestCtor();
     UPerfFunction* TestCtor1();
     UPerfFunction* TestCtor2();
@@ -443,7 +443,7 @@ inline void catenate(const char16_t* src,int32_t srcLen, UnicodeString s0)
     *catICU += s0;
 
     utimer_getTime(&mystop);
-    double mytime = utimer_getDeltaSeconds(&mystart,&mystop);
+    utimer_getDeltaSeconds(&mystart,&mystop);
 
     *catICU += uCatenate_STR;
 }
@@ -531,23 +531,23 @@ inline void StdLibCatenate(const wchar_t* src,int32_t srcLen, stlstring s0)
     *catStd += sCatenate_STR;
 
     utimer_getTime(&mystop);
-    double mytime = utimer_getDeltaSeconds(&mystart,&mystop);
+    utimer_getDeltaSeconds(&mystart,&mystop);
 
 }
 
 inline void StdLibScan(const wchar_t* src,int32_t srcLen, stlstring s0)
 {
-    scan_idx = (int) sScan_STRING.find('.');	
+    scan_idx = static_cast<int>(sScan_STRING.find('.'));
 }
 
 inline void StdLibScan1(const wchar_t* src,int32_t srcLen, stlstring s0)
 {
-    scan_idx = (int) sScan_STRING.find(L"123");
+    scan_idx = static_cast<int>(sScan_STRING.find(L"123"));
 }
 
 inline void StdLibScan2(const wchar_t* src,int32_t srcLen, stlstring s0)
 {	
-    scan_idx = (int) sScan_STRING.find_first_of(L"sm");
+    scan_idx = static_cast<int>(sScan_STRING.find_first_of(L"sm"));
 }
 
 #endif // STRINGPERF_H

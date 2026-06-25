@@ -96,7 +96,7 @@ enum AVFrameSideDataType {
      */
     AV_FRAME_DATA_MOTION_VECTORS,
     /**
-     * Recommmends skipping the specified number of samples. This is exported
+     * Recommends skipping the specified number of samples. This is exported
      * only if the "skip_manual" AVOption is set in libavcodec.
      * This has the same format as AV_PKT_DATA_SKIP_SAMPLES.
      * @code
@@ -180,6 +180,10 @@ enum AVFrameSideDataType {
     /**
      * Film grain parameters for a frame, described by AVFilmGrainParams.
      * Must be present for every frame which should have film grain applied.
+     *
+     * May be present multiple times, for example when there are multiple
+     * alternative parameter sets for different video signal characteristics.
+     * The user should select the most appropriate set for the application.
      */
     AV_FRAME_DATA_FILM_GRAIN_PARAMS,
 
@@ -214,6 +218,48 @@ enum AVFrameSideDataType {
      * Ambient viewing environment metadata, as defined by H.274.
      */
     AV_FRAME_DATA_AMBIENT_VIEWING_ENVIRONMENT,
+
+    /**
+     * Provide encoder-specific hinting information about changed/unchanged
+     * portions of a frame.  It can be used to pass information about which
+     * macroblocks can be skipped because they didn't change from the
+     * corresponding ones in the previous frame. This could be useful for
+     * applications which know this information in advance to speed up
+     * encoding.
+     */
+    AV_FRAME_DATA_VIDEO_HINT,
+
+    /**
+     * Raw LCEVC payload data, as a uint8_t array, with NAL emulation
+     * bytes intact.
+     */
+    AV_FRAME_DATA_LCEVC,
+
+    /**
+     * This side data must be associated with a video frame.
+     * The presence of this side data indicates that the video stream is
+     * composed of multiple views (e.g. stereoscopic 3D content,
+     * cf. H.264 Annex H or H.265 Annex G).
+     * The data is an int storing the view ID.
+     */
+    AV_FRAME_DATA_VIEW_ID,
+
+    /**
+     * This side data contains information about the reference display width(s)
+     * and reference viewing distance(s) as well as information about the
+     * corresponding reference stereo pair(s), i.e., the pair(s) of views to be
+     * displayed for the viewer's left and right eyes on the reference display
+     * at the reference viewing distance.
+     * The payload is the AV3DReferenceDisplaysInfo struct defined in
+     * libavutil/tdrdi.h.
+     */
+    AV_FRAME_DATA_3D_REFERENCE_DISPLAYS,
+
+    /**
+     * Extensible image file format metadata. The payload is a buffer containing
+     * EXIF metadata, starting with either 49 49 2a 00, or 4d 4d 00 2a.
+     */
+     AV_FRAME_DATA_EXIF,
 };
 
 enum AVActiveFormatDescription {
@@ -240,6 +286,58 @@ typedef struct AVFrameSideData {
     AVDictionary *metadata;
     AVBufferRef *buf;
 } AVFrameSideData;
+
+enum AVSideDataProps {
+    /**
+     * The side data type can be used in stream-global structures.
+     * Side data types without this property are only meaningful on per-frame
+     * basis.
+     */
+    AV_SIDE_DATA_PROP_GLOBAL = (1 << 0),
+
+    /**
+     * Multiple instances of this side data type can be meaningfully present in
+     * a single side data array.
+     */
+    AV_SIDE_DATA_PROP_MULTI  = (1 << 1),
+
+    /**
+     * Side data depends on the video dimensions. Side data with this property
+     * loses its meaning when rescaling or cropping the image, unless
+     * either recomputed or adjusted to the new resolution.
+     */
+    AV_SIDE_DATA_PROP_SIZE_DEPENDENT = (1 << 2),
+
+    /**
+     * Side data depends on the video color space. Side data with this property
+     * loses its meaning when changing the video color encoding, e.g. by
+     * adapting to a different set of primaries or transfer characteristics.
+     */
+    AV_SIDE_DATA_PROP_COLOR_DEPENDENT = (1 << 3),
+
+    /**
+     * Side data depends on the channel layout. Side data with this property
+     * loses its meaning when downmixing or upmixing, unless either recomputed
+     * or adjusted to the new layout.
+     */
+    AV_SIDE_DATA_PROP_CHANNEL_DEPENDENT = (1 << 4),
+};
+
+/**
+ * This struct describes the properties of a side data type. Its instance
+ * corresponding to a given type can be obtained from av_frame_side_data_desc().
+ */
+typedef struct AVSideDataDescriptor {
+    /**
+     * Human-readable side data description.
+     */
+    const char      *name;
+
+    /**
+     * Side data property flags, a combination of AVSideDataProps values.
+     */
+    unsigned         props;
+} AVSideDataDescriptor;
 
 /**
  * Structure describing a single Region Of Interest.
@@ -324,8 +422,7 @@ typedef struct AVRegionOfInterest {
  * to the end with a minor bump.
  *
  * Fields can be accessed through AVOptions, the name string used, matches the
- * C structure field name for fields accessible through AVOptions. The AVClass
- * for AVFrame can be obtained from avcodec_get_frame_class()
+ * C structure field name for fields accessible through AVOptions.
  */
 typedef struct AVFrame {
 #define AV_NUM_DATA_POINTERS 8
@@ -416,16 +513,6 @@ typedef struct AVFrame {
      */
     int format;
 
-#if FF_API_FRAME_KEY
-    /**
-     * 1 -> keyframe, 0-> not
-     *
-     * @deprecated Use AV_FRAME_FLAG_KEY instead
-     */
-    attribute_deprecated
-    int key_frame;
-#endif
-
     /**
      * Picture type of the frame.
      */
@@ -455,19 +542,6 @@ typedef struct AVFrame {
      * or filters.
      */
     AVRational time_base;
-
-#if FF_API_FRAME_PICTURE_NUMBER
-    /**
-     * picture number in bitstream order
-     */
-    attribute_deprecated
-    int coded_picture_number;
-    /**
-     * picture number in display order
-     */
-    attribute_deprecated
-    int display_picture_number;
-#endif
 
     /**
      * quality (between 1 (good) and FF_LAMBDA_MAX (bad))
@@ -510,62 +584,10 @@ typedef struct AVFrame {
      */
     int repeat_pict;
 
-#if FF_API_INTERLACED_FRAME
-    /**
-     * The content of the picture is interlaced.
-     *
-     * @deprecated Use AV_FRAME_FLAG_INTERLACED instead
-     */
-    attribute_deprecated
-    int interlaced_frame;
-
-    /**
-     * If the content is interlaced, is top field displayed first.
-     *
-     * @deprecated Use AV_FRAME_FLAG_TOP_FIELD_FIRST instead
-     */
-    attribute_deprecated
-    int top_field_first;
-#endif
-
-#if FF_API_PALETTE_HAS_CHANGED
-    /**
-     * Tell user application that palette has changed from previous frame.
-     */
-    attribute_deprecated
-    int palette_has_changed;
-#endif
-
-#if FF_API_REORDERED_OPAQUE
-    /**
-     * reordered opaque 64 bits (generally an integer or a double precision float
-     * PTS but can be anything).
-     * The user sets AVCodecContext.reordered_opaque to represent the input at
-     * that time,
-     * the decoder reorders values as needed and sets AVFrame.reordered_opaque
-     * to exactly one of the values provided by the user through AVCodecContext.reordered_opaque
-     *
-     * @deprecated Use AV_CODEC_FLAG_COPY_OPAQUE instead
-     */
-    /* Chromium vvv https://crbug.com/1415548
-    attribute_deprecated
-     * Chromium ^^^ https://crbug.com/1415548 */
-    int64_t reordered_opaque;
-#endif
-
     /**
      * Sample rate of the audio data.
      */
     int sample_rate;
-
-#if FF_API_OLD_CHANNEL_LAYOUT
-    /**
-     * Channel layout of the audio data.
-     * @deprecated use ch_layout instead
-     */
-    attribute_deprecated
-    uint64_t channel_layout;
-#endif
 
     /**
      * AVBuffer references backing the data for this frame. All the pointers in
@@ -632,6 +654,14 @@ typedef struct AVFrame {
  */
 #define AV_FRAME_FLAG_TOP_FIELD_FIRST (1 << 4)
 /**
+ * A decoder can use this flag to mark frames which were originally encoded losslessly.
+ *
+ * For coding bitstream formats which support both lossless and lossy
+ * encoding, it is sometimes possible for a decoder to determine which method
+ * was used when the bitstream was encoded.
+ */
+#define AV_FRAME_FLAG_LOSSLESS        (1 << 5)
+/**
  * @}
  */
 
@@ -667,31 +697,6 @@ typedef struct AVFrame {
      */
     int64_t best_effort_timestamp;
 
-#if FF_API_FRAME_PKT
-    /**
-     * reordered pos from the last AVPacket that has been input into the decoder
-     * - encoding: unused
-     * - decoding: Read by user.
-     * @deprecated use AV_CODEC_FLAG_COPY_OPAQUE to pass through arbitrary user
-     *             data from packets to frames
-     */
-    attribute_deprecated
-    int64_t pkt_pos;
-#endif
-
-#if FF_API_PKT_DURATION
-    /**
-     * duration of the corresponding packet, expressed in
-     * AVStream->time_base units, 0 if unknown.
-     * - encoding: unused
-     * - decoding: Read by user.
-     *
-     * @deprecated use duration instead
-     */
-    attribute_deprecated
-    int64_t pkt_duration;
-#endif
-
     /**
      * metadata.
      * - encoding: Set by user.
@@ -711,31 +716,6 @@ typedef struct AVFrame {
 #define FF_DECODE_ERROR_MISSING_REFERENCE   2
 #define FF_DECODE_ERROR_CONCEALMENT_ACTIVE  4
 #define FF_DECODE_ERROR_DECODE_SLICES       8
-
-#if FF_API_OLD_CHANNEL_LAYOUT
-    /**
-     * number of audio channels, only used for audio.
-     * - encoding: unused
-     * - decoding: Read by user.
-     * @deprecated use ch_layout instead
-     */
-    attribute_deprecated
-    int channels;
-#endif
-
-#if FF_API_FRAME_PKT
-    /**
-     * size of the corresponding packet containing the compressed
-     * frame.
-     * It is set to a negative value if unknown.
-     * - encoding: unused
-     * - decoding: set by libavcodec, read by user.
-     * @deprecated use AV_CODEC_FLAG_COPY_OPAQUE to pass through arbitrary user
-     *             data from packets to frames
-     */
-    attribute_deprecated
-    int pkt_size;
-#endif
 
     /**
      * For hwaccel-format frames, this should be a reference to the
@@ -762,7 +742,7 @@ typedef struct AVFrame {
     /**
      * @anchor cropping
      * @name Cropping
-     * Video frames only. The number of pixels to discard from the the
+     * Video frames only. The number of pixels to discard from the
      * top/bottom/left/right border of the frame to obtain the sub-rectangle of
      * the frame intended for presentation.
      * @{
@@ -776,17 +756,13 @@ typedef struct AVFrame {
      */
 
     /**
-     * AVBufferRef for internal use by a single libav* library.
+     * RefStruct reference for internal use by a single libav* library.
      * Must not be used to transfer data between libraries.
      * Has to be NULL when ownership of the frame leaves the respective library.
      *
-     * Code outside the FFmpeg libs should never check or change the contents of the buffer ref.
-     *
-     * FFmpeg calls av_buffer_unref() on it when the frame is unreferenced.
-     * av_frame_copy_props() calls create a new reference with av_buffer_ref()
-     * for the target frame's private_ref field.
+     * Code outside the FFmpeg libs must never check or change private_ref.
      */
-    AVBufferRef *private_ref;
+    void *private_ref;
 
     /**
      * Channel layout of the audio data.
@@ -797,6 +773,13 @@ typedef struct AVFrame {
      * Duration of the frame, in the same units as pts. 0 if unknown.
      */
     int64_t duration;
+
+    /**
+     * Indicates how the alpha channel of the video is to be handled.
+     * - encoding: Set by user
+     * - decoding: Set by libavcodec
+     */
+    enum AVAlphaMode alpha_mode;
 } AVFrame;
 
 
@@ -842,7 +825,7 @@ int av_frame_ref(AVFrame *dst, const AVFrame *src);
  * Ensure the destination frame refers to the same data described by the source
  * frame, either by creating a new reference for each AVBufferRef from src if
  * they differ from those in dst, by allocating new buffers and copying data if
- * src is not reference counted, or by unrefencing it if src is empty.
+ * src is not reference counted, or by unreferencing it if src is empty.
  *
  * Frame properties on dst will be replaced by those from src.
  *
@@ -891,9 +874,10 @@ void av_frame_move_ref(AVFrame *dst, AVFrame *src);
  *           cases.
  *
  * @param frame frame in which to store the new buffers.
- * @param align Required buffer size alignment. If equal to 0, alignment will be
- *              chosen automatically for the current CPU. It is highly
- *              recommended to pass 0 here unless you know what you are doing.
+ * @param align Required buffer size and data pointer alignment. If equal to 0,
+ *              alignment will be chosen automatically for the current CPU.
+ *              It is highly recommended to pass 0 here unless you know what
+ *              you are doing.
  *
  * @return 0 on success, a negative AVERROR on error.
  */
@@ -1040,6 +1024,150 @@ int av_frame_apply_cropping(AVFrame *frame, int flags);
  * @return a string identifying the side data type
  */
 const char *av_frame_side_data_name(enum AVFrameSideDataType type);
+
+/**
+ * @return side data descriptor corresponding to a given side data type, NULL
+ *         when not available.
+ */
+const AVSideDataDescriptor *av_frame_side_data_desc(enum AVFrameSideDataType type);
+
+/**
+ * Free all side data entries and their contents, then zeroes out the
+ * values which the pointers are pointing to.
+ *
+ * @param sd    pointer to array of side data to free. Will be set to NULL
+ *              upon return.
+ * @param nb_sd pointer to an integer containing the number of entries in
+ *              the array. Will be set to 0 upon return.
+ */
+void av_frame_side_data_free(AVFrameSideData ***sd, int *nb_sd);
+
+/**
+ * Remove existing entries before adding new ones.
+ */
+#define AV_FRAME_SIDE_DATA_FLAG_UNIQUE (1 << 0)
+/**
+ * Don't add a new entry if another of the same type exists.
+ * Applies only for side data types without the AV_SIDE_DATA_PROP_MULTI prop.
+ */
+#define AV_FRAME_SIDE_DATA_FLAG_REPLACE (1 << 1)
+/**
+ * Create a new reference to the passed in buffer instead of taking ownership
+ * of it.
+ */
+#define AV_FRAME_SIDE_DATA_FLAG_NEW_REF (1 << 2)
+
+/**
+ * Add new side data entry to an array.
+ *
+ * @param sd    pointer to array of side data to which to add another entry,
+ *              or to NULL in order to start a new array.
+ * @param nb_sd pointer to an integer containing the number of entries in
+ *              the array.
+ * @param type  type of the added side data
+ * @param size  size of the side data
+ * @param flags Some combination of AV_FRAME_SIDE_DATA_FLAG_* flags, or 0.
+ *
+ * @return newly added side data on success, NULL on error.
+ * @note In case of AV_FRAME_SIDE_DATA_FLAG_UNIQUE being set, entries of
+ *       matching AVFrameSideDataType will be removed before the addition
+ *       is attempted.
+ * @note In case of AV_FRAME_SIDE_DATA_FLAG_REPLACE being set, if an
+ *       entry of the same type already exists, it will be replaced instead.
+ */
+AVFrameSideData *av_frame_side_data_new(AVFrameSideData ***sd, int *nb_sd,
+                                        enum AVFrameSideDataType type,
+                                        size_t size, unsigned int flags);
+
+/**
+ * Add a new side data entry to an array from an existing AVBufferRef.
+ *
+ * @param sd    pointer to array of side data to which to add another entry,
+ *              or to NULL in order to start a new array.
+ * @param nb_sd pointer to an integer containing the number of entries in
+ *              the array.
+ * @param type  type of the added side data
+ * @param buf   Pointer to AVBufferRef to add to the array. On success,
+ *              the function takes ownership of the AVBufferRef and *buf is
+ *              set to NULL, unless AV_FRAME_SIDE_DATA_FLAG_NEW_REF is set
+ *              in which case the ownership will remain with the caller.
+ * @param flags Some combination of AV_FRAME_SIDE_DATA_FLAG_* flags, or 0.
+ *
+ * @return newly added side data on success, NULL on error.
+ * @note In case of AV_FRAME_SIDE_DATA_FLAG_UNIQUE being set, entries of
+ *       matching AVFrameSideDataType will be removed before the addition
+ *       is attempted.
+ * @note In case of AV_FRAME_SIDE_DATA_FLAG_REPLACE being set, if an
+ *       entry of the same type already exists, it will be replaced instead.
+ *
+ */
+AVFrameSideData *av_frame_side_data_add(AVFrameSideData ***sd, int *nb_sd,
+                                        enum AVFrameSideDataType type,
+                                        AVBufferRef **buf, unsigned int flags);
+
+/**
+ * Add a new side data entry to an array based on existing side data, taking
+ * a reference towards the contained AVBufferRef.
+ *
+ * @param sd    pointer to array of side data to which to add another entry,
+ *              or to NULL in order to start a new array.
+ * @param nb_sd pointer to an integer containing the number of entries in
+ *              the array.
+ * @param src   side data to be cloned, with a new reference utilized
+ *              for the buffer.
+ * @param flags Some combination of AV_FRAME_SIDE_DATA_FLAG_* flags, or 0.
+ *
+ * @return negative error code on failure, >=0 on success.
+ * @note In case of AV_FRAME_SIDE_DATA_FLAG_UNIQUE being set, entries of
+ *       matching AVFrameSideDataType will be removed before the addition
+ *       is attempted.
+ * @note In case of AV_FRAME_SIDE_DATA_FLAG_REPLACE being set, if an
+ *       entry of the same type already exists, it will be replaced instead.
+ */
+int av_frame_side_data_clone(AVFrameSideData ***sd, int *nb_sd,
+                             const AVFrameSideData *src, unsigned int flags);
+
+/**
+ * Get a side data entry of a specific type from an array.
+ *
+ * @param sd    array of side data.
+ * @param nb_sd integer containing the number of entries in the array.
+ * @param type  type of side data to be queried
+ *
+ * @return a pointer to the side data of a given type on success, NULL if there
+ *         is no side data with such type in this set.
+ */
+const AVFrameSideData *av_frame_side_data_get_c(const AVFrameSideData * const *sd,
+                                                const int nb_sd,
+                                                enum AVFrameSideDataType type);
+
+/**
+ * Wrapper around av_frame_side_data_get_c() to workaround the limitation
+ * that for any type T the conversion from T * const * to const T * const *
+ * is not performed automatically in C.
+ * @see av_frame_side_data_get_c()
+ */
+static inline
+const AVFrameSideData *av_frame_side_data_get(AVFrameSideData * const *sd,
+                                              const int nb_sd,
+                                              enum AVFrameSideDataType type)
+{
+    return av_frame_side_data_get_c((const AVFrameSideData * const *)sd,
+                                    nb_sd, type);
+}
+
+/**
+ * Remove and free all side data instances of the given type from an array.
+ */
+void av_frame_side_data_remove(AVFrameSideData ***sd, int *nb_sd,
+                               enum AVFrameSideDataType type);
+
+/**
+ * Remove and free all side data instances that match any of the given
+ * side data properties. (See enum AVSideDataProps)
+ */
+void av_frame_side_data_remove_by_props(AVFrameSideData ***sd, int *nb_sd,
+                                        int props);
 
 /**
  * @}

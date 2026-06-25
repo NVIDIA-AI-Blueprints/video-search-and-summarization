@@ -26,11 +26,14 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_STACK_ITEM_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_STACK_ITEM_H_
 
+#include "base/compiler_specific.h"
+#include "base/containers/span.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/html/parser/atomic_html_token.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/mathml_names.h"
 #include "third_party/blink/renderer/core/svg_names.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
@@ -71,8 +74,9 @@ class HTMLStackItem final : public GarbageCollected<HTMLStackItem> {
         is_document_fragment_node_(false) {
     // We rely on Create() allocating extra memory past our end for the
     // attributes.
+    auto attributes = TokenAttributesSpan();
     for (wtf_size_t i = 0; i < token->Attributes().size(); ++i) {
-      new (TokenAttributesData() + i) Attribute(token->Attributes()[i]);
+      new (&attributes[i]) Attribute(token->Attributes()[i]);
     }
   }
 
@@ -106,13 +110,22 @@ class HTMLStackItem final : public GarbageCollected<HTMLStackItem> {
 
   const HTMLTokenName& GetTokenName() const { return token_name_; }
 
-  const base::span<Attribute> Attributes() {
+  base::span<Attribute> Attributes() {
     DCHECK(LocalName());
-    return {TokenAttributesData(), num_token_attributes_};
+    return TokenAttributesSpan();
   }
-  const base::span<const Attribute> Attributes() const {
+  base::span<const Attribute> Attributes() const {
     DCHECK(LocalName());
-    return {TokenAttributesData(), num_token_attributes_};
+    return TokenAttributesSpan();
+  }
+  Vector<Attribute> TakeAttributes() {
+    Vector<Attribute> attributes;
+    attributes.ReserveInitialCapacity(num_token_attributes_);
+    for (Attribute& attr : Attributes()) {
+      attributes.push_back(std::move(attr));
+    }
+    num_token_attributes_ = 0;
+    return attributes;
   }
   Attribute* GetAttributeItem(const QualifiedName& attribute_name) {
     DCHECK(LocalName());
@@ -217,7 +230,6 @@ class HTMLStackItem final : public GarbageCollected<HTMLStackItem> {
         case html_names::HTMLTag::kCenter:
         case html_names::HTMLTag::kCol:
         case html_names::HTMLTag::kColgroup:
-        case html_names::HTMLTag::kCommand:
         case html_names::HTMLTag::kDd:
         case html_names::HTMLTag::kDetails:
         case html_names::HTMLTag::kDir:
@@ -282,6 +294,8 @@ class HTMLStackItem final : public GarbageCollected<HTMLStackItem> {
         case html_names::HTMLTag::kWbr:
         case html_names::HTMLTag::kXmp:
           return true;
+        case html_names::HTMLTag::kCommand:
+          return !RuntimeEnabledFeatures::HTMLCommandElementRemovalEnabled();
         default:
           return false;
       }
@@ -296,11 +310,11 @@ class HTMLStackItem final : public GarbageCollected<HTMLStackItem> {
     return false;
   }
 
-  HTMLStackItem* NextItemInStack() { return next_item_in_stack_; }
+  HTMLStackItem* NextItemInStack() { return next_item_in_stack_.Get(); }
 
   bool IsAboveItemInStack(const HTMLStackItem* item) const {
     DCHECK(item);
-    HTMLStackItem* below = next_item_in_stack_;
+    HTMLStackItem* below = next_item_in_stack_.Get();
     while (below) {
       if (below == item) {
         return true;
@@ -331,13 +345,19 @@ class HTMLStackItem final : public GarbageCollected<HTMLStackItem> {
   // The attributes are stored directly after the HTMLStackItem in memory
   // (using Oilpan's AdditionalBytes system). Space for this is guaranteed
   // by Create().
-  Attribute* TokenAttributesData() {
+  base::span<Attribute> TokenAttributesSpan() {
     static_assert(alignof(HTMLStackItem) >= alignof(Attribute));
-    return reinterpret_cast<Attribute*>(this + 1);
+    // SAFETY: Create() allocates num_token_attributes_ * sizeof(Attribute)
+    // extra bytes immediately after this object via AdditionalBytes.
+    return UNSAFE_BUFFERS(base::span(reinterpret_cast<Attribute*>(this + 1),
+                                     num_token_attributes_));
   }
-  const Attribute* TokenAttributesData() const {
+  base::span<const Attribute> TokenAttributesSpan() const {
     static_assert(alignof(HTMLStackItem) >= alignof(Attribute));
-    return reinterpret_cast<const Attribute*>(this + 1);
+    // SAFETY: Create() allocates num_token_attributes_ * sizeof(Attribute)
+    // extra bytes immediately after this object via AdditionalBytes.
+    return UNSAFE_BUFFERS(base::span(
+        reinterpret_cast<const Attribute*>(this + 1), num_token_attributes_));
   }
 
   Member<ContainerNode> node_;

@@ -14,14 +14,16 @@
 #include "base/sequence_checker.h"
 #include "media/base/media_log.h"
 #include "media/base/media_util.h"
-#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
+#include "third_party/blink/renderer/core/dom/quota_exceeded_error.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/inspector/inspector_media_context_impl.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/exception_code.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/text/strcat.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 
 namespace base {
@@ -34,7 +36,7 @@ namespace internal {
 
 void SendPlayerNameInformationInternal(media::MediaLog* media_log,
                                        const ExecutionContext& context,
-                                       std::string loadedAs);
+                                       std::string_view name);
 
 }  // namespace internal
 
@@ -84,22 +86,14 @@ class MODULES_EXPORT CodecLogger final {
     // instance of |CodecLogger|.
     if (parent_media_log_) {
       parent_media_log_->Stop();
-      if (base::FeatureList::IsEnabled(
-              features::kUseBlinkSchedulerTaskRunnerWithCustomDeleter)) {
-        task_runner_->DeleteSoon(FROM_HERE, std::move(parent_media_log_));
-      } else {
-        // This task runner may be destroyed without running tasks, so don't use
-        // DeleteSoon() which can leak the log. See https://crbug.com/1376851.
-        task_runner_->PostTask(FROM_HERE, base::DoNothingWithBoundArgs(
-                                              std::move(parent_media_log_)));
-      }
+      task_runner_->DeleteSoon(FROM_HERE, std::move(parent_media_log_));
     }
   }
 
   void SendPlayerNameInformation(const ExecutionContext& context,
-                                 std::string loadedAs) {
+                                 std::string_view name) {
     internal::SendPlayerNameInformationInternal(media_log_.get(), context,
-                                                loadedAs);
+                                                name);
   }
 
   // Creates an OperationError DOMException with the given |error_msg|, and logs
@@ -107,13 +101,18 @@ class MODULES_EXPORT CodecLogger final {
   // Since |status| can come from platform codecs, its contents won't be
   // surfaced to JS, since we could leak important information.
   DOMException* MakeOperationError(std::string error_msg, StatusImpl status) {
-    media_log_->NotifyError(status);
+    return MakeAndLogException(DOMExceptionCode::kOperationError,
+                               std::move(error_msg), status,
+                               /*can_log_status_message=*/false);
+  }
 
-    if (!status_code_)
-      status_code_ = status.code();
-
-    return MakeGarbageCollected<DOMException>(DOMExceptionCode::kOperationError,
-                                              error_msg.c_str());
+  // Similar to MakeOperationError(), but since the error comes from a bundled
+  // software codec the error message can include the status message.
+  DOMException* MakeSoftwareCodecOperationError(std::string error_msg,
+                                                StatusImpl status) {
+    return MakeAndLogException(DOMExceptionCode::kOperationError,
+                               std::move(error_msg), status,
+                               /*can_log_status_message=*/true);
   }
 
   // Convenience wrapper for MakeOperationError(), where |error_msg| is shared
@@ -130,14 +129,9 @@ class MODULES_EXPORT CodecLogger final {
   // Since |status| can come from platform codecs, its contents won't be
   // surfaced to JS, since we could leak important information.
   DOMException* MakeEncodingError(std::string error_msg, StatusImpl status) {
-    media_log_->NotifyError(status);
-
-    if (!status_code_) {
-      status_code_ = status.code();
-    }
-
-    return MakeGarbageCollected<DOMException>(DOMExceptionCode::kEncodingError,
-                                              error_msg.c_str());
+    return MakeAndLogException(DOMExceptionCode::kEncodingError,
+                               std::move(error_msg), status,
+                               /*can_log_status_message=*/false);
   }
 
   // Convenience wrapper for MakeEncodingError(), where |error_msg| is shared
@@ -147,6 +141,21 @@ class MODULES_EXPORT CodecLogger final {
       typename StatusImpl::Codes code,
       const base::Location& location = base::Location::Current()) {
     return MakeEncodingError(error_msg, StatusImpl(code, error_msg, location));
+  }
+
+  DOMException* MakeQuotaError(std::string error_msg, StatusImpl status) {
+    return MakeAndLogException(DOMExceptionCode::kQuotaExceededError,
+                               std::move(error_msg), std::move(status),
+                               /*can_log_status_message=*/false);
+  }
+
+  // Similar to MakeEncodingError(), but since the error comes from a bundled
+  // software codec the error message can include the status message.
+  DOMException* MakeSoftwareCodecEncodingError(std::string error_msg,
+                                               StatusImpl status) {
+    return MakeAndLogException(DOMExceptionCode::kEncodingError,
+                               std::move(error_msg), status,
+                               /*can_log_status_message=*/true);
   }
 
   // Safe to use on any thread. |this| should still outlive users of log().
@@ -167,7 +176,39 @@ class MODULES_EXPORT CodecLogger final {
   }
 
  private:
-  absl::optional<typename StatusImpl::Codes> status_code_;
+  DOMException* MakeAndLogException(DOMExceptionCode code,
+                                    std::string error_msg,
+                                    StatusImpl status,
+                                    bool can_log_status_message) {
+    media_log_->NotifyError(status);
+    if (!status_code_) {
+      status_code_ = status.code();
+    }
+
+    String sanitized_message(std::move(error_msg));
+    String unsanitized_message;
+    if (!status.message().empty()) {
+      // If the message comes from a bundled codec we can log it to JS.
+      auto msg =
+          StrCat({sanitized_message, " (", String(status.message()), ")"});
+      if (can_log_status_message) {
+        sanitized_message = msg;
+      } else {
+        // If not we can only set it as the unsanitized message which the
+        // console will show in some circumstances.
+        unsanitized_message = msg;
+      }
+    }
+
+    if (code == DOMExceptionCode::kQuotaExceededError &&
+        RuntimeEnabledFeatures::QuotaExceededErrorUpdateEnabled()) {
+      return MakeGarbageCollected<QuotaExceededError>(sanitized_message);
+    }
+    return MakeGarbageCollected<DOMException>(code, sanitized_message,
+                                              unsanitized_message);
+  }
+
+  std::optional<typename StatusImpl::Codes> status_code_;
 
   // |parent_media_log_| must be destroyed if ever the ExecutionContext is
   // destroyed, since the blink::MediaInspectorContext* pointer given to

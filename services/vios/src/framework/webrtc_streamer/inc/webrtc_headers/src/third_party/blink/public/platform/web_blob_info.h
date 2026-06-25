@@ -5,8 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_BLOB_INFO_H_
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_BLOB_INFO_H_
 
+#include <optional>
+
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom-shared.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/web_common.h"
@@ -19,7 +20,8 @@ class BlobDataHandle;
 
 class WebBlobInfo {
  public:
-  BLINK_EXPORT WebBlobInfo();
+  WebBlobInfo()
+      : is_file_(false), size_(std::numeric_limits<uint64_t>::max()) {}
   BLINK_EXPORT WebBlobInfo(const WebString& uuid,
                            const WebString& type,
                            uint64_t size,
@@ -27,7 +29,7 @@ class WebBlobInfo {
   BLINK_EXPORT WebBlobInfo(const WebString& uuid,
                            const WebString& file_name,
                            const WebString& type,
-                           const absl::optional<base::Time>& last_modified,
+                           const std::optional<base::Time>& last_modified,
                            uint64_t size,
                            CrossVariantMojoRemote<mojom::BlobInterfaceBase>);
 
@@ -52,7 +54,7 @@ class WebBlobInfo {
   const WebString& GetType() const { return type_; }
   uint64_t size() const { return size_; }
   const WebString& FileName() const { return file_name_; }
-  absl::optional<base::Time> LastModified() const { return last_modified_; }
+  std::optional<base::Time> LastModified() const { return last_modified_; }
   BLINK_EXPORT CrossVariantMojoRemote<mojom::BlobInterfaceBase>
   CloneBlobRemote() const;
 
@@ -60,7 +62,7 @@ class WebBlobInfo {
   BLINK_EXPORT WebBlobInfo(scoped_refptr<BlobDataHandle>);
   BLINK_EXPORT WebBlobInfo(scoped_refptr<BlobDataHandle>,
                            const WebString& file_name,
-                           const absl::optional<base::Time>& last_modified);
+                           const std::optional<base::Time>& last_modified);
   // TODO(mek): Get rid of these constructors after ensuring that the
   // BlobDataHandle always has the correct type and size.
   BLINK_EXPORT WebBlobInfo(scoped_refptr<BlobDataHandle>,
@@ -69,7 +71,7 @@ class WebBlobInfo {
   BLINK_EXPORT WebBlobInfo(scoped_refptr<BlobDataHandle>,
                            const WebString& file_name,
                            const WebString& type,
-                           const absl::optional<base::Time>& last_modified,
+                           const std::optional<base::Time>& last_modified,
                            uint64_t size);
   BLINK_EXPORT scoped_refptr<BlobDataHandle> GetBlobHandle() const;
 #endif
@@ -79,9 +81,9 @@ class WebBlobInfo {
   WebString uuid_;
   WebString type_;  // MIME type
   uint64_t size_;
-  WebPrivatePtr<BlobDataHandle> blob_handle_;
+  WebPrivatePtrForRefCounted<BlobDataHandle> blob_handle_;
   WebString file_name_;   // Only for File
-  absl::optional<base::Time> last_modified_;  // Only for File
+  std::optional<base::Time> last_modified_;  // Only for File
 };
 
 }  // namespace blink

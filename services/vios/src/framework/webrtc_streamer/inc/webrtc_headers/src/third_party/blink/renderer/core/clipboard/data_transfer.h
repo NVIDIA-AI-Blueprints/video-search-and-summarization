@@ -84,6 +84,7 @@ class CORE_EXPORT DataTransfer final : public ScriptWrappable,
   AtomicString dropEffect() const {
     return DropEffectIsInitialized() ? drop_effect_ : keywords::kNone;
   }
+  void resetDropEffect();
   void setDropEffect(const AtomicString&);
   bool DropEffectIsInitialized() const { return !drop_effect_.IsNull(); }
   AtomicString effectAllowed() const { return effect_allowed_; }
@@ -131,7 +132,9 @@ class CORE_EXPORT DataTransfer final : public ScriptWrappable,
 
   DragOperationsMask SourceOperation() const;
   ui::mojom::blink::DragOperation DestinationOperation() const;
+  void SetSourceEffectAllowed(const AtomicString&);
   void SetSourceOperation(DragOperationsMask);
+  void SetDestinationOperationFromEffectAllowed();
   void SetDestinationOperation(ui::mojom::blink::DragOperation);
 
   DataTransferItemList* items();

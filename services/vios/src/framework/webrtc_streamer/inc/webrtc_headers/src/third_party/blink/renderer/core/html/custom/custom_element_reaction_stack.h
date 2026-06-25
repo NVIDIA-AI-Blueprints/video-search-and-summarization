@@ -31,7 +31,7 @@ class CORE_EXPORT CustomElementReactionStack final
   ~CustomElementReactionStack() override = default;
 
   void Trace(Visitor*) const override;
-  const char* NameInHeapSnapshot() const override {
+  const char* GetHumanReadableName() const override {
     return "CustomElementReactionStack";
   }
 
@@ -56,7 +56,7 @@ class CORE_EXPORT CustomElementReactionStack final
       Agent& agent,
       CustomElementReactionStack* new_stack);
 
-  using ElementQueue = HeapVector<Member<Element>, 1>;
+  using ElementQueue = GCedHeapVector<Member<Element>, 1>;
   HeapVector<Member<ElementQueue>> stack_;
   Member<ElementQueue> backup_queue_;
 

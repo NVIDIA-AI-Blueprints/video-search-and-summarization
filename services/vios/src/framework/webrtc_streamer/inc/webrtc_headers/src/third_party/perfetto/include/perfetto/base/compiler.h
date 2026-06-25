@@ -17,11 +17,23 @@
 #ifndef INCLUDE_PERFETTO_BASE_COMPILER_H_
 #define INCLUDE_PERFETTO_BASE_COMPILER_H_
 
-#include <stddef.h>
+#include <cstddef>
 #include <type_traits>
+#include <variant>
 
-#include "perfetto/base/build_config.h"
 #include "perfetto/public/compiler.h"
+
+#if defined(_MSC_VER)
+#define PERFETTO_ASSUME(x) __assume(x)
+#elif defined(__clang__)
+#define PERFETTO_ASSUME(x) __builtin_assume(x)
+#else
+#define PERFETTO_ASSUME(x)     \
+  do {                         \
+    if (!(x))                  \
+      __builtin_unreachable(); \
+  } while (0)
+#endif
 
 // __has_attribute is supported only by clang and recent versions of GCC.
 // Add a layer to wrap the __has_attribute macro.
@@ -41,16 +53,6 @@
 #define PERFETTO_UNUSED __attribute__((unused))
 #else
 #define PERFETTO_UNUSED
-#endif
-
-#if defined(__clang__)
-#define PERFETTO_ALWAYS_INLINE __attribute__((__always_inline__))
-#define PERFETTO_NO_INLINE __attribute__((__noinline__))
-#else
-// GCC is too pedantic and often fails with the error:
-// "always_inline function might not be inlinable"
-#define PERFETTO_ALWAYS_INLINE
-#define PERFETTO_NO_INLINE
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -75,16 +77,6 @@
 #define PERFETTO_PRINTF_FORMAT(x, y)
 #endif
 
-#if PERFETTO_BUILDFLAG(PERFETTO_OS_IOS)
-// TODO(b/158814068): For iOS builds, thread_local is only supported since iOS
-// 8. We'd have to use pthread for thread local data instead here. For now, just
-// define it to nothing since we don't support running perfetto or the client
-// lib on iOS right now.
-#define PERFETTO_THREAD_LOCAL
-#else
-#define PERFETTO_THREAD_LOCAL thread_local
-#endif
-
 #if defined(__GNUC__) || defined(__clang__)
 #define PERFETTO_POPCOUNT(x) __builtin_popcountll(x)
 #else
@@ -105,6 +97,19 @@ extern "C" void __asan_unpoison_memory_region(void const volatile*, size_t);
 #else
 #define PERFETTO_ASAN_POISON(addr, size)
 #define PERFETTO_ASAN_UNPOISON(addr, size)
+#endif  // __clang__
+
+// __has_feature is Clang-specific so must be gated behind a __clang__ check.
+// Using && doesn't work because the preprocessor doesn't short-circuit.
+#if defined(__clang__)
+#if __has_feature(memory_sanitizer)
+extern "C" void __msan_unpoison(void const volatile*, size_t);
+#define PERFETTO_MSAN_UNPOISON(a, s) __msan_unpoison((a), (s))
+#else
+#define PERFETTO_MSAN_UNPOISON(addr, size)
+#endif  // __has_feature(memory_sanitizer)
+#else
+#define PERFETTO_MSAN_UNPOISON(addr, size)
 #endif  // __clang__
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -128,15 +133,6 @@ extern "C" void __asan_unpoison_memory_region(void const volatile*, size_t);
 #define PERFETTO_EXPORT_ENTRYPOINT
 #endif
 
-// Disables thread safety analysis for functions where the compiler can't
-// accurate figure out which locks are being held.
-#if defined(__clang__)
-#define PERFETTO_NO_THREAD_SAFETY_ANALYSIS \
-  __attribute__((no_thread_safety_analysis))
-#else
-#define PERFETTO_NO_THREAD_SAFETY_ANALYSIS
-#endif
-
 // Disables undefined behavior analysis for a function.
 #if defined(__clang__)
 #define PERFETTO_NO_SANITIZE_UNDEFINED __attribute__((no_sanitize("undefined")))
@@ -154,19 +150,25 @@ extern "C" void __asan_unpoison_memory_region(void const volatile*, size_t);
 #endif
 
 // Macro for telling -Wimplicit-fallthrough that a fallthrough is intentional.
-#if defined(__clang__)
-#define PERFETTO_FALLTHROUGH [[clang::fallthrough]]
+#define PERFETTO_FALLTHROUGH [[fallthrough]]
+
+// Depending on the version of the compiler, __has_builtin can be provided or
+// not.
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_stack_address)
+#define PERFETTO_HAS_BUILTIN_STACK_ADDRESS() 1
 #else
-#define PERFETTO_FALLTHROUGH
+#define PERFETTO_HAS_BUILTIN_STACK_ADDRESS() 0
+#endif
+#else
+#define PERFETTO_HAS_BUILTIN_STACK_ADDRESS() 0
 #endif
 
-namespace perfetto {
-namespace base {
+namespace perfetto::base {
 
 template <typename... T>
 inline void ignore_result(const T&...) {}
 
-}  // namespace base
-}  // namespace perfetto
+}  // namespace perfetto::base
 
 #endif  // INCLUDE_PERFETTO_BASE_COMPILER_H_

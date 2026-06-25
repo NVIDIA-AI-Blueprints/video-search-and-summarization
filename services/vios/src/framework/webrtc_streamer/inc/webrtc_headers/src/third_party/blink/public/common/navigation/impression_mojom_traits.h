@@ -21,9 +21,9 @@ struct BLINK_COMMON_EXPORT
       const blink::Impression& r) {
     return r.attribution_src_token;
   }
-  static const network::AttributionReportingRuntimeFeatures& runtime_features(
-      const blink::Impression& r) {
-    return r.runtime_features;
+
+  static bool is_empty_attribution_src_tag(const blink::Impression& r) {
+    return r.is_empty_attribution_src_tag;
   }
 
   static bool Read(blink::mojom::ImpressionDataView r, blink::Impression* out);

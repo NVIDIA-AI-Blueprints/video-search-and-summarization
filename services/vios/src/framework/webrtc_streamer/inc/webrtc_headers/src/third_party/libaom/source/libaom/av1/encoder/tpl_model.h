@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2019, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -24,19 +24,23 @@ struct AV1_SEQ_CODING_TOOLS;
 struct EncodeFrameParams;
 struct EncodeFrameInput;
 struct GF_GROUP;
+struct ThreadData;
 struct TPL_INFO;
 
 #include "config/aom_config.h"
 
+#include "aom/aom_tpl.h"
 #include "aom_scale/yv12config.h"
+#include "aom_util/aom_pthread.h"
 
 #include "av1/common/mv.h"
 #include "av1/common/scale.h"
+#include "av1/encoder/av1_ext_ratectrl.h"
 #include "av1/encoder/block.h"
 #include "av1/encoder/lookahead.h"
 #include "av1/encoder/ratectrl.h"
 
-static INLINE BLOCK_SIZE convert_length_to_bsize(int length) {
+static inline BLOCK_SIZE convert_length_to_bsize(int length) {
   switch (length) {
     case 64: return BLOCK_64X64;
     case 32: return BLOCK_32X32;
@@ -70,6 +74,13 @@ typedef struct AV1TplRowMultiThreadSync {
 } AV1TplRowMultiThreadSync;
 
 typedef struct AV1TplRowMultiThreadInfo {
+  // Initialized to false, set to true by the worker thread that encounters an
+  // error in order to abort the processing of other worker threads.
+  bool tpl_mt_exit;
+#if CONFIG_MULTITHREAD
+  // Mutex lock object used for error handling.
+  pthread_mutex_t *mutex_;
+#endif
   // Row synchronization related function pointers.
   void (*sync_read_ptr)(AV1TplRowMultiThreadSync *tpl_mt_sync, int r, int c);
   void (*sync_write_ptr)(AV1TplRowMultiThreadSync *tpl_mt_sync, int r, int c,
@@ -103,6 +114,14 @@ typedef struct TplTxfmStats {
   int coeff_num;
 } TplTxfmStats;
 
+typedef struct {
+  uint8_t *predictor8;
+  int16_t *src_diff;
+  tran_low_t *coeff;
+  tran_low_t *qcoeff;
+  tran_low_t *dqcoeff;
+} TplBuffers;
+
 typedef struct TplDepStats {
   int64_t srcrf_sse;
   int64_t srcrf_dist;
@@ -131,12 +150,15 @@ typedef struct TplDepFrame {
   YV12_BUFFER_CONFIG *rec_picture;
   int ref_map_index[REF_FRAMES];
   int stride;
+  // width and height here is in the unit of 16x16 block.
   int width;
   int height;
   int mi_rows;
   int mi_cols;
   int base_rdmult;
   uint32_t frame_display_index;
+  // When set, SAD metric is used for intra and inter mode decision.
+  int use_pred_sad;
 } TplDepFrame;
 
 /*!\endcond */
@@ -217,6 +239,16 @@ typedef struct TplParams {
   const YV12_BUFFER_CONFIG *ref_frame[INTER_REFS_PER_FRAME];
 
   /*!
+   * The buffer for the past gop's last frame's src.
+   */
+  YV12_BUFFER_CONFIG prev_gop_arf_src;
+
+  /*!
+   * Display order of the past gop's last frame.
+   */
+  int64_t prev_gop_arf_disp_order;
+
+  /*!
    * Parameters related to synchronization for top-right dependency in row based
    * multi-threading of tpl
    */
@@ -227,6 +259,10 @@ typedef struct TplParams {
    */
   int border_in_pixels;
 
+  /*!
+   * Factor to adjust r0 if TPL uses a subset of frames in the gf group.
+   */
+  double r0_adjust_factor;
 } TplParams;
 
 #if CONFIG_BITRATE_ACCURACY || CONFIG_RATECTRL_LOG
@@ -271,7 +307,7 @@ typedef struct {
 #endif  // CONFIG_THREE_PASS
 } VBR_RATECTRL_INFO;
 
-static INLINE void vbr_rc_reset_gop_data(VBR_RATECTRL_INFO *vbr_rc_info) {
+static inline void vbr_rc_reset_gop_data(VBR_RATECTRL_INFO *vbr_rc_info) {
   vbr_rc_info->q_index_list_ready = 0;
   av1_zero(vbr_rc_info->q_index_list);
 }
@@ -381,6 +417,10 @@ typedef struct RD_COMMAND {
 void av1_read_rd_command(const char *filepath, RD_COMMAND *rd_command);
 #endif  // CONFIG_RD_COMMAND
 
+static inline bool av1_use_tpl_for_extrc(AOM_EXT_RATECTRL const *ext_rc) {
+  return ext_rc->ready && ext_rc->funcs.send_tpl_gop_stats != NULL;
+}
+
 /*!\brief Allocate buffers used by tpl model
  *
  * \param[in]    Top-level encode/decode structure
@@ -392,6 +432,45 @@ void av1_read_rd_command(const char *filepath, RD_COMMAND *rd_command);
 void av1_setup_tpl_buffers(struct AV1_PRIMARY *const ppi,
                            CommonModeInfoParams *const mi_params, int width,
                            int height, int byte_alignment, int lag_in_frames);
+
+static inline void tpl_dealloc_temp_buffers(TplBuffers *tpl_tmp_buffers) {
+  aom_free(tpl_tmp_buffers->predictor8);
+  tpl_tmp_buffers->predictor8 = NULL;
+  aom_free(tpl_tmp_buffers->src_diff);
+  tpl_tmp_buffers->src_diff = NULL;
+  aom_free(tpl_tmp_buffers->coeff);
+  tpl_tmp_buffers->coeff = NULL;
+  aom_free(tpl_tmp_buffers->qcoeff);
+  tpl_tmp_buffers->qcoeff = NULL;
+  aom_free(tpl_tmp_buffers->dqcoeff);
+  tpl_tmp_buffers->dqcoeff = NULL;
+}
+
+static inline bool tpl_alloc_temp_buffers(TplBuffers *tpl_tmp_buffers,
+                                          uint8_t tpl_bsize_1d) {
+  // Number of pixels in a tpl block
+  const int tpl_block_pels = tpl_bsize_1d * tpl_bsize_1d;
+
+  // Allocate temporary buffers used in mode estimation.
+  tpl_tmp_buffers->predictor8 = (uint8_t *)aom_memalign(
+      32, tpl_block_pels * 2 * sizeof(*tpl_tmp_buffers->predictor8));
+  tpl_tmp_buffers->src_diff = (int16_t *)aom_memalign(
+      32, tpl_block_pels * sizeof(*tpl_tmp_buffers->src_diff));
+  tpl_tmp_buffers->coeff = (tran_low_t *)aom_memalign(
+      32, tpl_block_pels * sizeof(*tpl_tmp_buffers->coeff));
+  tpl_tmp_buffers->qcoeff = (tran_low_t *)aom_memalign(
+      32, tpl_block_pels * sizeof(*tpl_tmp_buffers->qcoeff));
+  tpl_tmp_buffers->dqcoeff = (tran_low_t *)aom_memalign(
+      32, tpl_block_pels * sizeof(*tpl_tmp_buffers->dqcoeff));
+
+  if (!(tpl_tmp_buffers->predictor8 && tpl_tmp_buffers->src_diff &&
+        tpl_tmp_buffers->coeff && tpl_tmp_buffers->qcoeff &&
+        tpl_tmp_buffers->dqcoeff)) {
+    tpl_dealloc_temp_buffers(tpl_tmp_buffers);
+    return false;
+  }
+  return true;
+}
 
 /*!\brief Implements temporal dependency modelling for a GOP (GF/ARF
  * group) and selects between 16 and 32 frame GOP structure.
@@ -424,7 +503,8 @@ void av1_tpl_rdmult_setup_sb(struct AV1_COMP *cpi, MACROBLOCK *const x,
                              BLOCK_SIZE sb_size, int mi_row, int mi_col);
 
 void av1_mc_flow_dispenser_row(struct AV1_COMP *cpi,
-                               TplTxfmStats *tpl_txfm_stats, MACROBLOCK *x,
+                               TplTxfmStats *tpl_txfm_stats,
+                               TplBuffers *tpl_tmp_buffers, MACROBLOCK *x,
                                int mi_row, BLOCK_SIZE bsize, TX_SIZE tx_size);
 
 /*!\brief  Compute the entropy of an exponential probability distribution
@@ -456,6 +536,7 @@ double av1_exponential_entropy(double q_step, double b);
  */
 double av1_laplace_entropy(double q_step, double b, double zero_bin_ratio);
 
+#if CONFIG_BITRATE_ACCURACY
 /*!\brief  Compute the frame rate using transform block stats
  *
  * Assume each position i in the transform block is of Laplace distribution
@@ -476,6 +557,7 @@ double av1_laplace_entropy(double q_step, double b, double zero_bin_ratio);
 double av1_laplace_estimate_frame_rate(int q_index, int block_count,
                                        const double *abs_coeff_mean,
                                        int coeff_num);
+#endif  // CONFIG_BITRATE_ACCURACY
 
 /*
  *!\brief Init TplTxfmStats
@@ -537,22 +619,6 @@ void av1_tpl_txfm_stats_update_abs_coeff_mean(TplTxfmStats *txfm_stats);
 double av1_estimate_coeff_entropy(double q_step, double b,
                                   double zero_bin_ratio, int qcoeff);
 
-/*!\brief  Estimate entropy of a transform block using Laplace dsitribution
- *
- *\ingroup tpl_modelling
- *
- * \param[in]    q_index         quantizer index
- * \param[in]    abs_coeff_mean  array of mean absolute deviations
- * \param[in]    qcoeff_arr      array of quantized coefficients
- * \param[in]    coeff_num       number of coefficients per transform block
- *
- * \return estimated transform block entropy
- *
- */
-double av1_estimate_txfm_block_entropy(int q_index,
-                                       const double *abs_coeff_mean,
-                                       int *qcoeff_arr, int coeff_num);
-
 // TODO(angiebird): Add doxygen description here.
 int64_t av1_delta_rate_cost(int64_t delta_rate, int64_t recrf_dist,
                             int64_t srcrf_dist, int pix_num);
@@ -586,16 +652,6 @@ int av1_get_overlap_area(int row_a, int col_a, int row_b, int col_b, int width,
  */
 int av1_tpl_get_q_index(const TplParams *tpl_data, int gf_frame_index,
                         int leaf_qindex, aom_bit_depth_t bit_depth);
-
-/*!\brief Compute the frame importance from TPL stats
- *
- * \param[in]       tpl_data          TPL struct
- * \param[in]       gf_frame_index    current frame index in the GOP
- *
- * \return frame_importance
- */
-double av1_tpl_get_frame_importance(const TplParams *tpl_data,
-                                    int gf_frame_index);
 
 /*!\brief Compute the ratio between arf q step and the leaf q step based on
  * TPL stats
@@ -647,6 +703,12 @@ int_mv av1_compute_mv_difference(const TplDepFrame *tpl_frame, int row, int col,
 double av1_tpl_compute_frame_mv_entropy(const TplDepFrame *tpl_frame,
                                         uint8_t right_shift);
 
+/*!\brief Free the memory allocated for cpi->extrc_tpl_gop_stats.
+ *
+ * \param[in] extrc_tpl_gop_stats TPL stats for the GOP used for external RC.
+ */
+void av1_free_tpl_gop_stats(AomTplGopStats *extrc_tpl_gop_stats);
+
 #if CONFIG_RATECTRL_LOG
 typedef struct {
   int coding_frame_count;
@@ -668,14 +730,15 @@ typedef struct {
   double act_coeff_rate_list[VBR_RC_INFO_MAX_FRAMES];
 } RATECTRL_LOG;
 
-static INLINE void rc_log_init(RATECTRL_LOG *rc_log) { av1_zero(*rc_log); }
+static inline void rc_log_init(RATECTRL_LOG *rc_log) { av1_zero(*rc_log); }
 
-static INLINE void rc_log_frame_stats(RATECTRL_LOG *rc_log, int coding_index,
+static inline void rc_log_frame_stats(RATECTRL_LOG *rc_log, int coding_index,
                                       const TplTxfmStats *txfm_stats) {
   rc_log->txfm_stats_list[coding_index] = *txfm_stats;
 }
 
-static INLINE void rc_log_frame_encode_param(RATECTRL_LOG *rc_log,
+#if CONFIG_RATECTRL_LOG && CONFIG_THREE_PASS && CONFIG_BITRATE_ACCURACY
+static inline void rc_log_frame_encode_param(RATECTRL_LOG *rc_log,
                                              int coding_index,
                                              double qstep_ratio, int q_index,
                                              FRAME_UPDATE_TYPE update_type) {
@@ -690,22 +753,23 @@ static INLINE void rc_log_frame_encode_param(RATECTRL_LOG *rc_log,
         txfm_stats->coeff_num);
   }
 }
+#endif  // CONFIG_RATECTRL_LOG && CONFIG_THREE_PASS && CONFIG_BITRATE_ACCURACY
 
-static INLINE void rc_log_frame_entropy(RATECTRL_LOG *rc_log, int coding_index,
+static inline void rc_log_frame_entropy(RATECTRL_LOG *rc_log, int coding_index,
                                         double act_rate,
                                         double act_coeff_rate) {
   rc_log->act_rate_list[coding_index] = act_rate;
   rc_log->act_coeff_rate_list[coding_index] = act_coeff_rate;
 }
 
-static INLINE void rc_log_record_chunk_info(RATECTRL_LOG *rc_log,
+static inline void rc_log_record_chunk_info(RATECTRL_LOG *rc_log,
                                             int base_q_index,
                                             int coding_frame_count) {
   rc_log->base_q_index = base_q_index;
   rc_log->coding_frame_count = coding_frame_count;
 }
 
-static INLINE void rc_log_show(const RATECTRL_LOG *rc_log) {
+static inline void rc_log_show(const RATECTRL_LOG *rc_log) {
   printf("= chunk 1\n");
   printf("coding_frame_count %d base_q_index %d\n", rc_log->coding_frame_count,
          rc_log->base_q_index);

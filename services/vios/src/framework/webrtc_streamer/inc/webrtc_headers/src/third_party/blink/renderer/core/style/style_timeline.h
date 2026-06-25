@@ -5,12 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_STYLE_TIMELINE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_STYLE_TIMELINE_H_
 
+#include <optional>
+#include <variant>
+
 #include "base/check_op.h"
-#include "base/memory/values_equivalent.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "third_party/blink/renderer/core/animation/timeline_inset.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/core/style/scoped_css_name.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
@@ -36,7 +37,6 @@ class CORE_EXPORT StyleTimeline {
     bool operator==(const ScrollData& other) const {
       return axis_ == other.axis_ && scroller_ == other.scroller_;
     }
-    bool operator!=(const ScrollData& other) const { return !(*this == other); }
 
     TimelineAxis GetAxis() const { return axis_; }
     const TimelineScroller& GetScroller() const { return scroller_; }
@@ -60,7 +60,6 @@ class CORE_EXPORT StyleTimeline {
     bool operator==(const ViewData& other) const {
       return axis_ == other.axis_ && inset_ == other.inset_;
     }
-    bool operator!=(const ViewData& other) const { return !(*this == other); }
 
     TimelineAxis GetAxis() const { return axis_; }
     TimelineInset GetInset() const { return inset_; }
@@ -75,7 +74,7 @@ class CORE_EXPORT StyleTimeline {
   };
 
   explicit StyleTimeline(CSSValueID keyword) : data_(keyword) {}
-  explicit StyleTimeline(const ScopedCSSName* name) : data_(name) {}
+  explicit StyleTimeline(const AtomicString& name) : data_(name) {}
   explicit StyleTimeline(const ScrollData& scroll_data) : data_(scroll_data) {}
   explicit StyleTimeline(const ViewData& view_data) : data_(view_data) {}
 
@@ -85,28 +84,19 @@ class CORE_EXPORT StyleTimeline {
     }
     return data_ == other.data_;
   }
-  bool operator!=(const StyleTimeline& other) const {
-    return !(*this == other);
-  }
 
-  bool IsKeyword() const { return absl::holds_alternative<CSSValueID>(data_); }
-  bool IsName() const {
-    return absl::holds_alternative<Persistent<const ScopedCSSName>>(data_);
-  }
-  bool IsScroll() const { return absl::holds_alternative<ScrollData>(data_); }
-  bool IsView() const { return absl::holds_alternative<ViewData>(data_); }
+  bool IsKeyword() const { return std::holds_alternative<CSSValueID>(data_); }
+  bool IsName() const { return std::holds_alternative<AtomicString>(data_); }
+  bool IsScroll() const { return std::holds_alternative<ScrollData>(data_); }
+  bool IsView() const { return std::holds_alternative<ViewData>(data_); }
 
-  const CSSValueID& GetKeyword() const { return absl::get<CSSValueID>(data_); }
-  const ScopedCSSName& GetName() const {
-    return *absl::get<Persistent<const ScopedCSSName>>(data_);
-  }
-  const ScrollData& GetScroll() const { return absl::get<ScrollData>(data_); }
-  const ViewData& GetView() const { return absl::get<ViewData>(data_); }
+  const CSSValueID& GetKeyword() const { return std::get<CSSValueID>(data_); }
+  const AtomicString& GetName() const { return std::get<AtomicString>(data_); }
+  const ScrollData& GetScroll() const { return std::get<ScrollData>(data_); }
+  const ViewData& GetView() const { return std::get<ViewData>(data_); }
 
  private:
-  absl::
-      variant<CSSValueID, Persistent<const ScopedCSSName>, ScrollData, ViewData>
-          data_;
+  std::variant<CSSValueID, AtomicString, ScrollData, ViewData> data_;
 };
 
 }  // namespace blink

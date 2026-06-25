@@ -5,16 +5,26 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_USER_AGENT_USER_AGENT_METADATA_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_USER_AGENT_USER_AGENT_METADATA_H_
 
+#include <optional>
 #include <string>
 #include <vector>
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
 
 namespace blink {
 
-// Note: if changing this, see also
-// content/public/common/common_param_traits_macros.h
+// Values for the Sec-CH-UA-Form-Factors header.
+// https://wicg.github.io/ua-client-hints/#sec-ch-ua-form-factors
+// LINT.IfChange
+inline constexpr char kDesktopFormFactor[] = "Desktop";
+inline constexpr char kAutomotiveFormFactor[] = "Automotive";
+inline constexpr char kMobileFormFactor[] = "Mobile";
+inline constexpr char kTabletFormFactor[] = "Tablet";
+inline constexpr char kXRFormFactor[] = "XR";
+inline constexpr char kEInkFormFactor[] = "EInk";
+inline constexpr char kWatchFormFactor[] = "Watch";
+// LINT.ThenChange(/android_webview/java/src/org/chromium/android_webview/client_hints/AwUserAgentMetadata.java,/third_party/blink/common/user_agent/user_agent_metadata.cc)
+
 struct BLINK_COMMON_EXPORT UserAgentBrandVersion {
   UserAgentBrandVersion() = default;
   UserAgentBrandVersion(const std::string& ua_brand,
@@ -33,8 +43,6 @@ struct BLINK_COMMON_EXPORT UserAgentBrandVersion {
 
 using UserAgentBrandList = std::vector<UserAgentBrandVersion>;
 
-// Note: if changing this, see also
-// content/public/common/common_param_traits_macros.h
 struct BLINK_COMMON_EXPORT UserAgentMetadata {
  private:
   // Common private function turning the brand list into a structured header
@@ -48,11 +56,14 @@ struct BLINK_COMMON_EXPORT UserAgentMetadata {
   // version.
   const std::string SerializeBrandFullVersionList();
   const std::string SerializeBrandMajorVersionList();
+  const std::string SerializeFormFactors();
 
-  static absl::optional<UserAgentMetadata> Demarshal(
-      const absl::optional<std::string>& encoded);
-  static absl::optional<std::string> Marshal(
-      const absl::optional<UserAgentMetadata>& ua_metadata);
+  static std::optional<UserAgentMetadata> Demarshal(
+      const std::optional<std::string>& encoded);
+  static std::optional<std::string> Marshal(
+      const std::optional<UserAgentMetadata>& ua_metadata);
+  static bool IsValidFormFactor(std::string_view form_factor);
+
   UserAgentBrandList brand_version_list;
   UserAgentBrandList brand_full_version_list;
 
@@ -64,16 +75,17 @@ struct BLINK_COMMON_EXPORT UserAgentMetadata {
   bool mobile = false;
   std::string bitness;
   bool wow64 = false;
-  std::string form_factor;
+
+  // The form-factors list. It is up to the embedder to ensure that this is
+  // compliant with the w3c draft spec:
+  // https://wicg.github.io/ua-client-hints/#sec-ch-ua-form-factors.
+  std::vector<std::string> form_factors;
 };
 
 // Used when customizing the sent User-Agent and Sec-CH-UA-* for
 // features like "request desktop site", which override those from defaults
 // for some individual navigations. WebContents::SetUserAgentOverride()
 // is the main entry point used for the functionality.
-//
-// Like above, this has legacy IPC traits in
-// content/public/common/common_param_traits_macros.h
 struct BLINK_COMMON_EXPORT UserAgentOverride {
   // Helper which sets only UA with blank client hints.
   static UserAgentOverride UserAgentOnly(const std::string& ua);
@@ -85,7 +97,7 @@ struct BLINK_COMMON_EXPORT UserAgentOverride {
   // Non-nullopt if custom values for user agent client hint properties
   // should be used. If this is null, and |ua_string_override| is non-empty,
   // no UA client hints will be sent.
-  absl::optional<UserAgentMetadata> ua_metadata_override;
+  std::optional<UserAgentMetadata> ua_metadata_override;
 };
 
 bool BLINK_COMMON_EXPORT operator==(const UserAgentMetadata& a,

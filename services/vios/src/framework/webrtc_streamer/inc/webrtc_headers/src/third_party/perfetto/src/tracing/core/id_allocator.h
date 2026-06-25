@@ -19,12 +19,13 @@
 
 #include <stdint.h>
 
+#include <cstddef>
 #include <type_traits>
 #include <vector>
 
 namespace perfetto {
 
-// Handles assigment of IDs (int types) from a fixed-size pool.
+// Handles assignment of IDs (int types) from a fixed-size pool.
 // Zero is not considered a valid ID.
 // The base class takes always a uint32_t and the derived class casts and checks
 // bounds at compile time. This is to avoid bloating code with different
@@ -60,6 +61,26 @@ class IdAllocator : public IdAllocatorGeneric {
   }
 
   T Allocate() { return static_cast<T>(AllocateGeneric()); }
+
+  // Tries to allocate `n` IDs. Returns a vector of `n` valid IDs or an empty
+  // vector, if not enough IDs are available.
+  std::vector<T> AllocateMultiple(size_t n) {
+    std::vector<T> res;
+    res.reserve(n);
+    for (size_t i = 0; i < n; i++) {
+      T id = Allocate();
+      if (id) {
+        res.push_back(id);
+      } else {
+        for (T free_id : res) {
+          Free(free_id);
+        }
+        return {};
+      }
+    }
+    return res;
+  }
+
   void Free(T id) { FreeGeneric(id); }
 };
 

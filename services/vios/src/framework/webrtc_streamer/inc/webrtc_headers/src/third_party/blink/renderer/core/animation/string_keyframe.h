@@ -5,34 +5,66 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_STRING_KEYFRAME_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_STRING_KEYFRAME_H_
 
+#include "base/containers/span.h"
 #include "third_party/blink/renderer/core/animation/keyframe.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
+#include "third_party/blink/renderer/platform/text/writing_direction_mode.h"
 
 namespace blink {
 
 class CSSPropertyName;
 class StyleSheetContents;
 
-// An implementation of Keyframe used for CSS Animations, web-animations, and
-// the HTML <marquee> element.
+// An implementation of Keyframe used for CSS Animations.
 //
-// A StringKeyframe instance supports an arbitrary number of (property, value)
-// pairs. The properties can be CSS properties or SVG attributes, mapping to
-// CSSValue or plain String values respectively. CSS properties added to a
-// StringKeyframe are expanded to shorthand and de-duplicated, with newer
-// properties replacing older ones. SVG attributes are similarly de-duplicated.
+// A StringKeyframe instance supports an arbitrary number of (CSS property,
+// value) pairs. CSS properties added to a StringKeyframe are expanded to
+// shorthand and de-duplicated, with newer properties replacing older ones.
 //
 class CORE_EXPORT StringKeyframe : public Keyframe {
  public:
+  class PropertyIterator : public VirtualPropertyIterator {
+   public:
+    explicit PropertyIterator(const StringKeyframe* keyframe);
+    ~PropertyIterator() override = default;
+    void Advance(const Keyframe* keyframe) override;
+    PropertyHandle Deref(const Keyframe* keyframe) const override;
+    bool AtEnd(const Keyframe* keyframe) const override;
+
+    void Trace(Visitor* visitor) const override {
+      visitor->Trace(css_property_map_);
+      VirtualPropertyIterator::Trace(visitor);
+    }
+
+   private:
+    Member<MutableCSSPropertyValueSet> css_property_map_;
+    unsigned index_ = 0;
+  };
+
+  class CORE_EXPORT IterableStringKeyframeProperties
+      : public Keyframe::IterableProperties {
+   public:
+    explicit IterableStringKeyframeProperties(const StringKeyframe* keyframe)
+        : keyframe_(keyframe) {}
+    ~IterableStringKeyframeProperties() override = default;
+    PropertyIteratorWrapper begin() const override;
+    size_t size() const override;
+
+    void Trace(Visitor* visitor) const override {
+      Keyframe::IterableProperties::Trace(visitor);
+      visitor->Trace(keyframe_);
+    }
+
+   private:
+    Member<const StringKeyframe> keyframe_;
+  };
+
   explicit StringKeyframe(const TreeScope* tree_scope = nullptr)
-      : tree_scope_(tree_scope),
-        presentation_attribute_map_(
-            MakeGarbageCollected<MutableCSSPropertyValueSet>(
-                kHTMLStandardMode)) {}
+      : Keyframe(MakeGarbageCollected<IterableStringKeyframeProperties>(this)),
+        tree_scope_(tree_scope) {}
   StringKeyframe(const StringKeyframe& copy_from);
 
   MutableCSSPropertyValueSet::SetResult SetCSSPropertyValue(
@@ -48,12 +80,6 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
   void SetCSSPropertyValue(const CSSPropertyName&, const CSSValue&);
   void RemoveCustomCSSProperty(const PropertyHandle& property);
 
-  void SetPresentationAttributeValue(const CSSProperty&,
-                                     const String& value,
-                                     SecureContextMode,
-                                     StyleSheetContents*);
-  void SetSVGAttributeValue(const QualifiedName&, const String& value);
-
   const CSSValue& CssPropertyValue(const PropertyHandle& property) const {
     EnsureCssPropertyMap();
     int index = -1;
@@ -68,27 +94,8 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
     CHECK_GE(index, 0);
     return css_property_map_->PropertyAt(static_cast<unsigned>(index))
         .Value()
-        .EnsureScopedValue(tree_scope_);
+        .EnsureScopedValue(tree_scope_.Get());
   }
-
-  const CSSValue& PresentationAttributeValue(
-      const CSSProperty& property) const {
-    int index =
-        presentation_attribute_map_->FindPropertyIndex(property.PropertyID());
-    CHECK_GE(index, 0);
-    return presentation_attribute_map_->PropertyAt(static_cast<unsigned>(index))
-        .Value()
-        .EnsureScopedValue(tree_scope_);
-    ;
-  }
-
-  String SvgPropertyValue(const QualifiedName& attribute_name) const {
-    return svg_attribute_map_.at(&attribute_name);
-  }
-
-  PropertyHandleSet Properties() const override;
-
-  bool HasCssProperty() const;
 
   void AddKeyframePropertiesToV8Object(V8ObjectBuilder&,
                                        Element*) const override;
@@ -97,8 +104,8 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
 
   bool HasLogicalProperty() { return has_logical_property_; }
 
-  bool SetLogicalPropertyResolutionContext(TextDirection text_direction,
-                                           WritingMode writing_mode);
+  bool SetLogicalPropertyResolutionContext(
+      WritingDirectionMode writing_direction);
 
   void Trace(Visitor*) const override;
 
@@ -108,13 +115,26 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
     CSSPropertySpecificKeyframe(double offset,
                                 scoped_refptr<TimingFunction> easing,
                                 const CSSValue* value,
+                                const TreeScope* tree_scope,
                                 EffectModel::CompositeOperation composite)
         : Keyframe::PropertySpecificKeyframe(offset,
                                              std::move(easing),
                                              composite),
-          value_(value) {}
+          value_(value),
+          tree_scope_(tree_scope) {}
 
     const CSSValue* Value() const { return value_.Get(); }
+
+    // The originating TreeScope for this keyframe. Note that certain
+    // values also bake the TreeScope into their value (see CSSValue::
+    // EnsureScopedValue); this is needed when need to represent a mix
+    // of two interpolable values that originate from two different tree
+    // scopes.
+    //
+    // CSSUnparsedDeclarationValue does *not* bake the TreeScope into
+    // its value, however, since it's somewhat expensive, and we never
+    // need to represent a mix of such values.
+    const TreeScope* GetTreeScope() const { return tree_scope_.Get(); }
 
     bool PopulateCompositorKeyframeValue(
         const PropertyHandle&,
@@ -122,12 +142,13 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
         const ComputedStyle& base_style,
         const ComputedStyle* parent_style) const final;
     const CompositorKeyframeValue* GetCompositorKeyframeValue() const final {
-      return compositor_keyframe_value_cache_;
+      return compositor_keyframe_value_cache_.Get();
     }
 
     bool IsNeutral() const final { return !value_; }
     bool IsRevert() const final;
     bool IsRevertLayer() const final;
+    bool IsRevertRule() const final;
     Keyframe::PropertySpecificKeyframe* NeutralKeyframe(
         double offset,
         scoped_refptr<TimingFunction> easing) const final;
@@ -135,45 +156,11 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
     void Trace(Visitor*) const override;
 
    private:
-    Keyframe::PropertySpecificKeyframe* CloneWithOffset(
-        double offset) const override;
     bool IsCSSPropertySpecificKeyframe() const override { return true; }
 
     Member<const CSSValue> value_;
+    Member<const TreeScope> tree_scope_;
     mutable Member<CompositorKeyframeValue> compositor_keyframe_value_cache_;
-  };
-
-  class SVGPropertySpecificKeyframe
-      : public Keyframe::PropertySpecificKeyframe {
-   public:
-    SVGPropertySpecificKeyframe(double offset,
-                                scoped_refptr<TimingFunction> easing,
-                                const String& value,
-                                EffectModel::CompositeOperation composite)
-        : Keyframe::PropertySpecificKeyframe(offset,
-                                             std::move(easing),
-                                             composite),
-          value_(value) {}
-
-    const String& Value() const { return value_; }
-
-    PropertySpecificKeyframe* CloneWithOffset(double offset) const final;
-
-    const CompositorKeyframeValue* GetCompositorKeyframeValue() const final {
-      return nullptr;
-    }
-
-    bool IsNeutral() const final { return value_.IsNull(); }
-    bool IsRevert() const final { return false; }
-    bool IsRevertLayer() const final { return false; }
-    PropertySpecificKeyframe* NeutralKeyframe(
-        double offset,
-        scoped_refptr<TimingFunction> easing) const final;
-
-   private:
-    bool IsSVGPropertySpecificKeyframe() const override { return true; }
-
-    String value_;
   };
 
   class PropertyResolver : public GarbageCollected<PropertyResolver> {
@@ -187,22 +174,17 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
                      const MutableCSSPropertyValueSet* property_value_set,
                      bool is_logical);
 
-    static PropertyResolver* CreateCustomVariableResolver(
-        const CSSValue& css_value);
-
     bool IsValid() const;
 
     const CSSValue* CssValue();
 
     void AppendTo(MutableCSSPropertyValueSet* property_value_set,
-                  TextDirection text_direction,
-                  WritingMode writing_mode);
+                  WritingDirectionMode writing_direction);
 
     void SetProperty(MutableCSSPropertyValueSet* property_value_set,
                      CSSPropertyID property_id,
                      const CSSValue& value,
-                     TextDirection text_direction,
-                     WritingMode writing_mode);
+                     WritingDirectionMode writing_direction);
 
     static bool HasLowerPriority(PropertyResolver* first,
                                  PropertyResolver* second);
@@ -213,7 +195,7 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
     // Two shorthands with overlapping longhand properties are sorted based
     // on the number of longhand properties in their expansions.
     bool IsLogical() { return is_logical_; }
-    bool IsShorthand() { return css_property_value_set_; }
+    bool IsShorthand() { return css_property_value_set_ != nullptr; }
     unsigned ExpansionCount() {
       return css_property_value_set_ ? css_property_value_set_->PropertyCount()
                                      : 1;
@@ -229,6 +211,8 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
   };
 
  private:
+  friend class PropertyIterator;
+
   Keyframe::PropertySpecificKeyframe* CreatePropertySpecificKeyframe(
       const PropertyHandle&,
       EffectModel::CompositeOperation effect_composite,
@@ -260,24 +244,21 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
   //  2. Expand shorthands to longhands
   //  3. Expand logical properties to physical ones
   mutable Member<MutableCSSPropertyValueSet> css_property_map_;
-  Member<MutableCSSPropertyValueSet> presentation_attribute_map_;
-  HashMap<const QualifiedName*, String> svg_attribute_map_;
 
   // If the keyframes contain one or more logical properties, these need to be
   // remapped to physical properties when the writing mode or text direction
   // changes.
   bool has_logical_property_ = false;
 
-  // The following properties are required for mapping logical to physical
+  // The following member is required for mapping logical to physical
   // property names. Though the same for all keyframes within the same model,
   // we store the value here to facilitate lazy evaluation of the CSS
   // properties.
-  TextDirection text_direction_ = TextDirection::kLtr;
-  WritingMode writing_mode_ = WritingMode::kHorizontalTb;
+  WritingDirectionMode writing_direction_{WritingMode::kHorizontalTb,
+                                          TextDirection::kLtr};
 };
 
 using CSSPropertySpecificKeyframe = StringKeyframe::CSSPropertySpecificKeyframe;
-using SVGPropertySpecificKeyframe = StringKeyframe::SVGPropertySpecificKeyframe;
 
 template <>
 struct DowncastTraits<StringKeyframe> {
@@ -289,12 +270,6 @@ template <>
 struct DowncastTraits<CSSPropertySpecificKeyframe> {
   static bool AllowFrom(const Keyframe::PropertySpecificKeyframe& value) {
     return value.IsCSSPropertySpecificKeyframe();
-  }
-};
-template <>
-struct DowncastTraits<SVGPropertySpecificKeyframe> {
-  static bool AllowFrom(const Keyframe::PropertySpecificKeyframe& value) {
-    return value.IsSVGPropertySpecificKeyframe();
   }
 };
 

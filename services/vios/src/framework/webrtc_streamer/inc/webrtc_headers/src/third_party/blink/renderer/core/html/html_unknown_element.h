@@ -40,6 +40,10 @@ class HTMLUnknownElement final : public HTMLElement {
  public:
   HTMLUnknownElement(const QualifiedName&, Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLUnknownElement;
+  }
+
  private:
   bool IsHTMLUnknownElement() const override { return true; }
 };

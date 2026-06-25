@@ -13,29 +13,31 @@
 
 #import "base/RTCVideoCapturer.h"
 
-#include "base/RTCMacros.h"
+#include "api/environment/environment.h"
 #include "media/base/adapted_video_track_source.h"
 #include "rtc_base/timestamp_aligner.h"
+#include "sdk/objc/base/RTCMacros.h"
 
 RTC_FWD_DECL_OBJC_CLASS(RTC_OBJC_TYPE(RTCVideoFrame));
 
-@interface RTCObjCVideoSourceAdapter : NSObject <RTC_OBJC_TYPE (RTCVideoCapturerDelegate)>
+@interface RTCObjCVideoSourceAdapter
+    : NSObject <RTC_OBJC_TYPE (RTCVideoCapturerDelegate)>
 @end
 
 namespace webrtc {
 
-class ObjCVideoTrackSource : public rtc::AdaptedVideoTrackSource {
+class ObjCVideoTrackSource : public AdaptedVideoTrackSource {
  public:
-  ObjCVideoTrackSource();
-  explicit ObjCVideoTrackSource(bool is_screencast);
-  explicit ObjCVideoTrackSource(RTCObjCVideoSourceAdapter* adapter);
+  ObjCVideoTrackSource(const Environment& env, bool is_screencast);
+  ObjCVideoTrackSource(const Environment& env,
+                       RTCObjCVideoSourceAdapter* adapter);
 
   bool is_screencast() const override;
 
   // Indicates that the encoder should denoise video before encoding it.
   // If it is not set, the default configuration is used which is different
   // depending on video codec.
-  absl::optional<bool> needs_denoising() const override;
+  std::optional<bool> needs_denoising() const override;
 
   SourceState state() const override;
 
@@ -47,8 +49,9 @@ class ObjCVideoTrackSource : public rtc::AdaptedVideoTrackSource {
   void OnOutputFormatRequest(int width, int height, int fps);
 
  private:
-  rtc::VideoBroadcaster broadcaster_;
-  rtc::TimestampAligner timestamp_aligner_;
+  const Environment env_;
+  VideoBroadcaster broadcaster_;
+  TimestampAligner timestamp_aligner_;
 
   RTCObjCVideoSourceAdapter* adapter_;
   bool is_screencast_;

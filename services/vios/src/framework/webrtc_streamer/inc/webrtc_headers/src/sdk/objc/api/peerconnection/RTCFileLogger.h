@@ -10,7 +10,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 typedef NS_ENUM(NSUInteger, RTCFileLoggerSeverity) {
   RTCFileLoggerSeverityVerbose,
@@ -52,11 +52,13 @@ RTC_OBJC_EXPORT
 - (instancetype)init;
 
 // Create file logger with default rotation type.
-- (instancetype)initWithDirPath:(NSString *)dirPath maxFileSize:(NSUInteger)maxFileSize;
+- (instancetype)initWithDirPath:(NSString *)dirPath
+                    maxFileSize:(NSUInteger)maxFileSize;
 
 - (instancetype)initWithDirPath:(NSString *)dirPath
                     maxFileSize:(NSUInteger)maxFileSize
-                   rotationType:(RTCFileLoggerRotationType)rotationType NS_DESIGNATED_INITIALIZER;
+                   rotationType:(RTCFileLoggerRotationType)rotationType
+    NS_DESIGNATED_INITIALIZER;
 
 // Starts writing WebRTC logs to disk if not already started. Overwrites any
 // existing file(s).

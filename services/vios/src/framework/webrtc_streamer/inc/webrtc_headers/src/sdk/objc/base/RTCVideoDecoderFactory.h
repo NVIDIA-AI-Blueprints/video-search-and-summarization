@@ -10,13 +10,14 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
 #import "RTCVideoCodecInfo.h"
 #import "RTCVideoDecoder.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-/** RTCVideoDecoderFactory is an Objective-C version of webrtc::VideoDecoderFactory.
+/** RTCVideoDecoderFactory is an Objective-C version of
+ * webrtc::VideoDecoderFactory.
  */
 RTC_OBJC_EXPORT
 @protocol RTC_OBJC_TYPE

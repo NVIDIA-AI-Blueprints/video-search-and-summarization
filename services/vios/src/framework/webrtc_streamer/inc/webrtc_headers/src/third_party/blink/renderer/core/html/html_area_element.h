@@ -24,22 +24,28 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_HTML_AREA_ELEMENT_H_
 
 #include <memory>
+
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
+#include "ui/gfx/geometry/vector2d_f.h"
 
 namespace blink {
 
 class HTMLImageElement;
 class Path;
 
-class CORE_EXPORT HTMLAreaElement final : public HTMLAnchorElement {
+class CORE_EXPORT HTMLAreaElement final : public HTMLAnchorElementBase {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   explicit HTMLAreaElement(Document&);
   ~HTMLAreaElement() override;
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLAreaElement;
+  }
 
   bool IsDefault() const { return shape_ == kDefault; }
 
@@ -53,16 +59,21 @@ class CORE_EXPORT HTMLAreaElement final : public HTMLAnchorElement {
   bool PointInArea(const PhysicalOffset&,
                    const LayoutObject* container_object) const;
   PhysicalRect ComputeAbsoluteRect(const LayoutObject* container_object) const;
-  Path GetPath(const LayoutObject* container_object) const;
+  Path GetPath(const LayoutObject* container_object,
+               const gfx::Vector2dF& path_offset = gfx::Vector2dF()) const;
 
   // The parent map's image.
   HTMLImageElement* ImageElement() const;
 
  private:
   void ParseAttribute(const AttributeModificationParams&) override;
-  bool IsKeyboardFocusable() const override;
-  bool IsMouseFocusable() const override;
-  bool IsFocusableStyle() const override;
+  bool IsKeyboardFocusableSlow(
+      UpdateBehavior update_behavior =
+          UpdateBehavior::kStyleAndLayout) const override;
+  FocusableState IsFocusableState(
+      UpdateBehavior update_behavior) const override;
+  bool IsFocusableStyle(UpdateBehavior update_behavior =
+                            UpdateBehavior::kStyleAndLayout) const override;
   void UpdateSelectionOnFocus(SelectionBehaviorOnFocus,
                               const FocusOptions*) override;
   void SetFocused(bool, mojom::blink::FocusType) override;

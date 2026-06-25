@@ -50,22 +50,27 @@ class CORE_EXPORT ViewTimeline : public ScrollTimeline {
 
   void Trace(Visitor*) const override;
 
+  double ToFractionalOffset(const TimelineOffset& timeline_offset) const;
+
  protected:
   void CalculateOffsets(PaintLayerScrollableArea* scrollable_area,
                         ScrollOrientation physical_orientation,
                         TimelineState* state) const override;
 
  private:
-  double ToFractionalOffset(const TimelineOffset& timeline_offset) const;
 
-  absl::optional<LayoutSize> SubjectSize() const;
-  absl::optional<gfx::PointF> SubjectPosition(Node* resolved_source) const;
-  void GetSubjectMaxStickyOffsets(LayoutUnit& top,
-                                  LayoutUnit& right,
-                                  LayoutUnit& bottom,
-                                  LayoutUnit& left,
-                                  Node* resolved_source) const;
+  std::optional<gfx::SizeF> SubjectSize() const;
+  std::optional<gfx::PointF> SubjectPosition(LayoutBox* scroll_container) const;
 
+  void ApplyStickyAdjustments(ScrollOffsets& scroll_offsets,
+                              ViewOffsets& view_offsets,
+                              double viewport_size,
+                              double target_size,
+                              double target_offset,
+                              ScrollOrientation orientation,
+                              LayoutBox* scroll_container) const;
+
+  TimelineInset inset_;
   // If either of the following elements are non-null, we need to update
   // |inset_| on a style change.
   Member<const CSSValue> style_dependant_start_inset_;

@@ -17,13 +17,20 @@
 #ifndef SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_EXPERIMENTAL_FLAT_SLICE_H_
 #define SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_EXPERIMENTAL_FLAT_SLICE_H_
 
-#include <optional>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
-#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/table_function.h"
-#include "src/trace_processor/storage/trace_storage.h"
+#include "perfetto/trace_processor/basic_types.h"
+#include "src/trace_processor/containers/string_pool.h"
+#include "src/trace_processor/core/dataframe/specs.h"
+#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/static_table_function.h"
+#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/tables_py.h"
+#include "src/trace_processor/tables/slice_tables_py.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TraceProcessorContext;
 
@@ -41,7 +48,7 @@ class TraceProcessorContext;
 // slices.
 //
 // This table also adds "gap slices" which fill in the gap between top level
-// slices with a sentinal values so that comparision of the gap between slices
+// slices with a sentinel values so that comparison of the gap between slices
 // is also possible.
 //
 // As input, this generator takes a start and end timestamp between
@@ -53,18 +60,24 @@ class TraceProcessorContext;
 // (which picks all slices with ts + dur >= bound) and is more akin to doing
 // a simple ts >= bound. However, slices *will* be truncated at the end
 // if they would spill past the provided end bound.
-class ExperimentalFlatSlice : public TableFunction {
+class ExperimentalFlatSlice : public StaticTableFunction {
  public:
-  ExperimentalFlatSlice(TraceProcessorContext* context);
+  class Cursor : public StaticTableFunction::Cursor {
+   public:
+    explicit Cursor(TraceProcessorContext* context);
+    bool Run(const std::vector<SqlValue>& arguments) override;
 
-  Table::Schema CreateSchema() override;
+   private:
+    TraceProcessorContext* context_ = nullptr;
+    tables::ExperimentalFlatSliceTable table_;
+  };
+
+  explicit ExperimentalFlatSlice(TraceProcessorContext* context);
+
+  std::unique_ptr<StaticTableFunction::Cursor> MakeCursor() override;
+  dataframe::DataframeSpec CreateSpec() override;
   std::string TableName() override;
-  uint32_t EstimateRowCount() override;
-  base::Status ValidateConstraints(const QueryConstraints&) override;
-  base::Status ComputeTable(const std::vector<Constraint>& cs,
-                            const std::vector<Order>& ob,
-                            const BitVector& cols_used,
-                            std::unique_ptr<Table>& table_return) override;
+  uint32_t GetArgumentCount() const override;
 
   // Visibile for testing.
   static std::unique_ptr<tables::ExperimentalFlatSliceTable>
@@ -77,7 +90,6 @@ class ExperimentalFlatSlice : public TableFunction {
   TraceProcessorContext* context_ = nullptr;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_EXPERIMENTAL_FLAT_SLICE_H_

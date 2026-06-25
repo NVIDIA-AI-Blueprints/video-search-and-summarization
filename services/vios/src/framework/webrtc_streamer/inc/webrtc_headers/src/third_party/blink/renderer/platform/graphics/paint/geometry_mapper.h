@@ -5,23 +5,17 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PAINT_GEOMETRY_MAPPER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PAINT_GEOMETRY_MAPPER_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/platform/graphics/overlay_scrollbar_clip_behavior.h"
 #include "third_party/blink/renderer/platform/graphics/paint/float_clip_rect.h"
 #include "third_party/blink/renderer/platform/graphics/paint/property_tree_state.h"
+#include "third_party/blink/renderer/platform/graphics/visual_rect_flags.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "ui/gfx/geometry/quad_f.h"
-#include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
-#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/geometry/transform.h"
-#include "ui/gfx/geometry/vector2d_f.h"
 
 namespace blink {
-
-// Clips can use gfx::RectF::Intersect or gfx::RectF::InclusiveIntersect.
-enum InclusiveIntersectOrNot { kNonInclusiveIntersect, kInclusiveIntersect };
 
 // GeometryMapper is a helper class for fast computations of transformed and
 // visual rects in different PropertyTreeStates. The design document has a
@@ -56,10 +50,25 @@ class PLATFORM_EXPORT GeometryMapper {
       const TransformPaintPropertyNode& source,
       const TransformPaintPropertyNode& destination);
 
+  // The function is the same as gfx::Transform SourceToDestinationProjection
+  // but uses an out-param for the transform, and returns a bool indicating
+  // success
+  static bool SourceToDestinationProjection(
+      const TransformPaintPropertyNodeOrAlias& source,
+      const TransformPaintPropertyNodeOrAlias& destination,
+      gfx::Transform& projection) {
+    return SourceToDestinationProjection(source.Unalias(),
+                                         destination.Unalias(), projection);
+  }
+  static bool SourceToDestinationProjection(
+      const TransformPaintPropertyNode& source,
+      const TransformPaintPropertyNode& destination,
+      gfx::Transform& projection);
+
   // Same as SourceToDestinationProjection() except that it maps the rect
   // rather than returning the matrix.
   // |mapping_rect| is both input and output. Its type can be gfx::RectF,
-  // LayoutRect, gfx::Rect, gfx::Rect or gfx::RectF.
+  // gfx::Rect, gfx::Rect or gfx::RectF.
   template <typename Rect>
   static void SourceToDestinationRect(
       const TransformPaintPropertyNodeOrAlias& source,
@@ -147,17 +156,26 @@ class PLATFORM_EXPORT GeometryMapper {
       const PropertyTreeStateOrAlias& ancestor_state,
       FloatClipRect& mapping_rect,
       OverlayScrollbarClipBehavior clip = kIgnoreOverlayScrollbarSize,
-      InclusiveIntersectOrNot intersect = kNonInclusiveIntersect) {
+      VisualRectFlags flags = kDefaultVisualRectFlags) {
     return LocalToAncestorVisualRect(local_state.Unalias(),
                                      ancestor_state.Unalias(), mapping_rect,
-                                     clip, intersect);
+                                     clip, flags);
   }
   static bool LocalToAncestorVisualRect(
       const PropertyTreeState& local_state,
       const PropertyTreeState& ancestor_state,
       FloatClipRect& mapping_rect,
       OverlayScrollbarClipBehavior = kIgnoreOverlayScrollbarSize,
-      InclusiveIntersectOrNot = kNonInclusiveIntersect);
+      VisualRectFlags flags = kDefaultVisualRectFlags);
+  // Maps |local_state| to the local root's viewport using the GeometryMapper
+  // fast path. This stops at the remote boundary; callers must perform any
+  // remote-frame mapping (e.g. MapToVisualRectInRemoteRootFrame) to reach the
+  // embedder's viewport.
+  static bool LocalToLocalRootViewportRect(
+      const PropertyTreeState& local_state,
+      FloatClipRect& mapping_rect,
+      OverlayScrollbarClipBehavior = kIgnoreOverlayScrollbarSize,
+      VisualRectFlags flags = kDefaultVisualRectFlags);
 
   static bool MightOverlapForCompositing(const gfx::RectF& rect1,
                                          const PropertyTreeState& state1,
@@ -178,7 +196,7 @@ class PLATFORM_EXPORT GeometryMapper {
   //
   // TODO(wangxianzhu): Investigate if this can be integrated into
   // LocalToAncestorVisualRect().
-  static absl::optional<gfx::RectF> VisibilityLimit(
+  static std::optional<gfx::RectF> VisibilityLimit(
       const PropertyTreeState& state);
 
   static void ClearCache();
@@ -186,7 +204,7 @@ class PLATFORM_EXPORT GeometryMapper {
  private:
   struct ExtraProjectionResult {
     bool has_animation = false;
-    bool has_sticky_or_anchor_scroll = false;
+    bool has_sticky_or_anchor_position = false;
     STACK_ALLOCATED();
   };
 
@@ -204,7 +222,7 @@ class PLATFORM_EXPORT GeometryMapper {
       const ClipPaintPropertyNode& ancestor_clip,
       const TransformPaintPropertyNode& ancestor_transform,
       OverlayScrollbarClipBehavior,
-      InclusiveIntersectOrNot);
+      VisualRectFlags flags = kDefaultVisualRectFlags);
 
   // The return value has the same meaning as that for
   // LocalToAncestorVisualRect.
@@ -213,8 +231,8 @@ class PLATFORM_EXPORT GeometryMapper {
       const PropertyTreeState& local_state,
       const PropertyTreeState& ancestor_state,
       FloatClipRect& mapping_rect,
-      OverlayScrollbarClipBehavior,
-      InclusiveIntersectOrNot);
+      OverlayScrollbarClipBehavior = kIgnoreOverlayScrollbarSize,
+      VisualRectFlags flags = kDefaultVisualRectFlags);
 
   template <ForCompositingOverlap>
   static bool SlowLocalToAncestorVisualRectWithPixelMovingFilters(
@@ -222,7 +240,7 @@ class PLATFORM_EXPORT GeometryMapper {
       const PropertyTreeState& ancestor_state,
       FloatClipRect& mapping_rect,
       OverlayScrollbarClipBehavior,
-      InclusiveIntersectOrNot);
+      VisualRectFlags flags);
 
   static bool MightOverlapForCompositingInternal(
       const PropertyTreeState& common_ancestor,
@@ -230,10 +248,6 @@ class PLATFORM_EXPORT GeometryMapper {
       const PropertyTreeState& state1,
       const gfx::RectF& rect2,
       const PropertyTreeState& state2);
-
-  static const ClipPaintPropertyNode* HighestOutputClipBetween(
-      const EffectPaintPropertyNode& ancestor,
-      const EffectPaintPropertyNode& descendant);
 
   static gfx::RectF VisualRectForCompositingOverlap(
       const gfx::RectF& local_rect,
@@ -244,20 +258,6 @@ class PLATFORM_EXPORT GeometryMapper {
       const TransformPaintPropertyNode& scroll_translation,
       gfx::RectF& rect,
       PropertyTreeState& state);
-
-  static void MoveRect(gfx::RectF& rect, const gfx::Vector2dF& delta) {
-    rect.Offset(delta.x(), delta.y());
-  }
-
-  static void MoveRect(LayoutRect& rect, const gfx::Vector2dF& delta) {
-    rect.Move(LayoutSize(delta));
-  }
-
-  static void MoveRect(gfx::Rect& rect, const gfx::Vector2dF& delta) {
-    gfx::RectF rect_f(rect);
-    MoveRect(rect_f, delta);
-    rect = gfx::ToEnclosingRect(rect_f);
-  }
 
   friend class GeometryMapperTest;
   static bool LocalToAncestorVisualRectInternalForTesting(

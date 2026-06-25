@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_INTERPOLATION_EFFECT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_INTERPOLATION_EFFECT_H_
 
+#include "third_party/blink/renderer/core/animation/effect_model.h"
 #include "third_party/blink/renderer/core/animation/interpolation.h"
 #include "third_party/blink/renderer/core/animation/keyframe.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -29,8 +30,12 @@ class CORE_EXPORT InterpolationEffect
     interpolations_.clear();
   }
 
-  void GetActiveInterpolations(double fraction,
-                               HeapVector<Member<Interpolation>>&) const;
+  void GetActiveInterpolations(
+      int iteration,
+      double fraction,
+      EffectModel::IterationCompositeOperation iteration_composite,
+      TimingFunction::LimitDirection limit_direction,
+      HeapVector<Member<Interpolation>>&) const;
 
   void AddInterpolation(Interpolation* interpolation,
                         scoped_refptr<TimingFunction> easing,
@@ -46,8 +51,13 @@ class CORE_EXPORT InterpolationEffect
       const PropertyHandle&,
       const Keyframe::PropertySpecificKeyframe& keyframe_a,
       const Keyframe::PropertySpecificKeyframe& keyframe_b,
+      const Keyframe::PropertySpecificKeyframe* final_keyframe,
       double apply_from,
       double apply_to);
+
+  void AddStaticValuedInterpolation(
+      const PropertyHandle& property,
+      const Keyframe::PropertySpecificKeyframe& keyframe);
 
   void Trace(Visitor*) const;
 
@@ -66,7 +76,17 @@ class CORE_EXPORT InterpolationEffect
           start_(start),
           end_(end),
           apply_from_(apply_from),
-          apply_to_(apply_to) {}
+          apply_to_(apply_to),
+          is_static_(false) {}
+
+    // When a range is not specified, we mark the interpolation as static.
+    explicit InterpolationRecord(Interpolation* interpolation)
+        : interpolation_(interpolation),
+          start_(0),
+          end_(1),
+          apply_from_(0),
+          apply_to_(1),
+          is_static_(true) {}
 
     Member<Interpolation> interpolation_;
     scoped_refptr<TimingFunction> easing_;
@@ -74,6 +94,7 @@ class CORE_EXPORT InterpolationEffect
     double end_;
     double apply_from_;
     double apply_to_;
+    bool is_static_;
 
     void Trace(Visitor* visitor) const { visitor->Trace(interpolation_); }
   };

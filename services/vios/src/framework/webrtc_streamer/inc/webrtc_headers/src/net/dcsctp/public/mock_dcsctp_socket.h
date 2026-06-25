@@ -10,21 +10,35 @@
 #ifndef NET_DCSCTP_PUBLIC_MOCK_DCSCTP_SOCKET_H_
 #define NET_DCSCTP_PUBLIC_MOCK_DCSCTP_SOCKET_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <vector>
+
+#include "net/dcsctp/public/dcsctp_handover_state.h"
+#include "net/dcsctp/public/dcsctp_message.h"
+#include "net/dcsctp/public/dcsctp_options.h"
 #include "net/dcsctp/public/dcsctp_socket.h"
+#include "net/dcsctp/public/types.h"
 #include "test/gmock.h"
 
 namespace dcsctp {
 
 class MockDcSctpSocket : public DcSctpSocketInterface {
  public:
-  MOCK_METHOD(void,
-              ReceivePacket,
-              (rtc::ArrayView<const uint8_t> data),
-              (override));
+  MOCK_METHOD(void, ReceivePacket, (std::span<const uint8_t> data), (override));
+
+  MOCK_METHOD(size_t, MessagesReady, (), (const, override));
+  MOCK_METHOD(std::optional<DcSctpMessage>, GetNextMessage, (), (override));
 
   MOCK_METHOD(void, HandleTimeout, (TimeoutID timeout_id), (override));
 
   MOCK_METHOD(void, Connect, (), (override));
+  MOCK_METHOD(bool,
+              ConnectWithConnectionToken,
+              (std::span<const uint8_t>, std::span<const uint8_t>),
+              (override));
 
   MOCK_METHOD(void,
               RestoreFromState,
@@ -56,9 +70,15 @@ class MockDcSctpSocket : public DcSctpSocketInterface {
               (DcSctpMessage message, const SendOptions& send_options),
               (override));
 
+  MOCK_METHOD(std::vector<SendStatus>,
+              SendMany,
+              (std::span<DcSctpMessage> messages,
+               const SendOptions& send_options),
+              (override));
+
   MOCK_METHOD(ResetStreamsStatus,
               ResetStreams,
-              (rtc::ArrayView<const StreamID> outgoing_streams),
+              (std::span<const StreamID> outgoing_streams),
               (override));
 
   MOCK_METHOD(size_t, buffered_amount, (StreamID stream_id), (const, override));
@@ -73,13 +93,13 @@ class MockDcSctpSocket : public DcSctpSocketInterface {
               (StreamID stream_id, size_t bytes),
               (override));
 
-  MOCK_METHOD(absl::optional<Metrics>, GetMetrics, (), (const, override));
+  MOCK_METHOD(std::optional<Metrics>, GetMetrics, (), (const, override));
 
   MOCK_METHOD(HandoverReadinessStatus,
               GetHandoverReadiness,
               (),
               (const, override));
-  MOCK_METHOD(absl::optional<DcSctpSocketHandoverState>,
+  MOCK_METHOD(std::optional<DcSctpSocketHandoverState>,
               GetHandoverStateAndClose,
               (),
               (override));

@@ -5,34 +5,71 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_PERFORMANCE_METRICS_FOR_REPORTING_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_PERFORMANCE_METRICS_FOR_REPORTING_H_
 
+#include <array>
+#include <optional>
+#include <vector>
+
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "base/unguessable_token.h"
 #include "third_party/blink/public/common/performance/largest_contentful_paint_type.h"
+#include "third_party/blink/public/mojom/navigation/navigation_type_for_navigation_api.mojom-shared.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_private_ptr.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/web/web_navigation_type.h"
 
 namespace blink {
 
 class WindowPerformance;
 
+struct ResourceLoadTimingsForReporting {
+  std::optional<base::TimeDelta> discovery_time = std::nullopt;
+  std::optional<base::TimeDelta> load_start = std::nullopt;
+  std::optional<base::TimeDelta> load_end = std::nullopt;
+};
+
 struct LargestContentfulPaintDetailsForReporting {
   double image_paint_time = 0;
   uint64_t image_paint_size = 0;
-  absl::optional<base::TimeDelta> image_load_start = absl::nullopt;
-  absl::optional<base::TimeDelta> image_load_end = absl::nullopt;
+  ResourceLoadTimingsForReporting resource_load_timings = {};
   blink::LargestContentfulPaintType type =
       blink::LargestContentfulPaintType::kNone;
   double image_bpp = 0.0;
   double text_paint_time = 0;
   uint64_t text_paint_size = 0;
-  base::TimeTicks paint_time = base::TimeTicks();
-  absl::optional<WebURLRequest::Priority> image_request_priority =
-      absl::nullopt;
-  bool is_loaded_from_memory_cache = false;
-  bool is_preloaded_with_early_hints = false;
+  std::optional<WebURLRequest::Priority> image_request_priority = std::nullopt;
+  // The unclamped paint time of the largest content (image/text).
+  std::optional<base::TimeTicks> merged_unclamped_paint_time = std::nullopt;
+  // The offset of the corresponding soft navigation; 0 otherwise.
+  // See SoftNavigationMetricsForReporting.soft_navigation_offset.
+  uint64_t soft_navigation_offset = 0;
+};
+
+struct SoftNavigationMetricsForReporting {
+  // A unique number assigned to this soft navigation from the start of the
+  // page load, 1, 2, 3, ... n. For the last soft navigation, it is synonymous
+  // with a count of the soft navigations for the page load.
+  uint64_t soft_navigation_offset = 0;
+
+  // The navigation start (time origin) relative to the start of the
+  // navigation. Note that this field is initially sent with an absolute time,
+  // and only MetricsRenderFrameObserver::DidObserveSoftNavigation makes it
+  // relative to navigation start.
+  base::TimeDelta start_time;
+
+  // The timestamp that we use for slicing the performance timeline. This is
+  // only a Chrome-internal mechanism and never recorded to UKM.
+  base::TimeTicks soft_navigation_slicing_time;
+
+  // The type of soft navigation, set based on the type of same document
+  // navigation.
+  mojom::NavigationTypeForNavigationApi navigation_type =
+      mojom::NavigationTypeForNavigationApi::kPush;
+
+  // Identifies the same document navigation for the initial URL change.
+  // This allows us to map to the UKM Source ID in the browser side,
+  // and therefore attribute the metrics to the correct URL.
+  base::UnguessableToken same_document_metrics_token;
 };
 
 // This class is used for reporting purposes (e.g. ukm) of non-web-exposed
@@ -50,17 +87,20 @@ class BLINK_EXPORT WebPerformanceMetricsForReporting {
     std::array<double,
                kRequestAnimationFramesToRecordAfterBackForwardCacheRestore>
         request_animation_frames = {};
-    absl::optional<base::TimeDelta> first_input_delay;
+    std::optional<base::TimeDelta> first_input_delay;
   };
 
   using BackForwardCacheRestoreTimings =
-      WebVector<BackForwardCacheRestoreTiming>;
+      std::vector<BackForwardCacheRestoreTiming>;
 
   ~WebPerformanceMetricsForReporting() { Reset(); }
 
-  WebPerformanceMetricsForReporting();
+  WebPerformanceMetricsForReporting() = default;
 
-  WebPerformanceMetricsForReporting(const WebPerformanceMetricsForReporting& p);
+  WebPerformanceMetricsForReporting(
+      const WebPerformanceMetricsForReporting& p) {
+    Assign(p);
+  }
 
   WebPerformanceMetricsForReporting& operator=(
       const WebPerformanceMetricsForReporting& p) {
@@ -76,16 +116,24 @@ class BLINK_EXPORT WebPerformanceMetricsForReporting {
   WebNavigationType GetNavigationType() const;
 
   // These functions return time in seconds (not milliseconds) since the epoch.
+  //
+  // TODO (crbug.com/355962211): Update the methods which return double for
+  // timing information to return `base::TimeTicks`.
   double InputForNavigationStart() const;
   double NavigationStart() const;
   base::TimeTicks NavigationStartAsMonotonicTime() const;
   BackForwardCacheRestoreTimings BackForwardCacheRestore() const;
+  double DomainLookupStart() const;
+  double DomainLookupEnd() const;
+  double ConnectStart() const;
+  double ConnectEnd() const;
   double ResponseStart() const;
   double DomContentLoadedEventStart() const;
   double DomContentLoadedEventEnd() const;
   double LoadEventStart() const;
   double LoadEventEnd() const;
   double FirstPaint() const;
+  base::TimeTicks FirstPaintAsMonotonicTime() const;
   double FirstImagePaint() const;
   double FirstContentfulPaint() const;
   base::TimeTicks FirstContentfulPaintAsMonotonicTime() const;
@@ -94,27 +142,30 @@ class BLINK_EXPORT WebPerformanceMetricsForReporting {
   double FirstMeaningfulPaint() const;
   LargestContentfulPaintDetailsForReporting LargestContentfulDetailsForMetrics()
       const;
+  LargestContentfulPaintDetailsForReporting
+  SoftNavigationLargestContentfulDetailsForMetrics() const;
   double FirstEligibleToPaint() const;
   double FirstInputOrScrollNotifiedTimestamp() const;
-  absl::optional<base::TimeDelta> FirstInputDelay() const;
-  absl::optional<base::TimeDelta> FirstInputTimestamp() const;
-  absl::optional<base::TimeTicks> FirstInputTimestampAsMonotonicTime() const;
-  absl::optional<base::TimeDelta> LongestInputDelay() const;
-  absl::optional<base::TimeDelta> LongestInputTimestamp() const;
-  absl::optional<base::TimeDelta> FirstInputProcessingTime() const;
-  absl::optional<base::TimeDelta> FirstScrollDelay() const;
-  absl::optional<base::TimeDelta> FirstScrollTimestamp() const;
+  std::optional<base::TimeDelta> FirstInputDelay() const;
+  std::optional<base::TimeDelta> FirstInputTimestamp() const;
+  std::optional<base::TimeTicks> FirstInputTimestampAsMonotonicTime() const;
+  std::optional<base::TimeDelta> LongestInputDelay() const;
+  std::optional<base::TimeDelta> LongestInputTimestamp() const;
+  std::optional<base::TimeDelta> FirstInputProcessingTime() const;
+  std::optional<base::TimeDelta> FirstScrollDelay() const;
+  std::optional<base::TimeDelta> FirstScrollTimestamp() const;
   double ParseStart() const;
   double ParseStop() const;
   double ParseBlockedOnScriptLoadDuration() const;
   double ParseBlockedOnScriptLoadFromDocumentWriteDuration() const;
   double ParseBlockedOnScriptExecutionDuration() const;
   double ParseBlockedOnScriptExecutionFromDocumentWriteDuration() const;
-  absl::optional<base::TimeTicks> LastPortalActivatedPaint() const;
-  absl::optional<base::TimeDelta> PrerenderActivationStart() const;
-  absl::optional<base::TimeDelta> UserTimingMarkFullyLoaded() const;
-  absl::optional<base::TimeDelta> UserTimingMarkFullyVisible() const;
-  absl::optional<base::TimeDelta> UserTimingMarkInteractive() const;
+  std::optional<base::TimeDelta> PrerenderActivationStart() const;
+  std::optional<base::TimeDelta> UserTimingMarkFullyLoaded() const;
+  std::optional<base::TimeDelta> UserTimingMarkFullyVisible() const;
+  std::optional<base::TimeDelta> UserTimingMarkInteractive() const;
+  std::optional<std::tuple<std::string, base::TimeDelta>> CustomUserTimingMark()
+      const;
 
 #if INSIDE_BLINK
   explicit WebPerformanceMetricsForReporting(WindowPerformance*);
@@ -122,7 +173,7 @@ class BLINK_EXPORT WebPerformanceMetricsForReporting {
 #endif
 
  private:
-  WebPrivatePtr<WindowPerformance> private_;
+  WebPrivatePtrForGC<WindowPerformance> private_;
 };
 
 }  // namespace blink

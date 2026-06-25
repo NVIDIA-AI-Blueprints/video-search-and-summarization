@@ -10,7 +10,6 @@
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "ui/gfx/geometry/transform.h"
 
 namespace blink {
 
@@ -26,8 +25,8 @@ class XRCanvasInputProvider : public GarbageCollected<XRCanvasInputProvider>,
   XRCanvasInputProvider(XRSession*, HTMLCanvasElement*);
   ~XRCanvasInputProvider() override;
 
-  XRSession* session() const { return session_; }
-  HTMLCanvasElement* canvas() const { return canvas_; }
+  XRSession* session() const { return session_.Get(); }
+  HTMLCanvasElement* canvas() const { return canvas_.Get(); }
 
   // Remove all event listeners.
   void Stop();
@@ -40,7 +39,7 @@ class XRCanvasInputProvider : public GarbageCollected<XRCanvasInputProvider>,
   XRInputSource* GetInputSource();
 
   virtual void Trace(Visitor*) const;
-  const char* NameInHeapSnapshot() const override {
+  const char* GetHumanReadableName() const override {
     return "XRCanvasInputProvider";
   }
 

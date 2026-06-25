@@ -21,7 +21,6 @@ class CORE_EXPORT MacScrollbar {
   virtual ~MacScrollbar() = default;
 
   virtual void SetEnabled(bool) = 0;
-  virtual void SetOverlayColorTheme(ScrollbarOverlayColorTheme) = 0;
   virtual float GetKnobAlpha() = 0;
   virtual float GetTrackAlpha() = 0;
   virtual int GetTrackBoxWidth() = 0;
@@ -39,30 +38,20 @@ class CORE_EXPORT MacScrollbarAnimator
   static MacScrollbarAnimator* Create(ScrollableArea*);
   virtual void Trace(Visitor* visitor) const {}
 
-  virtual void ContentAreaWillPaint() const = 0;
-  virtual void MouseEnteredContentArea() const = 0;
-  virtual void MouseExitedContentArea() const = 0;
-  virtual void MouseMovedInContentArea() const = 0;
   virtual void MouseEnteredScrollbar(Scrollbar&) const = 0;
   virtual void MouseExitedScrollbar(Scrollbar&) const = 0;
-  virtual void ContentsResized() const = 0;
 
   virtual void DidAddVerticalScrollbar(Scrollbar&) = 0;
   virtual void WillRemoveVerticalScrollbar(Scrollbar&) = 0;
   virtual void DidAddHorizontalScrollbar(Scrollbar&) = 0;
   virtual void WillRemoveHorizontalScrollbar(Scrollbar&) = 0;
 
-  virtual bool SetScrollbarsVisibleForTesting(bool) = 0;
-
   virtual void DidChangeUserVisibleScrollOffset(const ScrollOffset&) = 0;
 
-  virtual void UpdateScrollerStyle() = 0;
-
-  virtual bool ScrollbarPaintTimerIsActive() const = 0;
-  virtual void StartScrollbarPaintTimer() = 0;
-  virtual void StopScrollbarPaintTimer() = 0;
-
   virtual void Dispose() = 0;
+
+  virtual bool FadeInScrollbarIfExists(bool horizontal, bool vertical) = 0;
+  virtual void FadeOutScrollbarIfNeeded() = 0;
 };
 
 }  // namespace blink

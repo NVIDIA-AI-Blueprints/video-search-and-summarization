@@ -26,7 +26,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_TEXT_CODEC_CJK_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_TEXT_CODEC_CJK_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/code_point_iterator.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -34,9 +35,9 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_export.h"
 
-namespace WTF {
+namespace blink {
 
-// TextCodecCJK supports following encodings:
+// TextCodecCjk supports following encodings:
 // * Japanese characters (EUC-JP, ISO-2022-JP, ShiftJIS)
 // * Korean characters (EUC-KR)
 // * Simplified Chinese characters (GB18030, GBK)
@@ -47,7 +48,7 @@ namespace WTF {
 // ICU4C behaves much different from the WHATWG specification
 // (https://encoding.spec.whatwg.org/). It was difficult to fulfill the
 // specification by using TextCodecICU.
-class TextCodecCJK final : public TextCodec {
+class TextCodecCjk final : public TextCodec {
  public:
   class Decoder;
   static void RegisterEncodingNames(EncodingNameRegistrar);
@@ -57,20 +58,14 @@ class TextCodecCJK final : public TextCodec {
 
  private:
   enum class Encoding : uint8_t;
-  explicit TextCodecCJK(Encoding);
-  WTF_EXPORT static std::unique_ptr<TextCodec> Create(const TextEncoding&,
-                                                      const void*);
-  String Decode(const char*,
-                wtf_size_t length,
+  explicit TextCodecCjk(Encoding);
+  WTF_EXPORT static std::unique_ptr<TextCodec> Create(const TextEncoding&);
+  String Decode(base::span<const uint8_t> data,
                 FlushBehavior,
                 bool stop_on_error,
                 bool& saw_error) override;
-  std::string Encode(const UChar*,
-                     wtf_size_t length,
-                     UnencodableHandling) override;
-  std::string Encode(const LChar*,
-                     wtf_size_t length,
-                     UnencodableHandling) override;
+  std::string Encode(base::span<const UChar>, UnencodableHandling) override;
+  std::string Encode(base::span<const LChar>, UnencodableHandling) override;
 
   Vector<uint8_t> EncodeCommon(StringView string, UnencodableHandling) const;
 
@@ -78,6 +73,6 @@ class TextCodecCJK final : public TextCodec {
   std::unique_ptr<Decoder> decoder_;
 };
 
-}  // namespace WTF
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_TEXT_CODEC_CJK_H_

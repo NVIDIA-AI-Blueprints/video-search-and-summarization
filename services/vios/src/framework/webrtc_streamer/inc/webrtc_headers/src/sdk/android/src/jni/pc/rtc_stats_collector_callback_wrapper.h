@@ -13,8 +13,10 @@
 
 #include <jni.h>
 
-#include "api/peer_connection_interface.h"
-#include "sdk/android/src/jni/jni_helpers.h"
+#include "api/scoped_refptr.h"
+#include "api/stats/rtc_stats_collector_callback.h"
+#include "api/stats/rtc_stats_report.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
 namespace jni {
@@ -29,7 +31,7 @@ class RTCStatsCollectorCallbackWrapper : public RTCStatsCollectorCallback {
   ~RTCStatsCollectorCallbackWrapper() override;
 
   void OnStatsDelivered(
-      const rtc::scoped_refptr<const RTCStatsReport>& report) override;
+      const scoped_refptr<const RTCStatsReport>& report) override;
 
  private:
   const ScopedJavaGlobalRef<jobject> j_callback_global_;

@@ -17,6 +17,7 @@
 #ifndef INCLUDE_PERFETTO_PROFILING_PPROF_BUILDER_H_
 #define INCLUDE_PERFETTO_PROFILING_PPROF_BUILDER_H_
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,7 @@ namespace trace_to_text {
 
 enum class ProfileType {
   kHeapProfile,
+  kJavaHeapProfile,
   kPerfProfile,
 };
 
@@ -45,7 +47,7 @@ struct SerializedProfile {
   std::string heap_name;
 };
 
-enum class ConversionMode { kHeapProfile, kPerfProfile };
+enum class ConversionMode { kHeapProfile, kPerfProfile, kJavaHeapProfile };
 
 enum class ConversionFlags : uint64_t {
   kNone = 0,

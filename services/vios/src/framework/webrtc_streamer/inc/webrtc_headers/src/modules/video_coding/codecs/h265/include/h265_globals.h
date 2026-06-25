@@ -14,11 +14,16 @@
 #ifndef MODULES_VIDEO_CODING_CODECS_H265_INCLUDE_H265_GLOBALS_H_
 #define MODULES_VIDEO_CODING_CODECS_H265_INCLUDE_H265_GLOBALS_H_
 
-#ifndef DISABLE_H265
+#include <array>
 
 #include "modules/video_coding/codecs/h264/include/h264_globals.h"
 
 namespace webrtc {
+
+// RFC 7798 allows many NALUs per aggregation packet; cap stored NALUs per RTP
+// packet for fixed-size RTPVideoHeaderH265.
+inline constexpr int kMaxNalusPerPacket = 128;
+static_assert(kMaxNalusPerPacket == 128);
 
 // The packetization types that we support: single, aggregated, and fragmented.
 enum H265PacketizationTypes {
@@ -53,17 +58,25 @@ struct RTPVideoHeaderH265 {
   // NAL unit type of the original data. If this is the header for an aggregated
   // packet, it's the NAL unit type of the first NAL unit in the packet.
   uint8_t nalu_type;
-  H265NaluInfo nalus[kMaxNalusPerPacket];
+  std::array<H265NaluInfo, 128> nalus{};
   size_t nalus_length;
   // The packetization type of this buffer - single, aggregated or fragmented.
   H265PacketizationTypes packetization_type;
 
   friend bool operator==(const RTPVideoHeaderH265& lhs,
                          const RTPVideoHeaderH265& rhs) {
-    return lhs.nalu_type == rhs.nalu_type &&
-           lhs.packetization_type == rhs.packetization_type &&
-           std::equal(lhs.nalus, lhs.nalus + lhs.nalus_length, rhs.nalus,
-                      rhs.nalus + rhs.nalus_length);
+    if (lhs.nalu_type != rhs.nalu_type ||
+        lhs.packetization_type != rhs.packetization_type ||
+        lhs.nalus_length != rhs.nalus_length) {
+      return false;
+    }
+    RTC_DCHECK_LE(lhs.nalus_length, static_cast<size_t>(kMaxNalusPerPacket));
+    for (size_t i = 0; i < lhs.nalus_length; ++i) {
+      if (lhs.nalus[i] != rhs.nalus[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   friend bool operator!=(const RTPVideoHeaderH265& lhs,
@@ -73,7 +86,5 @@ struct RTPVideoHeaderH265 {
 };
 
 }  // namespace webrtc
-
-#endif
 
 #endif  // MODULES_VIDEO_CODING_CODECS_H265_INCLUDE_H265_GLOBALS_H_

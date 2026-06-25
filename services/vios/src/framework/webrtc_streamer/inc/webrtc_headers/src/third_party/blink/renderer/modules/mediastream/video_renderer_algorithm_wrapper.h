@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "media/base/media_util.h"
 #include "media/base/time_source.h"
@@ -20,6 +20,8 @@ namespace blink {
 
 class VideoRendererAlgorithmWrapper {
  public:
+  enum RendererAlgorithm { kDefault, kLowLatency };
+
   VideoRendererAlgorithmWrapper(
       const media::TimeSource::WallClockTimeCB& wall_clock_time_cb,
       media::MediaLog* media_log);
@@ -45,11 +47,11 @@ class VideoRendererAlgorithmWrapper {
 
   bool NeedsReferenceTime() const;
 
- private:
-  enum RendererAlgorithm { kDefault, kLowLatency };
+  RendererAlgorithm renderer_algorithm() const { return renderer_algorithm_; }
 
+ private:
   const media::TimeSource::WallClockTimeCB wall_clock_time_cb_;
-  media::MediaLog* media_log_;
+  raw_ptr<media::MediaLog> media_log_;
   RendererAlgorithm renderer_algorithm_;
   std::unique_ptr<media::VideoRendererAlgorithm>
       default_rendering_frame_buffer_;

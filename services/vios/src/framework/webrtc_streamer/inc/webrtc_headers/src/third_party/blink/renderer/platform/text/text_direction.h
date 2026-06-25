@@ -67,7 +67,6 @@ inline base::i18n::TextDirection ToBaseTextDirection(TextDirection direction) {
       return base::i18n::TextDirection::RIGHT_TO_LEFT;
   }
   NOTREACHED();
-  return base::i18n::TextDirection::UNKNOWN_DIRECTION;
 }
 
 }  // namespace blink

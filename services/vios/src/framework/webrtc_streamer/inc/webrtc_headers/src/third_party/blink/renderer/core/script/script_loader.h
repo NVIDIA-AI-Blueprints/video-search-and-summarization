@@ -23,9 +23,11 @@
 
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/container_node.h"
 #include "third_party/blink/renderer/core/html/cross_origin_attribute.h"
 #include "third_party/blink/renderer/core/script/pending_script.h"
 #include "third_party/blink/renderer/core/script/script_scheduling_type.h"
+#include "third_party/blink/renderer/core/speculation_rules/speculation_rule_set.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_finish_observer.h"
 #include "third_party/blink/renderer/platform/loader/fetch/script_fetch_options.h"
@@ -41,7 +43,6 @@ class ScriptElementBase;
 class Script;
 class ScriptResource;
 class ScriptWebBundle;
-class SpeculationRuleSet;
 class Modulator;
 
 class CORE_EXPORT ScriptLoader final : public ResourceFinishObserver,
@@ -50,7 +51,7 @@ class CORE_EXPORT ScriptLoader final : public ResourceFinishObserver,
   ScriptLoader(ScriptElementBase*, const CreateElementFlags);
   ~ScriptLoader() override;
   void Trace(Visitor*) const override;
-  const char* NameInHeapSnapshot() const override { return "ScriptLoader"; }
+  const char* GetHumanReadableName() const override { return "ScriptLoader"; }
   String DebugName() const override { return "ScriptLoader"; }
 
   // Script type at the time of #prepare-the-script-element. Import maps are
@@ -60,6 +61,7 @@ class CORE_EXPORT ScriptLoader final : public ResourceFinishObserver,
     kClassic,
     kModule,
     kImportMap,
+    kRouteMap,
     kSpeculationRules,
     kWebBundle,
     kInvalid
@@ -101,10 +103,11 @@ class CORE_EXPORT ScriptLoader final : public ResourceFinishObserver,
 
   // Helper functions used by our parent classes.
   void DidNotifySubtreeInsertionsToDocument();
-  void ChildrenChanged();
+  void ChildrenChanged(const ContainerNode::ChildrenChange&);
   void HandleSourceAttribute(const String& source_url);
   void HandleAsyncAttribute();
   void Removed();
+  void DocumentBaseURLChanged();
 
  private:
   // ResourceFinishObserver. This should be used only for managing
@@ -127,6 +130,10 @@ class CORE_EXPORT ScriptLoader final : public ResourceFinishObserver,
   ScriptSchedulingType GetScriptSchedulingTypePerSpec(
       Document& element_document,
       ParserBlockingInlineOption) const;
+  // Methods to add/remove a SpeculationRuleSet in DocumentSpeculationRules.
+  // Only used for <script type="speculationrules">.
+  void AddSpeculationRuleSet(SpeculationRuleSet::Source* source);
+  SpeculationRuleSet* RemoveSpeculationRuleSet();
 
   Member<ScriptElementBase> element_;
 
@@ -178,10 +185,6 @@ class CORE_EXPORT ScriptLoader final : public ResourceFinishObserver,
   // <spec href="https://html.spec.whatwg.org/C/#script-force-async">...
   // initially true. ...</spec>
   bool force_async_ = true;
-
-  // Non-specified flag. Indicating that the script is a dynamically injected
-  // one with an async attribute, and therefore not render blocking.
-  bool dynamic_async_ = false;
 
   // <spec href="https://html.spec.whatwg.org/C/#concept-script-type">...
   // initially null. It is determined when the element is prepared, based on the

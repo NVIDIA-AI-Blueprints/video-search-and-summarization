@@ -26,7 +26,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_V8_VALUE_CACHE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_V8_VALUE_CACHE_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/platform/bindings/parkable_string.h"
 #include "third_party/blink/renderer/platform/bindings/v8_global_value_map.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
@@ -36,8 +35,6 @@
 #include "v8/include/v8.h"
 
 namespace blink {
-
-class Resource;
 
 class StringCacheMapTraits
     : public V8GlobalValueMapTraits<StringImpl*,
@@ -67,7 +64,8 @@ class StringCacheMapTraits
     return data.GetParameter();
   }
 
-  static void OnWeakCallback(const v8::WeakCallbackInfo<WeakCallbackDataType>&);
+  static void OnWeakCallback(
+      const v8::WeakCallbackInfo<WeakCallbackDataType>&) {}
 
   static void Dispose(v8::Isolate*,
                       v8::Global<v8::String> value,
@@ -75,49 +73,41 @@ class StringCacheMapTraits
   static void DisposeWeak(const v8::WeakCallbackInfo<WeakCallbackDataType>&);
 };
 
-// If ExtendScriptResourceLifetime feature is enabled, we store a reference to
-// (Script)Resource in blink::StringResourceBase (the backing store of
-// v8::String). To make sure that Resources and v8::Strings are 1:1, Resource*
-// is a part of the cache key here. (ParkableStringImpl* alone doesn't
-// differentiate multiple ScriptResources with the same content.)
-// https://crbug.com/1393246
 class ParkableStringCacheMapTraits
-    : public V8GlobalValueMapTraits<std::pair<ParkableStringImpl*, Resource*>,
+    : public V8GlobalValueMapTraits<ParkableStringImpl*,
                                     v8::String,
                                     v8::kWeakWithParameter> {
   STATIC_ONLY(ParkableStringCacheMapTraits);
 
  public:
   // Weak traits:
-  typedef std::pair<ParkableStringImpl*, Resource*> WeakCallbackDataType;
-  typedef v8::GlobalValueMap<std::pair<ParkableStringImpl*, Resource*>,
+  typedef ParkableStringImpl WeakCallbackDataType;
+  typedef v8::GlobalValueMap<ParkableStringImpl*,
                              v8::String,
                              ParkableStringCacheMapTraits>
       MapType;
 
   static WeakCallbackDataType* WeakCallbackParameter(
       MapType* map,
-      std::pair<ParkableStringImpl*, Resource*> key,
+      ParkableStringImpl* key,
       v8::Local<v8::String>& value) {
-    return new std::pair<ParkableStringImpl*, Resource*>(key);
+    return key;
   }
-  static void DisposeCallbackData(WeakCallbackDataType* callback_data) {
-    delete callback_data;
-  }
+  static void DisposeCallbackData(WeakCallbackDataType* callback_data) {}
 
   static MapType* MapFromWeakCallbackInfo(
       const v8::WeakCallbackInfo<WeakCallbackDataType>&);
 
-  static std::pair<ParkableStringImpl*, Resource*> KeyFromWeakCallbackInfo(
+  static ParkableStringImpl* KeyFromWeakCallbackInfo(
       const v8::WeakCallbackInfo<WeakCallbackDataType>& data) {
-    return *data.GetParameter();
+    return data.GetParameter();
   }
 
   static void OnWeakCallback(const v8::WeakCallbackInfo<WeakCallbackDataType>&);
 
   static void Dispose(v8::Isolate*,
                       v8::Global<v8::String> value,
-                      std::pair<ParkableStringImpl*, Resource*> key);
+                      ParkableStringImpl* key);
   static void DisposeWeak(const v8::WeakCallbackInfo<WeakCallbackDataType>&);
 };
 
@@ -136,25 +126,12 @@ class PLATFORM_EXPORT StringCache {
   StringCache& operator=(const StringCache&) = delete;
 
   v8::Local<v8::String> V8ExternalString(v8::Isolate* isolate,
-                                         StringImpl* string_impl) {
-    DCHECK(string_impl);
-    if (last_string_impl_.get() == string_impl)
-      return last_v8_string_.NewLocal(isolate);
-    return V8ExternalStringSlow(isolate, string_impl);
-  }
-
+                                         StringImpl* string_impl);
   v8::Local<v8::String> V8ExternalString(v8::Isolate* isolate,
-                                         const ParkableString& string,
-                                         Resource* resource);
+                                         const ParkableString& string);
 
   void SetReturnValueFromString(v8::ReturnValue<v8::Value> return_value,
-                                StringImpl* string_impl) {
-    DCHECK(string_impl);
-    if (last_string_impl_.get() == string_impl)
-      last_v8_string_.SetReturnValue(return_value);
-    else
-      SetReturnValueFromStringSlow(return_value, string_impl);
-  }
+                                StringImpl* string_impl);
 
   void Dispose();
 
@@ -162,23 +139,13 @@ class PLATFORM_EXPORT StringCache {
   friend class ParkableStringCacheMapTraits;
 
  private:
-  v8::Local<v8::String> V8ExternalStringSlow(v8::Isolate*, StringImpl*);
-  void SetReturnValueFromStringSlow(v8::ReturnValue<v8::Value>, StringImpl*);
   v8::Local<v8::String> CreateStringAndInsertIntoCache(v8::Isolate*,
                                                        StringImpl*);
   v8::Local<v8::String> CreateStringAndInsertIntoCache(v8::Isolate*,
-                                                       const ParkableString&,
-                                                       Resource*);
-  void InvalidateLastString();
+                                                       ParkableString);
 
   StringCacheMapTraits::MapType string_cache_;
-  StringCacheMapTraits::MapType::PersistentValueReference last_v8_string_;
   ParkableStringCacheMapTraits::MapType parkable_string_cache_;
-
-  // Note: RefPtr is a must as we cache by StringImpl* equality, not identity
-  // hence lastStringImpl might be not a key of the cache (in sense of identity)
-  // and hence it's not refed on addition.
-  scoped_refptr<StringImpl> last_string_impl_;
 };
 
 }  // namespace blink

@@ -11,11 +11,14 @@
 #ifndef TEST_NETWORK_TRAFFIC_ROUTE_H_
 #define TEST_NETWORK_TRAFFIC_ROUTE_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
-#include "api/test/network_emulation_manager.h"
-#include "rtc_base/copy_on_write_buffer.h"
+#include "api/test/network_emulation/cross_traffic.h"
+#include "api/test/network_emulation/network_emulation_interfaces.h"
 #include "system_wrappers/include/clock.h"
 #include "test/network/network_emulation.h"
 
@@ -29,7 +32,7 @@ class CrossTrafficRouteImpl final : public CrossTrafficRoute {
   CrossTrafficRouteImpl(Clock* clock,
                         EmulatedNetworkReceiverInterface* receiver,
                         EmulatedEndpointImpl* endpoint);
-  ~CrossTrafficRouteImpl();
+  ~CrossTrafficRouteImpl() override;
 
   // Triggers sending of dummy packets with size `packet_size` bytes.
   void TriggerPacketBurst(size_t num_packets, size_t packet_size) override;

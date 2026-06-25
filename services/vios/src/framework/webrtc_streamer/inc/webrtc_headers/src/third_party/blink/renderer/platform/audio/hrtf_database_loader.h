@@ -38,18 +38,17 @@
 #include "third_party/blink/renderer/platform/scheduler/public/non_main_thread.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
+
+namespace base {
+class WaitableEvent;
+}  // namespace base
 
 namespace blink {
-
-class WaitableEvent;
 
 // HRTFDatabaseLoader will asynchronously load the default HRTFDatabase in a new
 // thread.
 class PLATFORM_EXPORT HRTFDatabaseLoader final
     : public RefCounted<HRTFDatabaseLoader> {
-  USING_FAST_MALLOC(HRTFDatabaseLoader);
-
  public:
   // Lazily creates a HRTFDatabaseLoader (if not already created) for the given
   // sample-rate and starts loading asynchronously (when created the first

@@ -32,12 +32,13 @@
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_MODULES_SERVICE_WORKER_WEB_SERVICE_WORKER_NETWORK_PROVIDER_H_
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/public/mojom/frame/frame.mojom-shared.h"
 #include "third_party/blink/public/mojom/service_worker/controller_service_worker_mode.mojom-shared.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_fetch_handler_bypass_option.mojom-shared.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_fetch_handler_type.mojom-shared.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 
 namespace network {
+struct ResourceRequest;
 class SharedURLLoaderFactory;
 }  // namespace network
 
@@ -65,12 +66,15 @@ class WebServiceWorkerNetworkProvider {
   // Returns a SharedURLLoaderFactory for loading |request|. May return nullptr
   // to fall back to the default loading behavior.
   virtual scoped_refptr<network::SharedURLLoaderFactory>
-  GetSubresourceLoaderFactory(const WebURLRequest& request) = 0;
+  GetSubresourceLoaderFactory(const network::ResourceRequest& network_request,
+                              bool is_from_origin_dirty_style_sheet) = 0;
 
   // For service worker clients.
   virtual blink::mojom::ControllerServiceWorkerMode
   GetControllerServiceWorkerMode() = 0;
   virtual mojom::ServiceWorkerFetchHandlerType GetFetchHandlerType() = 0;
+  virtual mojom::ServiceWorkerFetchHandlerBypassOption
+  GetFetchHandlerBypassOption() = 0;
 
   // For service worker clients. Returns an identifier of the controller service
   // worker associated with the loading context.

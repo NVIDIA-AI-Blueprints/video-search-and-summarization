@@ -6,18 +6,22 @@
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_STORAGE_KEY_STORAGE_KEY_H_
 
 #include <iosfwd>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <tuple>
 
-#include "base/strings/string_piece_forward.h"
 #include "base/unguessable_token.h"
-#include "net/base/isolation_info.h"
 #include "net/base/schemeful_site.h"
-#include "net/cookies/cookie_partition_key.h"
 #include "net/cookies/site_for_cookies.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/mojom/storage_key/ancestor_chain_bit.mojom.h"
 #include "url/origin.h"
+
+namespace net {
+class CookiePartitionKey;
+class IsolationInfo;
+}
 
 namespace blink {
 
@@ -153,7 +157,7 @@ class BLINK_COMMON_EXPORT StorageKey {
       const url::Origin& origin,
       const net::SchemefulSite& top_level_site,
       const net::SchemefulSite& top_level_site_if_third_party_enabled,
-      const absl::optional<base::UnguessableToken>& nonce,
+      const std::optional<base::UnguessableToken>& nonce,
       blink::mojom::AncestorChainBit ancestor_chain_bit,
       blink::mojom::AncestorChainBit ancestor_chain_bit_if_third_party_enabled,
       StorageKey& out);
@@ -161,12 +165,12 @@ class BLINK_COMMON_EXPORT StorageKey {
   // (3D) Deserialization from string.
   // Note that if the deserialization wouldn't create a well-formed StorageKey
   // then nullopt is returned. This function must never DCHECK.
-  static absl::optional<StorageKey> Deserialize(base::StringPiece in);
+  static std::optional<StorageKey> Deserialize(std::string_view in);
 
   // A variant of deserialization for localStorage code only.
   // You almost always want to use Deserialize() instead.
-  static absl::optional<StorageKey> DeserializeForLocalStorage(
-      base::StringPiece in);
+  static std::optional<StorageKey> DeserializeForLocalStorage(
+      std::string_view in);
 
   // (3E) Serialization to string; origin must not be opaque.
   // Note that this function will DCHECK if the origin is opaque.
@@ -183,7 +187,11 @@ class BLINK_COMMON_EXPORT StorageKey {
 
   const net::SchemefulSite& top_level_site() const { return top_level_site_; }
 
-  const absl::optional<base::UnguessableToken>& nonce() const { return nonce_; }
+  // Returns true if unpartitioned storage access is forbidden for the current
+  // storage key.
+  bool ForbidsUnpartitionedStorageAccess() const { return nonce_.has_value(); }
+
+  const std::optional<base::UnguessableToken>& nonce() const { return nonce_; }
 
   blink::mojom::AncestorChainBit ancestor_chain_bit() const {
     return ancestor_chain_bit_;
@@ -265,7 +273,7 @@ class BLINK_COMMON_EXPORT StorageKey {
 
   // Cast a storage key to a cookie partition key. If cookie partitioning is not
   // enabled, then it will always return nullopt.
-  const absl::optional<net::CookiePartitionKey> ToCookiePartitionKey() const;
+  const std::optional<net::CookiePartitionKey> ToCookiePartitionKey() const;
 
   // Checks whether this StorageKey matches a given origin for the purposes of
   // clearing site data. This method should only be used in trusted contexts,
@@ -278,6 +286,10 @@ class BLINK_COMMON_EXPORT StorageKey {
   // cleared. The 3P partitioned data for the entire example.com will be cleared
   // in contrast to that.
   bool MatchesOriginForTrustedStorageDeletion(const url::Origin& origin) const;
+
+  // Like MatchesOriginForTrustedStorageDeletion, but for registrable domains.
+  bool MatchesRegistrableDomainForTrustedStorageDeletion(
+      std::string_view domain) const;
 
  private:
   // [Block 7 - Private Methods] - Keep in sync with BlinkStorageKey.
@@ -293,12 +305,18 @@ class BLINK_COMMON_EXPORT StorageKey {
 
   // (7B) Operators.
   // Note that not all must be friends, but all are to consolidate the header.
-  BLINK_COMMON_EXPORT
-  friend bool operator==(const StorageKey& lhs, const StorageKey& rhs);
-  BLINK_COMMON_EXPORT
-  friend bool operator!=(const StorageKey& lhs, const StorageKey& rhs);
-  BLINK_COMMON_EXPORT
-  friend bool operator<(const StorageKey& lhs, const StorageKey& rhs);
+  friend bool operator==(const StorageKey& lhs, const StorageKey& rhs) {
+    return std::tie(lhs.origin_, lhs.top_level_site_, lhs.nonce_,
+                    lhs.ancestor_chain_bit_) ==
+           std::tie(rhs.origin_, rhs.top_level_site_, rhs.nonce_,
+                    rhs.ancestor_chain_bit_);
+  }
+  friend auto operator<=>(const StorageKey& lhs, const StorageKey& rhs) {
+    return std::tie(lhs.origin_, lhs.top_level_site_, lhs.nonce_,
+                    lhs.ancestor_chain_bit_) <=>
+           std::tie(rhs.origin_, rhs.top_level_site_, rhs.nonce_,
+                    rhs.ancestor_chain_bit_);
+  }
   BLINK_COMMON_EXPORT
   friend std::ostream& operator<<(std::ostream& ostream, const StorageKey& sk);
 
@@ -307,6 +325,16 @@ class BLINK_COMMON_EXPORT StorageKey {
   // a key to ensure correctness. This does not imply that the key is
   // serializable as keys with opaque origins will still return true.
   bool IsValid() const;
+
+  // Not currently implemented in BlinkStorageKey since Blink generally uses
+  // WTF::HashMap and its variants.
+  template <typename H>
+  friend H AbslHashValue(H h, const StorageKey& key) {
+    return H::combine(std::move(h), key.origin_, key.top_level_site_,
+                      key.top_level_site_if_third_party_enabled_, key.nonce_,
+                      key.ancestor_chain_bit_,
+                      key.ancestor_chain_bit_if_third_party_enabled_);
+  }
 
   // [Block 8 - Private Members] - Keep in sync with BlinkStorageKey.
 
@@ -329,7 +357,7 @@ class BLINK_COMMON_EXPORT StorageKey {
 
   // Optional, forcing partitioned storage and used by anonymous iframes:
   // https://github.com/camillelamy/explainers/blob/master/anonymous_iframes.md
-  absl::optional<base::UnguessableToken> nonce_;
+  std::optional<base::UnguessableToken> nonce_;
 
   // kSameSite if the entire ancestor chain is same-site with the current frame.
   // kCrossSite otherwise. Used by service workers.

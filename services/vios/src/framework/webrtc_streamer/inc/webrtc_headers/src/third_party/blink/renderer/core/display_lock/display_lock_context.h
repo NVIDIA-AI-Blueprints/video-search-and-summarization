@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DISPLAY_LOCK_DISPLAY_LOCK_CONTEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DISPLAY_LOCK_DISPLAY_LOCK_CONTEXT_H_
 
+#include <array>
 #include <utility>
 
 #include "third_party/blink/renderer/core/core_export.h"
@@ -13,7 +14,6 @@
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -42,9 +42,6 @@ enum class DisplayLockActivationReason {
   kUserFocus = 1 << 7,
   // Intersection observer activation
   kViewportIntersection = 1 << 8,
-  // NOTE: We don't need an activation reason for CSS toggles, since toggle
-  // state changes trigger restyles that update the context through a call to
-  // SetRequestedState().
 
   // Shorthands
   kViewport = static_cast<uint16_t>(kSelection) |
@@ -60,23 +57,6 @@ enum class DisplayLockActivationReason {
          static_cast<uint16_t>(kSimulatedClick) |
          static_cast<uint16_t>(kUserFocus) |
          static_cast<uint16_t>(kViewportIntersection),
-  kAuto = kAny,
-
-  // The css-toggles specification says that toggle-visibility works like
-  // content-visibility, except it's not activated by being on-screen.
-  //
-  // TODO(https://crbug.com/1250716): Conceptually I *think* we might want to
-  // omit kUserFocus from kToggleVisibility.  However, omitting kUserFocus but
-  // retaining kScriptFocus doesn't appear to work in practice.  (Is this
-  // because kUserFocus affects Element::IsFocusableStyle?)
-  //
-  // TODO(https://github.com/tabatkins/css-toggle/issues/42): While this
-  // doesn't match the current specification draft, we also exclude kSelection
-  // because the presence of a selection shouldn't prevent other user actions
-  // from changing the toggle and making the element skip its contents.
-  kToggleVisibility = static_cast<uint16_t>(kAny) &
-                      ~(static_cast<uint16_t>(kViewportIntersection) |
-                        static_cast<uint16_t>(kSelection)),
 };
 
 // Instead of specifying an underlying type, which would propagate throughout
@@ -98,17 +78,10 @@ class CORE_EXPORT DisplayLockContext final
   explicit DisplayLockContext(Element*);
   ~DisplayLockContext() = default;
 
-  // Called by style to update the current state of content-visibility and
-  // toggle-visibility.
-  // toggle_visibility should be non-null when toggle-visibility is set
-  // to a toggle *and* the toggle is currently inactive (meaning the
-  // element should be hidden due to the toggle).  Otherwise it should
-  // be g_null_atom.
-  void SetRequestedState(EContentVisibility state,
-                         const AtomicString& toggle_visibility);
+  // Called by style to update the current state of content-visibility.
+  void SetRequestedState(EContentVisibility state);
   // Called by style to adjust the element's style based on the current state.
-  scoped_refptr<const ComputedStyle> AdjustElementStyle(
-      const ComputedStyle*) const;
+  const ComputedStyle* AdjustElementStyle(const ComputedStyle*) const;
 
   // Is called by the intersection observer callback to inform us of the
   // intersection state.
@@ -116,13 +89,62 @@ class CORE_EXPORT DisplayLockContext final
   void NotifyIsNotIntersectingViewport();
 
   // Lifecycle state functions.
-  bool ShouldStyleChildren() const;
+  ALWAYS_INLINE bool ShouldStyleChildren() const {
+    // Any of the following allows style:
+    // - This isn't locked.
+    // - Style and layout tree are forced for this lock.
+    // - This is an activatable lock and all activatable locks are forced.
+    // - This is content-visibility: auto within an element with a non-none
+    //   scroll-marker-group property.
+    // - This is an activatable for a11y lock and a11y is enabled.
+    return !is_locked_ ||
+           forced_info_.is_forced(ForcedPhase::kStyleAndLayoutTree) ||
+           (IsActivatable(DisplayLockActivationReason::kAny) &&
+            ActivatableDisplayLocksForced()) ||
+           (IsAuto() && HasScrollerWithScrollMarkerGroup()) ||
+           (IsActivatable(DisplayLockActivationReason::kAccessibility) &&
+            IsScreenReaderActive());
+  }
+
   void DidStyleSelf();
   void DidStyleChildren();
-  bool ShouldLayoutChildren() const;
+  ALWAYS_INLINE bool ShouldLayoutChildren() const {
+    // Any of the following allows layout:
+    // - This isn't locked.
+    // - Layout is forced for this lock.
+    // - This is an activatable lock and all activatable locks are forced.
+    // - We're doing a container query, and one of the following is true:
+    //   - This is content-visibility: auto within an element with a non-none
+    //     scroll-marker-group property.
+    //   - This is an activatable for a11y lock and a11y is enabled.
+    // TODO(400977357): Optimize layout for the scroll-marker-group cases.
+    bool should = !is_locked_ || forced_info_.is_forced(ForcedPhase::kLayout) ||
+                  (IsActivatable(DisplayLockActivationReason::kAny) &&
+                   ActivatableDisplayLocksForced()) ||
+                  (IsAuto() && HasScrollerWithScrollMarkerGroup()) ||
+                  ShouldActivateForScreenReader();
+    // Should only lay out if style recalc is allowed.
+    DCHECK(!should || ShouldStyleChildren());
+    return should;
+  }
+
+  bool ShouldActivateForScreenReader() const;
   void DidLayoutChildren();
-  bool ShouldPrePaintChildren() const;
-  bool ShouldPaintChildren() const;
+  ALWAYS_INLINE bool ShouldPrePaintChildren() const {
+    bool should = !is_locked_ ||
+                  forced_info_.is_forced(ForcedPhase::kPrePaint) ||
+                  (IsActivatable(DisplayLockActivationReason::kAny) &&
+                   ActivatableDisplayLocksForced());
+    // Should only pre-paint of layout is allowed.
+    DCHECK(!should || ShouldLayoutChildren());
+    return should;
+  }
+  ALWAYS_INLINE bool ShouldPaintChildren() const {
+    bool should = !is_locked_;
+    // Should only paint if pre-paint is allowed.
+    DCHECK(!should || ShouldPrePaintChildren());
+    return should;
+  }
 
   // Returns true if the last style recalc traversal was blocked at this
   // element.
@@ -134,7 +156,9 @@ class CORE_EXPORT DisplayLockContext final
   // from and activatable by a specified reason. Note that passing
   // kAny will return true if the lock is activatable for any
   // reason.
-  bool IsActivatable(DisplayLockActivationReason reason) const;
+  ALWAYS_INLINE bool IsActivatable(DisplayLockActivationReason reason) const {
+    return activatable_mask_ & static_cast<uint16_t>(reason);
+  }
 
   // Trigger commit because of activation from tab order, url fragment,
   // find-in-page, scrolling, etc.
@@ -155,6 +179,7 @@ class CORE_EXPORT DisplayLockContext final
 
   // LifecycleNotificationObserver overrides.
   void WillStartLifecycleUpdate(const LocalFrameView&) override;
+  void DidFinishLayout() override;
 
   // Inform the display lock that it prevented a style change. This is used to
   // invalidate style when we need to update it in the future.
@@ -177,6 +202,10 @@ class CORE_EXPORT DisplayLockContext final
     needs_compositing_dependent_flag_update_ = true;
   }
 
+  void NotifyVisualOverflowRecalcWasBlocked() {
+    needs_visual_overflow_recalc_update_ = true;
+  }
+
   // Notify this element will be disconnected.
   void NotifyWillDisconnect();
 
@@ -194,11 +223,14 @@ class CORE_EXPORT DisplayLockContext final
 
   void SetNeedsPrePaintSubtreeWalk(
       bool needs_effective_allowed_touch_action_update,
-      bool needs_blocking_wheel_event_handler_update) {
+      bool needs_blocking_wheel_event_handler_update,
+      bool needs_soft_navigation_context_update) {
     needs_effective_allowed_touch_action_update_ =
         needs_effective_allowed_touch_action_update;
     needs_blocking_wheel_event_handler_update_ =
         needs_blocking_wheel_event_handler_update;
+    needs_soft_navigation_context_update_ =
+        needs_soft_navigation_context_update;
     needs_prepaint_subtree_walk_ = true;
   }
 
@@ -220,13 +252,7 @@ class CORE_EXPORT DisplayLockContext final
   // Debugging functions.
   String RenderAffectingStateToString() const;
 
-  bool IsAlwaysVisible() const {
-    return state_ == EContentVisibility::kVisible && toggle_name_.IsNull();
-  }
-
-  bool IsAuto() const {
-    return state_ == EContentVisibility::kAuto && toggle_name_.IsNull();
-  }
+  bool IsAuto() const { return state_ == EContentVisibility::kAuto; }
   bool HadLifecycleUpdateSinceLastUnlock() const {
     return had_lifecycle_update_since_last_unlock_;
   }
@@ -242,7 +268,7 @@ class CORE_EXPORT DisplayLockContext final
     is_details_slot_ = is_details_slot;
   }
 
-  bool HasElement() const { return element_; }
+  bool HasElement() const { return element_ != nullptr; }
 
   // Top layer implementation.
   void NotifyHasTopLayerElement();
@@ -253,6 +279,26 @@ class CORE_EXPORT DisplayLockContext final
   // State control for view transition element render affecting state.
   void ResetDescendantIsViewTransitionElement();
   void SetDescendantIsViewTransitionElement();
+
+  void SetAffectedByAnchorPositioning(bool);
+
+  // Mark this display lock as needing to recompute whether it has anchors
+  // below it that prevent it from becoming skipped.
+  void SetAnchorPositioningRenderStateMayHaveChanged();
+
+  // Computes whether there is a descendant that is the anchor target of
+  // an OOF positioned element from outside the display lock's subtree.
+  bool DescendantIsAnchorTargetFromOutsideDisplayLock();
+
+  // Sets whether this lock is in a subtree of an element with a
+  // scroll-marker-group non-none property. This is set after setting the
+  // requested state of the lock. Note that this affects whether auto locks
+  // process style and layout, but does not affect whether the context is
+  // unlocked.
+  void SetHasScrollerWithScrollMarkerGroup(bool flag) {
+    render_affecting_state_[static_cast<int>(
+        RenderAffectingState::kHasScrollerWithScrollMarkerGroup)] = flag;
+  }
 
  private:
   // Give access to |NotifyForcedUpdateScopeStarted()| and
@@ -293,6 +339,9 @@ class CORE_EXPORT DisplayLockContext final
   // Clear the activated flag.
   void ResetActivation();
 
+  // Returns true if activatable display locks are being currently forced.
+  bool ActivatableDisplayLocksForced() const;
+
   // The following functions propagate dirty bits from the locked element up to
   // the ancestors in order to be reached, and update dirty bits for the element
   // as well if needed. They return true if the element or its subtree were
@@ -303,6 +352,7 @@ class CORE_EXPORT DisplayLockContext final
   bool MarkNeedsRepaintAndPaintArtifactCompositorUpdate();
   bool MarkNeedsCullRectUpdate();
   bool MarkForCompositingUpdatesIfNeeded();
+  bool MarkForVisualOverflowRecalcIfNeeded();
 
   bool IsElementDirtyForStyleRecalc() const;
   bool IsElementDirtyForLayout() const;
@@ -389,10 +439,18 @@ class CORE_EXPORT DisplayLockContext final
   void ScheduleStateChangeEventIfNeeded();
   void DispatchStateChangeEventIfNeeded();
 
+  // Returns true if this lock is within an element with a non-none
+  // scroll-marker-group property.
+  ALWAYS_INLINE bool HasScrollerWithScrollMarkerGroup() const {
+    return render_affecting_state_[static_cast<int>(
+        RenderAffectingState::kHasScrollerWithScrollMarkerGroup)];
+  }
+
+  bool IsScreenReaderActive() const;
+
   WeakMember<Element> element_;
   WeakMember<Document> document_;
   EContentVisibility state_ = EContentVisibility::kVisible;
-  AtomicString toggle_name_;
 
   // A struct to keep track of forced unlocks, and reasons for it.
   struct UpdateForcedInfo {
@@ -400,7 +458,6 @@ class CORE_EXPORT DisplayLockContext final
       switch (phase) {
         case ForcedPhase::kNone:
           NOTREACHED();
-          return false;
         case ForcedPhase::kStyleAndLayoutTree:
           return style_update_forced_ || layout_update_forced_ ||
                  prepaint_update_forced_;
@@ -459,8 +516,10 @@ class CORE_EXPORT DisplayLockContext final
 
   bool needs_effective_allowed_touch_action_update_ = false;
   bool needs_blocking_wheel_event_handler_update_ = false;
+  bool needs_soft_navigation_context_update_ = false;
   bool needs_prepaint_subtree_walk_ = false;
   bool needs_compositing_dependent_flag_update_ = false;
+  bool needs_visual_overflow_recalc_update_ = false;
 
   // Will be true if child traversal was blocked on a previous layout run on the
   // locked element. We need to keep track of this to ensure that on the next
@@ -506,14 +565,17 @@ class CORE_EXPORT DisplayLockContext final
     kAutoUnlockedForPrint,
     kSubtreeHasTopLayerElement,
     kDescendantIsViewTransitionElement,
+    kDescendantIsAnchorTarget,
+    kHasScrollerWithScrollMarkerGroup,
     kNumRenderAffectingStates
   };
   void SetRenderAffectingState(RenderAffectingState state, bool flag);
   void NotifyRenderAffectingStateChanged();
   const char* RenderAffectingStateName(int state) const;
 
-  bool render_affecting_state_[static_cast<int>(
-      RenderAffectingState::kNumRenderAffectingStates)] = {false};
+  std::array<bool,
+             static_cast<int>(RenderAffectingState::kNumRenderAffectingStates)>
+      render_affecting_state_ = {false};
   int keep_unlocked_count_ = 0;
 
   bool had_lifecycle_update_since_last_unlock_ = false;
@@ -524,7 +586,7 @@ class CORE_EXPORT DisplayLockContext final
   // computed style).
   bool set_requested_state_scope_ = false;
 
-  absl::optional<ScrollOffset> stashed_scroll_offset_;
+  std::optional<ScrollOffset> stashed_scroll_offset_;
 
   // When we use content-visibility:hidden for the <details> element's content
   // slot or the hidden=until-found attribute, then this lock must activate
@@ -550,11 +612,16 @@ class CORE_EXPORT DisplayLockContext final
 
   // This is set to the last value for which ContentVisibilityAutoStateChange
   // event has been dispatched (if any).
-  absl::optional<bool> last_notified_skipped_state_;
+  std::optional<bool> last_notified_skipped_state_;
 
   // If true, there is a pending task that will dispatch a state change event if
   // needed.
   bool state_change_task_pending_ = false;
+
+  // True if this lock needs to recompute whether kDescendantIsAnchorTarget
+  // applies. If so, after layout is complete it's necessary to actually
+  // compute whether that is the case.
+  bool anchor_positioning_render_state_may_have_changed_ = false;
 };
 
 }  // namespace blink

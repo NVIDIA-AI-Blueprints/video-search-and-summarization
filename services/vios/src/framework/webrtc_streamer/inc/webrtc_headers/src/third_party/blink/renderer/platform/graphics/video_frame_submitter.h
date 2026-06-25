@@ -6,7 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_VIDEO_FRAME_SUBMITTER_H_
 
 #include <memory>
+#include <optional>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
@@ -14,21 +16,23 @@
 #include "cc/metrics/frame_sequence_tracker_collection.h"
 #include "cc/metrics/frame_sorter.h"
 #include "cc/metrics/video_playback_roughness_reporter.h"
-#include "components/viz/client/shared_bitmap_reporter.h"
-#include "components/viz/common/gpu/context_provider.h"
-#include "components/viz/common/resources/shared_bitmap.h"
+#include "components/viz/common/gpu/raster_context_provider.h"
 #include "components/viz/common/surfaces/child_local_surface_id_allocator.h"
+#include "gpu/ipc/client/gpu_channel_observer.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/buffer.h"
 #include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom-blink.h"
 #include "services/viz/public/mojom/compositing/frame_timing_details.mojom-blink.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/frame_sinks/embedded_frame_sink.mojom-blink.h"
 #include "third_party/blink/public/platform/web_video_frame_submitter.h"
 #include "third_party/blink/renderer/platform/graphics/video_frame_resource_provider.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
+
+namespace gpu {
+class SharedImageInterface;
+}
 
 namespace blink {
 
@@ -41,7 +45,7 @@ namespace blink {
 class PLATFORM_EXPORT VideoFrameSubmitter
     : public WebVideoFrameSubmitter,
       public viz::ContextLostObserver,
-      public viz::SharedBitmapReporter,
+      public gpu::GpuChannelLostObserver,
       public viz::mojom::blink::CompositorFrameSinkClient {
  public:
   VideoFrameSubmitter(WebContextProviderCallback,
@@ -70,32 +74,42 @@ class PLATFORM_EXPORT VideoFrameSubmitter
   // viz::ContextLostObserver implementation.
   void OnContextLost() override;
 
+  // gpu::GpuChannelLostObserver implementation.
+  void OnGpuChannelLost() override;
+
   // cc::mojom::CompositorFrameSinkClient implementation.
   void DidReceiveCompositorFrameAck(
-      WTF::Vector<viz::ReturnedResource> resources) override;
+      Vector<viz::ReturnedResource> resources) override;
   void OnBeginFrame(const viz::BeginFrameArgs&,
-                    const WTF::HashMap<uint32_t, viz::FrameTimingDetails>&,
-                    bool frame_ack,
-                    WTF::Vector<viz::ReturnedResource> resources) override;
+                    const HashMap<uint32_t, viz::FrameTimingDetails>&,
+                    Vector<viz::ReturnedResource> resources) override;
   void OnBeginFramePausedChanged(bool paused) override {}
-  void ReclaimResources(WTF::Vector<viz::ReturnedResource> resources) override;
+  void ReclaimResources(Vector<viz::ReturnedResource> resources) override;
   void OnCompositorFrameTransitionDirectiveProcessed(
       uint32_t sequence_id) override {}
+  void OnSurfaceEvicted(const viz::LocalSurfaceId& local_surface_id) override {}
 
-  // viz::SharedBitmapReporter implementation.
-  void DidAllocateSharedBitmap(base::ReadOnlySharedMemoryRegion,
-                               const viz::SharedBitmapId&) override;
-  void DidDeleteSharedBitmap(const viz::SharedBitmapId&) override;
+  void SetNextFrameTokenForTesting(uint32_t token) {
+    next_frame_token_.SetValueForTesting(token);
+  }
 
  private:
   friend class VideoFrameSubmitterTest;
   class FrameSinkBundleProxy;
+  struct PendingFrameInfo {
+    std::optional<base::TimeTicks> capture_begin_time;
+    std::optional<uint32_t> rtp_timestamp;
+    viz::BeginFrameArgs begin_frame_args;
+    bool was_decoded_with_end_time = false;
+    bool is_manual_source = false;
+  };
 
   // Called during Initialize() and OnContextLost() after a new ContextGL is
   // requested.
   void OnReceivedContextProvider(
       bool use_gpu_compositing,
-      scoped_refptr<viz::RasterContextProvider> context_provider);
+      scoped_refptr<viz::RasterContextProvider> context_provider,
+      scoped_refptr<gpu::SharedImageInterface> shared_image_interface);
 
   // Adopts `context_provider` if it's non-null and in a usable state. Returns
   // true on success and false on failure, implying that a new ContextProvider
@@ -143,15 +157,34 @@ class PLATFORM_EXPORT VideoFrameSubmitter
       scoped_refptr<media::VideoFrame> video_frame,
       media::VideoTransformation transform);
 
-  cc::VideoFrameProvider* video_frame_provider_ = nullptr;
+  // Opacity state with respect to what we've told `surface_embedder_`.
+  enum class Opacity {
+    // We have not told the embedder anything yet.
+    kNotReported,
+
+    // We told the embedder that we have submitted an opaque frame.
+    kIsOpaque,
+
+    // We told the embedder that we have submitted a non-opaque frame.
+    kIsNotOpaque
+  };
+
+  // Notify `surface_embedder_` if the opacity of the most recent video frame
+  // has changed.
+  void NotifyOpacityIfNeeded(Opacity new_opacity);
+
+  void ClearFrameResources();
+
+  raw_ptr<cc::VideoFrameProvider> video_frame_provider_ = nullptr;
   bool is_media_stream_ = false;
   scoped_refptr<viz::RasterContextProvider> context_provider_;
+  scoped_refptr<gpu::SharedImageInterface> shared_image_interface_;
   mojo::Remote<viz::mojom::blink::CompositorFrameSink> remote_frame_sink_;
   mojo::Remote<mojom::blink::SurfaceEmbedder> surface_embedder_;
   mojo::Receiver<viz::mojom::blink::CompositorFrameSinkClient> receiver_{this};
   WebContextProviderCallback context_provider_callback_;
   std::unique_ptr<VideoFrameResourceProvider> resource_provider_;
-  bool waiting_for_compositor_ack_ = false;
+  int waiting_for_compositor_ack_ = 0;
 
   // When UseVideoFrameSinkBundle is enabled, this is initialized to a local
   // implementation which batches outgoing Viz requests with those from other
@@ -161,7 +194,8 @@ class PLATFORM_EXPORT VideoFrameSubmitter
 
   // Points to either `remote_frame_sink_` or `bundle_proxy_` depending
   // on whether UseVideoFrameSinkBundle is enabled.
-  viz::mojom::blink::CompositorFrameSink* compositor_frame_sink_ = nullptr;
+  raw_ptr<viz::mojom::blink::CompositorFrameSink> compositor_frame_sink_ =
+      nullptr;
 
   // Current rendering state. Set by StartRendering() and StopRendering().
   bool is_rendering_ = false;
@@ -204,7 +238,7 @@ class PLATFORM_EXPORT VideoFrameSubmitter
 
   base::OneShotTimer empty_frame_timer_;
 
-  absl::optional<media::VideoFrame::ID> last_frame_id_;
+  std::optional<media::VideoFrame::ID> last_frame_id_;
 
   // We use cc::FrameSorter directly, rather than via
   // cc::CompositorFrameReportingController because video frames do not progress
@@ -212,7 +246,10 @@ class PLATFORM_EXPORT VideoFrameSubmitter
   // Instead they are a specialized variant of compositor-only frames, submitted
   // via a batch. So track the mapping of FrameToken to viz::BeginFrameArgs in
   // `pending_frames_`, and denote their completion directly to `frame_sorter_`.
-  base::flat_map<uint32_t, viz::BeginFrameArgs> pending_frames_;
+  //
+  // Contains metadata of all submitted video frames, including those that
+  // `pending_frames_` does not store (manual source video frames)
+  base::flat_map<uint32_t, PendingFrameInfo> pending_frames_;
   cc::FrameSequenceTrackerCollection frame_trackers_;
   cc::FrameSorter frame_sorter_;
 
@@ -220,10 +257,13 @@ class PLATFORM_EXPORT VideoFrameSubmitter
   // Required for FrameSequenceTrackerCollection::NotifySubmitFrame
   viz::BeginFrameArgs last_begin_frame_args_;
 
-  // The token of the frames that are submitted outside OnBeginFrame(). These
-  // frames should be ignored by the video tracker even if they are reported as
-  // presented.
-  base::flat_set<uint32_t> ignorable_submitted_frames_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  // The average delta between receiving a frame and presenting it. Can be used
+  // to estimate the expected display time of a frame.
+  base::TimeDelta average_delta_between_receive_and_present_;
+
+  Opacity opacity_ = Opacity::kNotReported;
 
   THREAD_CHECKER(thread_checker_);
 

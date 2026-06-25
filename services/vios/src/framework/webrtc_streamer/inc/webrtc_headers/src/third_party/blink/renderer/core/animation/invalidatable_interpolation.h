@@ -34,69 +34,85 @@ class CORE_EXPORT InvalidatableInterpolation : public Interpolation {
  public:
   InvalidatableInterpolation(const PropertyHandle& property,
                              PropertySpecificKeyframe* start_keyframe,
-                             PropertySpecificKeyframe* end_keyframe)
-      : Interpolation(),
-        property_(property),
-        interpolation_types_(nullptr),
+                             PropertySpecificKeyframe* end_keyframe,
+                             PropertySpecificKeyframe* final_keyframe = nullptr)
+      : property_(property),
         interpolation_types_version_(0),
         start_keyframe_(start_keyframe),
         end_keyframe_(end_keyframe),
-        current_fraction_(std::numeric_limits<double>::quiet_NaN()),
-        is_conversion_cached_(false) {}
+        final_keyframe_(final_keyframe),
+        current_fraction_(std::numeric_limits<double>::quiet_NaN()) {}
 
   const PropertyHandle& GetProperty() const final { return property_; }
-  void Interpolate(int iteration, double fraction) override;
+  void Interpolate(
+      int iteration,
+      double fraction,
+      EffectModel::IterationCompositeOperation iteration_composite) override;
   bool DependsOnUnderlyingValue() const final;
   static void ApplyStack(const ActiveInterpolations&,
-                         InterpolationEnvironment&);
+                         CSSInterpolationEnvironment&);
 
   bool IsInvalidatableInterpolation() const override { return true; }
 
   const TypedInterpolationValue* GetCachedValueForTesting() const {
-    return cached_value_.get();
+    return cached_value_.Get();
   }
 
   void Trace(Visitor* visitor) const override {
+    visitor->Trace(interpolation_types_);
     visitor->Trace(start_keyframe_);
     visitor->Trace(end_keyframe_);
+    visitor->Trace(final_keyframe_);
+    visitor->Trace(cached_pair_conversion_);
+    visitor->Trace(conversion_checkers_);
+    visitor->Trace(cached_value_);
+    visitor->Trace(cached_end_value_);
     Interpolation::Trace(visitor);
   }
 
  private:
   using ConversionCheckers = InterpolationType::ConversionCheckers;
 
-  std::unique_ptr<TypedInterpolationValue> MaybeConvertUnderlyingValue(
-      const InterpolationEnvironment&) const;
+  TypedInterpolationValue* MaybeConvertUnderlyingValue(
+      const CSSInterpolationEnvironment&) const;
   const TypedInterpolationValue* EnsureValidConversion(
-      InterpolationEnvironment&,
+      CSSInterpolationEnvironment&,
       const UnderlyingValueOwner&) const;
-  void EnsureValidInterpolationTypes(InterpolationEnvironment&) const;
-  void ClearConversionCache(InterpolationEnvironment& environment) const;
-  bool IsConversionCacheValid(const InterpolationEnvironment&,
+  void EnsureValidInterpolationTypes(CSSInterpolationEnvironment&) const;
+  void ClearConversionCache(CSSInterpolationEnvironment& environment) const;
+  bool IsConversionCacheValid(const CSSInterpolationEnvironment&,
                               const UnderlyingValueOwner&) const;
   bool IsNeutralKeyframeActive() const;
-  std::unique_ptr<PairwisePrimitiveInterpolation> MaybeConvertPairwise(
-      const InterpolationEnvironment&,
+  PairwisePrimitiveInterpolation* MaybeConvertPairwise(
+      const CSSInterpolationEnvironment&,
       const UnderlyingValueOwner&) const;
-  std::unique_ptr<TypedInterpolationValue> ConvertSingleKeyframe(
+  TypedInterpolationValue* ConvertSingleKeyframe(
       const PropertySpecificKeyframe&,
-      const InterpolationEnvironment&,
+      const CSSInterpolationEnvironment&,
       const UnderlyingValueOwner&) const;
-  void AddConversionCheckers(const InterpolationType&,
+  void AddConversionCheckers(const InterpolationType*,
                              ConversionCheckers&) const;
-  void SetFlagIfInheritUsed(InterpolationEnvironment&) const;
+  void SetFlagIfInheritUsed(CSSInterpolationEnvironment&) const;
   double UnderlyingFraction() const;
+  void ApplyIterationAccumulation() const;
 
   const PropertyHandle property_;
-  mutable const InterpolationTypes* interpolation_types_;
+  mutable Member<const InterpolationTypes> interpolation_types_;
   mutable size_t interpolation_types_version_;
   Member<PropertySpecificKeyframe> start_keyframe_;
   Member<PropertySpecificKeyframe> end_keyframe_;
+  Member<PropertySpecificKeyframe> final_keyframe_;
   double current_fraction_;
-  mutable bool is_conversion_cached_;
-  mutable std::unique_ptr<PrimitiveInterpolation> cached_pair_conversion_;
+  int current_iteration_ = 0;
+  EffectModel::IterationCompositeOperation current_iteration_composite_ =
+      EffectModel::kIterationCompositeReplace;
+  mutable bool is_conversion_cached_ = false;
+  mutable Member<PrimitiveInterpolation> cached_pair_conversion_;
   mutable ConversionCheckers conversion_checkers_;
-  mutable std::unique_ptr<TypedInterpolationValue> cached_value_;
+  mutable Member<TypedInterpolationValue> cached_value_;
+  mutable Member<TypedInterpolationValue> cached_end_value_;
+  mutable EffectModel::IterationCompositeOperation cached_iteration_composite_ =
+      EffectModel::kIterationCompositeReplace;
 };
 
 template <>

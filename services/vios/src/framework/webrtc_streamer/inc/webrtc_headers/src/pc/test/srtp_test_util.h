@@ -11,35 +11,47 @@
 #ifndef PC_TEST_SRTP_TEST_UTIL_H_
 #define PC_TEST_SRTP_TEST_UTIL_H_
 
-#include <string>
+#include <cstdint>
 
-namespace rtc {
+#include "rtc_base/buffer.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/ssl_stream_adapter.h"
 
-extern const char kCsAesCm128HmacSha1_32[];
-extern const char kCsAeadAes128Gcm[];
-extern const char kCsAeadAes256Gcm[];
+namespace webrtc {
 
-static const uint8_t kTestKey1[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234";
-static const uint8_t kTestKey2[] = "4321ZYXWVUTSRQPONMLKJIHGFEDCBA";
-static const int kTestKeyLen = 30;
+static const ZeroOnFreeBuffer<uint8_t> kTestKey1{
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234", 30};
+static const ZeroOnFreeBuffer<uint8_t> kTestKey2{
+    "4321ZYXWVUTSRQPONMLKJIHGFEDCBA", 30};
 
-static int rtp_auth_tag_len(const std::string& cs) {
-  if (cs == kCsAesCm128HmacSha1_32) {
-    return 4;
-  } else if (cs == kCsAeadAes128Gcm || cs == kCsAeadAes256Gcm) {
-    return 16;
-  } else {
-    return 10;
+static int rtp_auth_tag_len(int crypto_suite) {
+  switch (crypto_suite) {
+    case webrtc::kSrtpAes128CmSha1_32:
+      return 4;
+    case webrtc::kSrtpAes128CmSha1_80:
+      return 10;
+    case webrtc::kSrtpAeadAes128Gcm:
+    case webrtc::kSrtpAeadAes256Gcm:
+      return 16;
+    default:
+      RTC_CHECK_NOTREACHED();
   }
 }
-static int rtcp_auth_tag_len(const std::string& cs) {
-  if (cs == kCsAeadAes128Gcm || cs == kCsAeadAes256Gcm) {
-    return 16;
-  } else {
-    return 10;
+
+static int rtcp_auth_tag_len(int crypto_suite) {
+  switch (crypto_suite) {
+    case webrtc::kSrtpAes128CmSha1_32:
+    case webrtc::kSrtpAes128CmSha1_80:
+      return 10;
+    case webrtc::kSrtpAeadAes128Gcm:
+    case webrtc::kSrtpAeadAes256Gcm:
+      return 16;
+    default:
+      RTC_CHECK_NOTREACHED();
   }
 }
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // PC_TEST_SRTP_TEST_UTIL_H_

@@ -20,6 +20,7 @@
 #include <string>
 
 #include "perfetto/base/build_config.h"
+#include "perfetto/base/export.h"
 #include "perfetto/ext/base/string_utils.h"
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \
@@ -68,6 +69,11 @@ inline bool GetThreadName(std::string& out_result) {
   out_result = std::string(buf);
   return true;
 }
+
+#elif PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+
+PERFETTO_EXPORT_COMPONENT bool MaybeSetThreadName(const std::string& name);
+PERFETTO_EXPORT_COMPONENT bool GetThreadName(std::string& out_result);
 
 #else
 inline bool MaybeSetThreadName(const std::string&) {

@@ -80,6 +80,9 @@
  * This API is based on the <em>fluent</em> design pattern popularized by libraries such as Google's Guava. For
  * extensive details on the design of this API, read <a href="https://goo.gl/szi5VB">the design doc</a>.
  *
+ * <p>
+ * Note: To format monetary/currency values, specify the currency in the `.unit()` function.
+ *
  * @author Shane Carr
  */
 
@@ -90,15 +93,13 @@ class IFixedDecimal;
 class FieldPositionIteratorHandler;
 class FormattedStringBuilder;
 
-namespace numparse {
-namespace impl {
+namespace numparse::impl {
 
 // Forward declarations:
 class NumberParserImpl;
 class MultiplierParseHandler;
 
-}
-}
+} // namespace numparse::impl
 
 namespace units {
 
@@ -1255,7 +1256,6 @@ class U_I18N_API StringProp : public UMemory {
     StringProp() : fValue(nullptr), fLength(0), fError(U_ZERO_ERROR) {
     }
 
-    /** @internal (private) */
     UBool copyErrorTo(UErrorCode &status) const {
         if (U_FAILURE(fError)) {
             status = fError;
@@ -1516,9 +1516,10 @@ class U_I18N_API Padder : public UMemory {
     friend class impl::GeneratorHelpers;
 };
 
-// Do not enclose entire MacroProps with #ifndef U_HIDE_INTERNAL_API, needed for a protected field
+// Do not enclose entire MacroProps with #ifndef U_HIDE_INTERNAL_API, needed for a protected field.
+// U_I18N_API because intltest uses it.
 /** @internal */
-struct U_I18N_API MacroProps : public UMemory {
+struct U_I18N_API_CLASS MacroProps : public UMemory {
     /** @internal */
     Notation notation;
 
@@ -1587,7 +1588,7 @@ struct U_I18N_API MacroProps : public UMemory {
      * Check all members for errors.
      * @internal
      */
-    bool copyErrorTo(UErrorCode &status) const {
+    U_I18N_API bool copyErrorTo(UErrorCode &status) const {
         return notation.copyErrorTo(status) || precision.copyErrorTo(status) ||
                padder.copyErrorTo(status) || integerWidth.copyErrorTo(status) ||
                symbols.copyErrorTo(status) || scale.copyErrorTo(status) || usage.copyErrorTo(status) ||
@@ -2257,14 +2258,13 @@ class U_I18N_API NumberFormatterSettings {
      */
     Derived usage(StringPiece usage) &&;
 
-#ifndef U_HIDE_DRAFT_API
     /**
      * Specifies the DisplayOptions. For example, UDisplayOptionsGrammaticalCase specifies
      * the desired case for a unit formatter's output (e.g. accusative, dative, genitive).
      *
      * @param displayOptions
      * @return The fluent chain.
-     * @draft ICU 72
+     * @stable ICU 72
      */
     Derived displayOptions(const DisplayOptions &displayOptions) const &;
 
@@ -2273,10 +2273,9 @@ class U_I18N_API NumberFormatterSettings {
      *
      * @param displayOptions
      * @return The fluent chain.
-     * @draft ICU 72
+     * @stable ICU 72
      */
     Derived displayOptions(const DisplayOptions &displayOptions) &&;
-#endif // U_HIDE_DRAFT_API
 
 #ifndef U_HIDE_INTERNAL_API
     /**
@@ -2496,11 +2495,18 @@ class U_I18N_API UnlocalizedNumberFormatter
     explicit UnlocalizedNumberFormatter(
             NumberFormatterSettings<UnlocalizedNumberFormatter>&& src) noexcept;
 
+    explicit UnlocalizedNumberFormatter(const impl::MacroProps &macros);
+
+    explicit UnlocalizedNumberFormatter(impl::MacroProps &&macros);
+
     // To give the fluent setters access to this class's constructor:
     friend class NumberFormatterSettings<UnlocalizedNumberFormatter>;
 
     // To give NumberFormatter::with() access to this class's constructor:
     friend class NumberFormatter;
+
+    // To give LNF::withoutLocale() access to this class's constructor:
+    friend class LocalizedNumberFormatter;
 };
 
 /**
@@ -2602,6 +2608,23 @@ class U_I18N_API LocalizedNumberFormatter
      * @stable ICU 62
      */
     Format* toFormat(UErrorCode& status) const;
+
+    /**
+     * Disassociate the locale from this formatter.
+     *
+     * @return The fluent chain.
+     * @stable ICU 75
+     */
+    UnlocalizedNumberFormatter withoutLocale() const &;
+
+    /**
+     * Overload of withoutLocale() for use on an rvalue reference.
+     *
+     * @return The fluent chain.
+     * @see #withoutLocale
+     * @stable ICU 75
+     */
+    UnlocalizedNumberFormatter withoutLocale() &&;
 
     /**
      * Default constructor: puts the formatter into a valid but undefined state.

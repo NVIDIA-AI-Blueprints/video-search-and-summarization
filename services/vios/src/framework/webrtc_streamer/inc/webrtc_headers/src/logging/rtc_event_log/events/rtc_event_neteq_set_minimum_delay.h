@@ -13,16 +13,11 @@
 
 #include <stdint.h>
 
-#include <map>
 #include <memory>
-#include <string>
-#include <vector>
 
 #include "absl/memory/memory.h"
-#include "absl/strings/string_view.h"
 #include "api/rtc_event_log/rtc_event.h"
 #include "api/units/timestamp.h"
-#include "logging/rtc_event_log/events/rtc_event_definition.h"
 
 namespace webrtc {
 
@@ -57,8 +52,7 @@ class RtcEventNetEqSetMinimumDelay final : public RtcEvent {
   int minimum_delay_ms() const { return minimum_delay_ms_; }
 
   std::unique_ptr<RtcEventNetEqSetMinimumDelay> Copy() const {
-    return absl::WrapUnique<RtcEventNetEqSetMinimumDelay>(
-        new RtcEventNetEqSetMinimumDelay(*this));
+    return absl::WrapUnique(new RtcEventNetEqSetMinimumDelay(*this));
   }
 
  private:

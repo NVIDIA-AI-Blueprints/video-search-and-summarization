@@ -42,12 +42,13 @@ class InlineCSSStyleDeclaration final
             parent_element ? parent_element->GetExecutionContext() : nullptr),
         parent_element_(parent_element) {}
 
+  bool IsPropertyValid(CSSPropertyID) const override { return true; }
   void Trace(Visitor*) const override;
 
  private:
   MutableCSSPropertyValueSet& PropertySet() const override;
   CSSStyleSheet* ParentStyleSheet() const override;
-  Element* ParentElement() const override { return parent_element_; }
+  Element* ParentElement() const override { return parent_element_.Get(); }
 
   void DidMutate(MutationType) override;
 

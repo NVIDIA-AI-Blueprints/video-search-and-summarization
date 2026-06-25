@@ -37,7 +37,7 @@ namespace blink {
 // Distance models are defined according to the OpenAL specification:
 // http://connect.creativelabs.com/openal/Documentation/OpenAL%201.1%20Specification.htm.
 
-class PLATFORM_EXPORT DistanceEffect {
+class PLATFORM_EXPORT DistanceEffect final {
   DISALLOW_NEW();
 
  public:
@@ -49,7 +49,7 @@ class PLATFORM_EXPORT DistanceEffect {
   // used
   double Gain(double distance);
 
-  ModelType Model() { return model_; }
+  ModelType Model() const { return model_; }
 
   void SetModel(ModelType model) { model_ = model; }
 

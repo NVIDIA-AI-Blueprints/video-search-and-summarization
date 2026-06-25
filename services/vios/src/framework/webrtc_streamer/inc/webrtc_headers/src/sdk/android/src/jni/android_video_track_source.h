@@ -13,12 +13,17 @@
 
 #include <jni.h>
 
-#include "common_video/libyuv/include/webrtc_libyuv.h"
+#include <atomic>
+#include <optional>
+
+#include "api/environment/environment.h"
+#include "api/scoped_refptr.h"
+#include "api/task_queue/pending_task_safety_flag.h"
 #include "media/base/adapted_video_track_source.h"
-#include "rtc_base/checks.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/timestamp_aligner.h"
-#include "sdk/android/src/jni/jni_helpers.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 namespace jni {
@@ -28,12 +33,18 @@ namespace jni {
 // called from any thread, but if frames A, B, ..., are sent to adaptFrame(),
 // the adapted frames adaptedA, adaptedB, ..., needs to be passed in the same
 // order to onFrameCaptured().
-class AndroidVideoTrackSource : public rtc::AdaptedVideoTrackSource {
+class AndroidVideoTrackSource : public AdaptedVideoTrackSource {
  public:
-  AndroidVideoTrackSource(rtc::Thread* signaling_thread,
+  [[deprecated("Provide a webrtc::Environment")]]
+  AndroidVideoTrackSource(Thread* signaling_thread,
                           JNIEnv* jni,
                           bool is_screencast,
                           bool align_timestamps);
+  AndroidVideoTrackSource(Thread* signaling_thread,
+                          JNIEnv* jni,
+                          bool is_screencast,
+                          bool align_timestamps,
+                          std::optional<Environment> env);
   ~AndroidVideoTrackSource() override;
 
   bool is_screencast() const override;
@@ -41,7 +52,7 @@ class AndroidVideoTrackSource : public rtc::AdaptedVideoTrackSource {
   // Indicates that the encoder should denoise video before encoding it.
   // If it is not set, the default configuration is used which is different
   // depending on video codec.
-  absl::optional<bool> needs_denoising() const override;
+  std::optional<bool> needs_denoising() const override;
 
   void SetState(SourceState state);
 
@@ -84,11 +95,14 @@ class AndroidVideoTrackSource : public rtc::AdaptedVideoTrackSource {
   void SetIsScreencast(JNIEnv* env, jboolean j_is_screencast);
 
  private:
-  rtc::Thread* signaling_thread_;
+  std::optional<Environment> env_;
+  Clock& clock_;
+  Thread* signaling_thread_;
   std::atomic<SourceState> state_;
   std::atomic<bool> is_screencast_;
-  rtc::TimestampAligner timestamp_aligner_;
+  TimestampAligner timestamp_aligner_;
   const bool align_timestamps_;
+  scoped_refptr<PendingTaskSafetyFlag> safety_;
 };
 
 }  // namespace jni

@@ -10,8 +10,8 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
 #import "RTCMetricsSampleInfo.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 /**
  * Enables gathering of metrics (which can be fetched with
@@ -20,4 +20,5 @@
 RTC_EXTERN void RTCEnableMetrics(void);
 
 /** Gets and clears native histograms. */
-RTC_EXTERN NSArray<RTC_OBJC_TYPE(RTCMetricsSampleInfo) *>* RTCGetAndResetMetrics(void);
+RTC_EXTERN NSArray<RTC_OBJC_TYPE(RTCMetricsSampleInfo) *>*
+    RTCGetAndResetMetrics(void);

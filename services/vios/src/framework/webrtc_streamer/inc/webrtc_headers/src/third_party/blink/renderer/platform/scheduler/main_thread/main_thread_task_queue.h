@@ -5,8 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_MAIN_THREAD_MAIN_THREAD_TASK_QUEUE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_MAIN_THREAD_MAIN_THREAD_TASK_QUEUE_H_
 
+#include <bit>
 #include <memory>
+#include <optional>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/common/lazy_now.h"
@@ -15,7 +18,6 @@
 #include "base/task/sequence_manager/time_domain.h"
 #include "base/task/single_thread_task_runner.h"
 #include "net/base/request_priority.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/scheduler/common/blink_scheduler_single_thread_task_runner.h"
 #include "third_party/blink/renderer/platform/scheduler/common/task_priority.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/budget_pool.h"
@@ -24,6 +26,7 @@
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_queue_type.h"
+#include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 #include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace base::sequence_manager {
@@ -45,7 +48,7 @@ class WakeUpBudgetPool;
 // TODO(crbug.com/1143007): Remove ref-counting of MainThreadTaskQueues as it's
 // no longer needed.
 class PLATFORM_EXPORT MainThreadTaskQueue
-    : public base::RefCountedThreadSafe<MainThreadTaskQueue> {
+    : public ThreadSafeRefCounted<MainThreadTaskQueue> {
  public:
   enum class QueueType {
     // Keep MainThreadTaskQueue::NameForQueueType in sync.
@@ -73,6 +76,8 @@ class PLATFORM_EXPORT MainThreadTaskQueue
     kFramePausable = 14,
     kFrameUnpausable = 15,
     kV8 = 16,
+    kV8UserVisible = 27,
+    kV8BestEffort = 28,
     // 17 : kIPC, obsolete
     kInput = 18,
 
@@ -92,7 +97,7 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
     // Used to group multiple types when calculating Expected Queueing Time.
     kOther = 23,
-    kCount = 27
+    kCount = 29
   };
 
   // The ThrottleHandle controls throttling and unthrottling the queue. When
@@ -131,11 +136,6 @@ class PLATFORM_EXPORT MainThreadTaskQueue
   static base::sequence_manager::QueueName NameForQueueType(
       QueueType queue_type);
 
-  // Returns true if task queues of the given queue type can be created on a
-  // per-frame basis, and false if they are only created on a shared basis for
-  // the entire main thread.
-  static bool IsPerFrameTaskQueue(QueueType);
-
   using QueueTraitsKeyType = int;
 
   // QueueTraits represent the deferrable, throttleable, pausable, and freezable
@@ -144,15 +144,7 @@ class PLATFORM_EXPORT MainThreadTaskQueue
   // the QueueTraits determine which queues should be used to run which task
   // types.
   struct QueueTraits {
-    QueueTraits()
-        : can_be_deferred(false),
-          can_be_throttled(false),
-          can_be_intensively_throttled(false),
-          can_be_paused(false),
-          can_be_frozen(false),
-          can_run_in_background(true),
-          can_run_when_virtual_time_paused(true),
-          can_be_paused_for_android_webview(false) {}
+    QueueTraits() = default;
 
     // Separate enum class for handling prioritisation decisions in task queues.
     enum class PrioritisationType {
@@ -163,33 +155,44 @@ class PLATFORM_EXPORT MainThreadTaskQueue
       kLoadingControl = 4,
       kFindInPage = 5,
       kExperimentalDatabase = 6,
-      kJavaScriptTimer = 7,
-      kHighPriorityLocalFrame = 8,
-      kCompositor = 9,  // Main-thread only.
-      kInput = 10,
-      kPostMessageForwarding = 11,
-      kInternalNavigationCancellation = 12,
-      kRenderBlocking = 13,
+      kHighPriorityLocalFrame = 7,
+      kCompositor = 8,  // Main-thread only.
+      kInput = 9,
+      kPostMessageForwarding = 10,
+      kInternalNavigationCancellation = 11,
+      kRenderBlocking = 12,
+      kLow = 13,
 
-      kCount = 14
+      kMaxValue = kLow
     };
 
-    // kPrioritisationTypeWidthBits is the number of bits required
-    // for PrioritisationType::kCount - 1, which is the number of bits needed
-    // to represent |prioritisation_type| in QueueTraitKeyType.
-    // We need to update it whenever there is a change in
-    // PrioritisationType::kCount.
-    // TODO(sreejakshetty) make the number of bits calculation automated.
-    static constexpr int kPrioritisationTypeWidthBits = 4;
-    static_assert(static_cast<int>(PrioritisationType::kCount) <=
-                      (1 << kPrioritisationTypeWidthBits),
-                  "Wrong Instanstiation for kPrioritisationTypeWidthBits");
+    // Bit width required for the PrioritisationType enumeration
+    static constexpr unsigned kPrioritisationTypeWidthBits =
+        std::bit_width(static_cast<unsigned>(PrioritisationType::kMaxValue));
+
+    // Ensure that the count of the enumeration does not exceed the
+    // representable range
+    static_assert(static_cast<unsigned>(PrioritisationType::kMaxValue) <
+                      (1u << kPrioritisationTypeWidthBits),
+                  "PrioritisationType count exceeds the bit width range");
+
+    // Ensure that the count of the enumeration is not less than half the
+    // representable range
+    static_assert(
+        static_cast<unsigned>(PrioritisationType::kMaxValue) >=
+            (1u << (kPrioritisationTypeWidthBits - 1)),
+        "PrioritisationType count is less than half the bit width range");
 
     QueueTraits(const QueueTraits&) = default;
     QueueTraits& operator=(const QueueTraits&) = default;
 
     QueueTraits SetCanBeDeferred(bool value) {
       can_be_deferred = value;
+      return *this;
+    }
+
+    QueueTraits SetCanBeDeferredForRendering(bool value) {
+      can_be_deferred_for_rendering = value;
       return *this;
     }
 
@@ -223,6 +226,11 @@ class PLATFORM_EXPORT MainThreadTaskQueue
       return *this;
     }
 
+    QueueTraits SetCanRunInBFCache(bool value) {
+      can_run_in_bfcache = value;
+      return *this;
+    }
+
     QueueTraits SetPrioritisationType(PrioritisationType type) {
       prioritisation_type = type;
       return *this;
@@ -233,34 +241,23 @@ class PLATFORM_EXPORT MainThreadTaskQueue
       return *this;
     }
 
-    bool operator==(const QueueTraits& other) const {
-      return can_be_deferred == other.can_be_deferred &&
-             can_be_throttled == other.can_be_throttled &&
-             can_be_intensively_throttled ==
-                 other.can_be_intensively_throttled &&
-             can_be_paused == other.can_be_paused &&
-             can_be_frozen == other.can_be_frozen &&
-             can_run_in_background == other.can_run_in_background &&
-             can_run_when_virtual_time_paused ==
-                 other.can_run_when_virtual_time_paused &&
-             prioritisation_type == other.prioritisation_type &&
-             can_be_paused_for_android_webview ==
-                 other.can_be_paused_for_android_webview;
-    }
+    bool operator==(const QueueTraits& other) const = default;
 
-    // Return a key suitable for WTF::HashMap.
+    // Return a key suitable for HashMap.
     QueueTraitsKeyType Key() const {
       // offset for shifting bits to compute |key|.
       // |key| starts at 1 since 0 and -1 are used for empty/deleted values.
       int offset = 0;
       int key = 1 << (offset++);
       key |= can_be_deferred << (offset++);
+      key |= can_be_deferred_for_rendering << (offset++);
       key |= can_be_throttled << (offset++);
       key |= can_be_intensively_throttled << (offset++);
       key |= can_be_paused << (offset++);
       key |= can_be_frozen << (offset++);
       key |= can_run_in_background << (offset++);
       key |= can_run_when_virtual_time_paused << (offset++);
+      key |= can_run_in_bfcache << (offset++);
       key |= can_be_paused_for_android_webview << (offset++);
       key |= static_cast<int>(prioritisation_type) << offset;
       offset += kPrioritisationTypeWidthBits;
@@ -269,14 +266,22 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
     void WriteIntoTrace(perfetto::TracedValue context) const;
 
-    bool can_be_deferred : 1;
-    bool can_be_throttled : 1;
-    bool can_be_intensively_throttled : 1;
-    bool can_be_paused : 1;
-    bool can_be_frozen : 1;
-    bool can_run_in_background : 1;
-    bool can_run_when_virtual_time_paused : 1;
-    bool can_be_paused_for_android_webview : 1;
+    bool can_be_deferred : 1 = false;
+    bool can_be_deferred_for_rendering : 1 = false;
+    bool can_be_throttled : 1 = false;
+    bool can_be_intensively_throttled : 1 = false;
+    bool can_be_paused : 1 = false;
+    bool can_be_frozen : 1 = false;
+    bool can_run_in_background : 1 = true;
+    bool can_run_when_virtual_time_paused : 1 = true;
+    // Normally, a freezable task queue is paused when its page is frozen. A
+    // page can be frozen when it enters the Back-Forward Cache, or when the
+    // browser freezes pages to save resources. This flag marks tasks that
+    // should run only when the page is frozen for BFCache. This is useful for
+    // tasks that need to evict the page from BFCache, e.g., a message from a
+    // SharedWorker.
+    bool can_run_in_bfcache : 1 = false;
+    bool can_be_paused_for_android_webview : 1 = false;
     PrioritisationType prioritisation_type = PrioritisationType::kRegular;
   };
 
@@ -285,13 +290,13 @@ class PLATFORM_EXPORT MainThreadTaskQueue
         : queue_type(queue_type), spec(NameForQueueType(queue_type)) {}
 
     QueueCreationParams SetWebSchedulingQueueType(
-        absl::optional<WebSchedulingQueueType> type) {
+        std::optional<WebSchedulingQueueType> type) {
       web_scheduling_queue_type = type;
       return *this;
     }
 
     QueueCreationParams SetWebSchedulingPriority(
-        absl::optional<WebSchedulingPriority> priority) {
+        std::optional<WebSchedulingPriority> priority) {
       web_scheduling_priority = priority;
       return *this;
     }
@@ -311,6 +316,12 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
     QueueCreationParams SetCanBeDeferred(bool value) {
       queue_traits = queue_traits.SetCanBeDeferred(value);
+      ApplyQueueTraitsToSpec();
+      return *this;
+    }
+
+    QueueCreationParams SetCanBeDeferredForRendering(bool value) {
+      queue_traits = queue_traits.SetCanBeDeferredForRendering(value);
       ApplyQueueTraitsToSpec();
       return *this;
     }
@@ -341,6 +352,12 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
     QueueCreationParams SetCanRunWhenVirtualTimePaused(bool value) {
       queue_traits = queue_traits.SetCanRunWhenVirtualTimePaused(value);
+      ApplyQueueTraitsToSpec();
+      return *this;
+    }
+
+    QueueCreationParams SetCanRunInBFCache(bool value) {
+      queue_traits = queue_traits.SetCanRunInBFCache(value);
       ApplyQueueTraitsToSpec();
       return *this;
     }
@@ -378,10 +395,10 @@ class PLATFORM_EXPORT MainThreadTaskQueue
     QueueType queue_type;
     TaskQueue::Spec spec;
     WeakPersistent<AgentGroupSchedulerImpl> agent_group_scheduler;
-    FrameSchedulerImpl* frame_scheduler = nullptr;
+    raw_ptr<FrameSchedulerImpl> frame_scheduler = nullptr;
     QueueTraits queue_traits;
-    absl::optional<WebSchedulingQueueType> web_scheduling_queue_type;
-    absl::optional<WebSchedulingPriority> web_scheduling_priority;
+    std::optional<WebSchedulingQueueType> web_scheduling_queue_type;
+    std::optional<WebSchedulingPriority> web_scheduling_priority;
 
    private:
     void ApplyQueueTraitsToSpec() {
@@ -397,6 +414,10 @@ class PLATFORM_EXPORT MainThreadTaskQueue
   QueueType queue_type() const { return queue_type_; }
 
   bool CanBeDeferred() const { return queue_traits_.can_be_deferred; }
+
+  bool CanBeDeferredForRendering() const {
+    return queue_traits_.can_be_deferred_for_rendering;
+  }
 
   bool CanBeThrottled() const { return queue_traits_.can_be_throttled; }
 
@@ -425,6 +446,8 @@ class PLATFORM_EXPORT MainThreadTaskQueue
   bool CanRunWhenVirtualTimePaused() const {
     return queue_traits_.can_run_when_virtual_time_paused;
   }
+
+  bool CanRunInBFCache() const { return queue_traits_.can_run_in_bfcache; }
 
   QueueTraits GetQueueTraits() const { return queue_traits_; }
 
@@ -461,11 +484,11 @@ class PLATFORM_EXPORT MainThreadTaskQueue
   scoped_refptr<base::SingleThreadTaskRunner> CreateTaskRunner(
       TaskType task_type);
 
-  absl::optional<WebSchedulingQueueType> GetWebSchedulingQueueType() const {
+  std::optional<WebSchedulingQueueType> GetWebSchedulingQueueType() const {
     return web_scheduling_queue_type_;
   }
 
-  absl::optional<WebSchedulingPriority> GetWebSchedulingPriority() const {
+  std::optional<WebSchedulingPriority> GetWebSchedulingPriority() const {
     return web_scheduling_priority_;
   }
 
@@ -548,42 +571,42 @@ class PLATFORM_EXPORT MainThreadTaskQueue
   ~MainThreadTaskQueue();
 
  private:
-  friend class base::RefCountedThreadSafe<MainThreadTaskQueue>;
+  friend class ThreadSafeRefCounted<MainThreadTaskQueue>;
   friend class blink::scheduler::main_thread_scheduler_impl_unittest::
       MainThreadSchedulerImplTest;
 
   scoped_refptr<BlinkSchedulerSingleThreadTaskRunner> WrapTaskRunner(
       scoped_refptr<base::SingleThreadTaskRunner>);
 
-  scoped_refptr<TaskQueue> task_queue_;
+  TaskQueue::Handle task_queue_;
   scoped_refptr<base::SingleThreadTaskRunner>
       task_runner_with_default_task_type_;
-  absl::optional<TaskQueueThrottler> throttler_;
+  std::optional<TaskQueueThrottler> throttler_;
 
   const QueueType queue_type_;
   const QueueTraits queue_traits_;
 
   // Set if this is queue is used for the web-exposed scheduling API. Used to
   // differentiate initial tasks from continuations for prioritization.
-  const absl::optional<WebSchedulingQueueType> web_scheduling_queue_type_;
+  const std::optional<WebSchedulingQueueType> web_scheduling_queue_type_;
 
   // |web_scheduling_priority_| is the priority of the task queue within the web
   // scheduling API. This priority is used in conjunction with the frame
   // scheduling policy to determine the task queue priority.
-  absl::optional<WebSchedulingPriority> web_scheduling_priority_;
+  std::optional<WebSchedulingPriority> web_scheduling_priority_;
 
   // Needed to notify renderer scheduler about completed tasks.
-  MainThreadSchedulerImpl* main_thread_scheduler_;  // NOT OWNED
+  raw_ptr<MainThreadSchedulerImpl> main_thread_scheduler_;  // NOT OWNED
 
   WeakPersistent<AgentGroupSchedulerImpl> agent_group_scheduler_;
 
   // Set in the constructor. Cleared in `DetachTaskQueue()` and
   // `ShutdownTaskQueue()`. Can never be set to a different value afterwards
   // (except in tests).
-  FrameSchedulerImpl* frame_scheduler_;  // NOT OWNED
+  raw_ptr<FrameSchedulerImpl, DanglingUntriaged> frame_scheduler_;  // NOT OWNED
 
   // The WakeUpBudgetPool for this TaskQueue, if any.
-  WakeUpBudgetPool* wake_up_budget_pool_{nullptr};  // NOT OWNED
+  raw_ptr<WakeUpBudgetPool> wake_up_budget_pool_{nullptr};  // NOT OWNED
 
   std::unique_ptr<TaskQueue::OnTaskPostedCallbackHandle>
       on_ipc_task_posted_callback_handle_;

@@ -24,9 +24,10 @@
 
 #include "absl/strings/string_view.h"
 #include "rtc_base/buffer.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/system/rtc_export.h"
 
-namespace rtc {
+namespace webrtc {
 
 struct RTC_EXPORT SSLCertificateStats {
   SSLCertificateStats(std::string&& fingerprint,
@@ -77,9 +78,7 @@ class RTC_EXPORT SSLCertificate {
 
   // Compute the digest of the certificate given algorithm
   virtual bool ComputeDigest(absl::string_view algorithm,
-                             unsigned char* digest,
-                             size_t size,
-                             size_t* length) const = 0;
+                             Buffer& digest) const = 0;
 
   // Returns the time in seconds relative to epoch, 1970-01-01T00:00:00Z (UTC),
   // or -1 if an expiration time could not be retrieved.
@@ -132,11 +131,28 @@ class RTC_EXPORT SSLCertChain final {
 class SSLCertificateVerifier {
  public:
   virtual ~SSLCertificateVerifier() = default;
-  // Returns true if the certificate is valid, else false. It is up to the
-  // implementer to define what a valid certificate looks like.
-  virtual bool Verify(const SSLCertificate& certificate) = 0;
+
+  // Verify a complete certificate chain (leaf first, then intermediates).
+  // Default implementation verifies only the leaf certificate for backward
+  // compatibility. New implementations should override VerifyChain() to perform
+  // full chain validation.
+  virtual bool VerifyChain(const SSLCertChain& chain) {
+    if (chain.GetSize() == 0) {
+      return false;
+    }
+    return Verify(chain.Get(0));
+  }
+
+  // Legacy method for verifying a single certificate (the leaf).
+  // TODO(webrtc:451744857): Remove this method once all clients have migrated
+  // to VerifyChain().
+  virtual bool Verify(const SSLCertificate& certificate) {
+    RTC_CHECK_NOTREACHED();
+    return false;
+  }
 };
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_SSL_CERTIFICATE_H_

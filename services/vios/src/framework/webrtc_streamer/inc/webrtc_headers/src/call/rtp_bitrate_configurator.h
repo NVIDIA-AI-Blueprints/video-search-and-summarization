@@ -11,9 +11,9 @@
 #ifndef CALL_RTP_BITRATE_CONFIGURATOR_H_
 #define CALL_RTP_BITRATE_CONFIGURATOR_H_
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "api/transport/bitrate_settings.h"
-#include "api/units/data_rate.h"
 
 namespace webrtc {
 
@@ -36,7 +36,7 @@ class RtpBitrateConfigurator {
   // implemented. Passing -1 leaves the start bitrate unchanged. Behavior is not
   // guaranteed for other negative values or 0.
   // The optional return value is set with new configuration if it was updated.
-  absl::optional<BitrateConstraints> UpdateWithSdpParameters(
+  std::optional<BitrateConstraints> UpdateWithSdpParameters(
       const BitrateConstraints& bitrate_config_);
 
   // The greater min and smaller max set by this and SetSdpBitrateParameters
@@ -45,17 +45,14 @@ class RtpBitrateConfigurator {
   // Assumes 0 <= min <= start <= max holds for set parameters.
   // Update the bitrate configuration
   // The optional return value is set with new configuration if it was updated.
-  absl::optional<BitrateConstraints> UpdateWithClientPreferences(
+  std::optional<BitrateConstraints> UpdateWithClientPreferences(
       const BitrateSettings& bitrate_mask);
-
-  // Apply a cap for relayed calls.
-  absl::optional<BitrateConstraints> UpdateWithRelayCap(DataRate cap);
 
  private:
   // Applies update to the BitrateConstraints cached in `config_`, resetting
   // with `new_start` if set.
-  absl::optional<BitrateConstraints> UpdateConstraints(
-      const absl::optional<int>& new_start);
+  std::optional<BitrateConstraints> UpdateConstraints(
+      const std::optional<int>& new_start);
 
   // Bitrate config used until valid bitrate estimates are calculated. Also
   // used to cap total bitrate used. This comes from the remote connection.
@@ -68,9 +65,6 @@ class RtpBitrateConfigurator {
   // The config set by SetSdpBitrateParameters.
   // min >= 0, start != 0, max == -1 || max > 0
   BitrateConstraints base_bitrate_config_;
-
-  // Bandwidth cap applied for relayed calls.
-  DataRate max_bitrate_over_relay_ = DataRate::PlusInfinity();
 };
 }  // namespace webrtc
 

@@ -22,7 +22,7 @@ class PipeOptions : public GarbageCollected<PipeOptions> {
   bool PreventClose() const { return prevent_close_; }
   bool PreventAbort() const { return prevent_abort_; }
   bool PreventCancel() const { return prevent_cancel_; }
-  AbortSignal* Signal() const { return signal_; }
+  AbortSignal* Signal() const { return signal_.Get(); }
 
   void Trace(Visitor*) const;
 
@@ -35,4 +35,4 @@ class PipeOptions : public GarbageCollected<PipeOptions> {
 
 }  // namespace blink
 
-#endif  // LOCAL_GOOGLE_HOME_NIDHIJAJU_CHROMIUM_SRC_THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_PIPE_OPTIONS_H_
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_PIPE_OPTIONS_H_

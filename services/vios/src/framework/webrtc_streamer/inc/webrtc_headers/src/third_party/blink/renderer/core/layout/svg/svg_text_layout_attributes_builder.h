@@ -1,87 +1,74 @@
-/*
- * Copyright (C) Research In Motion Limited 2010-2012. All rights reserved.
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
- *
- * You should have received a copy of the GNU Library General Public License
- * along with this library; see the file COPYING.LIB.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
- */
+// Copyright 2021 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_SVG_TEXT_LAYOUT_ATTRIBUTES_BUILDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_SVG_TEXT_LAYOUT_ATTRIBUTES_BUILDER_H_
 
-#include "base/macros.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_character_data.h"
-#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/core/layout/svg/svg_inline_node_data.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
-class LayoutBoxModelObject;
-class LayoutSVGText;
-class SVGTextPositioningElement;
+class InlineNode;
+class LayoutBlockFlow;
 
-// SVGTextLayoutAttributesBuilder performs the first layout phase for SVG text.
+// This class builds a list of <addressable character offset,
+// its attribute values> for the specified SVG <text>.
 //
-// It extracts the x/y/dx/dy/rotate values from the SVGTextPositioningElements
-// in the DOM. These values are propagated to the corresponding
-// LayoutSVGInlineText layoutObjects.
-// The first layout phase only extracts the relevant information needed in
-// LayoutBlockFlowLine to create the InlineBox tree based on text chunk
-// boundaries & BiDi information.
-// The second layout phase is carried out by SVGTextLayoutEngine.
-class SVGTextLayoutAttributesBuilder {
+// This is almost an implementation of '3. Resolve character positioning'
+// in the algorithm [1]. However this runs during PrepareLayout() rather
+// than during the SVG text layout algorithm because we'd like to use the
+// result of this class in InlineNode::CollectInlines().
+//
+// Also, this is responsible to make lists of index ranges for <textPath> and
+// textLength.
+//
+// [1] https://svgwg.org/svg2-draft/text.html#TextLayoutAlgorithm
+class SvgTextLayoutAttributesBuilder final {
   STACK_ALLOCATED();
 
  public:
-  explicit SVGTextLayoutAttributesBuilder(LayoutSVGText&);
+  explicit SvgTextLayoutAttributesBuilder(InlineNode ifc);
 
-  void BuildLayoutAttributes();
+  void Build(const String& ifc_text_content, const InlineItems& items);
 
-  struct TextPosition {
-    DISALLOW_NEW();
+  // This function can be called just once after Build().
+  SvgInlineNodeData* CreateSvgInlineNodeData();
 
-   public:
-    TextPosition(SVGTextPositioningElement* new_element = nullptr,
-                 unsigned new_start = 0,
-                 unsigned new_length = 0)
-        : element(new_element), start(new_start), length(new_length) {}
-
-    void Trace(Visitor*) const;
-
-    Member<SVGTextPositioningElement> element;
-    unsigned start;
-    unsigned length;
-  };
+  // This function can be called after Build().
+  unsigned IfcTextContentOffsetAt(wtf_size_t index);
 
  private:
-  void BuildCharacterDataMap(LayoutSVGText&);
-  void BuildLayoutAttributes(LayoutSVGText&) const;
-  void CollectTextPositioningElements(LayoutBoxModelObject&);
-  void FillCharacterDataMap(const TextPosition&);
+  LayoutBlockFlow* block_flow_;
 
-  LayoutSVGText& text_root_;
-  unsigned character_count_;
-  HeapVector<TextPosition> text_positions_;
-  SVGCharacterDataMap character_data_map_;
+  // The result of Build().
+  // A list of a pair of addressable character index and an
+  // SvgCharacterData. This is named 'resolved' because this is
+  // the outcome of '3. Resolve character positioning'.
+  Vector<std::pair<unsigned, SvgCharacterData>> resolved_;
 
-  DISALLOW_COPY_AND_ASSIGN(SVGTextLayoutAttributesBuilder);
+  // The result of Build().
+  // A list of IFC text content offsets for the corresponding addressable
+  // character index in resolved_.
+  Vector<unsigned> ifc_text_content_offsets_;
+
+  // The result of Build().
+  // A list of a pair of start addressable character index and end
+  // addressable character index (inclusive) for an SVGTextContentElement
+  // with textLength.
+  // This is used in "5. Apply ‘textLength’ attribute".
+  HeapVector<SvgTextContentRange> text_length_range_list_;
+
+  // The result of Build().
+  // A list of a pair of start addressable character index and end
+  // addressable character index (inclusive) for a <textPath>.
+  // This is used in "8. Position on path".
+  HeapVector<SvgTextContentRange> text_path_range_list_;
 };
 
 }  // namespace blink
 
-WTF_ALLOW_MOVE_AND_INIT_WITH_MEM_FUNCTIONS(
-    blink::SVGTextLayoutAttributesBuilder::TextPosition)
-
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_SVG_TEXT_LAYOUT_ATTRIBUTES_BUILDER_H_

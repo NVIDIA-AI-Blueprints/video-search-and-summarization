@@ -9,13 +9,14 @@
  */
 #ifndef NET_DCSCTP_PACKET_CHUNK_FORWARD_TSN_COMMON_H_
 #define NET_DCSCTP_PACKET_CHUNK_FORWARD_TSN_COMMON_H_
-#include <stdint.h>
 
+#include <span>
 #include <utility>
 #include <vector>
 
-#include "api/array_view.h"
+#include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/packet/chunk/chunk.h"
+#include "net/dcsctp/public/types.h"
 
 namespace dcsctp {
 
@@ -24,12 +25,9 @@ class AnyForwardTsnChunk : public Chunk {
  public:
   struct SkippedStream {
     SkippedStream(StreamID stream_id, SSN ssn)
-        : stream_id(stream_id), ssn(ssn), unordered(false), message_id(0) {}
-    SkippedStream(IsUnordered unordered, StreamID stream_id, MID message_id)
-        : stream_id(stream_id),
-          ssn(0),
-          unordered(unordered),
-          message_id(message_id) {}
+        : stream_id(stream_id), ssn(ssn), unordered(false), mid(0) {}
+    SkippedStream(IsUnordered unordered, StreamID stream_id, MID mid)
+        : stream_id(stream_id), ssn(0), unordered(unordered), mid(mid) {}
 
     StreamID stream_id;
 
@@ -38,11 +36,11 @@ class AnyForwardTsnChunk : public Chunk {
 
     // Set for I-FORWARD_TSN
     IsUnordered unordered;
-    MID message_id;
+    MID mid;
 
     bool operator==(const SkippedStream& other) const {
       return stream_id == other.stream_id && ssn == other.ssn &&
-             unordered == other.unordered && message_id == other.message_id;
+             unordered == other.unordered && mid == other.mid;
     }
   };
 
@@ -53,7 +51,7 @@ class AnyForwardTsnChunk : public Chunk {
 
   TSN new_cumulative_tsn() const { return new_cumulative_tsn_; }
 
-  rtc::ArrayView<const SkippedStream> skipped_streams() const {
+  std::span<const SkippedStream> skipped_streams() const {
     return skipped_streams_;
   }
 

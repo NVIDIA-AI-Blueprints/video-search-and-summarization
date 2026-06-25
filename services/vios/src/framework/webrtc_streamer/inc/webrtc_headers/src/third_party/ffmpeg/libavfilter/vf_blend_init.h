@@ -58,7 +58,7 @@ static void blend_copy ## src##_##depth(const uint8_t *top, ptrdiff_t top_linesi
                             const uint8_t *bottom, ptrdiff_t bottom_linesize,\
                             uint8_t *dst, ptrdiff_t dst_linesize,            \
                             ptrdiff_t width, ptrdiff_t height,               \
-                            FilterParams *param, double *values, int starty) \
+                            FilterParams *param, SliceParams *sliceparam)    \
 {                                                                            \
     av_image_copy_plane(dst, dst_linesize, src, src ## _linesize,            \
                         width * depth / 8, height);                          \
@@ -80,24 +80,20 @@ static void blend_normal_##name(const uint8_t *_top, ptrdiff_t top_linesize,    
                                 const uint8_t *_bottom, ptrdiff_t bottom_linesize,\
                                 uint8_t *_dst, ptrdiff_t dst_linesize,            \
                                 ptrdiff_t width, ptrdiff_t height,                \
-                                FilterParams *param, double *values, int starty)  \
+                                FilterParams *param, SliceParams *sliceparam)     \
 {                                                                                 \
-    const type *top = (type*)_top;                                                \
-    const type *bottom = (type*)_bottom;                                          \
-    type *dst = (type*)_dst;                                                      \
     const float opacity = param->opacity;                                         \
                                                                                   \
-    dst_linesize /= sizeof(type);                                                 \
-    top_linesize /= sizeof(type);                                                 \
-    bottom_linesize /= sizeof(type);                                              \
-                                                                                  \
     for (int i = 0; i < height; i++) {                                            \
+        const type *top = (const type*)_top;                                      \
+        const type *bottom = (const type*)_bottom;                                \
+        type *dst = (type*)_dst;                                                  \
         for (int j = 0; j < width; j++) {                                         \
             dst[j] = top[j] * opacity + bottom[j] * (1.f - opacity);              \
         }                                                                         \
-        dst    += dst_linesize;                                                   \
-        top    += top_linesize;                                                   \
-        bottom += bottom_linesize;                                                \
+        _dst    += dst_linesize;                                                  \
+        _top    += top_linesize;                                                  \
+        _bottom += bottom_linesize;                                               \
     }                                                                             \
 }
 
@@ -111,11 +107,11 @@ static av_cold void init_blend_func_##depth##_##nbits##bit(FilterParams *param) 
     switch (param->mode) {                                                            \
     case BLEND_ADDITION:     param->blend = blend_addition_##depth##bit;     break;   \
     case BLEND_GRAINMERGE:   param->blend = blend_grainmerge_##depth##bit;   break;   \
-    case BLEND_AND:          param->blend = blend_and_##depth##bit;          break;   \
-    case BLEND_AVERAGE:      param->blend = blend_average_##depth##bit;      break;   \
+    case BLEND_AND:          param->blend = blend_and_##nbits##bit;          break;   \
+    case BLEND_AVERAGE:      param->blend = blend_average_##nbits##bit;      break;   \
     case BLEND_BURN:         param->blend = blend_burn_##depth##bit;         break;   \
-    case BLEND_DARKEN:       param->blend = blend_darken_##depth##bit;       break;   \
-    case BLEND_DIFFERENCE:   param->blend = blend_difference_##depth##bit;   break;   \
+    case BLEND_DARKEN:       param->blend = blend_darken_##nbits##bit;       break;   \
+    case BLEND_DIFFERENCE:   param->blend = blend_difference_##nbits##bit;   break;   \
     case BLEND_GRAINEXTRACT: param->blend = blend_grainextract_##depth##bit; break;   \
     case BLEND_DIVIDE:       param->blend = blend_divide_##depth##bit;       break;   \
     case BLEND_DODGE:        param->blend = blend_dodge_##depth##bit;        break;   \
@@ -126,25 +122,25 @@ static av_cold void init_blend_func_##depth##_##nbits##bit(FilterParams *param) 
     case BLEND_HARDLIGHT:    param->blend = blend_hardlight_##depth##bit;    break;   \
     case BLEND_HARDMIX:      param->blend = blend_hardmix_##depth##bit;      break;   \
     case BLEND_HEAT:         param->blend = blend_heat_##depth##bit;         break;   \
-    case BLEND_LIGHTEN:      param->blend = blend_lighten_##depth##bit;      break;   \
+    case BLEND_LIGHTEN:      param->blend = blend_lighten_##nbits##bit;      break;   \
     case BLEND_LINEARLIGHT:  param->blend = blend_linearlight_##depth##bit;  break;   \
     case BLEND_MULTIPLY:     param->blend = blend_multiply_##depth##bit;     break;   \
     case BLEND_MULTIPLY128:  param->blend = blend_multiply128_##depth##bit;  break;   \
     case BLEND_NEGATION:     param->blend = blend_negation_##depth##bit;     break;   \
     case BLEND_NORMAL:       param->blend = blend_normal_##nbits##bit;       break;   \
-    case BLEND_OR:           param->blend = blend_or_##depth##bit;           break;   \
+    case BLEND_OR:           param->blend = blend_or_##nbits##bit;           break;   \
     case BLEND_OVERLAY:      param->blend = blend_overlay_##depth##bit;      break;   \
     case BLEND_PHOENIX:      param->blend = blend_phoenix_##depth##bit;      break;   \
     case BLEND_PINLIGHT:     param->blend = blend_pinlight_##depth##bit;     break;   \
     case BLEND_REFLECT:      param->blend = blend_reflect_##depth##bit;      break;   \
     case BLEND_SCREEN:       param->blend = blend_screen_##depth##bit;       break;   \
     case BLEND_SOFTLIGHT:    param->blend = blend_softlight_##depth##bit;    break;   \
-    case BLEND_SUBTRACT:     param->blend = blend_subtract_##depth##bit;     break;   \
+    case BLEND_SUBTRACT:     param->blend = blend_subtract_##nbits##bit;     break;   \
     case BLEND_VIVIDLIGHT:   param->blend = blend_vividlight_##depth##bit;   break;   \
-    case BLEND_XOR:          param->blend = blend_xor_##depth##bit;          break;   \
+    case BLEND_XOR:          param->blend = blend_xor_##nbits##bit;          break;   \
     case BLEND_SOFTDIFFERENCE:param->blend=blend_softdifference_##depth##bit;break;   \
-    case BLEND_GEOMETRIC:    param->blend = blend_geometric_##depth##bit;    break;   \
-    case BLEND_HARMONIC:     param->blend = blend_harmonic_##depth##bit;     break;   \
+    case BLEND_GEOMETRIC:    param->blend = blend_geometric_##nbits##bit;    break;   \
+    case BLEND_HARMONIC:     param->blend = blend_harmonic_##nbits##bit;     break;   \
     case BLEND_BLEACH:       param->blend = blend_bleach_##depth##bit;       break;   \
     case BLEND_STAIN:        param->blend = blend_stain_##depth##bit;        break;   \
     case BLEND_INTERPOLATE:  param->blend = blend_interpolate_##depth##bit;  break;   \
@@ -159,7 +155,7 @@ DEFINE_INIT_BLEND_FUNC(14, 16)
 DEFINE_INIT_BLEND_FUNC(16, 16)
 DEFINE_INIT_BLEND_FUNC(32, 32)
 
-static av_unused void ff_blend_init(FilterParams *param, int depth)
+av_unused static void ff_blend_init(FilterParams *param, int depth)
 {
     switch (depth) {
     case 8:
@@ -194,7 +190,7 @@ static av_unused void ff_blend_init(FilterParams *param, int depth)
             param->blend = depth > 8 ? depth > 16 ? blend_copybottom_32 : blend_copybottom_16 : blend_copybottom_8;
     }
 
-#if ARCH_X86
+#if ARCH_X86 && HAVE_X86ASM
     ff_blend_init_x86(param, depth);
 #endif
 }

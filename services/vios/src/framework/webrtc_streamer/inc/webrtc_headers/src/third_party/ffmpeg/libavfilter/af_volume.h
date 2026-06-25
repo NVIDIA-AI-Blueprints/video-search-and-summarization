@@ -47,7 +47,6 @@ enum VolumeVarName {
     VAR_NB_CHANNELS,
     VAR_NB_CONSUMED_SAMPLES,
     VAR_NB_SAMPLES,
-    VAR_POS,
     VAR_PTS,
     VAR_SAMPLE_RATE,
     VAR_STARTPTS,

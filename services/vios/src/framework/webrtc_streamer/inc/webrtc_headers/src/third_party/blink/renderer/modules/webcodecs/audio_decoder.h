@@ -32,10 +32,10 @@ namespace blink {
 
 class AudioData;
 class AudioDecoderConfig;
+class AudioDecoderSupport;
 class EncodedAudioChunk;
 class ExceptionState;
 class AudioDecoderInit;
-class ScriptPromise;
 class V8AudioDataOutputCallback;
 
 class MODULES_EXPORT AudioDecoderTraits {
@@ -75,17 +75,16 @@ class MODULES_EXPORT AudioDecoder : public DecoderTemplate<AudioDecoderTraits> {
                               const AudioDecoderInit*,
                               ExceptionState&);
 
-  static ScriptPromise isConfigSupported(ScriptState*,
-                                         const AudioDecoderConfig*,
-                                         ExceptionState&);
+  static ScriptPromise<AudioDecoderSupport>
+  isConfigSupported(ScriptState*, const AudioDecoderConfig*, ExceptionState&);
 
   // Returns parsed AudioType if the configuration is valid.
-  static absl::optional<media::AudioType> IsValidAudioDecoderConfig(
+  static std::optional<media::AudioType> IsValidAudioDecoderConfig(
       const AudioDecoderConfig& config,
       String* js_error_message);
 
   // For use by MediaSource and by ::MakeMediaConfig.
-  static absl::optional<media::AudioDecoderConfig> MakeMediaAudioDecoderConfig(
+  static std::optional<media::AudioDecoderConfig> MakeMediaAudioDecoderConfig(
       const ConfigType& config,
       String* js_error_message);
 
@@ -98,7 +97,7 @@ class MODULES_EXPORT AudioDecoder : public DecoderTemplate<AudioDecoderTraits> {
  protected:
   bool IsValidConfig(const ConfigType& config,
                      String* js_error_message) override;
-  absl::optional<media::AudioDecoderConfig> MakeMediaConfig(
+  std::optional<media::AudioDecoderConfig> MakeMediaConfig(
       const ConfigType& config,
       String* js_error_message) override;
   media::DecoderStatus::Or<scoped_refptr<media::DecoderBuffer>> MakeInput(

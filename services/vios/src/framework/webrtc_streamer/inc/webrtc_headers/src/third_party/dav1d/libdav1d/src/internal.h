@@ -53,6 +53,7 @@ typedef struct Dav1dTask Dav1dTask;
 #include "src/looprestoration.h"
 #include "src/mc.h"
 #include "src/msac.h"
+#include "src/pal.h"
 #include "src/picture.h"
 #include "src/recon.h"
 #include "src/refmvs.h"
@@ -141,7 +142,7 @@ struct Dav1dContext {
         atomic_uint reset_task_cur;
         atomic_int cond_signaled;
         struct {
-            int exec;
+            int exec, finished;
             pthread_cond_t cond;
             const Dav1dPicture *in;
             Dav1dPicture *out;
@@ -168,12 +169,13 @@ struct Dav1dContext {
         Dav1dThreadPicture p;
         Dav1dRef *segmap;
         Dav1dRef *refmvs;
-        unsigned refpoc[7];
+        uint8_t refpoc[7];
     } refs[8];
     Dav1dMemPool *cdf_pool;
     CdfThreadContext cdf[8];
 
     Dav1dDSPContext dsp[3 /* 8, 10, 12 bits/component */];
+    Dav1dPalDSPContext pal_dsp;
     Dav1dRefmvsDSPContext refmvs_dsp;
 
     Dav1dPicAllocator allocator;
@@ -196,6 +198,7 @@ struct Dav1dContext {
     Dav1dLogger logger;
 
     Dav1dMemPool *picture_pool;
+    Dav1dMemPool *pic_ctx_pool;
 };
 
 struct Dav1dTask {
@@ -223,7 +226,7 @@ struct Dav1dFrameContext {
     Dav1dRef *cur_segmap_ref, *prev_segmap_ref;
     uint8_t *cur_segmap;
     const uint8_t *prev_segmap;
-    unsigned refpoc[7], refrefpoc[7][7];
+    uint8_t refpoc[7], refrefpoc[7][7];
     uint8_t gmv_warp_allowed[7];
     CdfThreadContext in_cdf, out_cdf;
     struct Dav1dTileGroup *tile;
@@ -252,6 +255,10 @@ struct Dav1dFrameContext {
         filter_sbrow_fn filter_sbrow_lr;
         backup_ipred_edge_fn backup_ipred_edge;
         read_coef_blocks_fn read_coef_blocks;
+        copy_pal_block_fn copy_pal_block_y;
+        copy_pal_block_fn copy_pal_block_uv;
+        read_pal_plane_fn read_pal_plane;
+        read_pal_uv_fn read_pal_uv;
     } bd_fn;
 
     int ipred_edge_sz;
@@ -273,19 +280,16 @@ struct Dav1dFrameContext {
         atomic_uint *frame_progress, *copy_lpf_progress;
         // indexed using t->by * f->b4_stride + t->bx
         Av1Block *b;
-        struct CodedBlockInfo {
-            int16_t eob[3 /* plane */];
-            uint8_t txtp[3 /* plane */];
-        } *cbi;
+        int16_t *cbi; /* bits 0-4: txtp, bits 5-15: eob */
         // indexed using (t->by >> 1) * (f->b4_stride >> 1) + (t->bx >> 1)
-        uint16_t (*pal)[3 /* plane */][8 /* idx */];
+        pixel (*pal)[3 /* plane */][8 /* idx */];
         // iterated over inside tile state
         uint8_t *pal_idx;
         coef *cf;
         int prog_sz;
-        int pal_sz, pal_idx_sz, cf_sz;
+        int cbi_sz, pal_sz, pal_idx_sz, cf_sz;
         // start offsets per tile
-        int *tile_start_off;
+        unsigned *tile_start_off;
     } frame_thread;
 
     // loopfilter
@@ -298,9 +302,9 @@ struct Dav1dFrameContext {
         int cdef_buf_sbh;
         int lr_buf_plane_sz[2]; /* (stride*sbh*4) << sb128 if n_tc > 1, else stride*4 */
         int re_sz /* h */;
-        ALIGN(Av1FilterLUT lim_lut, 16);
+        Av1FilterLUT lim_lut;
+        ALIGN(uint8_t lvl[8 /* seg_id */][4 /* dir */][8 /* ref */][2 /* is_gmv */], 16);
         int last_sharpness;
-        uint8_t lvl[8 /* seg_id */][4 /* dir */][8 /* ref */][2 /* is_gmv */];
         uint8_t *tx_lpf_right_edge[2];
         uint8_t *cdef_line_buf, *lr_line_buf;
         pixel *cdef_line[2 /* pre, post */][3 /* plane */];
@@ -312,7 +316,6 @@ struct Dav1dFrameContext {
         int start_of_tile_row_sz;
         int need_cdef_lpf_copy;
         pixel *p[3], *sr_p[3];
-        Av1Filter *mask_ptr, *prev_mask_ptr;
         int restore_planes; // enum LrRestorePlanes
     } lf;
 
@@ -361,6 +364,7 @@ struct Dav1dTileState {
     atomic_int progress[2 /* 0: reconstruction, 1: entropy */];
     struct {
         uint8_t *pal_idx;
+        int16_t *cbi;
         coef *cf;
     } frame_thread[2 /* 0: reconstruction, 1: entropy */];
 
@@ -372,8 +376,11 @@ struct Dav1dTileState {
     const uint16_t (*dq)[3][2];
     int last_qidx;
 
-    int8_t last_delta_lf[4];
-    uint8_t lflvlmem[8 /* seg_id */][4 /* dir */][8 /* ref */][2 /* is_gmv */];
+    union {
+        int8_t i8[4];
+        uint32_t u32;
+    } last_delta_lf;
+    ALIGN(uint8_t lflvlmem[8 /* seg_id */][4 /* dir */][8 /* ref */][2 /* is_gmv */], 16);
     const uint8_t (*lflvl)[4][8][2];
 
     Av1RestorationUnit *lr_ref[3];
@@ -390,11 +397,11 @@ struct Dav1dTaskContext {
         int16_t cf_8bpc [32 * 32];
         int32_t cf_16bpc[32 * 32];
     };
-    // FIXME types can be changed to pixel (and dynamically allocated)
-    // which would make copy/assign operations slightly faster?
-    uint16_t al_pal[2 /* a/l */][32 /* bx/y4 */][3 /* plane */][8 /* palette_idx */];
+    union {
+        uint8_t  al_pal_8bpc [2 /* a/l */][32 /* bx/y4 */][3 /* plane */][8 /* palette_idx */];
+        uint16_t al_pal_16bpc[2 /* a/l */][32 /* bx/y4 */][3 /* plane */][8 /* palette_idx */];
+    };
     uint8_t pal_sz_uv[2 /* a/l */][32 /* bx4/by4 */];
-    uint8_t txtp_map[32 * 32]; // inter-only
     ALIGN(union, 64) {
         struct {
             union {
@@ -419,17 +426,22 @@ struct Dav1dTaskContext {
                     uint8_t pal_ctx[64];
                 };
             };
-            int16_t ac[32 * 32];
-            uint8_t pal_idx[2 * 64 * 64];
-            uint16_t pal[3 /* plane */][8 /* palette_idx */];
-            ALIGN(union, 64) {
+            union {
+                int16_t ac[32 * 32]; // intra-only
+                uint8_t txtp_map[32 * 32]; // inter-only
+            };
+            uint8_t pal_idx_y[32 * 64];
+            uint8_t pal_idx_uv[64 * 64]; /* also used as pre-pack scratch buffer */
+            union {
                 struct {
                     uint8_t interintra_8bpc[64 * 64];
                     uint8_t edge_8bpc[257];
+                    ALIGN(uint8_t pal_8bpc[3 /* plane */][8 /* palette_idx */], 8);
                 };
                 struct {
                     uint16_t interintra_16bpc[64 * 64];
                     uint16_t edge_16bpc[257];
+                    ALIGN(uint16_t pal_16bpc[3 /* plane */][8 /* palette_idx */], 16);
                 };
             };
         };

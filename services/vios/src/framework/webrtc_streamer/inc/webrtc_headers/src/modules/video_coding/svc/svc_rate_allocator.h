@@ -12,20 +12,23 @@
 #define MODULES_VIDEO_CODING_SVC_SVC_RATE_ALLOCATOR_H_
 
 #include <stddef.h>
-#include <stdint.h>
+
+#include <vector>
 
 #include "absl/container/inlined_vector.h"
+#include "api/field_trials_view.h"
+#include "api/units/data_rate.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "api/video/video_bitrate_allocator.h"
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/video_codec.h"
-#include "rtc_base/experiments/stable_target_rate_experiment.h"
 
 namespace webrtc {
 
 class SvcRateAllocator : public VideoBitrateAllocator {
  public:
-  explicit SvcRateAllocator(const VideoCodec& codec);
+  SvcRateAllocator(const VideoCodec& codec,
+                   const FieldTrialsView& field_trials);
 
   VideoBitrateAllocation Allocate(
       VideoBitrateAllocationParameters parameters) override;
@@ -42,12 +45,12 @@ class SvcRateAllocator : public VideoBitrateAllocator {
   };
 
   static NumLayers GetNumLayers(const VideoCodec& codec);
-  VideoBitrateAllocation GetAllocationNormalVideo(
+  std::vector<DataRate> DistributeAllocationToSpatialLayersNormalVideo(
       DataRate total_bitrate,
       size_t first_active_layer,
       size_t num_spatial_layers) const;
 
-  VideoBitrateAllocation GetAllocationScreenSharing(
+  std::vector<DataRate> DistributeAllocationToSpatialLayersScreenSharing(
       DataRate total_bitrate,
       size_t first_active_layer,
       size_t num_spatial_layers) const;
@@ -58,7 +61,6 @@ class SvcRateAllocator : public VideoBitrateAllocator {
 
   const VideoCodec codec_;
   const NumLayers num_layers_;
-  const StableTargetRateExperiment experiment_settings_;
   const absl::InlinedVector<DataRate, kMaxSpatialLayers>
       cumulative_layer_start_bitrates_;
   size_t last_active_layer_count_;

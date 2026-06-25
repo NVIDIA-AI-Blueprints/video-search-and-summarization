@@ -22,7 +22,25 @@ class TaskQueueFactory {
  public:
   // TaskQueue priority levels. On some platforms these will map to thread
   // priorities, on others such as Mac and iOS, GCD queue priorities.
-  enum class Priority { NORMAL = 0, HIGH, LOW };
+  enum class Priority {
+    // Default priority.
+    kNormal = 0,
+    // High priority. Use for latency-sensitive tasks.
+    kHigh,
+    // Video priority. Use for video pipeline tasks.
+    kVideo,
+    // Audio priority. Use for audio pipeline tasks not including rendering.
+    kAudio,
+    // Low priority. Use for background tasks (e.g. logging, cleanup).
+    kLow,
+
+    // Deprecated: Use kNormal instead.
+    NORMAL = kNormal,
+    // Deprecated: Use kHigh instead.
+    HIGH = kHigh,
+    // Deprecated: Use kLow instead.
+    LOW = kLow,
+  };
 
   virtual ~TaskQueueFactory() = default;
   virtual std::unique_ptr<TaskQueueBase, TaskQueueDeleter> CreateTaskQueue(

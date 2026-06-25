@@ -33,12 +33,12 @@
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/mojom/content_security_policy.mojom-blink.h"
+#include "services/network/public/mojom/storage_access_api.mojom-blink.h"
 #include "third_party/blink/public/common/frame/delegated_capability_request_token.h"
 #include "third_party/blink/public/common/frame/history_user_activation_state.h"
-#include "third_party/blink/public/common/metrics/post_message_counter.h"
-#include "third_party/blink/public/common/scheduler/task_attribution_id.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_scroll_result.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
@@ -47,6 +47,7 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/universal_global_scope.h"
 #include "third_party/blink/renderer/core/frame/use_counter_impl.h"
 #include "third_party/blink/renderer/core/frame/window_event_handlers.h"
 #include "third_party/blink/renderer/core/frame/window_or_worker_global_scope.h"
@@ -60,17 +61,19 @@
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-#include "third_party/blink/renderer/platform/wtf/uuid.h"
 
 namespace blink {
 
 class BarProp;
 class CSSStyleDeclaration;
 class CustomElementRegistry;
+class ScrollResult;
 class Document;
 class DocumentInit;
 class DOMSelection;
+class DOMViewport;
 class DOMVisualViewport;
+class CrashReportContext;
 class Element;
 class ExceptionState;
 class External;
@@ -86,18 +89,21 @@ class NavigationApi;
 class Navigator;
 class Screen;
 class ScriptController;
-class ScriptPromise;
 class ScriptState;
 class ScrollToOptions;
 class SecurityOrigin;
 class SerializedScriptValue;
+class SoftNavigationHeuristics;
 class SourceLocation;
 class StyleMedia;
 class TrustedTypePolicyFactory;
 class V8FrameRequestCallback;
-class V8VoidFunction;
 struct WebPictureInPictureWindowOptions;
 class WindowAgent;
+
+namespace scheduler {
+class TaskAttributionInfo;
+}
 
 enum PageTransitionEventPersistence {
   kPageTransitionEventNotPersisted = 0,
@@ -109,11 +115,19 @@ enum PageTransitionEventPersistence {
 class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
                                          public ExecutionContext,
                                          public WindowOrWorkerGlobalScope,
+                                         public UniversalGlobalScope,
                                          public WindowEventHandlers,
                                          public Supplementable<LocalDOMWindow> {
   USING_PRE_FINALIZER(LocalDOMWindow, Dispose);
 
  public:
+  // Size thresholds for network efficiency guardrails policy enforcement.
+  // These are const public for testing purpose.
+  static constexpr size_t kGuardrailsLargeDataThresholdBytes =
+      100 * 1024;  // 100kB
+  static constexpr size_t kGuardrailsLargeImageThresholdBytes =
+      200 * 1024;  // 200kB
+
   class CORE_EXPORT EventListenerObserver : public GarbageCollectedMixin {
    public:
     virtual void DidAddEventListener(LocalDOMWindow*, const AtomicString&) = 0;
@@ -146,7 +160,7 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   ScriptController& GetScriptController() const { return *script_controller_; }
 
   void Initialize();
-  void ClearForReuse() { document_ = nullptr; }
+  void ClearForReuse();
 
   void ResetWindowAgent(WindowAgent*);
 
@@ -176,7 +190,6 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   ResourceFetcher* Fetcher() final;
   bool CanExecuteScripts(ReasonForCallingCanExecuteScripts) final;
   void ExceptionThrown(ErrorEvent*) final;
-  void AddInspectorIssue(mojom::blink::InspectorIssueInfoPtr) final;
   void AddInspectorIssue(AuditsIssue) final;
   EventTarget* ErrorEventTarget() final { return this; }
   String OutgoingReferrer() const final;
@@ -184,14 +197,24 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   const BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() const final;
   FrameOrWorkerScheduler* GetScheduler() final;
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(TaskType) final;
+  // TODO(crbug.com/451479061): Consider moving the following function
+  // under trustedTypes/
   TrustedTypePolicyFactory* GetTrustedTypes() const final {
     return GetTrustedTypesForWorld(*GetCurrentWorld());
   }
   ScriptWrappable* ToScriptWrappable() final { return this; }
   void ReportPermissionsPolicyViolation(
-      mojom::blink::PermissionsPolicyFeature,
+      network::mojom::PermissionsPolicyFeature,
       mojom::blink::PolicyDisposition,
+      const String& reporting_endpoint,
       const String& message = g_empty_string) const final;
+  void ReportPotentialPermissionsPolicyViolation(
+      network::mojom::PermissionsPolicyFeature,
+      mojom::blink::PolicyDisposition,
+      const String& reporting_endpoint,
+      const String& message = g_empty_string,
+      const String& allow_attribute = g_empty_string,
+      const String& src_attribute = g_empty_string) const final;
   void ReportDocumentPolicyViolation(
       mojom::blink::DocumentPolicyFeature,
       mojom::blink::PolicyDisposition,
@@ -200,7 +223,12 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
       // current JS file would be used as source_file instead.
       const String& source_file = g_empty_string) const final;
   void SetIsInBackForwardCache(bool) final;
-  bool HasStorageAccess() const final;
+  net::StorageAccessApiStatus GetStorageAccessApiStatus() const final;
+  std::optional<mojom::blink::PolicyDisposition> GetGuardrailsPolicyState()
+      const final;
+  bool CheckGuardrailsPolicyForAssetSize(GuardrailPolicyAssetType asset_type,
+                                         size_t bytes,
+                                         const KURL& url) const final;
 
   void AddConsoleMessageImpl(ConsoleMessage*, bool discard_duplicates) final;
 
@@ -209,6 +237,7 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   // UseCounter orverrides:
   void CountUse(mojom::WebFeature feature) final;
+  void CountWebDXFeature(mojom::blink::WebDXFeature feature) final;
 
   // Count |feature| only when this window is associated with a cross-origin
   // iframe.
@@ -224,12 +253,15 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   // Count permissions policy feature usage through use counter.
   void CountPermissionsPolicyUsage(
-      mojom::blink::PermissionsPolicyFeature feature,
+      network::mojom::PermissionsPolicyFeature feature,
       UseCounterImpl::PermissionsPolicyUsageType type);
 
   // Checks if navigation to Javascript URL is allowed. This check should run
   // before any action is taken (e.g. creating new window) for all
   // same-origin navigations.
+  bool AllowInlineJavascriptUrl(const DOMWrapperWorld* world,
+                                const KURL& url,
+                                Element* element);
   String CheckAndGetJavascriptUrl(
       const DOMWrapperWorld* world,
       const KURL& url,
@@ -271,6 +303,7 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   double pageXOffset() const { return scrollX(); }
   double pageYOffset() const { return scrollY(); }
 
+  DOMViewport* viewport();
   DOMVisualViewport* visualViewport();
 
   const AtomicString& name() const;
@@ -317,19 +350,25 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   // FIXME: ScrollBehaviorSmooth is currently unsupported in VisualViewport.
   // crbug.com/434497
-  void scrollBy(double x, double y) const;
-  void scrollBy(const ScrollToOptions*) const;
-  void scrollTo(double x, double y) const;
-  void scrollTo(const ScrollToOptions*) const;
-  void scroll(double x, double y) const { scrollTo(x, y); }
-  void scroll(const ScrollToOptions* scroll_to_options) const {
-    scrollTo(scroll_to_options);
-  }
+  ScriptPromise<ScrollResult> scrollBy(ScriptState* script_state,
+                                       double x,
+                                       double y) const;
+  ScriptPromise<ScrollResult> scrollBy(ScriptState* script_state,
+                                       const ScrollToOptions*) const;
+  ScriptPromise<ScrollResult> scrollTo(ScriptState* script_state,
+                                       double x,
+                                       double y) const;
+  ScriptPromise<ScrollResult> scrollTo(ScriptState* script_state,
+                                       const ScrollToOptions*) const;
+
+  void scrollByForTesting(double x, double y) const;
+  void scrollToForTesting(double x, double y) const;
+
   void moveBy(int x, int y) const;
   void moveTo(int x, int y) const;
 
-  void resizeBy(int x, int y) const;
-  void resizeTo(int width, int height) const;
+  void resizeBy(int x, int y, ExceptionState&) const;
+  void resizeTo(int width, int height, ExceptionState&) const;
 
   MediaQueryList* matchMedia(const String&);
 
@@ -338,16 +377,10 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
       Element*,
       const String& pseudo_elt = String()) const;
 
-  // Acessibility Object Model
-  ScriptPromise getComputedAccessibleNode(ScriptState*, Element*);
-
   // WebKit animation extensions
   int requestAnimationFrame(V8FrameRequestCallback*);
   int webkitRequestAnimationFrame(V8FrameRequestCallback*);
   void cancelAnimationFrame(int id);
-
-  // https://html.spec.whatwg.org/C/#windoworworkerglobalscope-mixin
-  void queueMicrotask(V8VoidFunction*);
 
   // https://html.spec.whatwg.org/C/#dom-originagentcluster
   bool originAgentCluster() const;
@@ -364,11 +397,13 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   void releaseEvents() {}
   External* external();
 
-  bool isSecureContext() const;
-
   DEFINE_ATTRIBUTE_EVENT_LISTENER(search, kSearch)
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(orientationchange, kOrientationchange)
+
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(pageswap, kPageswap)
+
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(pagereveal, kPagereveal)
 
   void RegisterEventListenerObserver(EventListenerObserver*);
 
@@ -383,9 +418,9 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
                   const String& features,
                   ExceptionState&);
 
-  DOMWindow* openPictureInPictureWindow(v8::Isolate*,
-                                        const WebPictureInPictureWindowOptions&,
-                                        ExceptionState&);
+  DOMWindow* openPictureInPictureWindow(
+      v8::Isolate*,
+      const WebPictureInPictureWindowOptions&);
 
   FrameConsole* GetFrameConsole() const;
 
@@ -394,13 +429,14 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   void DispatchPostMessage(
       MessageEvent* event,
       scoped_refptr<const SecurityOrigin> intended_target_origin,
-      std::unique_ptr<SourceLocation> location,
-      const base::UnguessableToken& source_agent_cluster_id);
+      SourceLocation* location,
+      const base::UnguessableToken& source_agent_cluster_id,
+      scheduler::TaskAttributionInfo* task_state);
 
   void DispatchMessageEventWithOriginCheck(
       const SecurityOrigin* intended_target_origin,
       MessageEvent*,
-      std::unique_ptr<SourceLocation>,
+      SourceLocation*,
       const base::UnguessableToken& source_agent_cluster_id);
 
   // Events
@@ -419,12 +455,16 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   void EnqueueWindowEvent(Event&, TaskType);
   void EnqueueDocumentEvent(Event&, TaskType);
   void EnqueueNonPersistedPageshowEvent();
-  void EnqueueHashchangeEvent(const String& old_url, const String& new_url);
+  void EnqueueHashchangeEvent(const String& old_url,
+                              const String& new_url,
+                              UserNavigationInvolvement involvement);
   void DispatchPopstateEvent(scoped_refptr<SerializedScriptValue>,
-                             absl::optional<scheduler::TaskAttributionId>
-                                 soft_navigation_heuristics_task_id);
+                             bool has_ua_visual_transition,
+                             UserNavigationInvolvement involvement);
   void DispatchWindowLoadEvent();
-  void DocumentWasClosed();
+  // Dispatches the window load event and the non-persisted pageshow event
+  // after the document finishes loading.
+  void DispatchLoadAndPageshowEvents();
 
   void AcceptLanguagesChanged();
 
@@ -433,7 +473,6 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   Event* CurrentEvent() const;
   void SetCurrentEvent(Event*);
 
-  TrustedTypePolicyFactory* trustedTypes(ScriptState*) const;
   TrustedTypePolicyFactory* GetTrustedTypesForWorld(
       const DOMWrapperWorld&) const;
 
@@ -470,14 +509,6 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   const BlinkStorageKey& GetStorageKey() const { return storage_key_; }
   void SetStorageKey(const BlinkStorageKey& storage_key);
 
-  // This storage key must only be used when binding session storage.
-  //
-  // TODO(crbug.com/1407150): Remove this when deprecation trial is complete.
-  const BlinkStorageKey& GetSessionStorageKey() const {
-    return session_storage_key_;
-  }
-  void SetSessionStorageKey(const BlinkStorageKey& session_storage_key);
-
   void DidReceiveUserActivation();
 
   // Returns the state of the |payment_request_token_| in this document.
@@ -501,7 +532,8 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   // Called when a network request buffered an additional `num_bytes` while this
   // frame is in back-forward cache.
-  void DidBufferLoadWhileInBackForwardCache(size_t num_bytes);
+  void DidBufferLoadWhileInBackForwardCache(bool update_process_wide_count,
+                                            size_t num_bytes);
 
   // Whether the window is credentialless or not.
   bool credentialless() const;
@@ -510,13 +542,11 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   Fence* fence();
 
+  CrashReportContext* crashReport();
+
   CloseWatcher::WatcherStack* closewatcher_stack() {
-    return closewatcher_stack_;
+    return closewatcher_stack_.Get();
   }
-
-  void GenerateNewNavigationId();
-
-  String GetNavigationId() const { return navigation_id_; }
 
   NavigationApi* navigation();
 
@@ -528,14 +558,19 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
     is_picture_in_picture_window_ = is_picture_in_picture;
   }
 
-  // Sets the HasStorageAccess member. Note that it can only be granted for a
-  // given window, it cannot be taken away.
-  void SetHasStorageAccess();
+  // Sets the StorageAccessApiStatus. Calls to this method must not downgrade
+  // the status.
+  void SetStorageAccessApiStatus(net::StorageAccessApiStatus status);
 
-  bool HadActivationlessPaymentRequest() const;
-  void SetHadActivationlessPaymentRequest();
+  // https://html.spec.whatwg.org/multipage/browsing-the-web.html#has-been-revealed
+  bool HasBeenRevealed() const { return has_been_revealed_; }
+  void SetHasBeenRevealed(bool revealed);
 
-  void minimize();
+  SoftNavigationHeuristics* GetSoftNavigationHeuristics() {
+    return soft_navigation_heuristics_.Get();
+  }
+
+  void requestResize(ExceptionState&);
 
  protected:
   // EventTarget overrides.
@@ -550,10 +585,8 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
  private:
   class NetworkStateObserver;
 
-  // Intentionally private to prevent redundant checks when the type is
-  // already LocalDOMWindow.
+  // Intentionally private to prevent redundant checks.
   bool IsLocalDOMWindow() const override { return true; }
-  bool IsRemoteDOMWindow() const override { return false; }
 
   bool HasInsecureContextInAncestors() const override;
 
@@ -570,9 +603,12 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   // Return the viewport size including scrollbars.
   gfx::Size GetViewportSize() const;
 
+  void UpdateEventListenerCountsToDocumentForReuseIfNeeded();
+
   Member<ScriptController> script_controller_;
 
   Member<Document> document_;
+  Member<DOMViewport> viewport_;
   Member<DOMVisualViewport> visualViewport_;
 
   bool should_print_when_finished_loading_;
@@ -608,7 +644,7 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   Member<Event> current_event_;
 
   // Store TrustedTypesPolicyFactory, per DOMWrapperWorld.
-  mutable HeapHashMap<scoped_refptr<const DOMWrapperWorld>,
+  mutable HeapHashMap<Member<const DOMWrapperWorld>,
                       Member<TrustedTypePolicyFactory>>
       trusted_types_map_;
 
@@ -626,7 +662,7 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   Member<TextSuggestionController> text_suggestion_controller_;
 
   // Map from isolated world IDs to their ContentSecurityPolicy instances.
-  Member<HeapHashMap<int, Member<ContentSecurityPolicy>>>
+  Member<GCedHeapHashMap<int, Member<ContentSecurityPolicy>>>
       isolated_world_csp_map_;
 
   // Tracks which features have already been potentially violated in this
@@ -645,19 +681,8 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   // from |DocumentPolicyViolationReport::MatchId()|.
   mutable HashSet<unsigned> document_policy_violation_reports_sent_;
 
-  // Tracks metrics related to postMessage usage.
-  // TODO(crbug.com/1159586): Remove when no longer needed.
-  PostMessageCounter post_message_counter_;
-
   // The storage key for this LocalDomWindow.
   BlinkStorageKey storage_key_;
-
-  // The storage key here is the one to use when binding session storage. This
-  // may differ from `storage_key_` as a deprecation trial can prevent the
-  // partitioning of session storage.
-  //
-  // TODO(crbug.com/1407150): Remove this when deprecation trial is complete.
-  BlinkStorageKey session_storage_key_;
 
   // Fire "online" and "offline" events.
   Member<NetworkStateObserver> network_state_observer_;
@@ -671,26 +696,31 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   // https://github.com/shivanigithub/fenced-frame/issues/14
   Member<Fence> fence_;
 
+  Member<CrashReportContext> crash_report_storage_;
+
   Member<CloseWatcher::WatcherStack> closewatcher_stack_;
+
+  Member<SoftNavigationHeuristics> soft_navigation_heuristics_;
 
   // If set, this window is a Document Picture in Picture window.
   // https://wicg.github.io/document-picture-in-picture/
   bool is_picture_in_picture_window_ = false;
 
-  // The navigation id of a document is to identify navigation of special types
-  // like bfcache navigation or soft navigation. It changes when navigations
-  // of these types occur.
-  String navigation_id_;
-
-  // Records whether this window has obtained storage access. It cannot be
-  // revoked once set to true.
-  bool has_storage_access_ = false;
+  // Records this window's Storage Access API status. It cannot be downgraded.
+  net::StorageAccessApiStatus storage_access_api_status_ =
+      net::StorageAccessApiStatus::kNone;
 
   // Tracks whether this window has shown a payment request without a user
   // activation. It cannot be revoked once set to true.
   // TODO(crbug.com/1439565): Move this bit to a new payments-specific
   // per-LocalDOMWindow class in the payments module.
   bool had_activationless_payment_request_ = false;
+
+  // https://html.spec.whatwg.org/multipage/browsing-the-web.html#has-been-revealed
+  bool has_been_revealed_ = false;
+
+  // Used to indicate if the DOM window is reused or not.
+  bool is_dom_window_reused_ = false;
 };
 
 template <>

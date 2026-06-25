@@ -17,38 +17,45 @@
 #ifndef SRC_TRACE_PROCESSOR_TRACE_PROCESSOR_STORAGE_IMPL_H_
 #define SRC_TRACE_PROCESSOR_TRACE_PROCESSOR_STORAGE_IMPL_H_
 
+#include <cstddef>
 #include <memory>
 
-#include "perfetto/ext/base/hash.h"
+#include "perfetto/base/status.h"
+#include "perfetto/ext/base/fnv_hash.h"
 #include "perfetto/trace_processor/basic_types.h"
-#include "perfetto/trace_processor/status.h"
+#include "perfetto/trace_processor/trace_blob_view.h"
 #include "perfetto/trace_processor/trace_processor_storage.h"
 #include "src/trace_processor/types/trace_processor_context.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
+
+class ForwardingTraceParser;
 
 class TraceProcessorStorageImpl : public TraceProcessorStorage {
  public:
   explicit TraceProcessorStorageImpl(const Config&);
   ~TraceProcessorStorageImpl() override;
 
-  util::Status Parse(TraceBlobView) override;
+  base::Status Parse(TraceBlobView) override;
   void Flush() override;
-  void NotifyEndOfFile() override;
+  base::Status NotifyEndOfFile() override;
+
+  base::Status OnPushDataToSorter();
+  void OnEventsFullyExtracted();
 
   void DestroyContext();
 
   TraceProcessorContext* context() { return &context_; }
 
  protected:
-  base::Hasher trace_hash_;
+  base::FnvHasher trace_hash_;
   TraceProcessorContext context_;
   bool unrecoverable_parse_error_ = false;
+  bool eof_ = false;
   size_t hash_input_size_remaining_ = 4096;
+  std::unique_ptr<ForwardingTraceParser> parser_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_TRACE_PROCESSOR_STORAGE_IMPL_H_

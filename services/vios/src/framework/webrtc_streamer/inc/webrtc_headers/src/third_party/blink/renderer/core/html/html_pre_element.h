@@ -31,15 +31,18 @@ class HTMLPreElement final : public HTMLElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-
   HTMLPreElement(const QualifiedName&, Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLPreElement;
+  }
 
  private:
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
 };
 
 }  // namespace blink

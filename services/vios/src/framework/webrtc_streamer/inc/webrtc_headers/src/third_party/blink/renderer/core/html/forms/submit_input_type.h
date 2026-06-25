@@ -40,14 +40,13 @@ class SubmitInputType final : public BaseButtonInputType {
   explicit SubmitInputType(HTMLInputElement& element);
 
  private:
-  const AtomicString& FormControlType() const override;
   void AppendToFormData(FormData&) const override;
   bool SupportsRequired() const override;
   void HandleDOMActivateEvent(Event&) override;
   bool CanBeSuccessfulSubmitButton() override;
   String DefaultLabel() const override;
-  bool IsTextButton() const override;
   void ValueAttributeChanged() override;
+  void AdjustStyle(ComputedStyleBuilder&) override;
 };
 
 template <>

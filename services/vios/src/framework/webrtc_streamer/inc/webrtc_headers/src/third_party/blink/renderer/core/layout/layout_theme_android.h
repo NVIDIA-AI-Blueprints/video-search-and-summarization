@@ -12,11 +12,16 @@ namespace blink {
 class LayoutThemeAndroid final : public LayoutThemeMobile {
  public:
   static scoped_refptr<LayoutTheme> Create();
-  bool DelegatesMenuListRendering() const override { return true; }
+  Color SystemColor(CSSValueID,
+                    mojom::blink::ColorScheme color_scheme,
+                    const ui::ColorProvider* color_provider,
+                    bool can_expose_accent_color) const override;
   Color PlatformActiveSelectionBackgroundColor(
       mojom::blink::ColorScheme color_scheme) const override;
   Color PlatformActiveSelectionForegroundColor(
       mojom::blink::ColorScheme color_scheme) const override;
+  Color PlatformGrammarMarkerUnderlineColor() const override;
+  Color PlatformSpellingMarkerUnderlineColor() const override;
 
  private:
   ~LayoutThemeAndroid() override;

@@ -29,6 +29,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/span.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/lock.h"
 #include "cc/paint/paint_image.h"
@@ -39,7 +40,6 @@
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkSize.h"
@@ -68,10 +68,12 @@ class PLATFORM_EXPORT ImageFrameGenerator final
   static scoped_refptr<ImageFrameGenerator> Create(
       const SkISize& full_size,
       bool is_multi_frame,
-      const ColorBehavior& color_behavior,
+      ColorBehavior color_behavior,
+      cc::AuxImage aux_image,
       Vector<SkISize> supported_sizes) {
-    return base::AdoptRef(new ImageFrameGenerator(
-        full_size, is_multi_frame, color_behavior, std::move(supported_sizes)));
+    return base::AdoptRef(new ImageFrameGenerator(full_size, is_multi_frame,
+                                                  color_behavior, aux_image,
+                                                  std::move(supported_sizes)));
   }
 
   ImageFrameGenerator(const ImageFrameGenerator&) = delete;
@@ -96,9 +98,9 @@ class PLATFORM_EXPORT ImageFrameGenerator final
   bool DecodeToYUV(SegmentReader*,
                    wtf_size_t index,
                    SkColorType color_type,
-                   const SkISize component_sizes[cc::kNumYUVPlanes],
-                   void* planes[cc::kNumYUVPlanes],
-                   const wtf_size_t row_bytes[cc::kNumYUVPlanes],
+                   base::span<const SkISize, cc::kNumYUVPlanes> component_sizes,
+                   base::span<void*, cc::kNumYUVPlanes> planes,
+                   base::span<const wtf_size_t, cc::kNumYUVPlanes> row_bytes,
                    cc::PaintImage::GeneratorClientId);
 
   const SkISize& GetFullSize() const { return full_size_; }
@@ -106,12 +108,9 @@ class PLATFORM_EXPORT ImageFrameGenerator final
   SkISize GetSupportedDecodeSize(const SkISize& requested_size) const;
 
   bool IsMultiFrame() const { return is_multi_frame_; }
-  bool DecodeFailed() const {
-    base::AutoLock lock(generator_lock_);
-    return decode_failed_;
-  }
+  bool DecodeFailed() const { return decode_failed_.load(); }
 
-  bool HasAlpha(wtf_size_t index);
+  bool HasAlpha(wtf_size_t index) const;
 
   // TODO(crbug.com/943519): Do not call unless the SkROBuffer has all the data.
   bool GetYUVAInfo(
@@ -143,7 +142,8 @@ class PLATFORM_EXPORT ImageFrameGenerator final
 
   ImageFrameGenerator(const SkISize& full_size,
                       bool is_multi_frame,
-                      const ColorBehavior&,
+                      ColorBehavior,
+                      cc::AuxImage,
                       Vector<SkISize> supported_sizes);
 
   friend class ImageFrameGeneratorTest;
@@ -163,19 +163,22 @@ class PLATFORM_EXPORT ImageFrameGenerator final
   const SkISize full_size_;
   // Parameters used to create internal ImageDecoder objects.
   const ColorBehavior decoder_color_behavior_;
+  const cc::AuxImage aux_image_;
   const bool is_multi_frame_;
   const Vector<SkISize> supported_sizes_;
 
-  mutable base::Lock generator_lock_;
-  bool decode_failed_ GUARDED_BY(generator_lock_) = false;
-  bool yuv_decoding_failed_ GUARDED_BY(generator_lock_) = false;
-  wtf_size_t frame_count_ GUARDED_BY(generator_lock_) = 0u;
-  Vector<bool> has_alpha_ GUARDED_BY(generator_lock_);
+  std::atomic<bool> decode_failed_{false};
+  std::atomic<bool> yuv_decoding_failed_{false};
+
+  mutable base::Lock has_alpha_lock_;
+  Vector<bool> has_alpha_ GUARDED_BY(has_alpha_lock_);
 
   struct ClientLock {
     int ref_count = 0;
     base::Lock lock;
   };
+
+  mutable base::Lock generator_lock_;
 
   // Note that it is necessary to use HashMap here to ensure that references
   // to entries in the map, stored in ClientAutoLock, remain valid across

@@ -18,22 +18,18 @@
 #define SRC_TRACE_PROCESSOR_ITERATOR_IMPL_H_
 
 #include <sqlite3.h>
+#include <cstddef>
+#include <cstdint>
+#include <string>
 
-#include <memory>
-#include <optional>
-#include <vector>
-
-#include "perfetto/base/build_config.h"
-#include "perfetto/base/export.h"
+#include "perfetto/base/logging.h"
 #include "perfetto/base/status.h"
+#include "perfetto/ext/base/scoped_file.h"
 #include "perfetto/ext/base/status_or.h"
 #include "perfetto/trace_processor/basic_types.h"
 #include "perfetto/trace_processor/iterator.h"
-#include "perfetto/trace_processor/status.h"
-#include "src/trace_processor/perfetto_sql/engine/perfetto_sql_engine.h"
-#include "src/trace_processor/sqlite/scoped_db.h"
-#include "src/trace_processor/sqlite/sqlite_engine.h"
-#include "src/trace_processor/sqlite/sqlite_utils.h"
+#include "src/trace_processor/perfetto_sql/engine/perfetto_sql_connection.h"
+#include "src/trace_processor/sqlite/sqlite_connection.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -43,7 +39,7 @@ class TraceProcessorImpl;
 class IteratorImpl {
  public:
   IteratorImpl(TraceProcessorImpl* impl,
-               base::StatusOr<PerfettoSqlEngine::ExecutionResult>,
+               base::StatusOr<PerfettoSqlConnection::ExecutionResult>,
                uint32_t sql_stats_row);
   ~IteratorImpl();
 
@@ -158,7 +154,7 @@ class IteratorImpl {
   void RecordFirstNextInSqlStats();
 
   ScopedTraceProcessor trace_processor_;
-  base::StatusOr<PerfettoSqlEngine::ExecutionResult> result_;
+  base::StatusOr<PerfettoSqlConnection::ExecutionResult> result_;
   uint32_t sql_stats_row_ = 0;
   bool called_next_ = false;
 };

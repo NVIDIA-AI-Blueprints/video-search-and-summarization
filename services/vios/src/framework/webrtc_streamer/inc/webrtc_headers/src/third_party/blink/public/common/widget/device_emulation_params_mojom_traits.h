@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_WIDGET_DEVICE_EMULATION_PARAMS_MOJOM_TRAITS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_WIDGET_DEVICE_EMULATION_PARAMS_MOJOM_TRAITS_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/widget/device_emulation_params.h"
 #include "third_party/blink/public/mojom/widget/device_emulation_params.mojom-shared.h"
@@ -25,7 +26,7 @@ struct BLINK_COMMON_EXPORT
     return r.screen_size;
   }
 
-  static const absl::optional<gfx::Point>& view_position(
+  static const std::optional<gfx::Point>& view_position(
       const blink::DeviceEmulationParams& r) {
     return r.view_position;
   }
@@ -59,9 +60,19 @@ struct BLINK_COMMON_EXPORT
     return r.screen_orientation_angle;
   }
 
-  static const std::vector<gfx::Rect>& window_segments(
+  static const std::vector<gfx::Rect>& viewport_segments(
       const blink::DeviceEmulationParams& r) {
-    return r.window_segments;
+    return r.viewport_segments;
+  }
+
+  static blink::mojom::DevicePostureType device_posture(
+      const blink::DeviceEmulationParams& r) {
+    return r.device_posture;
+  }
+
+  static bool force_android_overlay_scrollbar(
+      const blink::DeviceEmulationParams& r) {
+    return r.force_android_overlay_scrollbar;
   }
 
   static bool Read(blink::mojom::DeviceEmulationParamsDataView r,

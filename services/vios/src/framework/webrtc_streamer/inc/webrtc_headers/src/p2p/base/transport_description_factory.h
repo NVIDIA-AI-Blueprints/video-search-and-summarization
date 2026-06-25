@@ -15,15 +15,12 @@
 #include <utility>
 
 #include "api/field_trials_view.h"
+#include "api/scoped_refptr.h"
 #include "p2p/base/ice_credentials_iterator.h"
 #include "p2p/base/transport_description.h"
 #include "rtc_base/rtc_certificate.h"
 
-namespace rtc {
-class SSLIdentity;
-}
-
-namespace cricket {
+namespace webrtc {
 
 struct TransportOptions {
   bool ice_restart = false;
@@ -39,20 +36,16 @@ struct TransportOptions {
 class TransportDescriptionFactory {
  public:
   // Default ctor; use methods below to set configuration.
-  explicit TransportDescriptionFactory(
-      const webrtc::FieldTrialsView& field_trials);
+  explicit TransportDescriptionFactory(const FieldTrialsView& field_trials);
   ~TransportDescriptionFactory();
 
-  SecurePolicy secure() const { return secure_; }
   // The certificate to use when setting up DTLS.
-  const rtc::scoped_refptr<rtc::RTCCertificate>& certificate() const {
+  const scoped_refptr<RTCCertificate>& certificate() const {
     return certificate_;
   }
 
-  // Specifies the transport security policy to use.
-  void set_secure(SecurePolicy s) { secure_ = s; }
-  // Specifies the certificate to use (only used when secure != SEC_DISABLED).
-  void set_certificate(rtc::scoped_refptr<rtc::RTCCertificate> certificate) {
+  // Specifies the certificate to use
+  void set_certificate(scoped_refptr<RTCCertificate> certificate) {
     certificate_ = std::move(certificate);
   }
 
@@ -75,17 +68,24 @@ class TransportDescriptionFactory {
       const TransportDescription* current_description,
       IceCredentialsIterator* ice_credentials) const;
 
-  const webrtc::FieldTrialsView& trials() const { return field_trials_; }
+  const FieldTrialsView& trials() const { return field_trials_; }
+  // Functions for disabling encryption - test only!
+  // In insecure mode, the connection will accept a description without
+  // fingerprint, and will generate SDP even if certificate is not set.
+  // If certificate is set, it will accept a description both with and
+  // without fingerprint, but will generate a description with fingerprint.
+  bool insecure() const { return insecure_; }
+  void SetInsecureForTesting() { insecure_ = true; }
 
  private:
   bool SetSecurityInfo(TransportDescription* description,
                        ConnectionRole role) const;
-
-  SecurePolicy secure_;
-  rtc::scoped_refptr<rtc::RTCCertificate> certificate_;
-  const webrtc::FieldTrialsView& field_trials_;
+  bool insecure_ = false;
+  scoped_refptr<RTCCertificate> certificate_;
+  const FieldTrialsView& field_trials_;
 };
 
-}  // namespace cricket
+}  //  namespace webrtc
+
 
 #endif  // P2P_BASE_TRANSPORT_DESCRIPTION_FACTORY_H_

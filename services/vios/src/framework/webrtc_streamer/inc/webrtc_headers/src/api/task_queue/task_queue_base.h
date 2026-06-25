@@ -10,10 +10,10 @@
 #ifndef API_TASK_QUEUE_TASK_QUEUE_BASE_H_
 #define API_TASK_QUEUE_TASK_QUEUE_BASE_H_
 
-#include <memory>
 #include <utility>
 
 #include "absl/functional/any_invocable.h"
+#include "absl/strings/string_view.h"
 #include "api/location.h"
 #include "api/units/time_delta.h"
 #include "rtc_base/system/rtc_export.h"
@@ -36,6 +36,9 @@ class RTC_LOCKABLE RTC_EXPORT TaskQueueBase {
     // more information.
     kHigh,
   };
+
+  // Returns the name of the task queue.
+  virtual absl::string_view queue_name() const { return "unnamed"; }
 
   // Starts destruction of the task queue.
   // On return ensures no task are running and no new tasks are able to start
@@ -94,8 +97,7 @@ class RTC_LOCKABLE RTC_EXPORT TaskQueueBase {
   void PostDelayedTask(absl::AnyInvocable<void() &&> task,
                        TimeDelta delay,
                        const Location& location = Location::Current()) {
-    PostDelayedTaskImpl(std::move(task), delay,
-                        PostDelayedTaskTraits{.high_precision = false},
+    PostDelayedTaskImpl(std::move(task), delay, PostDelayedTaskTraits{},
                         location);
   }
 
@@ -119,9 +121,9 @@ class RTC_LOCKABLE RTC_EXPORT TaskQueueBase {
       absl::AnyInvocable<void() &&> task,
       TimeDelta delay,
       const Location& location = Location::Current()) {
-    PostDelayedTaskImpl(std::move(task), delay,
-                        PostDelayedTaskTraits{.high_precision = true},
-                        location);
+    PostDelayedTaskTraits traits;
+    traits.high_precision = true;
+    PostDelayedTaskImpl(std::move(task), delay, traits, location);
   }
 
   // As specified by `precision`, calls either PostDelayedTask() or

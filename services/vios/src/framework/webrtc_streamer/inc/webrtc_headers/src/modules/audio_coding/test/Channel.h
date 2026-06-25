@@ -13,9 +13,11 @@
 
 #include <stdio.h>
 
-#include "modules/audio_coding/acm2/acm_receiver.h"
+#include <cstdint>
+
+#include "api/neteq/neteq.h"
 #include "modules/audio_coding/include/audio_coding_module.h"
-#include "modules/include/module_common_types.h"
+#include "modules/audio_coding/include/audio_coding_module_typedefs.h"
 #include "rtc_base/synchronization/mutex.h"
 
 namespace webrtc {
@@ -55,7 +57,7 @@ class Channel : public AudioPacketizationCallback {
                    size_t payloadSize,
                    int64_t absolute_capture_timestamp_ms) override;
 
-  void RegisterReceiverACM(acm2::AcmReceiver* acm_receiver);
+  void RegisterReceiverNetEq(NetEq* neteq);
 
   void ResetStats();
 
@@ -84,7 +86,7 @@ class Channel : public AudioPacketizationCallback {
  private:
   void CalcStatistics(const RTPHeader& rtp_header, size_t payloadSize);
 
-  acm2::AcmReceiver* _receiverACM;
+  NetEq* _neteq;
   uint16_t _seqNo;
   // 60msec * 32 sample(max)/msec * 2 description (maybe) * 2 bytes/sample
   uint8_t _payloadData[60 * 32 * 2 * 2];

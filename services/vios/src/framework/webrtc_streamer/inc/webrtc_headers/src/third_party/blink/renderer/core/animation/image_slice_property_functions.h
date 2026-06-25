@@ -33,15 +33,14 @@ class ImageSlicePropertyFunctions {
   static ImageSlice GetImageSlice(const CSSProperty& property,
                                   const ComputedStyle& style) {
     switch (property.PropertyID()) {
-      default:
-        NOTREACHED();
-        [[fallthrough]];
       case CSSPropertyID::kBorderImageSlice:
         return ImageSlice(style.BorderImageSlices(),
                           style.BorderImageSlicesFill());
       case CSSPropertyID::kWebkitMaskBoxImageSlice:
         return ImageSlice(style.MaskBoxImageSlices(),
                           style.MaskBoxImageSlicesFill());
+      default:
+        NOTREACHED();
     }
   }
 

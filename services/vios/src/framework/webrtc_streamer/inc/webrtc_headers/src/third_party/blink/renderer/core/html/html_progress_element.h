@@ -39,6 +39,10 @@ class CORE_EXPORT HTMLProgressElement final : public HTMLElement {
   explicit HTMLProgressElement(Document&);
   ~HTMLProgressElement() override;
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLProgressElement;
+  }
+
   double value() const;
   void setValue(double);
 
@@ -53,14 +57,17 @@ class CORE_EXPORT HTMLProgressElement final : public HTMLElement {
 
   void Trace(Visitor*) const override;
 
+ protected:
+  bool SupportsBaseAppearanceInternal(BaseAppearanceValue) const override;
+
  private:
-  bool AreAuthorShadowsAllowed() const override { return false; }
   bool ShouldAppearIndeterminate() const override;
   bool IsLabelable() const override { return true; }
 
   LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
   LayoutProgress* GetLayoutProgress() const;
 
+  void DidRecalcStyle(const StyleRecalcChange) override;
   void ParseAttribute(const AttributeModificationParams&) override;
 
   void AttachLayoutTree(AttachContext&) override;

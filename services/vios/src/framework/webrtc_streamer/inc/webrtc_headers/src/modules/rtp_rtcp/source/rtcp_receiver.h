@@ -11,15 +11,20 @@
 #ifndef MODULES_RTP_RTCP_SOURCE_RTCP_RECEIVER_H_
 #define MODULES_RTP_RTCP_SOURCE_RTCP_RECEIVER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <map>
-#include <string>
+#include <optional>
+#include <span>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include "absl/container/inlined_vector.h"
+#include "api/environment/environment.h"
 #include "api/sequence_checker.h"
 #include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
+#include "api/video/video_codec_constants.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/rtp_rtcp/include/rtcp_statistics.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
@@ -31,11 +36,9 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/system/no_unique_address.h"
 #include "rtc_base/thread_annotations.h"
-#include "system_wrappers/include/ntp_time.h"
 
 namespace webrtc {
 
-class ModuleRtpRtcpImpl2;
 class VideoBitrateAllocationObserver;
 
 namespace rtcp {
@@ -55,7 +58,7 @@ class RTCPReceiver final {
     virtual void OnReceivedNack(
         const std::vector<uint16_t>& nack_sequence_numbers) = 0;
     virtual void OnReceivedRtcpReportBlocks(
-        rtc::ArrayView<const ReportBlockData> report_blocks) = 0;
+        std::span<const ReportBlockData> report_blocks) = 0;
 
    protected:
     virtual ~ModuleRtpRtcp() = default;
@@ -74,7 +77,7 @@ class RTCPReceiver final {
     }
     void Invalidate() { round_trip_time_.reset(); }
     // https://www.w3.org/TR/webrtc-stats/#dom-rtcremoteoutboundrtpstreamstats-roundtriptime
-    absl::optional<TimeDelta> round_trip_time() const {
+    std::optional<TimeDelta> round_trip_time() const {
       return round_trip_time_;
     }
     // https://www.w3.org/TR/webrtc-stats/#dom-rtcremoteoutboundrtpstreamstats-totalroundtriptime
@@ -85,20 +88,18 @@ class RTCPReceiver final {
     }
 
    private:
-    absl::optional<TimeDelta> round_trip_time_;
+    std::optional<TimeDelta> round_trip_time_;
     TimeDelta total_round_trip_time_ = TimeDelta::Zero();
     int round_trip_time_measurements_ = 0;
   };
 
-  RTCPReceiver(const RtpRtcpInterface::Configuration& config,
+  RTCPReceiver(const Environment& env,
+               const RtpRtcpInterface::Configuration& config,
                ModuleRtpRtcp* owner);
-
-  RTCPReceiver(const RtpRtcpInterface::Configuration& config,
-               ModuleRtpRtcpImpl2* owner);
 
   ~RTCPReceiver();
 
-  void IncomingPacket(rtc::ArrayView<const uint8_t> packet);
+  void IncomingPacket(std::span<const uint8_t> packet);
 
   int64_t LastReceivedReportBlockMs() const;
 
@@ -111,24 +112,24 @@ class RTCPReceiver final {
   bool receiver_only() const { return receiver_only_; }
 
   // Returns stats based on the received RTCP Sender Reports.
-  absl::optional<RtpRtcpInterface::SenderReportStats> GetSenderReportStats()
+  std::optional<RtpRtcpInterface::SenderReportStats> GetSenderReportStats()
       const;
 
   std::vector<rtcp::ReceiveTimeInfo> ConsumeReceivedXrReferenceTimeInfo();
 
-  absl::optional<TimeDelta> AverageRtt() const;
-  absl::optional<TimeDelta> LastRtt() const;
+  std::optional<TimeDelta> AverageRtt() const;
+  std::optional<TimeDelta> LastRtt() const;
 
   // Returns non-sender RTT metrics for the remote SSRC.
   NonSenderRttStats GetNonSenderRTT() const;
 
   void SetNonSenderRttMeasurement(bool enabled);
-  absl::optional<TimeDelta> GetAndResetXrRrRtt();
+  std::optional<TimeDelta> GetAndResetXrRrRtt();
 
   // Called once per second on the worker thread to do rtt calculations.
   // Returns an optional rtt value if one is available.
-  absl::optional<TimeDelta> OnPeriodicRttUpdate(Timestamp newer_than,
-                                                bool sending);
+  std::optional<TimeDelta> OnPeriodicRttUpdate(Timestamp newer_than,
+                                               bool sending);
 
   // A snapshot of Report Blocks with additional data of interest to statistics.
   // Within this list, the source SSRC is unique and ReportBlockData represents
@@ -153,38 +154,13 @@ class RTCPReceiver final {
   void NotifyTmmbrUpdated();
 
  private:
-#if RTC_DCHECK_IS_ON
-  class CustomSequenceChecker : public SequenceChecker {
-   public:
-    explicit CustomSequenceChecker(bool disable_checks)
-        : disable_checks_(disable_checks) {}
-    bool IsCurrent() const {
-      if (disable_checks_)
-        return true;
-      return SequenceChecker::IsCurrent();
-    }
-
-   private:
-    const bool disable_checks_;
-  };
-#else
-  class CustomSequenceChecker : public SequenceChecker {
-   public:
-    explicit CustomSequenceChecker(bool) {}
-  };
-#endif
-
   // A lightweight inlined set of local SSRCs.
   class RegisteredSsrcs {
    public:
     static constexpr size_t kMediaSsrcIndex = 0;
-    static constexpr size_t kMaxSsrcs = 3;
     // Initializes the set of registered local SSRCS by extracting them from the
-    // provided `config`. The `disable_sequence_checker` flag is a workaround
-    // to be able to use a sequence checker without breaking downstream
-    // code that currently doesn't follow the same threading rules as webrtc.
-    RegisteredSsrcs(bool disable_sequence_checker,
-                    const RtpRtcpInterface::Configuration& config);
+    // provided `config`.
+    explicit RegisteredSsrcs(const RtpRtcpInterface::Configuration& config);
 
     // Indicates if `ssrc` is in the set of registered local SSRCs.
     bool contains(uint32_t ssrc) const;
@@ -192,8 +168,8 @@ class RTCPReceiver final {
     void set_media_ssrc(uint32_t ssrc);
 
    private:
-    RTC_NO_UNIQUE_ADDRESS CustomSequenceChecker packet_sequence_checker_;
-    absl::InlinedVector<uint32_t, kMaxSsrcs> ssrcs_
+    RTC_NO_UNIQUE_ADDRESS SequenceChecker packet_sequence_checker_;
+    absl::InlinedVector<uint32_t, kMaxSimulcastStreams> ssrcs_
         RTC_GUARDED_BY(packet_sequence_checker_);
   };
 
@@ -204,10 +180,10 @@ class RTCPReceiver final {
   struct TmmbrInformation {
     struct TimedTmmbrItem {
       rtcp::TmmbItem tmmbr_item;
-      int64_t last_updated_ms;
+      Timestamp last_updated = Timestamp::Zero();
     };
 
-    int64_t last_time_received_ms = 0;
+    Timestamp last_time_received = Timestamp::Zero();
 
     bool ready_for_delete = false;
 
@@ -232,9 +208,9 @@ class RTCPReceiver final {
   };
 
   struct LastFirStatus {
-    LastFirStatus(int64_t now_ms, uint8_t sequence_number)
-        : request_ms(now_ms), sequence_number(sequence_number) {}
-    int64_t request_ms;
+    LastFirStatus(Timestamp now, uint8_t sequence_number)
+        : request(now), sequence_number(sequence_number) {}
+    Timestamp request;
     uint8_t sequence_number;
   };
 
@@ -255,7 +231,7 @@ class RTCPReceiver final {
     size_t num_rtts_ = 0;
   };
 
-  bool ParseCompoundPacket(rtc::ArrayView<const uint8_t> packet,
+  bool ParseCompoundPacket(std::span<const uint8_t> packet,
                            PacketInformation* packet_information);
 
   void TriggerCallbacksFromRtcpPacket(
@@ -342,6 +318,9 @@ class RTCPReceiver final {
   void HandleTransportFeedback(const rtcp::CommonHeader& rtcp_block,
                                PacketInformation* packet_information)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(rtcp_receiver_lock_);
+  bool HandleCongestionControlFeedback(const rtcp::CommonHeader& rtcp_block,
+                                       PacketInformation* packet_information)
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(rtcp_receiver_lock_);
 
   bool RtcpRrTimeoutLocked(Timestamp now)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(rtcp_receiver_lock_);
@@ -349,8 +328,9 @@ class RTCPReceiver final {
   bool RtcpRrSequenceNumberTimeoutLocked(Timestamp now)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(rtcp_receiver_lock_);
 
-  Clock* const clock_;
+  const Environment env_;
   const bool receiver_only_;
+  const bool enable_congestion_controller_feedback_;
   ModuleRtpRtcp* const rtp_rtcp_;
   // The set of registered local SSRCs.
   RegisteredSsrcs registered_ssrcs_;
@@ -378,9 +358,9 @@ class RTCPReceiver final {
 
   // Estimated rtt, nullopt when there is no valid estimate.
   bool xr_rrtr_status_ RTC_GUARDED_BY(rtcp_receiver_lock_);
-  absl::optional<TimeDelta> xr_rr_rtt_;
+  std::optional<TimeDelta> xr_rr_rtt_;
 
-  int64_t oldest_tmmbr_info_ms_ RTC_GUARDED_BY(rtcp_receiver_lock_);
+  Timestamp oldest_tmmbr_info_ RTC_GUARDED_BY(rtcp_receiver_lock_);
   // Mapped by remote ssrc.
   flat_map<uint32_t, TmmbrInformation> tmmbr_infos_
       RTC_GUARDED_BY(rtcp_receiver_lock_);
@@ -414,7 +394,7 @@ class RTCPReceiver final {
   RtcpNackStats nack_stats_;
 
   size_t num_skipped_packets_;
-  int64_t last_skipped_packets_warning_ms_;
+  Timestamp last_skipped_packets_warning_;
 };
 }  // namespace webrtc
 #endif  // MODULES_RTP_RTCP_SOURCE_RTCP_RECEIVER_H_

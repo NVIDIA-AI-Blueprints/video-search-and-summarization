@@ -12,8 +12,10 @@
 #define CALL_VIDEO_RECEIVE_STREAM_H_
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -21,8 +23,12 @@
 
 #include "api/call/transport.h"
 #include "api/crypto/crypto_options.h"
+#include "api/crypto/frame_decryptor_interface.h"
+#include "api/frame_transformer_interface.h"
 #include "api/rtp_headers.h"
-#include "api/rtp_parameters.h"
+#include "api/scoped_refptr.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "api/video/recordable_encoded_frame.h"
 #include "api/video/video_content_type.h"
 #include "api/video/video_frame.h"
@@ -34,7 +40,6 @@
 #include "common_video/frame_counts.h"
 #include "modules/rtp_rtcp/include/rtcp_statistics.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -55,7 +60,7 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
     std::function<void(const RecordableEncodedFrame&)> callback;
     // Memento of when a keyframe request was last sent. The
     // VideoReceiveStreamInterface client should not interpret the attribute.
-    absl::optional<int64_t> last_keyframe_request_ms;
+    std::optional<int64_t> last_keyframe_request_ms;
   };
 
   // TODO(mflodman) Move all these settings to VideoDecoder and move the
@@ -80,7 +85,8 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
   struct Stats {
     Stats();
     ~Stats();
-    std::string ToString(int64_t time_ms) const;
+    std::string ToString(int64_t time_ms,
+                         std::optional<Stats> previous_stats) const;
 
     int network_frame_rate = 0;
     int decode_frame_rate = 0;
@@ -88,8 +94,8 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
     uint32_t frames_rendered = 0;
 
     // Decoder stats.
-    absl::optional<std::string> decoder_implementation_name;
-    absl::optional<bool> power_efficient_decoder;
+    std::optional<std::string> decoder_implementation_name;
+    std::optional<bool> power_efficient_decoder;
     FrameCounts frame_counts;
     int decode_ms = 0;
     int max_decode_ms = 0;
@@ -115,9 +121,11 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
     TimeDelta total_decode_time = TimeDelta::Zero();
     // https://w3c.github.io/webrtc-stats/#dom-rtcinboundrtpstreamstats-totalprocessingdelay
     TimeDelta total_processing_delay = TimeDelta::Zero();
-    // TODO(bugs.webrtc.org/13986): standardize
+
+    // https://w3c.github.io/webrtc-stats/#dom-rtcinboundrtpstreamstats-totalassemblytime
     TimeDelta total_assembly_time = TimeDelta::Zero();
     uint32_t frames_assembled_from_multiple_packets = 0;
+
     // Total inter frame delay in seconds.
     // https://w3c.github.io/webrtc-stats/#dom-rtcinboundrtpstreamstats-totalinterframedelay
     double total_inter_frame_delay = 0;
@@ -125,7 +133,19 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
     // https://w3c.github.io/webrtc-stats/#dom-rtcinboundrtpstreamstats-totalsqauredinterframedelay
     double total_squared_inter_frame_delay = 0;
     int64_t first_frame_received_to_decoded_ms = -1;
-    absl::optional<uint64_t> qp_sum;
+    std::optional<uint64_t> qp_sum;
+
+    // Corruption score, indicating the probability of corruption. Its value is
+    // between 0 and 1, where 0 means no corruption and 1 means that the
+    // compressed frame is corrupted.
+    // However, note that the corruption score may not accurately reflect
+    // corruption. E.g. even if the corruption score is 0, the compressed frame
+    // may still be corrupted and vice versa.
+    std::optional<double> corruption_score_sum;
+    std::optional<double> corruption_score_squared_sum;
+    // Number of frames the `corruption_score` was calculated on. This is
+    // usually not the same as `frames_decoded`.
+    uint32_t corruption_score_count = 0;
 
     int current_payload_type = -1;
 
@@ -142,18 +162,29 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
     VideoContentType content_type = VideoContentType::UNSPECIFIED;
 
     // https://w3c.github.io/webrtc-stats/#dom-rtcinboundrtpstreamstats-estimatedplayouttimestamp
-    absl::optional<int64_t> estimated_playout_ntp_timestamp_ms;
+    std::optional<int64_t> estimated_playout_ntp_timestamp_ms;
     int sync_offset_ms = std::numeric_limits<int>::max();
 
     uint32_t ssrc = 0;
     std::string c_name;
     RtpReceiveStats rtp_stats;
     RtcpPacketTypeCounter rtcp_packet_type_counts;
-    absl::optional<RtpReceiveStats> rtx_rtp_stats;
+    std::optional<RtpReceiveStats> rtx_rtp_stats;
 
     // Timing frame info: all important timestamps for a full lifetime of a
     // single 'timing frame'.
-    absl::optional<webrtc::TimingFrameInfo> timing_frame_info;
+    std::optional<webrtc::TimingFrameInfo> timing_frame_info;
+
+    // Remote outbound stats derived by the received RTCP sender reports.
+    // https://w3c.github.io/webrtc-stats/#remoteoutboundrtpstats-dict*
+    std::optional<Timestamp> last_sender_report_timestamp;
+    // TODO: bugs.webrtc.org/370535296 - Remove the utc timestamp when linked
+    // issue is fixed.
+    std::optional<Timestamp> last_sender_report_utc_timestamp;
+    std::optional<Timestamp> last_sender_report_remote_utc_timestamp;
+    uint32_t sender_reports_packets_sent = 0;
+    uint64_t sender_reports_bytes_sent = 0;
+    uint64_t sender_reports_reports_count = 0;
   };
 
   struct Config {
@@ -238,7 +269,7 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
     Transport* rtcp_send_transport = nullptr;
 
     // Must always be set.
-    rtc::VideoSinkInterface<VideoFrame>* renderer = nullptr;
+    VideoSinkInterface<VideoFrame>* renderer = nullptr;
 
     // Expected delay needed by the renderer, i.e. the frame will be delivered
     // this many milliseconds, if possible, earlier than the ideal render time.
@@ -256,12 +287,12 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
     // An optional custom frame decryptor that allows the entire frame to be
     // decrypted in whatever way the caller choses. This is not required by
     // default.
-    rtc::scoped_refptr<webrtc::FrameDecryptorInterface> frame_decryptor;
+    scoped_refptr<webrtc::FrameDecryptorInterface> frame_decryptor;
 
     // Per PeerConnection cryptography options.
     CryptoOptions crypto_options;
 
-    rtc::scoped_refptr<webrtc::FrameTransformerInterface> frame_transformer;
+    scoped_refptr<webrtc::FrameTransformerInterface> frame_transformer;
   };
 
   // TODO(pbos): Add info on currently-received codec to Stats.
@@ -291,8 +322,6 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
   // Cause eventual generation of a key frame from the sender.
   virtual void GenerateKeyFrame() = 0;
 
-  virtual void SetRtcpMode(RtcpMode mode) = 0;
-
   // Sets or clears a flexfec RTP sink. This affects `rtp.packet_sink_` and
   // `rtp.protected_by_flexfec` parts of the configuration. Must be called on
   // the packet delivery thread.
@@ -320,7 +349,7 @@ class VideoReceiveStreamInterface : public MediaReceiveStreamInterface {
   virtual void UpdateRtxSsrc(uint32_t ssrc) = 0;
 
  protected:
-  virtual ~VideoReceiveStreamInterface() {}
+  ~VideoReceiveStreamInterface() override {}
 };
 
 }  // namespace webrtc

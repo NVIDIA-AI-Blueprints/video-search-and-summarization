@@ -17,15 +17,25 @@
 #ifndef SRC_TRACE_PROCESSOR_UTIL_PROTO_TO_ARGS_PARSER_H_
 #define SRC_TRACE_PROCESSOR_UTIL_PROTO_TO_ARGS_PARSER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <optional>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <variant>
+#include <vector>
 
 #include "perfetto/base/status.h"
 #include "perfetto/protozero/field.h"
-#include "protos/perfetto/trace/interned_data/interned_data.pbzero.h"
+#include "perfetto/protozero/proto_utils.h"
 #include "src/trace_processor/util/descriptors.h"
+#include "src/trace_processor/util/interned_message_view.h"
 
-namespace perfetto {
-namespace trace_processor {
+#include "protos/perfetto/trace/interned_data/interned_data.pbzero.h"
+
+namespace perfetto::trace_processor {
 
 // TODO(altimin): Move InternedMessageView into trace_processor/util.
 class InternedMessageView;
@@ -63,11 +73,9 @@ namespace util {
 //     /* fields */, /* delegate */);
 class ProtoToArgsParser {
  public:
-  explicit ProtoToArgsParser(const DescriptorPool& descriptor_pool);
-
   struct Key {
     Key(const std::string& flat_key, const std::string& key);
-    Key(const std::string& key);
+    explicit Key(const std::string& key);
     Key();
     ~Key();
 
@@ -85,8 +93,14 @@ class ProtoToArgsParser {
                            const protozero::ConstChars& value) = 0;
     virtual void AddString(const Key& key, const std::string& value) = 0;
     virtual void AddDouble(const Key& key, double value) = 0;
-    virtual void AddPointer(const Key& key, const void* value) = 0;
+    virtual void AddPointer(const Key& key, uint64_t value) = 0;
     virtual void AddBoolean(const Key& key, bool value) = 0;
+    virtual void AddBytes(const Key& key, const protozero::ConstBytes& value) {
+      // In the absence of a better implementation default to showing
+      // bytes as string with the size:
+      std::string msg = "<bytes size=" + std::to_string(value.size) + ">";
+      AddString(key, msg);
+    }
     // Returns whether an entry was added or not.
     virtual bool AddJson(const Key& key,
                          const protozero::ConstChars& value) = 0;
@@ -117,10 +131,60 @@ class ProtoToArgsParser {
           typename FieldMetadata::cpp_field_type>();
     }
 
+    virtual bool ShouldAddDefaultArg(const Key&) { return true; }
+
    protected:
     virtual InternedMessageView* GetInternedMessageView(uint32_t field_id,
                                                         uint64_t iid) = 0;
   };
+
+  // Parses a DebugAnnotation proto and emits args via the delegate. Uses the
+  // same iterative work-stack as ParseMessage, so DebugAnnotation ->
+  // proto_value -> DebugAnnotation cycles are processed by pushing further
+  // work items onto the same stack rather than recursing.
+  base::Status ParseDebugAnnotation(protozero::ConstBytes data,
+                                    Delegate& delegate);
+
+  // Opts this parser into DebugAnnotation-aware handling for ParseMessage:
+  // ParseMessage routes ".perfetto.protos.DebugAnnotation" sub-fields and
+  // top-level parses to ParseDebugAnnotation. When disabled (the default),
+  // DebugAnnotation is parsed via generic descriptor reflection.
+  void EnableDebugAnnotationParsing() { debug_annotation_enabled_ = true; }
+
+  // This class is responsible for resetting the current key prefix to the old
+  // value when deleted or reset.
+  struct ScopedNestedKeyContext {
+   public:
+    ~ScopedNestedKeyContext();
+    ScopedNestedKeyContext(ScopedNestedKeyContext&&) noexcept;
+    ScopedNestedKeyContext& operator=(ScopedNestedKeyContext&&) noexcept;
+    ScopedNestedKeyContext(const ScopedNestedKeyContext&) = delete;
+    ScopedNestedKeyContext& operator=(const ScopedNestedKeyContext&) = delete;
+
+    const Key& key() const { return key_; }
+
+    // Clear this context, which strips the latest suffix from |key_| and sets
+    // it to the state before the nested context was created.
+    void RemoveFieldSuffix();
+
+   private:
+    friend class ProtoToArgsParser;
+
+    explicit ScopedNestedKeyContext(Key& old_value);
+
+    struct ScopedStringAppender;
+
+    Key& key_;
+    std::optional<size_t> old_flat_key_length_ = std::nullopt;
+    std::optional<size_t> old_key_length_ = std::nullopt;
+  };
+
+  using ParsingOverrideForField =
+      std::function<std::optional<base::Status>(const protozero::Field&,
+                                                Delegate& delegate)>;
+
+  explicit ProtoToArgsParser(const DescriptorPool& descriptor_pool);
+  ~ProtoToArgsParser();
 
   // Given a view of bytes that represent a serialized protozero message of
   // |type| we will parse each field.
@@ -137,52 +201,18 @@ class ProtoToArgsParser {
   // |type| must be the fully qualified name, but with a '.' added to the
   // beginning. I.E. ".perfetto.protos.TrackEvent". And must match one of the
   // descriptors already added through |AddProtoFileDescriptor|.
-  //
-  // IMPORTANT: currently bytes fields are not supported.
-  //
-  // TODO(b/145578432): Add support for byte fields.
   base::Status ParseMessage(const protozero::ConstBytes& cb,
                             const std::string& type,
                             const std::vector<uint32_t>* allowed_fields,
                             Delegate& delegate,
-                            int* unknown_extensions = nullptr);
-
-  // This class is responsible for resetting the current key prefix to the old
-  // value when deleted or reset.
-  struct ScopedNestedKeyContext {
-   public:
-    ~ScopedNestedKeyContext();
-    ScopedNestedKeyContext(ScopedNestedKeyContext&&);
-    ScopedNestedKeyContext(const ScopedNestedKeyContext&) = delete;
-    ScopedNestedKeyContext& operator=(const ScopedNestedKeyContext&) = delete;
-
-    const Key& key() const { return key_; }
-
-    // Clear this context, which strips the latest suffix from |key_| and sets
-    // it to the state before the nested context was created.
-    void RemoveFieldSuffix();
-
-   private:
-    friend class ProtoToArgsParser;
-
-    ScopedNestedKeyContext(Key& old_value);
-
-    struct ScopedStringAppender;
-
-    Key& key_;
-    std::optional<size_t> old_flat_key_length_ = std::nullopt;
-    std::optional<size_t> old_key_length_ = std::nullopt;
-  };
+                            int* unknown_extensions = nullptr,
+                            bool add_defaults = false);
 
   // These methods can be called from parsing overrides to enter nested
   // contexts. The contexts are left when the returned scope is destroyed or
   // RemoveFieldSuffix() is called.
   ScopedNestedKeyContext EnterDictionary(const std::string& key);
   ScopedNestedKeyContext EnterArray(size_t index);
-
-  using ParsingOverrideForField =
-      std::function<std::optional<base::Status>(const protozero::Field&,
-                                                Delegate& delegate)>;
 
   // Installs an override for the field at the specified path. We will invoke
   // |parsing_override| when the field is encountered.
@@ -243,18 +273,47 @@ class ProtoToArgsParser {
                                  ParsingOverrideForType parsing_override);
 
  private:
-  base::Status ParseField(const FieldDescriptor& field_descriptor,
-                          int repeated_field_number,
-                          protozero::Field field,
-                          Delegate& delegate,
-                          int* unknown_extensions);
+  // Forward-declared here so the variant alias below can name them. The
+  // definitions live in the .cc; do not reference them from outside the
+  // parser implementation.
+  struct WorkItem;
+  struct DebugAnnotationWorkItem;
+  struct NestedValueWorkItem;
+  using WorkItemVariant =
+      std::variant<WorkItem, DebugAnnotationWorkItem, NestedValueWorkItem>;
+
+  base::Status RunWorkLoop(Delegate& delegate);
+  base::Status StepProtoMessage(WorkItem& item, Delegate& delegate, bool& done);
+  base::Status PushDebugAnnotation(protozero::ConstBytes data,
+                                   Delegate& delegate);
+  base::Status StepDebugAnnotation(DebugAnnotationWorkItem& item,
+                                   Delegate& delegate,
+                                   bool& done);
+  base::Status StepNestedValue(NestedValueWorkItem& item,
+                               size_t self_index,
+                               Delegate& delegate,
+                               bool& done);
+
+  // Returns the effective key for the NestedValueWorkItem at `nv_index`:
+  // its own key if present, otherwise the key of the DebugAnnotationWorkItem
+  // immediately below it (the one that pushed the root NestedValue).
+  // Looking the parent up by index keeps this safe across `work_stack_`
+  // reallocations; a stored pointer would not be.
+  const Key& EffectiveNestedValueKey(size_t nv_index) const;
+
+  // Folds the result of a finished NestedValueWorkItem at `child_index` into
+  // its parent on the work stack. The parent is either an enclosing
+  // NestedValueWorkItem (intermediate nesting) or the DebugAnnotationWorkItem
+  // that originally pushed the root NestedValue.
+  void PropagateNestedValueResult(size_t child_index,
+                                  bool added_entry,
+                                  Delegate& delegate);
 
   base::Status ParsePackedField(
       const FieldDescriptor& field_descriptor,
       std::unordered_map<size_t, int>& repeated_field_index,
       protozero::Field field,
-      Delegate& delegate,
-      int* unknown_extensions);
+      Delegate& delegate);
 
   std::optional<base::Status> MaybeApplyOverrideForField(
       const protozero::Field&,
@@ -266,27 +325,43 @@ class ProtoToArgsParser {
       const protozero::ConstBytes& data,
       Delegate& delegate);
 
-  // A type override can call |key.RemoveFieldSuffix()| if it wants to exclude
-  // the overriden field's name from the parsed args' keys.
-  base::Status ParseMessageInternal(ScopedNestedKeyContext& key,
-                                    const protozero::ConstBytes& cb,
-                                    const std::string& type,
-                                    const std::vector<uint32_t>* fields,
-                                    Delegate& delegate,
-                                    int* unknown_extensions);
-
-  base::Status ParseSimpleField(const FieldDescriptor& desciptor,
+  base::Status ParseSimpleField(const FieldDescriptor& descriptor,
                                 const protozero::Field& field,
                                 Delegate& delegate);
+
+  base::Status AddDefault(const FieldDescriptor& descriptor,
+                          Delegate& delegate);
+
+  base::Status AddEnum(const FieldDescriptor& descriptor,
+                       int32_t value,
+                       Delegate& delegate);
 
   std::unordered_map<std::string, ParsingOverrideForField> field_overrides_;
   std::unordered_map<std::string, ParsingOverrideForType> type_overrides_;
   const DescriptorPool& pool_;
   Key key_prefix_;
+  // Parameters to ParseMessage that apply uniformly to every ProtoMessage
+  // WorkItem on the stack. Set by ParseMessage; read by StepProtoMessage.
+  const std::vector<uint32_t>* allowed_fields_ = nullptr;
+  int* unknown_extensions_ = nullptr;
+  bool add_defaults_ = false;
+  // Shared work stack used by ParseMessage / ParseDebugAnnotation. Each
+  // public entry pushes its initial item; RunWorkLoop drains the stack,
+  // dispatching by variant type.
+  std::vector<WorkItemVariant> work_stack_;
+  // Scratch storage for DebugAnnotation / NestedValue child enumeration.
+  // Each node records a [first, first+count) range here while iterating its
+  // dict_entries / array_values, and pops the entries back off when done.
+  std::vector<protozero::ConstBytes> da_nested_storage_;
+  struct NestedKeyValue {
+    std::string key;
+    protozero::ConstBytes nested_value;
+  };
+  std::vector<NestedKeyValue> nv_nested_storage_;
+  bool debug_annotation_enabled_ = false;
 };
 
 }  // namespace util
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_UTIL_PROTO_TO_ARGS_PARSER_H_

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -26,7 +26,7 @@ struct PICK_MODE_CONTEXT;
 struct macroblock;
 
 /*!\cond */
-#define AV1_K_MEANS_RENAME(func, dim) func##_dim##dim##_c
+#define AV1_K_MEANS_RENAME(func, dim) func##_dim##dim
 
 void AV1_K_MEANS_RENAME(av1_k_means, 1)(const int16_t *data, int16_t *centroids,
                                         uint8_t *indices, int n, int k,
@@ -51,7 +51,7 @@ void AV1_K_MEANS_RENAME(av1_k_means, 2)(const int16_t *data, int16_t *centroids,
  *
  * \remark Returns nothing, but saves each data's cluster index in \a indices.
  */
-static INLINE void av1_calc_indices(const int16_t *data,
+static inline void av1_calc_indices(const int16_t *data,
                                     const int16_t *centroids, uint8_t *indices,
                                     int n, int k, int dim) {
   assert(n > 0);
@@ -85,7 +85,7 @@ static INLINE void av1_calc_indices(const int16_t *data,
  *
  * \attention The output centroids are rounded off to nearest integers.
  */
-static INLINE void av1_k_means(const int16_t *data, int16_t *centroids,
+static inline void av1_k_means(const int16_t *data, int16_t *centroids,
                                uint8_t *indices, int n, int k, int dim,
                                int max_itr) {
   assert(n > 0);
@@ -98,20 +98,6 @@ static INLINE void av1_k_means(const int16_t *data, int16_t *centroids,
     assert(0 && "Untemplated k means dimension");
   }
 }
-
-/*!\brief Removes duplicated centroid indices.
- *
- * \ingroup palette_mode_search
- * \param[in]    centroids          A list of centroids index.
- * \param[in]    num_centroids      Number of centroids.
- *
- * \return Returns the number of unique centroids and saves the unique centroids
- * in beginning of the centroids array.
- *
- * \attention The centroids should be rounded to integers before calling this
- * method.
- */
-int av1_remove_duplicates(int16_t *centroids, int num_centroids);
 
 /*!\brief Checks what colors are in the color cache.
  *
@@ -188,7 +174,7 @@ void av1_rd_pick_palette_intra_sby(
     int dc_mode_cost, MB_MODE_INFO *best_mbmi, uint8_t *best_palette_color_map,
     int64_t *best_rd, int *rate, int *rate_tokenonly, int64_t *distortion,
     uint8_t *skippable, int *beat_best_rd, struct PICK_MODE_CONTEXT *ctx,
-    uint8_t *best_blk_skip, uint8_t *tx_type_map);
+    uint8_t *tx_type_map);
 
 /*!\brief Search for the best palette in the chroma plane.
  *

@@ -69,7 +69,6 @@ class SVGTransform final : public SVGListablePropertyBase {
   ~SVGTransform() override;
 
   SVGTransform* Clone() const;
-  SVGPropertyBase* CloneForAnimation(const String&) const override;
 
   SVGTransformType TransformType() const { return transform_type_; }
 
@@ -95,7 +94,7 @@ class SVGTransform final : public SVGListablePropertyBase {
 
   String ValueAsString() const override;
 
-  void Add(const SVGPropertyBase*, const SVGElement*) override;
+  bool Add(const SVGPropertyBase*, const SVGElement*) override;
   void CalculateAnimatedValue(
       const SMILAnimationEffectParameters&,
       float percentage,

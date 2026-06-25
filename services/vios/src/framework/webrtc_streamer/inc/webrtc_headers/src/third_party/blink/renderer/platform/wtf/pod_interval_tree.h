@@ -26,95 +26,37 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_POD_INTERVAL_TREE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_POD_INTERVAL_TREE_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/platform/wtf/pod_arena.h"
 #include "third_party/blink/renderer/platform/wtf/pod_interval.h"
 #include "third_party/blink/renderer/platform/wtf/pod_red_black_tree.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
-namespace WTF {
-
-#ifndef NDEBUG
-template <class T>
-struct ValueToString;
-#endif
-
-template <class T, class UserData = void*>
-class PODIntervalSearchAdapter {
-  DISALLOW_NEW();
-
- public:
-  typedef PODInterval<T, UserData> IntervalType;
-
-  PODIntervalSearchAdapter(Vector<IntervalType>& result,
-                           const T& low_value,
-                           const T& high_value)
-      : result_(result), low_value_(low_value), high_value_(high_value) {}
-
-  const T& LowValue() const { return low_value_; }
-  const T& HighValue() const { return high_value_; }
-  void CollectIfNeeded(const IntervalType& data) const {
-    if (data.Overlaps(low_value_, high_value_))
-      result_.push_back(data);
-  }
-
- private:
-  Vector<IntervalType>& result_;
-  T low_value_;
-  T high_value_;
-};
+namespace blink {
 
 // An interval tree, which is a form of augmented red-black tree. It
 // supports efficient (O(lg n)) insertion, removal and querying of
 // intervals in the tree.
 template <class T, class UserData = void*>
-class PODIntervalTree final : public PODRedBlackTree<PODInterval<T, UserData>> {
+class PodIntervalTree final : public PodRedBlackTree<PodInterval<T, UserData>> {
  public:
   // Typedef to reduce typing when declaring intervals to be stored in
   // this tree.
-  typedef PODInterval<T, UserData> IntervalType;
-  typedef PODIntervalSearchAdapter<T, UserData> IntervalSearchAdapterType;
+  using IntervalType = PodInterval<T, UserData>;
 
-  PODIntervalTree(UninitializedTreeEnum unitialized_tree)
-      : PODRedBlackTree<IntervalType>(unitialized_tree) {
-    Init();
-  }
+  PodIntervalTree() : PodRedBlackTree<IntervalType>() {}
 
-  PODIntervalTree() : PODRedBlackTree<IntervalType>() { Init(); }
-
-  explicit PODIntervalTree(scoped_refptr<PODArena> arena)
-      : PODRedBlackTree<IntervalType>(arena) {
-    Init();
-  }
-
-  PODIntervalTree(const PODIntervalTree&) = delete;
-  PODIntervalTree& operator=(const PODIntervalTree&) = delete;
+  PodIntervalTree(const PodIntervalTree&) = delete;
+  PodIntervalTree& operator=(const PodIntervalTree&) = delete;
 
   // Returns all intervals in the tree which overlap the given query
   // interval. The returned intervals are sorted by increasing low
   // endpoint.
-  Vector<IntervalType> AllOverlaps(const IntervalType& interval) const {
+  Vector<IntervalType> AllOverlaps(const T& low, const T& high) const {
     Vector<IntervalType> result;
-    AllOverlaps(interval, result);
+    SearchForOverlapsFrom(this->Root(), low, high, result);
     return result;
-  }
-
-  // Returns all intervals in the tree which overlap the given query
-  // interval. The returned intervals are sorted by increasing low
-  // endpoint.
-  void AllOverlaps(const IntervalType& interval,
-                   Vector<IntervalType>& result) const {
-    // Explicit dereference of "this" required because of
-    // inheritance rules in template classes.
-    IntervalSearchAdapterType adapter(result, interval.Low(), interval.High());
-    SearchForOverlapsFrom(this->Root(), adapter);
-  }
-
-  template <class AdapterType>
-  void AllOverlapsWithAdapter(AdapterType& adapter) const {
-    // Explicit dereference of "this" required because of
-    // inheritance rules in template classes.
-    SearchForOverlapsFrom(this->Root(), adapter);
   }
 
   // Helper to create interval objects.
@@ -125,39 +67,34 @@ class PODIntervalTree final : public PODRedBlackTree<PODInterval<T, UserData>> {
   }
 
   bool CheckInvariants() const override {
-    if (!PODRedBlackTree<IntervalType>::CheckInvariants())
+    if (!PodRedBlackTree<IntervalType>::CheckInvariants()) {
       return false;
+    }
     if (!this->Root())
       return true;
     return CheckInvariantsFromNode(this->Root());
   }
 
   // Returns the next interval point (start or end) after the given starting
-  // point (non-inclusive). If there is no such point, returns |absl::nullopt|.
-  absl::optional<T> NextIntervalPoint(T start) const {
+  // point (non-inclusive). If there is no such point, returns |std::nullopt|.
+  std::optional<T> NextIntervalPoint(T start) const {
     return NextIntervalPoint(start, this->Root());
   }
 
  private:
-  typedef typename PODRedBlackTree<IntervalType>::Node IntervalNode;
-
-  // Initializes the tree.
-  void Init() {
-    // Explicit dereference of "this" required because of
-    // inheritance rules in template classes.
-    this->SetNeedsFullOrderingComparisons(true);
-  }
+  using IntervalNode = typename PodRedBlackTree<IntervalType>::Node;
 
   // Starting from the given node, adds all overlaps with the given
   // interval to the result vector. The intervals are sorted by
   // increasing low endpoint.
-  template <class AdapterType>
-  DISABLE_CFI_PERF static void SearchForOverlapsFrom(IntervalNode const* node,
-                                                     AdapterType& adapter) {
+  DISABLE_CFI_PERF static void SearchForOverlapsFrom(
+      IntervalNode const* node,
+      const T& low,
+      const T& high,
+      Vector<IntervalType>& result) {
     // This is phrased this way to avoid the need for operator
     // <= on type T.
-    if (!node || adapter.HighValue() < node->Data().MinLow() ||
-        node->Data().MaxHigh() < adapter.LowValue()) {
+    if (!node || high < node->Data().MinLow() || node->Data().MaxHigh() < low) {
       return;
     }
 
@@ -165,21 +102,22 @@ class PODIntervalTree final : public PODRedBlackTree<PODInterval<T, UserData>> {
     // traversal produces results sorted as desired.
 
     // Attempt to traverse left subtree
-    SearchForOverlapsFrom(node->Left(), adapter);
+    SearchForOverlapsFrom(node->Left(), low, high, result);
 
     // Check for overlap with current node.
-    adapter.CollectIfNeeded(node->Data());
+    if (node->Data().Overlaps(low, high)) {
+      result.push_back(node->Data());
+    }
 
     // Attempt to traverse right subtree
-    SearchForOverlapsFrom(node->Right(), adapter);
+    SearchForOverlapsFrom(node->Right(), low, high, result);
   }
 
-  static absl::optional<T> NextIntervalPoint(T start,
-                                             IntervalNode const* node) {
+  static std::optional<T> NextIntervalPoint(T start, IntervalNode const* node) {
     // If this node doesn't exist or is entirely out of scope, just return. This
     // prevents recursing deeper than necessary on the left.
     if (!node || node->Data().MaxHigh() < start) {
-      return absl::nullopt;
+      return std::nullopt;
     }
     // Easy shortcut: If the lowest point in this subtree is in scope, just
     // return that. This prevents recursing deeper than necessary on the right.
@@ -201,7 +139,7 @@ class PODIntervalTree final : public PODRedBlackTree<PODInterval<T, UserData>> {
 
     // If the current node's high point is in scope, consider that against the
     // left branch
-    absl::optional<T> current_candidate;
+    std::optional<T> current_candidate;
     if (start < node->Data().High()) {
       if (left_candidate.has_value()) {
         current_candidate =
@@ -323,7 +261,7 @@ class PODIntervalTree final : public PODRedBlackTree<PODInterval<T, UserData>> {
 
 #ifndef NDEBUG
   static void LogVerificationFailedAtNode(IntervalNode const* node) {
-    DLOG(ERROR) << "PODIntervalTree verification failed at node " << node
+    DLOG(ERROR) << "PodIntervalTree verification failed at node " << node
                 << ": data=" << node->Data().ToString();
   }
 #else
@@ -332,15 +270,15 @@ class PODIntervalTree final : public PODRedBlackTree<PODInterval<T, UserData>> {
 };
 
 #ifndef NDEBUG
-// Support for printing PODIntervals at the PODRedBlackTree level.
+// Support for printing PodIntervals at the PodRedBlackTree level.
 template <class T, class UserData>
-struct ValueToString<PODInterval<T, UserData>> {
-  static String ToString(const PODInterval<T, UserData>& interval) {
+struct ValueToString<PodInterval<T, UserData>> {
+  static String ToString(const PodInterval<T, UserData>& interval) {
     return interval.ToString();
   }
 };
 #endif
 
-}  // namespace WTF
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_POD_INTERVAL_TREE_H_

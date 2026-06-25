@@ -31,17 +31,15 @@
 
 #include <memory>
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/platform/audio/hrtf_kernel.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 // HRTFElevation contains all of the HRTFKernels (one left ear and one right ear
 // per azimuth angle) for a particular elevation.
 
-class HRTFElevation {
+class HRTFElevation final {
   USING_FAST_MALLOC(HRTFElevation);
 
  public:
@@ -84,19 +82,6 @@ class HRTFElevation {
       : kernel_list_l_(std::move(kernel_list_l)),
         kernel_list_r_(std::move(kernel_list_r)),
         elevation_angle_(elevation) {}
-
-  // Given a specific azimuth and elevation angle, returns the left and right
-  // HRTFKernel.
-  // Valid values for azimuth are 0 -> 345 in 15 degree increments.
-  // Valid values for elevation are -45 -> +90 in 15 degree increments.
-  // Returns true on success.
-  static bool CalculateKernelsForAzimuthElevation(
-      int azimuth,
-      int elevation,
-      float sample_rate,
-      int subject_resource_id,
-      std::unique_ptr<HRTFKernel>& kernel_l,
-      std::unique_ptr<HRTFKernel>& kernel_r);
 
   // Returns the list of left or right ear HRTFKernels for all the azimuths
   // going from 0 to 360 degrees.

@@ -32,6 +32,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_ELEMENT_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_ELEMENT_DATA_H_
 
+#include <concepts>
+
+#include "base/containers/span.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/attribute_collection.h"
@@ -57,11 +60,15 @@ class ElementData : public GarbageCollected<ElementData> {
   void FinalizeGarbageCollectedObject();
 
   void ClearClass() const { class_names_.Clear(); }
-  void SetClass(const AtomicString& class_name, bool should_fold_case) const {
-    AtomicString lower_class_name;
-    if (should_fold_case && !class_name.IsLowerASCII())
-      lower_class_name = class_name.LowerASCII();
-    class_names_.Set(lower_class_name ? lower_class_name : class_name);
+  void SetClass(const AtomicString& class_names) const {
+    DCHECK(!class_names.empty());
+    class_names_.Set(class_names);
+  }
+  void SetClassFoldingCase(const AtomicString& class_names) const {
+    if (class_names.ContainsNoAsciiUpper()) {
+      return SetClass(class_names);
+    }
+    return SetClass(class_names.ToAsciiLower());
   }
   const SpaceSplitString& ClassNames() const { return class_names_; }
 
@@ -74,7 +81,9 @@ class ElementData : public GarbageCollected<ElementData> {
 
   const CSSPropertyValueSet* InlineStyle() const { return inline_style_.Get(); }
 
-  const CSSPropertyValueSet* PresentationAttributeStyle() const;
+  const CSSPropertyValueSet* PresentationAttributeStyle() const {
+    return presentation_attribute_style_.Get();
+  }
 
   AttributeCollection Attributes() const;
 
@@ -89,24 +98,15 @@ class ElementData : public GarbageCollected<ElementData> {
   void Trace(Visitor*) const;
 
  protected:
-  static constexpr size_t kShareableArraySizeBits = 27;
-
-  using BitField = WTF::ConcurrentlyReadBitField<uint32_t>;
+  using BitField = ConcurrentlyReadBitField<uint32_t>;
   using IsUniqueFlag =
-      BitField::DefineFirstValue<bool, 1, WTF::BitFieldValueConstness::kConst>;
-  // This is used solely by ShareableElementData. It gives the number of
-  // elements in the array.
-  using ShareableArraySize =
-      IsUniqueFlag::DefineNextValue<uint32_t,
-                                    kShareableArraySizeBits,
-                                    WTF::BitFieldValueConstness::kConst>;
-  using PresentationAttributeStyleIsDirty =
-      ShareableArraySize::DefineNextValue<bool, 1>;
+      BitField::DefineFirstValue<bool, 1, BitFieldValueConstness::kConst>;
+  using ArraySize = IsUniqueFlag::
+      DefineNextValue<uint32_t, 28, BitFieldValueConstness::kConst>;
+  using PresentationAttributeStyleIsDirty = ArraySize::DefineNextValue<bool, 1>;
   using StyleAttributeIsDirty =
       PresentationAttributeStyleIsDirty::DefineNextValue<bool, 1>;
   using SvgAttributesAreDirty = StyleAttributeIsDirty::DefineNextValue<bool, 1>;
-  // Used by ShareableElementData. Tracks if the `class` needs to be calculated.
-  using ClassIsDirty = SvgAttributesAreDirty::DefineNextValue<bool, 1>;
 
   ElementData();
   explicit ElementData(unsigned array_size);
@@ -121,7 +121,6 @@ class ElementData : public GarbageCollected<ElementData> {
   bool svg_attributes_are_dirty() const {
     return bit_field_.get<SvgAttributesAreDirty>();
   }
-  bool class_is_dirty() const { return bit_field_.get<ClassIsDirty>(); }
 
   // Following 3 fields are meant to be mutable and can change even when const.
   void SetPresentationAttributeStyleIsDirty(
@@ -138,13 +137,11 @@ class ElementData : public GarbageCollected<ElementData> {
     const_cast<BitField*>(&bit_field_)
         ->set<SvgAttributesAreDirty>(svg_attributes_are_dirty);
   }
-  void SetClassIsDirty(bool value) const {
-    const_cast<BitField*>(&bit_field_)->set<ClassIsDirty>(value);
-  }
 
   BitField bit_field_;
 
   mutable Member<CSSPropertyValueSet> inline_style_;
+  mutable Member<CSSPropertyValueSet> presentation_attribute_style_;
   mutable SpaceSplitString class_names_;
   mutable AtomicString id_for_style_resolution_;
 
@@ -160,6 +157,12 @@ class ElementData : public GarbageCollected<ElementData> {
   UniqueElementData* MakeUniqueCopy() const;
 };
 
+template <typename T>
+  requires(std::derived_from<T, ElementData>)
+struct ThreadingTrait<T> {
+  static constexpr ThreadAffinity kAffinity = kMainThreadOnly;
+};
+
 #if defined(COMPILER_MSVC)
 #pragma warning(push)
 // Disable "zero-sized array in struct/union" warning
@@ -172,9 +175,6 @@ class ElementData : public GarbageCollected<ElementData> {
 // duplicate sets of attributes (ex. the same classes).
 class ShareableElementData final : public ElementData {
  public:
-  // Maximum number of attributes this can hold.
-  static constexpr size_t kMaxNumberOfAttributes = 2 ^ kShareableArraySizeBits;
-
   static ShareableElementData* CreateWithAttributes(
       const Vector<Attribute, kAttributePrealloc>&);
 
@@ -187,6 +187,20 @@ class ShareableElementData final : public ElementData {
   }
 
   AttributeCollection Attributes() const;
+
+  base::span<Attribute> AttributesSpan() {
+    // SAFETY: space for bit_field_.get<ArraySize>() Attributes are allocated
+    // after the main object (starting at attribute_array_) by the constructor.
+    return UNSAFE_BUFFERS(
+        base::span(attribute_array_, bit_field_.get<ArraySize>()));
+  }
+
+  base::span<const Attribute> AttributesSpan() const {
+    // SAFETY: space for bit_field_.get<ArraySize>() Attributes are allocated
+    // after the main object (starting at attribute_array_) by the constructor.
+    return UNSAFE_BUFFERS(
+        base::span(attribute_array_, bit_field_.get<ArraySize>()));
+  }
 
   Attribute attribute_array_[0];
 };
@@ -217,16 +231,10 @@ class UniqueElementData final : public ElementData {
 
   UniqueElementData();
   explicit UniqueElementData(const ShareableElementData&);
-  UniqueElementData(const UniqueElementData&);
-  explicit UniqueElementData(const Vector<Attribute, kAttributePrealloc>&);
+  explicit UniqueElementData(const UniqueElementData&);
 
   void TraceAfterDispatch(blink::Visitor*) const;
 
-  // FIXME: We might want to support sharing element data for elements with
-  // presentation attribute style. Lots of table cells likely have the same
-  // attributes. Most modern pages don't use presentation attributes though
-  // so this might not make sense.
-  mutable Member<CSSPropertyValueSet> presentation_attribute_style_;
   AttributeVector attribute_vector_;
 };
 
@@ -237,13 +245,6 @@ struct DowncastTraits<UniqueElementData> {
   }
 };
 
-inline const CSSPropertyValueSet* ElementData::PresentationAttributeStyle()
-    const {
-  if (!bit_field_.get<IsUniqueFlag>())
-    return nullptr;
-  return To<UniqueElementData>(this)->presentation_attribute_style_.Get();
-}
-
 inline AttributeCollection ElementData::Attributes() const {
   if (auto* unique_element_data = DynamicTo<UniqueElementData>(this))
     return unique_element_data->Attributes();
@@ -251,13 +252,11 @@ inline AttributeCollection ElementData::Attributes() const {
 }
 
 inline AttributeCollection ShareableElementData::Attributes() const {
-  return AttributeCollection(attribute_array_,
-                             bit_field_.get<ShareableArraySize>());
+  return AttributeCollection(AttributesSpan());
 }
 
 inline AttributeCollection UniqueElementData::Attributes() const {
-  return AttributeCollection(attribute_vector_.data(),
-                             attribute_vector_.size());
+  return AttributeCollection(attribute_vector_);
 }
 
 inline MutableAttributeCollection UniqueElementData::Attributes() {

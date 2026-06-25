@@ -1,14 +1,19 @@
 #ifndef INCLUDE_PERFETTO_TRACING_INTERNAL_DATA_SOURCE_TYPE_H_
 #define INCLUDE_PERFETTO_TRACING_INTERNAL_DATA_SOURCE_TYPE_H_
 
-#include "perfetto/base/build_config.h"
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+
 #include "perfetto/base/export.h"
+#include "perfetto/base/logging.h"
+#include "perfetto/public/compiler.h"
 #include "perfetto/tracing/core/forward_decls.h"
+#include "perfetto/tracing/internal/basic_types.h"
 #include "perfetto/tracing/internal/data_source_internal.h"
 #include "perfetto/tracing/internal/tracing_muxer.h"
 
-namespace perfetto {
-namespace internal {
+namespace perfetto::internal {
 
 // Represents a data source type (not an instance).
 //
@@ -39,30 +44,38 @@ class PERFETTO_EXPORT_COMPONENT DataSourceType {
           DataSourceInstanceThreadLocalState* tls_inst,
           uint32_t instance_index,
           void* user_arg);
+  // Function pointer type used to clear the incremental state without
+  // destroying it. Returns true if clearing was successful, false otherwise.
+  // If nullptr or returns false, the incremental state will be destroyed and
+  // recreated.
+  using ClearIncrementalStateFn = bool (*)(void* incremental_state,
+                                           void* user_arg);
 
   // Registers the data source type with the central tracing muxer.
   // * `descriptor` is the data source protobuf descriptor.
   // * `factory` is a std::function used to create instances of the data source
   //   type.
-  // * `buffer_exhausted_policy` specifies what to do when the shared memory
-  //   buffer runs out of chunks.
   // * `create_custom_tls_fn` and `create_incremental_state_fn` are function
   //   pointers called to create custom state. They will receive `user_arg` as
   //   an extra param.
+  // * `clear_incremental_state_fn` is an optional function pointer called to
+  //   clear incremental state without destroying it. If nullptr or returns
+  //   false, the state will be destroyed and recreated.
   bool Register(const DataSourceDescriptor& descriptor,
                 TracingMuxer::DataSourceFactory factory,
                 internal::DataSourceParams params,
-                BufferExhaustedPolicy buffer_exhausted_policy,
+                bool no_flush,
                 CreateCustomTlsFn create_custom_tls_fn,
                 CreateIncrementalStateFn create_incremental_state_fn,
+                ClearIncrementalStateFn clear_incremental_state_fn,
                 void* user_arg) {
-    buffer_exhausted_policy_ = buffer_exhausted_policy;
     create_custom_tls_fn_ = create_custom_tls_fn;
     create_incremental_state_fn_ = create_incremental_state_fn;
+    clear_incremental_state_fn_ = clear_incremental_state_fn;
     user_arg_ = user_arg;
     auto* tracing_impl = TracingMuxer::Get();
     return tracing_impl->RegisterDataSource(descriptor, factory, params,
-                                            &state_);
+                                            no_flush, &state_);
   }
 
   // Updates the data source type descriptor.
@@ -195,11 +208,12 @@ class PERFETTO_EXPORT_COMPONENT DataSourceType {
       internal::DataSourceInstanceThreadLocalState* tls_inst,
       uint32_t instance_index) {
     // Recreate incremental state data if it has been reset by the service.
-    if (tls_inst->incremental_state_generation !=
-        static_state()->incremental_state_generation.load(
-            std::memory_order_relaxed)) {
-      tls_inst->incremental_state.reset();
-      CreateIncrementalState(tls_inst, instance_index);
+    uint32_t actual_generation =
+        static_state()
+            ->GetUnsafe(instance_index)
+            ->incremental_state_generation.load(std::memory_order_relaxed);
+    if (tls_inst->incremental_state_generation != actual_generation) {
+      ClearIncrementalState(tls_inst, instance_index, actual_generation);
     }
     return tls_inst->incremental_state.get();
   }
@@ -216,13 +230,18 @@ class PERFETTO_EXPORT_COMPONENT DataSourceType {
     tls_inst->incremental_state =
         create_incremental_state_fn_(tls_inst, instance_index, user_arg_);
     tls_inst->incremental_state_generation =
-        static_state()->incremental_state_generation.load(
-            std::memory_order_relaxed);
+        static_state()
+            ->GetUnsafe(instance_index)
+            ->incremental_state_generation.load(std::memory_order_relaxed);
   }
 
   void PopulateTlsInst(DataSourceInstanceThreadLocalState* tls_inst,
                        DataSourceState* instance_state,
                        uint32_t instance_index);
+
+  void ClearIncrementalState(internal::DataSourceInstanceThreadLocalState*,
+                             uint32_t instance_index,
+                             uint32_t actual_generation);
 
   // Advances `*iterator` to the first active instance whose index is greater or
   // equal than `iterator->i`.
@@ -285,9 +304,6 @@ class PERFETTO_EXPORT_COMPONENT DataSourceType {
   // per data-source *instance*.
   template <typename DataSourceTraits>
   DataSourceThreadLocalState* GetOrCreateDataSourceTLS() {
-#if PERFETTO_BUILDFLAG(PERFETTO_OS_IOS)
-    PERFETTO_FATAL("Data source TLS not supported on iOS, see b/158814068");
-#endif
     auto* tracing_impl = TracingMuxer::Get();
     TracingTLS* root_tls = tracing_impl->GetOrCreateTracingTLS();
     DataSourceThreadLocalState* ds_tls =
@@ -302,15 +318,14 @@ class PERFETTO_EXPORT_COMPONENT DataSourceType {
   }
 
   DataSourceStaticState state_;
-  BufferExhaustedPolicy buffer_exhausted_policy_{};
   CreateCustomTlsFn create_custom_tls_fn_ = nullptr;
   CreateIncrementalStateFn create_incremental_state_fn_ = nullptr;
+  ClearIncrementalStateFn clear_incremental_state_fn_ = nullptr;
   // User defined pointer that carries extra content for the fn_ callbacks
   // above. Only used in the C shared library.
   void* user_arg_ = nullptr;
 };
 
-}  // namespace internal
-}  // namespace perfetto
+}  // namespace perfetto::internal
 
 #endif  // INCLUDE_PERFETTO_TRACING_INTERNAL_DATA_SOURCE_TYPE_H_

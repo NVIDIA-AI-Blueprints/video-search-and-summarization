@@ -11,9 +11,9 @@
 #ifndef MODULES_AUDIO_PROCESSING_TEST_CONVERSATIONAL_SPEECH_WAVREADER_INTERFACE_H_
 #define MODULES_AUDIO_PROCESSING_TEST_CONVERSATIONAL_SPEECH_WAVREADER_INTERFACE_H_
 
-#include <stddef.h>
-
-#include "api/array_view.h"
+#include <cstddef>
+#include <cstdint>
+#include <span>
 
 namespace webrtc {
 namespace test {
@@ -24,8 +24,8 @@ class WavReaderInterface {
   virtual ~WavReaderInterface() = default;
 
   // Returns the number of samples read.
-  virtual size_t ReadFloatSamples(rtc::ArrayView<float> samples) = 0;
-  virtual size_t ReadInt16Samples(rtc::ArrayView<int16_t> samples) = 0;
+  virtual size_t ReadFloatSamples(std::span<float> samples) = 0;
+  virtual size_t ReadInt16Samples(std::span<int16_t> samples) = 0;
 
   // Getters.
   virtual int SampleRate() const = 0;

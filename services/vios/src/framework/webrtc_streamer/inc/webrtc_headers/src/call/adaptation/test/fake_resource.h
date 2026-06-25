@@ -12,10 +12,8 @@
 #define CALL_ADAPTATION_TEST_FAKE_RESOURCE_H_
 
 #include <string>
-#include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/adaptation/resource.h"
 #include "api/scoped_refptr.h"
 
@@ -24,7 +22,7 @@ namespace webrtc {
 // Fake resource used for testing.
 class FakeResource : public Resource {
  public:
-  static rtc::scoped_refptr<FakeResource> Create(absl::string_view name);
+  static scoped_refptr<FakeResource> Create(absl::string_view name);
 
   explicit FakeResource(absl::string_view name);
   ~FakeResource() override;

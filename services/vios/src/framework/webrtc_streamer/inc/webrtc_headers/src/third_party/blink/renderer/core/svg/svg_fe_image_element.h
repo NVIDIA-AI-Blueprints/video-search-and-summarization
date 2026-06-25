@@ -40,10 +40,15 @@ class SVGFEImageElement final : public SVGFilterPrimitiveStandardAttributes,
   USING_PRE_FINALIZER(SVGFEImageElement, Dispose);
 
  public:
-  bool CurrentFrameHasSingleSecurityOrigin() const;
+  bool HasSingleSecurityOrigin() const;
 
   explicit SVGFEImageElement(Document&);
   ~SVGFEImageElement() override;
+
+  ElementType GetElementType() const final {
+    return ElementType::kSVGFEImageElement;
+  }
+
   SVGAnimatedPreserveAspectRatio* preserveAspectRatio() {
     return preserve_aspect_ratio_.Get();
   }

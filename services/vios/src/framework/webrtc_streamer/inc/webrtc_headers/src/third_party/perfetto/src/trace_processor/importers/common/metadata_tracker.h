@@ -17,15 +17,21 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_METADATA_TRACKER_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_METADATA_TRACKER_H_
 
+#include <cstdint>
+#include <optional>
+
+#include "perfetto/trace_processor/basic_types.h"
+#include "src/trace_processor/storage/metadata.h"
 #include "src/trace_processor/storage/trace_storage.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
+
+class TraceProcessorContext;
 
 // Tracks information in the metadata table.
 class MetadataTracker {
  public:
-  MetadataTracker(TraceStorage* storage);
+  explicit MetadataTracker(TraceProcessorContext* context);
 
   // Example usage:
   // SetMetadata(metadata::benchmark_name,
@@ -45,7 +51,7 @@ class MetadataTracker {
 
   // Reads back a set metadata value.
   // Only kSingle types are supported right now.
-  SqlValue GetMetadata(metadata::KeyId key);
+  std::optional<SqlValue> GetMetadata(metadata::KeyId key);
 
   // Tracks how many ChromeMetadata bundles have been parsed.
   uint32_t IncrementChromeMetadataBundleCount() {
@@ -53,21 +59,10 @@ class MetadataTracker {
   }
 
  private:
-  static constexpr size_t kNumKeys =
-      static_cast<size_t>(metadata::KeyId::kNumKeys);
-  static constexpr size_t kNumKeyTypes =
-      static_cast<size_t>(metadata::KeyType::kNumKeyTypes);
-
-  void WriteValue(uint32_t row, Variadic value);
-
-  std::array<StringId, kNumKeys> key_ids_;
-  std::array<StringId, kNumKeyTypes> key_type_ids_;
   uint32_t chrome_metadata_bundle_count_ = 0;
-
-  TraceStorage* storage_;
+  TraceProcessorContext* const context_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_METADATA_TRACKER_H_

@@ -11,15 +11,13 @@
 #ifndef API_UNITS_TIMESTAMP_H_
 #define API_UNITS_TIMESTAMP_H_
 
-#ifdef WEBRTC_UNIT_TEST
-#include <ostream>  // no-presubmit-check TODO(webrtc:8982)
-#endif              // WEBRTC_UNIT_TEST
-
+#include <cstdint>
 #include <string>
 #include <type_traits>
 
 #include "api/units/time_delta.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/system/rtc_export.h"
 #include "rtc_base/units/unit_base.h"  // IWYU pragma: export
 
 namespace webrtc {
@@ -47,6 +45,9 @@ class Timestamp final : public rtc_units_impl::UnitBase<Timestamp> {
 
   Timestamp() = delete;
 
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, Timestamp value);
+
   template <typename T = int64_t>
   constexpr T seconds() const {
     return ToFraction<1000000, T>();
@@ -58,6 +59,10 @@ class Timestamp final : public rtc_units_impl::UnitBase<Timestamp> {
   template <typename T = int64_t>
   constexpr T us() const {
     return ToValue<T>();
+  }
+  template <typename T = int64_t>
+  constexpr T ns() const {
+    return ToMultiple<1000, T>();
   }
 
   constexpr int64_t seconds_or(int64_t fallback_value) const {
@@ -118,21 +123,15 @@ class Timestamp final : public rtc_units_impl::UnitBase<Timestamp> {
  private:
   friend class rtc_units_impl::UnitBase<Timestamp>;
   using UnitBase::UnitBase;
-  static constexpr bool one_sided = true;
+  static constexpr bool one_sided = false;
 };
 
-std::string ToString(Timestamp value);
-inline std::string ToLogString(Timestamp value) {
-  return ToString(value);
-}
+RTC_EXPORT std::string ToString(Timestamp value);
 
-#ifdef WEBRTC_UNIT_TEST
-inline std::ostream& operator<<(  // no-presubmit-check TODO(webrtc:8982)
-    std::ostream& stream,         // no-presubmit-check TODO(webrtc:8982)
-    Timestamp value) {
-  return stream << ToString(value);
+template <typename Sink>
+void AbslStringify(Sink& sink, Timestamp value) {
+  sink.Append(ToString(value));
 }
-#endif  // WEBRTC_UNIT_TEST
 
 }  // namespace webrtc
 

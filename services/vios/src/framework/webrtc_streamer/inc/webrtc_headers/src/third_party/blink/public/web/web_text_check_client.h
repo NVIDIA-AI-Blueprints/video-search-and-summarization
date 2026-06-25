@@ -6,15 +6,18 @@
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_TEXT_CHECK_CLIENT_H_
 
 #include <memory>
+#include <vector>
 
 #include "third_party/blink/public/platform/web_string.h"
-#include "third_party/blink/public/platform/web_vector.h"
+#include "third_party/blink/public/web/web_spelling_marker.h"
 #include "third_party/blink/public/web/web_text_checking_completion.h"
 
 namespace blink {
 
 class WebTextCheckClient {
  public:
+  enum class ShouldForceRefreshTextCheckService { kNo, kYes };
+
   // Returns the Chromium setting of whether spell-checking is enabled.
   virtual bool IsSpellCheckingEnabled() const { return false; }
 
@@ -27,13 +30,20 @@ class WebTextCheckClient {
   virtual void CheckSpelling(const WebString& text,
                              size_t& misspelled_offset,
                              size_t& misspelled_length,
-                             WebVector<WebString>* optional_suggestions) {}
+                             std::vector<WebString>* optional_suggestions) {}
 
   // Requests asynchronous spelling and grammar checking, whose result should be
   // returned by passed completion object.
   virtual void RequestCheckingOfText(
       const WebString& text_to_check,
+      const std::vector<WebSpellingMarker>& spelling_markers,
+      ShouldForceRefreshTextCheckService should_force_refresh,
       std::unique_ptr<WebTextCheckingCompletion> completion_callback) {}
+
+  // Observing the change on SpellCheck custom dictionary.
+  virtual void SpellCheckCustomDictionaryChanged(
+      const std::vector<std::string>& words_added,
+      const std::vector<std::string>& words_removed) {}
 
  protected:
   virtual ~WebTextCheckClient() = default;

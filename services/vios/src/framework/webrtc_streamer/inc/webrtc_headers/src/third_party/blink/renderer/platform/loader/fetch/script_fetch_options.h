@@ -21,6 +21,7 @@
 namespace blink {
 
 class DOMWrapperWorld;
+class FeatureContext;
 class KURL;
 class SecurityOrigin;
 
@@ -48,17 +49,21 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
                      network::mojom::CredentialsMode credentials_mode,
                      network::mojom::ReferrerPolicy referrer_policy,
                      mojom::blink::FetchPriorityHint fetch_priority_hint,
-                     RenderBlockingBehavior render_blocking_behavior,
-                     RejectCoepUnsafeNone reject_coep_unsafe_none =
-                         RejectCoepUnsafeNone(false));
+                     RenderBlockingBehavior render_blocking_behavior);
   ~ScriptFetchOptions();
 
   const String& Nonce() const { return nonce_; }
   const IntegrityMetadataSet& GetIntegrityMetadata() const {
     return integrity_metadata_;
   }
+  void SetIntegrityMetadata(IntegrityMetadataSet metadata) {
+    integrity_metadata_ = metadata;
+  }
   const String& GetIntegrityAttributeValue() const {
     return integrity_attribute_;
+  }
+  void SetIntegrityAttributeValue(const String& value) {
+    integrity_attribute_ = value;
   }
   const ParserDisposition& ParserState() const { return parser_state_; }
   network::mojom::CredentialsMode CredentialsMode() const {
@@ -70,11 +75,14 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
   mojom::blink::FetchPriorityHint FetchPriorityHint() const {
     return fetch_priority_hint_;
   }
-  RejectCoepUnsafeNone GetRejectCoepUnsafeNone() const {
-    return reject_coep_unsafe_none_;
-  }
   RenderBlockingBehavior GetRenderBlockingBehavior() const {
     return render_blocking_behavior_;
+  }
+
+  // See documentation above the `referrer_policy_` member.
+  void UpdateReferrerPolicyAfterResponseReceived(
+      network::mojom::ReferrerPolicy response_referrer_policy) const {
+    referrer_policy_ = response_referrer_policy;
   }
 
   void SetAttributionReportingEligibility(
@@ -84,21 +92,21 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
 
   // https://html.spec.whatwg.org/C/#fetch-a-classic-script
   // Steps 1 and 3.
-  FetchParameters CreateFetchParameters(
-      const KURL&,
-      const SecurityOrigin*,
-      scoped_refptr<const DOMWrapperWorld> world,
-      CrossOriginAttributeValue,
-      const WTF::TextEncoding&,
-      FetchParameters::DeferOption) const;
+  FetchParameters CreateFetchParameters(const KURL&,
+                                        const SecurityOrigin*,
+                                        const DOMWrapperWorld* world,
+                                        CrossOriginAttributeValue,
+                                        const TextEncoding&,
+                                        FetchParameters::DeferOption,
+                                        const FeatureContext*) const;
 
  private:
   // https://html.spec.whatwg.org/C/#concept-script-fetch-options-nonce
   const String nonce_;
 
   // https://html.spec.whatwg.org/C/#concept-script-fetch-options-integrity
-  const IntegrityMetadataSet integrity_metadata_;
-  const String integrity_attribute_;
+  IntegrityMetadataSet integrity_metadata_;
+  String integrity_attribute_;
 
   // https://html.spec.whatwg.org/C/#concept-script-fetch-options-parser
   const ParserDisposition parser_state_;
@@ -107,19 +115,16 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
   const network::mojom::CredentialsMode credentials_mode_;
 
   // https://html.spec.whatwg.org/C/#concept-script-fetch-options-referrer-policy
-  const network::mojom::ReferrerPolicy referrer_policy_;
+  // "This policy can mutate after a module script's response is received, to be
+  // the referrer policy parsed from the response, and used when fetching any
+  // module dependencies." [spec text].
+  mutable network::mojom::ReferrerPolicy referrer_policy_;
 
   // https://wicg.github.io/priority-hints/#script
   const mojom::blink::FetchPriorityHint fetch_priority_hint_;
 
   const RenderBlockingBehavior render_blocking_behavior_ =
       RenderBlockingBehavior::kUnset;
-  // True when we should reject a response with COEP: none.
-  // https://wicg.github.io/cross-origin-embedder-policy/#integration-html
-  // This is for dedicated workers.
-  // TODO(crbug.com/1064920): Remove this once PlzDedicatedWorker ships.
-  const RejectCoepUnsafeNone reject_coep_unsafe_none_ =
-      RejectCoepUnsafeNone(false);
 
   // https://wicg.github.io/attribution-reporting-api
   // TODO(crbug.com/1338976): make this member const once the attributionsrc

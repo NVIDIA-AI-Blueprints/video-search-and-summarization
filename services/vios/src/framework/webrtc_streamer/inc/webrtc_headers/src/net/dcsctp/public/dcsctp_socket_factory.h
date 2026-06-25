@@ -10,7 +10,10 @@
 #ifndef NET_DCSCTP_PUBLIC_DCSCTP_SOCKET_FACTORY_H_
 #define NET_DCSCTP_PUBLIC_DCSCTP_SOCKET_FACTORY_H_
 
+#include <cstdint>
+#include <functional>
 #include <memory>
+#include <vector>
 
 #include "absl/strings/string_view.h"
 #include "net/dcsctp/public/dcsctp_options.h"
@@ -26,6 +29,9 @@ class DcSctpSocketFactory {
       DcSctpSocketCallbacks& callbacks,
       std::unique_ptr<PacketObserver> packet_observer,
       const DcSctpOptions& options);
+  std::vector<uint8_t> GenerateConnectionToken(
+      const DcSctpOptions& options,
+      std::function<uint32_t(uint32_t low, uint32_t high)> get_random_uint32);
 };
 }  // namespace dcsctp
 

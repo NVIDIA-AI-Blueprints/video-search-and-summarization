@@ -18,48 +18,41 @@
 #define SRC_TRACE_PROCESSOR_PERFETTO_SQL_ENGINE_CREATED_FUNCTION_H_
 
 #include <sqlite3.h>
+#include <cstddef>
 #include <memory>
-#include <unordered_map>
 
 #include "perfetto/base/status.h"
-#include "src/trace_processor/perfetto_sql/engine/function_util.h"
-#include "src/trace_processor/perfetto_sql/intrinsics/functions/sql_function.h"
-#include "src/trace_processor/sqlite/scoped_db.h"
+#include "perfetto/trace_processor/basic_types.h"
+#include "src/trace_processor/perfetto_sql/parser/function_util.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_function.h"
 #include "src/trace_processor/sqlite/sql_source.h"
-#include "src/trace_processor/sqlite/sqlite_table.h"
 #include "src/trace_processor/types/destructible.h"
 #include "src/trace_processor/util/sql_argument.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
-class PerfettoSqlEngine;
+class PerfettoSqlConnection;
 
-struct CreatedFunction : public SqlFunction {
-  // Expose a do-nothing context
-  using Context = Destructible;
+struct CreatedFunction : public sqlite::Function<CreatedFunction> {
+  using UserData = Destructible;
 
-  // SqlFunction implementation.
-  static base::Status Run(Context* ctx,
-                          size_t argc,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors&);
-  static base::Status VerifyPostConditions(Context*);
-  static void Cleanup(Context*);
+  static constexpr char* kName = nullptr;
+  static constexpr int kArgCount = -1;
 
-  // Glue code for PerfettoSqlEngine.
-  static std::unique_ptr<Context> MakeContext(PerfettoSqlEngine*);
-  static base::Status ValidateOrPrepare(Context*,
-                                        Prototype,
-                                        std::string prototype_str,
-                                        sql_argument::Type return_type,
-                                        std::string return_type_str,
-                                        SqlSource sql);
-  static base::Status EnableMemoization(Context*);
+  // sqlite::Function implementation
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
+
+  // Glue code for PerfettoSqlConnection.
+  static std::unique_ptr<UserData> MakeContext(PerfettoSqlConnection*);
+  static bool IsValid(UserData*);
+  static void Reset(UserData*, PerfettoSqlConnection*);
+  static base::Status Prepare(UserData*,
+                              FunctionPrototype,
+                              sql_argument::Type return_type,
+                              SqlSource sql);
+  static base::Status EnableMemoization(UserData*);
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_PERFETTO_SQL_ENGINE_CREATED_FUNCTION_H_

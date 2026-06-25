@@ -6,10 +6,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_PEERCONNECTION_TWO_KEYS_ADAPTER_MAP_H_
 
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "base/check.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
@@ -37,7 +37,7 @@ class TwoKeysAdapterMap {
   // map. There must not already exist a mapping for this primary key, in other
   // words |!FindByPrimary(primary)| must hold.
   Value* Insert(PrimaryKey primary, Value value) {
-    DCHECK(entries_by_primary_.find(primary) == entries_by_primary_.end());
+    DCHECK(!entries_by_primary_.Contains(primary));
     auto* add_result =
         entries_by_primary_
             .insert(std::move(primary),
@@ -55,7 +55,7 @@ class TwoKeysAdapterMap {
   // |FindByPrimary(primary) && !FindBySecondary(secondary)| must hold.
   void SetSecondaryKey(const PrimaryKey& primary, SecondaryKey secondary) {
     auto it = entries_by_primary_.find(primary);
-    DCHECK(it != entries_by_primary_.end());
+    CHECK(it != entries_by_primary_.end());
     DCHECK(entries_by_secondary_.find(secondary) ==
            entries_by_secondary_.end());
     Entry* entry = it->value.get();
@@ -130,7 +130,7 @@ class TwoKeysAdapterMap {
     Value value;
 
     // The primary and secondary keys are cached here, instead of the
-    // respective iterators, because WTF::HashMap invalidates iterators
+    // respective iterators, because blink::HashMap invalidates iterators
     // upon changes on the set (eg insertion, deletions).
     //
     // Entries are only created in TwoKeysAdapterMap::Insert, which initializes
@@ -140,12 +140,12 @@ class TwoKeysAdapterMap {
 
     // However, for |secondary_key|, calling EraseByPrimaryKey() can
     // read an uninitialized secondary_key in case it is left uninitialized.
-    // Hence, it is guarded with absl::optional.
-    absl::optional<SecondaryKey> secondary_key;
+    // Hence, it is guarded with std::optional.
+    std::optional<SecondaryKey> secondary_key;
   };
 
-  using PrimaryMap = WTF::HashMap<PrimaryKey, std::unique_ptr<Entry>>;
-  using SecondaryMap = WTF::HashMap<SecondaryKey, Entry*>;
+  using PrimaryMap = HashMap<PrimaryKey, std::unique_ptr<Entry>>;
+  using SecondaryMap = HashMap<SecondaryKey, Entry*>;
 
   PrimaryMap entries_by_primary_;
   SecondaryMap entries_by_secondary_;

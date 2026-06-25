@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "api/video_codecs/sdp_video_format.h"
+#include "media/base/media_constants.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
 #include "modules/video_coding/codecs/h264/include/h264.h"
 #include "modules/video_coding/codecs/nvidia/libnv_decoder.h"
@@ -43,13 +44,11 @@ namespace webrtc {
 struct LibNvVideoDecoderTemplateAdapter {
   static std::vector<SdpVideoFormat> SupportedFormats() {
     std::vector<SdpVideoFormat> formats;
-    formats.push_back(SdpVideoFormat(cricket::kVp8CodecName));
-    formats.push_back(SdpVideoFormat(cricket::kVp9CodecName));
-    formats.push_back(SdpVideoFormat(cricket::kH264CodecName));
-    formats.push_back(SdpVideoFormat(cricket::kAv1CodecName));
-#ifndef DISABLE_H265
-    formats.push_back(SdpVideoFormat(cricket::kH265CodecName));
-#endif
+    formats.push_back(SdpVideoFormat(webrtc::kVp8CodecName));
+    formats.push_back(SdpVideoFormat(webrtc::kVp9CodecName));
+    formats.push_back(SdpVideoFormat(webrtc::kH264CodecName));
+    formats.push_back(SdpVideoFormat(webrtc::kAv1CodecName));
+    formats.push_back(SdpVideoFormat(webrtc::kH265CodecName));
     return formats;
   }
 

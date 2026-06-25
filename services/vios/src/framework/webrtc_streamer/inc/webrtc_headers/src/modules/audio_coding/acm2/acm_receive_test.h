@@ -13,12 +13,13 @@
 
 #include <stddef.h>  // for size_t
 
+#include <cstdint>
 #include <memory>
-#include <string>
 
 #include "api/audio_codecs/audio_decoder_factory.h"
+#include "api/neteq/neteq.h"
 #include "api/scoped_refptr.h"
-#include "modules/audio_coding/acm2/acm_receiver.h"
+#include "modules/audio_coding/acm2/acm_resampler.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
@@ -42,7 +43,7 @@ class AcmReceiveTestOldApi {
                        AudioSink* audio_sink,
                        int output_freq_hz,
                        NumOutputChannels exptected_output_channels,
-                       rtc::scoped_refptr<AudioDecoderFactory> decoder_factory);
+                       scoped_refptr<AudioDecoderFactory> decoder_factory);
   virtual ~AcmReceiveTestOldApi();
 
   AcmReceiveTestOldApi(const AcmReceiveTestOldApi&) = delete;
@@ -63,7 +64,8 @@ class AcmReceiveTestOldApi {
   virtual void AfterGetAudio() {}
 
   SimulatedClock clock_;
-  std::unique_ptr<acm2::AcmReceiver> acm_receiver_;
+  std::unique_ptr<NetEq> neteq_;
+  acm2::ResamplerHelper resampler_helper_;
   PacketSource* packet_source_;
   AudioSink* audio_sink_;
   int output_freq_hz_;

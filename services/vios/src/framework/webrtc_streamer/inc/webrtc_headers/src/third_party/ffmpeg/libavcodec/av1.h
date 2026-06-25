@@ -58,6 +58,7 @@ enum {
 
 // Reference frames (section 6.10.24).
 enum {
+    AV1_REF_FRAME_NONE    = -1,
     AV1_REF_FRAME_INTRA   = 0,
     AV1_REF_FRAME_LAST    = 1,
     AV1_REF_FRAME_LAST2   = 2,
@@ -173,6 +174,13 @@ enum {
     AV1_RESTORE_WIENER     = 1,
     AV1_RESTORE_SGRPROJ    = 2,
     AV1_RESTORE_SWITCHABLE = 3,
+};
+
+// TX mode (section 6.8.21)
+enum {
+    AV1_ONLY_4X4        = 0,
+    AV1_TX_MODE_LARGEST = 1,
+    AV1_TX_MODE_SELECT  = 2,
 };
 
 // Sequence Headers are actually unbounded because one can use

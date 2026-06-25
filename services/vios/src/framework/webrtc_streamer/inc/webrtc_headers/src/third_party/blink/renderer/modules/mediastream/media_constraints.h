@@ -48,14 +48,15 @@ class MODULES_EXPORT BaseConstraint {
   bool IsPresent() const { return is_present_ || !IsUnconstrained(); }
   void SetIsPresent(bool is_present) { is_present_ = is_present; }
 
-  // true if the Cconstraint has neither Mandatory (min/max/exact) not Ideal
+  // true if the Constraint has neither Mandatory (min/max/exact) nor Ideal
   // values, false otherwise.
   virtual bool IsUnconstrained() const = 0;
-  bool HasMandatory() const;
+  virtual bool HasMandatory() const;
   virtual bool HasMin() const { return false; }
   virtual bool HasMax() const { return false; }
   virtual bool HasExact() const = 0;
   const char* GetName() const { return name_; }
+  virtual void ResetToUnconstrained() = 0;
   virtual String ToString() const = 0;
 
  private:
@@ -94,6 +95,7 @@ class MODULES_EXPORT LongConstraint : public BaseConstraint {
   bool HasMin() const override { return has_min_; }
   bool HasMax() const override { return has_max_; }
   bool HasExact() const override { return has_exact_; }
+  void ResetToUnconstrained() override;
   String ToString() const override;
   int32_t Min() const { return min_; }
   int32_t Max() const { return max_; }
@@ -116,7 +118,7 @@ class MODULES_EXPORT DoubleConstraint : public BaseConstraint {
  public:
   // Permit a certain leeway when comparing floats. The offset of 0.00001
   // is chosen based on observed behavior of doubles formatted with
-  // rtc::ToString.
+  // webrtc::ToString.
   static const double kConstraintEpsilon;
 
   explicit DoubleConstraint(const char* name);
@@ -146,6 +148,7 @@ class MODULES_EXPORT DoubleConstraint : public BaseConstraint {
   bool HasMin() const override { return has_min_; }
   bool HasMax() const override { return has_max_; }
   bool HasExact() const override { return has_exact_; }
+  void ResetToUnconstrained() override;
   String ToString() const override;
   double Min() const { return min_; }
   double Max() const { return max_; }
@@ -162,6 +165,40 @@ class MODULES_EXPORT DoubleConstraint : public BaseConstraint {
   unsigned has_max_ : 1;
   unsigned has_exact_ : 1;
   unsigned has_ideal_ : 1;
+};
+
+class MODULES_EXPORT DoubleOrBooleanConstraint : public DoubleConstraint {
+ public:
+  explicit DoubleOrBooleanConstraint(const char* name);
+
+  bool HasMandatory() const override;
+  bool HasExactBoolean() const { return has_exact_boolean_; }
+  bool ExactBoolean() const { return exact_boolean_; }
+  bool HasIdealBoolean() const { return has_ideal_boolean_; }
+  bool IdealBoolean() const { return ideal_boolean_; }
+
+  void SetExactBoolean(bool value) {
+    exact_boolean_ = value;
+    has_exact_boolean_ = true;
+  }
+
+  void SetIdealBoolean(bool value) {
+    ideal_boolean_ = value;
+    has_ideal_boolean_ = true;
+  }
+
+  bool Matches(double value) const;
+  bool MatchesBoolean(bool value) const;
+  bool IsPresentAndNotFalse() const;
+  bool IsUnconstrained() const override;
+  void ResetToUnconstrained() override;
+  String ToString() const override;
+
+ private:
+  unsigned exact_boolean_ : 1 = 0;
+  unsigned ideal_boolean_ : 1 = 0;
+  unsigned has_exact_boolean_ : 1 = 0;
+  unsigned has_ideal_boolean_ : 1 = 0;
 };
 
 class MODULES_EXPORT StringConstraint : public BaseConstraint {
@@ -181,6 +218,7 @@ class MODULES_EXPORT StringConstraint : public BaseConstraint {
   bool Matches(String value) const;
   bool IsUnconstrained() const override;
   bool HasExact() const override { return !exact_.empty(); }
+  void ResetToUnconstrained() override;
   String ToString() const override;
   bool HasIdeal() const { return !ideal_.empty(); }
   const Vector<String>& Exact() const;
@@ -210,6 +248,7 @@ class MODULES_EXPORT BooleanConstraint : public BaseConstraint {
   bool Matches(bool value) const;
   bool IsUnconstrained() const override;
   bool HasExact() const override { return has_exact_; }
+  void ResetToUnconstrained() override;
   String ToString() const override;
   bool HasIdeal() const { return has_ideal_; }
 
@@ -218,6 +257,59 @@ class MODULES_EXPORT BooleanConstraint : public BaseConstraint {
   unsigned exact_ : 1;
   unsigned has_ideal_ : 1;
   unsigned has_exact_ : 1;
+};
+
+class MODULES_EXPORT BooleanOrStringConstraint : public BaseConstraint {
+ public:
+  explicit BooleanOrStringConstraint(const char* name);
+
+  bool HasExactBoolean() const { return has_exact_boolean_; }
+  bool ExactBoolean() const { return exact_boolean_; }
+  bool HasIdealBoolean() const { return has_ideal_boolean_; }
+  bool IdealBoolean() const { return ideal_boolean_; }
+
+  void SetExactBoolean(bool value) {
+    exact_boolean_ = value;
+    has_exact_boolean_ = true;
+  }
+
+  void SetIdealBoolean(bool value) {
+    ideal_boolean_ = value;
+    has_ideal_boolean_ = true;
+  }
+
+  bool HasExactString() const { return has_exact_string_; }
+  String ExactString() const { return exact_string_; }
+  bool HasIdealString() const { return has_ideal_string_; }
+  String IdealString() const { return ideal_string_; }
+
+  void SetExactString(const String& value) {
+    exact_string_ = value;
+    has_exact_string_ = true;
+  }
+
+  void SetIdealString(const String& value) {
+    ideal_string_ = value;
+    has_ideal_string_ = true;
+  }
+
+  // BaseConstraint overrides
+  bool HasExact() const override;
+  bool IsUnconstrained() const override;
+  void ResetToUnconstrained() override;
+  String ToString() const override;
+
+  bool HasIdeal() const;
+
+ private:
+  unsigned exact_boolean_ : 1 = false;
+  unsigned ideal_boolean_ : 1 = false;
+  unsigned has_exact_boolean_ : 1 = false;
+  unsigned has_ideal_boolean_ : 1 = false;
+  unsigned has_exact_string_ : 1 = false;
+  unsigned has_ideal_string_ : 1 = false;
+  String exact_string_;
+  String ideal_string_;
 };
 
 struct MediaTrackConstraintSetPlatform {
@@ -233,30 +325,44 @@ struct MediaTrackConstraintSetPlatform {
   DoubleConstraint volume;
   LongConstraint sample_rate;
   LongConstraint sample_size;
-  BooleanConstraint echo_cancellation;
-  StringConstraint echo_cancellation_type;
+  BooleanOrStringConstraint echo_cancellation;
+  BooleanConstraint auto_gain_control;
+  BooleanConstraint noise_suppression;
+  BooleanConstraint voice_isolation;
   DoubleConstraint latency;
   LongConstraint channel_count;
   StringConstraint device_id;
   BooleanConstraint disable_local_echo;
   BooleanConstraint suppress_local_audio_playback;
-  DoubleConstraint pan;
-  DoubleConstraint tilt;
-  DoubleConstraint zoom;
+  BooleanConstraint restrict_own_audio;
   StringConstraint group_id;
   StringConstraint display_surface;
+
+  // W3C Image Capture
+  DoubleConstraint exposure_compensation;
+  DoubleConstraint exposure_time;
+  DoubleConstraint color_temperature;
+  DoubleConstraint iso;
+  DoubleConstraint brightness;
+  DoubleConstraint contrast;
+  DoubleConstraint saturation;
+  DoubleConstraint sharpness;
+  DoubleConstraint focus_distance;
+  DoubleOrBooleanConstraint pan;
+  DoubleOrBooleanConstraint tilt;
+  DoubleOrBooleanConstraint zoom;
+  BooleanConstraint torch;
+
+  // W3C Media Capture Extensions
+  BooleanConstraint background_blur;
+  BooleanConstraint background_segmentation_mask;
+  BooleanConstraint eye_gaze_correction;
+  BooleanConstraint face_framing;
+
   // Constraints not exposed in Blink at the moment, only through
   // the legacy name interface.
   StringConstraint media_stream_source;  // tab, screen, desktop, system
   BooleanConstraint render_to_associated_sink;
-  BooleanConstraint goog_echo_cancellation;
-  BooleanConstraint goog_experimental_echo_cancellation;
-  BooleanConstraint goog_auto_gain_control;
-  BooleanConstraint goog_noise_suppression;
-  BooleanConstraint goog_highpass_filter;
-  BooleanConstraint goog_experimental_noise_suppression;
-  BooleanConstraint goog_audio_mirroring;
-  BooleanConstraint goog_da_echo_cancellation;
   BooleanConstraint goog_noise_reduction;
 
   MODULES_EXPORT bool IsUnconstrained() const;
@@ -294,15 +400,16 @@ class MediaConstraints {
       const Vector<MediaTrackConstraintSetPlatform>& advanced);
 
   MODULES_EXPORT const MediaTrackConstraintSetPlatform& Basic() const;
+  MODULES_EXPORT MediaTrackConstraintSetPlatform& MutableBasic();
   MODULES_EXPORT const Vector<MediaTrackConstraintSetPlatform>& Advanced()
       const;
 
   MODULES_EXPORT const String ToString() const;
 
  private:
-  WebPrivatePtr<MediaConstraintsPrivate> private_;
+  WebPrivatePtrForRefCounted<MediaConstraintsPrivate> private_;
 };
 
 }  // namespace blink
 
-#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_MEDIASTREAM_MEDIA_CONSTRAINTS_H_
+#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_MEDIA_CONSTRAINTS_H_

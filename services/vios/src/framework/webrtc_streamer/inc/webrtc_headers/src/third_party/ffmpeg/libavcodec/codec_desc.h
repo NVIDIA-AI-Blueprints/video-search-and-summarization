@@ -60,7 +60,7 @@ typedef struct AVCodecDescriptor {
     const char *const *mime_types;
     /**
      * If non-NULL, an array of profiles recognized for this codec.
-     * Terminated with FF_PROFILE_UNKNOWN.
+     * Terminated with AV_PROFILE_UNKNOWN.
      */
     const struct AVProfile *profiles;
 } AVCodecDescriptor;
@@ -95,6 +95,14 @@ typedef struct AVCodecDescriptor {
  * Video codec supports separate coding of fields in interlaced frames.
  */
 #define AV_CODEC_PROP_FIELDS        (1 << 4)
+
+/**
+ * Video codec contains enhancement information meant to be applied to other
+ * existing frames, and can't generate usable image data on its own.
+ * A standalone decoder is unlikely to be available for it and should not
+ * be expected.
+ */
+#define AV_CODEC_PROP_ENHANCEMENT   (1 << 5)
 
 /**
  * Subtitle codec is bitmap based

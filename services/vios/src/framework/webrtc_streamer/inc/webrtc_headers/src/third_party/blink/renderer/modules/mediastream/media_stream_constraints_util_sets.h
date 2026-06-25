@@ -7,13 +7,12 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include "base/check_op.h"
-#include "base/containers/contains.h"
 #include "base/gtest_prod_util.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/modules/mediastream/media_constraints.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -54,26 +53,19 @@ template <typename T>
 class NumericRangeSet {
  public:
   NumericRangeSet() = default;
-  NumericRangeSet(absl::optional<T> min, absl::optional<T> max)
+  NumericRangeSet(std::optional<T> min, std::optional<T> max)
       : min_(std::move(min)), max_(std::move(max)) {}
   NumericRangeSet(const NumericRangeSet& other) = default;
   NumericRangeSet& operator=(const NumericRangeSet& other) = default;
   ~NumericRangeSet() = default;
 
-  const absl::optional<T>& Min() const { return min_; }
-  const absl::optional<T>& Max() const { return max_; }
-  bool IsEmpty() const { return max_ && min_ && *max_ < *min_; }
+  const std::optional<T>& Min() const { return min_; }
+  const std::optional<T>& Max() const { return max_; }
+  bool IsEmpty() const { return Max() && Min() && *Max() < *Min(); }
+  bool IsUniversal() const { return !(Max() || Min()); }
 
   NumericRangeSet Intersection(const NumericRangeSet& other) const {
-    absl::optional<T> min = min_;
-    if (other.Min())
-      min = min ? std::max(*min, *other.Min()) : other.Min();
-
-    absl::optional<T> max = max_;
-    if (other.Max())
-      max = max ? std::min(*max, *other.Max()) : other.Max();
-
-    return NumericRangeSet(min, max);
+    return NumericRangeSet(Max(Min(), other.Min()), Min(Max(), other.Max()));
   }
 
   bool Contains(T value) const {
@@ -103,21 +95,21 @@ class NumericRangeSet {
     return NumericRangeSet<T>(
         ConstraintHasMin(constraint) && ConstraintMin(constraint) >= lower_bound
             ? ConstraintMin(constraint)
-            : absl::optional<T>(),
+            : std::optional<T>(),
         ConstraintHasMax(constraint) && ConstraintMax(constraint) <= upper_bound
             ? ConstraintMax(constraint)
-            : absl::optional<T>());
+            : std::optional<T>());
   }
 
   // Creates a NumericRangeSet based on the minimum and maximum values of
-  // |constraint| and a client-provided range of valid values.
+  // |constraint|.
   template <typename ConstraintType>
   static NumericRangeSet<T> FromConstraint(ConstraintType constraint) {
     return NumericRangeSet<T>(
         ConstraintHasMin(constraint) ? ConstraintMin(constraint)
-                                     : absl::optional<T>(),
+                                     : std::optional<T>(),
         ConstraintHasMax(constraint) ? ConstraintMax(constraint)
-                                     : absl::optional<T>());
+                                     : std::optional<T>());
   }
 
   // Creates a NumericRangeSet based on a single value representing both the
@@ -128,10 +120,125 @@ class NumericRangeSet {
 
   static NumericRangeSet<T> EmptySet() { return NumericRangeSet(1, 0); }
 
+ protected:
+  std::optional<T> Max(const std::optional<T>& a,
+                       const std::optional<T>& b) const {
+    return a ? (b ? std::max(*a, *b) : a) : b;
+  }
+  std::optional<T> Min(const std::optional<T>& a,
+                       const std::optional<T>& b) const {
+    return a ? (b ? std::min(*a, *b) : a) : b;
+  }
+
  private:
-  absl::optional<T> min_;
-  absl::optional<T> max_;
+  std::optional<T> min_;
+  std::optional<T> max_;
 };
+
+// This class template represents a set of optional candidates suitable for
+// numeric range-based and boolean support-based constraints.
+//
+// There are two kind of candidates:
+//  - candidates which have a numeric setting
+//    (just like in the case of the NumericRangeSet<T> candidates), and
+//  - candidates which do not have a setting
+//    (because the underlying device does not support the property or
+//     because the support of the property is not to be exposed).
+//
+// A candidate can have a setting only if the underlying device supports
+// the property and the support of the property is to be exposed.
+// Therefore, the set holds an invariant that either the support is true or
+// the numeric range is universal.
+// Therefore, the set is always in one of the following states:
+//
+// State            | Min     | Max     | Support | Suitable candidates
+// -----------------+---------+---------+---------+-------------------------
+// Universal        | nullopt | nullopt | nullopt | All
+// -----------------+---------+---------+---------+-------------------------
+// No support       | nullopt | nullopt | false   | Only the candidates which
+//                  |         |         |         | do not have a setting
+// -----------------+---------+---------+---------+-------------------------
+// Support with     | nullopt | nullopt | true    | All the candidates which
+// a universal      |         |         |         | have a numeric setting
+// numeric range    |         |         |         |
+// -----------------+---------+---------+---------+-------------------------
+// Support with     | min     | max     | true    | All the candidates which
+// a specific       | min     | nullopt |         | have a numeric setting
+// numeric range    | nullopt | max     |         | within the range
+// -----------------+---------+---------+---------+-------------------------
+// Empty            | 1   (*) | 0   (*) | true    | None
+// -----------------+---------+---------+---------+-------------------------
+// (*): Or other similar values.
+//
+// The set is never in a specific numeric range with a universal support state
+// (non-nullopt min and/or max and nullopt support)
+// because that state is better represented by the support with a specific
+// numeric range state above.
+// The empty state is always encoded as above, in order to hold the invariant.
+template <typename T>
+class NumericRangeWithBoolSupportSet : public NumericRangeSet<T> {
+ public:
+  NumericRangeWithBoolSupportSet() = default;
+  explicit NumericRangeWithBoolSupportSet(std::optional<bool> support)
+      : support_(std::move(support)) {}
+  NumericRangeWithBoolSupportSet(std::optional<T> min,
+                                 std::optional<T> max,
+                                 std::optional<bool> support)
+      : NumericRangeSet<T>(std::move(min), std::move(max)),
+        support_(std::move(support)) {
+    CHECK(NumericRangeSet<T>::IsUniversal() ||
+          (Support().has_value() && *Support()));
+  }
+  NumericRangeWithBoolSupportSet(const NumericRangeWithBoolSupportSet& other) =
+      default;
+  NumericRangeWithBoolSupportSet& operator=(
+      const NumericRangeWithBoolSupportSet& other) = default;
+  ~NumericRangeWithBoolSupportSet() = default;
+
+  static NumericRangeWithBoolSupportSet EmptySet() {
+    return NumericRangeWithBoolSupportSet(1, 0, true);
+  }
+
+  bool ContainsSupport(bool value) const {
+    return !Support().has_value() || value == *Support();
+  }
+
+  bool IsEmpty() const {
+    if (Support().has_value() && *Support()) {
+      return NumericRangeSet<T>::IsEmpty();
+    }
+    CHECK(NumericRangeSet<T>::IsUniversal());
+    return false;
+  }
+  bool IsUniversal() const {
+    if (Support().has_value()) {
+      return false;
+    }
+    CHECK(NumericRangeSet<T>::IsUniversal());
+    return true;
+  }
+  using NumericRangeSet<T>::Max;
+  using NumericRangeSet<T>::Min;
+  const std::optional<bool>& Support() const { return support_; }
+
+  NumericRangeWithBoolSupportSet Intersection(
+      const NumericRangeWithBoolSupportSet& other) const {
+    if (Support().has_value() && other.Support().has_value() &&
+        *Support() != *other.Support()) {
+      return EmptySet();
+    }
+    return NumericRangeWithBoolSupportSet(
+        Max(Min(), other.Min()), Min(Max(), other.Max()),
+        Support().has_value() ? Support() : other.Support());
+  }
+
+ private:
+  std::optional<bool> support_;
+};
+
+MODULES_EXPORT NumericRangeWithBoolSupportSet<double>
+DoubleRangeWithBoolSupportSetFromConstraint(
+    const DoubleOrBooleanConstraint& constraint);
 
 // This class defines a set of discrete elements suitable for resolving
 // constraints with a countable number of choices not suitable to be constrained
@@ -165,7 +272,7 @@ class DiscreteSet {
   ~DiscreteSet() = default;
 
   bool Contains(const T& value) const {
-    return is_universal_ || base::Contains(elements_, value);
+    return is_universal_ || std::ranges::contains(elements_, value);
   }
 
   bool IsEmpty() const { return !is_universal_ && elements_.empty(); }
@@ -183,7 +290,7 @@ class DiscreteSet {
     // Both sets have explicit elements.
     Vector<T> intersection;
     for (const auto& entry : elements_) {
-      if (base::Contains(other.elements_, entry))
+      if (std::ranges::contains(other.elements_, entry))
         intersection.push_back(entry);
     }
     return DiscreteSet(std::move(intersection));
@@ -248,7 +355,6 @@ class MODULES_EXPORT ResolutionSet {
 
     // Exact equality/inequality operators.
     bool operator==(const Point& other) const;
-    bool operator!=(const Point& other) const;
 
     // Returns true if the coordinates of this point and |other| are
     // approximately equal.

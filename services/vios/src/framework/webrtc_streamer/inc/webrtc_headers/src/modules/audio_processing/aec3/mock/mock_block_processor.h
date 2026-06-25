@@ -11,8 +11,8 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_MOCK_MOCK_BLOCK_PROCESSOR_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_MOCK_MOCK_BLOCK_PROCESSOR_H_
 
-#include <vector>
-
+#include "api/audio/echo_control.h"
+#include "modules/audio_processing/aec3/block.h"
 #include "modules/audio_processing/aec3/block_processor.h"
 #include "test/gmock.h"
 
@@ -22,7 +22,7 @@ namespace test {
 class MockBlockProcessor : public BlockProcessor {
  public:
   MockBlockProcessor();
-  virtual ~MockBlockProcessor();
+  ~MockBlockProcessor() override;
 
   MOCK_METHOD(void,
               ProcessCapture,

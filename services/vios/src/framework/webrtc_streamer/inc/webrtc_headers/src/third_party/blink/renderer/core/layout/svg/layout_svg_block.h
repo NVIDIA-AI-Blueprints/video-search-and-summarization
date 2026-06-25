@@ -76,26 +76,26 @@ class LayoutSVGBlock : public LayoutBlockFlow {
   bool needs_transform_update_ : 1;
   bool transform_uses_reference_box_ : 1;
 
-  bool IsOfType(LayoutObjectType type) const override {
+  bool IsSVG() const final {
     NOT_DESTROYED();
-    return type == kLayoutObjectSVG || LayoutBlockFlow::IsOfType(type);
+    return true;
   }
 
-  bool CheckForImplicitTransformChange(bool bbox_changed) const;
-  bool UpdateTransformAfterLayout(bool bounds_changed);
-  void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
-  void UpdateFromStyle() override;
+  bool CheckForImplicitTransformChange(const SVGLayoutInfo&,
+                                       bool bbox_changed) const;
+  void UpdateTransformBeforeLayout();
+  bool UpdateTransformAfterLayout(const SVGLayoutInfo&, bool bounds_changed);
+  void StyleDidChange(StyleDifference,
+                      const ComputedStyle* old_style,
+                      const StyleChangeContext&) override;
+  bool ShouldBeHandledAsFloating(const ComputedStyle&) const override {
+    NOT_DESTROYED();
+    return false;
+  }
 
  private:
   // LayoutSVGBlock subclasses should use GetElement() instead.
   void GetNode() const = delete;
-
-  PhysicalRect VisualRectInDocument(VisualRectFlags) const final;
-
-  bool NodeAtPoint(HitTestResult&,
-                   const HitTestLocation&,
-                   const PhysicalOffset& accumulated_offset,
-                   HitTestPhase) override;
 };
 
 }  // namespace blink

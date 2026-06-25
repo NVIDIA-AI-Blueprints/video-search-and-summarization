@@ -14,49 +14,55 @@
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
 
+#include <iosfwd>
+
 namespace blink {
 
-class CORE_EXPORT StyleInheritedVariables
-    : public RefCounted<StyleInheritedVariables> {
+class CORE_EXPORT StyleInheritedVariables {
+  DISALLOW_NEW();
+
  public:
-  static scoped_refptr<StyleInheritedVariables> Create() {
-    return base::AdoptRef(new StyleInheritedVariables());
+  StyleInheritedVariables() = default;
+
+  void Trace(Visitor* visitor) const { visitor->Trace(variables_); }
+
+  bool operator==(const StyleInheritedVariables& other) const {
+    return variables_ == other.variables_;
   }
 
-  scoped_refptr<StyleInheritedVariables> Copy() {
-    return base::AdoptRef(new StyleInheritedVariables(*this));
-  }
-
-  bool operator==(const StyleInheritedVariables& other) const;
-  bool operator!=(const StyleInheritedVariables& other) const {
-    return !(*this == other);
-  }
-
-  void SetData(const AtomicString& name, scoped_refptr<CSSVariableData> value) {
+  void SetData(const AtomicString& name, CSSVariableData* value) {
     DCHECK(!value || !value->NeedsVariableResolution());
-    variables_.SetData(name, std::move(value));
+    variables_.SetData(name, value);
   }
-  StyleVariables::OptionalData GetData(const AtomicString&) const;
+  std::optional<CSSVariableData*> GetData(const AtomicString& name) const {
+    return variables_.GetData(name);
+  }
 
   void SetValue(const AtomicString& name, const CSSValue* value) {
     variables_.SetValue(name, value);
   }
-  StyleVariables::OptionalValue GetValue(const AtomicString&) const;
+  std::optional<const CSSValue*> GetValue(const AtomicString& name) const {
+    return variables_.GetValue(name);
+  }
 
   // Note that not all custom property names returned here necessarily have
   // valid values, due to cycles or references to invalid variables without
   // using a fallback.
-  void CollectNames(HashSet<AtomicString>&) const;
+  void CollectNames(HashSet<AtomicString>& names) const {
+    variables_.CollectNames(names);
+  }
 
-  const StyleVariables::DataMap& Data() const { return variables_.Data(); }
-  const StyleVariables::ValueMap& Values() const { return variables_.Values(); }
+  bool IsEmpty() const { return variables_.IsEmpty(); }
+  unsigned GetHash() const { return variables_.GetHash(); }
+
+  // For debugging/logging.
+  friend std::ostream& operator<<(std::ostream& stream,
+                                  const StyleInheritedVariables& variables) {
+    return stream << variables.variables_;
+  }
 
  private:
-  StyleInheritedVariables();
-  StyleInheritedVariables(StyleInheritedVariables& other);
-
   StyleVariables variables_;
-  scoped_refptr<StyleInheritedVariables> root_;
 };
 
 }  // namespace blink

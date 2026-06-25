@@ -30,7 +30,9 @@
 #include "hpeldsp.h"
 #include "h264chroma.h"
 
-typedef void (*vc1op_pixels_func)(uint8_t *block/*align width (8 or 16)*/, const uint8_t *pixels/*align 1*/, ptrdiff_t line_size, int h);
+typedef void (*vc1op_pixels_func)(uint8_t *block/*align width (8 or 16)*/,
+                                  const uint8_t *pixels/*align 1*/,
+                                  ptrdiff_t line_size, int round);
 
 typedef struct VC1DSPContext {
     /* vc1 functions */
@@ -89,6 +91,7 @@ void ff_vc1dsp_init(VC1DSPContext* c);
 void ff_vc1dsp_init_aarch64(VC1DSPContext* dsp);
 void ff_vc1dsp_init_arm(VC1DSPContext* dsp);
 void ff_vc1dsp_init_ppc(VC1DSPContext *c);
+void ff_vc1dsp_init_riscv(VC1DSPContext *c);
 void ff_vc1dsp_init_x86(VC1DSPContext* dsp);
 void ff_vc1dsp_init_mips(VC1DSPContext* dsp);
 void ff_vc1dsp_init_loongarch(VC1DSPContext* dsp);

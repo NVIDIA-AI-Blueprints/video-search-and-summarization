@@ -17,9 +17,11 @@
 #ifndef INCLUDE_PERFETTO_BASE_TIME_H_
 #define INCLUDE_PERFETTO_BASE_TIME_H_
 
+#include <stdint.h>
 #include <time.h>
 
 #include <chrono>
+#include <optional>
 #include <string>
 
 #include "perfetto/base/build_config.h"
@@ -36,6 +38,12 @@
 #include <emscripten/emscripten.h>
 #endif
 
+#if PERFETTO_BUILDFLAG(PERFETTO_ARCH_CPU_X86_64)
+#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
+#include <intrin.h>
+#endif
+#endif
+
 namespace perfetto {
 namespace base {
 
@@ -48,11 +56,13 @@ inline TimeNanos FromPosixTimespec(const struct timespec& ts) {
 }
 
 void SleepMicroseconds(unsigned interval_us);
+void InitializeTime();
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
 
 TimeNanos GetWallTimeNs();
 TimeNanos GetThreadCPUTimeNs();
+TimeNanos GetProcessCPUTimeNs();
 inline TimeNanos GetWallTimeRawNs() {
   return GetWallTimeNs();
 }
@@ -65,14 +75,39 @@ inline TimeNanos GetBootTimeNs() {
 #elif PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE)
 
 inline TimeNanos GetWallTimeNs() {
-  auto init_time_factor = []() -> uint64_t {
+  auto init_timebase_info = []() -> mach_timebase_info_data_t {
     mach_timebase_info_data_t timebase_info;
     mach_timebase_info(&timebase_info);
-    return timebase_info.numer / timebase_info.denom;
+    return timebase_info;
   };
 
-  static uint64_t monotonic_timebase_factor = init_time_factor();
-  return TimeNanos(mach_absolute_time() * monotonic_timebase_factor);
+  static mach_timebase_info_data_t timebase_info = init_timebase_info();
+  uint64_t mach_time = mach_absolute_time();
+
+  // Take the fast path when the conversion is 1:1. The result will for sure fit
+  // into an int_64 because we're going from nanoseconds to microseconds.
+  if (timebase_info.numer == timebase_info.denom) {
+    return TimeNanos(mach_time);
+  }
+
+  // Nanoseconds is mach_time * timebase.numer // timebase.denom. Divide first
+  // to reduce the chance of overflow. Also stash the remainder right now,
+  // a likely byproduct of the division.
+  uint64_t nanoseconds = mach_time / timebase_info.denom;
+  const uint64_t mach_time_remainder = mach_time % timebase_info.denom;
+
+  // Now multiply, keeping an eye out for overflow.
+  PERFETTO_CHECK(!__builtin_umulll_overflow(nanoseconds, timebase_info.numer,
+                                            &nanoseconds));
+
+  // By dividing first we lose precision. Regain it by adding back the
+  // nanoseconds from the remainder, with an eye out for overflow.
+  uint64_t least_significant_nanoseconds =
+      (mach_time_remainder * timebase_info.numer) / timebase_info.denom;
+  PERFETTO_CHECK(!__builtin_uaddll_overflow(
+      nanoseconds, least_significant_nanoseconds, &nanoseconds));
+
+  return TimeNanos(nanoseconds);
 }
 
 inline TimeNanos GetWallTimeRawNs() {
@@ -84,6 +119,9 @@ inline TimeNanos GetBootTimeNs() {
   return GetWallTimeNs();
 }
 
+// Before MacOS 10.12 clock_gettime() was not implemented.
+#if (defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && \
+     __MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
 inline TimeNanos GetThreadCPUTimeNs() {
   mach_port_t this_thread = mach_thread_self();
   mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
@@ -103,6 +141,52 @@ inline TimeNanos GetThreadCPUTimeNs() {
                    info.system_time.microseconds * 1000LL);
 }
 
+inline TimeNanos GetProcessCPUTimeNs() {
+  // task_basic_info gives CPU time accumulated by terminated threads only.
+  // task_thread_times_info gives CPU time of currently-live threads. The sum
+  // of the two is the equivalent of CLOCK_PROCESS_CPUTIME_ID.
+  task_basic_info_data_t past_threads{};
+  mach_msg_type_number_t basic_count = TASK_BASIC_INFO_COUNT;
+  kern_return_t kr =
+      task_info(mach_task_self(), TASK_BASIC_INFO,
+                reinterpret_cast<task_info_t>(&past_threads), &basic_count);
+  if (kr != KERN_SUCCESS) {
+    PERFETTO_DFATAL("Failed to get process CPU time (basic).");
+    return TimeNanos(0);
+  }
+
+  task_thread_times_info_data_t cur_threads{};
+  mach_msg_type_number_t times_count = TASK_THREAD_TIMES_INFO_COUNT;
+  kr = task_info(mach_task_self(), TASK_THREAD_TIMES_INFO,
+                 reinterpret_cast<task_info_t>(&cur_threads), &times_count);
+  if (kr != KERN_SUCCESS) {
+    PERFETTO_DFATAL("Failed to get process CPU time (thread times).");
+    return TimeNanos(0);
+  }
+
+  return TimeNanos(past_threads.user_time.seconds * 1000000000LL +
+                   past_threads.user_time.microseconds * 1000LL +
+                   past_threads.system_time.seconds * 1000000000LL +
+                   past_threads.system_time.microseconds * 1000LL +
+                   cur_threads.user_time.seconds * 1000000000LL +
+                   cur_threads.user_time.microseconds * 1000LL +
+                   cur_threads.system_time.seconds * 1000000000LL +
+                   cur_threads.system_time.microseconds * 1000LL);
+}
+#else
+inline TimeNanos GetThreadCPUTimeNs() {
+  struct timespec ts = {};
+  PERFETTO_CHECK(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) == 0);
+  return FromPosixTimespec(ts);
+}
+
+inline TimeNanos GetProcessCPUTimeNs() {
+  struct timespec ts = {};
+  PERFETTO_CHECK(clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) == 0);
+  return FromPosixTimespec(ts);
+}
+#endif
+
 #elif PERFETTO_BUILDFLAG(PERFETTO_OS_WASM)
 
 inline TimeNanos GetWallTimeNs() {
@@ -114,6 +198,10 @@ inline TimeNanos GetWallTimeRawNs() {
 }
 
 inline TimeNanos GetThreadCPUTimeNs() {
+  return TimeNanos(0);
+}
+
+inline TimeNanos GetProcessCPUTimeNs() {
   return TimeNanos(0);
 }
 
@@ -140,8 +228,43 @@ inline TimeNanos GetThreadCPUTimeNs() {
   return TimeNanos(0);
 }
 
+inline TimeNanos GetProcessCPUTimeNs() {
+  return TimeNanos(0);
+}
+
 inline TimeNanos GetBootTimeNs() {
   return TimeNanos(0);
+}
+
+#elif PERFETTO_BUILDFLAG(PERFETTO_OS_QNX)
+
+constexpr clockid_t kWallTimeClockSource = CLOCK_MONOTONIC;
+
+inline TimeNanos GetTimeInternalNs(clockid_t clk_id) {
+  struct timespec ts = {};
+  PERFETTO_CHECK(clock_gettime(clk_id, &ts) == 0);
+  return FromPosixTimespec(ts);
+}
+
+inline TimeNanos GetWallTimeNs() {
+  return GetTimeInternalNs(kWallTimeClockSource);
+}
+
+inline TimeNanos GetWallTimeRawNs() {
+  return GetTimeInternalNs(CLOCK_MONOTONIC);
+}
+
+inline TimeNanos GetThreadCPUTimeNs() {
+  return GetTimeInternalNs(CLOCK_THREAD_CPUTIME_ID);
+}
+
+inline TimeNanos GetProcessCPUTimeNs() {
+  return GetTimeInternalNs(CLOCK_PROCESS_CPUTIME_ID);
+}
+
+// TODO: Clock that counts time during suspend is not implemented on QNX.
+inline TimeNanos GetBootTimeNs() {
+  return GetWallTimeNs();
 }
 
 #else  // posix
@@ -171,11 +294,22 @@ inline TimeNanos GetWallTimeNs() {
 }
 
 inline TimeNanos GetWallTimeRawNs() {
+#if (PERFETTO_BUILDFLAG(PERFETTO_OS_FREEBSD))
+  // Note: CLOCK_MONOTONIC_RAW is a Linux extension.
+  // FreeBSD doesn't implement it and its CLOCK_MONOTONIC_FAST
+  // doesnt implement the same semantics as CLOCK_MONOTONIC_RAW.
+  return GetTimeInternalNs(CLOCK_MONOTONIC);
+#else
   return GetTimeInternalNs(CLOCK_MONOTONIC_RAW);
+#endif
 }
 
 inline TimeNanos GetThreadCPUTimeNs() {
   return GetTimeInternalNs(CLOCK_THREAD_CPUTIME_ID);
+}
+
+inline TimeNanos GetProcessCPUTimeNs() {
+  return GetTimeInternalNs(CLOCK_PROCESS_CPUTIME_ID);
 }
 #endif
 
@@ -196,7 +330,7 @@ inline TimeSeconds GetWallTimeS() {
 }
 
 inline struct timespec ToPosixTimespec(TimeMillis time) {
-  struct timespec ts {};
+  struct timespec ts{};
   const long time_s = static_cast<long>(time.count() / 1000);
   ts.tv_sec = time_s;
   ts.tv_nsec = (static_cast<long>(time.count()) - time_s * 1000L) * 1000000L;
@@ -226,7 +360,7 @@ inline int64_t MkTime(int year, int month, int day, int h, int m, int s) {
   PERFETTO_DCHECK(year >= 1900);
   PERFETTO_DCHECK(month > 0 && month <= 12);
   PERFETTO_DCHECK(day > 0 && day <= 31);
-  struct tm tms {};
+  struct tm tms{};
   tms.tm_year = year - 1900;
   tms.tm_mon = month - 1;
   tms.tm_mday = day;
@@ -235,6 +369,22 @@ inline int64_t MkTime(int year, int month, int day, int h, int m, int s) {
   tms.tm_sec = s;
   return TimeGm(&tms);
 }
+
+#if PERFETTO_BUILDFLAG(PERFETTO_ARCH_CPU_X86_64)
+inline uint64_t Rdtsc() {
+#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
+  return static_cast<uint64_t>(__rdtsc());
+#else
+  // Use inline asm for clang and gcc: rust ffi bindgen crashes in using
+  // intrinsics on ChromeOS.
+  uint64_t low, high;
+  __asm__ volatile("rdtsc" : "=a"(low), "=d"(high));
+  return (high << 32) | low;
+#endif
+}
+#endif
+
+std::optional<int32_t> GetTimezoneOffsetMins();
 
 }  // namespace base
 }  // namespace perfetto

@@ -7,10 +7,12 @@
 
 #include <cstdint>
 
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
 #include "third_party/blink/renderer/platform/heap/thread_local.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/stack_util.h"
 
 namespace cppgc {
 class AllocationHandle;
@@ -43,7 +45,7 @@ struct ThreadingTrait {
 // Storage for all ThreadState objects. This includes the main-thread
 // ThreadState as well. Keep it outside the class so that PLATFORM_EXPORT
 // doesn't apply to it (otherwise, clang-cl complains).
-extern thread_local ThreadStateStorage* g_thread_specific_ CONSTINIT
+extern constinit thread_local ThreadStateStorage* g_thread_specific_
     __attribute__((tls_model(BLINK_HEAP_THREAD_LOCAL_MODEL)));
 
 // ThreadStateStorage is the explicitly managed TLS- and global-backed storage
@@ -102,7 +104,9 @@ class ThreadStateStorageFor<kMainThreadOnly> {
 
  public:
   ALWAYS_INLINE static ThreadStateStorage* GetState() {
-    return ThreadStateStorage::MainThreadStateStorage();
+    auto* main_thread_storage = ThreadStateStorage::MainThreadStateStorage();
+    DCHECK_EQ(main_thread_storage, ThreadStateStorage::Current());
+    return main_thread_storage;
   }
 };
 
@@ -111,7 +115,13 @@ class ThreadStateStorageFor<kAnyThread> {
   STATIC_ONLY(ThreadStateStorageFor);
 
  public:
-  ALWAYS_INLINE static ThreadStateStorage* GetState() {
+  static ThreadStateStorage* GetState() {
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_ANDROID)
+    // Perform a fast on main thread check on platforms with expensive TLS.
+    if (!MayNotBeMainThread()) {
+      return ThreadStateStorage::MainThreadStateStorage();
+    }
+#endif  // BUILDFLAG(IS_MAC)
     return ThreadStateStorage::Current();
   }
 };

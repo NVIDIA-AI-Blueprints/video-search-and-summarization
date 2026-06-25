@@ -23,13 +23,12 @@
 #include <stdint.h>
 
 typedef struct LLVidEncDSPContext {
-    void (*diff_bytes)(uint8_t *dst /* align 16 */,
-                       const uint8_t *src1 /* align 16 */,
+    void (*diff_bytes)(uint8_t *dst /* align 1 */,
+                       const uint8_t *src1 /* align 1 */,
                        const uint8_t *src2 /* align 1 */,
                        intptr_t w);
     /**
      * Subtract HuffYUV's variant of median prediction.
-     * Note, this might read from src1[-1], src2[-1].
      */
     void (*sub_median_pred)(uint8_t *dst, const uint8_t *src1,
                             const uint8_t *src2, intptr_t w,
@@ -40,6 +39,7 @@ typedef struct LLVidEncDSPContext {
 } LLVidEncDSPContext;
 
 void ff_llvidencdsp_init(LLVidEncDSPContext *c);
+void ff_llvidencdsp_init_riscv(LLVidEncDSPContext *c);
 void ff_llvidencdsp_init_x86(LLVidEncDSPContext *c);
 
 #endif /* AVCODEC_LOSSLESS_VIDEOENCDSP_H */

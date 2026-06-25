@@ -5,10 +5,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WAKE_LOCK_WAKE_LOCK_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WAKE_LOCK_WAKE_LOCK_H_
 
-#include "base/functional/callback.h"
+#include <array>
+
 #include "base/gtest_prod_util.h"
 #include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_wake_lock_type.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
@@ -24,9 +26,9 @@ namespace blink {
 
 class ExceptionState;
 class NavigatorBase;
-class ScriptPromiseResolver;
 class ScriptState;
 class WakeLockManager;
+class WakeLockSentinel;
 
 class MODULES_EXPORT WakeLock final : public ScriptWrappable,
                                       public Supplement<NavigatorBase>,
@@ -42,21 +44,23 @@ class MODULES_EXPORT WakeLock final : public ScriptWrappable,
 
   explicit WakeLock(NavigatorBase&);
 
-  ScriptPromise request(ScriptState*,
-                        V8WakeLockType type,
-                        ExceptionState& exception_state);
+  ScriptPromise<WakeLockSentinel> request(ScriptState*,
+                                          V8WakeLockType type,
+                                          ExceptionState& exception_state);
 
   void Trace(Visitor*) const override;
 
  private:
   // While this could be part of request() itself, having it as a separate
-  // function makes testing (which uses a custom ScriptPromiseResolver) a lot
-  // easier.
-  void DoRequest(V8WakeLockType::Enum, ScriptPromiseResolver*);
+  // function makes testing (which uses a custom ScriptPromiseResolverBase) a
+  // lot easier.
+  void DoRequest(V8WakeLockType::Enum,
+                 ScriptPromiseResolver<WakeLockSentinel>*);
 
-  void DidReceivePermissionResponse(V8WakeLockType::Enum,
-                                    ScriptPromiseResolver*,
-                                    mojom::blink::PermissionStatus);
+  void DidReceivePermissionResponse(
+      V8WakeLockType::Enum type,
+      ScriptPromiseResolver<WakeLockSentinel>* resolver,
+      mojom::blink::PermissionStatusWithDetailsPtr status);
 
   // ExecutionContextLifecycleObserver implementation
   void ContextDestroyed() override;
@@ -72,7 +76,7 @@ class MODULES_EXPORT WakeLock final : public ScriptWrappable,
   // https://w3c.github.io/screen-wake-lock/#dfn-activelocks
   // An ordered map of wake lock types to a list of WakeLockSentinel objects
   // associated with this Document.
-  Member<WakeLockManager> managers_[V8WakeLockType::kEnumSize];
+  std::array<Member<WakeLockManager>, V8WakeLockType::kEnumSize> managers_;
 
   FRIEND_TEST_ALL_PREFIXES(WakeLockSentinelTest, ContextDestruction);
   FRIEND_TEST_ALL_PREFIXES(WakeLockTest, RequestWakeLockGranted);

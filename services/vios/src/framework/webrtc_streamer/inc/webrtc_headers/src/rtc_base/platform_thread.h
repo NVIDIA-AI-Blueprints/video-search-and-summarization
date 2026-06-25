@@ -11,22 +11,24 @@
 #ifndef RTC_BASE_PLATFORM_THREAD_H_
 #define RTC_BASE_PLATFORM_THREAD_H_
 
-#include <functional>
-#include <string>
+#include <optional>
+
+#include "absl/functional/any_invocable.h"
+#include "absl/strings/string_view.h"
+#include "rtc_base/platform_thread_types.h"  // IWYU pragma: keep
+
 #if !defined(WEBRTC_WIN)
-#include <pthread.h>
+#include <pthread.h>  // IWYU pragma: keep
 #endif
 
-#include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
-#include "rtc_base/platform_thread_types.h"
-
-namespace rtc {
+namespace webrtc {
 
 enum class ThreadPriority {
   kLow = 1,
   kNormal,
   kHigh,
+  kVideo,
+  kAudio,
   kRealtime,
 };
 
@@ -70,7 +72,7 @@ class PlatformThread final {
   // For a PlatformThread that's been spawned joinable, the destructor suspends
   // the calling thread until the created thread exits unless the thread has
   // already exited.
-  virtual ~PlatformThread();
+  ~PlatformThread();
 
   // Finalizes any allocated resources.
   // For a PlatformThread that's been spawned joinable, Finalize() suspends
@@ -85,19 +87,19 @@ class PlatformThread final {
   // Creates a started joinable thread which will be joined when the returned
   // PlatformThread destructs or Finalize() is called.
   static PlatformThread SpawnJoinable(
-      std::function<void()> thread_function,
+      absl::AnyInvocable<void() &&> thread_function,
       absl::string_view name,
       ThreadAttributes attributes = ThreadAttributes());
 
   // Creates a started detached thread. The caller has to use external
   // synchronization as nothing is provided by the PlatformThread construct.
   static PlatformThread SpawnDetached(
-      std::function<void()> thread_function,
+      absl::AnyInvocable<void() &&> thread_function,
       absl::string_view name,
       ThreadAttributes attributes = ThreadAttributes());
 
   // Returns the base platform thread handle of this thread.
-  absl::optional<Handle> GetHandle() const;
+  std::optional<Handle> GetHandle() const;
 
 #if defined(WEBRTC_WIN)
   // Queue a Windows APC function that runs when the thread is alertable.
@@ -106,15 +108,17 @@ class PlatformThread final {
 
  private:
   PlatformThread(Handle handle, bool joinable);
-  static PlatformThread SpawnThread(std::function<void()> thread_function,
-                                    absl::string_view name,
-                                    ThreadAttributes attributes,
-                                    bool joinable);
+  static PlatformThread SpawnThread(
+      absl::AnyInvocable<void() &&> thread_function,
+      absl::string_view name,
+      ThreadAttributes attributes,
+      bool joinable);
 
-  absl::optional<Handle> handle_;
+  std::optional<Handle> handle_;
   bool joinable_ = false;
 };
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_PLATFORM_THREAD_H_

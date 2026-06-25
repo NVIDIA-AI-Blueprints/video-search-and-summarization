@@ -10,26 +10,25 @@
 #ifndef NET_DCSCTP_RX_REASSEMBLY_QUEUE_H_
 #define NET_DCSCTP_RX_REASSEMBLY_QUEUE_H_
 
-#include <stddef.h>
-
-#include <cstdint>
+#include <cstddef>
+#include <deque>
 #include <memory>
-#include <set>
-#include <string>
+#include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/common/sequence_numbers.h"
 #include "net/dcsctp/packet/chunk/forward_tsn_common.h"
 #include "net/dcsctp/packet/data.h"
-#include "net/dcsctp/packet/parameter/outgoing_ssn_reset_request_parameter.h"
-#include "net/dcsctp/packet/parameter/reconfiguration_response_parameter.h"
 #include "net/dcsctp/public/dcsctp_handover_state.h"
 #include "net/dcsctp/public/dcsctp_message.h"
+#include "net/dcsctp/public/types.h"
 #include "net/dcsctp/rx/reassembly_streams.h"
+#include "rtc_base/containers/flat_set.h"
 
 namespace dcsctp {
 
@@ -70,7 +69,6 @@ class ReassemblyQueue {
   static constexpr float kHighWatermarkLimit = 0.9;
 
   ReassemblyQueue(absl::string_view log_prefix,
-                  TSN peer_initial_tsn,
                   size_t max_size_bytes,
                   bool use_message_interleaving = false);
 
@@ -79,27 +77,31 @@ class ReassemblyQueue {
   void Add(TSN tsn, Data data);
 
   // Indicates if the reassembly queue has any reassembled messages that can be
-  // retrieved by calling `FlushMessages`.
+  // retrieved by calling `GetNextMessage`.
   bool HasMessages() const { return !reassembled_messages_.empty(); }
 
-  // Returns any reassembled messages.
-  std::vector<DcSctpMessage> FlushMessages();
+  // Returns the number of reassembled messages that are ready to be retrieved
+  // by calling `GetNextMessage`.
+  size_t MessagesReady() const { return reassembled_messages_.size(); }
+
+  // Returns the next reassembled message or nullopt if there are no messages
+  // ready.
+  std::optional<DcSctpMessage> GetNextMessage();
 
   // Handle a ForwardTSN chunk, when the sender has indicated that the received
   // (this class) should forget about some chunks. This is used to implement
   // partial reliability.
-  void Handle(const AnyForwardTsnChunk& forward_tsn);
+  void HandleForwardTsn(
+      TSN new_cumulative_tsn,
+      std::span<const AnyForwardTsnChunk::SkippedStream> skipped_streams);
 
-  // Given the reset stream request and the current cum_tsn_ack, might either
-  // reset the streams directly (returns kSuccessPerformed), or at a later time,
-  // by entering the "deferred reset processing" mode (returns kInProgress).
-  ReconfigurationResponseParameter::Result ResetStreams(
-      const OutgoingSSNResetRequestParameter& req,
-      TSN cum_tsn_ack);
+  // Resets the provided streams and leaves deferred reset processing, if
+  // enabled.
+  void ResetStreamsAndLeaveDeferredReset(std::span<const StreamID> stream_ids);
 
-  // Given the current (updated) cum_tsn_ack, might leave "defererred reset
-  // processing" mode and reset streams. Returns true if so.
-  bool MaybeResetStreamsDeferred(TSN cum_ack_tsn);
+  // Enters deferred reset processing.
+  void EnterDeferredReset(TSN sender_last_assigned_tsn,
+                          std::span<const StreamID> streams);
 
   // The number of payload bytes that have been queued. Note that the actual
   // memory usage is higher due to additional overhead of tracking received
@@ -126,39 +128,32 @@ class ReassemblyQueue {
   void RestoreFromState(const DcSctpSocketHandoverState& state);
 
  private:
-  bool IsConsistent() const;
-  void AddReassembledMessage(rtc::ArrayView<const UnwrappedTSN> tsns,
-                             DcSctpMessage message);
-  void MaybeMoveLastAssembledWatermarkFurther();
-
   struct DeferredResetStreams {
-    explicit DeferredResetStreams(OutgoingSSNResetRequestParameter req)
-        : req(std::move(req)) {}
-    OutgoingSSNResetRequestParameter req;
-    std::vector<std::pair<TSN, Data>> deferred_chunks;
+    DeferredResetStreams(UnwrappedTSN sender_last_assigned_tsn,
+                         webrtc::flat_set<StreamID> streams)
+        : sender_last_assigned_tsn(sender_last_assigned_tsn),
+          streams(std::move(streams)) {}
+
+    UnwrappedTSN sender_last_assigned_tsn;
+    webrtc::flat_set<StreamID> streams;
+    std::vector<absl::AnyInvocable<void(void)>> deferred_actions;
   };
+
+  bool IsConsistent() const;
+  void AddReassembledMessage(std::span<const UnwrappedTSN> tsns,
+                             DcSctpMessage message);
 
   const absl::string_view log_prefix_;
   const size_t max_size_bytes_;
   const size_t watermark_bytes_;
   UnwrappedTSN::Unwrapper tsn_unwrapper_;
 
-  // Whenever a message has been assembled, either increase
-  // `last_assembled_tsn_watermark_` or - if there are gaps - add the message's
-  // TSNs into delivered_tsns_ so that messages are not re-delivered on
-  // duplicate chunks.
-  UnwrappedTSN last_assembled_tsn_watermark_;
-  std::set<UnwrappedTSN> delivered_tsns_;
-  // Messages that have been reassembled, and will be returned by
-  // `FlushMessages`.
-  std::vector<DcSctpMessage> reassembled_messages_;
+  // Messages that have been reassembled, and will be consumed from by
+  // `GetNextMessage`.
+  std::deque<DcSctpMessage> reassembled_messages_;
 
   // If present, "deferred reset processing" mode is active.
-  absl::optional<DeferredResetStreams> deferred_reset_streams_;
-
-  // Contains the last request sequence number of the
-  // OutgoingSSNResetRequestParameter that was performed.
-  ReconfigRequestSN last_completed_reset_req_seq_nbr_;
+  std::optional<DeferredResetStreams> deferred_reset_streams_;
 
   // The number of "payload bytes" that are in this queue, in total.
   size_t queued_bytes_ = 0;

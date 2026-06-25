@@ -13,17 +13,18 @@
 
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
-#include <SLES/OpenSLES_AndroidConfiguration.h>
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 
-#include "absl/types/optional.h"
+#include "api/audio/audio_device_defines.h"
+#include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
+#include "api/units/timestamp.h"
 #include "modules/audio_device/audio_device_buffer.h"
 #include "modules/audio_device/fine_audio_buffer.h"
-#include "modules/audio_device/include/audio_device_defines.h"
-#include "sdk/android/src/jni/audio_device/audio_common.h"
 #include "sdk/android/src/jni/audio_device/audio_device_module.h"
 #include "sdk/android/src/jni/audio_device/opensles_common.h"
 
@@ -61,8 +62,9 @@ class OpenSLESPlayer : public AudioOutput {
   // TODO(henrika): perhaps set this value dynamically based on OS version.
   static const int kNumOfOpenSLESBuffers = 2;
 
-  OpenSLESPlayer(const AudioParameters& audio_parameters,
-                 rtc::scoped_refptr<OpenSLEngineManager> engine_manager);
+  OpenSLESPlayer(const Environment& env,
+                 const AudioParameters& audio_parameters,
+                 scoped_refptr<OpenSLEngineManager> engine_manager);
   ~OpenSLESPlayer() override;
 
   int Init() override;
@@ -77,9 +79,9 @@ class OpenSLESPlayer : public AudioOutput {
 
   bool SpeakerVolumeIsAvailable() override;
   int SetSpeakerVolume(uint32_t volume) override;
-  absl::optional<uint32_t> SpeakerVolume() const override;
-  absl::optional<uint32_t> MaxSpeakerVolume() const override;
-  absl::optional<uint32_t> MinSpeakerVolume() const override;
+  std::optional<uint32_t> SpeakerVolume() const override;
+  std::optional<uint32_t> MaxSpeakerVolume() const override;
+  std::optional<uint32_t> MinSpeakerVolume() const override;
 
   void AttachAudioBuffer(AudioDeviceBuffer* audioBuffer) override;
 
@@ -119,6 +121,8 @@ class OpenSLESPlayer : public AudioOutput {
   void DestroyAudioPlayer();
 
   SLuint32 GetPlayState() const;
+
+  const Environment env_;
 
   // Ensures that methods are called from the same thread as this object is
   // created on.
@@ -163,7 +167,7 @@ class OpenSLESPlayer : public AudioOutput {
   // Example (kNumOfOpenSLESBuffers = 2): counts 0, 1, 0, 1, ...
   int buffer_index_;
 
-  const rtc::scoped_refptr<OpenSLEngineManager> engine_manager_;
+  const webrtc::scoped_refptr<OpenSLEngineManager> engine_manager_;
   // This interface exposes creation methods for all the OpenSL ES object types.
   // It is the OpenSL ES API entry point.
   SLEngineItf engine_;
@@ -189,7 +193,7 @@ class OpenSLESPlayer : public AudioOutput {
   SLVolumeItf volume_;
 
   // Last time the OpenSL ES layer asked for audio data to play out.
-  uint32_t last_play_time_;
+  Timestamp last_play_time_;
 };
 
 }  // namespace jni

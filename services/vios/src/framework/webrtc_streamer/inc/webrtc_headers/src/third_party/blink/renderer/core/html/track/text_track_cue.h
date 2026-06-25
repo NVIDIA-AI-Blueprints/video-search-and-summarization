@@ -39,10 +39,9 @@
 
 namespace blink {
 
-class HTMLMediaElement;
 class TextTrack;
 
-class CORE_EXPORT TextTrackCue : public EventTargetWithInlineData {
+class CORE_EXPORT TextTrackCue : public EventTarget {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -81,11 +80,6 @@ class CORE_EXPORT TextTrackCue : public EventTargetWithInlineData {
   // already been added.
   virtual void UpdateDisplay(HTMLDivElement& container) = 0;
 
-  // Called when entering or exiting the cue on the timeline in cue_timeline.cc
-  // (cf. the 'enter' and 'exit' events). Handles enter and exit event behavior
-  // for spoken cues.
-  virtual void OnEnter(HTMLMediaElement& video) = 0;
-  virtual void OnExit(HTMLMediaElement& video) = 0;
 
   // Marks the nodes of the display tree as past or future relative to
   // movieTime. If |updateDisplay| has not been called there is no display
@@ -94,7 +88,7 @@ class CORE_EXPORT TextTrackCue : public EventTargetWithInlineData {
 
   // Returns the first timestamp value greater than the given time at which an
   // inter-cue update occurs, if such a timestamp exists.
-  virtual absl::optional<double> GetNextIntraCueTime(
+  virtual std::optional<double> GetNextIntraCueTime(
       double movie_time) const = 0;
 
   // FIXME: Refactor to eliminate removeDisplayTree(). https://crbug.com/322434

@@ -29,13 +29,13 @@ class PushSubscriptionOptions final : public ScriptWrappable {
 
   explicit PushSubscriptionOptions(
       bool user_visible_only,
-      const WTF::Vector<uint8_t>& application_server_key);
+      const Vector<uint8_t>& application_server_key);
 
   bool userVisibleOnly() const { return user_visible_only_; }
 
   // Mutable by web developer. See https://github.com/w3c/push-api/issues/198.
   DOMArrayBuffer* applicationServerKey() const {
-    return application_server_key_;
+    return application_server_key_.Get();
   }
 
   void Trace(Visitor* visitor) const override;

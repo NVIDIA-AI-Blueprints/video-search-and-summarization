@@ -1,35 +1,5 @@
-/* ----------------------------------------------------------------------- *
- *
- *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
- *   See the file AUTHORS included with the NASM distribution for
- *   the specific copyright holders.
- *
- *   Redistribution and use in source and binary forms, with or without
- *   modification, are permitted provided that the following
- *   conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above
- *     copyright notice, this list of conditions and the following
- *     disclaimer in the documentation and/or other materials provided
- *     with the distribution.
- *
- *     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- *     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- *     MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *     DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- *     CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- *     SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- *     NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- *     LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- *     HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *     CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- *     OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- *     EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * ----------------------------------------------------------------------- */
+/* SPDX-License-Identifier: BSD-2-Clause */
+/* Copyright 1996-2025 The NASM Authors - All Rights Reserved */
 
 /*
  * nasm.h   main header file for the Netwide Assembler: inter-module interface
@@ -46,11 +16,13 @@
 #include "nctype.h"
 #include "strlist.h"
 #include "preproc.h"
+#include "macros.h"
 #include "insnsi.h"     /* For enum opcode */
 #include "directiv.h"   /* For enum directive */
 #include "labels.h"     /* For enum mangle_index, enum label_type */
 #include "opflags.h"
 #include "regs.h"
+#include "x86const.h"
 #include "srcfile.h"
 #include "error.h"
 
@@ -66,6 +38,13 @@ struct compile_time {
     struct tm gm;
 };
 extern struct compile_time official_compile_time;
+
+/* POSIX timestamp if and only if we are not a reproducible build */
+extern bool reproducible;
+static inline int64_t posix_timestamp(void)
+{
+    return reproducible ? 0 : official_compile_time.posix;
+}
 
 #define NO_SEG  INT32_C(-1)     /* null segment value */
 #define SEG_ABS 0x40000000L     /* mask for far-absolute segments */
@@ -100,10 +79,11 @@ enum out_type {
     OUT_SEGMENT,    /* A segment number */
 
     /*
-     * These values are used by the legacy backend interface only;
-     * see output/legacy.c for more information.  These should never
-     * be used otherwise.  Once all backends have been migrated to the
-     * new interface they should be removed.
+     * These values are used by the legacy backend interface only; see
+     * nasm_ofmt_output() in asm/assemble.c for more information.
+     * These should never be used otherwise.  Once all backends have
+     * been fully migrated to the new interface they should be
+     * removed.
      */
     OUT_REL1ADR,
     OUT_REL2ADR,
@@ -111,11 +91,23 @@ enum out_type {
     OUT_REL8ADR
 };
 
-enum out_sign {
-    OUT_WRAP,                   /* Undefined signedness (wraps) */
-    OUT_SIGNED,                 /* Value is signed */
-    OUT_UNSIGNED                /* Value is unsigned */
+enum out_flags {
+    OUT_WRAP     = 0,           /* Undefined signedness (wraps) */
+    OUT_SIGNED   = 1,           /* Value is signed */
+    OUT_UNSIGNED = 2,           /* Value is unsigned */
+    OUT_SIGNMASK = 3,           /* Mask for signedness bits */
+    OUT_NOWARN   = 4            /* Don't warn on overflow (already done?) */
 };
+
+/*
+ * Description of an assembly output location
+ */
+struct location {
+    int64_t offset;
+    int32_t segment;
+    bool    known;
+};
+extern struct location location; /* Current assembly location */
 
 /*
  * The data we send down to the backend.
@@ -123,10 +115,9 @@ enum out_sign {
  * available, and replace the segment numbers with a structure.
  */
 struct out_data {
-    int64_t offset;             /* Offset within segment */
-    int32_t segment;            /* Segment written to */
+    struct location loc;        /* seg:offset being written to */
     enum out_type type;         /* See above */
-    enum out_sign sign;         /* See above */
+    enum out_flags flags;       /* See above */
     int inslen;                 /* Length of instruction */
     int insoffs;                /* Offset inside instruction */
     int bits;                   /* Bits mode of compilation */
@@ -138,6 +129,20 @@ struct out_data {
     int32_t twrt;               /* Relocation with respect to */
     int64_t relbase;            /* Relative base for OUT_RELADDR */
     struct src_location where;  /* Source file and line */
+    const char *what;           /* Additional description, e.g. "immediate" */
+
+    /*
+     * Legacy output data fields; some of these differ in their
+     * definition from the corresponding modern fields.
+     * See nasm_ofmt_output() in asm/assemble.c.
+     */
+    struct out_data_legacy {
+	const void *data;
+	enum out_type type;
+	uint64_t size;
+	int32_t tsegment;	/* Legacy name "segment" */
+	int32_t twrt;		/* Legacy name "wrt" */
+    } legacy;
 };
 
 /*
@@ -154,26 +159,45 @@ typedef void (*ldfunc)(char *label, int32_t segment, int64_t offset,
  * ASCII character values, and zero for end-of-string.
  */
 enum token_type { /* token types, other than chars */
+
+    /* Token values shared between assembler and preprocessor */
+
+    /* Special codes */
     TOKEN_INVALID = -1, /* a placeholder value */
-    TOKEN_EOS = 0,      /* end of string */
-    TOKEN_QMARK = '?',
-    TOKEN_EQ = '=',
-    TOKEN_GT = '>',
-    TOKEN_LT = '<',     /* aliases */
-    TOKEN_ID = 256,     /* identifier */
-    TOKEN_NUM,          /* numeric constant */
-    TOKEN_ERRNUM,       /* malformed numeric constant */
-    TOKEN_STR,          /* string constant */
-    TOKEN_ERRSTR,       /* unterminated string constant */
-    TOKEN_FLOAT,        /* floating-point constant */
-    TOKEN_REG,          /* register name */
-    TOKEN_INSN,         /* instruction name */
-    TOKEN_HERE,         /* $ */
-    TOKEN_BASE,         /* $$ */
-    TOKEN_SIZE,		/* BYTE, WORD, DWORD, QWORD, etc */
-    TOKEN_SPECIAL,      /* REL, FAR, NEAR, STRICT, NOSPLIT, etc */
-    TOKEN_PREFIX,       /* A32, O16, LOCK, REPNZ, TIMES, etc */
-    TOKEN_SHL,          /* << or <<< */
+    TOKEN_BLOCK   = -2, /* used for storage management */
+    TOKEN_FREE    = -3, /* free token marker, use to catch leaks */
+    TOKEN_EOS     = 0,  /* end of string */
+
+    /*
+     * Single-character operators. Enumerated here to keep strict
+     * compilers happy, and for documentation.
+     */
+    TOKEN_WHITESPACE = ' ',     /* Preprocessor use */
+    TOKEN_BOOL_NOT   = '!',
+    TOKEN_AND        = '&',
+    TOKEN_OR         = '|',
+    TOKEN_XOR        = '^',
+    TOKEN_NOT        = '~',
+    TOKEN_MULT       = '*',
+    TOKEN_DIV        = '/',
+    TOKEN_MOD        = '%',
+    TOKEN_LPAR       = '(',
+    TOKEN_RPAR       = ')',
+    TOKEN_PLUS       = '+',
+    TOKEN_MINUS      = '-',
+    TOKEN_COMMA      = ',',
+    TOKEN_LBRACE     = '{',
+    TOKEN_RBRACE     = '}',
+    TOKEN_LBRACKET   = '[',
+    TOKEN_RBRACKET   = ']',
+    TOKEN_QMARK      = '?',
+    TOKEN_EQ         = '=',     /* = or == */
+    TOKEN_GT         = '>',
+    TOKEN_LT         = '<',
+    TOKEN_COLON      = ':',
+
+    /* Multi-character operators */
+    TOKEN_SHL = 256,    /* << or <<< */
     TOKEN_SHR,          /* >> */
     TOKEN_SAR,          /* >>> */
     TOKEN_SDIV,         /* // */
@@ -185,26 +209,90 @@ enum token_type { /* token types, other than chars */
     TOKEN_DBL_AND,      /* && */
     TOKEN_DBL_OR,       /* || */
     TOKEN_DBL_XOR,      /* ^^ */
+
+    TOKEN_MAX_OPERATOR,
+
+    TOKEN_NUM,          /* numeric constant */
+    TOKEN_ERRNUM,       /* malformed numeric constant */
+    TOKEN_STR,          /* string constant */
+    TOKEN_ERRSTR,       /* unterminated string constant */
+    TOKEN_ID,           /* identifier */
+    TOKEN_FLOAT,        /* floating-point constant */
+    TOKEN_HERE,         /* $, not '$' because it is not an operator */
+    TOKEN_BASE,         /* $$ */
+
+    /* Token values only used by the assembler */
+    TOKEN_START_ASM,
+
     TOKEN_SEG,          /* SEG */
     TOKEN_WRT,          /* WRT */
+    TOKEN_TIMES,        /* TIMES */
     TOKEN_FLOATIZE,     /* __?floatX?__ */
     TOKEN_STRFUNC,      /* __utf16*__, __utf32*__ */
     TOKEN_IFUNC,        /* __ilog2*__ */
     TOKEN_DECORATOR,    /* decorators such as {...} */
     TOKEN_MASM_PTR,     /* __?masm_ptr?__ for the masm package */
     TOKEN_MASM_FLAT,    /* __?masm_flat?__ for the masm package */
-    TOKEN_OPMASK        /* translated token for opmask registers */
+    TOKEN_OPMASK,       /* translated token for opmask registers */
+    TOKEN_SIZE,		/* BYTE, WORD, DWORD, QWORD, etc */
+    TOKEN_SPECIAL,      /* REL, FAR, NEAR, STRICT, NOSPLIT, etc */
+    TOKEN_PREFIX,       /* A32, O16, LOCK, REPNZ, TIMES, etc */
+    TOKEN_BRCCONST,     /* braced constant expression */
+    TOKEN_REG,          /* register name */
+    TOKEN_INSN,         /* instruction name */
+
+    TOKEN_END_ASM,
+
+    /* Token values only used by the preprocessor */
+
+    TOKEN_START_PP = TOKEN_END_ASM,
+
+    TOKEN_OTHER,           /* % sequence without (current) meaning */
+    TOKEN_PREPROC_ID,      /* Preprocessor ID, e.g. %symbol */
+    TOKEN_MMACRO_PARAM,    /* MMacro parameter, e.g. %1 */
+    TOKEN_LOCAL_SYMBOL,    /* Local symbol, e.g. %%symbol */
+    TOKEN_LOCAL_MACRO,     /* Context-local macro, e.g. %$symbol */
+    TOKEN_ENVIRON,         /* %! */
+    TOKEN_INTERNAL_STR,    /* Unquoted string that should remain so */
+    TOKEN_NAKED_STR,       /* Unquoted string that can be re-quoted */
+    TOKEN_PREPROC_Q,       /* %? */
+    TOKEN_PREPROC_QQ,      /* %?? */
+    TOKEN_PREPROC_SQ,      /* %*? */
+    TOKEN_PREPROC_SQQ,     /* %*?? */
+    TOKEN_PASTE,           /* %+ */
+    TOKEN_COND_COMMA,      /* %, */
+    TOKEN_INDIRECT,        /* %[...] */
+    TOKEN_XDEF_PARAM,      /* Used during %xdefine processing */
+    /* smacro parameters starting here; an arbitrary number. */
+    TOKEN_SMAC_START_PARAMS,    /* MUST BE LAST IN THE LIST!!! */
+    TOKEN_MAX = INT_MAX		/* Keep compiler from reducing the range */
 };
 
+/*
+ * Token flags
+ */
+enum token_flags {
+    TFLAG_BRC     = 1 << 0,   /* valid only with braces. {1to8}, {rd-sae}, ...*/
+    TFLAG_BRC_OPT = 1 << 1,   /* may or may not have braces. opmasks {k1} */
+    TFLAG_BRC_ANY = TFLAG_BRC | TFLAG_BRC_OPT,
+    TFLAG_BRDCAST = 1 << 2,   /* broadcasting decorator */
+    TFLAG_WARN	  = 1 << 3,   /* warning only, treat as ID */
+    TFLAG_DUP	  = 1 << 4,   /* valid ID but also has context-specific use */
+    TFLAG_ORBIT   = 1 << 5    /* OR in the bit given in t_inttwo */
+};
+
+/* Must match the fp_formats[] array in asm/floats.c */
 enum floatize {
     FLOAT_8,
     FLOAT_16,
+    FLOAT_B16,
     FLOAT_32,
     FLOAT_64,
     FLOAT_80M,
     FLOAT_80E,
     FLOAT_128L,
-    FLOAT_128H
+    FLOAT_128H,
+    FLOAT_ERR                   /* Invalid format, MUST BE LAST */
 };
 
 /* Must match the list in string_transform(), in strfunc.c */
@@ -236,20 +324,15 @@ size_t string_transform(char *, size_t, char **, enum strfunc);
  * `t_type' field in the structure.
  */
 struct tokenval {
-    char                *t_charptr;
     int64_t             t_integer;
     int64_t             t_inttwo;
+    char                *t_charptr;
+    const char		*t_start; /* Pointer to token in input buffer */
+    int			t_len;    /* Length of token in input buffer */
     enum token_type     t_type;
-    int8_t              t_flag;
+    enum token_flags    t_flag;
 };
 typedef int (*scanner)(void *private_data, struct tokenval *tv);
-
-struct location {
-    int64_t offset;
-    int32_t segment;
-    int     known;
-};
-extern struct location location;
 
 /*
  * Expression-evaluator datatype. Expressions, within the
@@ -271,6 +354,22 @@ typedef struct {
 /*
  * Library routines to manipulate expression data types.
  */
+enum expr_classes {
+    EC_ZERO          =   0,   /* All-zero expression */
+    EC_CONST         =   1,   /* Additive constant */
+    EC_SEGABS        =   2,   /* Absolute segment reference */
+    EC_SIMPLE        = EC_CONST | EC_SEGABS,
+    EC_SELFREL       =   4,   /* Self-relative expression */
+    EC_SEG           =   8,   /* Has a segment base */
+    EC_WRT           =  16,   /* Has WRT */
+    EC_RELOC         = EC_SIMPLE | EC_SELFREL | EC_SEG | EC_WRT,
+    EC_UNKNOWN       =  32,   /* Has an "unknown" part */
+    EC_REGISTER      =  64,   /* Has a register */
+    EC_REGEXPR       = 128,   /* Has more than one register and/or reg*n */
+    EC_COMPLEX       = 256    /* Even more complex, problematic */
+};
+
+enum expr_classes expr_class(const expr *vect);
 bool is_reloc(const expr *vect);
 bool is_simple(const expr *vect);
 bool is_really_simple(const expr *vect);
@@ -343,62 +442,60 @@ enum preproc_mode {
     PP_PREPROC                  /* Preprocessing only */
 };
 
-struct preproc_ops {
-    /*
-     * Called once at the very start of assembly.
-     */
-    void (*init)(void);
-
-    /*
-     * Called at the start of a pass; given a file name, the number
-     * of the pass, an error reporting function, an evaluator
-     * function, and a listing generator to talk to.
-     */
-    void (*reset)(const char *file, enum preproc_mode mode,
-                  struct strlist *deplist);
-
-    /*
-     * Called to fetch a line of preprocessed source. The line
-     * returned has been malloc'ed, and so should be freed after
-     * use.
-     */
-    char *(*getline)(void);
-
-    /* Called at the end of each pass. */
-    void (*cleanup_pass)(void);
-
-    /*
-     * Called at the end of the assembly session,
-     * after cleanup_pass() has been called for the
-     * last pass.
-     */
-    void (*cleanup_session)(void);
-
-    /* Additional macros specific to output format */
-    void (*extra_stdmac)(macros_t *macros);
-
-    /* Early definitions and undefinitions for macros */
-    void (*pre_define)(char *definition);
-    void (*pre_undefine)(char *definition);
-
-    /* Include file from command line */
-    void (*pre_include)(char *fname);
-
-    /* Add a command from the command line */
-    void (*pre_command)(const char *what, char *str);
-
-    /* Include path from command line */
-    void (*include_path)(struct strlist *ipath);
-
-    /* Unwind the macro stack when printing an error message */
-    void (*error_list_macros)(errflags severity);
-
-    /* Return true if an error message should be suppressed */
-    bool (*suppress_error)(errflags severity);
+enum preproc_opt {
+    PP_TRIVIAL  = 1,            /* Only %line or # directives */
+    PP_NOLINE   = 2,            /* Ignore %line and # directives */
+    PP_TASM     = 4             /* TASM compatibility hacks */
 };
 
-extern const struct preproc_ops nasmpp;
-extern const struct preproc_ops preproc_nop;
+/*
+ * Called once at the very start of assembly.
+ */
+void pp_init(enum preproc_opt opt);
+
+/*
+ * Called at the start of a pass; given a file name, the number
+ * of the pass, an error reporting function, an evaluator
+ * function, and a listing generator to talk to.
+ */
+void pp_reset(const char *file, enum preproc_mode mode,
+              struct strlist *deplist);
+
+/*
+ * Called to fetch a line of preprocessed source. The line
+ * returned has been malloc'ed, and so should be freed after
+ * use.
+ */
+char *pp_getline(void);
+
+/* Called at the end of each pass. */
+void pp_cleanup_pass(void);
+
+/*
+ * Called at the end of the assembly session,
+ * after cleanup_pass() has been called for the
+ * last pass.
+ */
+void pp_cleanup_session(void);
+
+/* Early definitions and undefinitions for macros */
+void pp_pre_define(char *definition);
+void pp_pre_undefine(char *definition);
+
+/* Include file from command line */
+void pp_pre_include(char *fname);
+
+/* Add a command from the command line */
+void pp_pre_command(const char *what, char *str);
+
+/* Include path from command line */
+void pp_include_path(struct strlist *ipath);
+
+/* Unwind the macro stack when printing an error message */
+void pp_error_list_macros(errflags severity);
+
+/* Return true if an error message should be suppressed */
+bool pp_suppress_error(errflags severity);
 
 /* List of dependency files */
 extern struct strlist *depend_list;
@@ -441,42 +538,18 @@ enum {
  * -----------------------------------------------------------
  */
 
-/* Verify value to be a valid register */
-static inline bool is_register(int reg)
-{
-    return reg >= EXPR_REG_START && reg < REG_ENUM_LIMIT;
-}
-
-enum ccode { /* condition code names */
-    C_A, C_AE, C_B, C_BE, C_C, C_E, C_G, C_GE, C_L, C_LE, C_NA, C_NAE,
-    C_NB, C_NBE, C_NC, C_NE, C_NG, C_NGE, C_NL, C_NLE, C_NO, C_NP,
-    C_NS, C_NZ, C_O, C_P, C_PE, C_PO, C_S, C_Z,
-    C_none = -1
-};
-
-/*
- * token flags
- */
-#define TFLAG_BRC       (1 << 0)    /* valid only with braces. {1to8}, {rd-sae}, ...*/
-#define TFLAG_BRC_OPT   (1 << 1)    /* may or may not have braces. opmasks {k1} */
-#define TFLAG_BRC_ANY   (TFLAG_BRC | TFLAG_BRC_OPT)
-#define TFLAG_BRDCAST   (1 << 2)    /* broadcasting decorator */
-#define TFLAG_WARN	(1 << 3)    /* warning only, treat as ID */
-#define TFLAG_DUP	(1 << 4)    /* valid ID but also has context-specific use */
-
-static inline uint8_t get_cond_opcode(enum ccode c)
-{
-    static const uint8_t ccode_opcodes[] = {
-        0x7, 0x3, 0x2, 0x6, 0x2, 0x4, 0xf, 0xd, 0xc, 0xe, 0x6, 0x2,
-        0x3, 0x7, 0x3, 0x5, 0xe, 0xc, 0xd, 0xf, 0x1, 0xb, 0x9, 0x5,
-        0x0, 0xa, 0xa, 0xb, 0x8, 0x4
-    };
-
-	return ccode_opcodes[(int)c];
-}
-
 /*
  * REX flags
+ *
+ * Note: REX_[BXRW] and REX_P must match the locations of these
+ * bits within an actual REX prefix (with REX_P being the invariant
+ * 0x40 bit. REX_[BXR]1 must match the locations of these bits
+ * within the REX2 prefix, shifted into the second byte (<< 12).
+ * Finally, REX_[BXR]V are should match BXR << 16.
+ *
+ * REX_W64 is a separate bit to indicate that REX.W should be set
+ * if the operand size is 64. It can be overridden by the "nw" (0327)
+ * byte code.
  */
 #define REX_MASK    0x4f    /* Actual REX prefix bits */
 #define REX_B       0x01    /* ModRM r/m extension */
@@ -489,22 +562,58 @@ static inline uint8_t get_cond_opcode(enum ccode c)
 #define REX_V       0x0100  /* Instruction uses VEX/XOP instead of REX */
 #define REX_NH      0x0200  /* Instruction which doesn't use high regs */
 #define REX_EV      0x0400  /* Instruction uses EVEX instead of REX */
+#define REX_2       0x0800  /* Instruction requires REX2 */
+#define REX_B1      0x1000  /* REX2/EVEX B second bit */
+#define REX_X1      0x2000  /* REX2/EVEX X second bit */
+#define REX_R1      0x4000  /* REX2/EVEX R second bit */
+#define REX_NW	    0x8000  /* REX.W not required for 64-bit operand mode */
+
+#define REX_BV      0x10000 /* B is not a GPR or CREG */
+#define REX_XV      0x20000 /* X is not a GPR or CREG */
+#define REX_RV      0x40000 /* R is not a GPR or CREG */
+
+#define REX_BXR0    0x0007
+#define REX_BXR1    0x7000
+#define REX_BXR     0x7007
+#define REX_BXRV    0x70000
+
+/* All flags pertaining to B, X, and R */
+#define REX_rB	    (REX_B | REX_B1 | REX_BV | REX_H | REX_P)
+#define REX_rX	    (REX_X | REX_X1 | REX_XV | REX_H | REX_P)
+#define REX_rR	    (REX_R | REX_R1 | REX_RV | REX_H | REX_P)
 
 /*
- * EVEX bit field
+ * EVEX bit fields. Note that the P[] numbers in the SDM does not include
+ * the leading 0x62 byte, so add 8 to the position.
+ *
+ * NOTES: B4 is in bit X3 = P[5]  if B is a vector
+ *        X4 is in bit V4 = P[19] if X is a vector
  */
-#define EVEX_P0MM       0x0f        /* EVEX P[3:0] : Opcode map           */
-#define EVEX_P0RP       0x10        /* EVEX P[4] : High-16 reg            */
-#define EVEX_P0X        0x40        /* EVEX P[6] : High-16 rm             */
-#define EVEX_P1PP       0x03        /* EVEX P[9:8] : Legacy prefix        */
-#define EVEX_P1VVVV     0x78        /* EVEX P[14:11] : NDS register       */
-#define EVEX_P1W        0x80        /* EVEX P[15] : Osize extension       */
-#define EVEX_P2AAA      0x07        /* EVEX P[18:16] : Embedded opmask    */
-#define EVEX_P2VP       0x08        /* EVEX P[19] : High-16 NDS reg       */
-#define EVEX_P2B        0x10        /* EVEX P[20] : Broadcast / RC / SAE  */
-#define EVEX_P2LL       0x60        /* EVEX P[22:21] : Vector length      */
-#define EVEX_P2RC       EVEX_P2LL   /* EVEX P[22:21] : Rounding control   */
-#define EVEX_P2Z        0x80        /* EVEX P[23] : Zeroing/Merging       */
+#define evexf(name,pos,width)                   \
+    mk_field(EVEX_ ## name, 8+(pos), width)
+
+enum evex_fields {
+    evexf(MM,    0, 3),    /* EVEX P[2:0] : Opcode map                  */
+    evexf(B4,    3, 1),    /* EVEX P[3] : Bit 4 B register (B4*)        */
+    evexf(R4,    4, 1),    /* EVEX P[4] : Bit 4 R register (R4)         */
+    evexf(B3,    5, 1),    /* EVEX P[5] : Bit 3 B register (B3)         */
+    evexf(X3,    6, 1),    /* EVEX P[5] : Bit 3 X register (X3*)        */
+    evexf(R3,    7, 1),    /* EVEX P[7] : Bit 3 R register (R3)         */
+    evexf(PP,    8, 2),    /* EVEX P[9:8] : Legacy prefix               */
+    evexf(X4,   10, 1),    /* EVEX P[10] : Bit 4 X register (X4)        */
+    evexf(VVVV, 11, 4),    /* EVEX P[14:11] : V register (V3-V0)        */
+    evexf(W,    15, 1),    /* EVEX P[15] : Osize extension (REX.W)      */
+    evexf(AAA,  16, 3),    /* EVEX P[18:16] : Embedded opmask           */
+    evexf(NF,   18, 1),    /* EVEX P[18]: No flags bit                  */
+    evexf(V4,   19, 1),    /* EVEX P[19] : Bit 4 V register (V4*)       */
+    evexf(SCC,  16, 4),    /* EVEX P[19:16]: Modified condition         */
+    evexf(B,    20, 1),    /* EVEX P[20] : Broadcast / RC / SAE         */
+    evexf(ND,   20, 1),    /* EVEX P[20] : New destination              */
+    evexf(ZU,   20, 1),    /* EVEX P[20] : Zero upper                   */
+    evexf(LL,   21, 2),    /* EVEX P[22:21] : Vector length             */
+    evexf(RC,   21, 2),    /* EVEX P[22:21] : Rounding control          */
+    evexf(Z,    23, 1)     /* EVEX P[23] : Zeroing/Merging              */
+};
 
 /*
  * REX_V "classes" (prefixes which behave like VEX)
@@ -519,9 +628,12 @@ enum vex_class {
  * Note that because segment registers may be used as instruction
  * prefixes, we must ensure the enumerations for prefixes and
  * register names do not overlap.
+ *
+ * These MUST match the table in common/common.c
  */
 enum prefixes { /* instruction prefixes */
     P_none = 0,
+    P_any  = 1,
     PREFIX_ENUM_START = REG_ENUM_LIMIT,
     P_A16 = PREFIX_ENUM_START,
     P_A32,
@@ -537,26 +649,35 @@ enum prefixes { /* instruction prefixes */
     P_REPNE,
     P_REPNZ,
     P_REPZ,
-    P_TIMES,
     P_WAIT,
     P_XACQUIRE,
     P_XRELEASE,
     P_BND,
     P_NOBND,
+    P_REX,
+    P_REX2,
     P_EVEX,
+    P_VEX,
     P_VEX3,
     P_VEX2,
+    P_NF,
+    P_ZU,
+    P_PT,
+    P_PN,
     PREFIX_ENUM_LIMIT
 };
 
 enum ea_flags { /* special EA flags */
-    EAF_BYTEOFFS    =  1,   /* force offset part to byte size */
-    EAF_WORDOFFS    =  2,   /* force offset part to [d]word size */
-    EAF_TIMESTWO    =  4,   /* really do EAX*2 not EAX+EAX */
-    EAF_REL         =  8,   /* IP-relative addressing */
-    EAF_ABS         = 16,   /* non-IP-relative addressing */
-    EAF_FSGS        = 32,   /* fs/gs segment override present */
-    EAF_MIB         = 64    /* mib operand */
+    EAF_BYTEOFFS    =   1,  /* force offset part to byte size */
+    EAF_WORDOFFS    =   2,  /* force offset part to [d]word size */
+    EAF_TIMESTWO    =   4,  /* really do EAX*2 not EAX+EAX */
+    EAF_REL         =   8,  /* IP-relative addressing */
+    EAF_ABS         =  16,  /* non-IP-relative addressing */
+    EAF_MIB         =  32,  /* mib operand */
+    EAF_SIB         =  64,   /* SIB encoding obligatory */
+    EAF_NOTFSGS     = 128,  /* no fs: or gs: */
+    EAF_FS          = 256,  /* fs segment override present */
+    EAF_GS          = 512   /* gs segment override present */
 };
 
 enum eval_hint { /* values for `hinttype' */
@@ -568,7 +689,7 @@ enum eval_hint { /* values for `hinttype' */
 
 typedef struct operand { /* operand to an instruction */
     opflags_t       type;       /* type of operand */
-    int             disp_size;  /* 0 means default; 16; 32; 64 */
+    opflags_t       xsize;      /* size flags used in find_match() */
     enum reg_enum   basereg;
     enum reg_enum   indexreg;   /* address registers */
     int             scale;      /* index scale */
@@ -579,7 +700,11 @@ typedef struct operand { /* operand to an instruction */
     int32_t         wrt;        /* segment base it's relative to */
     int             eaflags;    /* special EA flags */
     int             opflags;    /* see OPFLAG_* defines below */
+    int             iflag;      /* Requires a specific IF_* flag */
     decoflags_t     decoflags;  /* decorator flags such as {...} */
+    bool            bcast;      /* broadcast operand */
+    uint8_t         disp_size;  /* 0 means default; 16; 32; 64 */
+    uint8_t         opidx;      /* Operand index */
 } operand;
 
 #define OPFLAG_FORWARD      1   /* operand is a forward reference */
@@ -588,6 +713,7 @@ typedef struct operand { /* operand to an instruction */
                                    (always a forward reference also) */
 #define OPFLAG_RELATIVE     8   /* operand is self-relative, e.g. [foo - $]
                                    where foo is not in the current segment */
+#define OPFLAG_SIMPLE      16   /* operand is a simple expression */
 
 enum extop_type { /* extended operand types */
     EOT_NOTHING = 0,
@@ -636,16 +762,23 @@ enum ea_type {
  *
  * LOCK and REP used to be one slot; this is no longer the case since
  * the introduction of HLE.
+ *
+ * The prefixes are emitted in order by slot number.
+ *
+ * Note: these are stored in an PPS_BITS-bit field in the token hash!
+ *
  */
 enum prefix_pos {
-    PPS_WAIT,   /* WAIT (technically not a prefix!) */
-    PPS_REP,    /* REP/HLE prefix */
-    PPS_LOCK,   /* LOCK prefix */
-    PPS_SEG,    /* Segment override prefix */
-    PPS_OSIZE,  /* Operand size prefix */
-    PPS_ASIZE,  /* Address size prefix */
-    PPS_VEX,    /* VEX type */
-    MAXPREFIX   /* Total number of prefix slots */
+    PPS_WAIT  =  0,     /* WAIT (technically not a prefix!) */
+    PPS_SEG,            /* Segment override prefix */
+    PPS_ASIZE,          /* Address size prefix */
+    PPS_LOCK,           /* LOCK prefix */
+    PPS_OSIZE,          /* Operand size prefix */
+    PPS_REP,            /* REP/HLE prefix */
+    PPS_REX,            /* REX/VEX type */
+    PPS_NF,             /* Do not set flags */
+    PPS_ZU,             /* Zero upper register */
+    MAXPREFIX           /* Total number of prefix slots */
 };
 
 /*
@@ -679,31 +812,92 @@ enum vectlens {
     VLMAX = 3
 };
 
-/* If you need to change this, also change it in insns.pl */
-#define MAX_OPERANDS 5
+/* A postprocessed effective address (EA) */
+struct ea_data {
+    enum ea_type type;            /* what kind of EA is this? */
+    uint32_t rex;                 /* EA-derived REX flags */
+    bool sib_present;             /* is a SIB byte necessary? */
+    uint8_t bytes;                /* # of bytes of offset needed */
+    uint8_t size;                 /* lazy - this is sib+bytes+1 */
+    uint8_t modrm, sib;		  /* the bytes themselves */
+    bool rip;                     /* RIP-relative? */
+    int8_t disp8;                 /* 8-bit displacement, possibly compressed */
+    uint8_t disp8_shift;          /* Shift for 8-bit displacement */
+    bool disp8_ok;                /* 8-bit displacement is valid */
+};
+
+/*
+ * flag to disable optimizations selectively
+ * this is useful to turn-off certain optimizations
+ */
+enum optimization {
+    /* Individual flags */
+    OPTIM_NO_Jcc_RELAX     =  1, /* Disable Jcc relaxation */
+    OPTIM_NO_JMP_RELAX     =  2, /* Disable JMP relaxation */
+    OPTIM_STRICT_INSTR     =  4, /* Disable alternate instructions */
+    OPTIM_STRICT_OPER      =  8, /* Disable operand relaxation */
+    OPTIM_DISABLE_FWREF    = 16, /* Disable forward reference relaxation */
+    OPTIM_STRICT_OSIZE	   = 32, /* Disable osize adjustments */
+
+    /* Everything */
+    OPTIM_ALL_ENABLED       = 0,
+
+    /* Disable all jump relaxations */
+    OPTIM_DISABLE_JMP_MATCH = OPTIM_NO_Jcc_RELAX | OPTIM_NO_JMP_RELAX,
+
+    /* Level 0 : 0.98 behavior */
+    OPTIM_LEVEL_0 =
+    OPTIM_STRICT_INSTR | OPTIM_STRICT_OSIZE | OPTIM_STRICT_OPER |
+    OPTIM_NO_JMP_RELAX,
+
+    /* Level 1 : 0.98.09 behavior */
+    OPTIM_LEVEL_1 =
+    OPTIM_STRICT_INSTR | OPTIM_STRICT_OSIZE | OPTIM_NO_Jcc_RELAX |
+    OPTIM_NO_JMP_RELAX | OPTIM_DISABLE_FWREF,
+
+    /* Default */
+    OPTIM_DEFAULT = OPTIM_ALL_ENABLED
+};
+
+/*
+ * Used with byte values for prefixes when no single byte value applies
+ */
+enum prefix_err {
+    PFE_NULL  = -1,             /* No output */
+    PFE_MULTI = -2,             /* Multibyte output (VEX, EVEX, REX2) */
+    PFE_ERR   = -3,             /* Invalid prefix use */
+    PFE_WHAT  = -4              /* Not a valid prefix (internal error) */
+};
 
 typedef struct insn { /* an instruction itself */
-    char            *label;                 /* the label defined, or NULL */
-    int             prefixes[MAXPREFIX];    /* instruction prefixes, if any */
     enum opcode     opcode;                 /* the opcode - not just the string */
-    enum ccode      condition;              /* the condition code, if Jcc/SETcc */
-    int             operands;               /* how many operands? 0-3 (more if db et al) */
-    int             addr_size;              /* address size */
-    operand         oprs[MAX_OPERANDS];     /* the operands, defined as above */
+    struct location loc;                    /* assembly location */
+    int             prefixes[MAXPREFIX];    /* instruction prefixes, if any */
+    int             need_pfx[MAXPREFIX];    /* byte prefixes used as opcodes */
+    char            *label;                 /* the label defined, or NULL */
     extop           *eops;                  /* extended operands */
     int             eops_float;             /* true if DD and floating */
     int32_t         times;                  /* repeat count (TIMES prefix) */
-    bool            forw_ref;               /* is there a forward reference? */
     bool            rex_done;               /* REX prefix emitted? */
-    int             rex;                    /* Special REX Prefix */
-    int             vexreg;                 /* Register encoded in VEX prefix */
-    int             vex_cm;                 /* Class and M field for VEX prefix */
-    int             vex_wlp;                /* W, P and L information for VEX prefix */
-    uint8_t         evex_p[3];              /* EVEX.P0: [RXB,R',00,mm], P1: [W,vvvv,1,pp] */
-                                            /* EVEX.P2: [z,L'L,b,V',aaa] */
+    bool            dummy;                  /* not a real instruction, no errors */
+    uint8_t         bits;                   /* Execution mode (16, 32, 64) */
+    uint8_t         op_size;                /* operand size */
+    uint8_t         addr_size;              /* address size */
+    uint8_t         operands;               /* how many operands? 0-7 unless eops */
+    uint8_t         vexreg;                 /* Register encoded in VEX.V */
+    uint8_t         veximm;                 /* Bit-inverted immediate encoded
+                                               in VEX.V */
+    uint8_t         vex_cm;                 /* Class and M field for VEX prefix */
+    uint8_t         vex_wlp;                /* W, P and L information for VEX prefix */
+    uint32_t        rex;                    /* REX prefix flags */
+    uint32_t	    evex;                   /* EVEX prefix under construction */
     enum ttypes     evex_tuple;             /* Tuple type for compressed Disp8*N */
     int             evex_rm;                /* static rounding mode for AVX512 (EVEX) */
-    int8_t          evex_brerop;            /* BR/ER/SAE operand position */
+    enum optimization opt;                /* Optimization flags to use */
+    struct ea_data  ea;                     /* Effective address data */
+    const struct itemplate *itemp;          /* Instruction template */
+    const struct operand *evex_brerop;      /* BR/ER/SAE operand position */
+    struct operand  oprs[MAX_OPERANDS];     /* the operands, defined as above */
 } insn;
 
 /* Instruction flags type: IF_* flags are defined in insns.h */
@@ -717,7 +911,7 @@ typedef uint64_t iflags_t;
  *
  * DIRR_BADPARAM causes a generic error message to be printed.  Note
  * that it is an error, not a warning, even in the case of pragmas;
- * don't use it where forward compatiblity would be compromised
+ * don't use it where forward compatibility would be compromised
  * (instead consider adding a DIRR_WARNPARAM.)
  */
 enum directive_result {
@@ -805,7 +999,8 @@ struct ofmt {
      * Output format flags.
      */
 #define OFMT_TEXT		1	/* Text file format */
-#define OFMT_KEEP_ADDR	2	/* Keep addr; no conversion to data */
+#define OFMT_KEEP_ADDR		2	/* Keep addr; no conversion to data */
+#define OFMT_ZERODATA		4	/* "Native" OUT_ZERODATA support */
 
     unsigned int flags;
 
@@ -847,24 +1042,6 @@ struct ofmt {
      * definition of struct out_data.
      */
     void (*output)(const struct out_data *data);
-
-    /*
-     * This procedure is called by assemble() to write actual
-     * generated code or data to the object file. Typically it
-     * doesn't have to actually _write_ it, just store it for
-     * later.
-     *
-     * The `type' argument specifies the type of output data, and
-     * usually the size as well: its contents are described below.
-     *
-     * This is used for backends which have not yet been ported to
-     * the new interface, and should be NULL on ported backends.
-     * To use this entry point, set the output pointer to
-     * nasm_do_legacy_output.
-     */
-    void (*legacy_output)(int32_t segto, const void *data,
-                          enum out_type type, uint64_t size,
-                          int32_t segment, int32_t wrt);
 
     /*
      * This procedure is called once for every symbol defined in
@@ -909,7 +1086,7 @@ struct ofmt {
      * It is allowed to modify the string it is given a pointer to.
      *
      * It is also allowed to specify a default instruction size for
-     * the segment, by setting `*bits' to 16 or 32. Or, if it
+     * the segment, by setting `*bits' to 16, 32 or 64. Or, if it
      * doesn't wish to define a default, it can leave `bits' alone.
      */
     int32_t (*section)(char *name, int *bits);
@@ -967,6 +1144,16 @@ struct ofmt {
      * 2 - DIRR_ERROR		- backend printed its own error message
      * 3 - DIRR_BADPARAM	- print the generic message
      *				  "invalid parameter to [*] directive"
+     *
+     * When called with "value" as NULL (as opposed to the empty
+     * string!), it should perform no action and not print any
+     * messages, but return DIRR_UNKNOWN if this directive is
+     * unsupported by the backend, DIRR_OK if it is, and either
+     * DIRR_ERROR or DIRR_BADPARAM if it *would* be supported by the
+     * backend if configured otherwise, but it would be invalid in the
+     * current context, regardless of the parameter(s).
+     *
+     * This is used by %ifdirective.
      */
     enum directive_result
     (*directive)(enum directive directive, char *value);
@@ -1005,6 +1192,7 @@ extern FILE *ofile;
  * interfaces to the functions therein.
  * ------------------------------------------------------------
  */
+struct debug_macro_info;
 
 struct dfmt {
     /*
@@ -1037,6 +1225,36 @@ struct dfmt {
 
     void (*debug_deflabel)(char *name, int32_t segment, int64_t offset,
                            int is_global, char *special);
+
+    /*
+     * debug_smacros - called when an smacro is defined or undefined
+     * during the code-generation pass. The definition string contains
+     * the macro name, any arguments, a single space, and the macro
+     * definition; this is what is expected by e.g. DWARF.
+     *
+     * The definition is provided even for an undef.
+     */
+    void (*debug_smacros)(bool define, const char *def);
+
+    /*
+     * debug_include - called when a file is included or the include
+     * is finished during the code-generation pass.  The filename is
+     * kept by the srcfile system and so can be compared for pointer
+     * equality.
+     *
+     * A filename of NULL means builtin (initial or %use) or command
+     * line statements.
+     */
+    void (*debug_include)(bool start, struct src_location outer,
+                          struct src_location inner);
+
+    /*
+     * debug_mmacros - called once at the end with a definition for each
+     * non-.nolist macro that has been invoked at least once in the program,
+     * and the corresponding address ranges. See dbginfo.h.
+     */
+    void (*debug_mmacros)(const struct debug_macro_info *);
+
     /*
      * debug_directive - called whenever a DEBUG directive other than 'LINE'
      * is encountered. 'directive' contains the first parameter to the
@@ -1108,6 +1326,7 @@ enum byte_sizes {
     SIZE_BYTE	=  1,
     SIZE_WORD	=  2,
     SIZE_DWORD	=  4,
+    SIZE_LONG   =  4,
     SIZE_QWORD	=  8,
     SIZE_TWORD  = 10,
     SIZE_OWORD  = 16,
@@ -1120,6 +1339,7 @@ enum special_tokens {
     S_BYTE              = SIZE_ENUM_START,
     S_WORD,
     S_DWORD,
+    S_LONG,
     S_QWORD,
     S_TWORD,
     S_OWORD,
@@ -1130,7 +1350,6 @@ enum special_tokens {
     SPECIAL_ENUM_START  = SIZE_ENUM_LIMIT,
     S_ABS		= SPECIAL_ENUM_START,
     S_FAR,
-    S_LONG,
     S_NEAR,
     S_NOSPLIT,
     S_REL,
@@ -1146,6 +1365,7 @@ enum decorator_tokens {
     BRC_1TO4,
     BRC_1TO8,
     BRC_1TO16,
+    BRC_1TO32,
     BRC_RN,
     BRC_RD,
     BRC_RU,
@@ -1166,8 +1386,8 @@ enum decorator_tokens {
  * ..........................1..... broadcast
  * .........................1...... static rounding
  * ........................1....... SAE
- * ......................11........ broadcast element size
- * ....................11.......... number of broadcast elements
+ * ....................1111........ broadcast element size
+ * .................111............ number of broadcast elements
  */
 #define OP_GENVAL(val, bits, shift)     (((val) & ((UINT64_C(1) << (bits)) - 1)) << (shift))
 
@@ -1229,23 +1449,25 @@ enum decorator_tokens {
 /*
  * Broadcasting element size.
  *
- * Bits: 8 - 9
+ * Bits: 8 - 11
  */
 #define BRSIZE_SHIFT            (8)
-#define BRSIZE_BITS             (2)
+#define BRSIZE_BITS             (4)
 #define BRSIZE_MASK             OP_GENMASK(BRSIZE_BITS, BRSIZE_SHIFT)
 #define GEN_BRSIZE(bit)         OP_GENBIT(bit, BRSIZE_SHIFT)
 
-#define BR_BITS32               GEN_BRSIZE(0)
-#define BR_BITS64               GEN_BRSIZE(1)
+#define BR_BITS8		GEN_BRSIZE(0) /* For potential future use */
+#define BR_BITS16               GEN_BRSIZE(1)
+#define BR_BITS32               GEN_BRSIZE(2)
+#define BR_BITS64               GEN_BRSIZE(3)
 
 /*
  * Number of broadcasting elements
  *
- * Bits: 10 - 11
+ * Bits: 12 - 14
  */
-#define BRNUM_SHIFT             (10)
-#define BRNUM_BITS              (2)
+#define BRNUM_SHIFT             (12)
+#define BRNUM_BITS              (3)
 #define BRNUM_MASK              OP_GENMASK(BRNUM_BITS, BRNUM_SHIFT)
 #define VAL_BRNUM(val)          OP_GENVAL(val, BRNUM_BITS, BRNUM_SHIFT)
 
@@ -1253,31 +1475,28 @@ enum decorator_tokens {
 #define BR_1TO4                 VAL_BRNUM(1)
 #define BR_1TO8                 VAL_BRNUM(2)
 #define BR_1TO16                VAL_BRNUM(3)
+#define BR_1TO32                VAL_BRNUM(4)
+#define BR_1TO64                VAL_BRNUM(5) /* For potential future use */
 
 #define MASK                    OPMASK_MASK             /* Opmask (k1 ~ 7) can be used */
 #define Z                       Z_MASK
+#define B16                     (BRDCAST_MASK|BR_BITS16) /* {1to32} : broadcast 16b * 32 to zmm(512b) */
 #define B32                     (BRDCAST_MASK|BR_BITS32) /* {1to16} : broadcast 32b * 16 to zmm(512b) */
 #define B64                     (BRDCAST_MASK|BR_BITS64) /* {1to8}  : broadcast 64b *  8 to zmm(512b) */
 #define ER                      STATICRND_MASK          /* ER(Embedded Rounding) == Static rounding mode */
 #define SAE                     SAE_MASK                /* SAE(Suppress All Exception) */
 
 /*
- * Global modes
+ * Broadcast flags (BR_BITS*) to sizes (BITS*)
  */
+static inline opflags_t brsize_to_size(opflags_t brbits)
+{
+    return (brbits & BRSIZE_MASK) << (SIZE_SHIFT - BRSIZE_SHIFT);
+}
 
 /*
- * flag to disable optimizations selectively
- * this is useful to turn-off certain optimizations
+ * Global modes
  */
-enum optimization_disable_flag {
-    OPTIM_ALL_ENABLED       = 0,
-    OPTIM_DISABLE_JMP_MATCH = 1
-};
-
-struct optimization {
-    int level;
-    int flag;
-};
 
 /*
  * Various types of compiler passes we may execute.
@@ -1339,10 +1558,17 @@ static inline int64_t pass_count(void)
     return _passn;
 }
 
-extern struct optimization optimizing;
-extern int globalbits;          /* 16, 32 or 64-bit mode */
-extern int globalrel;           /* default to relative addressing? */
-extern int globalbnd;           /* default to using bnd prefix? */
+extern enum optimization optimizing;
+
+/* Pass-wide state; reset on top of each pass */
+struct globalopt {
+    int  bits;                  /* 16, 32 or 64-bit mode */
+    enum ea_flags rel;          /* default to relative addressing? */
+    enum ea_flags reldef;       /* default rel/abs explicitly defined? */
+    bool bnd;                   /* default to using bnd prefix? */
+    bool dollarhex;             /* $-prefixed hexadecimal numbers? */
+};
+extern struct globalopt globl;
 
 extern const char *inname;	/* primary input filename */
 extern const char *outname;     /* output filename */

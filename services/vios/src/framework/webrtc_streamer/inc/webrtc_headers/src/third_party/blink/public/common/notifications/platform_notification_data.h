@@ -5,11 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_NOTIFICATIONS_PLATFORM_NOTIFICATION_DATA_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_NOTIFICATIONS_PLATFORM_NOTIFICATION_DATA_H_
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/mojom/notifications/notification.mojom-forward.h"
 #include "url/gurl.h"
@@ -54,7 +54,7 @@ struct BLINK_COMMON_EXPORT PlatformNotificationData {
 
   // Vibration pattern for the notification, following the syntax of the
   // Vibration API. https://www.w3.org/TR/vibration/
-  std::vector<int> vibration_pattern;
+  std::vector<int32_t> vibration_pattern;
 
   // The time at which the event the notification represents took place.
   base::Time timestamp;
@@ -79,7 +79,7 @@ struct BLINK_COMMON_EXPORT PlatformNotificationData {
   std::vector<blink::mojom::NotificationActionPtr> actions;
 
   // The time at which the notification should be shown.
-  absl::optional<base::Time> show_trigger_timestamp;
+  std::optional<base::Time> show_trigger_timestamp;
 
   mojom::NotificationScenario scenario;
 };

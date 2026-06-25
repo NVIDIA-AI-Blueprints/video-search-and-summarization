@@ -5,11 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_VIDEO_FRAME_RESOURCE_PROVIDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_VIDEO_FRAME_RESOURCE_PROVIDER_H_
 
-#include "base/memory/weak_ptr.h"
+#include <vector>
+
+#include "base/memory/raw_ptr.h"
 #include "cc/trees/layer_tree_settings.h"
 #include "components/viz/client/client_resource_provider.h"
-#include "components/viz/client/shared_bitmap_reporter.h"
-#include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/platform/web_video_frame_submitter.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -22,6 +22,10 @@ class VideoResourceUpdater;
 namespace viz {
 class CompositorRenderPass;
 class RasterContextProvider;
+}
+
+namespace gpu {
+class SharedImageInterface;
 }
 
 namespace blink {
@@ -40,13 +44,15 @@ class PLATFORM_EXPORT VideoFrameResourceProvider {
 
   virtual ~VideoFrameResourceProvider();
 
-  virtual void Initialize(viz::RasterContextProvider* media_context_provider,
-                          viz::SharedBitmapReporter* shared_bitmap_reporter);
+  virtual void Initialize(
+      viz::RasterContextProvider* media_context_provider,
+      scoped_refptr<gpu::SharedImageInterface> shared_image_interface);
   virtual void AppendQuads(viz::CompositorRenderPass*,
                            scoped_refptr<media::VideoFrame>,
                            media::VideoTransformation,
                            bool is_opaque);
   virtual void ReleaseFrameResources();
+  virtual void ClearFrameResources();
 
   // Once the context is lost, we must call Initialize again before we can
   // continue doing work.
@@ -54,16 +60,15 @@ class PLATFORM_EXPORT VideoFrameResourceProvider {
 
   bool IsInitialized() { return resource_updater_.get(); }
 
-  virtual void PrepareSendToParent(
-      const WebVector<viz::ResourceId>& resource_ids,
-      WebVector<viz::TransferableResource>* transferable_resources);
+  virtual std::vector<viz::TransferableResource> PrepareSendToParent(
+      const std::vector<viz::ResourceId>& resource_ids);
   virtual void ReceiveReturnsFromParent(
       Vector<viz::ReturnedResource> transferable_resources);
 
  private:
   const cc::LayerTreeSettings settings_;
 
-  viz::RasterContextProvider* context_provider_;
+  raw_ptr<viz::RasterContextProvider> context_provider_;
   std::unique_ptr<viz::ClientResourceProvider> resource_provider_;
   std::unique_ptr<media::VideoResourceUpdater> resource_updater_;
   bool use_sync_primitives_ = false;

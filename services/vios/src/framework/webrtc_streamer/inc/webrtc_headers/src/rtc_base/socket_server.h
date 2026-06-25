@@ -17,13 +17,15 @@
 #include "rtc_base/event.h"
 #include "rtc_base/socket_factory.h"
 
-namespace rtc {
+namespace webrtc {
 
+class NetworkBinderInterface;
 class Thread;
+class ThreadManager;
+
 // Needs to be forward declared because there's a circular dependency between
 // NetworkMonitor and Thread.
 // TODO(deadbeef): Fix this.
-class NetworkBinderInterface;
 
 // Provides the ability to wait for activity on a set of sockets.  The Thread
 // class provides a nice wrapper on a socket server.
@@ -32,21 +34,21 @@ class NetworkBinderInterface;
 // notified of asynchronous I/O from this server's Wait method.
 class SocketServer : public SocketFactory {
  public:
-  static constexpr webrtc::TimeDelta kForever = rtc::Event::kForever;
+  static constexpr TimeDelta kForever = Event::kForever;
 
   static std::unique_ptr<SocketServer> CreateDefault();
   // When the socket server is installed into a Thread, this function is called
   // to allow the socket server to use the thread's message queue for any
   // messaging that it might need to perform. It is also called with a null
   // argument before the thread is destroyed.
-  virtual void SetMessageQueue(Thread* queue) {}
+  virtual void SetMessageQueue(Thread* /* queue */) {}
 
   // Sleeps until:
   //  1) `max_wait_duration` has elapsed (unless `max_wait_duration` ==
   //  `kForever`)
   // 2) WakeUp() is called
   // While sleeping, I/O is performed if process_io is true.
-  virtual bool Wait(webrtc::TimeDelta max_wait_duration, bool process_io) = 0;
+  virtual bool Wait(TimeDelta max_wait_duration, bool process_io) = 0;
 
   // Causes the current wait (if one is in progress) to wake up.
   virtual void WakeUp() = 0;
@@ -62,6 +64,7 @@ class SocketServer : public SocketFactory {
   NetworkBinderInterface* network_binder_ = nullptr;
 };
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_SOCKET_SERVER_H_

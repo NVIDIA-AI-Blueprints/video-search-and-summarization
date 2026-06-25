@@ -6,23 +6,28 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_NAVIGATION_API_NAVIGATE_EVENT_DISPATCH_PARAMS_H_
 
 #include "base/memory/scoped_refptr.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "third_party/blink/public/mojom/navigation/navigation_params.mojom-blink-forward.h"
 #include "third_party/blink/public/web/web_frame_load_type.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/frame_loader_types.h"
+#include "third_party/blink/renderer/core/timing/performance_timeline_entry_id_generator.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 namespace blink {
 
-class HTMLFormElement;
+class Element;
 class HistoryItem;
 class SerializedScriptValue;
 
-// TODO(japhet): This should probably move to frame_loader_types.h and possibly
-// be used more broadly once it is in the HTML spec.
-enum class UserNavigationInvolvement { kBrowserUI, kActivation, kNone };
-enum class NavigateEventType { kFragment, kHistoryApi, kCrossDocument };
+enum class NavigateEventType {
+  kFragment,
+  kHistoryApi,
+  kCrossDocument,
+  kPrerenderNoVarySearchActivation
+};
 
 struct CORE_EXPORT NavigateEventDispatchParams
     : public GarbageCollected<NavigateEventDispatchParams> {
@@ -30,16 +35,24 @@ struct CORE_EXPORT NavigateEventDispatchParams
   NavigateEventDispatchParams(const KURL&, NavigateEventType, WebFrameLoadType);
   ~NavigateEventDispatchParams();
 
-  const KURL url;
+  KURL url;
   const NavigateEventType event_type;
   const WebFrameLoadType frame_load_type;
   UserNavigationInvolvement involvement = UserNavigationInvolvement::kNone;
-  Member<HTMLFormElement> form;
+  // The element that triggered the navigation. This may be cross-origin to the
+  // navigation's destination, and should be checked before use.
+  Member<Element> source_element;
   scoped_refptr<SerializedScriptValue> state_object;
   Member<HistoryItem> destination_item;
   bool is_browser_initiated = false;
+  bool has_ua_visual_transition = false;
   bool is_synchronously_committed_same_document = true;
   String download_filename;
+  bool should_skip_screenshot;
+  mojo::PendingReceiver<mojom::blink::NavigationResumeDeferredCommitListener>
+      resume_deferred_commit_listener;
+  PerformanceTimelineEntryIdInfo interaction_id =
+      PerformanceTimelineEntryIdInfo::kNone;
 
   void Trace(Visitor*) const;
 };

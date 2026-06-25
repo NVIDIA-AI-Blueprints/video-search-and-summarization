@@ -26,12 +26,17 @@
 #include <stdint.h>
 
 #include "get_bits.h"
+#include "h263dec.h"
 #include "mpegvideo.h"
 #include "mpeg4videodsp.h"
 
+#include "libavutil/mem_internal.h"
 
 typedef struct Mpeg4DecContext {
-    MpegEncContext m;
+    H263DecContext h;
+
+    int f_code;                 ///< forward MV resolution
+    int b_code;                 ///< backward MV resolution for B-frames
 
     /// number of bits to represent the fractional part of time
     int time_increment_bits;
@@ -48,6 +53,7 @@ typedef struct Mpeg4DecContext {
     /// sprite shift [isChroma]
     int sprite_shift[2];
 
+    int mpeg_quant;
     // reversible vlc
     int rvlc;
     /// could this stream contain resync markers
@@ -59,6 +65,8 @@ typedef struct Mpeg4DecContext {
     int enhancement_type;
     int scalability;
 
+    int quant_precision;
+
     /// QP above which the ac VLC should be used for intra dc
     int intra_dc_threshold;
 
@@ -67,6 +75,8 @@ typedef struct Mpeg4DecContext {
     int divx_build;
     int xvid_build;
     int lavc_build;
+    /// Divx 5.01 puts several frames in a single one, this is used to reorder them
+    AVBufferRef *bitstream_buffer;
 
     int vo_type;
 
@@ -83,27 +93,37 @@ typedef struct Mpeg4DecContext {
 
     Mpeg4VideoDSPContext mdsp;
 
-    int32_t block32[12][64];
+    void (*dct_unquantize_mpeg2_inter)(const MPVContext *s,
+                                       int16_t *block, int n, int qscale);
+    void (*dct_unquantize_mpeg2_intra)(const MPVContext *s,
+                                       int16_t *block, int n, int qscale);
+    void (*dct_unquantize_h263_intra)(const MPVContext *s,
+                                      int16_t *block, int n, int qscale);
+
+    union {
+        DECLARE_ALIGNED(8, int32_t, block32)[12][64];
+        int16_t dpcm_macroblock[3][256];
+    };
     // 0 = DCT, 1 = DPCM top to bottom scan, -1 = DPCM bottom to top scan
     int dpcm_direction;
-    int16_t dpcm_macroblock[3][256];
+    int dct_precision;
 } Mpeg4DecContext;
 
-int ff_mpeg4_decode_picture_header(Mpeg4DecContext *ctx, GetBitContext *gb,
-                                   int header, int parse_only);
+int ff_mpeg4_parse_picture_header(Mpeg4DecContext *ctx, GetBitContext *gb,
+                                  int header, int parse_only);
 void ff_mpeg4_decode_studio(MpegEncContext *s, uint8_t *dest_y, uint8_t *dest_cb,
                             uint8_t *dest_cr, int block_size, int uvlinesize,
                             int dct_linesize, int dct_offset);
 void ff_mpeg4_mcsel_motion(MpegEncContext *s,
                            uint8_t *dest_y, uint8_t *dest_cb, uint8_t *dest_cr,
                            uint8_t *const *ref_picture);
-int ff_mpeg4_decode_partitions(Mpeg4DecContext *ctx);
-int ff_mpeg4_decode_video_packet_header(Mpeg4DecContext *ctx);
-int ff_mpeg4_decode_studio_slice_header(Mpeg4DecContext *ctx);
-int ff_mpeg4_workaround_bugs(AVCodecContext *avctx);
-void ff_mpeg4_pred_ac(MpegEncContext *s, int16_t *block, int n,
+int ff_mpeg4_decode_partitions(H263DecContext *const h);
+int ff_mpeg4_decode_video_packet_header(H263DecContext *const h);
+int ff_mpeg4_decode_studio_slice_header(H263DecContext *const h);
+void ff_mpeg4_workaround_bugs(AVCodecContext *avctx);
+void ff_mpeg4_pred_ac(H263DecContext *const h, int16_t *block, int n,
                       int dir);
-int ff_mpeg4_frame_end(AVCodecContext *avctx, const uint8_t *buf, int buf_size);
+int ff_mpeg4_frame_end(AVCodecContext *avctx, const AVPacket *pkt);
 
 
 #endif

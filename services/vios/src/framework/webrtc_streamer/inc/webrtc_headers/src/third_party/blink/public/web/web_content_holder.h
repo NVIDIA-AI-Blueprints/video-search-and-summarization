@@ -8,7 +8,6 @@
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_private_ptr.h"
 #include "third_party/blink/public/platform/web_string.h"
-#include "third_party/blink/public/platform/web_vector.h"
 
 namespace gfx {
 class Rect;
@@ -34,7 +33,7 @@ class BLINK_EXPORT WebContentHolder {
 #endif
 
  private:
-  WebPrivatePtr<ContentHolder> private_;
+  WebPrivatePtrForGC<ContentHolder> private_;
 };
 
 }  // namespace blink

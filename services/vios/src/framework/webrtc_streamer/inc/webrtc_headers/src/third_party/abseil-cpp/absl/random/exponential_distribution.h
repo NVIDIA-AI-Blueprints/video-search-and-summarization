@@ -21,6 +21,7 @@
 #include <limits>
 #include <type_traits>
 
+#include "absl/base/config.h"
 #include "absl/meta/type_traits.h"
 #include "absl/random/internal/fast_uniform_bits.h"
 #include "absl/random/internal/generate_real.h"
@@ -123,7 +124,7 @@ exponential_distribution<RealType>::operator()(
   using random_internal::GenerateNegativeTag;
   using random_internal::GenerateRealFromBits;
   using real_type =
-      absl::conditional_t<std::is_same<RealType, float>::value, float, double>;
+      std::conditional_t<std::is_same<RealType, float>::value, float, double>;
 
   const result_type u = GenerateRealFromBits<real_type, GenerateNegativeTag,
                                              false>(fast_u64_(g));  // U(-1, 0)

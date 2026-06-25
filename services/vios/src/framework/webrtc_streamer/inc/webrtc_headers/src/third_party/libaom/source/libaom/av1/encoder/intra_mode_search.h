@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2020, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -14,6 +14,8 @@
  */
 #ifndef AOM_AV1_ENCODER_INTRA_MODE_SEARCH_H_
 #define AOM_AV1_ENCODER_INTRA_MODE_SEARCH_H_
+
+#include <stdbool.h>
 
 #include "av1/encoder/encoder.h"
 
@@ -284,15 +286,30 @@ void av1_count_colors_highbd(const uint8_t *src8, int stride, int rows,
                              int *val_count_8bit, int *num_color_bins,
                              int *num_colors);
 
+/*! \brief Set \a *num_colors to the number of colors in src.
+
+   Exits early if the number of colors exceeds a specified threshold.
+   Used by screen content detection mode 2.
+   \return Returns true if the number of colors does not exceed the threshold.
+   \note If the function returns true, \a *num_colors is accurate (and is <=
+   \a num_colors_threshold). If the function returns false, the function exited
+   early, and \a *num_colors may be smaller than the actual number of colors
+   (and is > \a num_colors_threshold).
+ */
+bool av1_count_colors_with_threshold(const uint8_t *src, int stride, int rows,
+                                     int cols, int num_colors_threshold,
+                                     int *num_colors);
+
 /*! \brief Initializes the \ref IntraModeSearchState struct.
  */
-static AOM_INLINE void init_intra_mode_search_state(
+static inline void init_intra_mode_search_state(
     IntraModeSearchState *intra_search_state) {
   memset(intra_search_state, 0, sizeof(*intra_search_state));
   intra_search_state->rate_uv_intra = INT_MAX;
 }
 
 /*! \brief set the luma intra mode and delta angles for a given mode index.
+ *
  * The total number of luma intra mode is LUMA_MODE_COUNT = 61.
  * The first 13 modes are from DC_PRED to PAETH_PRED, followed by directional
  * modes. Each of the main 8 directional modes have 6 = MAX_ANGLE_DELTA * 2
@@ -306,22 +323,6 @@ static AOM_INLINE void init_intra_mode_search_state(
  */
 void set_y_mode_and_delta_angle(const int mode_idx, MB_MODE_INFO *const mbmi,
                                 int reorder_delta_angle_eval);
-
-/*! \brief prune luma intra mode based on the model rd.
- * \param[in]    this_model_rd              model rd for current mode.
- * \param[in]    best_model_rd              Best model RD seen for this block so
- *                                          far.
- * \param[in]    top_intra_model_rd         Top intra model RD seen for this
- *                                          block so far.
- * \param[in]    max_model_cnt_allowed      The maximum number of top intra
- *                                          model RD allowed.
- * \param[in]    model_rd_index_for_pruning Index of the candidate used for
- *                                          pruning based on model rd.
- */
-int prune_intra_y_mode(int64_t this_model_rd, int64_t *best_model_rd,
-                       int64_t top_intra_model_rd[], int max_model_cnt_allowed,
-                       int model_rd_index_for_pruning);
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif

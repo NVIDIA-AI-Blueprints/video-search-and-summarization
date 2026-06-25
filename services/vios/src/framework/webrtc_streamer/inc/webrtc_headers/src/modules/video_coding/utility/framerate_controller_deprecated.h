@@ -13,12 +13,13 @@
 
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "rtc_base/rate_statistics.h"
 
 namespace webrtc {
 
-// Please use webrtc::FramerateController instead.
+// Please use FramerateController instead.
 class FramerateControllerDeprecated {
  public:
   explicit FramerateControllerDeprecated(float target_framerate_fps);
@@ -34,10 +35,10 @@ class FramerateControllerDeprecated {
   void Reset();
 
  private:
-  absl::optional<float> Rate(uint32_t timestamp_ms) const;
+  std::optional<float> Rate(uint32_t timestamp_ms) const;
 
-  absl::optional<float> target_framerate_fps_;
-  absl::optional<uint32_t> last_timestamp_ms_;
+  std::optional<float> target_framerate_fps_;
+  std::optional<uint32_t> last_timestamp_ms_;
   uint32_t min_frame_interval_ms_;
   RateStatistics framerate_estimator_;
 };

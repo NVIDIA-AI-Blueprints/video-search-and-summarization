@@ -18,7 +18,7 @@ namespace webrtc {
 class VideoFrame;
 
 namespace test {
-class VideoRenderer : public rtc::VideoSinkInterface<VideoFrame> {
+class VideoRenderer : public VideoSinkInterface<VideoFrame> {
  public:
   // Creates a platform-specific renderer if possible, or a null implementation
   // if failing.
@@ -33,7 +33,7 @@ class VideoRenderer : public rtc::VideoSinkInterface<VideoFrame> {
   static VideoRenderer* CreatePlatformRenderer(const char* window_title,
                                                size_t width,
                                                size_t height);
-  virtual ~VideoRenderer() {}
+  ~VideoRenderer() override {}
 
  protected:
   VideoRenderer() {}

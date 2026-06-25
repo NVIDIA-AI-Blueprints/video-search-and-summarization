@@ -11,16 +11,19 @@
 #ifndef LOGGING_RTC_EVENT_LOG_EVENTS_RTC_EVENT_FIELD_ENCODING_H_
 #define LOGGING_RTC_EVENT_LOG_EVENTS_RTC_EVENT_FIELD_ENCODING_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
+#include <type_traits>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include "absl/strings/string_view.h"
 #include "api/rtc_event_log/rtc_event.h"
-#include "logging/rtc_event_log/encoder/rtc_event_log_encoder_common.h"
 #include "logging/rtc_event_log/events/fixed_length_encoding_parameters_v3.h"
 #include "logging/rtc_event_log/events/rtc_event_field_extraction.h"
-#include "rtc_base/logging.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -68,7 +71,7 @@ struct FieldParameters {
 // The EventEncoder is used to encode a batch of events.
 class EventEncoder {
  public:
-  EventEncoder(EventParameters params, rtc::ArrayView<const RtcEvent*> batch);
+  EventEncoder(EventParameters params, std::span<const RtcEvent*> batch);
 
   void EncodeField(const FieldParameters& params,
                    const std::vector<uint64_t>& values,
@@ -91,7 +94,7 @@ class EventEncoder {
 std::string EncodeSingleValue(uint64_t value, FieldType field_type);
 std::string EncodeDeltasV3(FixedLengthEncodingParametersV3 params,
                            uint64_t base,
-                           rtc::ArrayView<const uint64_t> values);
+                           std::span<const uint64_t> values);
 
 // Given a batch of RtcEvents and a member pointer, extract that
 // member from each event in the batch. Signed integer members are
@@ -104,9 +107,8 @@ std::string EncodeDeltasV3(FixedLengthEncodingParametersV3 params,
 template <typename T,
           typename E,
           std::enable_if_t<std::is_integral<T>::value, bool> = true>
-std::vector<uint64_t> ExtractRtcEventMember(
-    rtc::ArrayView<const RtcEvent*> batch,
-    const T E::*member) {
+std::vector<uint64_t> ExtractRtcEventMember(std::span<const RtcEvent*> batch,
+                                            const T E::* member) {
   std::vector<uint64_t> values;
   values.reserve(batch.size());
   for (const RtcEvent* event : batch) {
@@ -126,14 +128,14 @@ std::vector<uint64_t> ExtractRtcEventMember(
 template <typename T,
           typename E,
           std::enable_if_t<std::is_integral<T>::value, bool> = true>
-ValuesWithPositions ExtractRtcEventMember(rtc::ArrayView<const RtcEvent*> batch,
-                                          const absl::optional<T> E::*member) {
+ValuesWithPositions ExtractRtcEventMember(std::span<const RtcEvent*> batch,
+                                          const std::optional<T> E::* member) {
   ValuesWithPositions result;
   result.position_mask.reserve(batch.size());
   result.values.reserve(batch.size());
   for (const RtcEvent* event : batch) {
     RTC_CHECK_EQ(event->GetType(), E::kType);
-    absl::optional<T> field = static_cast<const E*>(event)->*member;
+    std::optional<T> field = static_cast<const E*>(event)->*member;
     result.position_mask.push_back(field.has_value());
     if (field.has_value()) {
       result.values.push_back(EncodeAsUnsigned(field.value()));
@@ -147,9 +149,8 @@ ValuesWithPositions ExtractRtcEventMember(rtc::ArrayView<const RtcEvent*> batch,
 template <typename T,
           typename E,
           std::enable_if_t<std::is_enum<T>::value, bool> = true>
-std::vector<uint64_t> ExtractRtcEventMember(
-    rtc::ArrayView<const RtcEvent*> batch,
-    const T E::*member) {
+std::vector<uint64_t> ExtractRtcEventMember(std::span<const RtcEvent*> batch,
+                                            const T E::* member) {
   std::vector<uint64_t> values;
   values.reserve(batch.size());
   for (const RtcEvent* event : batch) {
@@ -163,8 +164,8 @@ std::vector<uint64_t> ExtractRtcEventMember(
 // Extract a string field from a batch of RtcEvents.
 template <typename E>
 std::vector<absl::string_view> ExtractRtcEventMember(
-    rtc::ArrayView<const RtcEvent*> batch,
-    const std::string E::*member) {
+    std::span<const RtcEvent*> batch,
+    const std::string E::* member) {
   std::vector<absl::string_view> values;
   values.reserve(batch.size());
   for (const RtcEvent* event : batch) {

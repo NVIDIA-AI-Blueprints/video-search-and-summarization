@@ -6,7 +6,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_LINK_STYLE_H_
 
 #include "third_party/blink/renderer/core/css/pending_sheet_type.h"
-#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/html/link_resource.h"
 #include "third_party/blink/renderer/core/loader/resource/css_style_sheet_resource.h"
@@ -45,7 +44,7 @@ class LinkStyle final : public LinkResource, ResourceClient {
   void SetSheetTitle(const String&);
 
   bool StyleSheetIsLoading() const;
-  bool HasSheet() const { return sheet_; }
+  bool HasSheet() const { return sheet_ != nullptr; }
   bool IsDisabled() const { return disabled_state_ == kDisabled; }
   bool IsEnabledViaScript() const {
     return disabled_state_ == kEnabledViaScript;
@@ -64,7 +63,7 @@ class LinkStyle final : public LinkResource, ResourceClient {
   String DebugName() const override { return "LinkStyle"; }
   enum LoadReturnValue { kLoaded, kNotNeeded, kBail };
   LoadReturnValue LoadStylesheetIfNeeded(const LinkLoadParameters&,
-                                         const WTF::TextEncoding&);
+                                         const TextEncoding&);
 
   enum DisabledState { kUnset, kEnabledViaScript, kDisabled };
 

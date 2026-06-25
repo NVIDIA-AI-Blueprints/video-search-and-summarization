@@ -17,28 +17,29 @@
 #ifndef SRC_TRACE_PROCESSOR_UTIL_SQL_MODULES_H_
 #define SRC_TRACE_PROCESSOR_UTIL_SQL_MODULES_H_
 
+#include <cstddef>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "perfetto/ext/base/flat_hash_map.h"
-#include "perfetto/ext/base/string_splitter.h"
+#include "perfetto/ext/base/string_utils.h"
 #include "perfetto/ext/base/string_view.h"
 
-namespace perfetto {
-namespace trace_processor {
-namespace sql_modules {
+namespace perfetto ::trace_processor::sql_modules {
 
-using NameToModule =
+using NameToPackage =
     base::FlatHashMap<std::string,
                       std::vector<std::pair<std::string, std::string>>>;
 
-// Map from import key to sql file. Import key is the string used in IMPORT
+// Map from include key to sql file. Include key is the string used in INCLUDE
 // function.
-struct RegisteredModule {
+struct RegisteredPackage {
   struct ModuleFile {
     std::string sql;
-    bool imported;
+    bool included;
   };
-  base::FlatHashMap<std::string, ModuleFile> import_key_to_file;
+  base::FlatHashMap<std::string, ModuleFile> modules;
 };
 
 inline std::string ReplaceSlashWithDot(std::string str) {
@@ -50,13 +51,13 @@ inline std::string ReplaceSlashWithDot(std::string str) {
   return str;
 }
 
-inline std::string GetImportKey(std::string path) {
+inline std::string GetIncludeKey(const std::string& path) {
   base::StringView path_view(path);
   auto path_no_extension = path_view.substr(0, path_view.rfind('.'));
   return ReplaceSlashWithDot(path_no_extension.ToStdString());
 }
 
-inline std::string GetModuleName(std::string str) {
+inline std::string GetPackageName(const std::string& str) {
   size_t found = str.find('.');
   if (found == std::string::npos) {
     return str;
@@ -64,7 +65,24 @@ inline std::string GetModuleName(std::string str) {
   return str.substr(0, found);
 }
 
-}  // namespace sql_modules
-}  // namespace trace_processor
-}  // namespace perfetto
+// Returns true if |prefix| is a prefix of |str| where the prefix must either
+// be the entire string or followed by a dot separator. Examples:
+//   IsPackagePrefixOf("foo", "foo") -> true
+//   IsPackagePrefixOf("foo", "foo.bar") -> true
+//   IsPackagePrefixOf("foo.bar", "foo.bar.baz") -> true
+//   IsPackagePrefixOf("foo", "foobar") -> false (no dot separator)
+//   IsPackagePrefixOf("foo.bar", "foo") -> false (prefix longer than str)
+inline bool IsPackagePrefixOf(const std::string& prefix,
+                              const std::string& str) {
+  if (prefix.size() > str.size()) {
+    return false;
+  }
+  if (!base::StartsWith(str, prefix)) {
+    return false;
+  }
+  // Must be exact match OR followed by a dot
+  return prefix.size() == str.size() || str[prefix.size()] == '.';
+}
+
+}  // namespace perfetto::trace_processor::sql_modules
 #endif  // SRC_TRACE_PROCESSOR_UTIL_SQL_MODULES_H_

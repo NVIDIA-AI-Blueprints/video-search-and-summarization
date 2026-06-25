@@ -25,6 +25,15 @@
 #include "av1.h"
 #include "cbs.h"
 
+#ifndef CBS_AV1_OBU_METADATA
+#define CBS_AV1_OBU_METADATA 1
+#endif
+#ifndef CBS_AV1_OBU_TILE_LIST
+#define CBS_AV1_OBU_TILE_LIST 1
+#endif
+#ifndef CBS_AV1_OBU_PADDING
+#define CBS_AV1_OBU_PADDING 1
+#endif
 
 typedef struct AV1RawOBUHeader {
     uint8_t obu_forbidden_bit;
@@ -215,6 +224,8 @@ typedef struct AV1RawFrameHeader {
     uint8_t uniform_tile_spacing_flag;
     uint8_t tile_cols_log2;
     uint8_t tile_rows_log2;
+    uint8_t tile_start_col_sb[AV1_MAX_TILE_COLS];
+    uint8_t tile_start_row_sb[AV1_MAX_TILE_COLS];
     uint8_t width_in_sbs_minus_1[AV1_MAX_TILE_COLS];
     uint8_t height_in_sbs_minus_1[AV1_MAX_TILE_ROWS];
     uint16_t context_update_tile_id;
@@ -293,6 +304,10 @@ typedef struct AV1RawTileData {
 } AV1RawTileData;
 
 typedef struct AV1RawTileGroup {
+    uint8_t     *data;
+    AVBufferRef *data_ref;
+    size_t       data_size;
+
     uint8_t  tile_start_and_end_present_flag;
     uint16_t tg_start;
     uint16_t tg_end;
@@ -405,9 +420,15 @@ typedef struct AV1RawOBU {
         AV1RawFrameHeader    frame_header;
         AV1RawFrame          frame;
         AV1RawTileGroup      tile_group;
+#if CBS_AV1_OBU_TILE_LIST
         AV1RawTileList       tile_list;
+#endif
+#if CBS_AV1_OBU_METADATA
         AV1RawMetadata       metadata;
+#endif
+#if CBS_AV1_OBU_PADDING
         AV1RawPadding        padding;
+#endif
     } obu;
 } AV1RawOBU;
 
@@ -425,6 +446,8 @@ typedef struct AV1ReferenceFrameState {
     int bit_depth;      // RefBitDepth
     int order_hint;     // RefOrderHint
 
+    int saved_order_hints[AV1_TOTAL_REFS_PER_FRAME]; // SavedOrderHints[ref]
+
     int8_t  loop_filter_ref_deltas[AV1_TOTAL_REFS_PER_FRAME];
     int8_t  loop_filter_mode_deltas[2];
     uint8_t feature_enabled[AV1_MAX_SEGMENTS][AV1_SEG_LVL_MAX];
@@ -435,7 +458,8 @@ typedef struct CodedBitstreamAV1Context {
     const AVClass *class;
 
     AV1RawSequenceHeader *sequence_header;
-    AVBufferRef          *sequence_header_ref;
+    /** A RefStruct reference backing sequence_header. */
+    AV1RawOBU            *sequence_header_ref;
 
     int     seen_frame_header;
     AVBufferRef *frame_header_ref;
@@ -461,10 +485,22 @@ typedef struct CodedBitstreamAV1Context {
     int tile_rows;
     int tile_num;
 
+    int order_hints[AV1_TOTAL_REFS_PER_FRAME];         // OrderHints
+    int ref_frame_sign_bias[AV1_TOTAL_REFS_PER_FRAME]; // RefFrameSignBias
+
     AV1ReferenceFrameState ref[AV1_NUM_REF_FRAMES];
 
     // AVOptions
     int operating_point;
+    // When writing, fix the length in bytes of the obu_size field.
+    // Writing will fail with an error if an OBU larger than can be
+    // represented by the fixed size is encountered.
+    int fixed_obu_size_length;
+
+    int8_t  loop_filter_ref_deltas[AV1_TOTAL_REFS_PER_FRAME];
+    int8_t  loop_filter_mode_deltas[2];
+    uint8_t feature_enabled[AV1_MAX_SEGMENTS][AV1_SEG_LVL_MAX];
+    int16_t feature_value[AV1_MAX_SEGMENTS][AV1_SEG_LVL_MAX];
 } CodedBitstreamAV1Context;
 
 

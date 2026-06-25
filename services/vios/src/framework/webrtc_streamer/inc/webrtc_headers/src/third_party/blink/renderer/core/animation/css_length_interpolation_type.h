@@ -15,11 +15,17 @@ class ComputedStyle;
 
 class CORE_EXPORT CSSLengthInterpolationType : public CSSInterpolationType {
  public:
-  CSSLengthInterpolationType(PropertyHandle,
-                             const PropertyRegistration* = nullptr);
+  explicit CSSLengthInterpolationType(PropertyHandle,
+                                      const PropertyRegistration* = nullptr);
 
   InterpolationValue MaybeConvertStandardPropertyUnderlyingValue(
       const ComputedStyle&) const final;
+  InterpolationValue MaybeConvertCustomPropertyUnderlyingValue(
+      const CSSValue&) const final;
+  void Composite(UnderlyingValueOwner&,
+                 double underlying_fraction,
+                 const InterpolationValue&,
+                 double interpolation_fraction) const final;
   void ApplyStandardPropertyValue(const InterpolableValue&,
                                   const NonInterpolableValue*,
                                   StyleResolverState&) const final;
@@ -36,8 +42,17 @@ class CORE_EXPORT CSSLengthInterpolationType : public CSSInterpolationType {
   InterpolationValue MaybeConvertInherit(const StyleResolverState&,
                                          ConversionCheckers&) const final;
   InterpolationValue MaybeConvertValue(const CSSValue&,
-                                       const StyleResolverState*,
+                                       const StyleResolverState&,
                                        ConversionCheckers&) const final;
+
+  InterpolationValue PreInterpolationCompositeIfNeeded(
+      InterpolationValue value,
+      const InterpolationValue& underlying,
+      EffectModel::CompositeOperation,
+      ConversionCheckers&) const override;
+
+  InterpolationValue MaybeConvertUnderlyingValue(
+      const CSSInterpolationEnvironment&) const final;
 
   PairwiseInterpolationValue MaybeMergeSingles(
       InterpolationValue&& start,

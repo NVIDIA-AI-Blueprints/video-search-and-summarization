@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020, D. R. Commander.  All Rights Reserved.
+ * Copyright (C) 2020, 2024, D. R. Commander.  All Rights Reserved.
  * Copyright (C) 2020-2021, Arm Limited.  All Rights Reserved.
  *
  * This software is provided 'as-is', without any express or implied
@@ -37,3 +37,12 @@
 #else
 #error "Unknown compiler"
 #endif
+
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wdeclaration-after-statement"
+#pragma clang diagnostic ignored "-Wc99-extensions"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+

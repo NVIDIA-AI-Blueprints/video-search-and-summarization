@@ -32,35 +32,42 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SCROLL_SCROLLBAR_THEME_AURA_H_
 
 #include "base/gtest_prod_util.h"
+#include "third_party/blink/public/platform/web_theme_engine.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
 
 namespace blink {
+struct PaintInfo;
 
 class CORE_EXPORT ScrollbarThemeAura : public ScrollbarTheme {
  public:
   int ScrollbarThickness(float scale_from_dip,
-                         EScrollbarWidth scrollbar_width) override;
+                         EScrollbarWidth scrollbar_width) const override;
 
  protected:
-  bool NativeThemeHasButtons() override { return true; }
-  bool HasThumb(const Scrollbar&) override;
+  bool NativeThemeHasButtons() const override { return true; }
+  bool HasThumb(const Scrollbar&) const override;
 
-  gfx::Rect BackButtonRect(const Scrollbar&) override;
-  gfx::Rect ForwardButtonRect(const Scrollbar&) override;
-  gfx::Rect TrackRect(const Scrollbar&) override;
-  int MinimumThumbLength(const Scrollbar&) override;
+  gfx::Rect BackButtonRect(const Scrollbar&) const override;
+  gfx::Rect ForwardButtonRect(const Scrollbar&) const override;
+  gfx::Rect TrackRect(const Scrollbar&) const override;
+  int MinimumThumbLength(const Scrollbar&) const override;
 
-  void PaintTrack(GraphicsContext&,
-                  const Scrollbar&,
-                  const gfx::Rect&) override;
-  void PaintButton(GraphicsContext&,
+  void PaintTrackBackgroundAndButtons(const PaintInfo&,
+                                      const Scrollbar&,
+                                      const gfx::Rect&) override;
+  void PaintTrackBackground(const PaintInfo&,
+                            const Scrollbar&,
+                            const gfx::Rect&) override;
+  void PaintButton(const PaintInfo&,
                    const Scrollbar&,
                    const gfx::Rect&,
                    ScrollbarPart) override;
-  void PaintThumb(GraphicsContext&,
+  void PaintThumb(const PaintInfo&,
                   const Scrollbar&,
                   const gfx::Rect&) override;
+  virtual WebThemeEngine::ScrollbarThumbExtraParams
+  BuildScrollbarThumbExtraParams(const Scrollbar&) const;
 
   bool ShouldRepaintAllPartsOnInvalidation() const override;
   ScrollbarPart PartsToInvalidateOnThumbPositionChange(
@@ -68,15 +75,29 @@ class CORE_EXPORT ScrollbarThemeAura : public ScrollbarTheme {
       float old_position,
       float new_position) const override;
 
-  bool ShouldCenterOnThumb(const Scrollbar&, const WebMouseEvent&) override;
+  bool ShouldCenterOnThumb(const Scrollbar&,
+                           const WebMouseEvent&) const override;
+
+  bool UsesSolidColorThumb() const override;
+  gfx::Insets SolidColorThumbInsets(const Scrollbar&) const override;
+  SkColor4f ThumbColor(const Scrollbar&) const override;
+  bool UsesNinePatchTrackAndButtonsResource() const override;
+  gfx::Rect NinePatchTrackAndButtonsAperture(const Scrollbar&) const override;
+  gfx::Rect NinePatchTrackAndButtonsAperture(const Scrollbar&,
+                                             float scale) const override;
+  gfx::Size NinePatchTrackAndButtonsCanvasSize(const Scrollbar&) const override;
+  gfx::Size NinePatchTrackAndButtonsCanvasSize(const Scrollbar&,
+                                               float scale) const override;
 
   // During a thumb drag, if the pointer moves outside a certain threshold in
   // the non-scrolling direction, the scroller is expected to "snap back" to the
   // location where the drag first originated from.
   bool SupportsDragSnapBack() const override;
   bool ShouldSnapBackToDragOrigin(const Scrollbar&,
-                                  const WebMouseEvent&) override;
+                                  const WebMouseEvent&) const override;
   virtual gfx::Size ButtonSize(const Scrollbar&) const;
+
+  float Proportion(EScrollbarWidth scrollbar_width) const;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ScrollbarThemeAuraTest, ButtonSizeHorizontal);

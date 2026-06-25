@@ -17,7 +17,6 @@
 #include "api/ref_counted_base.h"
 #include "api/sequence_checker.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/logging.h"
 
 namespace webrtc {
 
@@ -69,7 +68,7 @@ typedef ScopedSLObject<SLObjectItf, const SLObjectItf_*> ScopedSLObjectItf;
 // Note: This class must be used single threaded and this is enforced by a
 // thread checker.
 class OpenSLEngineManager
-    : public rtc::RefCountedNonVirtual<OpenSLEngineManager> {
+    : public webrtc::RefCountedNonVirtual<OpenSLEngineManager> {
  public:
   OpenSLEngineManager();
   ~OpenSLEngineManager() = default;

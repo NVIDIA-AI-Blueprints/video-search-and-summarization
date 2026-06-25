@@ -8,12 +8,10 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_typedefs.h"
 #include "third_party/blink/renderer/modules/webgpu/dawn_object.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/bindings/no_alloc_direct_call_host.h"
 
 namespace blink {
 
 class ExceptionState;
-class GPUImageCopyBuffer;
 class GPUCommandBuffer;
 class GPUCommandBufferDescriptor;
 class GPUCommandEncoderDescriptor;
@@ -21,10 +19,10 @@ class GPUComputePassDescriptor;
 class GPUComputePassEncoder;
 class GPURenderPassDescriptor;
 class GPURenderPassEncoder;
-class GPUImageCopyTexture;
+class GPUTexelCopyBufferInfo;
+class GPUTexelCopyTextureInfo;
 
-class GPUCommandEncoder : public DawnObject<WGPUCommandEncoder>,
-                          public NoAllocDirectCallHost {
+class GPUCommandEncoder : public DawnObject<wgpu::CommandEncoder> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -32,77 +30,102 @@ class GPUCommandEncoder : public DawnObject<WGPUCommandEncoder>,
       GPUDevice* device,
       const GPUCommandEncoderDescriptor* webgpu_desc);
   explicit GPUCommandEncoder(GPUDevice* device,
-                             WGPUCommandEncoder command_encoder);
+                             wgpu::CommandEncoder command_encoder,
+                             const String& label);
 
   GPUCommandEncoder(const GPUCommandEncoder&) = delete;
   GPUCommandEncoder& operator=(const GPUCommandEncoder&) = delete;
 
-  // gpu_command_encoder.idl
+  // gpu_command_encoder.idl {{{
   GPURenderPassEncoder* beginRenderPass(
       const GPURenderPassDescriptor* descriptor,
       ExceptionState& exception_state);
   GPUComputePassEncoder* beginComputePass(
       const GPUComputePassDescriptor* descriptor,
       ExceptionState& exception_state);
-  void copyBufferToBuffer(DawnObject<WGPUBuffer>* src,
-                          uint64_t src_offset,
-                          DawnObject<WGPUBuffer>* dst,
-                          uint64_t dst_offset,
-                          uint64_t size) {
-    DCHECK(src);
-    DCHECK(dst);
-    GetProcs().commandEncoderCopyBufferToBuffer(GetHandle(), src->GetHandle(),
-                                                src_offset, dst->GetHandle(),
-                                                dst_offset, size);
+  void copyBufferToBuffer(DawnObject<wgpu::Buffer>* source,
+                          DawnObject<wgpu::Buffer>* destination,
+                          ExceptionState& exception_state) {
+    copyBufferToBuffer(source, 0, destination, 0, exception_state);
   }
-  void copyBufferToTexture(GPUImageCopyBuffer* source,
-                           GPUImageCopyTexture* destination,
+  void copyBufferToBuffer(DawnObject<wgpu::Buffer>* source,
+                          DawnObject<wgpu::Buffer>* destination,
+                          uint64_t size,
+                          ExceptionState& exception_state) {
+    copyBufferToBuffer(source, 0, destination, 0, size, exception_state);
+  }
+  void copyBufferToBuffer(DawnObject<wgpu::Buffer>* source,
+                          uint64_t source_offset,
+                          DawnObject<wgpu::Buffer>* destination,
+                          uint64_t destination_offset,
+                          ExceptionState& exception_state) {
+    DCHECK(source);
+    // Underflow in the size calculation is acceptable because a GPU validation
+    // error will be fired if the resulting size is a very large positive
+    // integer. The offset is validated to be less than the buffer size before
+    // we compute the remaining size in the buffer.
+    copyBufferToBuffer(source, source_offset, destination, destination_offset,
+                       source->GetHandle().GetSize() - source_offset,
+                       exception_state);
+  }
+  void copyBufferToBuffer(DawnObject<wgpu::Buffer>* source,
+                          uint64_t source_offset,
+                          DawnObject<wgpu::Buffer>* destination,
+                          uint64_t destination_offset,
+                          uint64_t size,
+                          ExceptionState& exception_state) {
+    DCHECK(source);
+    DCHECK(destination);
+    GetHandle().CopyBufferToBuffer(source->GetHandle(), source_offset,
+                                   destination->GetHandle(), destination_offset,
+                                   size);
+  }
+  void copyBufferToTexture(GPUTexelCopyBufferInfo* source,
+                           GPUTexelCopyTextureInfo* destination,
                            const V8GPUExtent3D* copy_size,
                            ExceptionState& exception_state);
-  void copyTextureToBuffer(GPUImageCopyTexture* source,
-                           GPUImageCopyBuffer* destination,
+  void copyTextureToBuffer(GPUTexelCopyTextureInfo* source,
+                           GPUTexelCopyBufferInfo* destination,
                            const V8GPUExtent3D* copy_size,
                            ExceptionState& exception_state);
-  void copyTextureToTexture(GPUImageCopyTexture* source,
-                            GPUImageCopyTexture* destination,
+  void copyTextureToTexture(GPUTexelCopyTextureInfo* source,
+                            GPUTexelCopyTextureInfo* destination,
                             const V8GPUExtent3D* copy_size,
                             ExceptionState& exception_state);
   void pushDebugGroup(String groupLabel) {
     std::string label = groupLabel.Utf8();
-    GetProcs().commandEncoderPushDebugGroup(GetHandle(), label.c_str());
+    GetHandle().PushDebugGroup(label.c_str());
   }
-  void popDebugGroup() { GetProcs().commandEncoderPopDebugGroup(GetHandle()); }
+  void popDebugGroup() { GetHandle().PopDebugGroup(); }
   void insertDebugMarker(String markerLabel) {
     std::string label = markerLabel.Utf8();
-    GetProcs().commandEncoderInsertDebugMarker(GetHandle(), label.c_str());
+    GetHandle().InsertDebugMarker(label.c_str());
   }
-  void resolveQuerySet(DawnObject<WGPUQuerySet>* querySet,
+  void resolveQuerySet(DawnObject<wgpu::QuerySet>* querySet,
                        uint32_t firstQuery,
                        uint32_t queryCount,
-                       DawnObject<WGPUBuffer>* destination,
+                       DawnObject<wgpu::Buffer>* destination,
                        uint64_t destinationOffset) {
-    GetProcs().commandEncoderResolveQuerySet(
-        GetHandle(), querySet->GetHandle(), firstQuery, queryCount,
-        destination->GetHandle(), destinationOffset);
+    GetHandle().ResolveQuerySet(querySet->GetHandle(), firstQuery, queryCount,
+                                destination->GetHandle(), destinationOffset);
   }
-  void writeTimestamp(DawnObject<WGPUQuerySet>* querySet,
+  void writeTimestamp(DawnObject<wgpu::QuerySet>* querySet,
                       uint32_t queryIndex,
                       ExceptionState& exception_state);
-  void clearBuffer(DawnObject<WGPUBuffer>* buffer, uint64_t offset) {
-    GetProcs().commandEncoderClearBuffer(GetHandle(), buffer->GetHandle(),
-                                         offset, WGPU_WHOLE_SIZE);
+  void clearBuffer(DawnObject<wgpu::Buffer>* buffer, uint64_t offset) {
+    GetHandle().ClearBuffer(buffer->GetHandle(), offset);
   }
-  void clearBuffer(DawnObject<WGPUBuffer>* buffer,
+  void clearBuffer(DawnObject<wgpu::Buffer>* buffer,
                    uint64_t offset,
                    uint64_t size) {
-    GetProcs().commandEncoderClearBuffer(GetHandle(), buffer->GetHandle(),
-                                         offset, size);
+    GetHandle().ClearBuffer(buffer->GetHandle(), offset, size);
   }
   GPUCommandBuffer* finish(const GPUCommandBufferDescriptor* descriptor);
+  // }}} End of WebIDL binding implementation.
 
-  void setLabelImpl(const String& value) override {
+  void SetLabelImpl(const String& value) override {
     std::string utf8_label = value.Utf8();
-    GetProcs().commandEncoderSetLabel(GetHandle(), utf8_label.c_str());
+    GetHandle().SetLabel(utf8_label.c_str());
   }
 };
 

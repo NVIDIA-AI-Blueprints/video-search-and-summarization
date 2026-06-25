@@ -47,15 +47,11 @@ class PERFETTO_EXPORT_COMPONENT EventContext {
  public:
   EventContext(EventContext&&) = default;
 
-  // For Chromium during the transition phase to the client library.
-  // TODO(eseckler): Remove once Chromium has switched to client lib entirely.
   explicit EventContext(
       protos::pbzero::TrackEvent* event,
       internal::TrackEventIncrementalState* incremental_state = nullptr,
-      bool filter_debug_annotations = false)
-      : event_(event),
-        incremental_state_(incremental_state),
-        filter_debug_annotations_(filter_debug_annotations) {}
+      bool /*filter_debug_annotations*/ = false)
+      : event_(event), incremental_state_(incremental_state) {}
 
   ~EventContext();
 
@@ -71,12 +67,17 @@ class PERFETTO_EXPORT_COMPONENT EventContext {
   // TODO(kraskevich): Come up with a more precise name once we have more than
   // one usecase.
   bool ShouldFilterDebugAnnotations() const {
-    if (tls_state_) {
-      return tls_state_->filter_debug_annotations;
-    }
-    // In Chromium tls_state_ is nullptr, so we need to get this information
-    // from a separate field.
-    return filter_debug_annotations_;
+    if (!tls_state_)
+      return false;
+    return tls_state_->filter_debug_annotations;
+  }
+
+  // Disclaimer: Experimental method, subject to change. Exposed publicly to
+  // emit some DynamicFilter fields in Chromium only in local tracing.
+  bool ShouldFilterDynamicEventNames() const {
+    if (!tls_state_)
+      return false;
+    return tls_state_->filter_dynamic_event_names;
   }
 
   // Get a TrackEvent message to write typed arguments to.
@@ -84,7 +85,7 @@ class PERFETTO_EXPORT_COMPONENT EventContext {
   // event() is a template method to allow callers to specify a subclass of
   // TrackEvent instead. Those subclasses correspond to TrackEvent message with
   // application-specific extensions. More information in
-  // design-docs/extensions.md.
+  // docs/instrumentation/extensions.md.
   template <typename EventType = protos::pbzero::TrackEvent>
   EventType* event() const {
     // As the method does downcasting, we check that a target subclass does
@@ -119,17 +120,29 @@ class PERFETTO_EXPORT_COMPONENT EventContext {
                          std::forward<T>(value));
   }
 
+  // Read arbitrary user data that is associated with the thread-local per
+  // instance state of the track event. `key` must be non-null and unique
+  // per TrackEventTlsStateUserData subclass.
+  TrackEventTlsStateUserData* GetTlsUserData(const void* key);
+
+  // Set arbitrary user data that is associated with the thread-local per
+  // instance state of the track event. `key` must be non-null and unique
+  // per TrackEventTlsStateUserData subclass.
+  void SetTlsUserData(const void* key,
+                      std::unique_ptr<TrackEventTlsStateUserData> data);
+
  private:
   template <typename, size_t, typename, typename>
   friend class TrackEventInternedDataIndex;
   friend class internal::TrackEventInternal;
+  friend class TracedProtoTest;
 
   using TracePacketHandle =
       ::protozero::MessageHandle<protos::pbzero::TracePacket>;
 
   EventContext(TracePacketHandle,
                internal::TrackEventIncrementalState*,
-               const internal::TrackEventTlsState*);
+               internal::TrackEventTlsState*);
   EventContext(const EventContext&) = delete;
 
   protos::pbzero::DebugAnnotation* AddDebugAnnotation(const char* name);
@@ -139,14 +152,7 @@ class PERFETTO_EXPORT_COMPONENT EventContext {
   TracePacketHandle trace_packet_;
   protos::pbzero::TrackEvent* event_;
   internal::TrackEventIncrementalState* incremental_state_;
-  // TODO(mohitms): Make it const-reference instead of pointer, once we
-  // are certain that it cannot be nullptr. Once we switch to client library in
-  // chrome, we can make that happen.
-  const internal::TrackEventTlsState* tls_state_ = nullptr;
-  // TODO(kraskevich): Come up with a more precise name once we have more than
-  // one usecase.
-  // TODO(kraskevich): Remove once Chromium has fully switched to client lib.
-  const bool filter_debug_annotations_ = false;
+  internal::TrackEventTlsState* tls_state_ = nullptr;
 };
 
 }  // namespace perfetto

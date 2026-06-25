@@ -26,10 +26,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_REALTIME_AUDIO_DESTINATION_NODE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_REALTIME_AUDIO_DESTINATION_NODE_H_
 
-#include <atomic>
-#include <memory>
-
-#include "base/memory/weak_ptr.h"
 #include "media/base/output_device_info.h"
 #include "third_party/blink/public/platform/web_audio_latency_hint.h"
 #include "third_party/blink/public/platform/web_audio_sink_descriptor.h"
@@ -42,22 +38,29 @@
 namespace blink {
 
 class AudioContext;
-class ExceptionState;
 class WebAudioLatencyHint;
 class WebAudioSinkDescriptor;
 
-class RealtimeAudioDestinationNode final : public AudioDestinationNode {
+class MODULES_EXPORT RealtimeAudioDestinationNode final
+    : public AudioDestinationNode {
  public:
   static RealtimeAudioDestinationNode* Create(
       AudioContext*,
       const WebAudioSinkDescriptor&,
       const WebAudioLatencyHint&,
-      absl::optional<float> sample_rate);
+      std::optional<float> sample_rate,
+      bool update_echo_cancellation_on_first_start);
 
-  explicit RealtimeAudioDestinationNode(AudioContext&,
-                                        const WebAudioSinkDescriptor&,
-                                        const WebAudioLatencyHint&,
-                                        absl::optional<float> sample_rate);
+  explicit RealtimeAudioDestinationNode(
+      AudioContext&,
+      const WebAudioSinkDescriptor&,
+      const WebAudioLatencyHint&,
+      std::optional<float> sample_rate,
+      bool update_echo_cancellation_on_first_start);
+
+  // Returns its own handler object instead of a generic one from
+  // AudioNode::Handler().
+  RealtimeAudioDestinationHandler& GetOwnHandler() const;
 
   // See `RealtimeAudioDestinationHandler.SetSinkDescriptor` for details.
   void SetSinkDescriptor(const WebAudioSinkDescriptor&,

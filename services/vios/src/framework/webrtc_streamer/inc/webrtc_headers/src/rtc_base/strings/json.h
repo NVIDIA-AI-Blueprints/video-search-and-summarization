@@ -11,14 +11,22 @@
 #ifndef RTC_BASE_STRINGS_JSON_H_
 #define RTC_BASE_STRINGS_JSON_H_
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
+// IWYU pragma: begin_exports
+#include "json/config.h"
 #include "json/json.h"
+#include "json/json_features.h"
+#include "json/reader.h"
+#include "json/value.h"
+#include "json/writer.h"
+// IWYU pragma: end_exports
 #include "rtc_base/system/rtc_export.h"
 
-namespace rtc {
+namespace webrtc {
 
 ///////////////////////////////////////////////////////////////////////////////
 // JSON Helpers
@@ -79,6 +87,6 @@ RTC_EXPORT bool GetDoubleFromJsonObject(const Json::Value& in,
 // Writes out a Json value as a string.
 std::string JsonValueToString(const Json::Value& json);
 
-}  // namespace rtc
+}  //  namespace webrtc
 
 #endif  // RTC_BASE_STRINGS_JSON_H_

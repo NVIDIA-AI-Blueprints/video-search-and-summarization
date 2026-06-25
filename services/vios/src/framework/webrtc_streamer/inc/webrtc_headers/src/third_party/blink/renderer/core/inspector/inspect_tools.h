@@ -5,15 +5,18 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_INSPECT_TOOLS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_INSPECT_TOOLS_H_
 
+#include <v8-inspector.h>
+
 #include <vector>
 
-#include <v8-inspector.h>
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/inspector/inspector_overlay_agent.h"
 #include "third_party/blink/renderer/core/inspector/node_content_visibility_state.h"
+#include "third_party/blink/renderer/platform/heap/weak_cell.h"
 
 namespace blink {
 
+struct InspectorGreenDevFloatyAnchorConfig;
 class WebMouseEvent;
 class WebPointerEvent;
 
@@ -159,6 +162,9 @@ using ContainerQueryConfigs = HeapHashMap<
 using IsolatedElementConfigs =
     HeapHashMap<WeakMember<Element>,
                 std::unique_ptr<InspectorIsolationModeHighlightConfig>>;
+using GreenDevFloatyAnchorConfigs =
+    HeapHashMap<WeakMember<Node>,
+                std::unique_ptr<InspectorGreenDevFloatyAnchorConfig>>;
 
 class PersistentTool : public InspectTool {
   using InspectTool::InspectTool;
@@ -174,6 +180,10 @@ class PersistentTool : public InspectTool {
   void SetScrollSnapConfigs(ScrollSnapConfigs);
   void SetContainerQueryConfigs(ContainerQueryConfigs);
   void SetIsolatedElementConfigs(IsolatedElementConfigs);
+  void SetGreenDevFloatyAnchorConfigs(GreenDevFloatyAnchorConfigs);
+  void AddGreenDevFloatyAnchorConfig(
+      Node* node,
+      std::unique_ptr<InspectorGreenDevFloatyAnchorConfig> config);
 
   std::unique_ptr<protocol::DictionaryValue> GetGridInspectorHighlightsAsJson()
       const;
@@ -193,27 +203,7 @@ class PersistentTool : public InspectTool {
   ScrollSnapConfigs scroll_snap_configs_;
   ContainerQueryConfigs container_query_configs_;
   IsolatedElementConfigs isolated_element_configs_;
-};
-
-// -----------------------------------------------------------------------------
-
-class NearbyDistanceTool : public InspectTool {
- public:
-  NearbyDistanceTool(const NearbyDistanceTool&) = delete;
-  NearbyDistanceTool& operator=(const NearbyDistanceTool&) = delete;
-  void Trace(Visitor* visitor) const override;
-
- private:
-  using InspectTool::InspectTool;
-
-  bool HandleMouseDown(const WebMouseEvent& event,
-                       bool* swallow_next_mouse_up) override;
-  bool HandleMouseMove(const WebMouseEvent& event) override;
-  bool HandleMouseUp(const WebMouseEvent& event) override;
-  void Draw(float scale) override;
-  String GetOverlayName() override;
-
-  Member<Node> hovered_node_;
+  GreenDevFloatyAnchorConfigs green_dev_floaty_anchor_configs_;
 };
 
 // -----------------------------------------------------------------------------
@@ -258,14 +248,40 @@ class PausedInDebuggerTool : public InspectTool {
         message_(message) {}
   PausedInDebuggerTool(const PausedInDebuggerTool&) = delete;
   PausedInDebuggerTool& operator=(const PausedInDebuggerTool&) = delete;
+  void Trace(Visitor* visitor) const override;
 
  private:
+  enum class Action { kResume, kStepOver };
+
   void Draw(float scale) override;
   void Dispatch(const ScriptValue& message,
                 ExceptionState& exception_state) override;
   String GetOverlayName() override;
+  void OnAgentDisable() override;
+  void ExecuteOnV8Session(Action action);
+
   v8_inspector::V8InspectorSession* v8_session_;
   String message_;
+  WeakCellFactory<PausedInDebuggerTool> weak_factory_{this};
+};
+
+// -----------------------------------------------------------------------------
+
+class WindowControlsOverlayTool : public InspectTool {
+ public:
+  WindowControlsOverlayTool(
+      InspectorOverlayAgent* overlay,
+      OverlayFrontend* frontend,
+      std::unique_ptr<protocol::DictionaryValue> wco_config);
+  WindowControlsOverlayTool(const WindowControlsOverlayTool&) = delete;
+  WindowControlsOverlayTool& operator=(const WindowControlsOverlayTool&) =
+      delete;
+
+ private:
+  void Draw(float scale) override;
+  String GetOverlayName() override;
+
+  std::unique_ptr<protocol::DictionaryValue> wco_config_;
 };
 
 }  // namespace blink

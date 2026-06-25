@@ -11,21 +11,23 @@
 #ifndef RTC_BASE_SOCKET_UNITTEST_H_
 #define RTC_BASE_SOCKET_UNITTEST_H_
 
+#include <cstddef>
+
 #include "absl/strings/string_view.h"
-#include "rtc_base/gunit.h"
-#include "rtc_base/thread.h"
+#include "api/environment/environment.h"
+#include "rtc_base/ip_address.h"
+#include "rtc_base/socket_factory.h"
+#include "test/gtest.h"
 
-namespace rtc {
+namespace webrtc {
 
-// Generic socket tests, to be used when testing individual socketservers.
+// Generic socket tests, to be used when testing individual socket servers.
 // Derive your specific test class from SocketTest, install your
 // socketserver, and call the SocketTest test methods.
 class SocketTest : public ::testing::Test {
  protected:
-  explicit SocketTest(rtc::SocketFactory* socket_factory)
-      : kIPv4Loopback(INADDR_LOOPBACK),
-        kIPv6Loopback(in6addr_loopback),
-        socket_factory_(socket_factory) {}
+  explicit SocketTest(SocketFactory* socket_factory);
+
   void TestConnectIPv4();
   void TestConnectIPv6();
   void TestConnectWithDnsLookupIPv4();
@@ -64,8 +66,9 @@ class SocketTest : public ::testing::Test {
   void TestSocketRecvTimestampIPv6();
   void TestUdpSocketRecvTimestampUseRtcEpochIPv4();
   void TestUdpSocketRecvTimestampUseRtcEpochIPv6();
+  void TestSocketSendRecvWithEcnIPV4();
+  void TestSocketSendRecvWithEcnIPV6();
 
-  static const int kTimeout = 5000;  // ms
   const IPAddress kIPv4Loopback;
   const IPAddress kIPv6Loopback;
 
@@ -95,7 +98,9 @@ class SocketTest : public ::testing::Test {
   void GetSetOptionsInternal(const IPAddress& loopback);
   void SocketRecvTimestamp(const IPAddress& loopback);
   void UdpSocketRecvTimestampUseRtcEpoch(const IPAddress& loopback);
+  void SocketSendRecvWithEcn(const IPAddress& loopback);
 
+  const Environment env_;
   SocketFactory* socket_factory_;
 };
 
@@ -103,6 +108,7 @@ class SocketTest : public ::testing::Test {
 // values on Windows, but an empty address of the same family on Linux/MacOS X.
 bool IsUnspecOrEmptyIP(const IPAddress& address);
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_SOCKET_UNITTEST_H_

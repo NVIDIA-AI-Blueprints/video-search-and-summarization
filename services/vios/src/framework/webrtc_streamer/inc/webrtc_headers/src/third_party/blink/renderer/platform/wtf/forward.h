@@ -29,39 +29,30 @@
 template <typename T>
 class scoped_refptr;
 
-namespace WTF {
-
-template <typename T>
-class StringBuffer;
-class PartitionAllocator;
-template <typename T,
-          wtf_size_t inlineCapacity = 0,
-          typename Allocator = PartitionAllocator>
-class Vector;
+namespace blink {
 
 class AtomicString;
-class CaseMap;
 class OrdinalNumber;
+class PartitionAllocator;
+class SegmentedBuffer;
 class SharedBuffer;
 class String;
 class StringBuilder;
 class StringImpl;
 class StringView;
-class TextOffsetMap;
-class TextStream;
+class TextPosition;
 
-}  // namespace WTF
+template <typename T,
+          wtf_size_t inlineBuffer = 0,
+          typename Allocator = PartitionAllocator>
+class Deque;
+template <typename T>
+class StringBuffer;
+template <typename T,
+          wtf_size_t inlineCapacity = 0,
+          typename Allocator = PartitionAllocator>
+class Vector;
 
-using WTF::Vector;
-
-using WTF::AtomicString;
-using WTF::CaseMap;
-using WTF::SharedBuffer;
-using WTF::String;
-using WTF::StringBuffer;
-using WTF::StringBuilder;
-using WTF::StringImpl;
-using WTF::StringView;
-using WTF::TextOffsetMap;
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_FORWARD_H_

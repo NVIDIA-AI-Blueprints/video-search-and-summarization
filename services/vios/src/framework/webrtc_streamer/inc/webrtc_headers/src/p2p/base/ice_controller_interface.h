@@ -11,19 +11,22 @@
 #ifndef P2P_BASE_ICE_CONTROLLER_INTERFACE_H_
 #define P2P_BASE_ICE_CONTROLLER_INTERFACE_H_
 
+#include <optional>
+#include <span>
 #include <string>
-#include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "p2p/base/connection.h"
 #include "p2p/base/ice_switch_reason.h"
 #include "p2p/base/ice_transport_internal.h"
+#include "p2p/base/transport_description.h"
 #include "rtc_base/system/rtc_export.h"
 
-namespace cricket {
+namespace webrtc {
 
-struct IceFieldTrials;  // Forward declaration to avoid circular dependency.
+// Forward declaration to avoid circular dependency.
 
 struct RTC_EXPORT IceRecheckEvent {
   IceRecheckEvent(IceSwitchReason _reason, int _recheck_delay_ms)
@@ -53,7 +56,7 @@ struct RTC_EXPORT IceRecheckEvent {
 // Connection::ForgetLearnedState - return in SwitchResult
 //
 // The IceController shall keep track of all connections added
-// (and not destroyed) and give them back using the connections()-function-
+// (and not destroyed) and give them back using the GetConnections() function.
 //
 // When a Connection gets destroyed
 // - signals on Connection::SignalDestroyed
@@ -63,31 +66,38 @@ class IceControllerInterface {
   // This represents the result of a switch call.
   struct SwitchResult {
     // Connection that we should (optionally) switch to.
-    absl::optional<const Connection*> connection;
+    std::optional<const Connection*> connection;
 
     // An optional recheck event for when a Switch() should be attempted again.
-    absl::optional<IceRecheckEvent> recheck_event;
+    std::optional<IceRecheckEvent> recheck_event;
 
     // A vector with connection to run ForgetLearnedState on.
     std::vector<const Connection*> connections_to_forget_state_on;
   };
 
-  // This represents the result of a call to SelectConnectionToPing.
+  // This represents the result of a call to GetConnectionToPing.
   struct PingResult {
     PingResult(const Connection* conn, int _recheck_delay_ms)
-        : connection(conn ? absl::optional<const Connection*>(conn)
-                          : absl::nullopt),
+        : connection(conn ? std::optional<const Connection*>(conn)
+                          : std::nullopt),
           recheck_delay_ms(_recheck_delay_ms) {}
+    PingResult(const Connection* conn, TimeDelta recheck_delay)
+        : connection(conn ? std::optional(conn) : std::nullopt),
+          recheck_delay_ms(recheck_delay.ms()) {}
+
+    TimeDelta recheck_delay() const {
+      return TimeDelta::Millis(recheck_delay_ms);
+    }
 
     // Connection that we should (optionally) ping.
-    const absl::optional<const Connection*> connection;
+    const std::optional<const Connection*> connection;
 
-    // The delay before P2PTransportChannel shall call SelectConnectionToPing()
+    // The delay before P2PTransportChannel shall call GetConnectionToPing()
     // again.
     //
     // Since the IceController determines which connection to ping and
     // only returns one connection at a time, the recheck_delay_ms does not have
-    // any obvious implication on bitrate for pings. E.g the recheck_delay_ms
+    // any obvious implication on bitrate for pings. E.g the recheck_delay
     // will be shorter if there are more connections available.
     const int recheck_delay_ms = 0;
   };
@@ -101,15 +111,15 @@ class IceControllerInterface {
   virtual void OnConnectionDestroyed(const Connection* connection) = 0;
 
   // These are all connections that has been added and not destroyed.
-  virtual rtc::ArrayView<const Connection*> connections() const = 0;
+  virtual std::span<const Connection* const> GetConnections() const = 0;
 
   // Is there a pingable connection ?
   // This function is used to boot-strap pinging, after this returns true
-  // SelectConnectionToPing() will be called periodically.
+  // GetConnectionToPing() will be called periodically.
   virtual bool HasPingableConnection() const = 0;
 
-  // Select a connection to Ping, or nullptr if none.
-  virtual PingResult SelectConnectionToPing(int64_t last_ping_sent_ms) = 0;
+  // Selects a connection to Ping, or nullptr if none.
+  virtual PingResult GetConnectionToPing(Timestamp last_ping_sent) = 0;
 
   // Compute the "STUN_ATTR_USE_CANDIDATE" for `conn`.
   virtual bool GetUseCandidateAttr(const Connection* conn,
@@ -134,6 +144,7 @@ class IceControllerInterface {
   virtual std::vector<const Connection*> PruneConnections() = 0;
 };
 
-}  // namespace cricket
+}  //  namespace webrtc
+
 
 #endif  // P2P_BASE_ICE_CONTROLLER_INTERFACE_H_

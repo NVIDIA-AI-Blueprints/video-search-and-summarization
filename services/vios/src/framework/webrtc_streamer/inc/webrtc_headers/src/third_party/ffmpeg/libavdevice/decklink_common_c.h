@@ -37,6 +37,12 @@ typedef enum DecklinkPtsSource {
     PTS_SRC_NB
 } DecklinkPtsSource;
 
+typedef enum DecklinkSignalLossAction {
+    SIGNAL_LOSS_NONE    = 1,
+    SIGNAL_LOSS_REPEAT  = 2,
+    SIGNAL_LOSS_BARS    = 3
+} DecklinkSignalLossAction;
+
 struct decklink_cctx {
     const AVClass *cclass;
 
@@ -63,10 +69,12 @@ struct decklink_cctx {
     char *format_code;
     int raw_format;
     int64_t queue_size;
+    int64_t vanc_queue_size;
     int copyts;
     int64_t timestamp_align;
     int timing_offset;
     int wait_for_tc;
+    DecklinkSignalLossAction signal_loss_action;
 };
 
 #endif /* AVDEVICE_DECKLINK_COMMON_C_H */

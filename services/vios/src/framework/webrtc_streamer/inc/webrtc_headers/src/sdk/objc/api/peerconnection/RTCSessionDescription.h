@@ -10,7 +10,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 /**
  * Represents the session description type. This exposes the same types that are
@@ -37,7 +37,8 @@ RTC_OBJC_EXPORT
 - (instancetype)init NS_UNAVAILABLE;
 
 /** Initialize a session description with a type and SDP string. */
-- (instancetype)initWithType:(RTCSdpType)type sdp:(NSString *)sdp NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithType:(RTCSdpType)type
+                         sdp:(NSString *)sdp NS_DESIGNATED_INITIALIZER;
 
 + (NSString *)stringForType:(RTCSdpType)type;
 

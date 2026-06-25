@@ -41,7 +41,7 @@ class CORE_EXPORT PluginDocument final : public HTMLDocument {
   void SetPluginNode(HTMLPlugInElement* plugin_node) {
     plugin_node_ = plugin_node;
   }
-  HTMLPlugInElement* PluginNode() { return plugin_node_; }
+  HTMLPlugInElement* PluginNode() { return plugin_node_.Get(); }
 
   WebPluginContainerImpl* GetPluginView();
 
@@ -61,6 +61,9 @@ class CORE_EXPORT PluginDocument final : public HTMLDocument {
 
 template <>
 struct DowncastTraits<PluginDocument> {
+  static bool AllowFrom(const Node& node) {
+    return node.IsDocumentNode() && To<Document>(node).IsPluginDocument();
+  }
   static bool AllowFrom(const Document& document) {
     return document.IsPluginDocument();
   }

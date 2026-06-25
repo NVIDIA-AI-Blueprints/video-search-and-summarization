@@ -105,6 +105,9 @@ public:
     void TestGetIDForWindowsID();
     void TestCasablancaNameAndOffset22041();
     void TestRawOffsetAndOffsetConsistency22041();
+    void TestGMTMinus24ICU22526();
+
+    void TestGetIanaID();
 
     static const UDate INTERVAL;
 

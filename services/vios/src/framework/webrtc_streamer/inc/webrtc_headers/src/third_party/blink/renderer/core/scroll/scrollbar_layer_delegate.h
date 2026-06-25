@@ -8,6 +8,7 @@
 #include "cc/input/scrollbar.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/skia/include/core/SkColor.h"
 
 namespace blink {
 
@@ -28,8 +29,12 @@ class CORE_EXPORT ScrollbarLayerDelegate : public cc::Scrollbar {
   bool HasThumb() const override;
   bool IsSolidColor() const override;
   bool IsOverlay() const override;
+  bool IsRunningWebTest() const override;
+  bool IsFluentOverlayScrollbarMinimalMode() const override;
   bool SupportsDragSnapBack() const override;
   bool JumpOnTrackClick() const override;
+  bool IsOpaque() const override;
+  int MinimumThumbLength() const override;
 
   // The following rects are all relative to the scrollbar's origin.
   gfx::Rect ThumbRect() const override;
@@ -38,17 +43,27 @@ class CORE_EXPORT ScrollbarLayerDelegate : public cc::Scrollbar {
   gfx::Rect ForwardButtonRect() const override;
 
   float Opacity() const override;
-  bool NeedsRepaintPart(cc::ScrollbarPart part) const override;
+  bool ThumbNeedsRepaint() const override;
+  void ClearThumbNeedsRepaint() override;
+  bool TrackAndButtonsNeedRepaint() const override;
   bool NeedsUpdateDisplay() const override;
   void ClearNeedsUpdateDisplay() override;
   bool HasTickmarks() const override;
-  void PaintPart(cc::PaintCanvas* canvas,
-                 cc::ScrollbarPart part,
-                 const gfx::Rect& rect) override;
+  void PaintThumb(cc::PaintCanvas& canvas, const gfx::Rect& rect) override;
+  void PaintTrackAndButtons(cc::PaintCanvas& canvas,
+                            const gfx::Rect& rect) override;
+  SkColor4f ThumbColor() const override;
 
   bool UsesNinePatchThumbResource() const override;
   gfx::Size NinePatchThumbCanvasSize() const override;
   gfx::Rect NinePatchThumbAperture() const override;
+  bool UsesSolidColorThumb() const override;
+  gfx::Insets SolidColorThumbInsets() const override;
+  bool UsesNinePatchTrackAndButtonsResource() const override;
+  gfx::Size NinePatchTrackAndButtonsCanvasSize(float scale) const override;
+  gfx::Rect NinePatchTrackAndButtonsAperture(float scale) const override;
+  gfx::Rect ShrinkMainThreadedMinimalModeThumbRect(
+      gfx::Rect& rect) const override;
 
  private:
   ~ScrollbarLayerDelegate() override;

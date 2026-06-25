@@ -33,7 +33,6 @@
 #include "base/synchronization/lock.h"
 #include "base/thread_annotations.h"
 #include "base/types/pass_key.h"
-#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace base {
 
@@ -340,8 +339,9 @@ class BASE_EXPORT StatisticsRecorder {
 
   // Initializes the global recorder if it doesn't already exist. Safe to call
   // multiple times.
-  static void EnsureGlobalRecorderWhileLocked()
-      EXCLUSIVE_LOCKS_REQUIRED(lock_.Pointer());
+  //
+  // Precondition: The global lock is already acquired.
+  static void EnsureGlobalRecorderWhileLocked();
 
   // Gets histogram providers.
   //
@@ -349,8 +349,9 @@ class BASE_EXPORT StatisticsRecorder {
   static HistogramProviders GetHistogramProviders();
 
   // Imports histograms from global persistent memory.
-  static void ImportGlobalPersistentHistograms()
-      LOCKS_EXCLUDED(lock_.Pointer());
+  //
+  // Precondition: The global lock must not be held during this call.
+  static void ImportGlobalPersistentHistograms();
 
   // Constructs a new StatisticsRecorder and sets it as the current global
   // recorder.
@@ -358,12 +359,15 @@ class BASE_EXPORT StatisticsRecorder {
   // This singleton instance should be started during the single-threaded
   // portion of startup and hence it is not thread safe. It initializes globals
   // to provide support for all future calls.
-  StatisticsRecorder() EXCLUSIVE_LOCKS_REQUIRED(lock_.Pointer());
+  //
+  // Precondition: The global lock is already acquired.
+  StatisticsRecorder();
 
   // Initialize implementation but without lock. Caller should guard
   // StatisticsRecorder by itself if needed (it isn't in unit tests).
-  static void InitLogOnShutdownWhileLocked()
-      EXCLUSIVE_LOCKS_REQUIRED(lock_.Pointer());
+  //
+  // Precondition: The global lock is already acquired.
+  static void InitLogOnShutdownWhileLocked();
 
   HistogramMap histograms_;
   ObserverMap observers_;
@@ -375,7 +379,7 @@ class BASE_EXPORT StatisticsRecorder {
   raw_ptr<StatisticsRecorder> previous_ = nullptr;
 
   // Global lock for internal synchronization.
-  static LazyInstance<absl::Mutex>::Leaky lock_;
+  static LazyInstance<Lock>::Leaky lock_;
 
   // Global lock for internal synchronization of histogram snapshots.
   static LazyInstance<base::Lock>::Leaky snapshot_lock_;
@@ -389,7 +393,7 @@ class BASE_EXPORT StatisticsRecorder {
   // Current global recorder. This recorder is used by static methods. When a
   // new global recorder is created by CreateTemporaryForTesting(), then the
   // previous global recorder is referenced by top_->previous_.
-  static StatisticsRecorder* top_ GUARDED_BY(lock_.Pointer());
+  static StatisticsRecorder* top_;
 
   // Tracks whether InitLogOnShutdownWhileLocked() has registered a logging
   // function that will be called when the program finishes.

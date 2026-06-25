@@ -32,8 +32,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_DATE_TIME_CHOOSER_IMPL_H_
 
 #include <memory>
+
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_chooser.h"
+#include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page_popup_client.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
@@ -55,15 +57,16 @@ class CORE_EXPORT DateTimeChooserImpl final : public DateTimeChooser,
 
   // DateTimeChooser functions:
   void EndChooser() override;
-  AXObject* RootAXObject() override;
+  AXObject* RootAXObject(Element* popup_owner) override;
+  bool IsPickerVisible() const override;
 
   void Trace(Visitor*) const override;
 
  private:
   // PagePopupClient functions:
-  void WriteDocument(SharedBuffer*) override;
+  void WriteDocument(SegmentedBuffer&) override;
   Locale& GetLocale() override;
-  void SetValueAndClosePopup(int, const String&) override;
+  void SetValueAndClosePopup(int, const String&, bool) override;
   void SetValue(const String&) override;
   void CancelPopup() override;
   Element& OwnerElement() override;
@@ -71,7 +74,7 @@ class CORE_EXPORT DateTimeChooserImpl final : public DateTimeChooser,
   void DidClosePopup() override;
   void AdjustSettings(Settings& popup_settings) override;
 
-  Member<LocalFrame> frame_;
+  Member<ChromeClient> chrome_client_;
   Member<DateTimeChooserClient> client_;
   PagePopup* popup_;
   // This pointer is valid only in the constructor.

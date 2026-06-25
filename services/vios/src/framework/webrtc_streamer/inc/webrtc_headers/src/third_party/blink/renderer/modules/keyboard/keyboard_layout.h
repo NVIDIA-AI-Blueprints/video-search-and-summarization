@@ -7,15 +7,16 @@
 
 #include "third_party/blink/public/mojom/keyboard_lock/keyboard_lock.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
-#include "third_party/blink/renderer/modules/keyboard/keyboard_layout_map.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
 
 namespace blink {
 
+class DOMException;
 class ExceptionState;
-class ScriptPromiseResolver;
+class KeyboardLayoutMap;
 
 class KeyboardLayout final : public GarbageCollected<KeyboardLayout>,
                              public ExecutionContextClient {
@@ -25,9 +26,10 @@ class KeyboardLayout final : public GarbageCollected<KeyboardLayout>,
   KeyboardLayout(const KeyboardLayout&) = delete;
   KeyboardLayout& operator=(const KeyboardLayout&) = delete;
 
-  virtual ~KeyboardLayout() = default;
+  ~KeyboardLayout() = default;
 
-  ScriptPromise GetKeyboardLayoutMap(ScriptState*, ExceptionState&);
+  ScriptPromise<KeyboardLayoutMap> GetKeyboardLayoutMap(ScriptState*,
+                                                        ExceptionState&);
 
   void Trace(Visitor*) const override;
 
@@ -38,10 +40,13 @@ class KeyboardLayout final : public GarbageCollected<KeyboardLayout>,
   // Returns true if |service_| is initialized and ready to be called.
   bool EnsureServiceConnected();
 
-  void GotKeyboardLayoutMap(ScriptPromiseResolver*,
-                            mojom::blink::GetKeyboardLayoutMapResultPtr);
+  void GotKeyboardLayoutMap(mojom::blink::GetKeyboardLayoutMapResultPtr);
 
-  Member<ScriptPromiseResolver> script_promise_resolver_;
+  using LayoutMapProperty =
+      ScriptPromiseProperty<KeyboardLayoutMap, DOMException>;
+  Member<LayoutMapProperty> layout_map_property_;
+
+  bool is_request_pending_ = false;
 
   HeapMojoRemote<mojom::blink::KeyboardLockService> service_;
 };

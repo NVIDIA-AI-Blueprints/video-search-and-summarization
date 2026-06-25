@@ -36,12 +36,14 @@ class HTMLQuoteElement final : public HTMLElement {
 
  public:
   HTMLQuoteElement(const QualifiedName&, Document&);
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLQuoteElement;
+  }
   void AdjustPseudoStyleLocale(ComputedStyleBuilder& pseudo_style_builder);
 
  private:
   bool IsURLAttribute(const Attribute&) const override;
   bool HasLegalLinkAttribute(const QualifiedName&) const override;
-  const QualifiedName& SubResourceAttributeName() const override;
 };
 
 inline bool IsHTMLQuoteElement(const HTMLElement& element) {
@@ -59,7 +61,7 @@ struct DowncastTraits<HTMLQuoteElement> {
   }
   static bool AllowFrom(const Node& node) {
     auto* html_element = DynamicTo<HTMLElement>(node);
-    return html_element ? IsHTMLQuoteElement(*html_element) : false;
+    return html_element && IsHTMLQuoteElement(*html_element);
   }
   static bool AllowFrom(const Node* node) {
     return node && IsA<HTMLQuoteElement>(*node);

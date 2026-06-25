@@ -4,9 +4,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_ADAPTERS_DTLS_TRANSPORT_PROXY_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_ADAPTERS_DTLS_TRANSPORT_PROXY_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/single_thread_task_runner.h"
-#include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
+#include "third_party/blink/renderer/platform/heap/cross_thread_handle.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/webrtc/api/dtls_transport_interface.h"
@@ -20,7 +21,7 @@
 // no control, and all information is passed via callbacks on the Delegate.
 
 // The proxy thread = the Blink main thread
-// The host thread = the webrtc signalling thread (the one that gets callbacks)
+// The host thread = the webrtc network thread (the one that gets callbacks)
 
 namespace blink {
 
@@ -67,8 +68,8 @@ class DtlsTransportProxy : public webrtc::DtlsTransportObserverInterface {
 
   const scoped_refptr<base::SingleThreadTaskRunner> proxy_thread_;
   const scoped_refptr<base::SingleThreadTaskRunner> host_thread_;
-  webrtc::DtlsTransportInterface* dtls_transport_;
-  CrossThreadPersistent<Delegate> delegate_;
+  raw_ptr<webrtc::DtlsTransportInterface> dtls_transport_;
+  CrossThreadHandle<Delegate> delegate_;
 };
 
 }  // namespace blink

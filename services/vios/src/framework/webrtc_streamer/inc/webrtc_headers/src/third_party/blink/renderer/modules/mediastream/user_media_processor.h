@@ -10,6 +10,7 @@
 
 #include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
@@ -22,6 +23,7 @@
 #include "third_party/blink/renderer/modules/mediastream/user_media_request.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
+#include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
@@ -29,14 +31,27 @@
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
+
 class AudioCaptureSettings;
 class LocalFrame;
+class MediaDevices;
 class MediaStreamAudioSource;
 class MediaStreamVideoSource;
 class VideoCaptureSettings;
 class WebMediaStreamDeviceObserver;
 class WebMediaStreamSource;
 class WebString;
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class CameraCaptureCapability {
+  kHdAndFullHdMissing = 0,
+  kHdOrFullHd = 1,
+  kHdOrFullHd_360p = 2,
+  kHdOrFullHd_480p = 3,
+  kHdOrFullHd_360p_480p = 4,
+  kMaxValue = kHdOrFullHd_360p_480p,
+};
 
 // UserMediaProcessor is responsible for processing getUserMedia() requests.
 // It also keeps tracks of all sources used by streams created with
@@ -47,6 +62,8 @@ class WebString;
 // render thread. There should be only one UserMediaProcessor per frame.
 class MODULES_EXPORT UserMediaProcessor
     : public GarbageCollected<UserMediaProcessor> {
+  USING_PRE_FINALIZER(UserMediaProcessor, StopAllProcessing);
+
  public:
   using MediaDevicesDispatcherCallback = base::RepeatingCallback<
       blink::mojom::blink::MediaDevicesDispatcherHost*()>;
@@ -75,12 +92,9 @@ class MODULES_EXPORT UserMediaProcessor
   void ProcessRequest(UserMediaRequest* request, base::OnceClosure callback);
 
   // If |user_media_request| is the request currently being processed, stops
-  // processing the request and returns true. Otherwise, performs no action and
-  // returns false.
-  // TODO(guidou): Make this method private and replace with a public
-  // CancelRequest() method that deletes the request only if it has not been
-  // generated yet. https://crbug.com/764293
-  bool DeleteUserMediaRequest(UserMediaRequest* user_media_request);
+  // processing the request, if possible, and returns true. Otherwise, performs
+  // no action and returns false.
+  bool CancelRequest(UserMediaRequest* user_media_request);
 
   // Stops processing the current request, if any, and stops all sources
   // currently being tracked, effectively stopping all tracks associated with
@@ -89,7 +103,7 @@ class MODULES_EXPORT UserMediaProcessor
 
   bool HasActiveSources() const;
 
-#if !BUILDFLAG(IS_ANDROID)
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   void FocusCapturedSurface(const String& label, bool focus);
 #endif
 
@@ -101,7 +115,7 @@ class MODULES_EXPORT UserMediaProcessor
       const mojom::blink::MediaStreamStateChange new_state);
   void OnDeviceCaptureConfigurationChange(const MediaStreamDevice& device);
   void OnDeviceCaptureHandleChange(const MediaStreamDevice& device);
-
+  void OnZoomLevelChange(const MediaStreamDevice& device, int zoom_level);
   void set_media_stream_dispatcher_host_for_testing(
       mojo::PendingRemote<blink::mojom::blink::MediaStreamDispatcherHost>
           dispatcher_host) {
@@ -123,7 +137,7 @@ class MODULES_EXPORT UserMediaProcessor
   // test requesting local media streams. The function notifies WebKit that the
   // |request| have completed.
   virtual void GetUserMediaRequestSucceeded(
-      MediaStreamDescriptorVector* descriptors,
+      GCedMediaStreamDescriptorVector* descriptors,
       UserMediaRequest* user_media_request);
   virtual void GetUserMediaRequestFailed(
       blink::mojom::blink::MediaStreamRequestResult result,
@@ -141,7 +155,11 @@ class MODULES_EXPORT UserMediaProcessor
 
   // Intended to be used only for testing.
   const blink::AudioCaptureSettings& AudioCaptureSettingsForTesting() const;
+  const Vector<blink::AudioCaptureSettings>&
+  EligibleAudioCaptureSettingsForTesting() const;
   const blink::VideoCaptureSettings& VideoCaptureSettingsForTesting() const;
+  const Vector<blink::VideoCaptureSettings>&
+  EligibleVideoCaptureSettingsForTesting() const;
 
   void SetMediaStreamDeviceObserverForTesting(
       WebMediaStreamDeviceObserver* media_stream_device_observer);
@@ -181,7 +199,7 @@ class MODULES_EXPORT UserMediaProcessor
   bool IsCurrentRequestInfo(UserMediaRequest* user_media_request) const;
   void DelayedGetUserMediaRequestSucceeded(
       int32_t request_id,
-      MediaStreamDescriptorVector* descriptors,
+      GCedMediaStreamDescriptorVector* descriptors,
       UserMediaRequest* user_media_request);
   void DelayedGetUserMediaRequestFailed(
       int32_t request_id,
@@ -204,10 +222,10 @@ class MODULES_EXPORT UserMediaProcessor
   void StartTracks(const String& label);
 
   blink::MediaStreamComponent* CreateVideoTrack(
-      const absl::optional<blink::MediaStreamDevice>& device);
+      const std::optional<blink::MediaStreamDevice>& device);
 
   blink::MediaStreamComponent* CreateAudioTrack(
-      const absl::optional<blink::MediaStreamDevice>& device);
+      const std::optional<blink::MediaStreamDevice>& device);
 
   // Callback function triggered when all native versions of the
   // underlying media sources and tracks have been created and started.
@@ -232,12 +250,20 @@ class MODULES_EXPORT UserMediaProcessor
       blink::mojom::blink::MediaStreamRequestResult result,
       const String& result_name);
 
+  void OnVideoSourceStarted(
+      blink::WebPlatformMediaStreamSource* source,
+      blink::mojom::blink::MediaStreamRequestResult result);
+
   void NotifyCurrentRequestInfoOfAudioSourceStarted(
       blink::WebPlatformMediaStreamSource* source,
       blink::mojom::blink::MediaStreamRequestResult result,
       const String& result_name);
 
   void DeleteAllUserMediaRequests();
+
+  // If |user_media_request| is the request currently being processed, then this
+  // function stops processing of the request.
+  void DeleteUserMediaRequest(UserMediaRequest* user_media_request);
 
   // Returns the source that use a device with |device.session_id|
   // and |device.device.id|. nullptr if such source doesn't exist.
@@ -288,19 +314,22 @@ class MODULES_EXPORT UserMediaProcessor
       const blink::VideoCaptureSettings& settings);
   void SelectVideoContentSettings();
 
-  absl::optional<base::UnguessableToken> DetermineExistingAudioSessionId();
+  std::optional<base::UnguessableToken> DetermineExistingAudioSessionId(
+      const blink::AudioCaptureSettings& settings);
+
+  HashMap<String, base::UnguessableToken> DetermineExistingAudioSessionIds();
 
   void GenerateStreamForCurrentRequestInfo(
-      absl::optional<base::UnguessableToken>
-          requested_audio_capture_session_id = absl::nullopt,
-      blink::mojom::StreamSelectionStrategy strategy =
-          blink::mojom::StreamSelectionStrategy::SEARCH_BY_DEVICE_ID);
+      HashMap<String, base::UnguessableToken>
+          requested_audio_capture_session_ids = {});
 
   WebMediaStreamDeviceObserver* GetMediaStreamDeviceObserver();
 
+  MediaDevices* GetMediaDevices() const;
+
   // Owned by the test.
-  WebMediaStreamDeviceObserver* media_stream_device_observer_for_testing_ =
-      nullptr;
+  raw_ptr<WebMediaStreamDeviceObserver, DanglingUntriaged>
+      media_stream_device_observer_for_testing_ = nullptr;
 
   LocalStreamSources local_sources_;
   LocalStreamSources pending_local_sources_;

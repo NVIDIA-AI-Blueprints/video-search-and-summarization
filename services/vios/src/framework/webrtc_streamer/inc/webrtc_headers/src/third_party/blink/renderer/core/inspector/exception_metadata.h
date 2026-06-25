@@ -6,12 +6,11 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_EXCEPTION_METADATA_H_
 
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "v8/include/v8-local-handle.h"
 
 namespace blink {
 
-class ExceptionState;
-
-void MaybeAssociateExceptionMetaData(ExceptionState&,
+void MaybeAssociateExceptionMetaData(v8::Local<v8::Value>,
                                      const String& key,
                                      const String& value);
 

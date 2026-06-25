@@ -10,13 +10,21 @@
 #ifndef TEST_SCENARIO_STATS_COLLECTION_H_
 #define TEST_SCENARIO_STATS_COLLECTION_H_
 
+#include <cstddef>
+#include <functional>
 #include <map>
 #include <memory>
+#include <optional>
+#include <vector>
 
-#include "absl/types/optional.h"
+#include "api/rtc_event_log_output.h"
+#include "api/units/timestamp.h"
+#include "call/audio_receive_stream.h"
 #include "call/call.h"
+#include "call/video_receive_stream.h"
+#include "call/video_send_stream.h"
 #include "rtc_base/thread.h"
-#include "test/logging/log_writer.h"
+#include "system_wrappers/include/clock.h"
 #include "test/scenario/performance_stats.h"
 
 namespace webrtc {
@@ -24,7 +32,7 @@ namespace test {
 
 struct VideoQualityAnalyzerConfig {
   double psnr_coverage = 1;
-  rtc::Thread* thread = nullptr;
+  Thread* thread = nullptr;
 };
 
 class VideoLayerAnalyzer {
@@ -33,7 +41,8 @@ class VideoLayerAnalyzer {
   void HandleRenderedFrame(const VideoFramePair& sample);
   void HandleFramePair(VideoFramePair sample,
                        double psnr,
-                       RtcEventLogOutput* writer);
+                       RtcEventLogOutput* writer,
+                       Timestamp at_time);
   VideoQualityStats stats_;
   Timestamp last_capture_time_ = Timestamp::MinusInfinity();
   Timestamp last_render_time_ = Timestamp::MinusInfinity();
@@ -47,24 +56,25 @@ class VideoQualityAnalyzer {
       VideoQualityAnalyzerConfig config = VideoQualityAnalyzerConfig(),
       std::unique_ptr<RtcEventLogOutput> writer = nullptr);
   ~VideoQualityAnalyzer();
-  void HandleFramePair(VideoFramePair sample);
+  void HandleFramePair(VideoFramePair sample, Timestamp at_time);
   std::vector<VideoQualityStats> layer_stats() const;
   VideoQualityStats& stats();
   void PrintHeaders();
   void PrintFrameInfo(const VideoFramePair& sample);
-  std::function<void(const VideoFramePair&)> Handler();
+  std::function<void(const VideoFramePair&)> Handler(Clock* clock);
 
  private:
-  void HandleFramePair(VideoFramePair sample, double psnr);
+  void HandleFramePair(VideoFramePair sample, double psnr, Timestamp at_time);
+
   const VideoQualityAnalyzerConfig config_;
   std::map<int, VideoLayerAnalyzer> layer_analyzers_;
   const std::unique_ptr<RtcEventLogOutput> writer_;
-  absl::optional<VideoQualityStats> cached_;
+  std::optional<VideoQualityStats> cached_;
 };
 
 class CallStatsCollector {
  public:
-  void AddStats(Call::Stats sample);
+  void AddStats(Call::Stats sample, Timestamp at_time);
   CollectedCallStats& stats() { return stats_; }
 
  private:
@@ -72,7 +82,7 @@ class CallStatsCollector {
 };
 class AudioReceiveStatsCollector {
  public:
-  void AddStats(AudioReceiveStreamInterface::Stats sample);
+  void AddStats(AudioReceiveStreamInterface::Stats sample, Timestamp at_time);
   CollectedAudioReceiveStats& stats() { return stats_; }
 
  private:
@@ -90,7 +100,7 @@ class VideoSendStatsCollector {
 };
 class VideoReceiveStatsCollector {
  public:
-  void AddStats(VideoReceiveStreamInterface::Stats sample);
+  void AddStats(VideoReceiveStreamInterface::Stats sample, Timestamp at_time);
   CollectedVideoReceiveStats& stats() { return stats_; }
 
  private:

@@ -10,8 +10,11 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "RTCVideoCodecInfo.h"
 #import "RTCVideoDecoder.h"
+#import "sdk/objc/base/RTCMacros.h"
+
+NS_ASSUME_NONNULL_BEGIN
 
 RTC_OBJC_EXPORT
 @interface RTC_OBJC_TYPE (RTCVideoDecoderVP9) : NSObject
@@ -22,6 +25,12 @@ RTC_OBJC_EXPORT
  */
 + (id<RTC_OBJC_TYPE(RTCVideoDecoder)>)vp9Decoder;
 
+/** Returns the list of supported codec formats (profiles) for the VP9 decoder.
+ */
++ (NSArray<RTC_OBJC_TYPE(RTCVideoCodecInfo) *> *)supportedCodecs;
+
 + (bool)isSupported;
 
 @end
+
+NS_ASSUME_NONNULL_END

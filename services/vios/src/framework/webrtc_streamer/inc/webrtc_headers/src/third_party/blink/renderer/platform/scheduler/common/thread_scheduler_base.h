@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_COMMON_THREAD_SCHEDULER_BASE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_COMMON_THREAD_SCHEDULER_BASE_H_
 
+#include "base/memory/raw_ptr.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 
 #include "base/task/sequenced_task_runner.h"
@@ -60,7 +61,7 @@ class PLATFORM_EXPORT ThreadSchedulerBase : public VirtualTimeController,
   void SetMaxVirtualTimeTaskStarvationCount(
       int max_task_starvation_count) override;
   WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser(
-      const WTF::String& name,
+      const String& name,
       WebScopedVirtualTimePauser::VirtualTaskDuration) override;
 
   bool IsVirtualTimeEnabled() const;
@@ -77,7 +78,7 @@ class PLATFORM_EXPORT ThreadSchedulerBase : public VirtualTimeController,
   ~ThreadSchedulerBase() override;
 
   // Returns the list of callbacks to execute after the current task.
-  virtual WTF::Vector<base::OnceClosure>& GetOnTaskCompletionCallbacks() = 0;
+  virtual Vector<base::OnceClosure>& GetOnTaskCompletionCallbacks() = 0;
 
   // Returns instance of specific helper instantiated by a subclass.
   virtual SchedulerHelper& GetHelper() = 0;
@@ -93,7 +94,6 @@ class PLATFORM_EXPORT ThreadSchedulerBase : public VirtualTimeController,
   // posted there).
   virtual base::SequencedTaskRunner* GetVirtualTimeTaskRunner() {
     NOTREACHED();
-    return nullptr;
   }
   virtual void OnVirtualTimeEnabled() {}
   virtual void OnVirtualTimeDisabled() {}
@@ -114,7 +114,7 @@ class PLATFORM_EXPORT ThreadSchedulerBase : public VirtualTimeController,
   void OnBeginNestedRunLoop() override;
   void OnExitNestedRunLoop() override;
 
-  v8::Isolate* isolate_ = nullptr;
+  raw_ptr<v8::Isolate, DanglingUntriaged> isolate_ = nullptr;
 
   // Note |virtual_time_domain_| is only present iff virtual time is enabled.
   std::unique_ptr<AutoAdvancingVirtualTimeDomain> virtual_time_domain_;

@@ -46,6 +46,7 @@ enum class DeleteDirection {
 };
 
 class CompositeEditCommand;
+class DataTransfer;
 class Document;
 class Element;
 class HTMLElement;
@@ -64,7 +65,15 @@ Node* EnclosingEmptyListItem(const VisiblePosition&);
 
 bool IsTableStructureNode(const Node*);
 bool IsNodeRendered(const Node&);
-bool IsInline(const Node*);
+
+// Returns true if the ComputedStyle of the node is kInline or kRuby. It's
+// available for Element.
+bool IsInlineElement(const Node*);
+
+// Returns true if `IsInlineElement()` above is true or the LayoutObject of the
+// node is 'inline-level' (e.g., Text).
+bool IsInlineNode(const Node*);
+
 // Returns true if specified nodes are elements, have identical tag names,
 // have identical attributes, and are editable.
 CORE_EXPORT bool AreIdenticalElements(const Node&, const Node&);
@@ -136,7 +145,7 @@ const String& NonBreakingSpaceString();
 CORE_EXPORT void TidyUpHTMLStructure(Document&);
 
 SelectionInDOMTree CorrectedSelectionAfterCommand(const SelectionForUndoStep&,
-                                                  const Document*);
+                                                  Document*);
 void ChangeSelectionAfterCommand(LocalFrame*,
                                  const SelectionInDOMTree&,
                                  const SetSelectionOptions&);
@@ -147,11 +156,13 @@ void ChangeSelectionAfterCommand(LocalFrame*,
 
 void DispatchEditableContentChangedEvents(Element* start_root,
                                           Element* end_root);
-void DispatchInputEventEditableContentChanged(Element* start_root,
-                                              Element* end_root,
-                                              InputEvent::InputType,
-                                              const String&,
-                                              InputEvent::EventIsComposing);
+void DispatchInputEventEditableContentChanged(
+    Element* start_root,
+    Element* end_root,
+    InputEvent::InputType,
+    const String&,
+    InputEvent::EventIsComposing,
+    DataTransfer* data_transfer = nullptr);
 InputEvent::EventIsComposing IsComposingFromCommand(
     const CompositeEditCommand*);
 
@@ -170,6 +181,16 @@ VisiblePosition EndOfBlock(
     EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
 bool IsStartOfBlock(const VisiblePosition&);
 bool IsEndOfBlock(const VisiblePosition&);
+
+// Position-based block overloads (no VisiblePosition dependency).
+CORE_EXPORT Position StartOfBlock(
+    const Position&,
+    EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
+CORE_EXPORT Position EndOfBlock(
+    const Position&,
+    EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
+CORE_EXPORT bool IsStartOfBlock(const Position&);
+CORE_EXPORT bool IsEndOfBlock(const Position&);
 
 }  // namespace blink
 

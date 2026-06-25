@@ -11,13 +11,18 @@
 #ifndef MODULES_AUDIO_CODING_ACM2_ACM_SEND_TEST_H_
 #define MODULES_AUDIO_CODING_ACM2_ACM_SEND_TEST_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 #include "absl/strings/string_view.h"
 #include "api/audio/audio_frame.h"
+#include "api/environment/environment.h"
 #include "modules/audio_coding/include/audio_coding_module.h"
+#include "modules/audio_coding/include/audio_coding_module_typedefs.h"
 #include "modules/audio_coding/neteq/tools/packet_source.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
@@ -25,7 +30,6 @@ class AudioEncoder;
 
 namespace test {
 class InputAudioFile;
-class Packet;
 
 class AcmSendTestOldApi : public AudioPacketizationCallback,
                           public PacketSource {
@@ -50,7 +54,7 @@ class AcmSendTestOldApi : public AudioPacketizationCallback,
       std::unique_ptr<AudioEncoder> external_speech_encoder);
 
   // Inherited from PacketSource.
-  std::unique_ptr<Packet> NextPacket() override;
+  std::unique_ptr<RtpPacketReceived> NextPacket() override;
 
   // Inherited from AudioPacketizationCallback.
   int32_t SendData(AudioFrameType frame_type,
@@ -67,9 +71,10 @@ class AcmSendTestOldApi : public AudioPacketizationCallback,
 
   // Creates a Packet object from the last packet produced by ACM (and received
   // through the SendData method as a callback).
-  std::unique_ptr<Packet> CreatePacket();
+  std::unique_ptr<RtpPacketReceived> CreatePacket();
 
   SimulatedClock clock_;
+  const Environment env_;
   std::unique_ptr<AudioCodingModule> acm_;
   InputAudioFile* audio_source_;
   int source_rate_hz_;

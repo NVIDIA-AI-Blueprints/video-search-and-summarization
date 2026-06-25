@@ -11,16 +11,18 @@
 #ifndef API_RTC_ERROR_H_
 #define API_RTC_ERROR_H_
 
-#ifdef WEBRTC_UNIT_TEST
-#include <ostream>
-#endif  // WEBRTC_UNIT_TEST
+#include <stdint.h>
+
+#include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>  // For std::move.
 
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/strings/string_builder.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
@@ -96,6 +98,24 @@ enum class RTCErrorDetailType {
   HARDWARE_ENCODER_ERROR,
 };
 
+// Outputs the error as a friendly string. Update this method when adding a new
+// error type.
+//
+// Only intended to be used for logging/diagnostics. The returned char* points
+// to literal strings that live for the whole duration of the program.
+RTC_EXPORT absl::string_view ToString(RTCErrorType error);
+RTC_EXPORT absl::string_view ToString(RTCErrorDetailType error);
+
+template <typename Sink>
+void AbslStringify(Sink& sink, RTCErrorType error) {
+  sink.Append(ToString(error));
+}
+
+template <typename Sink>
+void AbslStringify(Sink& sink, RTCErrorDetailType error_detail) {
+  sink.Append(ToString(error_detail));
+}
+
 // Roughly corresponds to RTCError in the web api. Holds an error type, a
 // message, and possibly additional information specific to that error.
 //
@@ -106,7 +126,7 @@ class RTC_EXPORT RTCError {
   // Constructors.
 
   // Creates a "no error" error.
-  RTCError() {}
+  RTCError() = default;
   explicit RTCError(RTCErrorType type) : type_(type) {}
 
   RTCError(RTCErrorType type, absl::string_view message)
@@ -124,6 +144,39 @@ class RTC_EXPORT RTCError {
   //
   // Preferred over the default constructor for code readability.
   static RTCError OK();
+  static RTCError InvalidParameter(absl::string_view message = "") {
+    return RTCError(RTCErrorType::INVALID_PARAMETER, message);
+  }
+  static RTCError InvalidState(absl::string_view message = "") {
+    return RTCError(RTCErrorType::INVALID_STATE, message);
+  }
+  static RTCError InvalidModification(absl::string_view message = "") {
+    return RTCError(RTCErrorType::INVALID_MODIFICATION, message);
+  }
+  static RTCError UnsupportedOperation(absl::string_view message = "") {
+    return RTCError(RTCErrorType::UNSUPPORTED_OPERATION, message);
+  }
+  static RTCError UnsupportedParameter(absl::string_view message = "") {
+    return RTCError(RTCErrorType::UNSUPPORTED_PARAMETER, message);
+  }
+  static RTCError InvalidRange(absl::string_view message = "") {
+    return RTCError(RTCErrorType::INVALID_RANGE, message);
+  }
+  static RTCError SyntaxError(absl::string_view message = "") {
+    return RTCError(RTCErrorType::SYNTAX_ERROR, message);
+  }
+  static RTCError NetworkError(absl::string_view message = "") {
+    return RTCError(RTCErrorType::NETWORK_ERROR, message);
+  }
+  static RTCError ResourceExhausted(absl::string_view message = "") {
+    return RTCError(RTCErrorType::RESOURCE_EXHAUSTED, message);
+  }
+  static RTCError InternalError(absl::string_view message = "") {
+    return RTCError(RTCErrorType::INTERNAL_ERROR, message);
+  }
+  static RTCError OperationErrorWithData(absl::string_view message = "") {
+    return RTCError(RTCErrorType::OPERATION_ERROR_WITH_DATA, message);
+  }
 
   // Error type.
   RTCErrorType type() const { return type_; }
@@ -134,11 +187,37 @@ class RTC_EXPORT RTCError {
   // stable.
   const char* message() const;
 
+  // For when you want to interact directly with the internal StringBuilder.
+  // E.g. when you need to use operator<<() with a named variable.
+  StringBuilder& string_builder() { return message_; }
+
   void set_message(absl::string_view message);
+
+  // Overload `operator<<` for temporaries (r-values).
+  // The '&&' at the end means that using operator<< is restricted to temporary
+  // objects. It won't work with named variables. So, for formatting a message
+  // for a temporary RTCError object, you can do:
+  //
+  //   return RTCError::InvalidParameter() << "Argument x was set to " << x;
+  //
+  // Whereas for a named RTCError object, you'll do:
+  //
+  // RTCError error(RTCErrorType::INVALID_PARAMETER);
+  // error.string_builder() << "Argument x was set to " << x;
+  //
+  // If we implement both `RTCError&& operator<<(const T& val) &&` and
+  // `RTCError& operator<<(const T& val)` in the RTCError class, we'll run into
+  // compiler errors due to ambiguity. Based on how RTCError is most often used,
+  // we're picking the && version over the other alternative.
+  template <typename T>
+  RTCError&& operator<<(const T& val) && {
+    message_ << val;
+    return std::move(*this);
+  }
 
   RTCErrorDetailType error_detail() const { return error_detail_; }
   void set_error_detail(RTCErrorDetailType detail) { error_detail_ = detail; }
-  absl::optional<uint16_t> sctp_cause_code() const { return sctp_cause_code_; }
+  std::optional<uint16_t> sctp_cause_code() const { return sctp_cause_code_; }
   void set_sctp_cause_code(uint16_t cause_code) {
     sctp_cause_code_ = cause_code;
   }
@@ -147,47 +226,49 @@ class RTC_EXPORT RTCError {
   // error occurred.
   bool ok() const { return type_ == RTCErrorType::NONE; }
 
- private:
-  RTCErrorType type_ = RTCErrorType::NONE;
-  std::string message_;
-  RTCErrorDetailType error_detail_ = RTCErrorDetailType::NONE;
-  absl::optional<uint16_t> sctp_cause_code_;
-};
-
-// Outputs the error as a friendly string. Update this method when adding a new
-// error type.
-//
-// Only intended to be used for logging/diagnostics. The returned char* points
-// to literal string that lives for the whole duration of the program.
-RTC_EXPORT absl::string_view ToString(RTCErrorType error);
-RTC_EXPORT absl::string_view ToString(RTCErrorDetailType error);
-
-#ifdef WEBRTC_UNIT_TEST
-inline std::ostream& operator<<(  // no-presubmit-check TODO(webrtc:8982)
-    std::ostream& stream,         // no-presubmit-check TODO(webrtc:8982)
-    RTCErrorType error) {
-  return stream << ToString(error);
-}
-
-inline std::ostream& operator<<(  // no-presubmit-check TODO(webrtc:8982)
-    std::ostream& stream,         // no-presubmit-check TODO(webrtc:8982)
-    RTCErrorDetailType error) {
-  return stream << ToString(error);
-}
-#endif  // WEBRTC_UNIT_TEST
-
-// Helper macro that can be used by implementations to create an error with a
-// message and log it. `message` should be a string literal or movable
-// std::string.
-#define LOG_AND_RETURN_ERROR_EX(type, message, severity)                     \
-  {                                                                          \
-    RTC_DCHECK(type != RTCErrorType::NONE);                                  \
-    RTC_LOG(severity) << message << " (" << ::webrtc::ToString(type) << ")"; \
-    return ::webrtc::RTCError(type, message);                                \
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RTCError& error) {
+    sink.Append(ToString(error.type_));
+    if (!error.message_.str().empty()) {
+      sink.Append(" with message: \"");
+      sink.Append(error.message_.str());
+      sink.Append("\"");
+    }
   }
 
-#define LOG_AND_RETURN_ERROR(type, message) \
-  LOG_AND_RETURN_ERROR_EX(type, message, LS_ERROR)
+ private:
+  RTCErrorType type_ = RTCErrorType::NONE;
+  StringBuilder message_;
+  RTCErrorDetailType error_detail_ = RTCErrorDetailType::NONE;
+  std::optional<uint16_t> sctp_cause_code_;
+};
+
+inline RTCError LogErrorImpl(RTCError error,
+                             LoggingSeverity severity,
+                             const char* file,
+                             int line) {
+#if defined(RTC_LOG_FILE_LINE)
+  // WebRTC default.
+  RTC_LOG_FILE_LINE(severity, file, line)
+      << error.message() << " (" << ToString(error.type()) << ")";
+#else
+  // Compatibility with the chromium build but file:line won't be accurate.
+  RTC_LOG_V(severity) << error.message() << " (" << ToString(error.type())
+                      << ")";
+#endif
+  return error;
+}
+
+// This approach does not hide the return statement and also allows for
+// constructing/formatting the error string inline.
+//
+// Example usage:
+//
+// if (failed) {
+//   return LOG_ERROR(RTCError(RTCErrorType::INVALID_STATE) << "Yikes");
+// }
+//
+#define LOG_ERROR(x) LogErrorImpl(x, LS_ERROR, __FILE__, __LINE__)
 
 // RTCErrorOr<T> is the union of an RTCError object and a T object. RTCErrorOr
 // models the concept of an object that is either a usable value, or an error
@@ -322,9 +403,22 @@ class RTCErrorOr {
     return std::move(*value_);
   }
 
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const RTCErrorOr<T>& error_or) {
+    if (error_or.ok()) {
+      sink.Append("OK");
+      if constexpr (std::is_convertible_v<T, absl::AlphaNum>) {
+        sink.Append(" with value: ");
+        sink.Append(absl::StrCat(error_or.value()));
+      }
+    } else {
+      sink.Append(absl::StrCat(error_or.error()));
+    }
+  }
+
  private:
   RTCError error_;
-  absl::optional<T> value_;
+  std::optional<T> value_;
 };
 
 }  // namespace webrtc

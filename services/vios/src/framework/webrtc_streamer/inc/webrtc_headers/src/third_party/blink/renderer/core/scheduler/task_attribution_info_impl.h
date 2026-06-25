@@ -1,0 +1,70 @@
+// Copyright 2024 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SCHEDULER_TASK_ATTRIBUTION_INFO_IMPL_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_SCHEDULER_TASK_ATTRIBUTION_INFO_IMPL_H_
+
+#include "third_party/blink/public/common/scheduler/task_attribution_id.h"
+#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/scheduler/task_attribution_task_state.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
+#include "third_party/blink/renderer/platform/scheduler/public/task_attribution_info.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
+
+namespace blink {
+class SchedulerTaskContext;
+class SoftNavigationContext;
+class ScriptToolContext;
+class ResourceTimingContext;
+
+class CORE_EXPORT TaskAttributionInfoImpl final
+    : public TaskAttributionTaskState,
+      public scheduler::TaskAttributionInfo {
+ public:
+  TaskAttributionInfoImpl(SoftNavigationContext*,
+                          ResourceTimingContext*,
+                          ScriptToolContext*,
+                          uint32_t async_data_for_test = 0);
+  // `TaskAttributionTaskState` implementation:
+  scheduler::TaskAttributionInfo* GetTaskAttributionInfo() override;
+  SchedulerTaskContext* GetSchedulerTaskContext() override;
+  bool IsTaskAttributionInfoImpl() const override;
+  TaskAttributionTaskState* ForkAndSetVariable(
+      ResourceTimingContext*) override;
+  TaskAttributionTaskState* ForkAndSetVariable(
+      SoftNavigationContext*) override;
+  TaskAttributionTaskState* ForkAndSetVariable(ScriptToolContext*) override;
+
+  // `scheduler::TaskAttributionInfo` implementation:
+  scheduler::TaskAttributionId Id() const override;
+  uint32_t AsyncDataForTest() const override;
+  SoftNavigationContext* GetSoftNavigationContext() override;
+  ResourceTimingContext* GetResourceTimingContext() override;
+  ScriptToolContext* GetScriptToolContext() override;
+
+  void Trace(Visitor*) const override;
+
+ private:
+  const scheduler::TaskAttributionId id_;
+  const uint32_t async_data_for_test_;
+  Member<SoftNavigationContext> soft_navigation_context_;
+  Member<ResourceTimingContext> resource_timing_context_;
+  Member<ScriptToolContext> script_tool_context_;
+};
+
+template <>
+struct DowncastTraits<TaskAttributionInfoImpl> {
+  // `TaskAttributionInfoImpl` is the only implementation of
+  // `scheduler::TaskAttributionInfo`, so this cast is always safe.
+  static bool AllowFrom(const scheduler::TaskAttributionInfo&) { return true; }
+  static bool AllowFrom(
+      const TaskAttributionTaskState& task_attribution_task_state) {
+    return task_attribution_task_state.IsTaskAttributionInfoImpl();
+  }
+};
+
+}  // namespace blink
+
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_SCHEDULER_TASK_ATTRIBUTION_INFO_IMPL_H_

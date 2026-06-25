@@ -29,8 +29,9 @@
 
 #include "libavutil/mem_internal.h"
 
+#include "progressframe.h"
+#include "cbs_vp9.h"
 #include "vp9.h"
-#include "threadframe.h"
 
 enum BlockPartition {
     PARTITION_NONE,    // [ ] <-.
@@ -63,14 +64,16 @@ typedef struct VP9mvrefPair {
 } VP9mvrefPair;
 
 typedef struct VP9Frame {
-    ThreadFrame tf;
-    AVBufferRef *extradata;
+    VP9RawFrame *header_ref; ///< RefStruct reference backing frame_header
+    VP9RawFrameHeader *frame_header;
+
+    ProgressFrame tf;
+    void *extradata;               ///< RefStruct reference
     uint8_t *segmentation_map;
     VP9mvrefPair *mv;
     int uses_2pass;
 
-    AVBufferRef *hwaccel_priv_buf;
-    void *hwaccel_picture_private;
+    void *hwaccel_picture_private; ///< RefStruct reference
 } VP9Frame;
 
 enum BlockLevel {
@@ -165,11 +168,13 @@ typedef struct VP9BitstreamHeader {
 typedef struct VP9SharedContext {
     VP9BitstreamHeader h;
 
-    ThreadFrame refs[8];
+    ProgressFrame refs[8];
 #define CUR_FRAME 0
 #define REF_FRAME_MVPAIR 1
 #define REF_FRAME_SEGMAP 2
-    VP9Frame frames[3];
+#define BLANK_FRAME 3
+    VP9Frame frames[4];
+    VP9Frame ref_frames[8];
 } VP9SharedContext;
 
 #endif /* AVCODEC_VP9SHARED_H */

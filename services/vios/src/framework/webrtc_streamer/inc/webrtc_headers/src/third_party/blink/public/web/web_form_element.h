@@ -31,8 +31,9 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FORM_ELEMENT_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FORM_ELEMENT_H_
 
+#include <vector>
+
 #include "third_party/blink/public/platform/web_common.h"
-#include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/web/web_element.h"
 
 namespace blink {
@@ -46,7 +47,9 @@ class BLINK_EXPORT WebFormElement final : public WebElement {
  public:
   ~WebFormElement() override { Reset(); }
 
-  WebFormElement() : WebElement() {}
+  explicit WebFormElement(
+      cppgc::SourceLocation loc = BLINK_WEB_NODE_LOCATION_FROM_HERE)
+      : WebElement(loc) {}
   WebFormElement(const WebFormElement& element) = default;
 
   WebFormElement& operator=(const WebFormElement& element) {
@@ -60,12 +63,7 @@ class BLINK_EXPORT WebFormElement final : public WebElement {
   WebString GetName() const;
   WebString Method() const;
 
-  // Returns the identifier which is unique among all form elements in the
-  // current renderer process. In the current implementation ids are
-  // consecutive numbers.
-  uint64_t UniqueRendererFormId() const;
-
-  WebVector<WebFormControlElement> GetFormControlElements() const;
+  std::vector<WebFormControlElement> GetFormControlElements() const;
 
 #if INSIDE_BLINK
   WebFormElement(HTMLFormElement*);

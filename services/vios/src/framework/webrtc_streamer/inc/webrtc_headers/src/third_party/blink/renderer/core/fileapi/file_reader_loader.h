@@ -32,9 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FILEAPI_FILE_READER_LOADER_H_
 
 #include "base/dcheck_is_on.h"
-#include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
-#include "mojo/public/cpp/bindings/receiver.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -44,6 +42,7 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/gc_plugin.h"
 
@@ -81,7 +80,7 @@ class CORE_EXPORT FileReaderLoader : public GarbageCollected<FileReaderLoader>,
 
   // Before OnCalculatedSize() is called: Returns nullopt.
   // After OnCalculatedSize() is called: Returns the size of the resource.
-  absl::optional<uint64_t> TotalBytes() const { return total_bytes_; }
+  std::optional<uint64_t> TotalBytes() const { return total_bytes_; }
 
   FileErrorCode GetErrorCode() const { return error_code_; }
 
@@ -89,12 +88,34 @@ class CORE_EXPORT FileReaderLoader : public GarbageCollected<FileReaderLoader>,
 
   bool HasFinishedLoading() const { return finished_loading_; }
 
-  void Trace(Visitor* visitor) const { visitor->Trace(client_); }
+  void Trace(Visitor* visitor) const {
+    visitor->Trace(client_);
+    visitor->Trace(receiver_);
+  }
 
  private:
   void StartInternal(scoped_refptr<BlobDataHandle>, bool is_sync);
+
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class FailureType {
+    kMojoPipeCreation = 0,
+    kSyncDataNotAllLoaded = 1,
+    kSyncOnCompleteNotReceived = 2,
+    kBackendReadError = 3,
+    kReadSizesIncorrect = 4,
+    kDataPipeNotReadableWithBytesLeft = 5,
+    kMojoPipeClosedEarly = 6,
+    // Any MojoResult error we aren't expecting during data pipe reading falls
+    // into this bucket. If there are a large number of errors reported here,
+    // then there can be a new enumeration reported for mojo pipe errors.
+    kMojoPipeUnexpectedReadError = 7,
+    kClientFailure = 8,
+    kMaxValue = kClientFailure,
+  };
+
   void Cleanup();
-  void Failed(FileErrorCode);
+  void Failed(FileErrorCode, FailureType type);
 
   bool IsSyncLoad() { return is_sync_; }
 
@@ -113,15 +134,15 @@ class CORE_EXPORT FileReaderLoader : public GarbageCollected<FileReaderLoader>,
   // total_bytes_ is set to the total size of the blob being loaded as soon as
   // it is known, and  the buffer for receiving data of total_bytes_ is
   // allocated and never grow even when extra data is appended.
-  absl::optional<uint64_t> total_bytes_;
+  std::optional<uint64_t> total_bytes_;
 
   int32_t net_error_ = 0;  // net::OK
   FileErrorCode error_code_ = FileErrorCode::kOK;
 
   mojo::ScopedDataPipeConsumerHandle consumer_handle_;
   mojo::SimpleWatcher handle_watcher_;
-  GC_PLUGIN_IGNORE("https://crbug.com/1381979")
-  mojo::Receiver<mojom::blink::BlobReaderClient> receiver_{this};
+  HeapMojoReceiver<mojom::blink::BlobReaderClient, FileReaderLoader> receiver_{
+      this, nullptr};
   bool received_all_data_ = false;
   bool received_on_complete_ = false;
 #if DCHECK_IS_ON()

@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PAYMENTS_PAYMENT_REQUEST_RESPOND_WITH_OBSERVER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PAYMENTS_PAYMENT_REQUEST_RESPOND_WITH_OBSERVER_H_
 
-#include "third_party/blink/public/mojom/payments/payment_app.mojom-blink.h"
+#include "third_party/blink/public/mojom/payments/payment_app_events.mojom-blink.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_error_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/service_worker/respond_with_observer.h"
@@ -13,13 +13,13 @@
 namespace blink {
 
 class ExecutionContext;
-class ScriptValue;
+class PaymentHandlerResponse;
 class WaitUntilObserver;
 
 // Implementation for PaymentRequestEvent.respondWith(), which is used by the
 // payment handler to provide a payment response when the payment successfully
 // completes.
-class MODULES_EXPORT PaymentRequestRespondWithObserver final
+class MODULES_EXPORT PaymentRequestRespondWithObserver
     : public RespondWithObserver {
  public:
   PaymentRequestRespondWithObserver(ExecutionContext*,
@@ -31,10 +31,11 @@ class MODULES_EXPORT PaymentRequestRespondWithObserver final
                                                    int event_id,
                                                    WaitUntilObserver*);
 
+  void OnResponseFulfilled(ScriptState*, PaymentHandlerResponse*);
   void OnResponseRejected(mojom::ServiceWorkerResponseError) override;
-  void OnResponseFulfilled(ScriptState*,
-                           const ScriptValue&,
-                           const ExceptionContext&) override;
+  virtual void OnResponseRejected(
+      mojom::blink::ServiceWorkerResponseError,
+      payments::mojom::blink::PaymentEventResponseType);
   void OnNoResponse(ScriptState*) override;
 
   void Trace(Visitor*) const override;

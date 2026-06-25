@@ -29,9 +29,11 @@
 namespace blink {
 
 class Document;
-class ParseFromStringOptions;
+class ExceptionState;
 class LocalDOMWindow;
 class ScriptState;
+class V8SupportedType;
+class V8UnionStringOrTrustedHTML;
 
 class CORE_EXPORT DOMParser final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -43,9 +45,11 @@ class CORE_EXPORT DOMParser final : public ScriptWrappable {
 
   explicit DOMParser(ScriptState*);
 
-  Document* parseFromString(const String&,
-                            const String& type,
-                            const ParseFromStringOptions* options);
+  Document* ParseFromStringWithoutTrustedTypes(const String&,
+                                               const V8SupportedType& type);
+  Document* parseFromString(const V8UnionStringOrTrustedHTML*,
+                            const V8SupportedType& type,
+                            ExceptionState&);
 
   void Trace(Visitor*) const override;
 

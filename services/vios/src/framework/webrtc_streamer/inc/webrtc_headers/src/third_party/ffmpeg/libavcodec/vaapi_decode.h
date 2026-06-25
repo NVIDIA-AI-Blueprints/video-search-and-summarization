@@ -32,19 +32,16 @@ static inline VASurfaceID ff_vaapi_get_surface_id(AVFrame *pic)
     return (uintptr_t)pic->data[3];
 }
 
-enum {
-    MAX_PARAM_BUFFERS = 16,
-};
-
 typedef struct VAAPIDecodePicture {
     VASurfaceID           output_surface;
 
     int                nb_param_buffers;
-    VABufferID            param_buffers[MAX_PARAM_BUFFERS];
+    VABufferID           *param_buffers;
+    int                   nb_param_buffers_allocated;
 
     int                nb_slices;
     VABufferID           *slice_buffers;
-    int                   slices_allocated;
+    int                   nb_slice_buffers_allocated;
 } VAAPIDecodePicture;
 
 typedef struct VAAPIDecodeContext {
@@ -73,6 +70,7 @@ int ff_vaapi_decode_make_param_buffer(AVCodecContext *avctx,
 int ff_vaapi_decode_make_slice_buffer(AVCodecContext *avctx,
                                       VAAPIDecodePicture *pic,
                                       const void *params_data,
+                                      int nb_params,
                                       size_t params_size,
                                       const void *slice_data,
                                       size_t slice_size);

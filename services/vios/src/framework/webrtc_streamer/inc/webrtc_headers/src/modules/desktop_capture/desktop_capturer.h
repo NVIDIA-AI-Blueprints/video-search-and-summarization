@@ -11,9 +11,8 @@
 #ifndef MODULES_DESKTOP_CAPTURE_DESKTOP_CAPTURER_H_
 #define MODULES_DESKTOP_CAPTURE_DESKTOP_CAPTURER_H_
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -22,11 +21,10 @@
 // TODO(alcooper): Update include usage in downstream consumers and then change
 // this to a forward declaration.
 #include "modules/desktop_capture/delegated_source_list_controller.h"
-#if defined(WEBRTC_USE_GIO)
 #include "modules/desktop_capture/desktop_capture_metadata.h"
-#endif  // defined(WEBRTC_USE_GIO)
 #include "modules/desktop_capture/desktop_capture_types.h"
 #include "modules/desktop_capture/desktop_frame.h"
+#include "modules/desktop_capture/desktop_geometry.h"
 #include "modules/desktop_capture/shared_memory.h"
 #include "rtc_base/system/rtc_export.h"
 
@@ -109,7 +107,7 @@ class RTC_EXPORT DesktopCapturer {
   // supported by all capturers. This will only affect the frequency at which
   // new frames are available, not the frequency at which you are allowed to
   // capture the frames.
-  virtual void SetMaxFrameRate(uint32_t max_frame_rate) {}
+  virtual void SetMaxFrameRate(uint32_t /* max_frame_rate */) {}
 
   // Returns a valid pointer if the capturer requires the user to make a
   // selection from a source list provided by the capturer.
@@ -184,6 +182,11 @@ class RTC_EXPORT DesktopCapturer {
 
   // Creates a DesktopCapturer instance which targets to capture screens.
   static std::unique_ptr<DesktopCapturer> CreateScreenCapturer(
+      const DesktopCaptureOptions& options);
+
+  // Creates a DesktopCapturer instance which targets to capture windows and
+  // screens.
+  static std::unique_ptr<DesktopCapturer> CreateGenericCapturer(
       const DesktopCaptureOptions& options);
 
 #if defined(WEBRTC_USE_PIPEWIRE) || defined(WEBRTC_USE_X11)

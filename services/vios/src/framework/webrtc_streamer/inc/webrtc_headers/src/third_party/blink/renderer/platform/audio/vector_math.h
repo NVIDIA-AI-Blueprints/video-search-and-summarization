@@ -27,6 +27,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_AUDIO_VECTOR_MATH_H_
 
 #include <cstddef>
+
+#include "base/containers/span.h"
 #include "third_party/blink/renderer/platform/audio/audio_array.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 
@@ -37,22 +39,17 @@ namespace blink::vector_math {
 
 // Direct vector convolution:
 //
-// dest[k*dest_stride] =
-//     sum(source[(k+m)*source_stride]*filter[m*filter_stride]) for all m
-PLATFORM_EXPORT void Conv(const float* source_p,
-                          int source_stride,
-                          const float* filter_p,
-                          int filter_stride,
-                          float* dest_p,
-                          int dest_stride,
+// dest[k] = sum(source[k+m]*filter[filter.size()-1-m]) for all m
+//
+// Note: `filter` is read back to front
+PLATFORM_EXPORT void Conv(base::span<const float> source,
+                          base::span<const float> filter,
+                          base::span<float> dest,
                           uint32_t frames_to_process,
-                          size_t filter_size,
                           const AudioFloatArray* prepared_filter);
 
 // Prepare filter for Conv for faster processing.
-PLATFORM_EXPORT void PrepareFilterForConv(const float* filter_p,
-                                          int filter_stride,
-                                          size_t filter_size,
+PLATFORM_EXPORT void PrepareFilterForConv(base::span<const float> filter,
                                           AudioFloatArray* prepared_filter);
 
 // Vector scalar multiply and then add.
@@ -61,13 +58,6 @@ PLATFORM_EXPORT void PrepareFilterForConv(const float* filter_p,
 //
 // Note: Mac has a different implementation, and it may produce slightly
 // different results from what linux and windows would do.
-PLATFORM_EXPORT void Vsma(const float* source_p,
-                          int source_stride,
-                          const float* scale,
-                          float* dest_p,
-                          int dest_stride,
-                          uint32_t frames_to_process);
-
 PLATFORM_EXPORT void Vsma(const float* source_p,
                           int source_stride,
                           float scale,
@@ -80,21 +70,7 @@ PLATFORM_EXPORT void Vsma(const float* source_p,
 // dest[k*dest_stride] = scale * source[k*source_stride]
 PLATFORM_EXPORT void Vsmul(const float* source_p,
                            int source_stride,
-                           const float* scale,
-                           float* dest_p,
-                           int dest_stride,
-                           uint32_t frames_to_process);
-
-PLATFORM_EXPORT void Vsmul(const float* source_p,
-                           int source_stride,
                            float scale,
-                           float* dest_p,
-                           int dest_stride,
-                           uint32_t frames_to_process);
-
-PLATFORM_EXPORT void Vsadd(const float* source_p,
-                           int source_stride,
-                           const float* addend,
                            float* dest_p,
                            int dest_stride,
                            uint32_t frames_to_process);
@@ -172,19 +148,18 @@ PLATFORM_EXPORT void Zvmul(const float* real1p,
 //
 // where y = clip(x, low, high) = max(low, min(x, high)), effectively making
 // low <= y <= high.
-PLATFORM_EXPORT void Vclip(const float* source_p,
+PLATFORM_EXPORT void Vclip(base::span<const float> source,
                            int source_stride,
-                           const float* low_threshold_p,
-                           const float* high_threshold_p,
-                           float* dest_p,
-                           int dest_stride,
-                           uint32_t frames_to_process);
+                           float low_threshold,
+                           float high_threshold,
+                           base::span<float> dest,
+                           int dest_stride);
 
-PLATFORM_EXPORT void Vclip(const float* source_p,
+PLATFORM_EXPORT void Vclip(base::span<const float> source,
                            int source_stride,
-                           float low_threshold_p,
-                           float high_threshold_p,
-                           float* dest_p,
+                           float low_threshold,
+                           float high_threshold,
+                           base::span<float> dest,
                            int dest_stride,
                            uint32_t frames_to_process);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define DOUBLE_DIVIDE_CHECK(x) ((x) < 0 ? (x)-0.000001 : (x) + 0.000001)
+#define DOUBLE_DIVIDE_CHECK(x) ((x) < 0 ? (x) - 0.000001 : (x) + 0.000001)
 
 #define MIN_ZERO_MOTION 0.95
 #define MAX_SR_CODED_ERROR 40
@@ -68,6 +68,10 @@ typedef struct FIRSTPASS_STATS {
    * Best of intra pred error and inter pred error using golden frame as ref.
    */
   double sr_coded_error;
+  /*!
+   * Best of intra pred error and inter pred error using long term frame as ref.
+   */
+  double lt_coded_error;
   /*!
    * Percentage of blocks with inter pred error < intra pred error.
    */
@@ -323,21 +327,6 @@ const FIRSTPASS_STATS *av1_firstpass_info_peek(
 int av1_firstpass_info_future_count(const FIRSTPASS_INFO *firstpass_info,
                                     int offset_from_cur);
 
-/*!\brief Count the past stats before the target in firstpass_info
- * Note that the target stats will NOT be counted.
- * The target index is as follows.
- * (cur_index + offset_from_cur) % firstpass_info->stats_buf_size
- *
- * \ingroup rate_control
- * \param[in]  firstpass_info    struct of firstpass_info.
- * \param[in]  offset_from_cur  target stats's index offset
- *                               from cur_index.
- * \return Number of stats in the past before the target stats
- *         excluding itself.
- */
-int av1_firstpass_info_past_count(const FIRSTPASS_INFO *firstpass_info,
-                                  int offset_from_cur);
-
 /*!\cond */
 #define FC_ANIMATION_THRESH 0.15
 enum {
@@ -406,6 +395,11 @@ typedef struct GF_GROUP {
   // Stores the display order hint of the frame to be excluded during reference
   // assignment.
   int skip_frame_as_ref[MAX_STATIC_GF_GROUP_LENGTH];
+  // Indicates whether a switch frame is due.
+  bool is_sframe_due;
+  // Indicates whether the ref frame map is overridden by the external rate
+  // control.
+  int use_ext_ref_frame_map[MAX_STATIC_GF_GROUP_LENGTH];
   /*!\endcond */
 } GF_GROUP;
 /*!\cond */
@@ -495,6 +489,9 @@ typedef struct {
   int64_t coded_error;
   // Best of intra pred error and inter pred error using golden frame as ref.
   int64_t sr_coded_error;
+  // Best of coded error using long term reference.
+  int64_t lt_coded_error;
+
   // Count of motion vector.
   int mv_count;
   // Count of blocks that pick inter prediction (inter pred error is smaller
@@ -548,13 +545,13 @@ struct EncodeFrameParams;
 struct AV1EncoderConfig;
 struct TileDataEnc;
 
-static INLINE int is_fp_wavelet_energy_invalid(
+static inline int is_fp_wavelet_energy_invalid(
     const FIRSTPASS_STATS *fp_stats) {
   assert(fp_stats != NULL);
   return (fp_stats->frame_avg_wavelet_energy < 0);
 }
 
-static INLINE BLOCK_SIZE get_fp_block_size(int is_screen_content_type) {
+static inline BLOCK_SIZE get_fp_block_size(int is_screen_content_type) {
   return (is_screen_content_type ? BLOCK_8X8 : BLOCK_16X16);
 }
 
@@ -567,6 +564,8 @@ void av1_first_pass_row(struct AV1_COMP *cpi, struct ThreadData *td,
                         struct TileDataEnc *tile_data, const int mb_row,
                         const BLOCK_SIZE fp_block_size);
 void av1_end_first_pass(struct AV1_COMP *cpi);
+
+void av1_free_firstpass_data(FirstPassData *firstpass_data);
 
 void av1_twopass_zero_stats(FIRSTPASS_STATS *section);
 void av1_accumulate_stats(FIRSTPASS_STATS *section,

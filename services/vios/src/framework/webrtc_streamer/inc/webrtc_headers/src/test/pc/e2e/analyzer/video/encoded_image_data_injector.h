@@ -12,9 +12,8 @@
 #define TEST_PC_E2E_ANALYZER_VIDEO_ENCODED_IMAGE_DATA_INJECTOR_H_
 
 #include <cstdint>
-#include <utility>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "api/video/encoded_image.h"
 
 namespace webrtc {
@@ -35,7 +34,7 @@ class EncodedImageDataInjector {
 };
 
 struct EncodedImageExtractionResult {
-  absl::optional<uint16_t> id;
+  std::optional<uint16_t> id;
   EncodedImage image;
   // Is true if encoded image should be discarded. It is used to filter out
   // unnecessary spatial layers and simulcast streams.

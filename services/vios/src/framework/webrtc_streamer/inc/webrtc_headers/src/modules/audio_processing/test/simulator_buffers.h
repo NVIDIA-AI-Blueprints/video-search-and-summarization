@@ -11,11 +11,12 @@
 #ifndef MODULES_AUDIO_PROCESSING_TEST_SIMULATOR_BUFFERS_H_
 #define MODULES_AUDIO_PROCESSING_TEST_SIMULATOR_BUFFERS_H_
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 
+#include "api/audio/audio_processing.h"
 #include "modules/audio_processing/audio_buffer.h"
-#include "modules/audio_processing/include/audio_processing.h"
 #include "rtc_base/random.h"
 
 namespace webrtc {

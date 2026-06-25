@@ -22,24 +22,6 @@ namespace libyuv {
 extern "C" {
 #endif
 
-// TODO(fbarchard): Move cpu macros to row.h
-#if defined(__pnacl__) || defined(__CLR_VER) ||            \
-    (defined(__native_client__) && defined(__x86_64__)) || \
-    (defined(__i386__) && !defined(__SSE__) && !defined(__clang__))
-#define LIBYUV_DISABLE_X86
-#endif
-// MemorySanitizer does not support assembly code yet. http://crbug.com/344505
-#if defined(__has_feature)
-#if __has_feature(memory_sanitizer)
-#define LIBYUV_DISABLE_X86
-#endif
-#endif
-// The following are available on all x86 platforms:
-#if !defined(LIBYUV_DISABLE_X86) && \
-    (defined(_M_IX86) || defined(__x86_64__) || defined(__i386__))
-#define HAS_ARGBAFFINEROW_SSE2
-#endif
-
 // Copy a plane of data.
 LIBYUV_API
 void CopyPlane(const uint8_t* src_y,
@@ -74,6 +56,16 @@ void Convert8To16Plane(const uint8_t* src_y,
                        int scale,  // 1024 for 10 bits
                        int width,
                        int height);
+
+LIBYUV_API
+void Convert8To8Plane(const uint8_t* src_y,
+                      int src_stride_y,
+                      uint8_t* dst_y,
+                      int dst_stride_y,
+                      int scale,  // 220 for Y, 225 for U,V
+                      int bias,   // 16
+                      int width,
+                      int height);
 
 // Set a plane of data to a 32 bit value.
 LIBYUV_API
@@ -495,6 +487,9 @@ int NV21ToNV12(const uint8_t* src_y,
                int width,
                int height);
 
+// Alias
+#define NV12ToNV21 NV21ToNV12
+
 LIBYUV_API
 int YUY2ToY(const uint8_t* src_yuy2,
             int src_stride_yuy2,
@@ -763,6 +758,10 @@ int ARGBPolynomial(const uint8_t* src_argb,
 
 // Convert plane of 16 bit shorts to half floats.
 // Source values are multiplied by scale before storing as half float.
+//
+// Note: Unlike other libyuv functions that operate on uint16_t buffers, the
+// src_stride_y and dst_stride_y parameters of HalfFloatPlane() are in bytes,
+// not in units of uint16_t.
 LIBYUV_API
 int HalfFloatPlane(const uint16_t* src_y,
                    int src_stride_y,
@@ -826,15 +825,6 @@ int ARGBCopyYToAlpha(const uint8_t* src_y,
                      int dst_stride_argb,
                      int width,
                      int height);
-
-typedef void (*ARGBBlendRow)(const uint8_t* src_argb0,
-                             const uint8_t* src_argb1,
-                             uint8_t* dst_argb,
-                             int width);
-
-// Get function to Alpha Blend ARGB pixels and store to destination.
-LIBYUV_API
-ARGBBlendRow GetARGBBlend();
 
 // Alpha Blend ARGB images and store to destination.
 // Source is pre-multiplied by alpha using ARGBAttenuate.
@@ -1087,27 +1077,11 @@ int I420Interpolate(const uint8_t* src0_y,
                     int height,
                     int interpolation);
 
-// Row function for copying pixels from a source with a slope to a row
-// of destination. Useful for scaling, rotation, mirror, texture mapping.
-LIBYUV_API
-void ARGBAffineRow_C(const uint8_t* src_argb,
-                     int src_argb_stride,
-                     uint8_t* dst_argb,
-                     const float* uv_dudv,
-                     int width);
-// TODO(fbarchard): Move ARGBAffineRow_SSE2 to row.h
-LIBYUV_API
-void ARGBAffineRow_SSE2(const uint8_t* src_argb,
-                        int src_argb_stride,
-                        uint8_t* dst_argb,
-                        const float* uv_dudv,
-                        int width);
-
 // Shuffle ARGB channel order.  e.g. BGRA to ARGB.
 // shuffler is 16 bytes.
 LIBYUV_API
-int ARGBShuffle(const uint8_t* src_bgra,
-                int src_stride_bgra,
+int ARGBShuffle(const uint8_t* src_argb,
+                int src_stride_argb,
                 uint8_t* dst_argb,
                 int dst_stride_argb,
                 const uint8_t* shuffler,

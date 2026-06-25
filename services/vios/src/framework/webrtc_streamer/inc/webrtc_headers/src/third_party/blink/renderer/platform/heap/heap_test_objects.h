@@ -101,7 +101,7 @@ class LinkedObject : public GarbageCollected<LinkedObject> {
   explicit LinkedObject(LinkedObject* next) : next_(next) {}
 
   void set_next(LinkedObject* next) { next_ = next; }
-  LinkedObject* next() const { return next_; }
+  LinkedObject* next() const { return next_.Get(); }
   Member<LinkedObject>& next_ref() { return next_; }
 
   virtual void Trace(Visitor* visitor) const { visitor->Trace(next_); }
@@ -128,7 +128,7 @@ class IntegerObject : public GarbageCollected<IntegerObject> {
     return other.Value() == Value();
   }
 
-  unsigned GetHash() { return WTF::GetHash(x_); }
+  unsigned GetHash() { return blink::GetHash(x_); }
 
  private:
   int x_;
@@ -136,7 +136,7 @@ class IntegerObject : public GarbageCollected<IntegerObject> {
 
 struct IntegerObjectHash {
   static unsigned GetHash(const IntegerObject& key) {
-    return WTF::HashInt(static_cast<uint32_t>(key.Value()));
+    return HashInt(static_cast<uint32_t>(key.Value()));
   }
 
   static bool Equal(const IntegerObject& a, const IntegerObject& b) {

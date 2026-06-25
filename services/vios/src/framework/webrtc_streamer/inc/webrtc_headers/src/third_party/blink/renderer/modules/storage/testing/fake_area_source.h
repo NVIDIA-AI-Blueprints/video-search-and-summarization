@@ -29,7 +29,7 @@ class FakeAreaSource : public GarbageCollected<FakeAreaSource>,
   bool EnqueueStorageEvent(const String& key,
                            const String& old_value,
                            const String& new_value,
-                           const String& url) override {
+                           const KURL& url) override {
     events.push_back(Event{key, old_value, new_value, url});
     return true;
   }
@@ -40,7 +40,7 @@ class FakeAreaSource : public GarbageCollected<FakeAreaSource>,
     return blink::WebScopedVirtualTimePauser();
   }
 
-  LocalDOMWindow* GetDOMWindow() override { return local_dom_window_; }
+  LocalDOMWindow* GetDOMWindow() override { return local_dom_window_.Get(); }
 
   struct Event {
     String key, old_value, new_value, url;

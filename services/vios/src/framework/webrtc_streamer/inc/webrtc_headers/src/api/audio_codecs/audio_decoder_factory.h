@@ -12,40 +12,43 @@
 #define API_AUDIO_CODECS_AUDIO_DECODER_FACTORY_H_
 
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "absl/base/nullability.h"
 #include "api/audio_codecs/audio_codec_pair_id.h"
 #include "api/audio_codecs/audio_decoder.h"
 #include "api/audio_codecs/audio_format.h"
-#include "rtc_base/ref_count.h"
+#include "api/environment/environment.h"
+#include "api/ref_count.h"
 
 namespace webrtc {
 
 // A factory that creates AudioDecoders.
-class AudioDecoderFactory : public rtc::RefCountInterface {
+class AudioDecoderFactory : public RefCountInterface {
  public:
   virtual std::vector<AudioCodecSpec> GetSupportedDecoders() = 0;
 
   virtual bool IsSupportedDecoder(const SdpAudioFormat& format) = 0;
 
-  // Create a new decoder instance. The `codec_pair_id` argument is used to link
-  // encoders and decoders that talk to the same remote entity: if a
-  // AudioEncoderFactory::MakeAudioEncoder() and a
-  // AudioDecoderFactory::MakeAudioDecoder() call receive non-null IDs that
-  // compare equal, the factory implementations may assume that the encoder and
-  // decoder form a pair. (The intended use case for this is to set up
-  // communication between the AudioEncoder and AudioDecoder instances, which is
-  // needed for some codecs with built-in bandwidth adaptation.)
-  //
-  // Returns null if the format isn't supported.
-  //
-  // Note: Implementations need to be robust against combinations other than
-  // one encoder, one decoder getting the same ID; such decoders must still
-  // work.
-  virtual std::unique_ptr<AudioDecoder> MakeAudioDecoder(
+  // Creates a new decoder instance.
+  virtual absl_nullable std::unique_ptr<AudioDecoder> Create(
+      const Environment& env,
+      const SdpAudioFormat& format) {
+    return Create(env, format, std::nullopt);
+  }
+  // Backwards compatible call format. The "codec_pair_id" refers to deleted
+  // functionality for linking encoders to decoders; this is no longer used.
+  // TODO: https://issues.webrtc.org/398550915 - remove when no longer used,
+  // and make above method pure virtual.
+  virtual absl_nullable std::unique_ptr<AudioDecoder> Create(
+      const Environment& env,
       const SdpAudioFormat& format,
-      absl::optional<AudioCodecPairId> codec_pair_id) = 0;
+      std::optional<AudioCodecPairId> /* codec_pair_id */) {
+    // Note: If neither method is implemented, this default implementation
+    // will result in a stack overflow.
+    return Create(env, format);
+  }
 };
 
 }  // namespace webrtc

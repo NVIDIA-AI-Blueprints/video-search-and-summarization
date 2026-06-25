@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PERMISSIONS_POLICY_IFRAME_POLICY_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PERMISSIONS_POLICY_IFRAME_POLICY_H_
 
+#include "services/network/public/cpp/permissions_policy/permissions_policy.h"
+#include "services/network/public/cpp/permissions_policy/permissions_policy_declaration.h"
 #include "third_party/blink/renderer/core/permissions_policy/dom_feature_policy.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
@@ -22,28 +24,29 @@ class IFramePolicy final : public DOMFeaturePolicy {
   // Create a new IFramePolicy, which is synthetic for a frame contained within
   // a document.
   IFramePolicy(ExecutionContext* parent_context,
-               const ParsedPermissionsPolicy& container_policy,
-               scoped_refptr<const SecurityOrigin> src_origin)
+               const network::ParsedPermissionsPolicy& container_policy,
+               const SecurityOrigin& src_origin)
       : DOMFeaturePolicy(parent_context) {
-    DCHECK(src_origin);
     UpdateContainerPolicy(container_policy, src_origin);
   }
 
   void UpdateContainerPolicy(
-      const ParsedPermissionsPolicy& container_policy,
-      scoped_refptr<const SecurityOrigin> src_origin) override {
-    policy_ = PermissionsPolicy::CreateFromParentPolicy(
-        context_->GetSecurityContext().GetPermissionsPolicy(), container_policy,
-        src_origin->ToUrlOrigin());
+      const network::ParsedPermissionsPolicy& container_policy,
+      const SecurityOrigin& src_origin) override {
+    policy_ = network::PermissionsPolicy::CreateFromParentPolicy(
+        context_->GetSecurityContext().GetPermissionsPolicy(),
+        /*header_policy=*/{}, container_policy, src_origin.ToUrlOrigin());
   }
 
  protected:
-  const PermissionsPolicy* GetPolicy() const override { return policy_.get(); }
+  const network::PermissionsPolicy* GetPolicy() const override {
+    return policy_.get();
+  }
 
   bool IsIFramePolicy() const override { return true; }
 
  private:
-  std::unique_ptr<PermissionsPolicy> policy_;
+  std::unique_ptr<network::PermissionsPolicy> policy_;
 };
 
 }  // namespace blink

@@ -19,21 +19,25 @@
 
 #include <cstdint>
 
-#include "perfetto/protozero/scattered_heap_buffer.h"
-#include "protos/perfetto/trace/android/network_trace.pbzero.h"
-#include "protos/perfetto/trace/trace_packet.pbzero.h"
-#include "src/trace_processor/importers/common/args_tracker.h"
+#include "perfetto/ext/base/flat_hash_map.h"
+#include "perfetto/protozero/field.h"
+#include "perfetto/trace_processor/ref_counted.h"
+#include "perfetto/trace_processor/trace_blob_view.h"
 #include "src/trace_processor/importers/common/parser_types.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
 #include "src/trace_processor/importers/proto/proto_importer_module.h"
 #include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/types/trace_processor_context.h"
 
-namespace perfetto {
-namespace trace_processor {
+#include "protos/perfetto/trace/android/network_trace.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
+
+namespace perfetto::trace_processor {
 
 class NetworkTraceModule : public ProtoImporterModule {
  public:
-  explicit NetworkTraceModule(TraceProcessorContext* context);
+  explicit NetworkTraceModule(ProtoImporterModuleContext* module_context,
+                              TraceProcessorContext* context);
   ~NetworkTraceModule() override = default;
 
   // Tokenize and de-intern NetworkPacketBundles so that bundles of multiple
@@ -45,7 +49,7 @@ class NetworkTraceModule : public ProtoImporterModule {
       const protos::pbzero::TracePacket::Decoder& decoder,
       TraceBlobView* packet,
       int64_t ts,
-      PacketSequenceState* state,
+      RefPtr<PacketSequenceStateGeneration> state,
       uint32_t field_id) override;
 
   void ParseTracePacketData(const protos::pbzero::TracePacket::Decoder& decoder,
@@ -54,21 +58,26 @@ class NetworkTraceModule : public ProtoImporterModule {
                             uint32_t field_id) override;
 
  private:
-  void ParseGenericEvent(
-      int64_t ts,
-      int64_t dur,
-      protos::pbzero::NetworkPacketEvent::Decoder& evt,
-      std::function<void(ArgsTracker::BoundInserter*)> extra_args);
+  void ParseGenericEvent(int64_t ts,
+                         int64_t dur,
+                         int64_t length,
+                         int64_t count,
+                         protos::pbzero::NetworkPacketEvent::Decoder& evt);
 
   void ParseNetworkPacketEvent(int64_t ts, protozero::ConstBytes blob);
   void ParseNetworkPacketBundle(int64_t ts, protozero::ConstBytes blob);
 
-  // Helper to simplify pushing a TracePacket to the sorter. The caller fills in
-  // the packet buffer and uses this to push for sorting and reset the buffer.
-  void PushPacketBufferForSort(int64_t timestamp, PacketSequenceState* state);
+  // Pushes a serialized TracePacket to the sorter.
+  void PushPacketBufferForSort(int64_t timestamp,
+                               TraceBlobView tbv,
+                               RefPtr<PacketSequenceStateGeneration> state);
+
+  StringId GetIpProto(protos::pbzero::NetworkPacketEvent::Decoder& evt);
 
   TraceProcessorContext* context_;
-  protozero::HeapBuffered<protos::pbzero::TracePacket> packet_buffer_;
+
+  bool loaded_package_names_ = false;
+  base::FlatHashMap<int64_t, StringId> package_names_;
 
   const StringId net_arg_length_;
   const StringId net_arg_ip_proto_;
@@ -77,12 +86,15 @@ class NetworkTraceModule : public ProtoImporterModule {
   const StringId net_arg_uid_;
   const StringId net_arg_local_port_;
   const StringId net_arg_remote_port_;
+  const StringId net_arg_icmp_type_;
+  const StringId net_arg_icmp_code_;
   const StringId net_ipproto_tcp_;
   const StringId net_ipproto_udp_;
+  const StringId net_ipproto_icmp_;
+  const StringId net_ipproto_icmpv6_;
   const StringId packet_count_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_NETWORK_TRACE_MODULE_H_

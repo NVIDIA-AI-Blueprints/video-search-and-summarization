@@ -11,7 +11,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -39,7 +39,8 @@ RTC_OBJC_EXPORT
 /** Returns the configuration that WebRTC needs. */
 + (instancetype)webRTCConfiguration;
 /** Provide a way to override the default configuration. */
-+ (void)setWebRTCConfiguration:(RTC_OBJC_TYPE(RTCAudioSessionConfiguration) *)configuration;
++ (void)setWebRTCConfiguration:
+    (RTC_OBJC_TYPE(RTCAudioSessionConfiguration) *)configuration;
 
 @end
 

@@ -10,7 +10,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -25,7 +25,8 @@ RTC_OBJC_EXPORT
 @property(nonatomic, strong, readonly) NSArray<RTC_OBJC_TYPE(RTCAudioTrack) *> *audioTracks;
 
 /** The video tracks in this stream. */
-@property(nonatomic, strong, readonly) NSArray<RTC_OBJC_TYPE(RTCVideoTrack) *> *videoTracks;
+@property(nonatomic, strong, readonly)
+    NSArray<RTC_OBJC_TYPE(RTCVideoTrack) *> *videoTracks;
 
 /** An identifier for this media stream. */
 @property(nonatomic, readonly) NSString *streamId;

@@ -9,13 +9,14 @@
 
 #include <memory>
 
+#include "base/containers/span.h"
+#include "base/gtest_prod_util.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
 #include "media/base/audio_converter.h"
 #include "media/base/reentrancy_checker.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_sink.h"
 #include "third_party/blink/public/platform/web_audio_source_provider.h"
-#include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
 
@@ -47,8 +48,9 @@ class MODULES_EXPORT WebAudioMediaStreamAudioSink
  public:
   static const int kWebAudioRenderBufferSize;
 
-  explicit WebAudioMediaStreamAudioSink(MediaStreamComponent* component,
-                                        int context_sample_rate);
+  WebAudioMediaStreamAudioSink(MediaStreamComponent* component,
+                               int context_sample_rate,
+                               base::TimeDelta platform_buffer_duration);
 
   WebAudioMediaStreamAudioSink(const WebAudioMediaStreamAudioSink&) = delete;
   WebAudioMediaStreamAudioSink& operator=(const WebAudioMediaStreamAudioSink&) =
@@ -64,19 +66,20 @@ class MODULES_EXPORT WebAudioMediaStreamAudioSink
 
   // WebAudioSourceProvider implementation.
   void SetClient(WebAudioSourceProviderClient* client) override;
-  void ProvideInput(const WebVector<float*>& audio_data,
+  void ProvideInput(base::span<const base::span<float>> audio_data,
                     int number_of_frames) override;
 
-  // Method to allow the unittests to inject its own sink parameters to avoid
-  // query the hardware.
-  // TODO(xians,tommi): Remove and instead offer a way to inject the sink
-  // parameters so that the implementation doesn't rely on the global default
-  // hardware config but instead gets the parameters directly from the sink
-  // (WebAudio in this case). Ideally the unit test should be able to use that
-  // same mechanism to inject the sink parameters for testing.
-  void SetSinkParamsForTesting(const media::AudioParameters& sink_params);
-
  private:
+  FRIEND_TEST_ALL_PREFIXES(WebAudioMediaStreamAudioSinkFifoTest, VerifyFifo);
+
+  struct FifoStats {
+    int overruns = 0;
+    int underruns = 0;
+  };
+
+  void ResetFifoStatsForTesting();
+  const FifoStats& GetFifoStatsForTesting();
+
   // media::AudioConverter::InputCallback implementation.
   // This function is triggered by the above ProvideInput() on the WebAudio
   // audio thread, so it has be called under the protection of |lock_|.
@@ -88,12 +91,11 @@ class MODULES_EXPORT WebAudioMediaStreamAudioSink
   std::unique_ptr<media::AudioFifo> fifo_ GUARDED_BY(lock_);
   bool is_enabled_ GUARDED_BY(lock_);
   media::AudioParameters source_params_ GUARDED_BY(lock_);
-  media::AudioParameters sink_params_ GUARDED_BY(lock_);
 
   // Protects the above variables.
   base::Lock lock_;
 
-  // No lock protection needed since only accessed in WebVector version of
+  // No lock protection needed since only accessed in span version of
   // ProvideInput().
   std::unique_ptr<media::AudioBus> output_wrapper_;
 
@@ -106,6 +108,19 @@ class MODULES_EXPORT WebAudioMediaStreamAudioSink
   // No lock protection needed since only accessed in constructor, destructor
   // and OnReadyStateChanged().
   bool track_stopped_;
+
+  // Buffer duration of the output backing up the audio context the sink
+  // delivers audio to. Affects how many public ProvideInput() calls can be
+  // received in one batch, and thus needs to be taken into account when
+  // configuring `fifo_`.
+  const base::TimeDelta platform_buffer_duration_;
+
+  // Parameters at which audio is delivered to the WebAudio graph, i.e. of the
+  // public ProvideInput() call.
+  const media::AudioParameters sink_params_;
+
+  // For testing. Instantiated only if ResetFifoStatsForTesting() is called.
+  std::unique_ptr<FifoStats> fifo_stats_;
 
   // Used to assert that OnData() is only accessed by one thread at a time. We
   // can't use a thread checker since thread may change.

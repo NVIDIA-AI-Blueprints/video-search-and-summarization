@@ -11,6 +11,10 @@
 #include "components/viz/common/surfaces/surface_id.h"
 #include "third_party/blink/public/platform/web_common.h"
 
+namespace viz {
+class FrameSinkId;
+}
+
 namespace blink {
 
 // Listens for updates made on the cc::Layer by the WebSurfaceLayerBridge.
@@ -32,12 +36,9 @@ class BLINK_PLATFORM_EXPORT WebSurfaceLayerBridgeObserver {
 // Maintains and exposes the SurfaceLayer.
 class BLINK_PLATFORM_EXPORT WebSurfaceLayerBridge {
  public:
-  enum class ContainsVideo { kYes, kNo };
-
   // |parent_frame_sink_id| identifies the local root widget's FrameSinkId.
   static std::unique_ptr<WebSurfaceLayerBridge> Create(
       viz::FrameSinkId parent_frame_sink_id,
-      ContainsVideo contains_video,
       WebSurfaceLayerBridgeObserver*,
       cc::UpdateSubmissionStateCB);
   virtual ~WebSurfaceLayerBridge();
@@ -49,6 +50,8 @@ class BLINK_PLATFORM_EXPORT WebSurfaceLayerBridge {
   virtual void ClearObserver() = 0;
   virtual void RegisterFrameSinkHierarchy() = 0;
   virtual void UnregisterFrameSinkHierarchy() = 0;
+  virtual void ReparentFrameSinkHierarchy(
+      const viz::FrameSinkId& new_parent_frame_sink_id) = 0;
 };
 
 }  // namespace blink

@@ -33,12 +33,12 @@
 #include <stdint.h>
 #include <mutex>
 
-#include <api/task_queue/task_queue_factory.h>
+#include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
 #include <api/video/encoded_image.h>
 #include <api/video_codecs/video_codec.h>
 #include <api/video_codecs/video_decoder.h>
 #include <modules/video_coding/include/video_codec_interface.h>
-#include <rtc_base/task_queue.h>
 #include <linux/videodev2.h>
 #include <queue>
 #include "v4l2_nv_extensions.h"
@@ -101,7 +101,7 @@ private:
 /**
  * @brief Class representing a buffer.
  *
- * The Buffer class is modeled on the basis of the @c v4l2_buffer
+ * The NvV4l2Buffer class is modeled on the basis of the @c v4l2_buffer
  * structure. The buffer has @c buf_type @c v4l2_buf_type, @c
  * memory_type @c v4l2_memory, and an index. It contains an
  * BufferPlane array similar to the array of @c v4l2_plane
@@ -115,7 +115,7 @@ private:
  * format.
  */
 
-class Buffer
+class NvV4l2Buffer
 {
 public:
     /**
@@ -157,15 +157,15 @@ public:
      * its member functions.
      */
 
-    Buffer(enum v4l2_buf_type buf_type, enum v4l2_memory memory_type,
+    NvV4l2Buffer(enum v4l2_buf_type buf_type, enum v4l2_memory memory_type,
            uint32_t n_planes, BufferPlaneFormat *fmt, uint32_t index, bool is_cuvid);
 
 
     /**
-     * Destructor for the Buffer class
+     * Destructor for the NvV4l2Buffer class
      */
 
-     ~Buffer();
+     ~NvV4l2Buffer();
 
     /**
      * Maps the contents of the buffer to memory.
@@ -191,10 +191,10 @@ public:
                                              descriptor (FD), plane format, etc. */
 
     /**
-     * Fills the Buffer::BufferPlaneFormat array.
+     * Fills the NvV4l2Buffer::BufferPlaneFormat array.
      */
     static int fill_buffer_plane_format(uint32_t *num_planes,
-            Buffer::BufferPlaneFormat *planefmts,
+            NvV4l2Buffer::BufferPlaneFormat *planefmts,
             uint32_t width, uint32_t height, uint32_t raw_pixfmt);
 
 private:
@@ -264,7 +264,6 @@ class NvVideoDecoder : public webrtc::VideoDecoder
   struct v4l2_plane v4l2_plane_op[MAX_PLANES] = {{0}};
   v4l2_capability caps = {{0}};
   struct v4l2_format op_format = {0};
-  int frameCount = 0;
 
   struct v4l2_requestbuffers op_reqbuf = {0};
   struct v4l2_requestbuffers cp_reqbuf = {0};
@@ -275,10 +274,10 @@ class NvVideoDecoder : public webrtc::VideoDecoder
 
   struct v4l2_ext_control control = {0};
   struct v4l2_ext_controls ctrls = {{0}};
-  Buffer::BufferPlaneFormat op_planefmts[MAX_PLANES] = {{0}};
-  Buffer::BufferPlaneFormat cp_planefmts[MAX_PLANES] = {{0}};
-  Buffer **op_buffers = NULL;
-  Buffer **cp_buffers = NULL;
+  NvV4l2Buffer::BufferPlaneFormat op_planefmts[MAX_PLANES] = {{0}};
+  NvV4l2Buffer::BufferPlaneFormat cp_planefmts[MAX_PLANES] = {{0}};
+  NvV4l2Buffer **op_buffers = NULL;
+  NvV4l2Buffer **cp_buffers = NULL;
   uint32_t op_index = 0;
   bool is_drc = false;
   bool is_cuvid = false;
@@ -304,7 +303,7 @@ class NvVideoDecoder : public webrtc::VideoDecoder
   int m_width = 0;
   int m_height = 0;
   std::string m_codec = "H264";
-  std::unique_ptr<rtc::TaskQueue> m_taskQueue = NULL;
+  std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> m_taskQueue;
   webrtc::TaskQueueFactory* m_taskQueueFactory = NULL;
   webrtc::TimeDelta m_decodeDelayMs;
   pthread_mutex_t queue_lock;
@@ -327,9 +326,9 @@ class NvVideoDecoder : public webrtc::VideoDecoder
   std::queue<struct InputData> m_inputQueue;
   WebrtcSyncObject syncObj = {};
 
-  int dqBuffer (struct v4l2_buffer &v4l2_buf, Buffer ** buffer,
+  int dqBuffer (struct v4l2_buffer &v4l2_buf, NvV4l2Buffer ** buffer,
     enum v4l2_buf_type buf_type, enum v4l2_memory memory_type, uint32_t num_retries);
-  int qBuffer (struct v4l2_buffer &v4l2_buf, Buffer * buffer,
+  int qBuffer (struct v4l2_buffer &v4l2_buf, NvV4l2Buffer * buffer,
     enum v4l2_buf_type buf_type, enum v4l2_memory memory_type, int num_planes);
   void check_sar();
   int query_and_set_capture();

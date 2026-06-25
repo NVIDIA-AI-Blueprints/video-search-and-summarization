@@ -8,37 +8,44 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "v8/include/v8-callbacks.h"
 
 namespace blink {
 
-// An import assertion key/value pair per spec:
-// https://tc39.es/proposal-import-assertions/
-struct ImportAssertion {
+// An import attribute key/value pair per spec:
+// https://tc39.es/proposal-import-attributes/
+struct ImportAttribute {
   String key;
   String value;
   TextPosition position;
-  ImportAssertion(const String& key,
+  ImportAttribute(const String& key,
                   const String& value,
                   const TextPosition& position)
       : key(key), value(value), position(position) {}
 };
 
 // An instance of a ModuleRequest record:
-// https://tc39.es/proposal-import-assertions/#sec-modulerequest-record
-// Represents a module script's request to import a module given a specifier and
-// list of import assertions.
+// https://tc39.es/proposal-import-attributes/#sec-modulerequest-record
+// Represents a module script's request to import a module given a specifier, an
+// import phase and a list of import attributes.
 struct CORE_EXPORT ModuleRequest {
   String specifier;
   TextPosition position;
-  Vector<ImportAssertion> import_assertions;
+  Vector<ImportAttribute> import_attributes;
+  v8::ModuleImportPhase import_phase;
   ModuleRequest(const String& specifier,
                 const TextPosition& position,
-                const Vector<ImportAssertion>& import_assertions)
+                const Vector<ImportAttribute>& import_attributes,
+                const v8::ModuleImportPhase& import_phase =
+                    v8::ModuleImportPhase::kEvaluation)
       : specifier(specifier),
         position(position),
-        import_assertions(import_assertions) {}
+        import_attributes(import_attributes),
+        import_phase(import_phase) {}
 
   String GetModuleTypeString() const;
+
+  bool HasInvalidImportAttributeKey(String* invalid_key) const;
 };
 
 }  // namespace blink

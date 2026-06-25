@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_CSP_CSP_VIOLATION_REPORT_BODY_H_
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_security_policy_violation_event_disposition.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_security_policy_violation_event_init.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/location_report_body.h"
@@ -29,7 +30,11 @@ class CORE_EXPORT CSPViolationReportBody : public LocationReportBody {
         original_policy_(violation_data.originalPolicy()),
         sample_(violation_data.sample()),
         disposition_(violation_data.disposition()),
-        status_code_(violation_data.statusCode()) {}
+        status_code_(violation_data.statusCode()),
+        url_hash_(violation_data.hasUrlHash() ? violation_data.urlHash()
+                                              : String()),
+        eval_hash_(violation_data.hasEvalHash() ? violation_data.evalHash()
+                                                : String()) {}
 
   ~CSPViolationReportBody() override = default;
 
@@ -39,8 +44,12 @@ class CORE_EXPORT CSPViolationReportBody : public LocationReportBody {
   const String& effectiveDirective() const { return effective_directive_; }
   const String& originalPolicy() const { return original_policy_; }
   const String& sample() const { return sample_; }
-  const String& disposition() const { return disposition_; }
+  const V8SecurityPolicyViolationEventDisposition& disposition() const {
+    return disposition_;
+  }
   uint16_t statusCode() const { return status_code_; }
+  const String& urlHash() const { return url_hash_; }
+  const String& evalHash() const { return eval_hash_; }
 
   void BuildJSONValue(V8ObjectBuilder& builder) const override;
 
@@ -51,8 +60,10 @@ class CORE_EXPORT CSPViolationReportBody : public LocationReportBody {
   const String effective_directive_;
   const String original_policy_;
   const String sample_;
-  const String disposition_;
+  const V8SecurityPolicyViolationEventDisposition disposition_;
   const uint16_t status_code_;
+  const String url_hash_;
+  const String eval_hash_;
 };
 
 }  // namespace blink

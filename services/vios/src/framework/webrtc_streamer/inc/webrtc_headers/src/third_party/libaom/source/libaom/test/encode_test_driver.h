@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "third_party/googletest/src/googletest/include/gtest/gtest.h"
+#include "gtest/gtest.h"
 
 #include "config/aom_config.h"
 
@@ -28,7 +28,13 @@ namespace libaom_test {
 class CodecFactory;
 class VideoSource;
 
-enum TestMode { kRealTime, kOnePassGood, kTwoPassGood, kAllIntra };
+enum TestMode {
+  kRealTime,
+  kOnePassGood,
+  kTwoPassGood,
+  kAllIntra,
+  kLowComplexityDecode
+};
 #define ALL_TEST_MODES                                                     \
   ::testing::Values(::libaom_test::kRealTime, ::libaom_test::kOnePassGood, \
                     ::libaom_test::kTwoPassGood)
@@ -149,7 +155,20 @@ class Encoder {
     const aom_codec_err_t res = aom_codec_control(&encoder_, ctrl_id, arg);
     ASSERT_EQ(AOM_CODEC_OK, res) << EncoderError();
   }
-#endif
+  void Control(int ctrl_id, aom_roi_map_t *arg) {
+    const aom_codec_err_t res = aom_codec_control(&encoder_, ctrl_id, arg);
+    ASSERT_EQ(AOM_CODEC_OK, res) << EncoderError();
+  }
+  void Control(int ctrl_id, aom_rc_funcs_t *arg) {
+    const aom_codec_err_t res = aom_codec_control(&encoder_, ctrl_id, arg);
+    ASSERT_EQ(AOM_CODEC_OK, res) << EncoderError();
+  }
+
+  void Control(int ctrl_id, aom_gop_info_t *arg) {
+    const aom_codec_err_t res = aom_codec_control(&encoder_, ctrl_id, arg);
+    ASSERT_EQ(AOM_CODEC_OK, res) << EncoderError();
+  }
+#endif  // CONFIG_AV1_ENCODER
 
   void SetOption(const char *name, const char *value) {
     const aom_codec_err_t res = aom_codec_set_option(&encoder_, name, value);
@@ -199,7 +218,7 @@ class EncoderTest {
     cfg_.g_threads = 1;
   }
 
-  virtual ~EncoderTest() {}
+  virtual ~EncoderTest() = default;
 
   // Initialize the cfg_ member with the default configuration for the
   // TestMode enum and maps the TestMode enum to the passes_ variable.

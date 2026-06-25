@@ -43,13 +43,13 @@ inline void AdvanceStringAndASSERTIgnoringCase(
     SegmentedString& source,
     const char* expected_characters) {
   while (*expected_characters)
-    source.AdvanceAndASSERTIgnoringCase(*expected_characters++);
+    source.AdvanceAndASSERTIgnoringCase(UNSAFE_TODO(*expected_characters++));
 }
 
 inline void AdvanceStringAndASSERT(SegmentedString& source,
                                    const char* expected_characters) {
   while (*expected_characters)
-    source.AdvanceAndASSERT(*expected_characters++);
+    source.AdvanceAndASSERT(UNSAFE_TODO(*expected_characters++));
 }
 
 #if defined(COMPILER_MSVC)
@@ -62,9 +62,7 @@ inline void AdvanceStringAndASSERT(SegmentedString& source,
   case prefix::stateName:              \
   stateName:
 #define BEGIN_STATE_NOLABEL(prefix, stateName) case prefix::stateName:
-#define END_STATE() \
-  NOTREACHED();     \
-  break;
+#define END_STATE() NOTREACHED();
 
 // We use this macro when the HTML5 spec says "reconsume the current input
 // character in the <mumble> state."

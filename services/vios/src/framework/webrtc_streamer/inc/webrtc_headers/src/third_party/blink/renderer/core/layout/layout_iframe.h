@@ -41,14 +41,13 @@ class CORE_EXPORT LayoutIFrame : public LayoutEmbeddedContent {
   }
 
  private:
-  bool ShouldComputeSizeAsReplaced() const override;
-  bool IsInlineBlockOrInlineTable() const override;
+  void UpdateAfterLayout() final;
 
-  void UpdateLayout() override;
+  PhysicalNaturalSizingInfo GetNaturalDimensions() const override;
 
-  bool IsOfType(LayoutObjectType type) const override {
+  bool IsLayoutIFrame() const final {
     NOT_DESTROYED();
-    return type == kLayoutObjectIFrame || LayoutEmbeddedContent::IsOfType(type);
+    return true;
   }
 };
 

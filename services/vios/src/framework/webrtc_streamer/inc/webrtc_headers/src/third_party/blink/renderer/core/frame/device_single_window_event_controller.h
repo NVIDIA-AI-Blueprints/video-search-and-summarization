@@ -34,13 +34,17 @@ class CORE_EXPORT DeviceSingleWindowEventController
   explicit DeviceSingleWindowEventController(LocalDOMWindow&);
 
   bool CheckPolicyFeatures(
-      const Vector<mojom::blink::PermissionsPolicyFeature>& features) const;
+      const Vector<network::mojom::PermissionsPolicyFeature>& features) const;
 
   void DispatchDeviceEvent(Event*);
 
   virtual Event* LastEvent() const = 0;
   virtual const AtomicString& EventTypeName() const = 0;
   virtual bool IsNullEvent(Event*) const = 0;
+
+  void set_needs_checking_null_events(bool enabled) {
+    needs_checking_null_events_ = enabled;
+  }
 
  private:
   bool needs_checking_null_events_;

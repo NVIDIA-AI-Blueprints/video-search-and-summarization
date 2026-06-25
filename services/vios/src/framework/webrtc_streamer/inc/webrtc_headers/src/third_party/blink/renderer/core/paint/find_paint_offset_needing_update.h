@@ -9,8 +9,9 @@
 
 #if DCHECK_IS_ON()
 
+#include <optional>
+
 #include "base/check_op.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/paint/fragment_data.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -50,7 +51,7 @@ class FindPaintOffsetNeedingUpdateScope {
     DCHECK_EQ(old_paint_offset_, paint_offset) << object_;
 
     const TransformPaintPropertyNodeOrAlias* new_parent = nullptr;
-    absl::optional<gfx::Vector2dF> new_translation;
+    std::optional<gfx::Vector2dF> new_translation;
     if (const auto* properties = fragment_data_.PaintProperties()) {
       if (const auto* translation = properties->PaintOffsetTranslation()) {
         new_parent = translation->Parent();
@@ -58,7 +59,9 @@ class FindPaintOffsetNeedingUpdateScope {
       }
     }
     DCHECK_EQ(!!old_translation_, !!new_translation) << object_;
-    DCHECK_EQ(old_parent_, new_parent) << object_.DebugName();
+    if (!object_.IsOverscrollAreaParent()) {
+      DCHECK_EQ(old_parent_, new_parent) << object_.DebugName();
+    }
     if (old_translation_ && new_translation)
       DCHECK_EQ(*old_translation_, *new_translation) << object_;
   }
@@ -69,7 +72,7 @@ class FindPaintOffsetNeedingUpdateScope {
   const bool& is_actually_needed_;
   PhysicalOffset old_paint_offset_;
   const TransformPaintPropertyNodeOrAlias* old_parent_ = nullptr;
-  absl::optional<gfx::Vector2dF> old_translation_;
+  std::optional<gfx::Vector2dF> old_translation_;
 };
 
 }  // namespace blink

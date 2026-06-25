@@ -31,12 +31,18 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_NETWORK_HTTP_PARSERS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_NETWORK_HTTP_PARSERS_H_
 
+#include <stdint.h>
+
+#include <memory>
+#include <optional>
+
 #include "base/time/time.h"
 #include "services/network/public/mojom/content_security_policy.mojom-blink-forward.h"
 #include "services/network/public/mojom/no_vary_search.mojom-blink-forward.h"
 #include "services/network/public/mojom/parsed_headers.mojom-blink-forward.h"
+#include "services/network/public/mojom/sri_message_signature.mojom-blink-forward.h"
 #include "services/network/public/mojom/timing_allow_origin.mojom-blink.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "services/network/public/mojom/unencoded_digest.mojom-blink-forward.h"
 #include "third_party/blink/renderer/platform/network/content_security_policy_response_headers.h"
 #include "third_party/blink/renderer/platform/network/parsed_content_type.h"
 #include "third_party/blink/renderer/platform/network/server_timing_header.h"
@@ -49,21 +55,19 @@
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
-#include <stdint.h>
-#include <memory>
-
 namespace blink {
 
 class HTTPHeaderMap;
-class ResourceResponse;
 class KURL;
+class ResourceResponse;
 
 enum ContentTypeOptionsDisposition {
   kContentTypeOptionsNone,
   kContentTypeOptionsNosniff
 };
 
-using CommaDelimitedHeaderSet = HashSet<String, CaseFoldingHashTraits<String>>;
+using CommaDelimitedHeaderSet =
+    HashSet<String, DeprecatedCaseFoldingHashTraits<String>>;
 
 struct CacheControlHeader {
   DISALLOW_NEW();
@@ -71,8 +75,8 @@ struct CacheControlHeader {
   bool contains_no_cache : 1;
   bool contains_no_store : 1;
   bool contains_must_revalidate : 1;
-  absl::optional<base::TimeDelta> max_age;
-  absl::optional<base::TimeDelta> stale_while_revalidate;
+  std::optional<base::TimeDelta> max_age;
+  std::optional<base::TimeDelta> stale_while_revalidate;
 
   CacheControlHeader()
       : parsed(false),
@@ -88,17 +92,17 @@ PLATFORM_EXPORT bool IsValidHTTPHeaderValue(const String&);
 // Checks whether the given string conforms to the |token| ABNF production
 // defined in the RFC 7230 or not.
 //
-// The ABNF is for validating octets, but this method takes a String instance
-// for convenience which consists of Unicode code points. When this method sees
-// non-ASCII characters, it just returns false.
-PLATFORM_EXPORT bool IsValidHTTPToken(const String&);
+// The ABNF is for validating octets, but this method takes a StringView
+// instance for convenience which consists of Unicode code points. When this
+// method sees non-ASCII characters, it just returns false.
+PLATFORM_EXPORT bool IsValidHTTPToken(const StringView&);
 // |matcher| specifies a function to check a whitespace character. if |nullptr|
 // is specified, ' ' and '\t' are treated as whitespace characters.
 PLATFORM_EXPORT bool ParseHTTPRefresh(const String& refresh,
-                                      WTF::CharacterMatchFunctionPtr matcher,
+                                      CharacterMatchFunctionPtr matcher,
                                       base::TimeDelta& delay,
                                       String& url);
-PLATFORM_EXPORT absl::optional<base::Time> ParseDate(const String&);
+PLATFORM_EXPORT std::optional<base::Time> ParseDate(const String&);
 
 // Given a Media Type (like "foo/bar; baz=gazonk" - usually from the
 // 'Content-Type' HTTP header), extract and return the "type/subtype" portion
@@ -111,29 +115,30 @@ PLATFORM_EXPORT absl::optional<base::Time> ParseDate(const String&);
 //   are trimmed.
 PLATFORM_EXPORT AtomicString ExtractMIMETypeFromMediaType(const AtomicString&);
 
+PLATFORM_EXPORT AtomicString MinimizedMIMEType(const AtomicString&);
+
 PLATFORM_EXPORT CacheControlHeader
 ParseCacheControlDirectives(const AtomicString& cache_control_header,
                             const AtomicString& pragma_header);
-PLATFORM_EXPORT void ParseCommaDelimitedHeader(const String& header_value,
+PLATFORM_EXPORT void ParseCommaDelimitedHeader(const StringView& header_value,
                                                CommaDelimitedHeaderSet&);
 
 PLATFORM_EXPORT ContentTypeOptionsDisposition
-ParseContentTypeOptionsHeader(const String& header);
+ParseContentTypeOptionsHeader(const StringView& header);
 
 // Returns true and stores the position of the end of the headers to |*end|
 // if the headers part ends in |bytes[0..size]|. Returns false otherwise.
 PLATFORM_EXPORT bool ParseMultipartFormHeadersFromBody(
-    const char* bytes,
-    wtf_size_t,
+    base::span<const uint8_t> bytes,
     HTTPHeaderMap* header_fields,
     wtf_size_t* end);
 
 // Returns true and stores the position of the end of the headers to |*end|
 // if the headers part ends in |bytes[0..size]|. Returns false otherwise.
-PLATFORM_EXPORT bool ParseMultipartHeadersFromBody(const char* bytes,
-                                                   wtf_size_t,
-                                                   ResourceResponse*,
-                                                   wtf_size_t* end);
+PLATFORM_EXPORT bool ParseMultipartHeadersFromBody(
+    base::span<const uint8_t> bytes,
+    ResourceResponse*,
+    wtf_size_t* end);
 
 // Extracts the values in a Content-Range header and returns true if all three
 // values are present and valid for a 206 response; otherwise returns false.
@@ -182,6 +187,16 @@ PLATFORM_EXPORT
 Vector<network::mojom::blink::ContentSecurityPolicyPtr>
 ParseContentSecurityPolicyHeaders(
     const ContentSecurityPolicyResponseHeaders& headers);
+
+// Parses SRI-relevant HTTP Message Signature headers. This wraps
+// network::ParseSRIMessageSignaturesFromHeaders with blink types.
+PLATFORM_EXPORT
+network::mojom::blink::SRIMessageSignaturesPtr
+ParseSRIMessageSignaturesFromHeaders(const String& raw_headers);
+
+PLATFORM_EXPORT
+network::mojom::blink::UnencodedDigestsPtr ParseUnencodedDigestsFromHeaders(
+    const String& raw_headers);
 
 PLATFORM_EXPORT
 network::mojom::blink::TimingAllowOriginPtr ParseTimingAllowOrigin(

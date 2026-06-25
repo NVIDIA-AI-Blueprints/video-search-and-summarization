@@ -26,6 +26,7 @@
 
 #include "config.h"
 #include "libavutil/attributes.h"
+#include "libavutil/error.h"
 #include "libavutil/intreadwrite.h"
 #include "hflip.h"
 
@@ -86,7 +87,7 @@ static void hflip_qword_c(const uint8_t *ssrc, uint8_t *ddst, int w)
         dst[j] = src[-j];
 }
 
-static av_unused int ff_hflip_init(FlipContext *s, int step[4], int nb_planes)
+av_unused static int ff_hflip_init(FlipContext *s, int step[4], int nb_planes)
 {
     for (int i = 0; i < nb_planes; i++) {
         step[i] *= s->bayer_plus1;
@@ -101,7 +102,7 @@ static av_unused int ff_hflip_init(FlipContext *s, int step[4], int nb_planes)
             return AVERROR_BUG;
         }
     }
-#if ARCH_X86
+#if ARCH_X86 && HAVE_X86ASM
     ff_hflip_init_x86(s, step, nb_planes);
 #endif
 

@@ -25,7 +25,7 @@ class CORE_EXPORT CSSTransition : public Animation {
   bool IsCSSTransition() const final { return true; }
 
   void ClearOwningElement() final { owning_element_ = nullptr; }
-  Element* OwningElement() const override { return owning_element_; }
+  Element* OwningElement() const override { return owning_element_.Get(); }
 
   uint64_t TransitionGeneration() const { return transition_generation_; }
   AtomicString transitionProperty() const;
@@ -42,7 +42,7 @@ class CORE_EXPORT CSSTransition : public Animation {
   // processed any such pending changes to computed values.  Notably, setting
   // display:none must update the play state.
   // https://drafts.csswg.org/css-transitions-2/#requirements-on-pending-style-changes
-  String playState() const override;
+  V8AnimationPlayState playState() const override;
   void Trace(blink::Visitor* visitor) const override {
     Animation::Trace(visitor);
     visitor->Trace(owning_element_);

@@ -17,40 +17,39 @@
 #ifndef SRC_TRACE_PROCESSOR_STORAGE_TRACE_STORAGE_H_
 #define SRC_TRACE_PROCESSOR_STORAGE_TRACE_STORAGE_H_
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
+#include <functional>
+#include <iterator>
+#include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "perfetto/base/logging.h"
 #include "perfetto/base/time.h"
-#include "perfetto/ext/base/hash.h"
 #include "perfetto/ext/base/string_view.h"
-#include "perfetto/ext/base/utils.h"
 #include "perfetto/trace_processor/basic_types.h"
-#include "perfetto/trace_processor/status.h"
+#include "perfetto/trace_processor/trace_blob_view.h"
+#include "src/trace_processor/containers/null_term_string_view.h"
 #include "src/trace_processor/containers/string_pool.h"
-#include "src/trace_processor/storage/metadata.h"
+#include "src/trace_processor/core/dataframe/dataframe.h"
 #include "src/trace_processor/storage/stats.h"
-#include "src/trace_processor/tables/android_tables_py.h"
-#include "src/trace_processor/tables/counter_tables_py.h"
-#include "src/trace_processor/tables/flow_tables_py.h"
-#include "src/trace_processor/tables/memory_tables_py.h"
-#include "src/trace_processor/tables/metadata_tables_py.h"
-#include "src/trace_processor/tables/profiler_tables_py.h"
-#include "src/trace_processor/tables/sched_tables_py.h"
-#include "src/trace_processor/tables/slice_tables_py.h"
-#include "src/trace_processor/tables/trace_proto_tables_py.h"
-#include "src/trace_processor/tables/track_tables_py.h"
+#include "src/trace_processor/tables/all_tables_fwd.h"
+#include "src/trace_processor/types/destructible.h"
 #include "src/trace_processor/types/variadic.h"
-#include "src/trace_processor/views/slice_views.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
+namespace etm {
+class TargetMemory;
+}
 
 // UniquePid is an offset into |unique_processes_|. This is necessary because
 // Unix pids are reused and thus not guaranteed to be unique over a long
@@ -66,69 +65,54 @@ using StringId = StringPool::Id;
 static const StringId kNullStringId = StringId::Null();
 
 using ArgSetId = uint32_t;
-static const ArgSetId kInvalidArgSetId = 0;
 
-using TrackId = tables::TrackTable::Id;
+using TrackId = tables::TrackTable_Id;
 
-using CounterId = tables::CounterTable::Id;
+using CounterId = tables::CounterTable_Id;
 
-using SliceId = tables::SliceTable::Id;
+using SliceId = tables::SliceTable_Id;
 
-using SchedId = tables::SchedSliceTable::Id;
+using SchedId = tables::SchedSliceTable_Id;
 
-using MappingId = tables::StackProfileMappingTable::Id;
+using MappingId = tables::StackProfileMappingTable_Id;
 
-using FrameId = tables::StackProfileFrameTable::Id;
+using FrameId = tables::StackProfileFrameTable_Id;
 
-using SymbolId = tables::SymbolTable::Id;
+using SymbolId = tables::SymbolTable_Id;
 
-using CallsiteId = tables::StackProfileCallsiteTable::Id;
+using CallsiteId = tables::StackProfileCallsiteTable_Id;
 
-using MetadataId = tables::MetadataTable::Id;
+using MetadataId = tables::MetadataTable_Id;
 
-using RawId = tables::RawTable::Id;
+using VulkanAllocId = tables::VulkanMemoryAllocationsTable_Id;
 
-using FlamegraphId = tables::ExperimentalFlamegraphNodesTable::Id;
+using ProcessMemorySnapshotId = tables::ProcessMemorySnapshotTable_Id;
 
-using VulkanAllocId = tables::VulkanMemoryAllocationsTable::Id;
+using SnapshotNodeId = tables::MemorySnapshotNodeTable_Id;
 
-using ProcessMemorySnapshotId = tables::ProcessMemorySnapshotTable::Id;
-
-using SnapshotNodeId = tables::MemorySnapshotNodeTable::Id;
+using TrackEventCallstacksId = tables::TrackEventCallstacksTable_Id;
 
 static const TrackId kInvalidTrackId =
     TrackId(std::numeric_limits<uint32_t>::max());
 
-enum class RefType {
-  kRefNoRef = 0,
-  kRefUtid = 1,
-  kRefCpuId = 2,
-  kRefIrq = 3,
-  kRefSoftIrq = 4,
-  kRefUpid = 5,
-  kRefGpuId = 6,
-  kRefTrack = 7,
-  kRefMax
-};
-
-const std::vector<NullTermStringView>& GetRefTypeStringMap();
+static constexpr uint32_t kDefaultMachineId = 0;
 
 // Stores a data inside a trace file in a columnar form. This makes it efficient
 // to read or search across a single field of the trace (e.g. all the thread
 // names for a given CPU).
 class TraceStorage {
  public:
-  TraceStorage(const Config& = Config());
+  explicit TraceStorage(const Config& = Config());
 
   virtual ~TraceStorage();
 
   class VirtualTrackSlices {
    public:
-    inline uint32_t AddVirtualTrackSlice(SliceId slice_id,
-                                         int64_t thread_timestamp_ns,
-                                         int64_t thread_duration_ns,
-                                         int64_t thread_instruction_count,
-                                         int64_t thread_instruction_delta) {
+    uint32_t AddVirtualTrackSlice(SliceId slice_id,
+                                  int64_t thread_timestamp_ns,
+                                  int64_t thread_duration_ns,
+                                  int64_t thread_instruction_count,
+                                  int64_t thread_instruction_delta) {
       slice_ids_.emplace_back(slice_id);
       thread_timestamp_ns_.emplace_back(thread_timestamp_ns);
       thread_duration_ns_.emplace_back(thread_duration_ns);
@@ -209,264 +193,112 @@ class TraceStorage {
     std::deque<int64_t> times_ended_;
   };
 
-  struct Stats {
-    using IndexMap = std::map<int, int64_t>;
-    int64_t value = 0;
-    IndexMap indexed_values;
-  };
-  using StatsMap = std::array<Stats, stats::kNumKeys>;
-
-  // Return an unqiue identifier for the contents of each string.
+  // Return an unique identifier for the contents of each string.
   // The string is copied internally and can be destroyed after this called.
   // Virtual for testing.
   virtual StringId InternString(base::StringView str) {
     return string_pool_.InternString(str);
   }
-
-  // Example usage: SetStats(stats::android_log_num_failed, 42);
-  void SetStats(size_t key, int64_t value) {
-    PERFETTO_DCHECK(key < stats::kNumKeys);
-    PERFETTO_DCHECK(stats::kTypes[key] == stats::kSingle);
-    stats_[key].value = value;
+  virtual StringId InternString(const char* str) {
+    return InternString(base::StringView(str));
   }
-
-  // Example usage: IncrementStats(stats::android_log_num_failed, -1);
-  void IncrementStats(size_t key, int64_t increment = 1) {
-    PERFETTO_DCHECK(key < stats::kNumKeys);
-    PERFETTO_DCHECK(stats::kTypes[key] == stats::kSingle);
-    stats_[key].value += increment;
+  virtual StringId InternString(const std::string& str) {
+    return InternString(base::StringView(str));
   }
-
-  // Example usage: IncrementIndexedStats(stats::cpu_failure, 1);
-  void IncrementIndexedStats(size_t key, int index, int64_t increment = 1) {
-    PERFETTO_DCHECK(key < stats::kNumKeys);
-    PERFETTO_DCHECK(stats::kTypes[key] == stats::kIndexed);
-    stats_[key].indexed_values[index] += increment;
-  }
-
-  // Example usage: SetIndexedStats(stats::cpu_failure, 1, 42);
-  void SetIndexedStats(size_t key, int index, int64_t value) {
-    PERFETTO_DCHECK(key < stats::kNumKeys);
-    PERFETTO_DCHECK(stats::kTypes[key] == stats::kIndexed);
-    stats_[key].indexed_values[index] = value;
-  }
-
-  // Example usage: opt_cpu_failure = GetIndexedStats(stats::cpu_failure, 1);
-  std::optional<int64_t> GetIndexedStats(size_t key, int index) {
-    PERFETTO_DCHECK(key < stats::kNumKeys);
-    PERFETTO_DCHECK(stats::kTypes[key] == stats::kIndexed);
-    auto kv = stats_[key].indexed_values.find(index);
-    if (kv != stats_[key].indexed_values.end()) {
-      return kv->second;
-    }
-    return std::nullopt;
-  }
-
-  class ScopedStatsTracer {
-   public:
-    ScopedStatsTracer(TraceStorage* storage, size_t key)
-        : storage_(storage), key_(key), start_ns_(base::GetWallTimeNs()) {}
-
-    ~ScopedStatsTracer() {
-      if (!storage_)
-        return;
-      auto delta_ns = base::GetWallTimeNs() - start_ns_;
-      storage_->IncrementStats(key_, delta_ns.count());
-    }
-
-    ScopedStatsTracer(ScopedStatsTracer&& other) noexcept { MoveImpl(&other); }
-
-    ScopedStatsTracer& operator=(ScopedStatsTracer&& other) {
-      MoveImpl(&other);
-      return *this;
-    }
-
-   private:
-    ScopedStatsTracer(const ScopedStatsTracer&) = delete;
-    ScopedStatsTracer& operator=(const ScopedStatsTracer&) = delete;
-
-    void MoveImpl(ScopedStatsTracer* other) {
-      storage_ = other->storage_;
-      key_ = other->key_;
-      start_ns_ = other->start_ns_;
-      other->storage_ = nullptr;
-    }
-
-    TraceStorage* storage_;
-    size_t key_;
-    base::TimeNanos start_ns_;
-  };
-
-  ScopedStatsTracer TraceExecutionTimeIntoStats(size_t key) {
-    return ScopedStatsTracer(this, key);
+  virtual StringId InternString(std::string_view str) {
+    return InternString(base::StringView(str.data(), str.size()));
   }
 
   // Reading methods.
   // Virtual for testing.
-  virtual NullTermStringView GetString(StringId id) const {
-    return string_pool_.Get(id);
+  virtual NullTermStringView GetString(std::optional<StringId> id) const {
+    return id ? string_pool_.Get(*id) : NullTermStringView();
   }
 
-  // Requests the removal of unused capacity.
-  // Matches the semantics of std::vector::shrink_to_fit.
-  void ShrinkToFitTables() {
-    // At the moment, we only bother calling ShrinkToFit on a set group
-    // of tables. If we wanted to extend this to every table, we'd need to deal
-    // with tracking all the tables in the storage: this is not worth doing
-    // given most memory is used by these tables.
-    thread_table_.ShrinkToFit();
-    process_table_.ShrinkToFit();
-    track_table_.ShrinkToFit();
-    counter_table_.ShrinkToFit();
-    slice_table_.ShrinkToFit();
-    raw_table_.ShrinkToFit();
-    sched_slice_table_.ShrinkToFit();
-    thread_state_table_.ShrinkToFit();
-    arg_table_.ShrinkToFit();
+  const tables::ThreadTable& thread_table() const {
+    return table<tables::ThreadTable>();
+  }
+  tables::ThreadTable* mutable_thread_table() {
+    return mutable_table<tables::ThreadTable>();
   }
 
-  const tables::ThreadTable& thread_table() const { return thread_table_; }
-  tables::ThreadTable* mutable_thread_table() { return &thread_table_; }
-
-  const tables::ProcessTable& process_table() const { return process_table_; }
-  tables::ProcessTable* mutable_process_table() { return &process_table_; }
+  const tables::ProcessTable& process_table() const {
+    return table<tables::ProcessTable>();
+  }
+  tables::ProcessTable* mutable_process_table() {
+    return mutable_table<tables::ProcessTable>();
+  }
 
   const tables::FiledescriptorTable& filedescriptor_table() const {
-    return filedescriptor_table_;
+    return table<tables::FiledescriptorTable>();
   }
   tables::FiledescriptorTable* mutable_filedescriptor_table() {
-    return &filedescriptor_table_;
+    return mutable_table<tables::FiledescriptorTable>();
   }
 
-  const tables::TrackTable& track_table() const { return track_table_; }
-  tables::TrackTable* mutable_track_table() { return &track_table_; }
-
-  const tables::CounterTrackTable& counter_track_table() const {
-    return counter_track_table_;
+  const tables::TrackTable& track_table() const {
+    return table<tables::TrackTable>();
   }
-  tables::CounterTrackTable* mutable_counter_track_table() {
-    return &counter_track_table_;
+  tables::TrackTable* mutable_track_table() {
+    return mutable_table<tables::TrackTable>();
   }
 
-  const tables::CpuCounterTrackTable& cpu_counter_track_table() const {
-    return cpu_counter_track_table_;
+  const tables::GpuContextTable& gpu_context_table() const {
+    return table<tables::GpuContextTable>();
   }
-  tables::CpuCounterTrackTable* mutable_cpu_counter_track_table() {
-    return &cpu_counter_track_table_;
+  tables::GpuContextTable* mutable_gpu_context_table() {
+    return mutable_table<tables::GpuContextTable>();
   }
 
   const tables::GpuCounterGroupTable& gpu_counter_group_table() const {
-    return gpu_counter_group_table_;
+    return table<tables::GpuCounterGroupTable>();
   }
   tables::GpuCounterGroupTable* mutable_gpu_counter_group_table() {
-    return &gpu_counter_group_table_;
-  }
-
-  const tables::GpuCounterTrackTable& gpu_counter_track_table() const {
-    return gpu_counter_track_table_;
-  }
-  tables::GpuCounterTrackTable* mutable_gpu_counter_track_table() {
-    return &gpu_counter_track_table_;
-  }
-
-  const tables::EnergyCounterTrackTable& energy_counter_track_table() const {
-    return energy_counter_track_table_;
-  }
-  tables::EnergyCounterTrackTable* mutable_energy_counter_track_table() {
-    return &energy_counter_track_table_;
-  }
-
-  const tables::UidCounterTrackTable& uid_counter_track_table() const {
-    return uid_counter_track_table_;
-  }
-  tables::UidCounterTrackTable* mutable_uid_counter_track_table() {
-    return &uid_counter_track_table_;
-  }
-
-  const tables::EnergyPerUidCounterTrackTable&
-  energy_per_uid_counter_track_table() const {
-    return energy_per_uid_counter_track_table_;
-  }
-  tables::EnergyPerUidCounterTrackTable*
-  mutable_energy_per_uid_counter_track_table() {
-    return &energy_per_uid_counter_track_table_;
-  }
-
-  const tables::IrqCounterTrackTable& irq_counter_track_table() const {
-    return irq_counter_track_table_;
-  }
-  tables::IrqCounterTrackTable* mutable_irq_counter_track_table() {
-    return &irq_counter_track_table_;
-  }
-
-  const tables::PerfCounterTrackTable& perf_counter_track_table() const {
-    return perf_counter_track_table_;
-  }
-  tables::PerfCounterTrackTable* mutable_perf_counter_track_table() {
-    return &perf_counter_track_table_;
-  }
-
-  const tables::ProcessCounterTrackTable& process_counter_track_table() const {
-    return process_counter_track_table_;
-  }
-  tables::ProcessCounterTrackTable* mutable_process_counter_track_table() {
-    return &process_counter_track_table_;
-  }
-
-  const tables::ProcessTrackTable& process_track_table() const {
-    return process_track_table_;
-  }
-  tables::ProcessTrackTable* mutable_process_track_table() {
-    return &process_track_table_;
-  }
-
-  const tables::ThreadTrackTable& thread_track_table() const {
-    return thread_track_table_;
-  }
-  tables::ThreadTrackTable* mutable_thread_track_table() {
-    return &thread_track_table_;
+    return mutable_table<tables::GpuCounterGroupTable>();
   }
 
   const tables::ThreadStateTable& thread_state_table() const {
-    return thread_state_table_;
+    return table<tables::ThreadStateTable>();
   }
   tables::ThreadStateTable* mutable_thread_state_table() {
-    return &thread_state_table_;
-  }
-
-  const tables::ThreadCounterTrackTable& thread_counter_track_table() const {
-    return thread_counter_track_table_;
-  }
-  tables::ThreadCounterTrackTable* mutable_thread_counter_track_table() {
-    return &thread_counter_track_table_;
-  }
-
-  const tables::SoftirqCounterTrackTable& softirq_counter_track_table() const {
-    return softirq_counter_track_table_;
-  }
-  tables::SoftirqCounterTrackTable* mutable_softirq_counter_track_table() {
-    return &softirq_counter_track_table_;
+    return mutable_table<tables::ThreadStateTable>();
   }
 
   const tables::SchedSliceTable& sched_slice_table() const {
-    return sched_slice_table_;
+    return table<tables::SchedSliceTable>();
   }
   tables::SchedSliceTable* mutable_sched_slice_table() {
-    return &sched_slice_table_;
+    return mutable_table<tables::SchedSliceTable>();
   }
 
-  const tables::SliceTable& slice_table() const { return slice_table_; }
-  tables::SliceTable* mutable_slice_table() { return &slice_table_; }
+  const tables::SliceTable& slice_table() const {
+    return table<tables::SliceTable>();
+  }
+  tables::SliceTable* mutable_slice_table() {
+    return mutable_table<tables::SliceTable>();
+  }
+
+  const tables::TrackEventCallstacksTable& track_event_callstacks_table()
+      const {
+    return table<tables::TrackEventCallstacksTable>();
+  }
+  tables::TrackEventCallstacksTable* mutable_track_event_callstacks_table() {
+    return mutable_table<tables::TrackEventCallstacksTable>();
+  }
 
   const tables::SpuriousSchedWakeupTable& spurious_sched_wakeup_table() const {
-    return spurious_sched_wakeup_table_;
+    return table<tables::SpuriousSchedWakeupTable>();
   }
   tables::SpuriousSchedWakeupTable* mutable_spurious_sched_wakeup_table() {
-    return &spurious_sched_wakeup_table_;
+    return mutable_table<tables::SpuriousSchedWakeupTable>();
   }
 
-  const tables::FlowTable& flow_table() const { return flow_table_; }
-  tables::FlowTable* mutable_flow_table() { return &flow_table_; }
+  const tables::FlowTable& flow_table() const {
+    return table<tables::FlowTable>();
+  }
+  tables::FlowTable* mutable_flow_table() {
+    return mutable_table<tables::FlowTable>();
+  }
 
   const VirtualTrackSlices& virtual_track_slices() const {
     return virtual_track_slices_;
@@ -475,271 +307,719 @@ class TraceStorage {
     return &virtual_track_slices_;
   }
 
-  const tables::GpuSliceTable& gpu_slice_table() const {
-    return gpu_slice_table_;
+  const tables::CounterTable& counter_table() const {
+    return table<tables::CounterTable>();
   }
-  tables::GpuSliceTable* mutable_gpu_slice_table() { return &gpu_slice_table_; }
-
-  const tables::CounterTable& counter_table() const { return counter_table_; }
-  tables::CounterTable* mutable_counter_table() { return &counter_table_; }
+  tables::CounterTable* mutable_counter_table() {
+    return mutable_table<tables::CounterTable>();
+  }
 
   const SqlStats& sql_stats() const { return sql_stats_; }
   SqlStats* mutable_sql_stats() { return &sql_stats_; }
 
+  const tables::StatsTable& stats_table() const {
+    return table<tables::StatsTable>();
+  }
+  tables::StatsTable* mutable_stats_table() {
+    return mutable_table<tables::StatsTable>();
+  }
+
+  const tables::AndroidAflagsTable& android_aflags_table() const {
+    return table<tables::AndroidAflagsTable>();
+  }
+  tables::AndroidAflagsTable* mutable_android_aflags_table() {
+    return mutable_table<tables::AndroidAflagsTable>();
+  }
+
+  const tables::AndroidCpuPerUidTrackTable& android_cpu_per_uid_track_table()
+      const {
+    return table<tables::AndroidCpuPerUidTrackTable>();
+  }
+  tables::AndroidCpuPerUidTrackTable*
+  mutable_android_cpu_per_uid_track_table() {
+    return mutable_table<tables::AndroidCpuPerUidTrackTable>();
+  }
+
   const tables::AndroidLogTable& android_log_table() const {
-    return android_log_table_;
+    return table<tables::AndroidLogTable>();
   }
   tables::AndroidLogTable* mutable_android_log_table() {
-    return &android_log_table_;
+    return mutable_table<tables::AndroidLogTable>();
   }
 
   const tables::AndroidDumpstateTable& android_dumpstate_table() const {
-    return android_dumpstate_table_;
+    return table<tables::AndroidDumpstateTable>();
   }
 
   tables::AndroidDumpstateTable* mutable_android_dumpstate_table() {
-    return &android_dumpstate_table_;
+    return mutable_table<tables::AndroidDumpstateTable>();
   }
 
-  const StatsMap& stats() const { return stats_; }
+  const tables::AndroidKeyEventsTable& android_key_events_table() const {
+    return table<tables::AndroidKeyEventsTable>();
+  }
+  tables::AndroidKeyEventsTable* mutable_android_key_events_table() {
+    return mutable_table<tables::AndroidKeyEventsTable>();
+  }
+
+  const tables::AndroidMotionEventsTable& android_motion_events_table() const {
+    return table<tables::AndroidMotionEventsTable>();
+  }
+  tables::AndroidMotionEventsTable* mutable_android_motion_events_table() {
+    return mutable_table<tables::AndroidMotionEventsTable>();
+  }
+
+  const tables::AndroidInputEventDispatchTable&
+  android_input_event_dispatch_table() const {
+    return table<tables::AndroidInputEventDispatchTable>();
+  }
+  tables::AndroidInputEventDispatchTable*
+  mutable_android_input_event_dispatch_table() {
+    return mutable_table<tables::AndroidInputEventDispatchTable>();
+  }
 
   const tables::MetadataTable& metadata_table() const {
-    return metadata_table_;
+    return table<tables::MetadataTable>();
   }
-  tables::MetadataTable* mutable_metadata_table() { return &metadata_table_; }
+  tables::MetadataTable* mutable_metadata_table() {
+    return mutable_table<tables::MetadataTable>();
+  }
+
+  const tables::BuildFlagsTable& build_flags_table() const {
+    return table<tables::BuildFlagsTable>();
+  }
+
+  tables::BuildFlagsTable* mutable_build_flags_table() {
+    return mutable_table<tables::BuildFlagsTable>();
+  }
+
+  const tables::ModulesTable& modules_table() const {
+    return table<tables::ModulesTable>();
+  }
+
+  tables::ModulesTable* mutable_modules_table() {
+    return mutable_table<tables::ModulesTable>();
+  }
+
+  const tables::TraceImportLogsTable& trace_import_logs_table() const {
+    return table<tables::TraceImportLogsTable>();
+  }
+
+  tables::TraceImportLogsTable* mutable_trace_import_logs_table() {
+    return mutable_table<tables::TraceImportLogsTable>();
+  }
 
   const tables::ClockSnapshotTable& clock_snapshot_table() const {
-    return clock_snapshot_table_;
+    return table<tables::ClockSnapshotTable>();
   }
   tables::ClockSnapshotTable* mutable_clock_snapshot_table() {
-    return &clock_snapshot_table_;
+    return mutable_table<tables::ClockSnapshotTable>();
   }
 
-  const tables::ArgTable& arg_table() const { return arg_table_; }
-  tables::ArgTable* mutable_arg_table() { return &arg_table_; }
+  const tables::ArgTable& arg_table() const {
+    return table<tables::ArgTable>();
+  }
+  tables::ArgTable* mutable_arg_table() {
+    return mutable_table<tables::ArgTable>();
+  }
 
-  const tables::RawTable& raw_table() const { return raw_table_; }
-  tables::RawTable* mutable_raw_table() { return &raw_table_; }
+  const tables::ChromeRawTable& chrome_raw_table() const {
+    return table<tables::ChromeRawTable>();
+  }
+  tables::ChromeRawTable* mutable_chrome_raw_table() {
+    return mutable_table<tables::ChromeRawTable>();
+  }
 
   const tables::FtraceEventTable& ftrace_event_table() const {
-    return ftrace_event_table_;
+    return table<tables::FtraceEventTable>();
   }
   tables::FtraceEventTable* mutable_ftrace_event_table() {
-    return &ftrace_event_table_;
+    return mutable_table<tables::FtraceEventTable>();
   }
 
-  const tables::CpuTable& cpu_table() const { return cpu_table_; }
-  tables::CpuTable* mutable_cpu_table() { return &cpu_table_; }
+  const tables::MachineTable& machine_table() const {
+    return table<tables::MachineTable>();
+  }
+  tables::MachineTable* mutable_machine_table() {
+    return mutable_table<tables::MachineTable>();
+  }
 
-  const tables::CpuFreqTable& cpu_freq_table() const { return cpu_freq_table_; }
-  tables::CpuFreqTable* mutable_cpu_freq_table() { return &cpu_freq_table_; }
+  const tables::CpuTable& cpu_table() const {
+    return table<tables::CpuTable>();
+  }
+  tables::CpuTable* mutable_cpu_table() {
+    return mutable_table<tables::CpuTable>();
+  }
+
+  const tables::GpuTable& gpu_table() const {
+    return table<tables::GpuTable>();
+  }
+  tables::GpuTable* mutable_gpu_table() {
+    return mutable_table<tables::GpuTable>();
+  }
+
+  const tables::CpuFreqTable& cpu_freq_table() const {
+    return table<tables::CpuFreqTable>();
+  }
+  tables::CpuFreqTable* mutable_cpu_freq_table() {
+    return mutable_table<tables::CpuFreqTable>();
+  }
 
   const tables::StackProfileMappingTable& stack_profile_mapping_table() const {
-    return stack_profile_mapping_table_;
+    return table<tables::StackProfileMappingTable>();
   }
   tables::StackProfileMappingTable* mutable_stack_profile_mapping_table() {
-    return &stack_profile_mapping_table_;
+    return mutable_table<tables::StackProfileMappingTable>();
   }
 
   const tables::StackProfileFrameTable& stack_profile_frame_table() const {
-    return stack_profile_frame_table_;
+    return table<tables::StackProfileFrameTable>();
   }
   tables::StackProfileFrameTable* mutable_stack_profile_frame_table() {
-    return &stack_profile_frame_table_;
+    return mutable_table<tables::StackProfileFrameTable>();
   }
 
   const tables::StackProfileCallsiteTable& stack_profile_callsite_table()
       const {
-    return stack_profile_callsite_table_;
+    return table<tables::StackProfileCallsiteTable>();
   }
   tables::StackProfileCallsiteTable* mutable_stack_profile_callsite_table() {
-    return &stack_profile_callsite_table_;
+    return mutable_table<tables::StackProfileCallsiteTable>();
   }
 
   const tables::HeapProfileAllocationTable& heap_profile_allocation_table()
       const {
-    return heap_profile_allocation_table_;
+    return table<tables::HeapProfileAllocationTable>();
   }
   tables::HeapProfileAllocationTable* mutable_heap_profile_allocation_table() {
-    return &heap_profile_allocation_table_;
+    return mutable_table<tables::HeapProfileAllocationTable>();
   }
 
   const tables::PackageListTable& package_list_table() const {
-    return package_list_table_;
+    return table<tables::PackageListTable>();
   }
   tables::PackageListTable* mutable_package_list_table() {
-    return &package_list_table_;
+    return mutable_table<tables::PackageListTable>();
+  }
+
+  const tables::AndroidUserListTable& user_list_table() const {
+    return table<tables::AndroidUserListTable>();
+  }
+  tables::AndroidUserListTable* mutable_user_list_table() {
+    return mutable_table<tables::AndroidUserListTable>();
   }
 
   const tables::AndroidGameInterventionListTable&
   android_game_intervention_list_table() const {
-    return android_game_intervention_list_table_;
+    return table<tables::AndroidGameInterventionListTable>();
   }
   tables::AndroidGameInterventionListTable*
   mutable_android_game_intervenion_list_table() {
-    return &android_game_intervention_list_table_;
+    return mutable_table<tables::AndroidGameInterventionListTable>();
   }
 
   const tables::ProfilerSmapsTable& profiler_smaps_table() const {
-    return profiler_smaps_table_;
+    return table<tables::ProfilerSmapsTable>();
   }
   tables::ProfilerSmapsTable* mutable_profiler_smaps_table() {
-    return &profiler_smaps_table_;
+    return mutable_table<tables::ProfilerSmapsTable>();
   }
 
-  const tables::StackSampleTable& stack_sample_table() const {
-    return stack_sample_table_;
+  const tables::TraceFileTable& trace_file_table() const {
+    return table<tables::TraceFileTable>();
   }
-  tables::StackSampleTable* mutable_stack_sample_table() {
-    return &stack_sample_table_;
+  tables::TraceFileTable* mutable_trace_file_table() {
+    return mutable_table<tables::TraceFileTable>();
   }
 
   const tables::CpuProfileStackSampleTable& cpu_profile_stack_sample_table()
       const {
-    return cpu_profile_stack_sample_table_;
+    return table<tables::CpuProfileStackSampleTable>();
   }
   tables::CpuProfileStackSampleTable* mutable_cpu_profile_stack_sample_table() {
-    return &cpu_profile_stack_sample_table_;
+    return mutable_table<tables::CpuProfileStackSampleTable>();
+  }
+
+  const tables::PerfSessionTable& perf_session_table() const {
+    return table<tables::PerfSessionTable>();
+  }
+  tables::PerfSessionTable* mutable_perf_session_table() {
+    return mutable_table<tables::PerfSessionTable>();
   }
 
   const tables::PerfSampleTable& perf_sample_table() const {
-    return perf_sample_table_;
+    return table<tables::PerfSampleTable>();
   }
   tables::PerfSampleTable* mutable_perf_sample_table() {
-    return &perf_sample_table_;
+    return mutable_table<tables::PerfSampleTable>();
   }
 
-  const tables::SymbolTable& symbol_table() const { return symbol_table_; }
+  const tables::PerfCounterSetTable& perf_counter_set_table() const {
+    return table<tables::PerfCounterSetTable>();
+  }
+  tables::PerfCounterSetTable* mutable_perf_counter_set_table() {
+    return mutable_table<tables::PerfCounterSetTable>();
+  }
 
-  tables::SymbolTable* mutable_symbol_table() { return &symbol_table_; }
+  const tables::InstrumentsSampleTable& instruments_sample_table() const {
+    return table<tables::InstrumentsSampleTable>();
+  }
+  tables::InstrumentsSampleTable* mutable_instruments_sample_table() {
+    return mutable_table<tables::InstrumentsSampleTable>();
+  }
+
+  const tables::SymbolTable& symbol_table() const {
+    return table<tables::SymbolTable>();
+  }
+
+  tables::SymbolTable* mutable_symbol_table() {
+    return mutable_table<tables::SymbolTable>();
+  }
 
   const tables::HeapGraphObjectTable& heap_graph_object_table() const {
-    return heap_graph_object_table_;
+    return table<tables::HeapGraphObjectTable>();
   }
 
   tables::HeapGraphObjectTable* mutable_heap_graph_object_table() {
-    return &heap_graph_object_table_;
+    return mutable_table<tables::HeapGraphObjectTable>();
   }
   const tables::HeapGraphClassTable& heap_graph_class_table() const {
-    return heap_graph_class_table_;
+    return table<tables::HeapGraphClassTable>();
   }
 
   tables::HeapGraphClassTable* mutable_heap_graph_class_table() {
-    return &heap_graph_class_table_;
+    return mutable_table<tables::HeapGraphClassTable>();
   }
 
   const tables::HeapGraphReferenceTable& heap_graph_reference_table() const {
-    return heap_graph_reference_table_;
+    return table<tables::HeapGraphReferenceTable>();
   }
 
   tables::HeapGraphReferenceTable* mutable_heap_graph_reference_table() {
-    return &heap_graph_reference_table_;
+    return mutable_table<tables::HeapGraphReferenceTable>();
   }
 
-  const tables::CpuTrackTable& cpu_track_table() const {
-    return cpu_track_table_;
+  const tables::HeapGraphPrimitiveTable& heap_graph_primitive_table() const {
+    return table<tables::HeapGraphPrimitiveTable>();
   }
-  tables::CpuTrackTable* mutable_cpu_track_table() { return &cpu_track_table_; }
 
-  const tables::GpuTrackTable& gpu_track_table() const {
-    return gpu_track_table_;
+  tables::HeapGraphPrimitiveTable* mutable_heap_graph_primitive_table() {
+    return mutable_table<tables::HeapGraphPrimitiveTable>();
   }
-  tables::GpuTrackTable* mutable_gpu_track_table() { return &gpu_track_table_; }
+
+  const tables::HeapGraphObjectDataTable& heap_graph_object_data_table() const {
+    return table<tables::HeapGraphObjectDataTable>();
+  }
+
+  tables::HeapGraphObjectDataTable* mutable_heap_graph_object_data_table() {
+    return mutable_table<tables::HeapGraphObjectDataTable>();
+  }
+
+  const tables::AggregateProfileTable& aggregate_profile_table() const {
+    return table<tables::AggregateProfileTable>();
+  }
+
+  tables::AggregateProfileTable* mutable_aggregate_profile_table() {
+    return mutable_table<tables::AggregateProfileTable>();
+  }
+
+  const tables::AggregateSampleTable& aggregate_sample_table() const {
+    return table<tables::AggregateSampleTable>();
+  }
+
+  tables::AggregateSampleTable* mutable_aggregate_sample_table() {
+    return mutable_table<tables::AggregateSampleTable>();
+  }
 
   const tables::VulkanMemoryAllocationsTable& vulkan_memory_allocations_table()
       const {
-    return vulkan_memory_allocations_table_;
+    return table<tables::VulkanMemoryAllocationsTable>();
   }
 
   tables::VulkanMemoryAllocationsTable*
   mutable_vulkan_memory_allocations_table() {
-    return &vulkan_memory_allocations_table_;
-  }
-
-  const tables::GraphicsFrameSliceTable& graphics_frame_slice_table() const {
-    return graphics_frame_slice_table_;
-  }
-
-  tables::GraphicsFrameSliceTable* mutable_graphics_frame_slice_table() {
-    return &graphics_frame_slice_table_;
+    return mutable_table<tables::VulkanMemoryAllocationsTable>();
   }
 
   const tables::MemorySnapshotTable& memory_snapshot_table() const {
-    return memory_snapshot_table_;
+    return table<tables::MemorySnapshotTable>();
   }
   tables::MemorySnapshotTable* mutable_memory_snapshot_table() {
-    return &memory_snapshot_table_;
+    return mutable_table<tables::MemorySnapshotTable>();
   }
 
   const tables::ProcessMemorySnapshotTable& process_memory_snapshot_table()
       const {
-    return process_memory_snapshot_table_;
+    return table<tables::ProcessMemorySnapshotTable>();
   }
   tables::ProcessMemorySnapshotTable* mutable_process_memory_snapshot_table() {
-    return &process_memory_snapshot_table_;
+    return mutable_table<tables::ProcessMemorySnapshotTable>();
   }
 
   const tables::MemorySnapshotNodeTable& memory_snapshot_node_table() const {
-    return memory_snapshot_node_table_;
+    return table<tables::MemorySnapshotNodeTable>();
   }
   tables::MemorySnapshotNodeTable* mutable_memory_snapshot_node_table() {
-    return &memory_snapshot_node_table_;
+    return mutable_table<tables::MemorySnapshotNodeTable>();
   }
 
   const tables::MemorySnapshotEdgeTable& memory_snapshot_edge_table() const {
-    return memory_snapshot_edge_table_;
+    return table<tables::MemorySnapshotEdgeTable>();
   }
   tables::MemorySnapshotEdgeTable* mutable_memory_snapshot_edge_table() {
-    return &memory_snapshot_edge_table_;
+    return mutable_table<tables::MemorySnapshotEdgeTable>();
   }
 
-  const tables::ExpectedFrameTimelineSliceTable&
-  expected_frame_timeline_slice_table() const {
-    return expected_frame_timeline_slice_table_;
+  const tables::AndroidNetworkPacketsTable& android_network_packets_table()
+      const {
+    return table<tables::AndroidNetworkPacketsTable>();
+  }
+  tables::AndroidNetworkPacketsTable* mutable_android_network_packets_table() {
+    return mutable_table<tables::AndroidNetworkPacketsTable>();
   }
 
-  tables::ExpectedFrameTimelineSliceTable*
-  mutable_expected_frame_timeline_slice_table() {
-    return &expected_frame_timeline_slice_table_;
+  const tables::V8IsolateTable& v8_isolate_table() const {
+    return table<tables::V8IsolateTable>();
+  }
+  tables::V8IsolateTable* mutable_v8_isolate_table() {
+    return mutable_table<tables::V8IsolateTable>();
+  }
+  const tables::V8JsScriptTable& v8_js_script_table() const {
+    return table<tables::V8JsScriptTable>();
+  }
+  tables::V8JsScriptTable* mutable_v8_js_script_table() {
+    return mutable_table<tables::V8JsScriptTable>();
+  }
+  const tables::V8WasmScriptTable& v8_wasm_script_table() const {
+    return table<tables::V8WasmScriptTable>();
+  }
+  tables::V8WasmScriptTable* mutable_v8_wasm_script_table() {
+    return mutable_table<tables::V8WasmScriptTable>();
+  }
+  const tables::V8JsFunctionTable& v8_js_function_table() const {
+    return table<tables::V8JsFunctionTable>();
+  }
+  tables::V8JsFunctionTable* mutable_v8_js_function_table() {
+    return mutable_table<tables::V8JsFunctionTable>();
+  }
+  const tables::V8JsCodeTable& v8_js_code_table() const {
+    return table<tables::V8JsCodeTable>();
+  }
+  tables::V8JsCodeTable* mutable_v8_js_code_table() {
+    return mutable_table<tables::V8JsCodeTable>();
+  }
+  const tables::V8InternalCodeTable& v8_internal_code_table() const {
+    return table<tables::V8InternalCodeTable>();
+  }
+  tables::V8InternalCodeTable* mutable_v8_internal_code_table() {
+    return mutable_table<tables::V8InternalCodeTable>();
+  }
+  const tables::V8WasmCodeTable& v8_wasm_code_table() const {
+    return table<tables::V8WasmCodeTable>();
+  }
+  tables::V8WasmCodeTable* mutable_v8_wasm_code_table() {
+    return mutable_table<tables::V8WasmCodeTable>();
+  }
+  const tables::V8RegexpCodeTable& v8_regexp_code_table() const {
+    return table<tables::V8RegexpCodeTable>();
+  }
+  tables::V8RegexpCodeTable* mutable_v8_regexp_code_table() {
+    return mutable_table<tables::V8RegexpCodeTable>();
   }
 
-  const tables::ActualFrameTimelineSliceTable&
-  actual_frame_timeline_slice_table() const {
-    return actual_frame_timeline_slice_table_;
+  const tables::EtmV4ConfigurationTable& etm_v4_configuration_table() const {
+    return table<tables::EtmV4ConfigurationTable>();
   }
-  tables::ActualFrameTimelineSliceTable*
-  mutable_actual_frame_timeline_slice_table() {
-    return &actual_frame_timeline_slice_table_;
+  tables::EtmV4ConfigurationTable* mutable_etm_v4_configuration_table() {
+    return mutable_table<tables::EtmV4ConfigurationTable>();
+  }
+  const std::vector<std::unique_ptr<Destructible>>& etm_v4_configuration_data()
+      const {
+    return etm_v4_configuration_data_;
+  }
+  std::vector<std::unique_ptr<Destructible>>*
+  mutable_etm_v4_configuration_data() {
+    return &etm_v4_configuration_data_;
+  }
+  const tables::EtmV4SessionTable& etm_v4_session_table() const {
+    return table<tables::EtmV4SessionTable>();
+  }
+  tables::EtmV4SessionTable* mutable_etm_v4_session_table() {
+    return mutable_table<tables::EtmV4SessionTable>();
+  }
+  const tables::EtmV4ChunkTable& etm_v4_chunk_table() const {
+    return table<tables::EtmV4ChunkTable>();
+  }
+  tables::EtmV4ChunkTable* mutable_etm_v4_chunk_table() {
+    return mutable_table<tables::EtmV4ChunkTable>();
+  }
+  const std::vector<TraceBlobView>& etm_v4_chunk_data() const {
+    return etm_v4_chunk_data_;
+  }
+  std::vector<TraceBlobView>* mutable_etm_v4_chunk_data() {
+    return &etm_v4_chunk_data_;
+  }
+  struct HprofArrayBlob {
+    TraceBlobView data;
+    uint8_t element_type;  // art_hprof::FieldType as uint8_t
+    uint32_t element_count;
+  };
+  // Indexed by heap_graph_object_data.array_data_id
+  const std::vector<HprofArrayBlob>& hprof_array_blobs() const {
+    return hprof_array_blobs_;
+  }
+  std::vector<HprofArrayBlob>* mutable_hprof_array_blobs() {
+    return &hprof_array_blobs_;
+  }
+  const tables::FileTable& file_table() const {
+    return table<tables::FileTable>();
+  }
+  tables::FileTable* mutable_file_table() {
+    return mutable_table<tables::FileTable>();
+  }
+  const tables::ElfFileTable& elf_file_table() const {
+    return table<tables::ElfFileTable>();
+  }
+  tables::ElfFileTable* mutable_elf_file_table() {
+    return mutable_table<tables::ElfFileTable>();
+  }
+
+  const tables::JitCodeTable& jit_code_table() const {
+    return table<tables::JitCodeTable>();
+  }
+  tables::JitCodeTable* mutable_jit_code_table() {
+    return mutable_table<tables::JitCodeTable>();
+  }
+
+  const tables::JitFrameTable& jit_frame_table() const {
+    return table<tables::JitFrameTable>();
+  }
+  tables::JitFrameTable* mutable_jit_frame_table() {
+    return mutable_table<tables::JitFrameTable>();
+  }
+
+  tables::MmapRecordTable* mutable_mmap_record_table() {
+    return mutable_table<tables::MmapRecordTable>();
+  }
+  const tables::MmapRecordTable& mmap_record_table() const {
+    return table<tables::MmapRecordTable>();
+  }
+  const tables::SpeRecordTable& spe_record_table() const {
+    return table<tables::SpeRecordTable>();
+  }
+  tables::SpeRecordTable* mutable_spe_record_table() {
+    return mutable_table<tables::SpeRecordTable>();
+  }
+
+  const tables::InputMethodClientsTable& inputmethod_clients_table() const {
+    return table<tables::InputMethodClientsTable>();
+  }
+  tables::InputMethodClientsTable* mutable_inputmethod_clients_table() {
+    return mutable_table<tables::InputMethodClientsTable>();
+  }
+
+  const tables::InputMethodManagerServiceTable&
+  inputmethod_manager_service_table() const {
+    return table<tables::InputMethodManagerServiceTable>();
+  }
+  tables::InputMethodManagerServiceTable*
+  mutable_inputmethod_manager_service_table() {
+    return mutable_table<tables::InputMethodManagerServiceTable>();
+  }
+
+  const tables::InputMethodServiceTable& inputmethod_service_table() const {
+    return table<tables::InputMethodServiceTable>();
+  }
+  tables::InputMethodServiceTable* mutable_inputmethod_service_table() {
+    return mutable_table<tables::InputMethodServiceTable>();
+  }
+
+  const tables::SurfaceFlingerLayersSnapshotTable&
+  surfaceflinger_layers_snapshot_table() const {
+    return table<tables::SurfaceFlingerLayersSnapshotTable>();
+  }
+  tables::SurfaceFlingerLayersSnapshotTable*
+  mutable_surfaceflinger_layers_snapshot_table() {
+    return mutable_table<tables::SurfaceFlingerLayersSnapshotTable>();
+  }
+
+  const tables::SurfaceFlingerDisplayTable& surfaceflinger_display_table()
+      const {
+    return table<tables::SurfaceFlingerDisplayTable>();
+  }
+  tables::SurfaceFlingerDisplayTable* mutable_surfaceflinger_display_table() {
+    return mutable_table<tables::SurfaceFlingerDisplayTable>();
+  }
+
+  const tables::SurfaceFlingerLayerTable& surfaceflinger_layer_table() const {
+    return table<tables::SurfaceFlingerLayerTable>();
+  }
+  tables::SurfaceFlingerLayerTable* mutable_surfaceflinger_layer_table() {
+    return mutable_table<tables::SurfaceFlingerLayerTable>();
+  }
+
+  const tables::SurfaceFlingerTransactionsTable&
+  surfaceflinger_transactions_table() const {
+    return table<tables::SurfaceFlingerTransactionsTable>();
+  }
+  tables::SurfaceFlingerTransactionsTable*
+  mutable_surfaceflinger_transactions_table() {
+    return mutable_table<tables::SurfaceFlingerTransactionsTable>();
+  }
+
+  const tables::SurfaceFlingerTransactionTable&
+  surfaceflinger_transaction_table() const {
+    return table<tables::SurfaceFlingerTransactionTable>();
+  }
+  tables::SurfaceFlingerTransactionTable*
+  mutable_surfaceflinger_transaction_table() {
+    return mutable_table<tables::SurfaceFlingerTransactionTable>();
+  }
+
+  const tables::SurfaceFlingerTransactionFlagTable&
+  surfaceflinger_transaction_flag_table() const {
+    return table<tables::SurfaceFlingerTransactionFlagTable>();
+  }
+  tables::SurfaceFlingerTransactionFlagTable*
+  mutable_surfaceflinger_transaction_flag_table() {
+    return mutable_table<tables::SurfaceFlingerTransactionFlagTable>();
+  }
+
+  const tables::ViewCaptureTable& viewcapture_table() const {
+    return table<tables::ViewCaptureTable>();
+  }
+  tables::ViewCaptureTable* mutable_viewcapture_table() {
+    return mutable_table<tables::ViewCaptureTable>();
+  }
+
+  const tables::ViewCaptureViewTable& viewcapture_view_table() const {
+    return table<tables::ViewCaptureViewTable>();
+  }
+  tables::ViewCaptureViewTable* mutable_viewcapture_view_table() {
+    return mutable_table<tables::ViewCaptureViewTable>();
+  }
+
+  const tables::ViewCaptureInternedDataTable& viewcapture_interned_data_table()
+      const {
+    return table<tables::ViewCaptureInternedDataTable>();
+  }
+  tables::ViewCaptureInternedDataTable*
+  mutable_viewcapture_interned_data_table() {
+    return mutable_table<tables::ViewCaptureInternedDataTable>();
+  }
+
+  const tables::WindowManagerTable& windowmanager_table() const {
+    return table<tables::WindowManagerTable>();
+  }
+  tables::WindowManagerTable* mutable_windowmanager_table() {
+    return mutable_table<tables::WindowManagerTable>();
+  }
+
+  const tables::WindowManagerWindowContainerTable&
+  windowmanager_windowcontainer_table() const {
+    return table<tables::WindowManagerWindowContainerTable>();
+  }
+  tables::WindowManagerWindowContainerTable*
+  mutable_windowmanager_windowcontainer_table() {
+    return mutable_table<tables::WindowManagerWindowContainerTable>();
+  }
+
+  const tables::WindowManagerShellTransitionsTable&
+  window_manager_shell_transitions_table() const {
+    return table<tables::WindowManagerShellTransitionsTable>();
+  }
+  tables::WindowManagerShellTransitionsTable*
+  mutable_window_manager_shell_transitions_table() {
+    return mutable_table<tables::WindowManagerShellTransitionsTable>();
+  }
+
+  const tables::WindowManagerShellTransitionHandlersTable&
+  window_manager_shell_transition_handlers_table() const {
+    return table<tables::WindowManagerShellTransitionHandlersTable>();
+  }
+  tables::WindowManagerShellTransitionHandlersTable*
+  mutable_window_manager_shell_transition_handlers_table() {
+    return mutable_table<tables::WindowManagerShellTransitionHandlersTable>();
+  }
+
+  const tables::WindowManagerShellTransitionParticipantsTable&
+  window_manager_shell_transition_participants_table() const {
+    return table<tables::WindowManagerShellTransitionParticipantsTable>();
+  }
+  tables::WindowManagerShellTransitionParticipantsTable*
+  mutable_window_manager_shell_transition_participants_table() {
+    return mutable_table<
+        tables::WindowManagerShellTransitionParticipantsTable>();
+  }
+
+  const tables::WindowManagerShellTransitionProtosTable&
+  window_manager_shell_transition_protos_table() const {
+    return table<tables::WindowManagerShellTransitionProtosTable>();
+  }
+  tables::WindowManagerShellTransitionProtosTable*
+  mutable_window_manager_shell_transition_protos_table() {
+    return mutable_table<tables::WindowManagerShellTransitionProtosTable>();
+  }
+
+  const tables::ProtoLogTable& protolog_table() const {
+    return table<tables::ProtoLogTable>();
+  }
+  tables::ProtoLogTable* mutable_protolog_table() {
+    return mutable_table<tables::ProtoLogTable>();
+  }
+
+  const tables::WinscopeTraceRectTable& winscope_trace_rect_table() const {
+    return table<tables::WinscopeTraceRectTable>();
+  }
+  tables::WinscopeTraceRectTable* mutable_winscope_trace_rect_table() {
+    return mutable_table<tables::WinscopeTraceRectTable>();
+  }
+
+  const tables::WinscopeRectTable& winscope_rect_table() const {
+    return table<tables::WinscopeRectTable>();
+  }
+  tables::WinscopeRectTable* mutable_winscope_rect_table() {
+    return mutable_table<tables::WinscopeRectTable>();
+  }
+
+  const tables::WinscopeFillRegionTable& winscope_fill_region_table() const {
+    return table<tables::WinscopeFillRegionTable>();
+  }
+  tables::WinscopeFillRegionTable* mutable_winscope_fill_region_table() {
+    return mutable_table<tables::WinscopeFillRegionTable>();
+  }
+
+  const tables::WinscopeTransformTable& winscope_transform_table() const {
+    return table<tables::WinscopeTransformTable>();
+  }
+  tables::WinscopeTransformTable* mutable_winscope_transform_table() {
+    return mutable_table<tables::WinscopeTransformTable>();
   }
 
   const tables::ExperimentalProtoPathTable& experimental_proto_path_table()
       const {
-    return experimental_proto_path_table_;
+    return table<tables::ExperimentalProtoPathTable>();
   }
   tables::ExperimentalProtoPathTable* mutable_experimental_proto_path_table() {
-    return &experimental_proto_path_table_;
+    return mutable_table<tables::ExperimentalProtoPathTable>();
   }
 
   const tables::ExperimentalProtoContentTable&
   experimental_proto_content_table() const {
-    return experimental_proto_content_table_;
+    return table<tables::ExperimentalProtoContentTable>();
   }
   tables::ExperimentalProtoContentTable*
   mutable_experimental_proto_content_table() {
-    return &experimental_proto_content_table_;
+    return mutable_table<tables::ExperimentalProtoContentTable>();
   }
 
   const tables::ExpMissingChromeProcTable&
   experimental_missing_chrome_processes_table() const {
-    return experimental_missing_chrome_processes_table_;
+    return table<tables::ExpMissingChromeProcTable>();
   }
   tables::ExpMissingChromeProcTable*
   mutable_experimental_missing_chrome_processes_table() {
-    return &experimental_missing_chrome_processes_table_;
-  }
-
-  const views::ThreadSliceView& thread_slice_view() const {
-    return thread_slice_view_;
+    return mutable_table<tables::ExpMissingChromeProcTable>();
   }
 
   const StringPool& string_pool() const { return string_pool_; }
@@ -747,68 +1027,6 @@ class TraceStorage {
 
   // Number of interned strings in the pool. Includes the empty string w/ ID=0.
   size_t string_count() const { return string_pool_.size(); }
-
-  // Start / end ts (in nanoseconds) across the parsed trace events.
-  // Returns (0, 0) if the trace is empty.
-  std::pair<int64_t, int64_t> GetTraceTimestampBoundsNs() const;
-
-  util::Status ExtractArg(uint32_t arg_set_id,
-                          const char* key,
-                          std::optional<Variadic>* result) {
-    const auto& args = arg_table();
-    RowMap filtered = args.FilterToRowMap(
-        {args.arg_set_id().eq(arg_set_id), args.key().eq(key)});
-    if (filtered.empty()) {
-      *result = std::nullopt;
-      return util::OkStatus();
-    }
-    if (filtered.size() > 1) {
-      return util::ErrStatus(
-          "EXTRACT_ARG: received multiple args matching arg set id and key");
-    }
-    uint32_t idx = filtered.Get(0);
-    *result = GetArgValue(idx);
-    return util::OkStatus();
-  }
-
-  Variadic GetArgValue(uint32_t row) const {
-    Variadic v;
-    v.type = *GetVariadicTypeForId(arg_table_.value_type()[row]);
-
-    // Force initialization of union to stop GCC complaining.
-    v.int_value = 0;
-
-    switch (v.type) {
-      case Variadic::Type::kBool:
-        v.bool_value = static_cast<bool>(*arg_table_.int_value()[row]);
-        break;
-      case Variadic::Type::kInt:
-        v.int_value = *arg_table_.int_value()[row];
-        break;
-      case Variadic::Type::kUint:
-        v.uint_value = static_cast<uint64_t>(*arg_table_.int_value()[row]);
-        break;
-      case Variadic::Type::kString: {
-        auto opt_value = arg_table_.string_value()[row];
-        v.string_value = opt_value ? *opt_value : kNullStringId;
-        break;
-      }
-      case Variadic::Type::kPointer:
-        v.pointer_value = static_cast<uint64_t>(*arg_table_.int_value()[row]);
-        break;
-      case Variadic::Type::kReal:
-        v.real_value = *arg_table_.real_value()[row];
-        break;
-      case Variadic::Type::kJson: {
-        auto opt_value = arg_table_.string_value()[row];
-        v.json_value = opt_value ? *opt_value : kNullStringId;
-        break;
-      }
-      case Variadic::Type::kNull:
-        break;
-    }
-    return v;
-  }
 
   StringId GetIdForVariadicType(Variadic::Type type) const {
     return variadic_type_ids_[type];
@@ -833,154 +1051,54 @@ class TraceStorage {
   TraceStorage(TraceStorage&&) = delete;
   TraceStorage& operator=(TraceStorage&&) = delete;
 
+  friend etm::TargetMemory;
+  Destructible* etm_target_memory() { return etm_target_memory_.get(); }
+  void set_etm_target_memory(std::unique_ptr<Destructible> target_memory) {
+    etm_target_memory_ = std::move(target_memory);
+  }
+
+  // Helper to get a table by type.
+  template <typename T>
+  T* mutable_table() {
+    constexpr size_t idx = base::variant_index<tables::AllTables, T>();
+    return reinterpret_cast<T*>(
+        &tables_storage_[idx * sizeof(dataframe::Dataframe)]);
+  }
+  template <typename T>
+  const T& table() const {
+    constexpr size_t idx = base::variant_index<tables::AllTables, T>();
+    return *reinterpret_cast<const T*>(
+        &tables_storage_[idx * sizeof(dataframe::Dataframe)]);
+  }
+
   // One entry for each unique string in the trace.
   StringPool string_pool_;
 
-  // Stats about parsing the trace.
-  StatsMap stats_{};
-
-  // Extra data extracted from the trace. Includes:
-  // * metadata from chrome and benchmarking infrastructure
-  // * descriptions of android packages
-  tables::MetadataTable metadata_table_{&string_pool_};
-
-  // Contains data from all the clock snapshots in the trace.
-  tables::ClockSnapshotTable clock_snapshot_table_{&string_pool_};
-
-  // Metadata for tracks.
-  tables::TrackTable track_table_{&string_pool_};
-  tables::ThreadStateTable thread_state_table_{&string_pool_};
-  tables::CpuTrackTable cpu_track_table_{&string_pool_, &track_table_};
-  tables::GpuTrackTable gpu_track_table_{&string_pool_, &track_table_};
-  tables::ProcessTrackTable process_track_table_{&string_pool_, &track_table_};
-  tables::ThreadTrackTable thread_track_table_{&string_pool_, &track_table_};
-
-  // Track tables for counter events.
-  tables::CounterTrackTable counter_track_table_{&string_pool_, &track_table_};
-  tables::ThreadCounterTrackTable thread_counter_track_table_{
-      &string_pool_, &counter_track_table_};
-  tables::ProcessCounterTrackTable process_counter_track_table_{
-      &string_pool_, &counter_track_table_};
-  tables::CpuCounterTrackTable cpu_counter_track_table_{&string_pool_,
-                                                        &counter_track_table_};
-  tables::IrqCounterTrackTable irq_counter_track_table_{&string_pool_,
-                                                        &counter_track_table_};
-  tables::SoftirqCounterTrackTable softirq_counter_track_table_{
-      &string_pool_, &counter_track_table_};
-  tables::GpuCounterTrackTable gpu_counter_track_table_{&string_pool_,
-                                                        &counter_track_table_};
-  tables::EnergyCounterTrackTable energy_counter_track_table_{
-      &string_pool_, &counter_track_table_};
-  tables::UidCounterTrackTable uid_counter_track_table_{&string_pool_,
-                                                        &counter_track_table_};
-  tables::EnergyPerUidCounterTrackTable energy_per_uid_counter_track_table_{
-      &string_pool_, &uid_counter_track_table_};
-  tables::GpuCounterGroupTable gpu_counter_group_table_{&string_pool_};
-  tables::PerfCounterTrackTable perf_counter_track_table_{
-      &string_pool_, &counter_track_table_};
-
-  // Args for all other tables.
-  tables::ArgTable arg_table_{&string_pool_};
-
-  // Information about all the threads and processes in the trace.
-  tables::ThreadTable thread_table_{&string_pool_};
-  tables::ProcessTable process_table_{&string_pool_};
-  tables::FiledescriptorTable filedescriptor_table_{&string_pool_};
-
-  // Slices coming from userspace events (e.g. Chromium TRACE_EVENT macros).
-  tables::SliceTable slice_table_{&string_pool_};
-
-  // Flow events from userspace events (e.g. Chromium TRACE_EVENT macros).
-  tables::FlowTable flow_table_{&string_pool_};
-
-  // Slices from CPU scheduling data.
-  tables::SchedSliceTable sched_slice_table_{&string_pool_};
-
-  tables::SpuriousSchedWakeupTable spurious_sched_wakeup_table_{&string_pool_};
-
-  // Additional attributes for virtual track slices (sub-type of
-  // NestableSlices).
   VirtualTrackSlices virtual_track_slices_;
-
-  // Additional attributes for gpu track slices (sub-type of
-  // NestableSlices).
-  tables::GpuSliceTable gpu_slice_table_{&string_pool_, &slice_table_};
-
-  // The values from the Counter events from the trace. This includes CPU
-  // frequency events as well systrace trace_marker counter events.
-  tables::CounterTable counter_table_{&string_pool_};
-
   SqlStats sql_stats_;
 
-  tables::RawTable raw_table_{&string_pool_};
-  tables::FtraceEventTable ftrace_event_table_{&string_pool_, &raw_table_};
+  // ETM tables
+  // Indexed by tables::EtmV4ConfigurationTable::Id
+  std::vector<std::unique_ptr<Destructible>> etm_v4_configuration_data_;
+  // Indexed by tables::EtmV4TraceTable::Id
+  std::vector<TraceBlobView> etm_v4_chunk_data_;
+  std::unique_ptr<Destructible> etm_target_memory_;
 
-  tables::CpuTable cpu_table_{&string_pool_};
+  // HPROF primitive array blobs.
+  // Indexed by heap_graph_object_data.array_data_id
+  std::vector<HprofArrayBlob> hprof_array_blobs_;
 
-  tables::CpuFreqTable cpu_freq_table_{&string_pool_};
-
-  tables::AndroidLogTable android_log_table_{&string_pool_};
-
-  tables::AndroidDumpstateTable android_dumpstate_table_{&string_pool_};
-
-  tables::StackProfileMappingTable stack_profile_mapping_table_{&string_pool_};
-  tables::StackProfileFrameTable stack_profile_frame_table_{&string_pool_};
-  tables::StackProfileCallsiteTable stack_profile_callsite_table_{
-      &string_pool_};
-  tables::StackSampleTable stack_sample_table_{&string_pool_};
-  tables::HeapProfileAllocationTable heap_profile_allocation_table_{
-      &string_pool_};
-  tables::CpuProfileStackSampleTable cpu_profile_stack_sample_table_{
-      &string_pool_, &stack_sample_table_};
-  tables::PerfSampleTable perf_sample_table_{&string_pool_};
-  tables::PackageListTable package_list_table_{&string_pool_};
-  tables::AndroidGameInterventionListTable
-      android_game_intervention_list_table_{&string_pool_};
-  tables::ProfilerSmapsTable profiler_smaps_table_{&string_pool_};
-
-  // Symbol tables (mappings from frames to symbol names)
-  tables::SymbolTable symbol_table_{&string_pool_};
-  tables::HeapGraphObjectTable heap_graph_object_table_{&string_pool_};
-  tables::HeapGraphClassTable heap_graph_class_table_{&string_pool_};
-  tables::HeapGraphReferenceTable heap_graph_reference_table_{&string_pool_};
-
-  tables::VulkanMemoryAllocationsTable vulkan_memory_allocations_table_{
-      &string_pool_};
-
-  tables::GraphicsFrameSliceTable graphics_frame_slice_table_{&string_pool_,
-                                                              &slice_table_};
-
-  // Metadata for memory snapshot.
-  tables::MemorySnapshotTable memory_snapshot_table_{&string_pool_};
-  tables::ProcessMemorySnapshotTable process_memory_snapshot_table_{
-      &string_pool_};
-  tables::MemorySnapshotNodeTable memory_snapshot_node_table_{&string_pool_};
-  tables::MemorySnapshotEdgeTable memory_snapshot_edge_table_{&string_pool_};
-
-  // FrameTimeline tables
-  tables::ExpectedFrameTimelineSliceTable expected_frame_timeline_slice_table_{
-      &string_pool_, &slice_table_};
-  tables::ActualFrameTimelineSliceTable actual_frame_timeline_slice_table_{
-      &string_pool_, &slice_table_};
-
-  tables::ExperimentalProtoPathTable experimental_proto_path_table_{
-      &string_pool_};
-  tables::ExperimentalProtoContentTable experimental_proto_content_table_{
-      &string_pool_};
-
-  tables::ExpMissingChromeProcTable
-      experimental_missing_chrome_processes_table_{&string_pool_};
-
-  views::ThreadSliceView thread_slice_view_{&slice_table_, &thread_track_table_,
-                                            &thread_table_};
+  // Aligned storage for all table dataframes.
+  alignas(
+      dataframe::Dataframe) char tables_storage_[tables::kTableCount *
+                                                 sizeof(dataframe::Dataframe)];
 
   // The below array allow us to map between enums and their string
   // representations.
   std::array<StringId, Variadic::kMaxType + 1> variadic_type_ids_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 template <>
 struct std::hash<::perfetto::trace_processor::BaseId> {
@@ -992,6 +1110,9 @@ struct std::hash<::perfetto::trace_processor::BaseId> {
   }
 };
 
+template <>
+struct std::hash<::perfetto::trace_processor::SliceId>
+    : std::hash<::perfetto::trace_processor::BaseId> {};
 template <>
 struct std::hash<::perfetto::trace_processor::TrackId>
     : std::hash<::perfetto::trace_processor::BaseId> {};
@@ -1005,54 +1126,13 @@ template <>
 struct std::hash<::perfetto::trace_processor::FrameId>
     : std::hash<::perfetto::trace_processor::BaseId> {};
 template <>
-struct std::hash<::perfetto::trace_processor::tables::HeapGraphObjectTable::Id>
+struct std::hash<::perfetto::trace_processor::tables::HeapGraphObjectTable_Id>
     : std::hash<::perfetto::trace_processor::BaseId> {};
-
 template <>
-struct std::hash<
-    ::perfetto::trace_processor::tables::StackProfileFrameTable::Row> {
-  using argument_type =
-      ::perfetto::trace_processor::tables::StackProfileFrameTable::Row;
-  using result_type = size_t;
-
-  result_type operator()(const argument_type& r) const {
-    return std::hash<::perfetto::trace_processor::StringId>{}(r.name) ^
-           std::hash<std::optional<::perfetto::trace_processor::MappingId>>{}(
-               r.mapping) ^
-           std::hash<int64_t>{}(r.rel_pc);
-  }
-};
-
+struct std::hash<::perfetto::trace_processor::tables::V8IsolateTable_Id>
+    : std::hash<::perfetto::trace_processor::BaseId> {};
 template <>
-struct std::hash<
-    ::perfetto::trace_processor::tables::StackProfileCallsiteTable::Row> {
-  using argument_type =
-      ::perfetto::trace_processor::tables::StackProfileCallsiteTable::Row;
-  using result_type = size_t;
-
-  result_type operator()(const argument_type& r) const {
-    return std::hash<int64_t>{}(r.depth) ^
-           std::hash<std::optional<::perfetto::trace_processor::CallsiteId>>{}(
-               r.parent_id) ^
-           std::hash<::perfetto::trace_processor::FrameId>{}(r.frame_id);
-  }
-};
-
-template <>
-struct std::hash<
-    ::perfetto::trace_processor::tables::StackProfileMappingTable::Row> {
-  using argument_type =
-      ::perfetto::trace_processor::tables::StackProfileMappingTable::Row;
-  using result_type = size_t;
-
-  result_type operator()(const argument_type& r) const {
-    return std::hash<::perfetto::trace_processor::StringId>{}(r.build_id) ^
-           std::hash<int64_t>{}(r.exact_offset) ^
-           std::hash<int64_t>{}(r.start_offset) ^
-           std::hash<int64_t>{}(r.start) ^ std::hash<int64_t>{}(r.end) ^
-           std::hash<int64_t>{}(r.load_bias) ^
-           std::hash<::perfetto::trace_processor::StringId>{}(r.name);
-  }
-};
+struct std::hash<::perfetto::trace_processor::tables::JitCodeTable_Id>
+    : std::hash<::perfetto::trace_processor::BaseId> {};
 
 #endif  // SRC_TRACE_PROCESSOR_STORAGE_TRACE_STORAGE_H_

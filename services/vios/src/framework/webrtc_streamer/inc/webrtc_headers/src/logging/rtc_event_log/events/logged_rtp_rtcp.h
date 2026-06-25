@@ -11,13 +11,17 @@
 #ifndef LOGGING_RTC_EVENT_LOG_EVENTS_LOGGED_RTP_RTCP_H_
 #define LOGGING_RTC_EVENT_LOG_EVENTS_LOGGED_RTP_RTCP_H_
 
-#include <string>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <optional>
 #include <vector>
 
 #include "absl/strings/string_view.h"
 #include "api/rtp_headers.h"
 #include "api/units/timestamp.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/bye.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/congestion_control_feedback.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/extended_reports.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/fir.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/loss_notification.h"
@@ -38,7 +42,8 @@ struct LoggedRtpPacket {
       : timestamp(timestamp),
         header(header),
         header_length(header_length),
-        total_length(total_length) {}
+        total_length(total_length),
+        rtx_original_sequence_number(std::nullopt) {}
 
   int64_t log_time_us() const { return timestamp.us(); }
   int64_t log_time_ms() const { return timestamp.ms(); }
@@ -51,6 +56,9 @@ struct LoggedRtpPacket {
   std::vector<uint8_t> dependency_descriptor_wire_format;
   size_t header_length;
   size_t total_length;
+  // RTX OSN, only set for RTX packets.
+  // https://datatracker.ietf.org/doc/html/rfc4588#section-4
+  std::optional<uint16_t> rtx_original_sequence_number;
 };
 
 struct LoggedRtpPacketIncoming {
@@ -228,6 +236,20 @@ struct LoggedRtcpPacketTransportFeedback {
 
   Timestamp timestamp = Timestamp::MinusInfinity();
   rtcp::TransportFeedback transport_feedback;
+};
+
+struct LoggedRtcpCongestionControlFeedback {
+  LoggedRtcpCongestionControlFeedback(
+      Timestamp timestamp,
+      const rtcp::CongestionControlFeedback& congestion_feedback)
+      : timestamp(timestamp), congestion_feedback(congestion_feedback) {}
+
+  int64_t log_time_us() const { return timestamp.us(); }
+  int64_t log_time_ms() const { return timestamp.ms(); }
+  Timestamp log_time() const { return timestamp; }
+
+  Timestamp timestamp;
+  rtcp::CongestionControlFeedback congestion_feedback;
 };
 
 struct LoggedRtcpPacketLossNotification {

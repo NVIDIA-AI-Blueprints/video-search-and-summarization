@@ -5,10 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_DARK_MODE_IMAGE_CLASSIFIER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_DARK_MODE_IMAGE_CLASSIFIER_H_
 
+#include <optional>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_settings.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_types.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
@@ -24,8 +24,7 @@ FORWARD_DECLARE_TEST(DarkModeImageClassifierTest, FeaturesAndClassification);
 // results is not threadsafe. So it can be used only in blink main thread.
 class PLATFORM_EXPORT DarkModeImageClassifier {
  public:
-  explicit DarkModeImageClassifier(
-      DarkModeImageClassifierPolicy image_classifier_policy);
+  DarkModeImageClassifier();
   ~DarkModeImageClassifier();
 
   struct Features {
@@ -41,6 +40,9 @@ class PLATFORM_EXPORT DarkModeImageClassifier {
     // background.
     float transparency_ratio;
     float background_ratio;
+
+    // Ratio of high luminance pixels to all sampled pixels in the image.
+    float high_luminance_ratio;
   };
 
   DarkModeResult Classify(const SkPixmap& pixmap, const SkIRect& src) const;
@@ -51,8 +53,8 @@ class PLATFORM_EXPORT DarkModeImageClassifier {
 
   enum class ColorMode { kColor = 0, kGrayscale = 1 };
 
-  absl::optional<Features> GetFeatures(const SkPixmap& pixmap,
-                                       const SkIRect& src) const;
+  std::optional<Features> GetFeatures(const SkPixmap& pixmap,
+                                      const SkIRect& src) const;
   // Extracts a sample set of pixels (|sampled_pixels|), |transparency_ratio|,
   // and |background_ratio|.
   void GetSamples(const SkPixmap& pixmap,
@@ -80,8 +82,6 @@ class PLATFORM_EXPORT DarkModeImageClassifier {
   // is grayscale, each bucket is a 4 bit representation of luminance.
   float ComputeColorBucketsRatio(const std::vector<SkColor>& sampled_pixels,
                                  const ColorMode color_mode) const;
-
-  const DarkModeImageClassifierPolicy image_classifier_policy_;
 
   FRIEND_TEST_ALL_PREFIXES(DarkModeImageClassifierTest, BlockSamples);
   FRIEND_TEST_ALL_PREFIXES(DarkModeImageClassifierTest,

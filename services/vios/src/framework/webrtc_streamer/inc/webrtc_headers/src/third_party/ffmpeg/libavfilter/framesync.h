@@ -41,7 +41,7 @@ enum EOFAction {
  * complex logic and a few user-tunable options.
  *
  * In this API, when a set of synchronized input frames is ready to be
- * procesed is called a frame event. Frame event can be generated in
+ * processed is called a frame event. Frame event can be generated in
  * response to input frames on any or all inputs and the handling of
  * situations where some stream extend beyond the beginning or the end of
  * others can be configured.
@@ -76,9 +76,9 @@ enum FFFrameSyncExtMode {
 };
 
 /**
- * Timestamp syncronization mode
+ * Timestamp synchronization mode
  *
- * Describe how the frames of a stream are syncronized based on timestamp
+ * Describe how the frames of a stream are synchronized based on timestamp
  * distance.
  */
 enum FFFrameTSSyncMode {
@@ -316,6 +316,7 @@ int ff_framesync_dualinput_get(FFFrameSync *fs, AVFrame **f0, AVFrame **f1);
 int ff_framesync_dualinput_get_writable(FFFrameSync *fs, AVFrame **f0, AVFrame **f1);
 
 const AVClass *ff_framesync_child_class_iterate(void **iter);
+extern const AVClass ff_framesync_class;
 
 #define FRAMESYNC_DEFINE_PURE_CLASS(name, desc, func_prefix, options) \
 static const AVClass name##_class = {                                 \

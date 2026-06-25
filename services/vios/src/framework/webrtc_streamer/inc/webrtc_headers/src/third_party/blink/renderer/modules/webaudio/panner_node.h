@@ -35,6 +35,8 @@ class AudioParam;
 class BaseAudioContext;
 class PannerHandler;
 class PannerOptions;
+class V8DistanceModelType;
+class V8PanningModelType;
 
 // PannerNode is an AudioNode with one input and one output.
 // It positions a sound in 3D space, with the exact effect dependent on the
@@ -59,20 +61,20 @@ class PannerNode final : public AudioNode {
   void Trace(Visitor*) const override;
 
   // Uses a 3D cartesian coordinate system
-  AudioParam* positionX() const { return position_x_; }
-  AudioParam* positionY() const { return position_y_; }
-  AudioParam* positionZ() const { return position_z_; }
+  AudioParam* positionX() const { return position_x_.Get(); }
+  AudioParam* positionY() const { return position_y_.Get(); }
+  AudioParam* positionZ() const { return position_z_.Get(); }
 
-  AudioParam* orientationX() const { return orientation_x_; }
-  AudioParam* orientationY() const { return orientation_y_; }
-  AudioParam* orientationZ() const { return orientation_z_; }
+  AudioParam* orientationX() const { return orientation_x_.Get(); }
+  AudioParam* orientationY() const { return orientation_y_.Get(); }
+  AudioParam* orientationZ() const { return orientation_z_.Get(); }
 
-  String panningModel() const;
-  void setPanningModel(const String&);
+  V8PanningModelType panningModel() const;
+  void setPanningModel(const V8PanningModelType&);
   void setPosition(float x, float y, float z, ExceptionState&);
   void setOrientation(float x, float y, float z, ExceptionState&);
-  String distanceModel() const;
-  void setDistanceModel(const String&);
+  V8DistanceModelType distanceModel() const;
+  void setDistanceModel(const V8DistanceModelType&);
   double refDistance() const;
   void setRefDistance(double, ExceptionState&);
   double maxDistance() const;

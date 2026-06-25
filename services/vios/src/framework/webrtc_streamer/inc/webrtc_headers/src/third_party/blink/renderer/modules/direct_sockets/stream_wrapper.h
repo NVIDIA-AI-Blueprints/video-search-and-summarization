@@ -14,6 +14,7 @@
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
+#include "v8/include/v8.h"
 
 namespace blink {
 
@@ -25,7 +26,8 @@ class ScriptState;
 
 class MODULES_EXPORT StreamWrapper : public GarbageCollectedMixin {
  public:
-  using CloseOnceCallback = base::OnceCallback<void(ScriptValue exception)>;
+  using CloseOnceCallback =
+      base::OnceCallback<void(v8::Local<v8::Value> exception, int net_error)>;
 
   enum class State { kOpen, kAborted, kClosed, kGracefullyClosing };
 
@@ -33,7 +35,7 @@ class MODULES_EXPORT StreamWrapper : public GarbageCollectedMixin {
   virtual ~StreamWrapper();
 
   State GetState() const { return state_; }
-  ScriptState* GetScriptState() const { return script_state_; }
+  ScriptState* GetScriptState() const { return script_state_.Get(); }
 
   // Checks whether associated stream is locked to a reader/writer.
   virtual bool Locked() const = 0;
@@ -53,7 +55,7 @@ class MODULES_EXPORT StreamWrapper : public GarbageCollectedMixin {
 
 class ReadableStreamWrapper : public StreamWrapper {
  public:
-  ReadableStream* Readable() const { return readable_; }
+  ReadableStream* Readable() const { return readable_.Get(); }
 
   // Checks whether |readable_| is locked to a reader.
   bool Locked() const override;
@@ -78,7 +80,7 @@ class ReadableStreamDefaultWrapper : public ReadableStreamWrapper {
 
   void Trace(Visitor*) const override;
 
-  ControllerType* Controller() const { return controller_; }
+  ControllerType* Controller() const { return controller_.Get(); }
   void SetController(ControllerType* controller) { controller_ = controller; }
 
  protected:
@@ -102,7 +104,7 @@ class ReadableByteStreamWrapper : public ReadableStreamWrapper {
 
   void Trace(Visitor*) const override;
 
-  ControllerType* Controller() const { return controller_; }
+  ControllerType* Controller() const { return controller_.Get(); }
   void SetController(ControllerType* controller) { controller_ = controller; }
 
  protected:
@@ -124,7 +126,7 @@ class WritableStreamWrapper : public StreamWrapper {
  public:
   using ControllerType = WritableStreamDefaultController;
 
-  WritableStream* Writable() const { return writable_; }
+  WritableStream* Writable() const { return writable_.Get(); }
 
   // Checks whether |writable_| is locked to a writer.
   bool Locked() const override;
@@ -140,9 +142,9 @@ class WritableStreamWrapper : public StreamWrapper {
   virtual void OnAbortSignal() = 0;
 
   // Implements UnderlyingSink::write(...)
-  virtual ScriptPromise Write(ScriptValue, ExceptionState&) = 0;
+  virtual ScriptPromise<IDLUndefined> Write(ScriptValue, ExceptionState&) = 0;
 
-  ControllerType* Controller() const { return controller_; }
+  ControllerType* Controller() const { return controller_.Get(); }
   void SetController(ControllerType* controller) { controller_ = controller; }
 
   void Trace(Visitor*) const override;

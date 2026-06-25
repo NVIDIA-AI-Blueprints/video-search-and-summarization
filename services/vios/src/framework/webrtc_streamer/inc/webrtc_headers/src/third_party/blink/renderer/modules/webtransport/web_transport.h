@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+#include <optional>
+
 #include "base/containers/span.h"
 #include "base/time/time.h"
 #include "base/types/pass_key.h"
@@ -17,11 +19,17 @@
 #include "third_party/blink/public/mojom/webtransport/web_transport_connector.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
-#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_web_transport_congestion_control.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_web_transport_connection_stats.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_web_transport_datagram_stats.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_state_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
@@ -29,27 +37,28 @@
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "third_party/blink/renderer/platform/wtf/linked_hash_set.h"
 
 namespace blink {
-
+class BidirectionalStream;
 class DatagramDuplexStream;
 class ExceptionState;
 class IncomingStream;
 class OutgoingStream;
 class ReadableStream;
 class ReadableByteStreamController;
-class ScriptPromise;
-class ScriptPromiseResolver;
 class ScriptState;
 class WebTransportCloseInfo;
 class WebTransportOptions;
+class WebTransportSendGroup;
+class WebTransportSendStreamOptions;
 class WritableStream;
 
 // https://wicg.github.io/web-transport/#web-transport
 class MODULES_EXPORT WebTransport final
     : public ScriptWrappable,
       public ActiveScriptWrappable<WebTransport>,
-      public ExecutionContextLifecycleObserver,
+      public ExecutionContextLifecycleStateObserver,
       public network::mojom::blink::WebTransportHandshakeClient,
       public network::mojom::blink::WebTransportClient {
   DEFINE_WRAPPERTYPEINFO();
@@ -66,38 +75,57 @@ class MODULES_EXPORT WebTransport final
   ~WebTransport() override;
 
   // WebTransport IDL implementation.
-  ScriptPromise createUnidirectionalStream(ScriptState*, ExceptionState&);
+  ScriptPromise<WritableStream> createUnidirectionalStream(
+      ScriptState*,
+      WebTransportSendStreamOptions*,
+      ExceptionState&);
   ReadableStream* incomingUnidirectionalStreams();
 
-  ScriptPromise createBidirectionalStream(ScriptState*, ExceptionState&);
+  ScriptPromise<BidirectionalStream> createBidirectionalStream(
+      ScriptState*,
+      WebTransportSendStreamOptions*,
+      ExceptionState&);
   ReadableStream* incomingBidirectionalStreams();
 
   DatagramDuplexStream* datagrams();
   WritableStream* datagramWritable();
   ReadableStream* datagramReadable();
-  void close(const WebTransportCloseInfo*);
-  ScriptPromise ready() { return ready_; }
-  ScriptPromise closed() { return closed_; }
+  void close(WebTransportCloseInfo*);
+  ScriptPromise<IDLUndefined> ready(ScriptState*);
+  ScriptPromise<WebTransportCloseInfo> closed(ScriptState*);
   void setDatagramWritableQueueExpirationDuration(double ms);
+  ScriptPromise<WebTransportConnectionStats> getStats(ScriptState*);
+  const String& protocol();
+  WebTransportSendGroup* createSendGroup(ExceptionState&);
+  V8WebTransportCongestionControl congestionControl() const;
+
+  void SetNextSendGroupIdForTesting(uint32_t id) { next_send_group_id_ = id; }
 
   // WebTransportHandshakeClient implementation
+  void OnBeforeConnect(const net::IPEndPoint& server_address) override;
   void OnConnectionEstablished(
       mojo::PendingRemote<network::mojom::blink::WebTransport>,
       mojo::PendingReceiver<network::mojom::blink::WebTransportClient>,
-      network::mojom::blink::HttpResponseHeadersPtr response_headers) override;
+      const scoped_refptr<net::HttpResponseHeaders>& response_headers,
+      const String& selected_application_protocol,
+      network::mojom::blink::WebTransportStatsPtr initial_stats) override;
   void OnHandshakeFailed(network::mojom::blink::WebTransportErrorPtr) override;
 
   // WebTransportClient implementation
   void OnDatagramReceived(base::span<const uint8_t> data) override;
   void OnIncomingStreamClosed(uint32_t stream_id, bool fin_received) override;
   void OnOutgoingStreamClosed(uint32_t stream_id) override;
-  void OnReceivedResetStream(uint32_t stream_id, uint8_t code) override;
-  void OnReceivedStopSending(uint32_t stream_id, uint8_t code) override;
+  void OnReceivedResetStream(uint32_t stream_id,
+                             uint32_t stream_error_code) override;
+  void OnReceivedStopSending(uint32_t stream_id,
+                             uint32_t stream_error_code) override;
   void OnClosed(
-      network::mojom::blink::WebTransportCloseInfoPtr close_info) override;
+      network::mojom::blink::WebTransportCloseInfoPtr close_info,
+      network::mojom::blink::WebTransportStatsPtr final_stats) override;
 
-  // Implementation of ExecutionContextLifecycleObserver
+  // Implementation of ExecutionContextLifecycleStateObserver
   void ContextDestroyed() final;
+  void ContextLifecycleStateChanged(mojom::blink::FrameLifecycleState) final;
 
   // Implementation of WebTransport::HasPendingActivity()
   bool HasPendingActivity() const override;
@@ -106,20 +134,47 @@ class MODULES_EXPORT WebTransport final
   void SendFin(uint32_t stream_id);
 
   // Forwards a AbortStream() message to the mojo interface.
-  void ResetStream(uint32_t stream_id, uint8_t code);
+  void ResetStream(uint32_t stream_id, uint32_t code);
 
   // Forwards a StopSending() message to the mojo interface.
-  void StopSending(uint32_t stream_id, uint8_t code);
+  void StopSending(uint32_t stream_id, uint32_t code);
 
-  // Removes the reference to a stream.
-  void ForgetIncomingStream(uint32_t stream_id);
+  // Removes the reference to a stream. |has_received_close| indicates whether
+  // OnIncomingStreamClosed() was called for this stream before it was
+  // forgotten.
+  void ForgetIncomingStream(uint32_t stream_id, bool has_received_close);
   // Removes the reference to a stream.
   void ForgetOutgoingStream(uint32_t stream_id);
+
+  // Returns true if `OnIncomingStreamClosed()` arrived for a stream that hasn't
+  // been created yet. Tests use this to verify that entries in
+  // `closed_potentially_pending_streams_` are properly consumed or cleared.
+  bool HasPendingClosedStreamForTesting(uint32_t stream_id) const;
 
   // ScriptWrappable implementation
   void Trace(Visitor* visitor) const override;
 
  private:
+  // Nested class to track recently forgotten stream IDs with FIFO eviction.
+  // Used to ignore duplicate OnIncomingStreamClosed() calls for streams
+  // that were forgotten before the close notification arrived.
+  class RecentlyForgottenStreamIdSet {
+   public:
+    static constexpr wtf_size_t kMaxSize = 512;
+
+    RecentlyForgottenStreamIdSet() = default;
+    RecentlyForgottenStreamIdSet(const RecentlyForgottenStreamIdSet&) = delete;
+    RecentlyForgottenStreamIdSet& operator=(
+        const RecentlyForgottenStreamIdSet&) = delete;
+
+    void Insert(uint32_t stream_id);
+    bool Contains(uint32_t stream_id) const;
+    void Erase(uint32_t stream_id);
+
+   private:
+    LinkedHashSet<uint32_t, IntWithZeroKeyHashTraits<uint32_t>> id_set_;
+  };
+
   class DatagramUnderlyingSink;
   class DatagramUnderlyingSource;
   class StreamVendingUnderlyingSource;
@@ -133,22 +188,49 @@ class MODULES_EXPORT WebTransport final
             ExceptionState&);
 
   void Dispose();
-  void Cleanup(v8::Local<v8::Value> reason,
+  void Cleanup(WebTransportCloseInfo*,
                v8::Local<v8::Value> error,
                bool abruptly);
   void OnConnectionError();
   void RejectPendingStreamResolvers(v8::Local<v8::Value> error);
-  void OnCreateSendStreamResponse(ScriptPromiseResolver*,
+  void HandlePendingGetStatsResolvers(v8::Local<v8::Value> error);
+
+  // Result type for ExtractSendStreamOptions().
+  struct SendStreamOptions {
+    STACK_ALLOCATED();
+
+   public:
+    WebTransportSendGroup* send_group = nullptr;
+    int64_t send_order = 0;
+  };
+
+  // Extracts sendGroup and sendOrder from options, validating that sendGroup
+  // (if present) belongs to this WebTransport instance. Returns std::nullopt
+  // and throws on validation failure.
+  std::optional<SendStreamOptions> ExtractSendStreamOptions(
+      const WebTransportSendStreamOptions*,
+      ExceptionState&);
+
+  void OnCreateSendStreamResponse(ScriptPromiseResolver<WritableStream>*,
                                   mojo::ScopedDataPipeProducerHandle,
+                                  WebTransportSendGroup* send_group,
+                                  int64_t send_order,
                                   bool succeeded,
                                   uint32_t stream_id);
-  void OnCreateBidirectionalStreamResponse(ScriptPromiseResolver*,
-                                           mojo::ScopedDataPipeProducerHandle,
-                                           mojo::ScopedDataPipeConsumerHandle,
-                                           bool succeeded,
-                                           uint32_t stream_id);
+  void OnCreateBidirectionalStreamResponse(
+      ScriptPromiseResolver<BidirectionalStream>*,
+      mojo::ScopedDataPipeProducerHandle,
+      mojo::ScopedDataPipeConsumerHandle,
+      WebTransportSendGroup* send_group,
+      int64_t send_order,
+      bool succeeded,
+      uint32_t stream_id);
+  void OnGetStatsResponse(network::mojom::blink::WebTransportStatsPtr);
 
   bool DoesSubresourceFilterBlockConnection(const KURL& url);
+
+  WebTransportConnectionStats* ConvertStatsFromMojom(
+      network::mojom::blink::WebTransportStatsPtr in);
 
   Member<DatagramDuplexStream> datagrams_;
 
@@ -166,6 +248,11 @@ class MODULES_EXPORT WebTransport final
 
   const KURL url_;
 
+  String selected_application_protocol_ = "";
+
+  V8WebTransportCongestionControl congestion_control_{
+      V8WebTransportCongestionControl::Enum::kDefault};
+
   // Map from stream_id to IncomingStream.
   // Intentionally keeps streams reachable by GC as long as they are open.
   // This doesn't support stream ids of 0xfffffffe or larger.
@@ -174,6 +261,13 @@ class MODULES_EXPORT WebTransport final
               Member<IncomingStream>,
               IntWithZeroKeyHashTraits<uint32_t>>
       incoming_stream_map_;
+
+  // Tracks recently forgotten incoming streams so that late-arriving
+  // OnIncomingStreamClosed() calls can be safely ignored. We only track streams
+  // that were forgotten *before* receiving OnIncomingStreamClosed(); streams
+  // that did receive it don't need tracking because the network layer won't
+  // send another close for the same stream.
+  RecentlyForgottenStreamIdSet recently_forgotten_incoming_stream_ids_;
 
   // Map from stream_id to OutgoingStream.
   // Intentionally keeps streams reachable by GC as long as they are open.
@@ -197,14 +291,22 @@ class MODULES_EXPORT WebTransport final
       handshake_client_receiver_;
   HeapMojoReceiver<network::mojom::blink::WebTransportClient, WebTransport>
       client_receiver_;
-  Member<ScriptPromiseResolver> ready_resolver_;
-  ScriptPromise ready_;
-  Member<ScriptPromiseResolver> closed_resolver_;
-  ScriptPromise closed_;
+  using ReadyProperty = ScriptPromiseProperty<IDLUndefined, IDLAny>;
+  Member<ReadyProperty> ready_;
+  Member<ScriptPromiseProperty<WebTransportCloseInfo, IDLAny>> closed_;
+  // True if [[State]] is "connecting".
+  bool connection_pending_ = true;
+
+  // The most recent result for getStats() call, used for cases when the
+  // stats are requested after the transport is closed.
+  Member<WebTransportConnectionStats> latest_stats_;
+  // Tracks resolvers for in-progress getStats() calls.
+  HeapVector<Member<ScriptPromiseResolver<WebTransportConnectionStats>>>
+      pending_get_stats_resolvers_;
 
   // Tracks resolvers for in-progress createSendStream() and
   // createBidirectionalStream() operations so they can be rejected.
-  HeapHashSet<Member<ScriptPromiseResolver>> create_stream_resolvers_;
+  HeapHashSet<Member<ScriptPromiseResolverBase>> create_stream_resolvers_;
 
   // The [[ReceivedStreams]] slot.
   // https://w3c.github.io/webtransport/#webtransport-receivedstreams
@@ -216,6 +318,14 @@ class MODULES_EXPORT WebTransport final
       received_bidirectional_streams_underlying_source_;
 
   const uint64_t inspector_transport_id_;
+
+  // Tracks send groups created via createSendGroup().
+  // WeakMember allows groups to be garbage-collected when JS drops all
+  // references. In-flight stream creation callbacks capture groups via
+  // WrapPersistent to ensure the group survives until the callback fires.
+  HeapHashSet<WeakMember<WebTransportSendGroup>> send_groups_;
+  // Counter for assigning unique group IDs.
+  uint32_t next_send_group_id_ = 0;
 
   FrameScheduler::SchedulingAffectingFeatureHandle
       feature_handle_for_scheduler_;

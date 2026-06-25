@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_SERIALIZATION_SERIALIZATION_TAG_H_
 #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_SERIALIZATION_SERIALIZATION_TAG_H_
 
+#include <cstdint>
+
 namespace blink {
 
 // Serialization format is a sequence of tags followed by zero or more data
@@ -36,7 +38,7 @@ namespace blink {
 // the contents of these values, they are first given object reference IDs (by
 // GenerateFreshObjectTag/GenerateFreshArrayTag); these reference IDs are then
 // used with ObjectReferenceTag to tie the recursive knot.
-enum SerializationTag {
+enum SerializationTag : uint8_t {
   kMessagePortTag = 'M',  // index:int -> MessagePort. Fills the result with
                           // transferred MessagePort.
   kMojoHandleTag = 'h',   // index:int -> MojoHandle. Fills the result with
@@ -68,6 +70,8 @@ enum SerializationTag {
                           // -> ImageBitmap (ref)
   kImageBitmapTransferTag =
       'G',  // index:uint32_t -> ImageBitmap. For ImageBitmap transfer
+  kElementImageTransferTag =
+      'J',  // index:uint32_t -> ElementImage. For ElementImage transfer
   kOffscreenCanvasTransferTag = 'H',  // index, width, height, id,
                                       // filter_quality::uint32_t ->
                                       // OffscreenCanvas. For OffscreenCanvas
@@ -110,13 +114,15 @@ enum SerializationTag {
                              // pemCertificate:WebCoreString
   kRTCEncodedAudioFrameTag = 'A',  // uint32_t -> transferred audio frame ID
   kRTCEncodedVideoFrameTag = 'V',  // uint32_t -> transferred video frame ID
+  kRTCDataChannel = 'p',  // uint32_t -> transferred webrtc datachannel ID
 
   kAudioDataTag = 'a',          // uint32_t -> transferred audio data
   kVideoFrameTag = 'v',         // uint32_t -> transferred video frame ID
   kEncodedAudioChunkTag = 'y',  // uint32_t -> transferred chunk
   kEncodedVideoChunkTag = 'z',  // uint32_t -> transferred chunk
 
-  kCropTargetTag = 'c',  // crop_id:WebCoreString
+  kCropTargetTag = 'c',         // crop_id:WebCoreString
+  kRestrictionTargetTag = 'D',  // restriction_id:WebCoreString
 
   kMediaSourceHandleTag = 'S',  // uint32_t -> transferred MediaSourceHandle
 
@@ -127,7 +133,14 @@ enum SerializationTag {
   kDeprecatedDetectedFaceTag = 'F',
   kDeprecatedDetectedTextTag = 't',
 
+  kFencedFrameConfigTag = 'C',
+
   kDOMExceptionTag = 'x',  // name:String,message:String,stack:String
+
+  kQuotaExceededErrorTag = 'q',  // message:String,stack:String,
+                                 // has_quota:uint32 (0 or 1), quota:double,
+                                 // has_requested:uint32 (0 or 1),
+                                 // requested:double
   kTrailerOffsetTag =
       0xFE,  // offset:uint64_t (fixed width, network order) from buffer start
              // size:uint32_t (fixed width, network order)

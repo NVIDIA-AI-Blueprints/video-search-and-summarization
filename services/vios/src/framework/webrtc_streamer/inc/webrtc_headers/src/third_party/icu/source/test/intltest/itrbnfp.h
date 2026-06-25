@@ -29,6 +29,7 @@ class IntlTestRBNFParse : public IntlTest {
    * Perform an API test
    */
   virtual void TestParse();
+  virtual void TestNullRuleSet();
 
   void testfmt(RuleBasedNumberFormat* formatter, double val, UErrorCode& status);
   void testfmt(RuleBasedNumberFormat* formatter, int val, UErrorCode& status);

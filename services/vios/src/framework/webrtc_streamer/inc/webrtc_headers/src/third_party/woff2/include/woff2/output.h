@@ -9,6 +9,8 @@
 #ifndef WOFF2_WOFF2_OUT_H_
 #define WOFF2_WOFF2_OUT_H_
 
+#include <stdint.h>
+
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -17,7 +19,7 @@
 namespace woff2 {
 
 // Suggested max size for output.
-const size_t kDefaultMaxSize = 30 * 1024 * 1024;
+const size_t kDefaultMaxSize = 128 * 1024 * 1024;
 
 /**
  * Output interface for the woff2 decoding.

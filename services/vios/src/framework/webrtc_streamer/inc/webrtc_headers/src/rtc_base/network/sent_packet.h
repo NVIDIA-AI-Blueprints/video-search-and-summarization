@@ -14,10 +14,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "rtc_base/system/rtc_export.h"
 
-namespace rtc {
+namespace webrtc {
 
 enum class PacketType {
   kUnknown,
@@ -31,6 +32,7 @@ enum class PacketType {
 enum class PacketInfoProtocolType {
   kUnknown,
   kUdp,
+  kDtls,
   kTcp,
   kSsltcp,
   kTls,
@@ -43,27 +45,31 @@ struct RTC_EXPORT PacketInfo {
 
   bool included_in_feedback = false;
   bool included_in_allocation = false;
+  // `is_media` is true if this is an audio or video packet, excluding
+  // retransmissions.
+  bool is_media = false;
   PacketType packet_type = PacketType::kUnknown;
   PacketInfoProtocolType protocol = PacketInfoProtocolType::kUnknown;
-  // A unique id assigned by the network manager, and absl::nullopt if not set.
-  absl::optional<uint16_t> network_id;
+  // A unique id assigned by the network manager, and std::nullopt if not set.
+  std::optional<uint16_t> network_id;
   size_t packet_size_bytes = 0;
   size_t turn_overhead_bytes = 0;
   size_t ip_overhead_bytes = 0;
 };
 
-struct RTC_EXPORT SentPacket {
-  SentPacket();
-  SentPacket(int64_t packet_id, int64_t send_time_ms);
-  SentPacket(int64_t packet_id,
-             int64_t send_time_ms,
-             const rtc::PacketInfo& info);
+struct RTC_EXPORT SentPacketInfo {
+  SentPacketInfo();
+  SentPacketInfo(int64_t packet_id, int64_t send_time_ms);
+  SentPacketInfo(int64_t packet_id,
+                 int64_t send_time_ms,
+                 const PacketInfo& info);
 
   int64_t packet_id = -1;
   int64_t send_time_ms = -1;
-  rtc::PacketInfo info;
+  PacketInfo info;
 };
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_NETWORK_SENT_PACKET_H_

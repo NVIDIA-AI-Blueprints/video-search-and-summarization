@@ -30,13 +30,9 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_DOM_MESSAGE_EVENT_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_DOM_MESSAGE_EVENT_H_
 
-#include "base/unguessable_token.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/public/common/messaging/message_port_channel.h"
-#include "third_party/blink/public/common/messaging/transferable_message.h"
+#include <optional>
+
 #include "third_party/blink/public/platform/web_common.h"
-#include "third_party/blink/public/platform/web_string.h"
-#include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_dom_event.h"
 #include "third_party/blink/public/web/web_serialized_script_value.h"
 
@@ -46,22 +42,13 @@
 
 namespace blink {
 
-class WebFrame;
-
 // An interface for posting message events to the target frame. The message
 // events are used for communication between documents and described here:
 // http://www.w3.org/TR/2012/WD-webmessaging-20120313/#terminology
 class BLINK_EXPORT WebDOMMessageEvent : public WebDOMEvent {
  public:
-  WebDOMMessageEvent(
-      const WebSerializedScriptValue& message_data,
-      const WebString& origin = WebString(),
-      const WebFrame* source_frame = nullptr,
-      const WebDocument& target_document = WebDocument(),
-      WebVector<MessagePortChannel> ports = WebVector<MessagePortChannel>());
+  explicit WebDOMMessageEvent(const WebSerializedScriptValue& message_data);
   WebDOMMessageEvent() = default;
-
-  WebString Origin() const;
 
 #if INSIDE_BLINK
   explicit WebDOMMessageEvent(MessageEvent* e) : WebDOMEvent(e) {}

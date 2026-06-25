@@ -31,6 +31,7 @@ typedef void ID3D11Device;
 #include <ffnvcodec/nvEncodeAPI.h>
 
 #include "compat/cuda/dynlink_loader.h"
+#include "libavutil/buffer.h"
 #include "libavutil/fifo.h"
 #include "libavutil/opt.h"
 #include "hwconfig.h"
@@ -60,6 +61,7 @@ typedef void ID3D11Device;
 #define NVENC_HAVE_MULTIPLE_REF_FRAMES
 #define NVENC_HAVE_CUSTREAM_PTR
 #define NVENC_HAVE_GETLASTERRORSTRING
+#define NVENC_HAVE_FILLER_DATA
 #endif
 
 // SDK 10.0 compile time feature checks
@@ -77,6 +79,38 @@ typedef void ID3D11Device;
 #define NVENC_HAVE_SINGLE_SLICE_INTRA_REFRESH
 #endif
 
+// SDK 12.0 compile time feature checks
+#if NVENCAPI_CHECK_VERSION(12, 0)
+#define NVENC_HAVE_HEVC_OUTPUT_RECOVERY_POINT_SEI
+#endif
+
+// SDK 12.1 compile time feature checks
+#if NVENCAPI_CHECK_VERSION(12, 1)
+#define NVENC_NO_DEPRECATED_RC
+#define NVENC_HAVE_SPLIT_FRAME_ENCODING
+#endif
+
+// SDK 12.2 compile time feature checks
+#if NVENCAPI_CHECK_VERSION(12, 2)
+#define NVENC_HAVE_NEW_BIT_DEPTH_API
+#define NVENC_HAVE_TEMPORAL_FILTER
+#define NVENC_HAVE_LOOKAHEAD_LEVEL
+#define NVENC_HAVE_UHQ_TUNING
+#define NVENC_HAVE_UNIDIR_B
+#define NVENC_HAVE_TIME_CODE // added in 12.0, but incomplete until 12.2
+#endif
+
+// SDK 13.0 compile time feature checks
+#if NVENCAPI_CHECK_VERSION(13, 0)
+#define NVENC_HAVE_H264_10BIT_SUPPORT
+#define NVENC_HAVE_422_SUPPORT
+#define NVENC_HAVE_SFE_FOUR_WAYS_SUPPORT
+#define NVENC_HAVE_AV1_UHQ_TUNING
+#define NVENC_HAVE_H264_AND_AV1_TEMPORAL_FILTER
+#define NVENC_HAVE_HEVC_AND_AV1_MASTERING_METADATA
+#define NVENC_HAVE_MVHEVC
+#endif
+
 typedef struct NvencSurface
 {
     NV_ENC_INPUT_PTR input_surface;
@@ -89,6 +123,14 @@ typedef struct NvencSurface
     NV_ENC_OUTPUT_PTR output_surface;
     NV_ENC_BUFFER_FORMAT format;
 } NvencSurface;
+
+typedef struct NvencFrameData
+{
+    int64_t duration;
+
+    void        *frame_opaque;
+    AVBufferRef *frame_opaque_ref;
+} NvencFrameData;
 
 typedef struct NvencDynLoadFunctions
 {
@@ -127,6 +169,12 @@ enum {
     NV_ENC_H264_PROFILE_BASELINE,
     NV_ENC_H264_PROFILE_MAIN,
     NV_ENC_H264_PROFILE_HIGH,
+#ifdef NVENC_HAVE_H264_10BIT_SUPPORT
+    NV_ENC_H264_PROFILE_HIGH_10,
+#endif
+#ifdef NVENC_HAVE_422_SUPPORT
+    NV_ENC_H264_PROFILE_HIGH_422,
+#endif
     NV_ENC_H264_PROFILE_HIGH_444P,
 };
 
@@ -134,6 +182,11 @@ enum {
     NV_ENC_HEVC_PROFILE_MAIN,
     NV_ENC_HEVC_PROFILE_MAIN_10,
     NV_ENC_HEVC_PROFILE_REXT,
+#ifdef NVENC_HAVE_MVHEVC
+    NV_ENC_HEVC_PROFILE_MULTIVIEW_MAIN,
+#endif
+
+    NV_ENC_HEVC_PROFILE_COUNT
 };
 
 enum {
@@ -148,6 +201,12 @@ enum {
 enum {
     LIST_DEVICES = -2,
     ANY_DEVICE,
+};
+
+enum {
+    NVENC_RGB_MODE_DISABLED,
+    NVENC_RGB_MODE_420,
+    NVENC_RGB_MODE_444,
 };
 
 typedef struct NvencContext
@@ -168,10 +227,17 @@ typedef struct NvencContext
     int nb_surfaces;
     NvencSurface *surfaces;
 
+    NvencFrameData *frame_data_array;
+    int frame_data_array_nb;
+    int frame_data_array_pos;
+
     AVFifo *unused_surface_queue;
     AVFifo *output_surface_queue;
     AVFifo *output_surface_ready_queue;
-    AVFifo *reorder_queue;
+    AVFifo *timestamp_list;
+    // This is for DTS calculating, reset after flush
+    uint64_t output_frame_num;
+    int64_t initial_delay_time;
 
     NV_ENC_SEI_PAYLOAD *sei_data;
     int sei_data_size;
@@ -192,6 +258,9 @@ typedef struct NvencContext
     int support_dyn_bitrate;
 
     void *nvencoder;
+
+    uint32_t frame_idx_counter;
+    uint32_t next_view_id;
 
     int preset;
     int profile;
@@ -218,6 +287,8 @@ typedef struct NvencContext
     float quality;
     int aud;
     int bluray_compat;
+    int qmin;
+    int qmax;
     int init_qp_p;
     int init_qp_b;
     int init_qp_i;
@@ -240,6 +311,16 @@ typedef struct NvencContext
     int udu_sei;
     int timing_info;
     int highbitdepth;
+    int max_slice_size;
+    int rgb_mode;
+    int tf_level;
+    int lookahead_level;
+    int unidir_b;
+    int split_encode_mode;
+    int mdm, cll;
+    int cbr_padding;
+    int multiview, multiview_supported;
+    int display_sei_sent;
 } NvencContext;
 
 int ff_nvenc_encode_init(AVCodecContext *avctx);

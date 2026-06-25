@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -12,7 +12,7 @@
 #ifndef AOM_TEST_REGISTER_STATE_CHECK_H_
 #define AOM_TEST_REGISTER_STATE_CHECK_H_
 
-#include "third_party/googletest/src/googletest/include/gtest/gtest.h"
+#include "gtest/gtest.h"
 
 #include "config/aom_config.h"
 
@@ -20,9 +20,8 @@
 
 // API_REGISTER_STATE_CHECK(function)
 //   Validates the environment pre & post function execution to ensure the
-//   environment is in a consistent state. This should be used with API
-//   function sand assembly functions which are not expected to fully restore
-//   the system state.
+//   environment is in a consistent state. This should be used with functions
+//   which are expected to fully restore the system state.
 //   See platform implementations of RegisterStateCheck and
 //   RegisterStateCheckMMX for details.
 

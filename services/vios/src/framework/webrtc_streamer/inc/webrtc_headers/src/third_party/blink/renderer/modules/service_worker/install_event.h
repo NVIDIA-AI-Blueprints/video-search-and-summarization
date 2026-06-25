@@ -5,13 +5,15 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_SERVICE_WORKER_INSTALL_EVENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_SERVICE_WORKER_INSTALL_EVENT_H_
 
+#include "third_party/blink/public/mojom/service_worker/service_worker.mojom-blink.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_fetch_handler_type.mojom-blink.h"
 #include "third_party/blink/renderer/modules/event_modules.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/service_worker/extendable_event.h"
 
 namespace blink {
 
-class ScriptPromise;
+class ExceptionState;
 class ScriptState;
 class V8UnionRouterRuleOrRouterRuleSequence;
 
@@ -35,12 +37,22 @@ class MODULES_EXPORT InstallEvent : public ExtendableEvent {
 
   const AtomicString& InterfaceName() const override;
 
-  ScriptPromise registerRouter(ScriptState*,
-                               const V8UnionRouterRuleOrRouterRuleSequence*);
+  ScriptPromise<IDLUndefined> addRoutes(
+      ScriptState*,
+      const V8UnionRouterRuleOrRouterRuleSequence*,
+      ExceptionState&);
 
  protected:
   const int event_id_;
-  bool did_register_router_ = false;
+
+ private:
+  void ConvertServiceWorkerRouterRules(
+      ScriptState* script_state,
+      const V8UnionRouterRuleOrRouterRuleSequence* v8_rules,
+      ExceptionState& exception_state,
+      const KURL& base_url,
+      mojom::blink::ServiceWorkerFetchHandlerType fetch_handler_type,
+      blink::ServiceWorkerRouterRules& rules);
 };
 
 }  // namespace blink

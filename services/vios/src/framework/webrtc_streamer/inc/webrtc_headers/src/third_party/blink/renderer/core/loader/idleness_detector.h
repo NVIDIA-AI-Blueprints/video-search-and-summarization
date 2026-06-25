@@ -17,11 +17,13 @@ namespace blink {
 class LocalFrame;
 class ResourceFetcher;
 
-// IdlenessDetector observes the resource request count every time a load is
-// finshed after DOMContentLoadedEventEnd is fired. It emits a network almost
-// idle signal when there are no more than 2 network connections active in 0.5
-// seconds, and a network idle signal when there are 0 network connections
-// active in 0.5 seconds.
+// Once started, IdlenessDetector observes the resource request count every time
+// a resource load is finished. It emits a network almost idle signal when there
+// are no more than 2 network connections active in 0.5 seconds, and a network
+// idle signal when there are 0 network connections active in 0.5 seconds and
+// then stops observing. The detector is always run after a
+// DOMContentLoadedEventEnd is fired but can also be re-started explicitly after
+// it finishes observation.
 class CORE_EXPORT IdlenessDetector
     : public GarbageCollected<IdlenessDetector>,
       public base::sequence_manager::TaskTimeObserver {
@@ -35,6 +37,9 @@ class CORE_EXPORT IdlenessDetector
   void Shutdown();
   void WillCommitLoad();
   void DomContentLoadedEventFired();
+  void DidDropNavigation();
+  void StartIfNeeded();
+
   // TODO(lpy) Don't need to pass in fetcher once the command line of disabling
   // PlzNavigate is removed.
   void OnWillSendRequest(ResourceFetcher*);
@@ -60,7 +65,11 @@ class CORE_EXPORT IdlenessDetector
   void DidProcessTask(base::TimeTicks start_time,
                       base::TimeTicks end_time) override;
 
+  void Start();
   void Stop();
+  bool HasCompleted() const {
+    return !in_network_0_quiet_period_ && !in_network_2_quiet_period_;
+  }
 
   // This method and the associated timer appear to have no effect, but they
   // have the side effect of triggering a task, which will send WillProcessTask

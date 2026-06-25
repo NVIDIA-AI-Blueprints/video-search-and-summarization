@@ -31,18 +31,24 @@
 // `node_hash_set` should be an easy migration. Consider migrating to
 // `node_hash_set` and perhaps converting to a more efficient `flat_hash_set`
 // upon further review.
+//
+// `node_hash_set` is not exception-safe.
 
 #ifndef ABSL_CONTAINER_NODE_HASH_SET_H_
 #define ABSL_CONTAINER_NODE_HASH_SET_H_
 
+#include <cstddef>
+#include <memory>
 #include <type_traits>
 
 #include "absl/algorithm/container.h"
-#include "absl/base/macros.h"
-#include "absl/container/internal/hash_function_defaults.h"  // IWYU pragma: export
+#include "absl/base/attributes.h"
+#include "absl/container/hash_container_defaults.h"
+#include "absl/container/internal/container_memory.h"
 #include "absl/container/internal/node_slot_policy.h"
 #include "absl/container/internal/raw_hash_set.h"  // IWYU pragma: export
 #include "absl/memory/memory.h"
+#include "absl/meta/type_traits.h"
 
 namespace absl {
 ABSL_NAMESPACE_BEGIN
@@ -62,7 +68,7 @@ struct NodeHashSetPolicy;
 //
 // * Supports heterogeneous lookup, through `find()`, `operator[]()` and
 //   `insert()`, provided that the set is provided a compatible heterogeneous
-//   hashing function and equality operator.
+//   hashing function and equality operator. See below for details.
 // * Contains a `capacity()` member function indicating the number of element
 //   slots (open, deleted, and empty) within the hash set.
 // * Returns `void` from the `erase(iterator)` overload.
@@ -78,28 +84,50 @@ struct NodeHashSetPolicy;
 // libraries (e.g. .dll, .so) is unsupported due to way `absl::Hash` values may
 // be randomized across dynamically loaded libraries.
 //
+// To achieve heterogeneous lookup for custom types either `Hash` and `Eq` type
+// parameters can be used or `T` should have public inner types
+// `absl_container_hash` and (optionally) `absl_container_eq`. In either case,
+// `typename Hash::is_transparent` and `typename Eq::is_transparent` should be
+// well-formed. Both types are basically functors:
+// * `Hash` should support `size_t operator()(U val) const` that returns a hash
+// for the given `val`.
+// * `Eq` should support `bool operator()(U lhs, V rhs) const` that returns true
+// if `lhs` is equal to `rhs`.
+//
+// In most cases `T` needs only to provide the `absl_container_hash`. In this
+// case `std::equal_to<void>` will be used instead of `eq` part.
+//
+// PERFORMANCE WARNING: Erasure & sparsity can negatively affect performance:
+//  * Iteration takes O(capacity) time, not O(size).
+//  * erase() slows down begin() and ++iterator.
+//  * Capacity only shrinks on rehash() or clear() -- not on erase().
+//
 // Example:
 //
 //   // Create a node hash set of three strings
 //   absl::node_hash_set<std::string> ducks =
 //     {"huey", "dewey", "louie"};
 //
-//  // Insert a new element into the node hash set
-//  ducks.insert("donald");
+//   // Insert a new element into the node hash set
+//   ducks.insert("donald");
 //
-//  // Force a rehash of the node hash set
-//  ducks.rehash(0);
+//   // Force a rehash of the node hash set
+//   ducks.rehash(0);
 //
-//  // See if "dewey" is present
-//  if (ducks.contains("dewey")) {
-//    std::cout << "We found dewey!" << std::endl;
-//  }
-template <class T, class Hash = absl::container_internal::hash_default_hash<T>,
-          class Eq = absl::container_internal::hash_default_eq<T>,
-          class Alloc = std::allocator<T>>
-class node_hash_set
-    : public absl::container_internal::raw_hash_set<
-          absl::container_internal::NodeHashSetPolicy<T>, Hash, Eq, Alloc> {
+//   // See if "dewey" is present
+//   if (ducks.contains("dewey")) {
+//     std::cout << "We found dewey!" << std::endl;
+//   }
+template <
+    class T,
+    class Hash = typename container_internal::NodeHashSetPolicy<T>::DefaultHash,
+    class Eq = typename container_internal::NodeHashSetPolicy<T>::DefaultEq,
+    class Alloc =
+        typename container_internal::NodeHashSetPolicy<T>::DefaultAlloc>
+class ABSL_ATTRIBUTE_OWNER node_hash_set
+    : public absl::container_internal::InstantiateRawHashSet<
+          absl::container_internal::NodeHashSetPolicy<T>, Hash, Eq,
+          Alloc>::type {
   using Base = typename node_hash_set::raw_hash_set;
 
  public:
@@ -124,9 +152,9 @@ class node_hash_set
   //
   // * Copy assignment operator
   //
-  //  // Hash functor and Comparator are copied as well
-  //  absl::node_hash_set<std::string> set4;
-  //  set4 = set3;
+  //   // Hash functor and Comparator are copied as well
+  //   absl::node_hash_set<std::string> set4;
+  //   set4 = set3;
   //
   // * Move constructor
   //
@@ -143,6 +171,11 @@ class node_hash_set
   //
   //   std::vector<std::string> v = {"a", "b"};
   //   absl::node_hash_set<std::string> set7(v.begin(), v.end());
+  //
+  // * from_range constructor (C++23)
+  //
+  //   std::vector<std::string> v = {"a", "b"};
+  //   absl::node_hash_set<std::string> set8(std::from_range, v);
   node_hash_set() {}
   using Base::Base;
 
@@ -212,13 +245,22 @@ class node_hash_set
   //   Erases the element at `position` of the `node_hash_set`, returning
   //   `void`.
   //
-  //   NOTE: this return behavior is different than that of STL containers in
-  //   general and `std::unordered_set` in particular.
+  //   NOTE: Returning `void` in this case is different than that of STL
+  //   containers in general and `std::unordered_map` in particular (which
+  //   return an iterator to the element following the erased element). If that
+  //   iterator is needed, simply post increment the iterator:
+  //
+  //     map.erase(it++);
+  //
   //
   // iterator erase(const_iterator first, const_iterator last):
   //
   //   Erases the elements in the open interval [`first`, `last`), returning an
-  //   iterator pointing to `last`.
+  //   iterator pointing to `last`. The special case of calling
+  //   `erase(begin(), end())` resets the reserved growth such that if
+  //   `reserve(N)` has previously been called and there has been no intervening
+  //   call to `clear()`, then after calling `erase(begin(), end())`, it is safe
+  //   to assume that inserting N elements will not cause a rehash.
   //
   // size_type erase(const key_type& key):
   //
@@ -327,8 +369,7 @@ class node_hash_set
   // node_hash_set::swap(node_hash_set& other)
   //
   // Exchanges the contents of this `node_hash_set` with those of the `other`
-  // node hash set, avoiding invocation of any move, copy, or swap operations on
-  // individual elements.
+  // node hash set.
   //
   // All iterators and references on the `node_hash_set` remain valid, excepting
   // for the past-the-end iterator, which is invalidated.
@@ -359,7 +400,9 @@ class node_hash_set
   //
   // Sets the number of slots in the `node_hash_set` to the number needed to
   // accommodate at least `count` total elements without exceeding the current
-  // maximum load factor, and may rehash the container if needed.
+  // maximum load factor, and may rehash the container if needed. After this
+  // returns, it is guaranteed that `count - size()` elements can be inserted
+  // into the `node_hash_set` without another rehash.
   using Base::reserve;
 
   // node_hash_set::contains()
@@ -445,6 +488,50 @@ typename node_hash_set<T, H, E, A>::size_type erase_if(
   return container_internal::EraseIf(pred, &c);
 }
 
+// swap(node_hash_set<>, node_hash_set<>)
+//
+// Swaps the contents of two `node_hash_set` containers.
+//
+// NOTE: we need to define this function template in order for
+// `flat_hash_set::swap` to be called instead of `std::swap`. Even though we
+// have `swap(raw_hash_set&, raw_hash_set&)` defined, that function requires a
+// derived-to-base conversion, whereas `std::swap` is a function template so
+// `std::swap` will be preferred by compiler.
+template <typename T, typename H, typename E, typename A>
+void swap(node_hash_set<T, H, E, A>& x,
+          node_hash_set<T, H, E, A>& y) noexcept(noexcept(x.swap(y))) {
+  return x.swap(y);
+}
+
+namespace container_internal {
+
+// c_for_each_fast(node_hash_set<>, Function)
+//
+// Container-based version of the <algorithm> `std::for_each()` function to
+// apply a function to a container's elements.
+// There is no guarantees on the order of the function calls.
+// Erasure and/or insertion of elements in the function is not allowed.
+template <typename T, typename H, typename E, typename A, typename Function>
+std::decay_t<Function> c_for_each_fast(const node_hash_set<T, H, E, A>& c,
+                                       Function&& f) {
+  container_internal::ForEach(f, &c);
+  return f;
+}
+template <typename T, typename H, typename E, typename A, typename Function>
+std::decay_t<Function> c_for_each_fast(node_hash_set<T, H, E, A>& c,
+                                       Function&& f) {
+  container_internal::ForEach(f, &c);
+  return f;
+}
+template <typename T, typename H, typename E, typename A, typename Function>
+std::decay_t<Function> c_for_each_fast(node_hash_set<T, H, E, A>&& c,
+                                       Function&& f) {
+  container_internal::ForEach(f, &c);
+  return f;
+}
+
+}  // namespace container_internal
+
 namespace container_internal {
 
 template <class T>
@@ -454,24 +541,28 @@ struct NodeHashSetPolicy
   using init_type = T;
   using constant_iterators = std::true_type;
 
+  using DefaultHash = DefaultHashContainerHash<T>;
+  using DefaultEq = DefaultHashContainerEq<T>;
+  using DefaultAlloc = std::allocator<T>;
+
   template <class Allocator, class... Args>
   static T* new_element(Allocator* alloc, Args&&... args) {
     using ValueAlloc =
-        typename absl::allocator_traits<Allocator>::template rebind_alloc<T>;
+        typename std::allocator_traits<Allocator>::template rebind_alloc<T>;
     ValueAlloc value_alloc(*alloc);
-    T* res = absl::allocator_traits<ValueAlloc>::allocate(value_alloc, 1);
-    absl::allocator_traits<ValueAlloc>::construct(value_alloc, res,
-                                                  std::forward<Args>(args)...);
+    T* res = std::allocator_traits<ValueAlloc>::allocate(value_alloc, 1);
+    std::allocator_traits<ValueAlloc>::construct(value_alloc, res,
+                                                 std::forward<Args>(args)...);
     return res;
   }
 
   template <class Allocator>
   static void delete_element(Allocator* alloc, T* elem) {
     using ValueAlloc =
-        typename absl::allocator_traits<Allocator>::template rebind_alloc<T>;
+        typename std::allocator_traits<Allocator>::template rebind_alloc<T>;
     ValueAlloc value_alloc(*alloc);
-    absl::allocator_traits<ValueAlloc>::destroy(value_alloc, elem);
-    absl::allocator_traits<ValueAlloc>::deallocate(value_alloc, elem, 1);
+    std::allocator_traits<ValueAlloc>::destroy(value_alloc, elem);
+    std::allocator_traits<ValueAlloc>::deallocate(value_alloc, elem, 1);
   }
 
   template <class F, class... Args>
@@ -483,6 +574,11 @@ struct NodeHashSetPolicy
   }
 
   static size_t element_space_used(const T*) { return sizeof(T); }
+
+  template <class Hash, bool kIsDefault>
+  static constexpr HashSlotFn get_hash_slot_fn() {
+    return &TypeErasedDerefAndApplyToSlotFn<Hash, T, kIsDefault>;
+  }
 };
 }  // namespace container_internal
 

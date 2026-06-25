@@ -11,13 +11,13 @@
 
 namespace ipcz {
 
-class Portal;
+class Router;
 
 // Base class for any object which can be referenced by an IpczHandle.
 //
 // A subclass T should inherit from APIObjectImpl<T, U> rather than inheriting
 // this base class directly. See APIObjectImpl below.
-class APIObject : public RefCounted {
+class APIObject : public RefCounted<APIObject> {
  public:
   enum ObjectType {
     kNode,
@@ -46,7 +46,7 @@ class APIObject : public RefCounted {
   IpczHandle handle() const { return reinterpret_cast<uintptr_t>(this); }
 
   // Releases ownership of a Ref<APIObject> to produce a new IpczHandle which
-  // implicilty owns the released reference.
+  // implicitly owns the released reference.
   static IpczHandle ReleaseAsHandle(Ref<APIObject> object) {
     return static_cast<IpczHandle>(
         reinterpret_cast<uintptr_t>(object.release()));
@@ -58,17 +58,19 @@ class APIObject : public RefCounted {
 
   // Indicates whether it's possible to send this object from `sender`. By
   // default the answer is NO.
-  virtual bool CanSendFrom(Portal& sender);
+  virtual bool CanSendFrom(Router& sender);
 
  protected:
-  ~APIObject() override;
+  friend class RefCounted<APIObject>;
+
+  virtual ~APIObject();
 
   const ObjectType type_;
 };
 
 // Strongly-typed base class for any object which can be referenced by an
 // IpczHandle. This is templated over the more specific subclass type, as well
-// as an appropriate ObjectType value to use for runtime type idenitification.
+// as an appropriate ObjectType value to use for runtime type identification.
 template <typename T, APIObject::ObjectType kType>
 class APIObjectImpl : public APIObject {
  public:

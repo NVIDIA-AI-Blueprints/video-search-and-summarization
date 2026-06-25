@@ -1,109 +1,98 @@
-/*
- * Copyright (C) 2006 Apple Computer, Inc.
- * Copyright (C) 2007 Nikolas Zimmermann <zimmermann@kde.org>
- * Copyright (C) Research In Motion Limited 2010-2012. All rights reserved.
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
- *
- * You should have received a copy of the GNU Library General Public License
- * along with this library; see the file COPYING.LIB.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
- */
+// Copyright 2021 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_TEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_TEXT_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_block.h"
 
 namespace blink {
 
-class LayoutSVGInlineText;
-class SVGTextElement;
-
+// The LayoutNG representation of SVG <text>.
 class LayoutSVGText final : public LayoutSVGBlock {
  public:
-  explicit LayoutSVGText(SVGTextElement*);
-  ~LayoutSVGText() override;
+  explicit LayoutSVGText(Element* element);
 
-  bool IsChildAllowed(LayoutObject*, const ComputedStyle&) const override;
+  void SubtreeStructureChanged(LayoutInvalidationReasonForTracing);
+  // This is called whenever a text layout attribute on the <text> or a
+  // descendant <tspan> is changed.
+  void SetNeedsPositioningValuesUpdate();
+  void SetNeedsTextMetricsUpdate();
+  bool NeedsTextMetricsUpdate() const;
 
-  void SetNeedsPositioningValuesUpdate() {
-    needs_positioning_values_update_ = true;
-  }
-  void SetNeedsTransformUpdate() override { needs_transform_update_ = true; }
-  void SetNeedsTextMetricsUpdate() { needs_text_metrics_update_ = true; }
-  FloatRect VisualRectInLocalSVGCoordinates() const override;
-  FloatRect ObjectBoundingBox() const override;
-  FloatRect StrokeBoundingBox() const override;
   bool IsObjectBoundingBoxValid() const;
 
-  void AddOutlineRects(Vector<PhysicalRect>&,
-                       const PhysicalOffset& additional_offset,
-                       NGOutlineType) const override;
-
+  // These two functions return a LayoutSVGText or nullptr.
   static LayoutSVGText* LocateLayoutSVGTextAncestor(LayoutObject*);
   static const LayoutSVGText* LocateLayoutSVGTextAncestor(const LayoutObject*);
 
   static void NotifySubtreeStructureChanged(LayoutObject*,
                                             LayoutInvalidationReasonForTracing);
 
-  bool NeedsReordering() const { return needs_reordering_; }
-  const Vector<LayoutSVGInlineText*>& DescendantTextNodes() const {
-    return descendant_text_nodes_;
-  }
-
-  void RecalcVisualOverflow() override;
-
-  const char* GetName() const override { return "LayoutSVGText"; }
-
  private:
-  bool AllowsOverflowClip() const override { return false; }
+  // LayoutObject override:
+  SVGLayoutResult UpdateSVGLayout(const SVGLayoutInfo&) override;
+  // Update LayoutObject state after layout has completed. Returns true if
+  // boundaries needs to be propagated (because of a change to the transform).
+  bool UpdateAfterSVGLayout(const SVGLayoutInfo&, bool bounds_changed);
 
-  bool IsOfType(LayoutObjectType type) const override {
-    return type == kLayoutObjectSVGText || LayoutSVGBlock::IsOfType(type);
+  const char* GetName() const override;
+  bool IsSVGText() const final {
+    NOT_DESTROYED();
+    return true;
   }
-
-  void Paint(const PaintInfo&) const override;
-  bool NodeAtPoint(HitTestResult&,
-                   const HitTestLocation&,
-                   const PhysicalOffset& accumulated_offset,
-                   HitTestAction) override;
-  PositionWithAffinity PositionForPoint(const PhysicalOffset&) const override;
-
-  void UpdateLayout() override;
-
-  void AbsoluteQuads(Vector<FloatQuad>&,
-                     MapCoordinatesFlags mode = 0) const override;
-
-  void AddChild(LayoutObject* child,
-                LayoutObject* before_child = nullptr) override;
-  void RemoveChild(LayoutObject*) override;
-
-  void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
+  bool IsChildAllowed(LayoutObject* child, const ComputedStyle&) const override;
+  void AddChild(LayoutObject* child, LayoutObject* before_child) override;
+  void RemoveChild(LayoutObject* child) override;
+  void InsertedIntoTree() override;
+  void WillBeRemovedFromTree() override;
+  gfx::RectF ObjectBoundingBox() const override;
+  gfx::RectF StrokeBoundingBox() const override;
+  gfx::RectF DecoratedBoundingBox() const override;
+  gfx::RectF VisualRectInLocalSVGCoordinates() const override;
+  void QuadsInAncestorInternal(Vector<gfx::QuadF>&,
+                               const LayoutBoxModelObject* ancestor,
+                               MapCoordinatesFlags) const override;
+  gfx::RectF LocalBoundingBoxRectForAccessibility(
+      IncludeDescendants include_descendants) const override;
+  void StyleDidChange(StyleDifference,
+                      const ComputedStyle* old_style,
+                      const StyleChangeContext&) override;
   void WillBeDestroyed() override;
+  bool NodeAtPoint(HitTestResult& result,
+                   const HitTestLocation& hit_test_location,
+                   const PhysicalOffset& accumulated_offset,
+                   HitTestPhase phase) override;
+  PositionWithAffinity PositionForPoint(
+      const PhysicalOffset& point_in_contents) const override;
 
-  RootInlineBox* CreateRootInlineBox() override;
+  // LayoutBox override:
+  bool CreatesNewFormattingContext() const override;
+  void UpdateFromStyle() override;
 
-  void SubtreeStructureChanged(LayoutInvalidationReasonForTracing);
+  // LayoutBlock override:
+  void Paint(const PaintInfo&) const override;
 
-  bool needs_reordering_ : 1;
-  bool needs_positioning_values_update_ : 1;
-  bool needs_transform_update_ : 1;
+  void UpdateFont();
+  void UpdateTransformAffectsVectorEffect();
+  void InvalidateDescendantObjectBoundingBoxes();
+
+  // bounding_box_* are mutable for on-demand computation in a const method.
+  mutable gfx::RectF bounding_box_;
+  mutable bool needs_update_bounding_box_ : 1;
+
   bool needs_text_metrics_update_ : 1;
-  Vector<LayoutSVGInlineText*> descendant_text_nodes_;
 };
 
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutSVGText, IsSVGText());
+template <>
+struct DowncastTraits<LayoutSVGText> {
+  static bool AllowFrom(const LayoutObject& object) {
+    return object.IsSVGText();
+  }
+};
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_TEXT_H_

@@ -11,7 +11,6 @@
 #ifndef RTC_BASE_STRONG_ALIAS_H_
 #define RTC_BASE_STRONG_ALIAS_H_
 
-#include <type_traits>
 #include <utility>
 
 namespace webrtc {
@@ -69,6 +68,13 @@ class StrongAlias {
 
  protected:
   UnderlyingType value_;
+
+ private:
+  // Helper function for using abseil hash types.
+  template <typename H>
+  friend H AbslHashValue(H h, const StrongAlias& st) {
+    return H::combine(std::move(h), st.value_);
+  }
 };
 
 }  // namespace webrtc

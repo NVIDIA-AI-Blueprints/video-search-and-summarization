@@ -43,9 +43,11 @@ class MODULES_EXPORT PaintWorklet : public Worklet,
   scoped_refptr<Image> Paint(const String& name,
                              const ImageResourceObserver&,
                              const gfx::SizeF& container_size,
-                             const CSSStyleValueVector*);
+                             const GCedCSSStyleValueVector*);
 
   int WorkletId() const { return worklet_id_; }
+  bool IsOffMainThread() const { return is_paint_off_thread_; }
+
   void Trace(Visitor*) const override;
 
   // The DocumentDefinitionMap tracks definitions registered via
@@ -71,7 +73,7 @@ class MODULES_EXPORT PaintWorklet : public Worklet,
   void RegisterMainThreadDocumentPaintDefinition(
       const String& name,
       Vector<CSSPropertyID> native_properties,
-      Vector<String> custom_properties,
+      Vector<AtomicString> custom_properties,
       Vector<CSSSyntaxDefinition> input_argument_types,
       double alpha);
 

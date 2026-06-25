@@ -8,6 +8,7 @@
 #include <iosfwd>
 
 #include "base/dcheck_is_on.h"
+#include "base/memory/stack_allocated.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/editing/position.h"
@@ -39,14 +40,14 @@ class SelectionTemplate final {
 
     SelectionTemplate Build() const;
 
-    // Move selection to |base|. |base| can't be null.
-    Builder& Collapse(const PositionTemplate<Strategy>& base);
-    Builder& Collapse(const PositionWithAffinityTemplate<Strategy>& base);
+    // Move selection to |anchor|. |anchor| can't be null.
+    Builder& Collapse(const PositionTemplate<Strategy>& anchor);
+    Builder& Collapse(const PositionWithAffinityTemplate<Strategy>& anchor);
 
-    // Extend selection to |extent|. It is error if selection is none.
-    // |extent| can be in different tree scope of base, but should be in same
+    // Extend selection to |focus|. It is error if selection is none.
+    // |focus| can be in different tree scope of anchor, but should be in same
     // document.
-    Builder& Extend(const PositionTemplate<Strategy>& extent);
+    Builder& Extend(const PositionTemplate<Strategy>& focus);
 
     // Select all children in |node|.
     Builder& SelectAllChildren(const Node& /* node */);
@@ -75,10 +76,10 @@ class SelectionTemplate final {
     SelectionTemplate selection_;
   };
 
-  // Resets selection at end of life time of the object when base and extent
+  // Resets selection at end of life time of the object when anchor and focus
   // are disconnected or moved to another document.
   class InvalidSelectionResetter final {
-    DISALLOW_NEW();
+    STACK_ALLOCATED();
 
    public:
     explicit InvalidSelectionResetter(const SelectionTemplate&);
@@ -87,10 +88,8 @@ class SelectionTemplate final {
         delete;
     ~InvalidSelectionResetter();
 
-    void Trace(Visitor*) const;
-
    private:
-    const Member<const Document> document_;
+    const Document* const document_;
     SelectionTemplate& selection_;
   };
 
@@ -100,14 +99,13 @@ class SelectionTemplate final {
   SelectionTemplate& operator=(const SelectionTemplate&) = default;
 
   bool operator==(const SelectionTemplate&) const;
-  bool operator!=(const SelectionTemplate&) const;
 
-  const PositionTemplate<Strategy>& Base() const;
-  const PositionTemplate<Strategy>& Extent() const;
+  const PositionTemplate<Strategy>& Anchor() const;
+  const PositionTemplate<Strategy>& Focus() const;
   TextAffinity Affinity() const { return affinity_; }
-  bool IsBaseFirst() const;
+  bool IsAnchorFirst() const;
   bool IsCaret() const;
-  bool IsNone() const { return base_.IsNull(); }
+  bool IsNone() const { return anchor_.IsNull(); }
   bool IsRange() const;
 
   // Returns true if |this| selection holds valid values otherwise it causes
@@ -132,16 +130,16 @@ class SelectionTemplate final {
 
   enum class Direction {
     kNotComputed,
-    kForward,   // base <= extent
-    kBackward,  // base > extent
+    kForward,   // anchor <= focus
+    kBackward,  // anchor > focus
   };
 
   Document* GetDocument() const;
   bool IsValidFor(const Document&) const;
   void ResetDirectionCache() const;
 
-  PositionTemplate<Strategy> base_;
-  PositionTemplate<Strategy> extent_;
+  PositionTemplate<Strategy> anchor_;
+  PositionTemplate<Strategy> focus_;
   TextAffinity affinity_ = TextAffinity::kDownstream;
   mutable Direction direction_ = Direction::kForward;
 #if DCHECK_IS_ON()

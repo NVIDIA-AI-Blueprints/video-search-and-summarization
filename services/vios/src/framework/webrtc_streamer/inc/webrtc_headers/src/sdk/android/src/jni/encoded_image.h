@@ -13,6 +13,7 @@
 
 #include <jni.h>
 
+#include <cstdint>
 #include <vector>
 
 #include "api/video/video_frame_type.h"

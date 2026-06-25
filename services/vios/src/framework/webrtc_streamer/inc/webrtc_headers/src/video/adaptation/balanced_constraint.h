@@ -11,15 +11,19 @@
 #ifndef VIDEO_ADAPTATION_BALANCED_CONSTRAINT_H_
 #define VIDEO_ADAPTATION_BALANCED_CONSTRAINT_H_
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
-#include "absl/types/optional.h"
 #include "api/field_trials_view.h"
 #include "api/sequence_checker.h"
 #include "call/adaptation/adaptation_constraint.h"
 #include "call/adaptation/degradation_preference_provider.h"
+#include "call/adaptation/video_source_restrictions.h"
+#include "call/adaptation/video_stream_input_state.h"
 #include "rtc_base/experiments/balanced_degradation_settings.h"
 #include "rtc_base/system/no_unique_address.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -31,7 +35,7 @@ class BalancedConstraint : public AdaptationConstraint {
   ~BalancedConstraint() override = default;
 
   void OnEncoderTargetBitrateUpdated(
-      absl::optional<uint32_t> encoder_target_bitrate_bps);
+      std::optional<uint32_t> encoder_target_bitrate_bps);
 
   // AdaptationConstraint implementation.
   std::string Name() const override { return "BalancedConstraint"; }
@@ -42,7 +46,7 @@ class BalancedConstraint : public AdaptationConstraint {
 
  private:
   RTC_NO_UNIQUE_ADDRESS SequenceChecker sequence_checker_;
-  absl::optional<uint32_t> encoder_target_bitrate_bps_
+  std::optional<uint32_t> encoder_target_bitrate_bps_
       RTC_GUARDED_BY(&sequence_checker_);
   const BalancedDegradationSettings balanced_settings_;
   const DegradationPreferenceProvider* degradation_preference_provider_;

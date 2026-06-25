@@ -17,7 +17,6 @@ class SkPath;
 namespace blink {
 
 class ComputedStyle;
-class Document;
 class DisplayItemClient;
 class GraphicsContext;
 class Path;
@@ -32,8 +31,15 @@ class CORE_EXPORT OutlinePainter {
                                 const DisplayItemClient&,
                                 const Vector<PhysicalRect>&,
                                 const LayoutObject::OutlineInfo&,
+                                const ComputedStyle&);
+
+  // Overload that takes a LayoutObject for border-shape support.
+  static void PaintOutlineRects(const PaintInfo&,
+                                const DisplayItemClient&,
+                                const Vector<PhysicalRect>&,
+                                const LayoutObject::OutlineInfo&,
                                 const ComputedStyle&,
-                                const Document&);
+                                const LayoutObject*);
 
   static void PaintFocusRingPath(GraphicsContext&,
                                  const Path&,

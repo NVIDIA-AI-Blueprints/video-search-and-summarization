@@ -11,19 +11,19 @@
 #ifndef AUDIO_DEVICE_AUDIO_DEVICE_DUMMY_H_
 #define AUDIO_DEVICE_AUDIO_DEVICE_DUMMY_H_
 
-#include <stdint.h>
+#include <cstdint>
 
+#include "api/audio/audio_device.h"
+#include "api/audio/audio_device_defines.h"
 #include "modules/audio_device/audio_device_buffer.h"
 #include "modules/audio_device/audio_device_generic.h"
-#include "modules/audio_device/include/audio_device.h"
-#include "modules/audio_device/include/audio_device_defines.h"
 
 namespace webrtc {
 
 class AudioDeviceDummy : public AudioDeviceGeneric {
  public:
   AudioDeviceDummy() {}
-  virtual ~AudioDeviceDummy() {}
+  ~AudioDeviceDummy() override {}
 
   // Retrieve the currently utilized audio layer
   int32_t ActiveAudioLayer(

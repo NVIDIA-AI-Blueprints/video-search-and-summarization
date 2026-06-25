@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -29,8 +29,6 @@ uint32_t aom_wb_bytes_written(const struct aom_write_bit_buffer *wb);
 
 void aom_wb_write_bit(struct aom_write_bit_buffer *wb, int bit);
 
-void aom_wb_overwrite_bit(struct aom_write_bit_buffer *wb, int bit);
-
 void aom_wb_write_literal(struct aom_write_bit_buffer *wb, int data, int bits);
 
 void aom_wb_write_unsigned_literal(struct aom_write_bit_buffer *wb,
@@ -42,6 +40,7 @@ void aom_wb_overwrite_literal(struct aom_write_bit_buffer *wb, int data,
 void aom_wb_write_inv_signed_literal(struct aom_write_bit_buffer *wb, int data,
                                      int bits);
 
+// Writes a variable length unsigned integer. UINT32_MAX is an invalid input.
 void aom_wb_write_uvlc(struct aom_write_bit_buffer *wb, uint32_t v);
 
 void aom_wb_write_signed_primitive_refsubexpfin(struct aom_write_bit_buffer *wb,

@@ -6,13 +6,11 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_WORKER_WORKER_THREAD_SCHEDULER_H_
 
 #include "base/task/single_thread_task_runner.h"
-#include "components/scheduling_metrics/task_duration_metric_reporter.h"
 #include "third_party/blink/renderer/platform/scheduler/common/idle_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_status.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_type.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_scheduler_base.h"
-#include "third_party/blink/renderer/platform/scheduler/worker/worker_metrics_helper.h"
 
 namespace base {
 class LazyNow;
@@ -21,10 +19,6 @@ namespace sequence_manager {
 class SequenceManager;
 }
 }  // namespace base
-
-namespace ukm {
-class UkmRecorder;
-}
 
 namespace blink {
 namespace scheduler {
@@ -58,8 +52,7 @@ class PLATFORM_EXPORT WorkerThreadScheduler : public NonMainThreadSchedulerBase,
   void PostDelayedIdleTask(const base::Location&,
                            base::TimeDelta delay,
                            Thread::IdleTask) override;
-  void PostNonNestableIdleTask(const base::Location&,
-                               Thread::IdleTask) override;
+  void RemoveCancelledIdleTasks() override;
   base::TimeTicks MonotonicallyIncreasingVirtualTime() override;
   void SetV8Isolate(v8::Isolate* isolate) override;
   void Shutdown() override;
@@ -108,8 +101,6 @@ class PLATFORM_EXPORT WorkerThreadScheduler : public NonMainThreadSchedulerBase,
       base::TimeTicks now,
       base::TimeDelta* next_long_idle_period_delay_out) override;
   void IsNotQuiescent() override {}
-  void OnIdlePeriodStarted() override {}
-  void OnIdlePeriodEnded() override {}
   void OnPendingTasksChanged(bool new_state) override {}
 
   void CreateBudgetPools();
@@ -118,9 +109,6 @@ class PLATFORM_EXPORT WorkerThreadScheduler : public NonMainThreadSchedulerBase,
       std::unique_ptr<CPUTimeBudgetPool> cpu_time_budget_pool);
 
   HashSet<WorkerSchedulerImpl*>& GetWorkerSchedulersForTesting();
-
-  void SetUkmTaskSamplingRateForTest(double rate);
-  void SetUkmRecorderForTest(std::unique_ptr<ukm::UkmRecorder> ukm_recorder);
 
   virtual void PerformMicrotaskCheckpoint();
 
@@ -133,11 +121,6 @@ class PLATFORM_EXPORT WorkerThreadScheduler : public NonMainThreadSchedulerBase,
 
   void MaybeStartLongIdlePeriod();
 
-  void RecordTaskUkm(
-      NonMainThreadTaskQueue* worker_task_queue,
-      const base::sequence_manager::Task& task,
-      const base::sequence_manager::TaskQueue::TaskTiming& task_timing);
-
   const ThreadType thread_type_;
   scoped_refptr<NonMainThreadTaskQueue> idle_helper_queue_;
   IdleHelper idle_helper_;
@@ -145,8 +128,6 @@ class PLATFORM_EXPORT WorkerThreadScheduler : public NonMainThreadSchedulerBase,
   scoped_refptr<base::SingleThreadTaskRunner> v8_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;
   SchedulingLifecycleState lifecycle_state_;
-
-  WorkerMetricsHelper worker_metrics_helper_;
 
   // This controller should be initialized before any TraceableVariables
   // because they require one to initialize themselves.
@@ -157,12 +138,6 @@ class PLATFORM_EXPORT WorkerThreadScheduler : public NonMainThreadSchedulerBase,
 
   std::unique_ptr<WakeUpBudgetPool> wake_up_budget_pool_;
   std::unique_ptr<CPUTimeBudgetPool> cpu_time_budget_pool_;
-
-  // The status of the parent frame when the worker was created.
-  const FrameStatus initial_frame_status_;
-
-  const ukm::SourceId ukm_source_id_;
-  std::unique_ptr<ukm::UkmRecorder> ukm_recorder_;
 };
 
 }  // namespace scheduler

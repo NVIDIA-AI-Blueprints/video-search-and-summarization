@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_AUDIO_STEREO_PANNER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_AUDIO_STEREO_PANNER_H_
 
+#include "base/containers/span.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -15,7 +16,7 @@ class AudioBus;
 // Implement the equal-power panning algorithm for mono or stereo input. See:
 // https://webaudio.github.io/web-audio-api/#Spatialzation-equal-power-panning
 
-class PLATFORM_EXPORT StereoPanner {
+class PLATFORM_EXPORT StereoPanner final {
   USING_FAST_MALLOC(StereoPanner);
 
  public:
@@ -26,12 +27,11 @@ class PLATFORM_EXPORT StereoPanner {
 
   void PanWithSampleAccurateValues(const AudioBus* input_bus,
                                    AudioBus* output_bus,
-                                   const float* pan_values,
-                                   uint32_t frames_to_process);
+                                   base::span<const float> pan_values);
   void PanToTargetValue(const AudioBus* input_bus,
                         AudioBus* output_bus,
                         float pan_value,
-                        uint32_t frames_to_process);
+                        size_t frames_to_process);
 };
 
 }  // namespace blink

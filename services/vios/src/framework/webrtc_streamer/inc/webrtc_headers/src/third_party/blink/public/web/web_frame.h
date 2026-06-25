@@ -31,6 +31,7 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FRAME_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FRAME_H_
 
+#include "base/unguessable_token.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom-shared.h"
 #include "third_party/blink/public/mojom/frame/frame_replication_state.mojom-forward.h"
@@ -44,7 +45,12 @@
 
 namespace blink {
 
+enum class DetachReason;
+
+#if INSIDE_BLINK
 class Frame;
+#endif
+
 class WebLocalFrame;
 class WebRemoteFrame;
 class WebSecurityOrigin;
@@ -89,12 +95,13 @@ class BLINK_EXPORT WebFrame {
           remote_frame_host,
       CrossVariantMojoAssociatedReceiver<mojom::RemoteFrameInterfaceBase>
           receiver,
-      mojom::FrameReplicationStatePtr replicated_state);
+      mojom::FrameReplicationStatePtr replicated_state,
+      const std::optional<base::UnguessableToken>& devtools_frame_token);
 
   // This method closes and deletes the WebFrame. This is typically called by
   // the embedder in response to a frame detached callback to the WebFrame
   // client.
-  virtual void Close();
+  virtual void Close(DetachReason detach_reason);
 
   // Called by the embedder when it needs to detach the subtree rooted at this
   // frame.
@@ -109,7 +116,7 @@ class BLINK_EXPORT WebFrame {
   mojom::InsecureRequestPolicy GetInsecureRequestPolicy() const;
 
   // The frame's upgrade insecure navigations set.
-  WebVector<unsigned> GetInsecureRequestToUpgrade() const;
+  std::vector<unsigned> GetInsecureRequestToUpgrade() const;
 
   // Hierarchy ----------------------------------------------------------
 
@@ -148,17 +155,16 @@ class BLINK_EXPORT WebFrame {
   // the root Document in a WebContents). See content::Page for detailed
   // documentation.
   // This is false for main frames created for fenced-frames.
-  // TODO(khushalsagar) : Should also be the case for portals.
   bool IsOutermostMainFrame() const;
 
   // Scripting ----------------------------------------------------------
 
   // Returns the global proxy object.
-  virtual v8::Local<v8::Object> GlobalProxy() const = 0;
+  virtual v8::Local<v8::Object> GlobalProxy(v8::Isolate* isolate) const = 0;
 
   // Returns true if the WebFrame currently executing JavaScript has access
   // to the given WebFrame, or false otherwise.
-  static bool ScriptCanAccess(WebFrame*);
+  static bool ScriptCanAccess(v8::Isolate* isolate, WebFrame*);
 
   // Navigation ----------------------------------------------------------
 

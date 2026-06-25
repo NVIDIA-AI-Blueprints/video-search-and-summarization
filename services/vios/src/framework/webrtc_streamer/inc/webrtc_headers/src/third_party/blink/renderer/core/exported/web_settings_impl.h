@@ -45,7 +45,7 @@ class Settings;
 class CORE_EXPORT WebSettingsImpl final : public WebSettings {
  public:
   WebSettingsImpl(Settings*, DevToolsEmulator*);
-  virtual ~WebSettingsImpl() = default;
+  ~WebSettingsImpl() = default;
 
   void SetFromStrings(const WebString& name, const WebString& value) override;
 
@@ -58,10 +58,12 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetLCDTextPreference(LCDTextPreference) override;
   void SetAccessibilityPasswordValuesEnabled(bool) override;
   void SetAllowFileAccessFromFileURLs(bool) override;
+  void SetAccessibilityFontWeightAdjustment(int size) override;
   void SetAllowCustomScrollbarInMainFrame(bool) override;
   void SetAllowGeolocationOnInsecureOrigins(bool) override;
   void SetAllowRunningOfInsecureContent(bool) override;
   void SetAllowScriptsToCloseWindows(bool) override;
+  void SetAllowUnrestrictedWindowFocus(bool) override;
   void SetAllowUniversalAccessFromFileURLs(bool) override;
   void SetAlwaysShowContextMenuOnTouch(bool) override;
   void SetAntialiased2dCanvasEnabled(bool) override;
@@ -70,7 +72,6 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetClobberUserAgentInitialScaleQuirk(bool) override;
   void SetCookieEnabled(bool) override;
   void SetCaretBrowsingEnabled(bool) override;
-  void SetNavigateOnDragDrop(bool) override;
   void SetCursiveFontFamily(const WebString&,
                             UScriptCode = USCRIPT_COMMON) override;
   void SetDNSPrefetchingEnabled(bool) override;
@@ -79,15 +80,17 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetDefaultFontSize(int) override;
   void SetDefaultTextEncodingName(const WebString&) override;
   void SetDefaultVideoPosterURL(const WebString&) override;
-  void SetDeviceScaleAdjustment(float) override;
 
   void SetDisableReadingFromCanvas(bool) override;
   void SetDontSendKeyEventsToJavascript(bool) override;
   void SetDoubleTapToZoomEnabled(bool) override;
   void SetDownloadableBinaryFontsEnabled(bool) override;
+  void SetDynamicSafeAreaInsetsEnabled(bool) override;
   void SetEditingBehavior(mojom::blink::EditingBehavior) override;
   void SetEnableScrollAnimator(bool) override;
   void SetPrefersReducedMotion(bool) override;
+  void SetPrefersReducedTransparency(bool) override;
+  void SetInvertedColors(bool) override;
   void SetWebGL1Enabled(bool) override;
   void SetWebGL2Enabled(bool) override;
   void SetFantasyFontFamily(const WebString&,
@@ -103,11 +106,11 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetHideDownloadUI(bool) override;
   void SetPresentationReceiver(bool) override;
   void SetHighlightAds(bool) override;
+  void SetInspectorHighlightAds(bool) override;
   void SetHyperlinkAuditingEnabled(bool) override;
   void SetIgnoreMainFrameOverflowHiddenQuirk(bool) override;
   void SetImageAnimationPolicy(mojom::blink::ImageAnimationPolicy) override;
   void SetImagesEnabled(bool) override;
-  void SetInlineTextBoxAccessibilityEnabled(bool) override;
   void SetJavaScriptCanAccessClipboard(bool) override;
   void SetJavaScriptEnabled(bool) override;
   void SetLoadsImagesAutomatically(bool) override;
@@ -119,14 +122,18 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetMaxTouchPoints(int) override;
   void SetPictureInPictureEnabled(bool) override;
   void SetWebAppScope(const WebString&) override;
+  void SetIsInitialProfile(bool) override;
   void SetPresentationRequiresUserGesture(bool) override;
   void SetEmbeddedMediaExperienceEnabled(bool) override;
   void SetImmersiveModeEnabled(bool) override;
+  void SetImmersiveVideoPlaybackEnabled(bool) override;
   void SetMinimumFontSize(int) override;
   void SetMinimumLogicalFontSize(int) override;
   void SetHideScrollbars(bool) override;
+  void SetPrefersDefaultScrollbarStyles(bool) override;
   void SetPasswordEchoDurationInSeconds(double) override;
-  void SetPasswordEchoEnabled(bool) override;
+  void SetPasswordEchoEnabledPhysical(bool) override;
+  void SetPasswordEchoEnabledTouch(bool) override;
   void SetPluginsEnabled(bool) override;
   void SetAvailablePointerTypes(int) override;
   void SetPrimaryPointerType(mojom::blink::PointerType) override;
@@ -158,17 +165,17 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
                              UScriptCode = USCRIPT_COMMON) override;
   void SetStrictMixedContentChecking(bool) override;
   void SetStrictMixedContentCheckingForPlugin(bool) override;
-  void SetStrictPowerfulFeatureRestrictions(bool) override;
   void SetStrictlyBlockBlockableMixedContent(bool) override;
   void SetSupportDeprecatedTargetDensityDPI(bool) override;
   void SetSupportsMultipleWindows(bool) override;
   void SetSyncXHRInDocumentsEnabled(bool) override;
   void SetTargetBlankImpliesNoOpenerEnabledWillBeRemoved(bool) override;
-  void SetAllowNonEmptyNavigatorPlugins(bool) override;
+  void SetIgnorePermissionForDeviceChangedEvent(bool) override;
   void SetTextAreasAreResizable(bool) override;
-  void SetTextAutosizingEnabled(bool) override;
   void SetAccessibilityFontScaleFactor(float) override;
+  void SetAccessibilityTextSizeContrastFactor(int) override;
   void SetAccessibilityAlwaysShowFocus(bool) override;
+  void SetTextSizeAdjustEnabled(bool) override;
   void SetTextTrackKindUserPreference(TextTrackKindUserPreference) override;
   void SetTextTrackBackgroundColor(const WebString&) override;
   void SetTextTrackFontFamily(const WebString&) override;
@@ -180,11 +187,9 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetTextTrackTextSize(const WebString&) override;
   void SetTextTrackWindowColor(const WebString&) override;
   void SetTextTrackWindowRadius(const WebString&) override;
-  void SetThreadedScrollingEnabled(bool) override;
   void SetTouchDragDropEnabled(bool) override;
   void SetTouchDragEndContextMenu(bool) override;
   void SetBarrelButtonForDragEnabled(bool) override;
-  void SetUseLegacyBackgroundSizeShorthandBehavior(bool) override;
   void SetViewportStyle(mojom::blink::ViewportStyle) override;
   void SetUseWideViewport(bool) override;
   void SetV8CacheOptions(mojom::blink::V8CacheOptions) override;
@@ -197,6 +202,7 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetWebGLErrorsToConsoleEnabled(bool) override;
   void SetWebSecurityEnabled(bool) override;
   void SetWideViewportQuirkEnabled(bool) override;
+  void SetScaleAllFontsIfNoMetaTextScaleTag(bool) override;
   void SetMediaControlsEnabled(bool) override;
   void SetDoNotUpdateSelectionOnMutatingSelectionRange(bool) override;
   void SetLowPriorityIframesThreshold(WebEffectiveConnectionType) override;
@@ -205,30 +211,37 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
 
   // TODO(rajendrant): Remove these lazyload distance threshold settings for
   // frames and images, once the values are finalized from the experiment.
-  void SetLazyFrameLoadingDistanceThresholdPxUnknown(int) override;
-  void SetLazyFrameLoadingDistanceThresholdPxOffline(int) override;
-  void SetLazyFrameLoadingDistanceThresholdPxSlow2G(int) override;
-  void SetLazyFrameLoadingDistanceThresholdPx2G(int) override;
-  void SetLazyFrameLoadingDistanceThresholdPx3G(int) override;
-  void SetLazyFrameLoadingDistanceThresholdPx4G(int) override;
-  void SetLazyImageLoadingDistanceThresholdPxUnknown(int) override;
-  void SetLazyImageLoadingDistanceThresholdPxOffline(int) override;
-  void SetLazyImageLoadingDistanceThresholdPxSlow2G(int) override;
-  void SetLazyImageLoadingDistanceThresholdPx2G(int) override;
-  void SetLazyImageLoadingDistanceThresholdPx3G(int) override;
-  void SetLazyImageLoadingDistanceThresholdPx4G(int) override;
+  void SetLazyLoadingFrameMarginPxUnknown(int) override;
+  void SetLazyLoadingFrameMarginPxOffline(int) override;
+  void SetLazyLoadingFrameMarginPxSlow2G(int) override;
+  void SetLazyLoadingFrameMarginPx2G(int) override;
+  void SetLazyLoadingFrameMarginPx3G(int) override;
+  void SetLazyLoadingFrameMarginPx4G(int) override;
+  void SetLazyLoadingImageMarginPxUnknown(int) override;
+  void SetLazyLoadingImageMarginPxOffline(int) override;
+  void SetLazyLoadingImageMarginPxSlow2G(int) override;
+  void SetLazyLoadingImageMarginPx2G(int) override;
+  void SetLazyLoadingImageMarginPx3G(int) override;
+  void SetLazyLoadingImageMarginPx4G(int) override;
 
   void SetForceDarkModeEnabled(bool) override;
+  void SetInForcedColors(bool) override;
+  void SetIsForcedColorsDisabled(bool) override;
+  void SetPreferredRootScrollbarColorScheme(
+      mojom::blink::PreferredColorScheme) override;
   void SetPreferredColorScheme(mojom::blink::PreferredColorScheme) override;
   void SetPreferredContrast(mojom::blink::PreferredContrast) override;
   void SetNavigationControls(NavigationControls) override;
 
   void SetAriaModalPrunesAXTree(bool) override;
-  void SetUseAXMenuList(bool) override;
   void SetSelectionClipboardBufferAvailable(bool) override;
+  void SetMiddleClickPasteAllowed(bool) override;
   void SetAccessibilityIncludeSvgGElement(bool) override;
   void SetWebXRImmersiveArAllowed(bool webxr_immersive_ar_allowed) override;
   void SetModalContextMenu(bool) override;
+  void SetRequireTransientActivationAndAuthorizationForSubAppsAPIs(
+      bool) override;
+  void SetRootScrollbarThemeColor(std::optional<SkColor>) override;
 
   bool RenderVSyncNotificationEnabled() const {
     return render_v_sync_notification_enabled_;

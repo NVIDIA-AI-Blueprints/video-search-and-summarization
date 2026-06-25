@@ -29,7 +29,6 @@
 #include "cc/paint/element_id.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_private_ptr.h"
-#include "ui/gfx/geometry/point_f.h"
 
 namespace blink {
 
@@ -44,8 +43,8 @@ class WebURL;
 // time, for example in the instance of an <img> inside an <a>.
 class BLINK_EXPORT WebHitTestResult {
  public:
-  WebHitTestResult();
-  WebHitTestResult(const WebHitTestResult& info);
+  WebHitTestResult() = default;
+  WebHitTestResult(const WebHitTestResult& info) { Assign(info); }
   ~WebHitTestResult() { Reset(); }
 
   void Assign(const WebHitTestResult&);
@@ -54,6 +53,13 @@ class BLINK_EXPORT WebHitTestResult {
 
   // The node that was hit (only one for point-based tests).
   WebNode GetNode() const;
+
+  // The node or pseudo-node that was hit (only one for point-based tests).
+  WebNode GetNodeOrPseudoNode() const;
+
+  // The element containing the node that was hit (only one for point-based
+  // tests).
+  WebElement GetElement() const;
 
   // If a link (eg. anchor or area tag) is hit, return the element.
   // Return null otheriwse.
@@ -78,7 +84,7 @@ class BLINK_EXPORT WebHitTestResult {
 #endif
 
  protected:
-  WebPrivatePtr<WebHitTestResultPrivate> private_;
+  WebPrivatePtrForGC<WebHitTestResultPrivate> private_;
 };
 
 }  // namespace blink

@@ -23,12 +23,12 @@
 
 #include "base/files/file.h"
 #include "base/files/file_util.h"
-#include "base/hash/md5.h"
 #include "base/path_service.h"
 #include "gtest-utils.h"
 
 #include <gtest/gtest.h>
 #include <string>
+#include <string_view>
 
 // Returns the absolute path of the test output directory as a string.
 // On Android this path is /sdcard; on all other platforms it is the current
@@ -51,5 +51,8 @@ void GetTestFilePath(base::FilePath* path,
 // the |expected_md5|, false otherwise.
 bool CompareFileAndMD5(const base::FilePath& path,
                        const std::string expected_md5);
+
+// Returns the MD5 sum of the given |data| as a hex string.
+std::string GetMd5AsHex(std::string_view data);
 
 #endif // THIRD_PARTY_LIBJPEG_TURBO_GTEST_UTILS_H_

@@ -30,13 +30,12 @@
 #define CLIENT_LINUX_HANDLER_MINIDUMP_DESCRIPTOR_H_
 
 #include <assert.h>
+#include <stdint.h>
 #include <sys/types.h>
 
-#include <cstdint>
 #include <string>
 
 #include "client/linux/handler/microdump_extra_info.h"
-#include "common/using_std_string.h"
 
 // This class describes how a crash dump should be generated, either:
 // - Writing a full minidump to a file in a given directory (the actual path,
@@ -57,11 +56,11 @@ class MinidumpDescriptor {
         address_within_principal_mapping_(0),
         skip_dump_if_principal_mapping_not_referenced_(false) {}
 
-  explicit MinidumpDescriptor(const string& directory)
+  explicit MinidumpDescriptor(const std::string& directory)
       : mode_(kWriteMinidumpToFile),
         fd_(-1),
         directory_(directory),
-        c_path_(NULL),
+        c_path_(nullptr),
         size_limit_(-1),
         address_within_principal_mapping_(0),
         skip_dump_if_principal_mapping_not_referenced_(false),
@@ -72,7 +71,7 @@ class MinidumpDescriptor {
   explicit MinidumpDescriptor(int fd)
       : mode_(kWriteMinidumpToFd),
         fd_(fd),
-        c_path_(NULL),
+        c_path_(nullptr),
         size_limit_(-1),
         address_within_principal_mapping_(0),
         skip_dump_if_principal_mapping_not_referenced_(false),
@@ -97,7 +96,7 @@ class MinidumpDescriptor {
 
   int fd() const { return fd_; }
 
-  string directory() const { return directory_; }
+  std::string directory() const { return directory_; }
 
   const char* path() const { return c_path_; }
 
@@ -154,10 +153,10 @@ class MinidumpDescriptor {
   int fd_;
 
   // The directory where the minidump should be generated.
-  string directory_;
+  std::string directory_;
 
   // The full path to the generated minidump.
-  string path_;
+  std::string path_;
 
   // The C string of |path_|. Precomputed so it can be access from a compromised
   // context.

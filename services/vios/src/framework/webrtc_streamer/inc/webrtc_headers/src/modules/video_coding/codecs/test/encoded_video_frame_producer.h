@@ -15,10 +15,13 @@
 
 #include <vector>
 
-#include "api/transport/rtp/dependency_descriptor.h"
+#include "api/units/timestamp.h"
 #include "api/video/encoded_image.h"
+#include "api/video/render_resolution.h"
+#include "api/video/video_frame_type.h"
 #include "api/video_codecs/video_encoder.h"
 #include "modules/video_coding/include/video_codec_interface.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -49,7 +52,7 @@ class EncodedVideoFrameProducer {
 
   EncodedVideoFrameProducer& SetRtpTimestamp(uint32_t value);
 
-  EncodedVideoFrameProducer& SetCaptureTimeIdentifier(Timestamp value);
+  EncodedVideoFrameProducer& SetPresentationTimestamp(Timestamp value);
 
   // Generates input video frames and encodes them with `encoder` provided
   // in the constructor. Returns frame passed to the `OnEncodedImage` by
@@ -60,7 +63,7 @@ class EncodedVideoFrameProducer {
   VideoEncoder& encoder_;
 
   uint32_t rtp_timestamp_ = 1000;
-  Timestamp capture_time_identifier_ = Timestamp::Micros(1000);
+  Timestamp presentation_timestamp_ = Timestamp::Micros(1000);
   int num_input_frames_ = 1;
   int framerate_fps_ = 30;
   RenderResolution resolution_ = {320, 180};
@@ -100,8 +103,8 @@ inline EncodedVideoFrameProducer& EncodedVideoFrameProducer::SetRtpTimestamp(
 }
 
 inline EncodedVideoFrameProducer&
-EncodedVideoFrameProducer::SetCaptureTimeIdentifier(Timestamp value) {
-  capture_time_identifier_ = value;
+EncodedVideoFrameProducer::SetPresentationTimestamp(Timestamp value) {
+  presentation_timestamp_ = value;
   return *this;
 }
 }  // namespace webrtc

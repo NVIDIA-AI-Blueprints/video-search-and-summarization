@@ -5,11 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_TEXT_PAINT_STYLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_TEXT_PAINT_STYLE_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/style/applied_text_decoration.h"
+#include "third_party/blink/renderer/core/style/computed_style_constants.h"
+#include "third_party/blink/renderer/core/style/shadow_list.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
+#include "third_party/blink/renderer/platform/heap/forward.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
@@ -26,8 +28,12 @@ struct CORE_EXPORT TextPaintStyle {
   Color emphasis_mark_color;
   float stroke_width;
   mojom::blink::ColorScheme color_scheme;
-  scoped_refptr<const ShadowList> shadow;
-  absl::optional<AppliedTextDecoration> selection_text_decoration;
+  Member<const ShadowList> shadow;
+  TextDecorationLine selection_decoration_lines;
+  Color selection_decoration_color;
+  EPaintOrder paint_order;
+
+  void Trace(Visitor* visitor) const { visitor->Trace(shadow); }
 
   bool operator==(const TextPaintStyle& other) const {
     return current_color == other.current_color &&
@@ -36,10 +42,9 @@ struct CORE_EXPORT TextPaintStyle {
            emphasis_mark_color == other.emphasis_mark_color &&
            stroke_width == other.stroke_width &&
            color_scheme == other.color_scheme && shadow == other.shadow &&
-           selection_text_decoration == other.selection_text_decoration;
-  }
-  bool operator!=(const TextPaintStyle& other) const {
-    return !(*this == other);
+           selection_decoration_lines == other.selection_decoration_lines &&
+           selection_decoration_color == other.selection_decoration_color &&
+           paint_order == other.paint_order;
   }
 };
 

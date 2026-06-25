@@ -12,14 +12,16 @@
 #define MODULES_AUDIO_PROCESSING_RESIDUAL_ECHO_DETECTOR_H_
 
 #include <atomic>
+#include <cstddef>
+#include <memory>
+#include <span>
 #include <vector>
 
-#include "api/array_view.h"
+#include "api/audio/audio_processing.h"
 #include "modules/audio_processing/echo_detector/circular_buffer.h"
 #include "modules/audio_processing/echo_detector/mean_variance_estimator.h"
 #include "modules/audio_processing/echo_detector/moving_max.h"
 #include "modules/audio_processing/echo_detector/normalized_covariance_estimator.h"
-#include "modules/audio_processing/include/audio_processing.h"
 
 namespace webrtc {
 
@@ -32,10 +34,10 @@ class ResidualEchoDetector : public EchoDetector {
   ~ResidualEchoDetector() override;
 
   // This function should be called while holding the render lock.
-  void AnalyzeRenderAudio(rtc::ArrayView<const float> render_audio) override;
+  void AnalyzeRenderAudio(std::span<const float> render_audio) override;
 
   // This function should be called while holding the capture lock.
-  void AnalyzeCaptureAudio(rtc::ArrayView<const float> capture_audio) override;
+  void AnalyzeCaptureAudio(std::span<const float> capture_audio) override;
 
   // This function should be called while holding the capture lock.
   void Initialize(int capture_sample_rate_hz,

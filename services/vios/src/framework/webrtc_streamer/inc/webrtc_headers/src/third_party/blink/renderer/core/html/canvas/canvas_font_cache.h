@@ -5,8 +5,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_CANVAS_CANVAS_FONT_CACHE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_CANVAS_CANVAS_FONT_CACHE_H_
 
-#include <memory>
-
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/platform/fonts/font.h"
@@ -22,7 +20,6 @@ namespace blink {
 
 class ComputedStyle;
 class Document;
-class FontCachePurgePreventer;
 class HTMLCanvasElement;
 
 class CORE_EXPORT CanvasFontCache final
@@ -37,15 +34,14 @@ class CORE_EXPORT CanvasFontCache final
   void PruneAll();
   unsigned size();
 
-  virtual void Trace(Visitor*) const;
+  void Trace(Visitor*) const;
 
   static unsigned MaxFonts();
   unsigned HardMaxFonts();
 
   void WillUseCurrentFont() { SchedulePruningIfNeeded(); }
-  bool GetFontUsingDefaultStyle(HTMLCanvasElement& canvas,
-                                const String&,
-                                Font&);
+  const Font* GetFontUsingDefaultStyle(HTMLCanvasElement& canvas,
+                                       const String&);
 
   // TaskObserver implementation
   void DidProcessTask(const base::PendingTask&) override;
@@ -63,12 +59,11 @@ class CORE_EXPORT CanvasFontCache final
   typedef HeapHashMap<String, Member<MutableCSSPropertyValueSet>>
       MutableStylePropertyMap;
 
-  HashMap<String, Font> fonts_resolved_using_default_style_;
+  HeapHashMap<String, Member<const Font>> fonts_resolved_using_default_style_;
   MutableStylePropertyMap fetched_fonts_;
   LinkedHashSet<String> font_lru_list_;
-  std::unique_ptr<FontCachePurgePreventer> main_cache_purge_preventer_;
   Member<Document> document_;
-  scoped_refptr<const ComputedStyle> default_font_style_;
+  Member<const ComputedStyle> default_font_style_;
   bool pruning_scheduled_;
 };
 

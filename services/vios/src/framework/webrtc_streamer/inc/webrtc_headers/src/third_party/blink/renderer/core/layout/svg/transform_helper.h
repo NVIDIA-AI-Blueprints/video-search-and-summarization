@@ -27,20 +27,40 @@ class TransformHelper {
   // resolve against the reference box.
   static bool DependsOnReferenceBox(const ComputedStyle&);
 
+  // Check if ComputedStyle has changed in a way that could be reflected in the
+  // transform reference box.
+  static bool CheckReferenceBoxDependencies(const ComputedStyle& old_style,
+                                            const ComputedStyle& style);
+
   // Computes the reference box for the LayoutObject based on the
   // 'transform-box'. Applies zoom if needed.
   static gfx::RectF ComputeReferenceBox(const LayoutObject&);
 
   // Compute the transform for the LayoutObject based on the various
   // 'transform*' properties.
-  static AffineTransform ComputeTransform(const LayoutObject&,
+  static AffineTransform ComputeTransform(UseCounter&,
+                                          const ComputedStyle&,
+                                          const gfx::RectF& reference_box,
                                           ComputedStyle::ApplyTransformOrigin);
 
-  static gfx::PointF ComputeTransformOrigin(const LayoutObject&);
+  // Compute the transform for the SVGElement (which is assumed to have an
+  // associated LayoutObject) based on the various 'transform*' properties,
+  // using the specified reference box. Will also include a motion transform
+  // (from <animateMotion>) if one has been specified.
+  static AffineTransform ComputeTransformIncludingMotion(
+      const SVGElement& element,
+      const gfx::RectF& reference_box);
+
+  // Like the above, but also computes the reference box.
+  static AffineTransform ComputeTransformIncludingMotion(
+      const SVGElement& element);
+
+  static gfx::PointF ComputeTransformOrigin(const ComputedStyle&,
+                                            const gfx::RectF& reference_box);
 };
 
 // The following enumeration is used to optimize cases where the scale is known
-// to be invariant (see: LayoutSVGContainer::UpdateLayout and
+// to be invariant (see: LayoutSVGContainer::UpdateSVGLayout and
 // LayoutSVGRoot). The value 'Full' can be used in the general case when the
 // scale change is unknown, or known to have changed.
 enum class SVGTransformChange {

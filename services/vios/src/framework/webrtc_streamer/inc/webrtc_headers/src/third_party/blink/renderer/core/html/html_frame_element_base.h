@@ -28,6 +28,7 @@
 #include "third_party/blink/public/mojom/scroll/scrollbar_mode.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
+#include "third_party/blink/renderer/core/html_names.h"
 
 namespace blink {
 
@@ -64,11 +65,13 @@ class CORE_EXPORT HTMLFrameElementBase : public HTMLFrameOwnerElement {
   // feature on the origin which is specified by the frame's "src" attribute. It
   // also takes into account details such as the frame's sandbox status, and
   // whether the frame should inherit its parent's origin.
-  scoped_refptr<const SecurityOrigin> GetOriginForPermissionsPolicy()
+  scoped_refptr<const SecurityOrigin> MakeOriginForPermissionsPolicy()
       const override;
 
  private:
-  bool SupportsFocus() const final;
+  FocusableState SupportsFocus(UpdateBehavior update_behavior) const final {
+    return FocusableState::kFocusable;
+  }
   int DefaultTabIndex() const final;
   void SetFocused(bool, mojom::blink::FocusType) final;
 
@@ -76,9 +79,7 @@ class CORE_EXPORT HTMLFrameElementBase : public HTMLFrameOwnerElement {
   bool HasLegalLinkAttribute(const QualifiedName&) const final;
   bool IsHTMLContentAttribute(const Attribute&) const final;
 
-  bool AreAuthorShadowsAllowed() const final { return false; }
-
-  void SetLocation(const String&);
+  void SetLocation(const StringView&);
   void SetNameAndOpenURL();
   void OpenURL(bool replace_current_item = true);
 
@@ -91,18 +92,14 @@ class CORE_EXPORT HTMLFrameElementBase : public HTMLFrameOwnerElement {
 };
 
 template <>
-inline bool IsElementOfType<const HTMLFrameElementBase>(const Node& node) {
-  return IsA<HTMLFrameElementBase>(node);
-}
-template <>
 struct DowncastTraits<HTMLFrameElementBase> {
   static bool AllowFrom(const Node& node) {
     auto* html_element = DynamicTo<HTMLElement>(node);
     return html_element && AllowFrom(*html_element);
   }
   static bool AllowFrom(const HTMLElement& html_element) {
-    return IsA<HTMLFrameElement>(html_element) ||
-           IsA<HTMLIFrameElement>(html_element);
+    return html_element.HasTagName(html_names::kFrameTag) ||
+           html_element.HasTagName(html_names::kIFrameTag);
   }
 };
 

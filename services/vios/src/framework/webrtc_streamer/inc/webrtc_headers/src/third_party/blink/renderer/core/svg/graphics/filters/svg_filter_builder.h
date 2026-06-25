@@ -21,6 +21,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SVG_GRAPHICS_FILTERS_SVG_FILTER_BUILDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SVG_GRAPHICS_FILTERS_SVG_FILTER_BUILDER_H_
 
+#include <optional>
+
 #include "cc/paint/paint_flags.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/graphics/interpolation_space.h"
@@ -29,6 +31,7 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
+#include "ui/gfx/geometry/size_f.h"
 
 namespace gfx {
 class RectF;
@@ -49,7 +52,7 @@ class SVGFilterGraphNodeMap final
  public:
   SVGFilterGraphNodeMap();
 
-  typedef HeapHashSet<Member<FilterEffect>> FilterEffectSet;
+  using FilterEffectSet = GCedHeapHashSet<Member<FilterEffect>>;
 
   void AddBuiltinEffect(FilterEffect*);
   void AddPrimitive(SVGFilterPrimitiveStandardAttributes&, FilterEffect*);
@@ -59,7 +62,7 @@ class SVGFilterGraphNodeMap final
   FilterEffect* EffectForElement(
       SVGFilterPrimitiveStandardAttributes& primitive) {
     auto it = effect_element_.find(&primitive);
-    return it != effect_element_.end() ? it->value : nullptr;
+    return it != effect_element_.end() ? it->value.Get() : nullptr;
   }
 
   void InvalidateDependentEffects(FilterEffect*);
@@ -90,7 +93,10 @@ class SVGFilterBuilder {
                    const cc::PaintFlags* fill_flags = nullptr,
                    const cc::PaintFlags* stroke_flags = nullptr);
 
-  void BuildGraph(Filter*, SVGFilterElement&, const gfx::RectF&);
+  void BuildGraph(Filter*,
+                  SVGFilterElement&,
+                  const gfx::RectF&,
+                  const std::optional<gfx::SizeF>& override_viewport);
 
   FilterEffect* GetEffectById(const AtomicString& id) const;
   FilterEffect* LastEffect() const { return last_effect_; }

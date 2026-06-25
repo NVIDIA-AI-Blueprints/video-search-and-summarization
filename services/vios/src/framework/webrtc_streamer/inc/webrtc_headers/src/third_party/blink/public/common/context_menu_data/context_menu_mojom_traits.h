@@ -5,12 +5,15 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_CONTEXT_MENU_DATA_CONTEXT_MENU_MOJOM_TRAITS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_CONTEXT_MENU_DATA_CONTEXT_MENU_MOJOM_TRAITS_H_
 
+#include <optional>
+
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/context_menu_data/untrustworthy_context_menu_params.h"
 #include "third_party/blink/public/mojom/context_menu/context_menu.mojom.h"
+#include "third_party/blink/public/mojom/forms/form_control_type.mojom-shared.h"
+#include "ui/base/mojom/menu_source_type.mojom-forward.h"
 #include "url/mojom/url_gurl_mojom_traits.h"
 
 namespace mojo {
@@ -53,7 +56,7 @@ struct BLINK_COMMON_EXPORT
     return r.link_text;
   }
 
-  static const absl::optional<blink::Impression>& impression(
+  static const std::optional<blink::Impression>& impression(
       const blink::UntrustworthyContextMenuParams& r) {
     return r.impression;
   }
@@ -70,6 +73,11 @@ struct BLINK_COMMON_EXPORT
   static bool has_image_contents(
       const blink::UntrustworthyContextMenuParams& r) {
     return r.has_image_contents;
+  }
+
+  static bool is_image_media_plugin_document(
+      const blink::UntrustworthyContextMenuParams& r) {
+    return r.is_image_media_plugin_document;
   }
 
   static int media_flags(const blink::UntrustworthyContextMenuParams& r) {
@@ -154,14 +162,9 @@ struct BLINK_COMMON_EXPORT
     return r.custom_items;
   }
 
-  static ui::MenuSourceType source_type(
+  static ui::mojom::MenuSourceType source_type(
       const blink::UntrustworthyContextMenuParams& r) {
     return r.source_type;
-  }
-
-  static blink::mojom::ContextMenuDataInputFieldType input_field_type(
-      const blink::UntrustworthyContextMenuParams& r) {
-    return r.input_field_type;
   }
 
   static const gfx::Rect& selection_rect(
@@ -174,19 +177,39 @@ struct BLINK_COMMON_EXPORT
     return r.selection_start_offset;
   }
 
-  static bool opened_from_highlight(
+  static std::optional<blink::mojom::AnnotationType> annotation_type(
       const blink::UntrustworthyContextMenuParams& r) {
-    return r.opened_from_highlight;
+    return r.annotation_type;
   }
 
-  static const absl::optional<uint64_t>& form_renderer_id(
+  static bool opened_from_interest_for(
       const blink::UntrustworthyContextMenuParams& r) {
-    return r.form_renderer_id;
+    return r.opened_from_interest_for;
   }
 
-  static const absl::optional<uint64_t>& field_renderer_id(
+  static int interest_for_node_id(
+      const blink::UntrustworthyContextMenuParams& r) {
+    return r.interest_for_node_id;
+  }
+
+  static std::optional<blink::mojom::FormControlType> form_control_type(
+      const blink::UntrustworthyContextMenuParams& r) {
+    return r.form_control_type;
+  }
+
+  static bool is_content_editable_for_autofill(
+      const blink::UntrustworthyContextMenuParams& r) {
+    return r.is_content_editable_for_autofill;
+  }
+
+  static uint64_t field_renderer_id(
       const blink::UntrustworthyContextMenuParams& r) {
     return r.field_renderer_id;
+  }
+
+  static uint64_t form_renderer_id(
+      const blink::UntrustworthyContextMenuParams& r) {
+    return r.form_renderer_id;
   }
 
   static bool Read(blink::mojom::UntrustworthyContextMenuParamsDataView r,

@@ -27,6 +27,37 @@
 
 struct AVDeviceInfoList;
 
+/**
+ * This flag indicates that the muxer stores data internally
+ * and supports flushing it. Flushing is signalled by sending
+ * a NULL packet to the muxer's write_packet callback;
+ * without this flag, a muxer never receives NULL packets.
+ * So the documentation of write_packet below for the semantics
+ * of the return value in case of flushing.
+ */
+#define FF_OFMT_FLAG_ALLOW_FLUSH                    (1 << 1)
+/**
+ * If this flag is set, it indicates that for each codec type
+ * whose corresponding default codec (i.e. AVOutputFormat.audio_codec,
+ * AVOutputFormat.video_codec and AVOutputFormat.subtitle_codec)
+ * is set (i.e. != AV_CODEC_ID_NONE) only one stream of this type
+ * can be muxed. It furthermore indicates that no stream with
+ * a codec type that has no default codec or whose default codec
+ * is AV_CODEC_ID_NONE can be muxed.
+ * Both of these restrictions are checked generically before
+ * the actual muxer's init/write_header callbacks.
+ */
+#define FF_OFMT_FLAG_MAX_ONE_OF_EACH                (1 << 2)
+/**
+ * If this flag is set, then the only permitted audio/video/subtitle
+ * codec ids are AVOutputFormat.audio/video/subtitle_codec;
+ * if any of the latter is unset (i.e. equal to AV_CODEC_ID_NONE),
+ * then no stream of the corresponding type is supported.
+ * In addition, codec types without default codec field
+ * are disallowed.
+ */
+#define FF_OFMT_FLAG_ONLY_DEFAULT_CODECS            (1 << 3)
+
 typedef struct FFOutputFormat {
     /**
      * The public AVOutputFormat. See avformat.h for it.
@@ -38,13 +69,13 @@ typedef struct FFOutputFormat {
     int priv_data_size;
 
     /**
-     * Internal flags. See FF_FMT_FLAG_* in internal.h.
+     * Internal flags. See FF_OFMT_FLAG_* above and FF_FMT_FLAG_* in internal.h.
      */
     int flags_internal;
 
     int (*write_header)(AVFormatContext *);
     /**
-     * Write a packet. If AVFMT_ALLOW_FLUSH is set in flags,
+     * Write a packet. If FF_OFMT_FLAG_ALLOW_FLUSH is set in flags_internal,
      * pkt can be NULL in order to flush data buffered in the muxer.
      * When flushing, return 0 if there still is more data to flush,
      * or 1 if everything was flushed and there is no more buffered
@@ -96,7 +127,7 @@ typedef struct FFOutputFormat {
      * by setting the pointer to NULL.
      */
     int (*write_uncoded_frame)(AVFormatContext *, int stream_index,
-                               AVFrame **frame, unsigned flags);
+                               struct AVFrame **frame, unsigned flags);
     /**
      * Returns device list with it properties.
      * @see avdevice_list_devices() for more details.

@@ -11,13 +11,14 @@
 #ifndef TEST_PC_E2E_ANALYZER_VIDEO_DEFAULT_VIDEO_QUALITY_ANALYZER_FRAME_IN_FLIGHT_H_
 #define TEST_PC_E2E_ANALYZER_VIDEO_DEFAULT_VIDEO_QUALITY_ANALYZER_FRAME_IN_FLIGHT_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
+#include <optional>
 #include <set>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/numerics/samples_stats_counter.h"
 #include "api/units/data_size.h"
 #include "api/units/time_delta.h"
@@ -25,6 +26,7 @@
 #include "api/video/video_frame.h"
 #include "api/video/video_frame_type.h"
 #include "test/pc/e2e/analyzer/video/default_video_quality_analyzer_internal_shared_objects.h"
+#include "test/pc/e2e/analyzer/video/default_video_quality_analyzer_shared_objects.h"
 
 namespace webrtc {
 
@@ -36,18 +38,20 @@ struct ReceiverFrameStats {
   Timestamp rendered_time = Timestamp::MinusInfinity();
 
   // Will be set if there is frame rendered before this one.
-  absl::optional<Timestamp> prev_frame_rendered_time = absl::nullopt;
-  absl::optional<TimeDelta> time_between_rendered_frames = absl::nullopt;
+  std::optional<Timestamp> prev_frame_rendered_time = std::nullopt;
+  std::optional<TimeDelta> time_between_rendered_frames = std::nullopt;
 
   // Type and encoded size of received frame.
   VideoFrameType frame_type = VideoFrameType::kEmptyFrame;
   DataSize encoded_image_size = DataSize::Bytes(0);
 
-  absl::optional<int> decoded_frame_width = absl::nullopt;
-  absl::optional<int> decoded_frame_height = absl::nullopt;
+  std::optional<int> decoded_frame_width = std::nullopt;
+  std::optional<int> decoded_frame_height = std::nullopt;
+
+  std::optional<uint8_t> decoded_frame_qp = std::nullopt;
 
   // Can be not set if frame was dropped in the network.
-  absl::optional<StreamCodecInfo> used_decoder = absl::nullopt;
+  std::optional<StreamCodecInfo> used_decoder = std::nullopt;
 
   bool dropped = false;
   bool decoder_failed = false;
@@ -69,7 +73,7 @@ class FrameInFlight {
   FrameInFlight(size_t stream,
                 uint16_t frame_id,
                 Timestamp captured_time,
-                absl::optional<TimeDelta> time_between_captured_frames,
+                std::optional<TimeDelta> time_between_captured_frames,
                 std::set<size_t> expected_receivers);
 
   size_t stream() const { return stream_; }
@@ -91,7 +95,7 @@ class FrameInFlight {
   void SetPreEncodeTime(Timestamp time) { pre_encode_time_ = time; }
 
   void OnFrameEncoded(Timestamp time,
-                      absl::optional<TimeDelta> time_between_encoded_frames,
+                      std::optional<TimeDelta> time_between_encoded_frames,
                       VideoFrameType frame_type,
                       DataSize encoded_image_size,
                       uint32_t target_encode_bitrate,
@@ -113,7 +117,9 @@ class FrameInFlight {
                       Timestamp time,
                       int width,
                       int height,
-                      const StreamCodecInfo& used_decoder);
+                      const StreamCodecInfo& used_decoder,
+                      const std::optional<uint8_t> qp);
+
   void OnDecoderError(size_t peer, const StreamCodecInfo& used_decoder);
 
   bool HasDecodeEndTime(size_t peer) const;
@@ -134,6 +140,7 @@ class FrameInFlight {
   void MarkSuperfluous(size_t peer) {
     receiver_stats_[peer].superfluous = true;
   }
+  bool IsSuperfluous(size_t peer) const;
 
   void SetPrevFrameRenderedTime(size_t peer, webrtc::Timestamp time) {
     receiver_stats_[peer].prev_frame_rendered_time = time;
@@ -146,8 +153,6 @@ class FrameInFlight {
   FrameStats GetStatsForPeer(size_t peer) const;
 
  private:
-  bool IsSuperfluous(size_t peer) const;
-
   const size_t stream_;
   // Set of peer's indexes who are expected to receive this frame. This is not
   // the set of peer's indexes that received the frame. For example, if peer A
@@ -166,8 +171,8 @@ class FrameInFlight {
   Timestamp pre_encode_time_ = Timestamp::MinusInfinity();
   Timestamp encoded_time_ = Timestamp::MinusInfinity();
 
-  absl::optional<TimeDelta> time_between_captured_frames_ = absl::nullopt;
-  absl::optional<TimeDelta> time_between_encoded_frames_ = absl::nullopt;
+  std::optional<TimeDelta> time_between_captured_frames_ = std::nullopt;
+  std::optional<TimeDelta> time_between_encoded_frames_ = std::nullopt;
 
   // Type and encoded size of sent frame.
   VideoFrameType frame_type_ = VideoFrameType::kEmptyFrame;
@@ -177,7 +182,7 @@ class FrameInFlight {
   // spatial or simulcast index is set in `EncodedImage`, 0 is used.
   std::map<int, SamplesStatsCounter> stream_layers_qp_;
   // Can be not set if frame was dropped by encoder.
-  absl::optional<StreamCodecInfo> used_encoder_ = absl::nullopt;
+  std::optional<StreamCodecInfo> used_encoder_ = std::nullopt;
   // Map from the receiver peer's index to frame stats for that peer.
   std::unordered_map<size_t, ReceiverFrameStats> receiver_stats_;
 };

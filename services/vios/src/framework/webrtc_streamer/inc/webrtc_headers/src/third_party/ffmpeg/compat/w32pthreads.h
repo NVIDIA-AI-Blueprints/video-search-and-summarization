@@ -35,7 +35,6 @@
  * As most functions here are used without checking return values,
  * only implement return values as necessary. */
 
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <process.h>
 #include <time.h>
@@ -45,13 +44,14 @@
 #include "libavutil/internal.h"
 #include "libavutil/mem.h"
 #include "libavutil/time.h"
+#include "libavutil/wchar_filename.h"
 
-typedef struct pthread_t {
+typedef struct w32pthread_t {
     void *handle;
     void *(*func)(void* arg);
     void *arg;
     void *ret;
-} pthread_t;
+} *pthread_t;
 
 /* use light weight mutex/condition variable API for Windows Vista and later */
 typedef SRWLOCK pthread_mutex_t;
@@ -66,31 +66,52 @@ typedef CONDITION_VARIABLE pthread_cond_t;
 #define PTHREAD_CANCEL_ENABLE 1
 #define PTHREAD_CANCEL_DISABLE 0
 
-static av_unused unsigned __stdcall attribute_align_arg win32thread_worker(void *arg)
+#if HAVE_WINRT
+#define THREADFUNC_RETTYPE DWORD
+#else
+#define THREADFUNC_RETTYPE unsigned
+#endif
+
+av_unused static THREADFUNC_RETTYPE
+__stdcall attribute_align_arg win32thread_worker(void *arg)
 {
-    pthread_t *h = (pthread_t*)arg;
+    pthread_t h = (pthread_t)arg;
     h->ret = h->func(h->arg);
     return 0;
 }
 
-static av_unused int pthread_create(pthread_t *thread, const void *unused_attr,
+av_unused static int pthread_create(pthread_t *thread, const void *unused_attr,
                                     void *(*start_routine)(void*), void *arg)
 {
-    thread->func   = start_routine;
-    thread->arg    = arg;
+    pthread_t ret;
+
+    ret = (pthread_t)av_mallocz(sizeof(*ret));
+    if (!ret)
+        return EAGAIN;
+
+    ret->func   = start_routine;
+    ret->arg    = arg;
 #if HAVE_WINRT
-    thread->handle = (void*)CreateThread(NULL, 0, win32thread_worker, thread,
-                                           0, NULL);
+    ret->handle = (void*)CreateThread(NULL, 0, win32thread_worker, ret,
+                                      0, NULL);
 #else
-    thread->handle = (void*)_beginthreadex(NULL, 0, win32thread_worker, thread,
-                                           0, NULL);
+    ret->handle = (void*)_beginthreadex(NULL, 0, win32thread_worker, ret,
+                                        0, NULL);
 #endif
-    return !thread->handle;
+
+    if (!ret->handle) {
+        av_free(ret);
+        return EAGAIN;
+    }
+
+    *thread = ret;
+
+    return 0;
 }
 
-static av_unused int pthread_join(pthread_t thread, void **value_ptr)
+av_unused static int pthread_join(pthread_t thread, void **value_ptr)
 {
-    DWORD ret = WaitForSingleObject(thread.handle, INFINITE);
+    DWORD ret = WaitForSingleObject(thread->handle, INFINITE);
     if (ret != WAIT_OBJECT_0) {
         if (ret == WAIT_ABANDONED)
             return EINVAL;
@@ -98,8 +119,9 @@ static av_unused int pthread_join(pthread_t thread, void **value_ptr)
             return EDEADLK;
     }
     if (value_ptr)
-        *value_ptr = thread.ret;
-    CloseHandle(thread.handle);
+        *value_ptr = thread->ret;
+    CloseHandle(thread->handle);
+    av_free(thread);
     return 0;
 }
 
@@ -127,7 +149,7 @@ static inline int pthread_mutex_unlock(pthread_mutex_t *m)
 typedef INIT_ONCE pthread_once_t;
 #define PTHREAD_ONCE_INIT INIT_ONCE_STATIC_INIT
 
-static av_unused int pthread_once(pthread_once_t *once_control, void (*init_routine)(void))
+av_unused static int pthread_once(pthread_once_t *once_control, void (*init_routine)(void))
 {
     BOOL pending = FALSE;
     InitOnceBeginInitialize(once_control, 0, &pending, NULL);
@@ -186,6 +208,40 @@ static inline int pthread_cond_signal(pthread_cond_t *cond)
 static inline int pthread_setcancelstate(int state, int *oldstate)
 {
     return 0;
+}
+
+static inline int win32_thread_setname(const char *name)
+{
+#if !HAVE_UWP
+    typedef HRESULT (WINAPI *SetThreadDescriptionFn)(HANDLE, PCWSTR);
+
+    // Although SetThreadDescription lives in kernel32.dll, on Windows Server 2016,
+    // Windows 10 LTSB 2016 and Windows 10 version 1607, it was only available in
+    // kernelbase.dll. So, load it from there for maximum coverage.
+    HMODULE kernelbase = GetModuleHandleW(L"kernelbase.dll");
+    if (!kernelbase)
+        return AVERROR(ENOSYS);
+
+    SetThreadDescriptionFn pSetThreadDescription =
+        (SetThreadDescriptionFn)GetProcAddress(kernelbase, "SetThreadDescription");
+    if (!pSetThreadDescription)
+        return AVERROR(ENOSYS);
+
+    wchar_t *wname;
+    if (utf8towchar(name, &wname) < 0)
+        return AVERROR(ENOMEM);
+
+    HRESULT hr = pSetThreadDescription(GetCurrentThread(), wname);
+    av_free(wname);
+    return SUCCEEDED(hr) ? 0 : AVERROR(EINVAL);
+#else
+    // UWP is not supported because we cannot use LoadLibrary/GetProcAddress to
+    // detect the availability of the SetThreadDescription API. There is a small
+    // gap in Windows builds 1507-1607 where it was not available. UWP allows
+    // querying the availability of APIs with QueryOptionalDelayLoadedAPI, but it
+    // requires /DELAYLOAD:kernel32.dll during linking, and we cannot enforce that.
+    return AVERROR(ENOSYS);
+#endif
 }
 
 #endif /* COMPAT_W32PTHREADS_H */

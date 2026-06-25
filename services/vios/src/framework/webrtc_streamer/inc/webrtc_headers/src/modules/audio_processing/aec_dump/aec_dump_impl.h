@@ -11,26 +11,25 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC_DUMP_AEC_DUMP_IMPL_H_
 #define MODULES_AUDIO_PROCESSING_AEC_DUMP_AEC_DUMP_IMPL_H_
 
+#include <cstdint>
 #include <memory>
-#include <string>
-#include <vector>
 
+#include "absl/base/nullability.h"
+#include "api/audio/audio_processing.h"
+#include "api/audio/audio_view.h"
+#include "api/task_queue/task_queue_base.h"
 #include "modules/audio_processing/aec_dump/capture_stream_info.h"
 #include "modules/audio_processing/include/aec_dump.h"
-#include "rtc_base/ignore_wundef.h"
+#include "modules/audio_processing/include/audio_frame_view.h"
 #include "rtc_base/race_checker.h"
 #include "rtc_base/system/file_wrapper.h"
-#include "rtc_base/task_queue.h"
-#include "rtc_base/thread_annotations.h"
 
 // Files generated at build-time by the protobuf compiler.
-RTC_PUSH_IGNORING_WUNDEF()
 #ifdef WEBRTC_ANDROID_PLATFORM_BUILD
 #include "external/webrtc/webrtc/modules/audio_processing/debug.pb.h"
 #else
 #include "modules/audio_processing/debug.pb.h"
 #endif
-RTC_POP_IGNORING_WUNDEF()
 
 namespace webrtc {
 
@@ -42,7 +41,7 @@ class AecDumpImpl : public AecDump {
   // `max_log_size_bytes == -1` means the log size will be unlimited.
   AecDumpImpl(FileWrapper debug_file,
               int64_t max_log_size_bytes,
-              rtc::TaskQueue* worker_queue);
+              TaskQueueBase* absl_nonnull worker_queue);
   AecDumpImpl(const AecDumpImpl&) = delete;
   AecDumpImpl& operator=(const AecDumpImpl&) = delete;
   ~AecDumpImpl() override;
@@ -50,7 +49,9 @@ class AecDumpImpl : public AecDump {
   void WriteInitMessage(const ProcessingConfig& api_format,
                         int64_t time_now_ms) override;
   void AddCaptureStreamInput(const AudioFrameView<const float>& src) override;
+  void AddCaptureStreamInput(MonoView<const float> channel) override;
   void AddCaptureStreamOutput(const AudioFrameView<const float>& src) override;
+  void AddCaptureStreamOutput(MonoView<const float> channel) override;
   void AddCaptureStreamInput(const int16_t* const data,
                              int num_channels,
                              int samples_per_channel) override;
@@ -65,6 +66,9 @@ class AecDumpImpl : public AecDump {
                                 int samples_per_channel) override;
   void WriteRenderStreamMessage(
       const AudioFrameView<const float>& src) override;
+  void WriteRenderStreamMessage(const float* const* data,
+                                int num_channels,
+                                int samples_per_channel) override;
 
   void WriteConfig(const InternalAPMConfig& config) override;
 
@@ -76,8 +80,8 @@ class AecDumpImpl : public AecDump {
 
   FileWrapper debug_file_;
   int64_t num_bytes_left_for_log_ = 0;
-  rtc::RaceChecker race_checker_;
-  rtc::TaskQueue* worker_queue_;
+  RaceChecker race_checker_;
+  TaskQueueBase* absl_nonnull worker_queue_;
   CaptureStreamInfo capture_stream_info_;
 };
 }  // namespace webrtc

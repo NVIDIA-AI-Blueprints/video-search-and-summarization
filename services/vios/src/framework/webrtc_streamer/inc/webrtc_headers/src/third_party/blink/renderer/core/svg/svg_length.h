@@ -25,15 +25,17 @@
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/svg/properties/svg_listable_property.h"
-#include "third_party/blink/renderer/core/svg/svg_length_context.h"
+#include "third_party/blink/renderer/core/svg/svg_length_functions.h"
 #include "third_party/blink/renderer/core/svg/svg_parsing_error.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
+class CSSParserContext;
 class Length;
 class QualifiedName;
+class SVGLengthContext;
 class SVGLengthConversionData;
 class SVGLengthTearOff;
 
@@ -58,14 +60,13 @@ class CORE_EXPORT SVGLength final : public SVGListablePropertyBase {
 
   explicit SVGLength(SVGLengthMode = SVGLengthMode::kOther);
   SVGLength(Initial, SVGLengthMode);
-  SVGLength(const CSSPrimitiveValue&, SVGLengthMode);
+  SVGLength(const CSSValue&, SVGLengthMode);
 
   void SetInitial(unsigned);
 
   void Trace(Visitor*) const override;
 
   SVGLength* Clone() const;
-  SVGPropertyBase* CloneForAnimation(const String&) const override;
 
   CSSPrimitiveValue::UnitType NumericLiteralType() const {
     DCHECK(value_->IsNumericLiteralValue());
@@ -77,21 +78,23 @@ class CORE_EXPORT SVGLength final : public SVGListablePropertyBase {
   }
 
   bool operator==(const SVGLength&) const;
-  bool operator!=(const SVGLength& other) const { return !operator==(other); }
 
   Length ConvertToLength(const SVGLengthConversionData&) const;
   float Value(const SVGLengthConversionData&, float dimension) const;
   float Value(const SVGLengthContext&) const;
-  void SetValue(float, const SVGLengthContext&);
-  void SetValueAsNumber(float);
+  float ValueInSpecifiedUnits() const {
+    return ClampTo<float>(
+        To<CSSNumericLiteralValue>(*value_).ClampedDoubleValue());
+  }
 
-  float ValueInSpecifiedUnits() const { return value_->GetFloatValue(); }
+  void SetValueAsNumber(float);
   void SetValueInSpecifiedUnits(float value);
 
-  const CSSPrimitiveValue& AsCSSPrimitiveValue() const { return *value_; }
+  const CSSValue& AsCSSValue() const { return *value_; }
 
   String ValueAsString() const override;
   SVGParsingError SetValueAsString(const String&);
+  SVGParsingError SetValueAsString(const String&, const CSSParserContext*);
 
   void NewValueSpecifiedUnits(CSSPrimitiveValue::UnitType,
                               float value_in_specified_units);
@@ -106,20 +109,26 @@ class CORE_EXPORT SVGLength final : public SVGListablePropertyBase {
     return value_->IsNumericLiteralValue() &&
            To<CSSNumericLiteralValue>(*value_).IsFontRelativeLength();
   }
-  bool IsCalculated() const { return value_->IsCalculated(); }
-  bool IsPercentage() const { return value_->IsPercentage(); }
+  bool IsCalculated() const {
+    return value_->IsPrimitiveValue() &&
+           To<CSSPrimitiveValue>(*value_).IsCalculated();
+  }
+  bool IsPercentage() const {
+    return value_->IsPrimitiveValue() &&
+           To<CSSPrimitiveValue>(*value_).IsPercentage();
+  }
   bool HasContainerRelativeUnits() const {
-    return value_->HasContainerRelativeUnits();
+    return value_->IsPrimitiveValue() &&
+           To<CSSPrimitiveValue>(*value_).HasContainerRelativeUnits();
   }
 
   bool IsNegativeNumericLiteral() const;
+  bool IsNumericValue() const { return value_->IsNumericLiteralValue(); }
 
-  static SVGLengthMode LengthModeForAnimatedLengthAttribute(
-      const QualifiedName&);
   static bool NegativeValuesForbiddenForAnimatedLengthAttribute(
       const QualifiedName&);
 
-  void Add(const SVGPropertyBase*, const SVGElement*) override;
+  bool Add(const SVGPropertyBase*, const SVGElement*) override;
   void CalculateAnimatedValue(
       const SMILAnimationEffectParameters&,
       float percentage,
@@ -135,7 +144,7 @@ class CORE_EXPORT SVGLength final : public SVGListablePropertyBase {
   AnimatedPropertyType GetType() const override { return ClassType(); }
 
  private:
-  Member<const CSSPrimitiveValue> value_;
+  Member<const CSSValue> value_;
   unsigned unit_mode_ : 2;
 };
 

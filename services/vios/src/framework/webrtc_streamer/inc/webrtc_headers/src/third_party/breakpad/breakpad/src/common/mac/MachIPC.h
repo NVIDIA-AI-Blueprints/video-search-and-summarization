@@ -142,6 +142,18 @@ class MachMsgPortDescriptor : public mach_msg_port_descriptor_t {
   operator mach_port_t() const {
     return GetMachPort();
   }
+
+  // Assignment operator
+  MachMsgPortDescriptor& operator=(const MachMsgPortDescriptor& desc) {
+    if (this != &desc) {
+      name = desc.name;
+      pad1 = desc.pad1;
+      pad2 = desc.pad2;
+      disposition = desc.disposition;
+      type = desc.type;
+    }
+    return *this;
+  }
 };
 
 //==============================================================================
@@ -164,7 +176,7 @@ class MachMessage {
 
   // The receiver of the message can retrieve the raw data this way
   uint8_t* GetData() {
-    return GetDataLength() > 0 ? GetDataPacket()->data : NULL;
+    return GetDataLength() > 0 ? GetDataPacket()->data : nullptr;
   }
 
   uint32_t GetDataLength() {

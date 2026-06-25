@@ -13,7 +13,12 @@
 
 #include <jni.h>
 
+#include <memory>
+
+#include "api/environment/environment.h"
 #include "api/peer_connection_interface.h"
+#include "api/scoped_refptr.h"
+#include "rtc_base/socket_factory.h"
 #include "rtc_base/thread.h"
 
 namespace webrtc {
@@ -22,11 +27,12 @@ namespace jni {
 // Creates java PeerConnectionFactory with specified `pcf`.
 jobject NativeToJavaPeerConnectionFactory(
     JNIEnv* jni,
-    rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pcf,
-    std::unique_ptr<rtc::SocketFactory> socket_factory,
-    std::unique_ptr<rtc::Thread> network_thread,
-    std::unique_ptr<rtc::Thread> worker_thread,
-    std::unique_ptr<rtc::Thread> signaling_thread);
+    scoped_refptr<webrtc::PeerConnectionFactoryInterface> pcf,
+    std::unique_ptr<SocketFactory> socket_factory,
+    std::unique_ptr<Thread> network_thread,
+    std::unique_ptr<Thread> worker_thread,
+    std::unique_ptr<Thread> signaling_thread,
+    const Environment& env);
 
 }  // namespace jni
 }  // namespace webrtc

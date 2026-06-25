@@ -5,190 +5,200 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_TIMING_RESPONSIVENESS_METRICS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_TIMING_RESPONSIVENESS_METRICS_H_
 
+#include <cstdint>
+#include <optional>
+
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "base/trace_event/typed_macros.h"
+#include "base/tracing/protos/chrome_track_event.pbzero.h"
+#include "third_party/blink/public/common/input/pointer_id.h"
 #include "third_party/blink/public/common/responsiveness_metrics/user_interaction_latency.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/dom_high_res_time_stamp.h"
 #include "third_party/blink/renderer/core/events/pointer_event.h"
-#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/timing/performance_event_timing.h"
+#include "third_party/blink/renderer/core/timing/performance_timeline_entry_id_generator.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "third_party/perfetto/include/perfetto/tracing/event_context.h"
 
 namespace blink {
 
+class LocalDOMWindow;
 class PerformanceEventTiming;
 class WindowPerformance;
 
-class ResponsivenessMetrics : public GarbageCollected<ResponsivenessMetrics> {
+// ResponsivenessMetrics is responsible for calculating and reporting
+// User Interaction Latencies (part of INP).
+// It manages the lifecycle of Interactions by grouping related events
+// (e.g., pointerdown, pointerup, click) and assigning them a shared
+// interactionId.
+class CORE_EXPORT ResponsivenessMetrics
+    : public GarbageCollected<ResponsivenessMetrics> {
  public:
-  // Timestamps for input events.
-  struct EventTimestamps {
-    // The duration of the event (creation --> first display update it caused).
-    base::TimeDelta duration() const { return end_time - start_time; }
-
-    // The event creation time.
-    base::TimeTicks start_time;
-    // The time when the first display update caused by the input event was
-    // performed.
-    base::TimeTicks end_time;
-  };
-
-  // Wrapper class to store PerformanceEventTiming and timestamps
-  // on a HeapHashMap.
-  class KeyboardEntryAndTimestamps
-      : public GarbageCollected<KeyboardEntryAndTimestamps> {
-   public:
-    KeyboardEntryAndTimestamps(PerformanceEventTiming* entry,
-                               EventTimestamps timestamps)
-        : entry_(entry), timestamps_({timestamps}) {}
-
-    static KeyboardEntryAndTimestamps* Create(PerformanceEventTiming* entry,
-                                              EventTimestamps timestamps) {
-      return MakeGarbageCollected<KeyboardEntryAndTimestamps>(entry,
-                                                              timestamps);
-    }
-    ~KeyboardEntryAndTimestamps() = default;
-    void Trace(Visitor*) const;
-    PerformanceEventTiming* GetEntry() const { return entry_; }
-    EventTimestamps GetTimeStamps() { return timestamps_; }
-
-   private:
-    // The PerformanceEventTiming entry that has not been sent to observers
-    // yet: the event dispatch has been completed but the presentation promise
-    // used to determine |duration| has not yet been resolved, or the
-    // interactionId has not yet been computed yet.
-    Member<PerformanceEventTiming> entry_;
-    // Timestamps associated with the entry.
-    EventTimestamps timestamps_;
-  };
-
-  // Wrapper class to store PerformanceEventTiming, pointerdown and pointerup
-  // timestamps, and whether drag has been detected on a HeapHashMap.
-  class PointerEntryAndInfo : public GarbageCollected<PointerEntryAndInfo> {
-   public:
-    PointerEntryAndInfo(PerformanceEventTiming* entry,
-                        EventTimestamps timestamps)
-        : entry_(entry), timestamps_({timestamps}) {}
-
-    static PointerEntryAndInfo* Create(PerformanceEventTiming* entry,
-                                       EventTimestamps timestamps) {
-      return MakeGarbageCollected<PointerEntryAndInfo>(entry, timestamps);
-    }
-    ~PointerEntryAndInfo() = default;
-    void Trace(Visitor*) const;
-    PerformanceEventTiming* GetEntry() const { return entry_; }
-    Vector<EventTimestamps>& GetTimeStamps() { return timestamps_; }
-    void SetIsDrag() { is_drag_ = true; }
-    bool IsDrag() const { return is_drag_; }
-
-   private:
-    // The PerformanceEventTiming entry that has not been sent to observers
-    // yet: the event dispatch has been completed but the presentation promise
-    // used to determine |duration| has not yet been resolved, , or the
-    // interactionId has not yet been computed yet.
-    Member<PerformanceEventTiming> entry_;
-    // Timestamps associated with the entry. The first should always be
-    // for a pointerdown, the second for a pointerup, and optionally the third
-    // for a click.
-    Vector<EventTimestamps> timestamps_;
-    // Whether drag has been detected.
-    bool is_drag_;
-  };
-
   explicit ResponsivenessMetrics(WindowPerformance*);
   ~ResponsivenessMetrics();
 
-  // Stop UKM sampling for testing.
+  // Assigns an interactionId to the entry based on current interaction state.
+  // This is called during the processing phase of an event. |entry| must not
+  // be null. Note that for some entries, specifically pointerdown, the ID
+  // cannot be assigned right away and will be assigned when a subsequent
+  // pointerup, pointercancel, contextmenu, or click (etc) occurs.
+  void TryAssignInteractionId(PerformanceEventTiming* entry);
+
+  // Reports the entry to UKM and UMA metrics if it represents a valid
+  // interaction. Called as soon as the entry has a known end time. |entry|
+  // must not be null.
+  void ReportToMetrics(PerformanceEventTiming* entry);
+
+  // Lifecycle and Testing
+  void FlushAllEvents();
   void StopUkmSamplingForTesting() { sampling_ = false; }
+  uint32_t GetInteractionCount() const;
 
-  // The use might be dragging. The function will be called whenever we have a
-  // pointermove.
-  void NotifyPotentialDrag(PointerId pointer_id);
+  void SetCurrentInteractionEventQueuedTimestamp(base::TimeTicks queued_time);
+  base::TimeTicks CurrentInteractionEventQueuedTimestamp() const;
 
-  // Assigns an interactionId and records interaction latency for pointer
-  // events. Returns true if the entry is ready to be surfaced in
-  // PerformanceObservers and the Performance Timeline.
-  bool SetPointerIdAndRecordLatency(PerformanceEventTiming* entry,
-                                    PointerId pointer_id,
-                                    EventTimestamps event_timestamps);
-
-  // Assigns interactionId and records interaction latency for keyboard events.
-  // We care about input, compositionstart, and compositionend events, so
-  // |key_code| will be absl::nullopt in those cases. Returns true if the entry
-  // would be ready to be surfaced in PerformanceObservers and the Performance
-  // Timeline.
-  bool SetKeyIdAndRecordLatency(PerformanceEventTiming* entry,
-                                absl::optional<int> key_code,
-                                EventTimestamps event_timestamps);
-
-  // Clears some entries in |key_codes_to_remove| if we have stored them for a
-  // while.
-  void MaybeFlushKeyboardEntries(DOMHighResTimeStamp current_time);
-
-  uint64_t GetInteractionCount() const;
+  // The `navigate` event dispatches during a pre-commit phase of navigations
+  // and can defer actual commit until a promise resolves.
+  // `popstate` and `hashchange` will not dispatch until this deferred commit.
+  // This method is called from `NavigateEvent::CommitNow` to restore a navigate
+  // events' interaction id when this happens.
+  // The secondary value for this is to reset `last_navigate_interaction_id_`
+  // every time a non userInitiated navigation is committed.  Though we
+  // shouldn't observe those event timings, anyway.
+  void WillNavigateEventCommitNow(PerformanceTimelineEntryIdInfo id) {
+    last_navigate_interaction_id_ = id;
+  }
 
   void Trace(Visitor*) const;
 
  private:
-  // Record UKM for user interaction latencies.
-  void RecordUserInteractionUKM(
-      LocalDOMWindow* window,
-      UserInteractionType interaction_type,
-      const WTF::Vector<ResponsivenessMetrics::EventTimestamps>& timestamps);
+  // Categorical handlers for different interaction types.
+  void HandleKeyboardInteraction(PerformanceEventTiming* entry);
+  void HandlePointerInteraction(PerformanceEventTiming* entry);
+  void HandleNavigationInteraction(PerformanceEventTiming* entry);
+  void HandleCompositionInteraction(PerformanceEventTiming* entry);
 
-  void RecordDragTapOrClickUKM(LocalDOMWindow*, PointerEntryAndInfo&);
+  // ID Management
+  // Assigns a specific interaction ID to the entry.
+  void SetInteractionId(PerformanceEventTiming* entry,
+                        PerformanceTimelineEntryIdInfo id);
+  // Assigns a new interaction ID for a keyboard interaction and updates the
+  // associated maps. Returns the new ID.
+  PerformanceTimelineEntryIdInfo AssignNewKeyboardInteractionId(int key_code);
+  // Assigns a new interaction ID for a pointer interaction and updates the
+  // associated maps. Returns the new ID.
+  PerformanceTimelineEntryIdInfo AssignNewPointerInteractionId(
+      PointerId pointer_id);
+  // Assigns a new interaction ID for a navigation interaction and updates the
+  // associated maps. Returns the new ID.
+  PerformanceTimelineEntryIdInfo AssignNewNavigationInteractionId();
 
-  void RecordKeyboardUKM(LocalDOMWindow* window,
-                         const WTF::Vector<EventTimestamps>& event_timestamps);
+  void CommitAllPendingPointerdowns();
 
-  // Updates the interactionId counter which is used by Event Timing.
-  void UpdateInteractionId();
+  // Metrics Reporting
+  void RecordUserInteractionUKM(LocalDOMWindow* window,
+                                UserInteractionType interaction_type,
+                                const PerformanceEventTiming& entry);
 
-  uint32_t GetCurrentInteractionId() const;
+  void RecordUserInteractionHistograms(UserInteractionType interaction_type,
+                                       const PerformanceEventTiming& entry);
 
-  // Method called when |pointer_flush_timer_| fires. Ensures that the last
-  // interaction of any given pointerId is reported, even if it does not receive
-  // a click.
-  void FlushPointerTimerFired(TimerBase*);
+  void RecordUserInteractionTracing(LocalDOMWindow* window,
+                                    UserInteractionType interaction_type,
+                                    const PerformanceEventTiming& entry);
 
-  // Used to flush any entries in |pointer_id_entry_map_| which already have
-  // pointerup. We either know there is no click happening or waited long enough
-  // for a click to occur.
-  void FlushPointerMap();
-  void StopTimerAndFlush();
+  // This is used to store the set of unique histogram timings in a single
+  // animation frame.  The first event for each interaction id should always
+  // be the longest.  If they have the same end time, they perfectly overlap in
+  // time and don't need to be repeated.
+  // TODO(crbug.com/328902994): If it wasn't for "pending pointerdown"
+  // reporting, we would know that ALL event timings in a single animation frame
+  // always report together. In that case, we could change to pass a list of
+  // event timings to |ReportMetrics()| instead of one by one, and we wouldn't
+  // need to store this at all, instead just std::unique with a custom
+  // comparator.
+  struct ReportedInteractionKey {
+    uint64_t interaction_id;
+    base::TimeTicks end_time;
 
-  void NotifyPointerdown(PerformanceEventTiming* entry) const;
+    bool operator==(const ReportedInteractionKey& other) const = default;
+  };
 
   Member<WindowPerformance> window_performance_;
 
-  // Map from keyCodes to keydown entries and keydown timestamps.
-  HeapHashMap<int,
-              Member<KeyboardEntryAndTimestamps>,
-              IntWithZeroKeyHashTraits<int>>
-      key_code_entry_map_;
-  // Whether we are composing or not. When we are not composing, we set
-  // interactionId for keydown and keyup events. When we are composing, we set
-  // interactionId for input events.
-  bool composition_started_ = false;
+  // Keyboard and Composition State
+  enum CompositionState {
+    kNonComposition,
+    kCompositionActive,
+    kCompositionEndOnKeyup
+  };
+  CompositionState composition_state_ = kNonComposition;
 
-  // Map from pointerId to the first pointer event entry seen for the user
-  // interaction, and other information.
-  HeapHashMap<PointerId,
-              Member<PointerEntryAndInfo>,
-              IntWithZeroKeyHashTraits<PointerId>>
-      pointer_id_entry_map_;
-  HeapTaskRunnerTimer<ResponsivenessMetrics> pointer_flush_timer_;
-  // The PointerId of the last pointerdown or pointerup event processed. Used to
-  // know which interactionId to use for click events. If pointecancel or
-  // keyboard events are seen, the value is reset. TODO(crbug.com/1264930):
-  // remove this attribute once PointerId for clicks correctly points to the
-  // same value as its corresponding pointerdown and pointerup.
-  absl::optional<PointerId> last_pointer_id_;
+  // Matches the `keyCode()` return type.
+  using KeydownKeyType = int;
+  // Map from keyCodes to the last keydown interaction ID.
+  HashMap<KeydownKeyType,
+          PerformanceTimelineEntryIdInfo,
+          IntWithZeroKeyHashTraits<KeydownKeyType>>
+      keycode_to_interactionid_;
 
-  uint32_t current_interaction_id_for_event_timing_;
-  uint64_t interaction_count_ = 0;
+  // During composition or for simulated clicks, we sometimes just match to most
+  // recent keydown.
+  //
+  // TODO(crbug.com/490481909): This is also used to assign the interaction id
+  // for (non-composition) keypress events. Those should be able to use
+  // `keycode_to_interactionid_`, but keypress events always use the uppercase
+  // version of the keycode, so there can be a mismatch. This map should be
+  // changed to use the physical key.
+  std::optional<PerformanceTimelineEntryIdInfo> last_keydown_interaction_id_;
+
+  // Popstate and hashchange events can reuse the most recent navigate
+  // interaction ID.  This value is updated with each new navigation that is
+  // started (for sync commit), and updated when that navigation is actually
+  // committed (for deferred commit).
+  PerformanceTimelineEntryIdInfo last_navigate_interaction_id_ =
+      PerformanceTimelineEntryIdInfo::kNone;
+
+  // Ideally this type would be `PointerID` type, but that is signed value and
+  // might take on -1 (for |kReservedNonPointerId|) or
+  // std::numeric_limits<int>::max() (for |kMousePointerId|), so we cannot use
+  // PointerID as the map key.  Using 64bit values to accommodate this, but it
+  // may be possible to just carefully handle these special values.
+  // Same solution as |PointerEventFactory::pointer_id_to_attributes_|.
+  // Unfortunate.
+  using PointerDownKeyType = int64_t;
+  // Map from pointerId to the pending pointerdown event entry. Entries are
+  // moved from here to the `pointerdown_ids_` map once the interaction ID is
+  // assigned.
+  HeapHashMap<PointerDownKeyType,
+              Member<PerformanceEventTiming>,
+              IntWithZeroKeyHashTraits<PointerDownKeyType>>
+      pending_pointerdown_entries_;
+
+  // Map from pointerId to the assigned interaction ID of the last pointerdown.
+  // This is used to ensure subsequent events in the same interaction (e.g.
+  // pointerup, click) get the same ID. Entries are removed once the
+  // interaction is considered complete (on click or pointercancel).
+  HashMap<PointerDownKeyType,
+          PerformanceTimelineEntryIdInfo,
+          IntWithZeroKeyHashTraits<PointerDownKeyType>>
+      pointerid_to_interactionid_;
+
+  base::TimeTicks current_interaction_event_queued_timestamp_;
+
+  PerformanceTimelineEntryIdGenerator interaction_id_generator_;
+
+  uint32_t navigation_interaction_count_ = 0;
 
   // Whether to perform UKM sampling.
   bool sampling_ = true;
+
+  std::optional<uint64_t> last_recorded_frame_index_;
+  Vector<ReportedInteractionKey> reported_interactions_in_frame_;
 };
 
 }  // namespace blink

@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_INPUT_WEB_TOUCH_EVENT_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_INPUT_WEB_TOUCH_EVENT_H_
 
+#include <array>
+
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/common/input/web_touch_point.h"
 
@@ -12,7 +14,7 @@ namespace blink {
 
 // WebTouchEvent --------------------------------------------------------------
 
-// TODO(e_hakkinen): Replace with WebPointerEvent. crbug.com/508283
+// TODO(crbug.com/41371756): Replace with WebPointerEvent.
 class BLINK_COMMON_EXPORT WebTouchEvent : public WebInputEvent {
  public:
   // Maximum number of simultaneous touches supported on
@@ -21,7 +23,7 @@ class BLINK_COMMON_EXPORT WebTouchEvent : public WebInputEvent {
 
   unsigned touches_length = 0;
   // List of all touches, regardless of state.
-  WebTouchPoint touches[kTouchesLengthCap] = {};
+  std::array<WebTouchPoint, kTouchesLengthCap> touches = {};
 
   // Whether the event is blocking, non-blocking, all event
   // listeners were passive or was forced to be non-blocking.
@@ -37,17 +39,26 @@ class BLINK_COMMON_EXPORT WebTouchEvent : public WebInputEvent {
   bool hovering = false;
 
   // Whether this touch event is a touchstart or a first touchmove event per
-  // scroll.
+  // scroll. (Note: There can be multiple first touchmove events per scroll. All
+  // touchmoves up until the first touchmove that moves beyond the slop region
+  // are considered first touchmove events).
   bool touch_start_or_first_touch_move = false;
 
   // A unique identifier for the touch event. Valid ids start at one and
   // increase monotonically. Zero means an unknown id.
   uint32_t unique_touch_event_id = 0;
 
-  WebTouchEvent() = default;
+  WebTouchEvent()
+      : WebInputEvent(Type::kUndefined,
+                      Type::kTouchTypeFirst,
+                      Type::kTouchTypeLast) {}
 
   WebTouchEvent(Type type, int modifiers, base::TimeTicks time_stamp)
-      : WebInputEvent(type, modifiers, time_stamp) {}
+      : WebInputEvent(type,
+                      Type::kTouchTypeFirst,
+                      Type::kTouchTypeLast,
+                      modifiers,
+                      time_stamp) {}
 
   std::unique_ptr<WebInputEvent> Clone() const override;
   bool CanCoalesce(const WebInputEvent& event) const override;
@@ -61,6 +72,14 @@ class BLINK_COMMON_EXPORT WebTouchEvent : public WebInputEvent {
   WebTouchPoint TouchPointInRootFrame(unsigned touch_point) const;
 
   bool IsCancelable() const { return dispatch_type == DispatchType::kBlocking; }
+
+  // Returns whether this event represents a transition from no active
+  // touches to some active touches (the start of a new "touch sequence").
+  bool IsTouchSequenceStart() const;
+
+  // Returns whether this event represents a transition from active
+  // touches to no active touches (the end of a "touch sequence").
+  bool IsTouchSequenceEnd() const;
 };
 
 }  // namespace blink

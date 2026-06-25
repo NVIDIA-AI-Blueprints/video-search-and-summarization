@@ -7,6 +7,9 @@
 
 #include "third_party/blink/public/mojom/feature_observer/feature_observer.mojom-blink.h"
 #include "third_party/blink/public/mojom/locks/lock_manager.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_lock_mode.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -18,8 +21,6 @@
 namespace blink {
 
 class LockManager;
-class ScriptPromise;
-class ScriptPromiseResolver;
 class ScriptState;
 
 class Lock final : public ScriptWrappable,
@@ -39,17 +40,17 @@ class Lock final : public ScriptWrappable,
 
   // Lock.idl
   String name() const { return name_; }
-  String mode() const;
+  V8LockMode mode() const;
 
   // ExecutionContextLifecycleObserver
   void ContextDestroyed() override;
 
   // The lock is held until the passed promise resolves. When it is released,
   // the passed resolver is invoked with the promise's result.
-  void HoldUntil(ScriptPromise, ScriptPromiseResolver*);
+  void HoldUntil(ScriptPromise<IDLAny>, ScriptPromiseResolver<IDLAny>*);
 
-  static mojom::blink::LockMode StringToMode(const String&);
-  static String ModeToString(mojom::blink::LockMode);
+  static mojom::blink::LockMode EnumToMode(V8LockMode::Enum);
+  static V8LockMode::Enum ModeToEnum(mojom::blink::LockMode);
 
  private:
   class ThenFunction;
@@ -58,7 +59,7 @@ class Lock final : public ScriptWrappable,
 
   void OnConnectionError();
 
-  Member<ScriptPromiseResolver> resolver_;
+  Member<ScriptPromiseResolver<IDLAny>> resolver_;
 
   const String name_;
   const mojom::blink::LockMode mode_;

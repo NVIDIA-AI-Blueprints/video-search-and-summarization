@@ -43,44 +43,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_DATE_MATH_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_DATE_MATH_H_
 
-#include <stdint.h>
-#include <string.h>
-
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_export.h"
 
-namespace WTF {
+namespace blink {
 
-// Not really math related, but this is currently the only shared place to put
-// these.
-//
-// TODO(tkent): Only blink::ParseDate() uses this function to parse HTTP
-// header values. net::HTTPResponseHeaders::GetTimeValuedHeader() uses
-// base::Time::FromUTCString() for the same purpose.  We should consider
-// switching to base::Time::FromUTCString() for consistency.
-WTF_EXPORT absl::optional<base::Time> ParseDateFromNullTerminatedCharacters(
-    const char* date_string);
-
-// utcOffset: [-720,720].
-WTF_EXPORT absl::optional<String> MakeRFC2822DateString(const base::Time date,
-                                                        int utc_offset);
-
-const char kWeekdayName[7][4] = {"Sun", "Mon", "Tue", "Wed",
-                                 "Thu", "Fri", "Sat"};
-const char kMonthName[12][4] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-const char* const kMonthFullName[12] = {
-    "January", "February", "March",     "April",   "May",      "June",
-    "July",    "August",   "September", "October", "November", "December"};
-
-const double kMinutesPerHour = 60.0;
-const double kSecondsPerMinute = 60.0;
-const double kMsPerSecond = 1000.0;
-const double kMsPerMinute = 60.0 * 1000.0;
-const double kMsPerHour = 60.0 * 60.0 * 1000.0;
-const double kMsPerDay = 24.0 * 60.0 * 60.0 * 1000.0;
+static inline constexpr double kMinimumEcmaDateInMs = -8640000000000000.0;
+static inline constexpr double kMaximumEcmaDateInMs = 8640000000000000.0;
 
 WTF_EXPORT bool IsLeapYear(int year);
 
@@ -100,22 +69,6 @@ WTF_EXPORT int DayInMonthFromDayInYear(int day_in_year, bool leap_year);
 // "1970-01-01 00:00 PDT".
 WTF_EXPORT base::TimeDelta ConvertToLocalTime(base::Time time);
 
-}  // namespace WTF
-
-using WTF::IsLeapYear;
-using WTF::DateToDaysFrom1970;
-using WTF::DayInMonthFromDayInYear;
-using WTF::DayInYear;
-using WTF::kMinutesPerHour;
-using WTF::MonthFromDayInYear;
-using WTF::kMsPerDay;
-using WTF::kMsPerHour;
-using WTF::kMsPerMinute;
-using WTF::kMsPerSecond;
-using WTF::MsToYear;
-using WTF::kSecondsPerMinute;
-using WTF::ParseDateFromNullTerminatedCharacters;
-using WTF::MakeRFC2822DateString;
-using WTF::ConvertToLocalTime;
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_DATE_MATH_H_

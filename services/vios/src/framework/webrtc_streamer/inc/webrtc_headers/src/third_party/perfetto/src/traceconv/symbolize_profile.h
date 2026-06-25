@@ -17,13 +17,12 @@
 #ifndef SRC_TRACECONV_SYMBOLIZE_PROFILE_H_
 #define SRC_TRACECONV_SYMBOLIZE_PROFILE_H_
 
-#include <functional>
 #include <iostream>
 
 namespace perfetto {
 namespace trace_to_text {
 
-int SymbolizeProfile(std::istream* input, std::ostream* output);
+int SymbolizeProfile(std::istream* input, std::ostream* output, bool verbose);
 
 }  // namespace trace_to_text
 }  // namespace perfetto

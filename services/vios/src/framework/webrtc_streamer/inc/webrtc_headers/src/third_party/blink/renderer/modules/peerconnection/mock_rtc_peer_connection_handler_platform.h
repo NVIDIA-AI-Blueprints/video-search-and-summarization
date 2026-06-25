@@ -14,25 +14,9 @@
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/webrtc/api/peer_connection_interface.h"
 #include "third_party/webrtc/api/stats/rtc_stats.h"
-#include "third_party/webrtc/api/test/mock_session_description_interface.h"
+#include "third_party/webrtc/api/test/mock_peerconnectioninterface.h"
 
 namespace blink {
-
-class MockSessionDescription : public webrtc::MockSessionDescriptionInterface {
- public:
-  MockSessionDescription(const std::string& type, const std::string& sdp)
-      : type_(type), sdp_(sdp) {}
-  ~MockSessionDescription() override = default;
-  std::string type() const override { return type_; }
-  bool ToString(std::string* out) const override {
-    *out = sdp_;
-    return true;
-  }
-
- private:
-  std::string type_;
-  std::string sdp_;
-};
 
 // Class for creating a ParsedSessionDescription without running the parser.
 // It returns an empty (but non-null) description object.
@@ -40,8 +24,12 @@ class MockParsedSessionDescription : public ParsedSessionDescription {
  public:
   MockParsedSessionDescription(const String& type, const String& sdp)
       : ParsedSessionDescription(type, sdp) {
-    description_ =
-        std::make_unique<MockSessionDescription>(type.Utf8(), sdp.Utf8());
+    std::optional<webrtc::SdpType> sdp_type =
+        webrtc::SdpTypeFromString(type.Utf8());
+    if (!sdp_type) {
+      sdp_type = webrtc::SdpType::kOffer;
+    }
+    description_ = webrtc::CreateSessionDescription(*sdp_type, sdp.Utf8());
   }
   // Constructor for creating an error-returning session description.
   MockParsedSessionDescription() : ParsedSessionDescription("error", "error") {}
@@ -59,7 +47,6 @@ class MockRTCPeerConnectionHandlerPlatform : public RTCPeerConnectionHandler {
 
   bool Initialize(ExecutionContext* context,
                   const webrtc::PeerConnectionInterface::RTCConfiguration&,
-                  GoogMediaConstraints* media_constraints,
                   WebLocalFrame*,
                   ExceptionState&) override;
   void Close() override;
@@ -79,7 +66,6 @@ class MockRTCPeerConnectionHandlerPlatform : public RTCPeerConnectionHandler {
       const webrtc::PeerConnectionInterface::RTCConfiguration&) override;
   void AddIceCandidate(RTCVoidRequest*, RTCIceCandidatePlatform*) override;
   void RestartIce() override;
-  void GetStats(RTCStatsRequest*) override;
   void GetStats(RTCStatsReportCallback) override;
   webrtc::RTCErrorOr<std::unique_ptr<RTCRtpTransceiverPlatform>>
   AddTransceiverWithTrack(MediaStreamComponent*,
@@ -92,13 +78,10 @@ class MockRTCPeerConnectionHandlerPlatform : public RTCPeerConnectionHandler {
       const MediaStreamDescriptorVector&) override;
   webrtc::RTCErrorOr<std::unique_ptr<RTCRtpTransceiverPlatform>> RemoveTrack(
       RTCRtpSenderPlatform*) override;
-  rtc::scoped_refptr<webrtc::DataChannelInterface> CreateDataChannel(
+  webrtc::scoped_refptr<webrtc::DataChannelInterface> CreateDataChannel(
       const String& label,
       const webrtc::DataChannelInit&) override;
   webrtc::PeerConnectionInterface* NativePeerConnection() override;
-  void RunSynchronousOnceClosureOnSignalingThread(
-      CrossThreadOnceClosure closure,
-      const char* trace_event_name) override;
   void RunSynchronousOnceClosureOnSignalingThread(
       base::OnceClosure closure,
       const char* trace_event_name) override;
@@ -109,6 +92,8 @@ class MockRTCPeerConnectionHandlerPlatform : public RTCPeerConnectionHandler {
   class DummyRTCRtpTransceiverPlatform;
 
   Vector<std::unique_ptr<DummyRTCRtpTransceiverPlatform>> transceivers_;
+  webrtc::scoped_refptr<webrtc::MockPeerConnectionInterface>
+      native_peer_connection_;
 };
 
 }  // namespace blink

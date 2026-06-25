@@ -9,45 +9,46 @@
 
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/navigation/resource_intercept_policy.h"
-#include "third_party/blink/public/mojom/navigation/navigation_initiator_activation_and_ad_status.mojom.h"
 
 // A centralized file for base helper methods and policy decisions about
 // navigations.
 
 namespace blink {
-// Navigation type that affects the download decision and relevant metrics to be
-// reported at download-discovery time.
-//
-// This enum backs a histogram. Please keep enums.xml up to date with any
-// changes, and new entries should be appended at the end. Never re-arrange /
-// re-use values.
+// Navigation type that affects the download decision at download-discovery
+// time.
 enum class NavigationDownloadType {
-  // An entry reserved just for histogram. The client code is not expected to
-  // set or query this type in a policy.
-  kDefaultAllow = 0,
-
-  kViewSource = 1,
-  kInterstitial = 2,
+  kViewSource = 0,
+  kInterstitial = 1,
 
   // The navigation was initiated on a x-origin opener.
-  kOpenerCrossOrigin = 5,
+  kOpenerCrossOrigin = 2,
 
   // The navigation was initiated from or occurred in an ad frame without user
   // activation.
-  kAdFrameNoGesture = 8,
+  kAdFrameNoGesture = 3,
 
   // The navigation was initiated from or occurred in an ad frame.
-  kAdFrame = 10,
+  kAdFrame = 4,
 
   // The navigation was initiated from or occurred in an iframe with
   // |network::mojom::WebSandboxFlags::kDownloads| flag set.
-  kSandbox = 11,
+  kSandbox = 5,
 
   // The navigation was initiated without user activation.
-  kNoGesture = 12,
+  kNoGesture = 6,
 
   kMaxValue = kNoGesture
 };
+
+// LINT.IfChange(InputStartPresence)
+enum class InputStartPresence {
+  kNone = 0,
+  kOnlyOld = 1,
+  kOnlyNew = 2,
+  kBoth = 3,
+  kMaxValue = kBoth,
+};
+// LINT.ThenChange(//tools/metrics/histograms/metadata/navigation/enums.xml:InputStartPresence)
 
 // Stores the navigation types that may be of interest to the download-related
 // metrics to be reported at download-discovery time. Also controls how
@@ -73,9 +74,6 @@ struct BLINK_COMMON_EXPORT NavigationDownloadPolicy {
   // Returns if download is allowed based on |disallowed_types|.
   bool IsDownloadAllowed() const;
 
-  // Record the download policy to histograms from |observed_types|.
-  void RecordHistogram() const;
-
   // Possibly set the kOpenerCrossOrigin and kSandboxNoGesture policy in
   // |download_policy|. The parameter `openee_can_access_opener_origin` only
   // matters if `is_opener_navigation` is true.
@@ -97,13 +95,6 @@ struct BLINK_COMMON_EXPORT NavigationDownloadPolicy {
   // a download, the download should be dropped.
   NavigationDownloadTypes disallowed_types;
 };
-
-// Construct a `NavigationInitiatorActivationAndAdStatus` based on the user
-// activation and ad status.
-BLINK_COMMON_EXPORT
-blink::mojom::NavigationInitiatorActivationAndAdStatus
-GetNavigationInitiatorActivationAndAdStatus(bool has_user_activation,
-                                            bool is_ad_script_in_stack);
 
 }  // namespace blink
 

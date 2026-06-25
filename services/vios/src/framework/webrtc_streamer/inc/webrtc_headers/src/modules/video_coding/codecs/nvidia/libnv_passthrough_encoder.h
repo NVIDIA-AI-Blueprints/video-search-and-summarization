@@ -36,6 +36,7 @@
 #include <vector>
 #include <fstream>
 
+#include "api/scoped_refptr.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_frame.h"
 #include "api/video_codecs/video_encoder.h"
@@ -43,7 +44,6 @@
 #include "api/video_codecs/vp8_frame_config.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "common_video/framerate_controller.h"
-#include "rtc_base/experiments/cpu_speed_experiment.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "api/video/i420_buffer.h"
 #include "common_video/h264/h264_bitstream_parser.h"
@@ -119,8 +119,6 @@ class NvPassthroughVideoEncoder : public VideoEncoder {
 
   int GetEncodedPartitions(const VideoFrame& input_image, bool mode = false, void* frame_buffer = nullptr);
 
-  const absl::optional<std::vector<CpuSpeedExperiment::Config>>
-      experimental_cpu_speed_config_arm_;
   webrtc::H264BitstreamParser h264_bitstream_parser_;
   H264PacketizationMode packetization_mode_;
 
@@ -208,7 +206,7 @@ class NvPassthroughVideoEncoder : public VideoEncoder {
   std::vector<bool> send_stream_;
   std::vector<int> cpu_speed_;
   std::vector<EncodedImage> encoded_images_;
-  std::map<int , rtc::scoped_refptr<NvVideoFrameBuffer>> m_fdBufferMap;
+  std::map<int, scoped_refptr<NvVideoFrameBuffer>> m_fdBufferMap;
   std::atomic<unsigned int> m_targetBps;
   std::atomic<double> m_frameRate;
 

@@ -30,6 +30,7 @@ class CSSDisplayInterpolationType : public CSSInterpolationType {
   void ApplyStandardPropertyValue(const InterpolableValue&,
                                   const NonInterpolableValue*,
                                   StyleResolverState&) const final;
+  bool IsDiscrete() const final { return true; }
 
  private:
   InterpolationValue CreateDisplayValue(EDisplay) const;
@@ -40,7 +41,7 @@ class CSSDisplayInterpolationType : public CSSInterpolationType {
   InterpolationValue MaybeConvertInherit(const StyleResolverState&,
                                          ConversionCheckers&) const final;
   InterpolationValue MaybeConvertValue(const CSSValue&,
-                                       const StyleResolverState*,
+                                       const StyleResolverState&,
                                        ConversionCheckers&) const final;
 };
 

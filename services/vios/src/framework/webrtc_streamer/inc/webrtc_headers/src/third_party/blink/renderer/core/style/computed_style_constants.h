@@ -30,9 +30,10 @@
 
 #include <cstddef>
 #include <cstdint>
+
 #include "base/check_op.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_animation_trigger_behavior.h"
 #include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -56,20 +57,34 @@ enum class BoxSide : unsigned { kTop, kRight, kBottom, kLeft };
 enum PseudoId : uint8_t {
   // The order must be NOP ID, public IDs, and then internal IDs.
   // If you add or remove a public ID, you must update the field_size of
-  // "PseudoBits" in computed_style_extra_fields.json5.
+  // "PseudoElementStyles" in computed_style_extra_fields.json5 to
+  // (kLastTrackedPublicPseudoId - kFirstPublicPseudoId + 1).
   //
-  // The above is necessary because presence of a public pseudo element style
+  // The above is necessary because presence of a public pseudo-element style
   // for an element is tracked on the element's ComputedStyle. This is done for
   // all public IDs until kLastTrackedPublicPseudoId.
   kPseudoIdNone,
   kPseudoIdFirstLine,
   kPseudoIdFirstLetter,
+  kPseudoIdCheckMark,
   kPseudoIdBefore,
   kPseudoIdAfter,
+  kPseudoIdExpandIcon,
+  kPseudoIdPickerIcon,
+  kPseudoIdInterestButton,
   kPseudoIdMarker,
   kPseudoIdBackdrop,
   kPseudoIdSelection,
   kPseudoIdScrollbar,
+  kPseudoIdScrollMarker,
+  kPseudoIdScrollMarkerGroup,
+  kPseudoIdScrollButton,
+  kPseudoIdScrollButtonBlockStart,
+  kPseudoIdScrollButtonInlineStart,
+  kPseudoIdScrollButtonInlineEnd,
+  kPseudoIdScrollButtonBlockEnd,
+  kPseudoIdColumn,
+  kPseudoIdSearchText,
   kPseudoIdTargetText,
   kPseudoIdHighlight,
   kPseudoIdSpellingError,
@@ -77,28 +92,104 @@ enum PseudoId : uint8_t {
   // The following IDs are public but not tracked.
   kPseudoIdViewTransition,
   kPseudoIdViewTransitionGroup,
+  kPseudoIdViewTransitionGroupChildren,
   kPseudoIdViewTransitionImagePair,
   kPseudoIdViewTransitionOld,
   kPseudoIdViewTransitionNew,
+
+  kPseudoIdOverscrollAreaParent,
+
   // Internal IDs follow:
   kPseudoIdFirstLineInherited,
+
+  // These five must be together, due to code in
+  // CollectMatchingRulesInternal().
   kPseudoIdScrollbarThumb,
   kPseudoIdScrollbarButton,
   kPseudoIdScrollbarTrack,
   kPseudoIdScrollbarTrackPiece,
   kPseudoIdScrollbarCorner,
+
+  kPseudoIdScrollMarkerGroupAfter,
+  kPseudoIdScrollMarkerGroupBefore,
   kPseudoIdResizer,
   kPseudoIdInputListButton,
+  kPseudoIdPlaceholder,
+  kPseudoIdFileSelectorButton,
+  kPseudoIdDetailsContent,
+  kPseudoIdPickerSelect,
+  kPseudoIdPermissionIcon,
+
   // Special values follow:
   kAfterLastInternalPseudoId,
+  kPseudoIdInvalid,
   kFirstPublicPseudoId = kPseudoIdFirstLine,
   kLastTrackedPublicPseudoId = kPseudoIdGrammarError,
+  kLastPublicPseudoId = kPseudoIdOverscrollAreaParent,
   kFirstInternalPseudoId = kPseudoIdFirstLineInherited,
+};
+
+// Stores a set of PseudoId flags, but only in the range
+// [kFirstPublicPseudoId, kLastTrackedPublicPseudoId].
+class PseudoIdFlags {
+ public:
+  PseudoIdFlags() = default;
+
+  static const PseudoId kFirstValid = kFirstPublicPseudoId;
+  static const PseudoId kLastValid = kLastTrackedPublicPseudoId;
+
+  static PseudoIdFlags FromBits(uint32_t bits) { return PseudoIdFlags(bits); }
+
+  // See comment on similar constructor in CSSBitsetBase.
+  template <int N>
+  explicit constexpr PseudoIdFlags(const PseudoId (&list)[N]) {
+    for (PseudoId pseudo_id : list) {
+      bits_ |= uint32_t{1} << Bit(pseudo_id);
+    }
+  }
+
+  bool operator==(const PseudoIdFlags& o) const { return bits_ == o.bits_; }
+
+  PseudoIdFlags& operator|=(const PseudoIdFlags& o) {
+    bits_ |= o.bits_;
+    return *this;
+  }
+
+  void Set(PseudoId pseudo_id) {
+    DCHECK_LT(Bit(pseudo_id), 32u);
+    bits_ |= (uint32_t{1} << Bit(pseudo_id));
+  }
+
+  void MaybeSet(PseudoId pseudo_id) {
+    if (pseudo_id >= kFirstValid && pseudo_id <= kLastValid) {
+      Set(pseudo_id);
+    }
+  }
+
+  bool Has(PseudoId pseudo_id) const {
+    DCHECK_LT(Bit(pseudo_id), 32u);
+    return bits_ & (uint32_t{1} << Bit(pseudo_id));
+  }
+
+  bool HasAny() const { return bits_; }
+
+  uint32_t Bits() const { return bits_; }
+
+ private:
+  explicit PseudoIdFlags(uint32_t bits) : bits_(bits) {}
+
+  static constexpr uint32_t Bit(PseudoId pseudo_id) {
+    return pseudo_id - kFirstValid;
+  }
+
+  static_assert((kLastValid - kFirstValid) < 32);
+  uint32_t bits_ = 0;
 };
 
 inline bool IsHighlightPseudoElement(PseudoId pseudo_id) {
   switch (pseudo_id) {
     case kPseudoIdSelection:
+    case kPseudoIdSearchText:
     case kPseudoIdTargetText:
     case kPseudoIdHighlight:
     case kPseudoIdSpellingError:
@@ -109,21 +200,11 @@ inline bool IsHighlightPseudoElement(PseudoId pseudo_id) {
   }
 }
 
-inline bool UsesHighlightPseudoInheritance(PseudoId pseudo_id) {
-  // ::highlight() pseudos, ::spelling-error, and ::grammar-error use highlight
-  // inheritance rather than originating inheritance, regardless of whether the
-  // highlight inheritance feature is enabled.
-  return ((IsHighlightPseudoElement(pseudo_id) &&
-           RuntimeEnabledFeatures::HighlightInheritanceEnabled()) ||
-          pseudo_id == PseudoId::kPseudoIdHighlight ||
-          pseudo_id == PseudoId::kPseudoIdSpellingError ||
-          pseudo_id == PseudoId::kPseudoIdGrammarError);
-}
-
 inline bool IsTransitionPseudoElement(PseudoId pseudo_id) {
   switch (pseudo_id) {
     case kPseudoIdViewTransition:
     case kPseudoIdViewTransitionGroup:
+    case kPseudoIdViewTransitionGroupChildren:
     case kPseudoIdViewTransitionImagePair:
     case kPseudoIdViewTransitionOld:
     case kPseudoIdViewTransitionNew:
@@ -137,6 +218,7 @@ inline bool PseudoElementHasArguments(PseudoId pseudo_id) {
   switch (pseudo_id) {
     case kPseudoIdHighlight:
     case kPseudoIdViewTransitionGroup:
+    case kPseudoIdViewTransitionGroupChildren:
     case kPseudoIdViewTransitionImagePair:
     case kPseudoIdViewTransitionNew:
     case kPseudoIdViewTransitionOld:
@@ -165,16 +247,63 @@ enum class EVerticalAlign : unsigned {
 
 enum class EFillAttachment : unsigned { kScroll, kLocal, kFixed };
 
-enum class EFillBox : unsigned { kBorder, kPadding, kContent, kText };
+// `EFillBox` is used for {-webkit-}background-clip, {-webkit-}mask-clip, and
+// {-webkit-}mask-origin. Not all properties support all of these values.
+//
+// Background-clip (https://drafts.csswg.org/css-backgrounds/#background-clip)
+// supports <visual-box> (border-box, padding-box, content-box), as well as the
+// non-standard `text` value.
+//
+// Mask-clip (https://drafts.fxtf.org/css-masking/#the-mask-clip) supports
+// <coord-box> (border-box, padding-box, content-box, fill-box, stroke-box,
+// view-box), `no-clip`, as well as the non-standard `text` value.
+//
+// Mask-origin (https://drafts.fxtf.org/css-masking/#the-mask-origin) supports
+// <coord-box> (border-box, padding-box, content-box, fill-box, stroke-box,
+// view-box).
+enum class EFillBox : unsigned {
+  kBorder,
+  kPadding,
+  kContent,
+  kText,
+  kBorderArea,
+  kBorderAreaText,  // [ border-area text ] combined
+  kFillBox,
+  kStrokeBox,
+  kViewBox,
+  kNoClip
+};
+
+// Returns true for clip values that don't correspond to a standard geometry
+// box and need special handling (e.g. can't produce an opaque rect).
+inline bool IsSpecialClipFillBox(EFillBox box) {
+  return box == EFillBox::kText || box == EFillBox::kBorderArea ||
+         box == EFillBox::kBorderAreaText;
+}
 
 inline EFillBox EnclosingFillBox(EFillBox box_a, EFillBox box_b) {
-  // background-clip:text is clipped to the border box.
+  if (box_a == EFillBox::kNoClip || box_b == EFillBox::kNoClip) {
+    return EFillBox::kNoClip;
+  }
+  if (box_a == EFillBox::kViewBox || box_b == EFillBox::kViewBox) {
+    return EFillBox::kViewBox;
+  }
+  if (box_a == EFillBox::kStrokeBox || box_b == EFillBox::kStrokeBox) {
+    return EFillBox::kStrokeBox;
+  }
+  // background-clip:text and background-clip:border-area are clipped to the
+  // border box.
   if (box_a == EFillBox::kBorder || box_a == EFillBox::kText ||
-      box_b == EFillBox::kBorder || box_b == EFillBox::kText) {
+      box_a == EFillBox::kBorderArea || box_a == EFillBox::kBorderAreaText ||
+      box_b == EFillBox::kBorder || box_b == EFillBox::kText ||
+      box_b == EFillBox::kBorderArea || box_b == EFillBox::kBorderAreaText) {
     return EFillBox::kBorder;
   }
   if (box_a == EFillBox::kPadding || box_b == EFillBox::kPadding) {
     return EFillBox::kPadding;
+  }
+  if (box_a == EFillBox::kFillBox || box_b == EFillBox::kFillBox) {
+    return EFillBox::kFillBox;
   }
   DCHECK_EQ(box_a, EFillBox::kContent);
   DCHECK_EQ(box_b, EFillBox::kContent);
@@ -187,6 +316,8 @@ enum class EFillRepeat : unsigned {
   kRoundFill,
   kSpaceFill
 };
+
+enum class EFillMaskMode : unsigned { kAlpha, kLuminance, kMatchSource };
 
 enum class EFillLayerType : unsigned { kBackground, kMask };
 
@@ -250,18 +381,36 @@ inline Containment& operator|=(Containment& a, Containment b) {
   return a = a | b;
 }
 
-static const size_t kContainerTypeBits = 3;
+static const size_t kContainerTypeBits = 4;
 enum EContainerType {
   kContainerTypeNormal = 0x0,
   kContainerTypeInlineSize = 0x1,
   kContainerTypeBlockSize = 0x2,
-  kContainerTypeSticky = 0x4,
+  kContainerTypeScrollState = 0x4,
+  kContainerTypeAnchored = 0x8,
   kContainerTypeSize = kContainerTypeInlineSize | kContainerTypeBlockSize,
 };
 inline EContainerType operator|(EContainerType a, EContainerType b) {
   return EContainerType(int(a) | int(b));
 }
 inline EContainerType& operator|=(EContainerType& a, EContainerType b) {
+  return a = a | b;
+}
+
+typedef unsigned MarginTrimMask;
+enum EMarginTrim {
+  kMarginTrimNone = 0x0,
+  kMarginTrimBlockStart = 0x1,
+  kMarginTrimInlineStart = 0x2,
+  kMarginTrimBlockEnd = 0x4,
+  kMarginTrimInlineEnd = 0x8,
+  kMarginTrimBlock = kMarginTrimBlockStart | kMarginTrimBlockEnd,
+  kMarginTrimInline = kMarginTrimInlineStart | kMarginTrimInlineEnd,
+};
+inline EMarginTrim operator|(EMarginTrim a, EMarginTrim b) {
+  return EMarginTrim(int(a) | int(b));
+}
+inline EMarginTrim& operator|=(EMarginTrim& a, EMarginTrim b) {
   return a = a | b;
 }
 
@@ -289,6 +438,7 @@ enum class ItemPosition : unsigned {
   kStretch,
   kBaseline,
   kLastBaseline,
+  kAnchorCenter,
   kCenter,
   kStart,
   kEnd,
@@ -325,9 +475,11 @@ enum class ContentDistributionType : unsigned {
   kStretch
 };
 
-// Reasonable maximum to prevent insane font sizes from causing crashes on some
+// LINT.IfChange(kMaximumAllowedFontSize)
+// A maximum to prevent unreasonable font sizes from causing crashes on some
 // platforms (such as Windows).
 static const float kMaximumAllowedFontSize = 10000.0f;
+// LINT.ThenChange(//content/app_shim_remote_cocoa/web_menu_runner_mac.mm:fontSize)
 
 enum class CSSBoxType : unsigned {
   kMissing,
@@ -342,6 +494,7 @@ enum class TextEmphasisPosition : unsigned {
   kOverLeft,
   kUnderRight,
   kUnderLeft,
+  kAuto,
 };
 
 inline bool IsOver(TextEmphasisPosition position) {
@@ -362,6 +515,13 @@ enum class LineLogicalSide {
   kOver,
   kUnder,
 };
+inline bool operator==(LineLogicalSide line_logical_side,
+                       RubyPosition ruby_position) {
+  return (line_logical_side == LineLogicalSide::kOver &&
+          ruby_position == RubyPosition::kOver) ||
+         (line_logical_side == LineLogicalSide::kUnder &&
+          ruby_position == RubyPosition::kUnder);
+}
 
 constexpr size_t kScrollbarGutterBits = 2;
 enum ScrollbarGutter {
@@ -378,7 +538,7 @@ inline ScrollbarGutter& operator|=(ScrollbarGutter& a, ScrollbarGutter b) {
 
 enum class EBaselineShiftType : unsigned { kLength, kSub, kSuper };
 
-enum EPaintOrderType {
+enum EPaintOrderType : uint8_t {
   PT_NONE = 0,
   PT_FILL = 1,
   PT_STROKE = 2,
@@ -414,6 +574,76 @@ enum class CoordBox {
   kStrokeBox,
   kViewBox
 };
+
+// https://drafts.fxtf.org/css-masking/#typedef-geometry-box
+enum class GeometryBox {
+  // <box> = border-box | padding-box | content-box
+  kBorderBox,
+  kPaddingBox,
+  kContentBox,
+  // <shape-box> = <box> | margin-box
+  kMarginBox,
+  // <geometry-box> = <shape-box> | fill-box | stroke-box | view-box
+  kFillBox,
+  kStrokeBox,
+  kViewBox,
+  // Additional value for border-shape: a box halfway between border and padding
+  kHalfBorderBox
+};
+
+// https://drafts.fxtf.org/css-masking/#typedef-compositing-operator
+enum class CompositingOperator : unsigned {
+  // <compositing-operator> = add | subtract | intersect | exclude
+  kAdd,
+  kSubtract,
+  kIntersect,
+  kExclude,
+
+  // The following are non-standard values used by -webkit-mask-composite.
+  kClear,
+  kCopy,
+  kSourceOver,
+  kSourceIn,
+  kSourceOut,
+  kSourceAtop,
+  kDestinationOver,
+  kDestinationIn,
+  kDestinationOut,
+  kDestinationAtop,
+  kXOR,
+  kPlusLighter
+};
+
+// https://drafts.csswg.org/css-anchor-position-1/#typedef-position-try-fallbacks-try-tactic
+enum class TryTactic : uint8_t {
+  kNone,
+  kFlipBlock,
+  kFlipInline,
+  kFlipStart,
+  kFlipX,
+  kFlipY,
+};
+
+typedef V8AnimationTriggerBehavior::Enum EAnimationTriggerBehavior;
+
+// TODO(crbug.com/332933527): Support anchors-valid.
+static const size_t kPositionVisibilityBits = 2;
+enum class PositionVisibility : uint8_t {
+  kAlways = 0x0,
+  kAnchorsVisible = 0x1,
+  kNoOverflow = 0x2,
+};
+inline PositionVisibility operator|(PositionVisibility a,
+                                    PositionVisibility b) {
+  return PositionVisibility(int(a) | int(b));
+}
+inline PositionVisibility& operator|=(PositionVisibility& a,
+                                      PositionVisibility b) {
+  return a = a | b;
+}
+
+
+enum class FlexWrapMode : uint8_t { kNowrap, kWrap, kWrapReverse };
 
 }  // namespace blink
 

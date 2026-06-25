@@ -13,10 +13,15 @@
 
 #include <math.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
-#include "modules/audio_coding/acm2/acm_receiver.h"
+#include "api/environment/environment.h"
+#include "api/neteq/neteq.h"
+#include "modules/audio_coding/acm2/acm_resampler.h"
 #include "modules/audio_coding/include/audio_coding_module.h"
+#include "modules/audio_coding/include/audio_coding_module_typedefs.h"
 #include "modules/audio_coding/test/PCMFile.h"
 
 #define PCMA_AND_PCMU
@@ -28,9 +33,9 @@ enum StereoMonoMode { kNotSet, kMono, kStereo };
 class TestPackStereo : public AudioPacketizationCallback {
  public:
   TestPackStereo();
-  ~TestPackStereo();
+  ~TestPackStereo() override;
 
-  void RegisterReceiverACM(acm2::AcmReceiver* acm_receiver);
+  void RegisterReceiverNetEq(NetEq* neteq);
 
   int32_t SendData(AudioFrameType frame_type,
                    uint8_t payload_type,
@@ -46,7 +51,7 @@ class TestPackStereo : public AudioPacketizationCallback {
   void set_lost_packet(bool lost);
 
  private:
-  acm2::AcmReceiver* receiver_acm_;
+  NetEq* neteq_;
   int16_t seq_no_;
   uint32_t timestamp_diff_;
   uint32_t last_in_timestamp_;
@@ -81,8 +86,10 @@ class TestStereo {
            int percent_loss = 0);
   void OpenOutFile(int16_t test_number);
 
+  const Environment env_;
   std::unique_ptr<AudioCodingModule> acm_a_;
-  std::unique_ptr<acm2::AcmReceiver> acm_b_;
+  std::unique_ptr<NetEq> neteq_;
+  acm2::ResamplerHelper resampler_helper_;
 
   TestPackStereo* channel_a2b_;
 

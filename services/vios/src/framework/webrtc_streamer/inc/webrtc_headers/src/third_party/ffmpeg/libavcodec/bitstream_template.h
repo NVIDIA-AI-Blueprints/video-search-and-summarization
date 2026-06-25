@@ -157,6 +157,14 @@ static inline int BS_FUNC(size)(const BSCTX *bc)
 }
 
 /**
+ * Return buffer size in bytes.
+ */
+static inline int BS_FUNC(bytesize)(const BSCTX *bc, int round_up)
+{
+    return (bc->size_in_bits + (round_up ? 7 : 0)) >> 3;
+}
+
+/**
  * Return the number of the bits left in a buffer.
  */
 static inline int BS_FUNC(left)(const BSCTX *bc)
@@ -491,7 +499,7 @@ static inline int BS_FUNC(priv_set_idx)(BSCTX *bc, int code, int *n,
 /**
  * Parse a vlc code.
  * @param bits is the number of bits which will be read at once, must be
- *             identical to nb_bits in init_vlc()
+ *             identical to nb_bits in vlc_init()
  * @param max_depth is the number of times bits bits must be read to completely
  *                  read the longest vlc code
  *                  = (max_vlc_length + bits - 1) / bits
@@ -518,6 +526,52 @@ static inline int BS_FUNC(read_vlc)(BSCTX *bc, const VLCElem *table,
     BS_FUNC(priv_skip_remaining)(bc, n);
 
     return code;
+}
+
+/**
+ * Parse a vlc / vlc_multi code.
+ * @param bits is the number of bits which will be read at once, must be
+ *             identical to nb_bits in vlc_init()
+ * @param max_depth is the number of times bits bits must be read to completely
+ *                  read the longest vlc code
+ *                  = (max_vlc_length + bits - 1) / bits
+ * @param dst the parsed symbol(s) will be stored here. Up to 8 bytes are written
+ * @returns number of symbols parsed
+ * If the vlc code is invalid and max_depth=1, then no bits will be removed.
+ * If the vlc code is invalid and max_depth>1, then the number of bits removed
+ * is undefined.
+ */
+static inline int BS_FUNC(read_vlc_multi)(BSCTX *bc, uint8_t dst[8],
+                                          const VLC_MULTI_ELEM *const Jtable,
+                                          const VLCElem *const table,
+                                          const int bits, const int max_depth,
+                                          const int symbols_size)
+{
+    unsigned idx = BS_FUNC(peek)(bc, bits);
+    int ret, nb_bits, code, n = Jtable[idx].len;
+    if (Jtable[idx].num) {
+        AV_COPY64U(dst, Jtable[idx].val8);
+        ret = Jtable[idx].num;
+    } else {
+        code = table[idx].sym;
+        n = table[idx].len;
+        if (max_depth > 1 && n < 0) {
+            BS_FUNC(priv_skip_remaining)(bc, bits);
+            code = BS_FUNC(priv_set_idx)(bc, code, &n, &nb_bits, table);
+            if (max_depth > 2 && n < 0) {
+                BS_FUNC(priv_skip_remaining)(bc, nb_bits);
+                code = BS_FUNC(priv_set_idx)(bc, code, &n, &nb_bits, table);
+            }
+        }
+        if (symbols_size == 1)
+            *dst = code;
+        else
+            AV_WN16(dst, code);
+        ret = n > 0;
+    }
+    BS_FUNC(priv_skip_remaining)(bc, n);
+
+    return ret;
 }
 
 #undef BSCTX

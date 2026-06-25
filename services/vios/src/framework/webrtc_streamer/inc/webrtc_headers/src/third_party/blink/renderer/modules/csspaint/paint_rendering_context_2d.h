@@ -5,19 +5,18 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CSSPAINT_PAINT_RENDERING_CONTEXT_2D_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CSSPAINT_PAINT_RENDERING_CONTEXT_2D_H_
 
-#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_paint_rendering_context_2d_settings.h"
-#include "third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h"
+#include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h"
 #include "third_party/blink/renderer/modules/csspaint/paint_worklet_global_scope.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/graphics/memory_managed_paint_recorder.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record.h"
-#include "third_party/blink/renderer/platform/graphics/paint/paint_recorder.h"
 
 namespace blink {
 
-class CanvasImageSource;
 class Color;
+class MemoryManagedPaintCanvas;
 
 // In our internal implementation, there are different kinds of canvas such as
 // recording canvas, GPU canvas. The CSS Paint API uses the recording canvas and
@@ -25,8 +24,10 @@ class Color;
 //
 // The main difference between this class and other contexts is that
 // PaintRenderingContext2D operates on CSS pixels rather than physical pixels.
-class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
-                                               public BaseRenderingContext2D {
+class MODULES_EXPORT PaintRenderingContext2D
+    : public ScriptWrappable,
+      public Canvas2DRecorderContext,
+      public MemoryManagedPaintRecorder::Client {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -34,8 +35,6 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
       const gfx::Size& container_size,
       const PaintRenderingContext2DSettings*,
       float zoom,
-      float device_scale_factor,
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       PaintWorkletGlobalScope* global_scope = nullptr);
 
   PaintRenderingContext2D(const PaintRenderingContext2D&) = delete;
@@ -45,55 +44,48 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
     visitor->Trace(context_settings_);
     visitor->Trace(global_scope_);
     ScriptWrappable::Trace(visitor);
-    BaseRenderingContext2D::Trace(visitor);
+    Canvas2DRecorderContext::Trace(visitor);
   }
 
   // PaintRenderingContext2D doesn't have any pixel readback so the origin
   // is always clean, and unable to taint it.
   bool OriginClean() const final { return true; }
   void SetOriginTainted() final {}
-  bool WouldTaintOrigin(CanvasImageSource*) final { return false; }
 
   int Width() const final;
   int Height() const final;
 
   Color GetCurrentColor() const final;
 
-  cc::PaintCanvas* GetOrCreatePaintCanvas() final { return GetPaintCanvas(); }
-  cc::PaintCanvas* GetPaintCanvas() final;
-  void WillDraw(const SkIRect&, CanvasPerformanceMonitor::DrawType) final;
+  MemoryManagedPaintCanvas* GetOrCreatePaintCanvas() final {
+    return GetPaintCanvas();
+  }
+  using Canvas2DRecorderContext::GetPaintCanvas;  // Pull the non-const
+                                                  // overload.
+  const MemoryManagedPaintCanvas* GetPaintCanvas() const final;
+  const MemoryManagedPaintRecorder* Recorder() const override {
+    return &paint_recorder_;
+  }
 
-  double shadowOffsetX() const final;
-  void setShadowOffsetX(double) final;
-
-  double shadowOffsetY() const final;
-  void setShadowOffsetY(double) final;
-
-  double shadowBlur() const final;
-  void setShadowBlur(double) final;
+  void WillDraw(const gfx::Rect&, CanvasPerformanceMonitor::DrawType) final;
 
   sk_sp<PaintFilter> StateGetFilter() final;
-  void SnapshotStateForFilter() final {}
 
   bool HasAlpha() const final { return context_settings_->alpha(); }
 
   // PaintRenderingContext2D cannot lose it's context.
   bool isContextLost() const final { return false; }
 
-  // PaintRenderingContext2D uses a recording canvas, so it should never
-  // allocate a pixel buffer and is not accelerated.
-  bool CanCreateCanvas2dResourceProvider() const final { return false; }
-  bool IsAccelerated() const final { return false; }
-
   // CSS Paint doesn't have any notion of image orientation.
   RespectImageOrientationEnum RespectImageOrientation() const final {
     return kRespectImageOrientation;
   }
 
-  DOMMatrix* getTransform() final;
-  void resetTransform() final;
+  void reset() final;
 
-  void FlushCanvas(CanvasResourceProvider::FlushReason) final {}
+  std::optional<cc::PaintRecord> FlushCanvas(FlushReason) final {
+    return std::nullopt;
+  }
 
   PaintRecord GetRecord();
 
@@ -104,21 +96,15 @@ class MODULES_EXPORT PaintRenderingContext2D : public ScriptWrappable,
  protected:
   PredefinedColorSpace GetDefaultImageDataColorSpace() const final;
   bool IsPaint2D() const override { return true; }
-  void WillOverwriteCanvas() override;
 
  private:
-  void InitializePaintRecorder();
+  void InitializeForRecording(cc::PaintCanvas* canvas) const override;
+  void RecordingCleared() override;
 
-  cc::InspectablePaintRecorder paint_recorder_;
-  absl::optional<PaintRecord> previous_frame_;
+  MemoryManagedPaintRecorder paint_recorder_;
+  std::optional<PaintRecord> previous_frame_;
   gfx::Size container_size_;
   Member<const PaintRenderingContext2DSettings> context_settings_;
-  bool did_record_draw_commands_in_paint_recorder_;
-  // The paint worklet canvas operates on CSS pixels, and that's different than
-  // the HTML canvas which operates on physical pixels. In other words, the
-  // paint worklet canvas needs to handle device scale factor and browser zoom,
-  // and this is designed for that purpose.
-  const float effective_zoom_;
   WeakMember<PaintWorkletGlobalScope> global_scope_;
 };
 

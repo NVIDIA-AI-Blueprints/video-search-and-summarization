@@ -37,8 +37,10 @@
 #include <cstdint>
 #include <istream>
 #include <limits>
+#include <ostream>
 #include <type_traits>
 
+#include "absl/base/config.h"
 #include "absl/meta/type_traits.h"
 #include "absl/random/internal/fast_uniform_bits.h"
 #include "absl/random/internal/generate_real.h"
@@ -157,7 +159,7 @@ uniform_real_distribution<RealType>::operator()(
   using random_internal::GeneratePositiveTag;
   using random_internal::GenerateRealFromBits;
   using real_type =
-      absl::conditional_t<std::is_same<RealType, float>::value, float, double>;
+      std::conditional_t<std::is_same<RealType, float>::value, float, double>;
 
   while (true) {
     const result_type sample =

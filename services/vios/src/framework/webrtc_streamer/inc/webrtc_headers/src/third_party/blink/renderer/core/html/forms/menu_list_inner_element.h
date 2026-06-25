@@ -13,8 +13,11 @@ class MenuListInnerElement : public HTMLDivElement {
  public:
   explicit MenuListInnerElement(Document& document);
 
+  static void UpdateOverflowStyle(ComputedStyleBuilder& builder,
+                                  const ComputedStyle& select_style);
+
  private:
-  scoped_refptr<const ComputedStyle> CustomStyleForLayoutObject(
+  const ComputedStyle* CustomStyleForLayoutObject(
       const StyleRecalcContext&) override;
 };
 

@@ -11,9 +11,8 @@
 #ifndef AUDIO_UTILITY_CHANNEL_MIXER_H_
 #define AUDIO_UTILITY_CHANNEL_MIXER_H_
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -35,6 +34,10 @@ class ChannelMixer {
   // (1 / sqrt(2)) gain to each.
   static constexpr float kHalfPower = 0.707106781186547524401f;
 
+  ChannelMixer(ChannelLayout input_layout,
+               size_t input_channels,
+               ChannelLayout output_layout,
+               size_t output_channels);
   ChannelMixer(ChannelLayout input_layout, ChannelLayout output_layout);
   ~ChannelMixer();
 

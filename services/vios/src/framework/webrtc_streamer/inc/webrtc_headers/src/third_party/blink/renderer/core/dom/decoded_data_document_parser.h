@@ -40,7 +40,7 @@ class CORE_EXPORT DecodedDataDocumentParser : public DocumentParser {
   virtual bool WellFormed() const { return true; }
 
   // The below functions are used by DocumentWriter (the loader).
-  void AppendBytes(const char* bytes, size_t length) override;
+  void AppendBytes(base::span<const uint8_t> bytes) override;
   virtual void Flush();
   bool NeedsDecoder() const final { return needs_decoder_; }
   void SetDecoder(std::unique_ptr<TextResourceDecoder>) override;
@@ -52,9 +52,11 @@ class CORE_EXPORT DecodedDataDocumentParser : public DocumentParser {
   ~DecodedDataDocumentParser() override;
 
  private:
+  void MaybeEmitMetaCharsetTraceEvent();
   void UpdateDocument(const String& decoded_data);
 
   bool needs_decoder_;
+  bool meta_charset_trace_event_emitted_ = false;
   std::unique_ptr<TextResourceDecoder> decoder_;
 };
 

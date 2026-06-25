@@ -17,24 +17,31 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_ANDROID_PROBES_MODULE_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_ANDROID_PROBES_MODULE_H_
 
-#include "perfetto/base/build_config.h"
+#include <cstdint>
+
+#include "perfetto/protozero/field.h"
+#include "perfetto/trace_processor/ref_counted.h"
+#include "src/trace_processor/importers/common/parser_types.h"
 #include "src/trace_processor/importers/proto/android_probes_parser.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
 #include "src/trace_processor/importers/proto/proto_importer_module.h"
 
 #include "protos/perfetto/config/trace_config.pbzero.h"
 #include "protos/perfetto/trace/trace_packet.pbzero.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
+
+class AndroidProbesTracker;
 
 class AndroidProbesModule : public ProtoImporterModule {
  public:
-  explicit AndroidProbesModule(TraceProcessorContext* context);
+  explicit AndroidProbesModule(ProtoImporterModuleContext* module_context,
+                               TraceProcessorContext* context);
 
   ModuleResult TokenizePacket(const protos::pbzero::TracePacket_Decoder&,
                               TraceBlobView* packet,
                               int64_t packet_timestamp,
-                              PacketSequenceState*,
+                              RefPtr<PacketSequenceStateGeneration>,
                               uint32_t field_id) override;
 
   void ParseTracePacketData(const protos::pbzero::TracePacket_Decoder& decoder,
@@ -46,17 +53,15 @@ class AndroidProbesModule : public ProtoImporterModule {
 
   ModuleResult ParseEnergyDescriptor(protozero::ConstBytes blob);
   ModuleResult ParseAndroidPackagesList(protozero::ConstBytes blob);
+  ModuleResult ParseAndroidUserList(protozero::ConstBytes blob);
   void ParseEntityStateDescriptor(protozero::ConstBytes blob);
 
  private:
+  std::unique_ptr<AndroidProbesTracker> tracker_;
   AndroidProbesParser parser_;
   TraceProcessorContext* context_ = nullptr;
-
-  const StringId power_rail_raw_name_id_;
-  const StringId power_rail_subsys_name_arg_id_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_ANDROID_PROBES_MODULE_H_

@@ -17,6 +17,10 @@
 #ifndef INCLUDE_PERFETTO_EXT_BASE_WAITABLE_EVENT_H_
 #define INCLUDE_PERFETTO_EXT_BASE_WAITABLE_EVENT_H_
 
+#include "perfetto/base/thread_annotations.h"
+
+#include <stdint.h>
+
 #include <condition_variable>
 #include <mutex>
 
@@ -32,16 +36,16 @@ class WaitableEvent {
   WaitableEvent(const WaitableEvent&) = delete;
   WaitableEvent operator=(const WaitableEvent&) = delete;
 
-  // Synchronously block until the event is notified.
-  void Wait();
+  // Synchronously block until the event is notified `notification` times.
+  void Wait(uint64_t notifications = 1);
 
   // Signal the event, waking up blocked waiters.
   void Notify();
 
  private:
   std::mutex mutex_;
-  std::condition_variable event_;
-  bool notified_ = false;
+  std::condition_variable event_ PERFETTO_GUARDED_BY(mutex_);
+  uint64_t notifications_ PERFETTO_GUARDED_BY(mutex_) = 0;
 };
 
 }  // namespace base

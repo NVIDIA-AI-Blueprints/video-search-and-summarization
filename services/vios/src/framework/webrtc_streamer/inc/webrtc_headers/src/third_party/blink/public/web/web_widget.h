@@ -77,6 +77,10 @@ class WebWidget {
   // compositor.
   virtual void SetCompositorVisible(bool visible) = 0;
 
+  // Asks the compositor to request warming up and request a new frame sink
+  // speculatively even if invisible.
+  virtual void WarmUpCompositor() = 0;
+
   // Returns the current size of the WebWidget.
   virtual gfx::Size Size() { return gfx::Size(); }
 
@@ -140,6 +144,10 @@ class WebWidget {
   virtual void ProcessInputEventSynchronouslyForTesting(
       const WebCoalescedInputEvent&) = 0;
 
+  // Dispatches the input event asynchronously, without blocking.
+  virtual void DispatchNonBlockingEventForTesting(
+      std::unique_ptr<WebCoalescedInputEvent> event) = 0;
+
   virtual void DidOverscrollForTesting(
       const gfx::Vector2dF& overscroll_delta,
       const gfx::Vector2dF& accumulated_overscroll,
@@ -154,7 +162,7 @@ class WebWidget {
   virtual void FlushInputProcessedCallback() = 0;
 
   // Cancel the current composition.
-  virtual void CancelCompositionForPepper() = 0;
+  virtual void CancelComposition() = 0;
 
   // Requests the selection bounds be updated.
   virtual void UpdateSelectionBounds() = 0;
@@ -193,8 +201,8 @@ class WebWidget {
   virtual void SetScreenRects(const gfx::Rect& widget_screen_rect,
                               const gfx::Rect& window_screen_rect) = 0;
 
-  // Returns the visible viewport size (in screen coorindates).
-  virtual gfx::Size VisibleViewportSizeInDIPs() = 0;
+  // Returns the visible viewport size (in device pixel screen coordinates).
+  virtual gfx::Size VisibleViewportSize() = 0;
 
   // Returns the emulator scale.
   virtual float GetEmulatorScale() { return 1.0f; }

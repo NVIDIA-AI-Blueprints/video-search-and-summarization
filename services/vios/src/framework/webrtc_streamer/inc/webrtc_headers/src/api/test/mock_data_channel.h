@@ -11,18 +11,24 @@
 #ifndef API_TEST_MOCK_DATA_CHANNEL_H_
 #define API_TEST_MOCK_DATA_CHANNEL_H_
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
+#include "absl/functional/any_invocable.h"
 #include "api/data_channel_interface.h"
+#include "api/priority.h"
+#include "api/rtc_error.h"
+#include "api/scoped_refptr.h"
+#include "rtc_base/ref_counted_object.h"
 #include "test/gmock.h"
 
 namespace webrtc {
 
-class MockDataChannelInterface
-    : public rtc::RefCountedObject<webrtc::DataChannelInterface> {
+class MockDataChannelInterface : public RefCountedObject<DataChannelInterface> {
  public:
-  static rtc::scoped_refptr<MockDataChannelInterface> Create() {
-    return rtc::scoped_refptr<MockDataChannelInterface>(
+  static scoped_refptr<MockDataChannelInterface> Create() {
+    return scoped_refptr<MockDataChannelInterface>(
         new MockDataChannelInterface());
   }
 
@@ -34,14 +40,12 @@ class MockDataChannelInterface
   MOCK_METHOD(std::string, label, (), (const, override));
   MOCK_METHOD(bool, reliable, (), (const, override));
   MOCK_METHOD(bool, ordered, (), (const, override));
-  MOCK_METHOD(uint16_t, maxRetransmitTime, (), (const, override));
-  MOCK_METHOD(uint16_t, maxRetransmits, (), (const, override));
-  MOCK_METHOD(absl::optional<int>, maxRetransmitsOpt, (), (const, override));
-  MOCK_METHOD(absl::optional<int>, maxPacketLifeTime, (), (const, override));
+  MOCK_METHOD(std::optional<int>, maxRetransmitsOpt, (), (const, override));
+  MOCK_METHOD(std::optional<int>, maxPacketLifeTime, (), (const, override));
   MOCK_METHOD(std::string, protocol, (), (const, override));
   MOCK_METHOD(bool, negotiated, (), (const, override));
   MOCK_METHOD(int, id, (), (const, override));
-  MOCK_METHOD(Priority, priority, (), (const, override));
+  MOCK_METHOD(PriorityValue, priority, (), (const, override));
   MOCK_METHOD(DataState, state, (), (const, override));
   MOCK_METHOD(RTCError, error, (), (const, override));
   MOCK_METHOD(uint32_t, messages_sent, (), (const, override));

@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2020 The WebRTC project authors. All Rights Reserved.
+ *  Copyright (c) 2024 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -11,7 +11,8 @@
 #ifndef MODULES_RTP_RTCP_SOURCE_VIDEO_RTP_DEPACKETIZER_H265_H_
 #define MODULES_RTP_RTCP_SOURCE_VIDEO_RTP_DEPACKETIZER_H265_H_
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "modules/rtp_rtcp/source/video_rtp_depacketizer.h"
 #include "rtc_base/copy_on_write_buffer.h"
 
@@ -20,24 +21,7 @@ class VideoRtpDepacketizerH265 : public VideoRtpDepacketizer {
  public:
   ~VideoRtpDepacketizerH265() override = default;
 
-  absl::optional<ParsedRtpPayload> Parse(
-      rtc::CopyOnWriteBuffer rtp_payload) override;
-
-  absl::optional<VideoRtpDepacketizer::ParsedRtpPayload> ParseFuNalu(
-    rtc::CopyOnWriteBuffer rtp_payload);
-  absl::optional<VideoRtpDepacketizer::ParsedRtpPayload> ProcessApOrSingleNalu(
-    rtc::CopyOnWriteBuffer rtp_payload);
-
- private:
-
-  size_t offset_;
-  size_t length_;
-  std::unique_ptr<rtc::Buffer> modified_buffer_;
-  // Old for reference
-  /*bool Parse(ParsedPayload* parsed_payload,
-             const uint8_t* payload_data,
-             size_t payload_data_length) override;
-*/
+  std::optional<ParsedRtpPayload> Parse(CopyOnWriteBuffer rtp_payload) override;
 };
 }  // namespace webrtc
 

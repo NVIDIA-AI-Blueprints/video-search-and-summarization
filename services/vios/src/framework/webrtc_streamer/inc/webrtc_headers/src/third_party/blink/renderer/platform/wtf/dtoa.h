@@ -21,72 +21,52 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_DTOA_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_DTOA_H_
 
-#include "base/numerics/safe_conversions.h"
-#include "base/third_party/double_conversion/double-conversion/double-conversion.h"
-#include "third_party/blink/renderer/platform/wtf/text/ascii_ctype.h"
+#include <array>
+
+#include "base/compiler_specific.h"
+#include "base/containers/span.h"
+#include "base/memory/stack_allocated.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_uchar.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_export.h"
 
-namespace WTF {
+namespace blink {
 
-// Size = 80 for sizeof(DtoaBuffer) + some sign bits, decimal point, 'e',
-// exponent digits.
-const unsigned kNumberToStringBufferLength = 96;
-typedef char NumberToStringBuffer[kNumberToStringBufferLength];
+class WTF_EXPORT DoubleToStringConverter {
+  STACK_ALLOCATED();
 
-WTF_EXPORT const char* NumberToString(double, NumberToStringBuffer);
-WTF_EXPORT const char* NumberToFixedPrecisionString(
-    double,
-    unsigned significant_figures,
-    NumberToStringBuffer);
-WTF_EXPORT const char* NumberToFixedWidthString(double,
-                                                unsigned decimal_places,
-                                                NumberToStringBuffer);
+ public:
+  // Size = 80 for sizeof(DtoaBuffer) + some sign bits, decimal point, 'e',
+  // exponent digits.
+  constexpr static unsigned kBufferSize = 96;
 
-WTF_EXPORT double ParseDouble(const LChar* string,
-                              size_t length,
+  DoubleToStringConverter() = default;
+
+  // ToString*() functions serialize the specified `double` value into
+  // this instance.  The returned span points to a buffer in the instance.
+
+  base::span<const LChar> ToString(double) LIFETIME_BOUND;
+  base::span<const LChar> ToStringWithFixedPrecision(
+      double,
+      unsigned significant_figures) LIFETIME_BOUND;
+  base::span<const LChar> ToStringWithFixedWidth(double,
+                                                 unsigned decimal_places)
+      LIFETIME_BOUND;
+
+ private:
+  std::array<char, kBufferSize> buffer_;
+};
+
+WTF_EXPORT double ParseDouble(base::span<const LChar> string,
                               size_t& parsed_length);
-WTF_EXPORT double ParseDouble(const UChar* string,
-                              size_t length,
+WTF_EXPORT double ParseDouble(base::span<const UChar> string,
                               size_t& parsed_length);
 
 namespace internal {
-double ParseDoubleFromLongString(const UChar* string,
-                                 size_t length,
-                                 size_t& parsed_length);
-const double_conversion::StringToDoubleConverter& GetDoubleConverter();
+
+void InitializeDoubleConverter();
+
 }  // namespace internal
 
-inline double ParseDouble(const LChar* string,
-                          size_t length,
-                          size_t& parsed_length) {
-  int int_parsed_length = 0;
-  double d = internal::GetDoubleConverter().StringToDouble(
-      reinterpret_cast<const char*>(string), base::saturated_cast<int>(length),
-      &int_parsed_length);
-  parsed_length = int_parsed_length;
-  return d;
-}
-
-inline double ParseDouble(const UChar* string,
-                          size_t length,
-                          size_t& parsed_length) {
-  const size_t kConversionBufferSize = 64;
-  if (length > kConversionBufferSize)
-    return internal::ParseDoubleFromLongString(string, length, parsed_length);
-  LChar conversion_buffer[kConversionBufferSize];
-  for (size_t i = 0; i < length; ++i)
-    conversion_buffer[i] =
-        IsASCII(string[i]) ? static_cast<LChar>(string[i]) : 0;
-  return ParseDouble(conversion_buffer, length, parsed_length);
-}
-
-}  // namespace WTF
-
-using WTF::NumberToFixedPrecisionString;
-using WTF::NumberToFixedWidthString;
-using WTF::NumberToString;
-using WTF::NumberToStringBuffer;
-using WTF::ParseDouble;
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_DTOA_H_

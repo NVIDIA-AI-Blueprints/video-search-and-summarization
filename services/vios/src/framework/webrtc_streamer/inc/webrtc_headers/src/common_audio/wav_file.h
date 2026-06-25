@@ -11,11 +11,10 @@
 #ifndef COMMON_AUDIO_WAV_FILE_H_
 #define COMMON_AUDIO_WAV_FILE_H_
 
-#include <stdint.h>
-
 #include <cstddef>
-#include <string>
+#include <cstdint>
 
+#include "absl/strings/string_view.h"
 #include "common_audio/wav_header.h"
 #include "rtc_base/system/file_wrapper.h"
 
@@ -49,7 +48,7 @@ class WavWriter final : public WavFile {
             SampleFormat sample_format = SampleFormat::kInt16);
 
   // Closes the WAV file, after writing its header.
-  ~WavWriter() { Close(); }
+  ~WavWriter() override { Close(); }
 
   WavWriter(const WavWriter&) = delete;
   WavWriter& operator=(const WavWriter&) = delete;
@@ -81,7 +80,7 @@ class WavReader final : public WavFile {
   explicit WavReader(FileWrapper file);
 
   // Close the WAV file.
-  ~WavReader() { Close(); }
+  ~WavReader() override { Close(); }
 
   WavReader(const WavReader&) = delete;
   WavReader& operator=(const WavReader&) = delete;

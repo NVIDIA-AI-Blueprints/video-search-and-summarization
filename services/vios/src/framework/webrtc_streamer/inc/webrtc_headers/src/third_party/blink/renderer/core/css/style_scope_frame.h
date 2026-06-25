@@ -6,7 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_STYLE_SCOPE_FRAME_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/resolver/match_flags.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
@@ -45,7 +47,25 @@ struct CORE_EXPORT StyleScopeActivation {
   unsigned proximity = 0;
 };
 
-using StyleScopeActivations = HeapVector<StyleScopeActivation>;
+struct CORE_EXPORT StyleScopeActivations
+    : public GarbageCollected<StyleScopeActivations> {
+ public:
+  void Trace(blink::Visitor*) const;
+
+  HeapVector<StyleScopeActivation> vector;
+
+  // Even if `vector` is empty, `match_flags` can be set. For example:
+  //
+  //  @scope (p:hover) {
+  //    :scope { ... }
+  //  }
+  //
+  // When matching :scope against 'p', even if 'p' is not currently hovered,
+  // (and therefore won't produce a StyleScopeActivation in the vector),
+  // `match_flags` will contain kAffectedByHover. This allows us to propagate
+  // the flags when matching :scope, also when the selector does not match.
+  MatchFlags match_flags = 0;
+};
 
 // Stores the current @scope activations for a given subject element.
 //
@@ -71,18 +91,35 @@ class CORE_EXPORT StyleScopeFrame {
   StyleScopeFrame* GetParentFrameOrNull(Element& parent_element);
   StyleScopeFrame& GetParentFrameOrThis(Element& parent_element);
 
+  // A StyleScope has been "seen" if `element_` or any of the elements
+  // in element_'s ancestor chain is a scoping root.
+  //
+  // Note that a StyleScope being "seen" does not mean that it's currently
+  // "in scope" [1], because the scope may be limited [2]. However, if a
+  // StyleScope has *not* been seen, it's definitely not in scope.
+  //
+  // This function is only valid for implicit StyleScopes (IsImplicit()==true).
+  //
+  // [1] https://drafts.csswg.org/css-cascade-6/#in-scope
+  // [2] https://drafts.csswg.org/css-cascade-6/#scoping-limit
+  bool HasSeenImplicitScope(const StyleScope&);
+
  private:
   friend class SelectorChecker;
 
+  using ScopeSet = GCedHeapHashSet<Member<const StyleScope>>;
+
+  ScopeSet* CalculateSeenImplicitScopes();
+
   Element& element_;
-  StyleScopeFrame* parent_;
+  StyleScopeFrame* parent_ = nullptr;
   HeapHashMap<Member<const StyleScope>, Member<const StyleScopeActivations>>
       data_;
+  ScopeSet* seen_implicit_scopes_ = nullptr;
 };
 
 }  // namespace blink
 
 WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(blink::StyleScopeActivation)
-WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(blink::StyleScopeFrame)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CSS_STYLE_SCOPE_FRAME_H_

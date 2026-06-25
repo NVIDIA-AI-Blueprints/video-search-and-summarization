@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
 namespace blink {
 
@@ -59,27 +60,40 @@ class CORE_EXPORT CSSRule : public ScriptWrappable {
     kPageRule = 6,
     kKeyframesRule = 7,
     kKeyframeRule = 8,
+    kMarginRule = 9,
     kNamespaceRule = 10,
     kCounterStyleRule = 11,
     kSupportsRule = 12,
     kFontFeatureValuesRule = 14,
-    kViewportRule = 15,
     // CSSOM constants are deprecated [1], and there will be no new
     // web-exposed values.
     //
     // [1] https://wiki.csswg.org/spec/cssom-constants
 
     // Values for internal use, not web-exposed:
-    kPropertyRule = 16,
-    kContainerRule = 17,
-    kLayerBlockRule = 18,
-    kLayerStatementRule = 19,
-    kFontPaletteValuesRule = 20,
-    kScopeRule = 21,
-    kPositionFallbackRule = 22,
-    kTryRule = 23,
-    kFontFeatureRule = 24,
-    kStartingStyleRule = 25,
+    kFirstInternalRule = 16,
+    // go/keep-sorted start
+    kApplyMixinRule = kFirstInternalRule,
+    kContainerRule,
+    kContentsMixinRule,
+    kCustomMediaRule,
+    kFontFeatureRule,
+    kFontPaletteValuesRule,
+    kFunctionDeclarationsRule,
+    kFunctionRule,
+    kLayerBlockRule,
+    kLayerStatementRule,
+    kMixinRule,
+    kNavigationRule,
+    kNestedDeclarationsRule,
+    kPositionTryRule,
+    kPropertyRule,
+    kResultRule,
+    kRouteRule,
+    kScopeRule,
+    kStartingStyleRule,
+    kViewTransitionRule,
+    // go/keep-sorted end
   };
 
   virtual Type GetType() const = 0;
@@ -87,7 +101,7 @@ class CORE_EXPORT CSSRule : public ScriptWrappable {
   // https://drafts.csswg.org/cssom/#dom-cssrule-type
   int type() const {
     Type type = GetType();
-    return type > Type::kViewportRule ? 0 : static_cast<int>(type);
+    return type >= Type::kFirstInternalRule ? 0 : static_cast<int>(type);
   }
 
   virtual String cssText() const = 0;
@@ -113,6 +127,10 @@ class CORE_EXPORT CSSRule : public ScriptWrappable {
     return parent_is_rule_ ? ParentAsCSSRule() : nullptr;
   }
 
+  CSSRule* RootCSSRule() {
+    return parentRule() ? parentRule()->RootCSSRule() : this;
+  }
+
   // The CSSOM spec states that "setting the cssText attribute must do nothing."
   void setCSSText(const String&) {}
 
@@ -127,6 +145,16 @@ class CORE_EXPORT CSSRule : public ScriptWrappable {
   const CSSParserContext* ParserContext(SecureContextMode) const;
 
   void CountUse(WebFeature) const;
+
+  // Replaces a StyleRuleBase in the child vector of the parent.
+  // The "parent" may be another rule, a stylesheet, or null (if the
+  // rule tree has been detached from the stylesheet).
+  //
+  // See StyleSheetContents::ReplaceRuleIfExists() for an explanation
+  // of `position_hint` and the return value.
+  wtf_size_t ReplaceChildRuleInParentIfExists(StyleRuleBase* old_rule,
+                                              StyleRuleBase* new_rule,
+                                              wtf_size_t position_hint);
 
  private:
   bool VerifyParentIsCSSRule() const;

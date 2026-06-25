@@ -41,10 +41,10 @@ FC_OBJECT (HINT_STYLE,		FcTypeInteger,	NULL)
 FC_OBJECT (HINTING,		FcTypeBool,	NULL)
 FC_OBJECT (VERTICAL_LAYOUT,	FcTypeBool,	NULL)
 FC_OBJECT (AUTOHINT,		FcTypeBool,	NULL)
-FC_OBJECT (GLOBAL_ADVANCE,	FcTypeBool,	NULL)	/* deprecated */
+FC_OBJECT (GLOBAL_ADVANCE,	FcTypeBool,	NULL) /* deprecated */
 FC_OBJECT (FILE,		FcTypeString,	FcCompareFilename)
 FC_OBJECT (INDEX,		FcTypeInteger,	NULL)
-FC_OBJECT (RASTERIZER,		FcTypeString,	FcCompareString)	/* deprecated */
+FC_OBJECT (RASTERIZER,		FcTypeString,	FcCompareString) /* deprecated */
 FC_OBJECT (OUTLINE,		FcTypeBool,	FcCompareBool)
 FC_OBJECT (SCALABLE,		FcTypeBool,	FcCompareBool)
 FC_OBJECT (DPI,			FcTypeDouble,	NULL)
@@ -66,7 +66,7 @@ FC_OBJECT (LCD_FILTER,		FcTypeInteger,	NULL)
 FC_OBJECT (NAMELANG,		FcTypeString,	NULL)
 FC_OBJECT (FONT_FEATURES,	FcTypeString,	NULL)
 FC_OBJECT (PRGNAME,		FcTypeString,	NULL)
-FC_OBJECT (HASH,		FcTypeString,	NULL)	/* deprecated */
+FC_OBJECT (HASH,		FcTypeString,	NULL) /* deprecated */
 FC_OBJECT (POSTSCRIPT_NAME,	FcTypeString,	FcComparePostScript)
 FC_OBJECT (COLOR,		FcTypeBool,	FcCompareBool)
 FC_OBJECT (SYMBOL,		FcTypeBool,	FcCompareBool)
@@ -75,4 +75,7 @@ FC_OBJECT (VARIABLE,		FcTypeBool,	FcCompareBool)
 FC_OBJECT (FONT_HAS_HINT,	FcTypeBool,	FcCompareBool)
 FC_OBJECT (ORDER,		FcTypeInteger,	FcCompareNumber)
 FC_OBJECT (DESKTOP_NAME,	FcTypeString,	NULL)
+FC_OBJECT (NAMED_INSTANCE,	FcTypeBool,	FcCompareBool)
+FC_OBJECT (FONT_WRAPPER,	FcTypeString,	FcCompareString)
+FC_OBJECT (GENERIC_FAMILY,	FcTypeInteger,	FcCompareNumber)
 /* ^-------------- Add new objects here. */

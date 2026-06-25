@@ -8,17 +8,18 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
+#include "third_party/blink/renderer/modules/clipboard/clipboard_change_event_controller.h"
 #include "third_party/blink/renderer/modules/clipboard/clipboard_item.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 
 namespace blink {
 
+class ExceptionState;
 class Navigator;
 class ScriptState;
-class ClipboardUnsanitizedFormats;
+class ClipboardReadOptions;
 
-class Clipboard : public EventTargetWithInlineData,
-                  public Supplement<Navigator> {
+class Clipboard : public EventTarget, public Supplement<Navigator> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -29,20 +30,43 @@ class Clipboard : public EventTargetWithInlineData,
   Clipboard(const Clipboard&) = delete;
   Clipboard& operator=(const Clipboard&) = delete;
 
-  ScriptPromise read(ScriptState*,
-                     ClipboardUnsanitizedFormats* formats = nullptr);
-  ScriptPromise readText(ScriptState*);
+  ScriptPromise<IDLSequence<ClipboardItem>> read(ScriptState*,
+                                                 ClipboardReadOptions* options,
+                                                 ExceptionState&);
+  ScriptPromise<IDLSequence<ClipboardItem>> read(
+      ScriptState* script_state,
+      ExceptionState& exception_state) {
+    return read(script_state, nullptr, exception_state);
+  }
+  ScriptPromise<IDLString> readText(ScriptState*, ExceptionState&);
 
-  ScriptPromise write(ScriptState*, const HeapVector<Member<ClipboardItem>>&);
-  ScriptPromise writeText(ScriptState*, const String&);
+  ScriptPromise<IDLUndefined> write(ScriptState*,
+                                    const HeapVector<Member<ClipboardItem>>&,
+                                    ExceptionState&);
+  ScriptPromise<IDLUndefined> writeText(ScriptState*,
+                                        const String&,
+                                        ExceptionState&);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(clipboardchange, kClipboardchange)
 
   // EventTarget
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
 
+  // Parses `format` as a web custom format type string. If successful, it
+  // returns just the (normalized) MIME type without the "web " prefix;
+  // otherwise returns an empty string.
   static String ParseWebCustomFormat(const String& format);
 
   void Trace(Visitor*) const override;
+
+  // EventTarget callbacks.
+  void AddedEventListener(const AtomicString& event_type,
+                          RegisteredEventListener&) override;
+  void RemovedEventListener(const AtomicString& event_type,
+                            const RegisteredEventListener&) override;
+
+ private:
+  Member<ClipboardChangeEventController> clipboard_change_event_controller_;
 };
 
 }  // namespace blink

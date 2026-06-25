@@ -5,10 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_HEAP_VISITOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_HEAP_VISITOR_H_
 
-#include "v8/include/cppgc/liveness-broker.h"
-#include "v8/include/cppgc/visitor.h"
+#include "v8/include/cppgc/liveness-broker.h"  // IWYU pragma: export
+#include "v8/include/cppgc/visitor.h"          // IWYU pragma: export
 
 namespace blink {
+
+template <typename K, typename V>
+using EphemeronPair = cppgc::EphemeronPair<K, V>;
 
 using LivenessBroker = cppgc::LivenessBroker;
 using Visitor = cppgc::Visitor;

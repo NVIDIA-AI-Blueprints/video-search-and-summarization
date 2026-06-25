@@ -27,8 +27,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_TREE_BUILDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_TREE_BUILDER_H_
 
+#include <optional>
+
 #include "base/dcheck_is_on.h"
-#include "base/memory/scoped_refptr.h"
+#include "base/time/time.h"
+#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/document_fragment.h"
+#include "third_party/blink/renderer/core/html/html_template_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_construction_site.h"
 #include "third_party/blink/renderer/core/html/parser/html_element_stack.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_options.h"
@@ -40,28 +45,51 @@
 namespace blink {
 
 class AtomicHTMLToken;
-class DocumentFragment;
 class Element;
 class HTMLDocument;
 class HTMLDocumentParser;
+class ParserRootInsertionPoint;
+class StreamingSanitizer;
 
 class HTMLTreeBuilder final : public GarbageCollected<HTMLTreeBuilder> {
  public:
-  // HTMLTreeBuilder can be created for non-HTMLDocument (XHTMLDocument) from
-  // editing code.
-  // TODO(kouhei): Fix editing code to always invoke HTML parser on
-  // HTMLDocument.
+  // This constructor is used for main document parsing.
+  // TODO(kouhei): HTMLTreeBuilder can be created for non-HTMLDocument
+  // (XHTMLDocument) from editing code. Fix editing code to always invoke HTML
+  // parser on HTMLDocument.
   HTMLTreeBuilder(HTMLDocumentParser*,
                   Document&,
                   ParserContentPolicy,
                   const HTMLParserOptions&,
-                  bool include_shadow_roots);
+                  bool include_shadow_roots,
+                  CustomElementRegistry* registry,
+                  StreamingSanitizer* sanitizer = nullptr);
+  // This constructor is used for fragment parsing.
   HTMLTreeBuilder(HTMLDocumentParser*,
                   DocumentFragment*,
                   Element* context_element,
                   ParserContentPolicy,
                   const HTMLParserOptions&,
-                  bool include_shadow_roots);
+                  bool include_shadow_roots,
+                  CustomElementRegistry* registry,
+                  StreamingSanitizer*,
+                  ParserRootInsertionPoint* root_insertion_point);
+
+  CORE_EXPORT static void ResetCachedFeaturesForTesting();
+
+ private:
+  HTMLTreeBuilder(HTMLDocumentParser*,
+                  Document&,
+                  ParserContentPolicy,
+                  const HTMLParserOptions&,
+                  bool include_shadow_roots,
+                  DocumentFragment* fragment_target,
+                  Element* fragment_context_element,
+                  CustomElementRegistry* registry,
+                  StreamingSanitizer*,
+                  ParserRootInsertionPoint* root_insertion_point);
+
+ public:
   HTMLTreeBuilder(const HTMLTreeBuilder&) = delete;
   HTMLTreeBuilder& operator=(const HTMLTreeBuilder&) = delete;
   ~HTMLTreeBuilder();
@@ -69,9 +97,14 @@ class HTMLTreeBuilder final : public GarbageCollected<HTMLTreeBuilder> {
 
   const HTMLElementStack* OpenElements() const { return tree_.OpenElements(); }
 
-  bool IsParsingFragment() const { return !!fragment_context_.Fragment(); }
+  bool IsParsingFragment() const {
+    return !!fragment_context_.FragmentTarget();
+  }
   bool IsParsingTemplateContents() const {
-    return tree_.OpenElements()->HasTemplateInHTMLScope();
+    return tree_.OpenElements()->HasTemplateInHTMLScope() ||
+           (RuntimeEnabledFeatures::CorrectTemplateFormParsingEnabled() &&
+            IsParsingFragment() &&
+            IsA<HTMLTemplateElement>(fragment_context_.ContextElement()));
   }
   bool IsParsingFragmentOrTemplateContents() const {
     return IsParsingFragment() || IsParsingTemplateContents();
@@ -93,7 +126,7 @@ class HTMLTreeBuilder final : public GarbageCollected<HTMLTreeBuilder> {
 
   // Synchronously flush pending text and queued tasks, possibly creating more
   // DOM nodes. Flushing pending text depends on |mode|.
-  void Flush() { tree_.Flush(); }
+  void Flush();
 
   void SetShouldSkipLeadingNewline(bool should_skip) {
     should_skip_leading_newline_ = should_skip;
@@ -120,8 +153,6 @@ class HTMLTreeBuilder final : public GarbageCollected<HTMLTreeBuilder> {
     kInTableBodyMode,
     kInRowMode,
     kInCellMode,
-    kInSelectMode,
-    kInSelectInTableMode,
     kAfterBodyMode,
     kInFramesetMode,
     kAfterFramesetMode,
@@ -140,6 +171,7 @@ class HTMLTreeBuilder final : public GarbageCollected<HTMLTreeBuilder> {
   void ProcessComment(AtomicHTMLToken*);
   void ProcessCharacter(AtomicHTMLToken*);
   void ProcessEndOfFile(AtomicHTMLToken*);
+  void ProcessProcessingInstruction(AtomicHTMLToken*);
 
   bool ProcessStartTagForInHead(AtomicHTMLToken*);
   void ProcessStartTagForInBody(AtomicHTMLToken*);
@@ -197,7 +229,7 @@ class HTMLTreeBuilder final : public GarbageCollected<HTMLTreeBuilder> {
   void ParseError(AtomicHTMLToken*);
 
   InsertionMode GetInsertionMode() const { return insertion_mode_; }
-  void SetInsertionMode(InsertionMode mode) { insertion_mode_ = mode; }
+  void SetInsertionMode(InsertionMode mode);
 
   void ResetInsertionModeAppropriately();
 
@@ -213,21 +245,20 @@ class HTMLTreeBuilder final : public GarbageCollected<HTMLTreeBuilder> {
     FragmentParsingContext(const FragmentParsingContext&) = delete;
     FragmentParsingContext& operator=(const FragmentParsingContext&) = delete;
     void Init(DocumentFragment*, Element* context_element);
-
-    DocumentFragment* Fragment() const { return fragment_; }
+    DocumentFragment* FragmentTarget() const { return fragment_target_.Get(); }
     Element* ContextElement() const {
-      DCHECK(fragment_);
+      DCHECK(fragment_target_);
       return context_element_stack_item_->GetElement();
     }
     HTMLStackItem* ContextElementStackItem() const {
-      DCHECK(fragment_);
+      DCHECK(fragment_target_);
       return context_element_stack_item_.Get();
     }
 
     void Trace(Visitor*) const;
 
    private:
-    Member<DocumentFragment> fragment_;
+    Member<DocumentFragment> fragment_target_;
     Member<HTMLStackItem> context_element_stack_item_;
   };
 
@@ -237,6 +268,16 @@ class HTMLTreeBuilder final : public GarbageCollected<HTMLTreeBuilder> {
 
   // http://www.whatwg.org/specs/web-apps/current-work/multipage/parsing.html#insertion-mode
   InsertionMode insertion_mode_;
+
+  // The time when we last successfully flushed in kTextMode.
+  // Used to implement incremental backoff for flushes.
+  // `nullopt` indicates that no flush has occurred yet in the current kTextMode
+  // session.
+  std::optional<base::TimeTicks> last_text_mode_flush_time_;
+
+  // The current interval between flushes in kTextMode.
+  // This doubles with each flush up to a maximum limit.
+  base::TimeDelta current_text_mode_flush_interval_;
 
   // http://www.whatwg.org/specs/web-apps/current-work/multipage/parsing.html#original-insertion-mode
   InsertionMode original_insertion_mode_;

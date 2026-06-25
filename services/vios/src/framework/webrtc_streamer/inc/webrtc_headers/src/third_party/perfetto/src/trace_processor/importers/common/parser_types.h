@@ -17,14 +17,20 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_PARSER_TYPES_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_PARSER_TYPES_H_
 
-#include <stdint.h>
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <utility>
 
+#include "perfetto/trace_processor/ref_counted.h"
 #include "perfetto/trace_processor/trace_blob_view.h"
 #include "src/trace_processor/containers/string_pool.h"
 #include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 struct alignas(8) InlineSchedSwitch {
   int64_t prev_state;
@@ -32,6 +38,11 @@ struct alignas(8) InlineSchedSwitch {
   int32_t next_prio;
   StringPool::Id next_comm;
 };
+static_assert(sizeof(InlineSchedSwitch) == 24);
+
+// We enforce the exact size as it's critical for peak-memory use when sorting
+// data in trace processor that this struct is as small as possible.
+static_assert(sizeof(InlineSchedSwitch) == 24);
 
 struct alignas(8) InlineSchedWaking {
   int32_t pid;
@@ -40,18 +51,94 @@ struct alignas(8) InlineSchedWaking {
   StringPool::Id comm;
   uint16_t common_flags;
 };
+
+// We enforce the exact size as it's critical for peak-memory use when sorting
+// data in trace processor that this struct is as small as possible.
 static_assert(sizeof(InlineSchedWaking) == 16);
 
 struct alignas(8) JsonEvent {
-  std::string value;
-};
+  int64_t dur = std::numeric_limits<int64_t>::max();
 
-struct TracePacketData {
+  uint32_t pid = 0;
+  uint32_t tid = 0;
+
+  StringPool::Id name = StringPool::Id::Null();
+  StringPool::Id cat = StringPool::Id::Null();
+
+  union IdStrOrUint64 {
+    StringPool::Id id_str;
+    uint64_t id_uint64;
+  };
+  IdStrOrUint64 id;
+  IdStrOrUint64 bind_id;
+
+  int64_t tts = std::numeric_limits<int64_t>::max();
+  int64_t tdur = std::numeric_limits<int64_t>::max();
+  int64_t async_cookie = std::numeric_limits<int64_t>::max();
+
+  std::unique_ptr<char[]> args;
+
+  char phase = '\0';
+
+  uint64_t flow_in : 1;
+  uint64_t flow_out : 1;
+
+  uint64_t pid_exists : 1;
+  uint64_t pid_is_string_id : 1;
+  uint64_t tid_exists : 1;
+  uint64_t tid_is_string_id : 1;
+
+  uint64_t bind_enclosing_slice : 1;
+
+  enum class IdType : uint64_t {
+    kNone = 0,
+    kString = 1,
+    kUint64 = 2,
+  };
+  IdType id_type : 2;
+  IdType bind_id_type : 2;
+
+  enum class Scope : uint64_t {
+    kNone = 0,
+    kGlobal = 1,
+    kProcess = 2,
+    kThread = 3,
+  };
+  Scope scope : 2;
+
+  enum class AsyncCookieType : uint64_t {
+    kNone,
+    kId,
+    kId2Local,
+    kId2Global,
+  };
+  AsyncCookieType async_cookie_type : 2;
+
+  uint64_t args_size : 41;
+
+  JsonEvent()
+      : flow_in(false),
+        flow_out(false),
+        pid_exists(false),
+        pid_is_string_id(false),
+        tid_exists(false),
+        tid_is_string_id(false),
+        bind_enclosing_slice(false),
+        id_type(IdType::kNone),
+        bind_id_type(IdType::kNone),
+        scope(Scope::kNone),
+        async_cookie_type(AsyncCookieType::kNone),
+        args_size(0) {}
+};
+static_assert(sizeof(JsonEvent) % 8 == 0);
+
+struct alignas(8) TracePacketData {
   TraceBlobView packet;
   RefPtr<PacketSequenceStateGeneration> sequence_state;
 };
+static_assert(sizeof(TracePacketData) % 8 == 0);
 
-struct TrackEventData {
+struct alignas(8) TrackEventData {
   TrackEventData(TraceBlobView pv,
                  RefPtr<PacketSequenceStateGeneration> generation)
       : trace_packet_data{std::move(pv), std::move(generation)} {}
@@ -75,8 +162,16 @@ struct TrackEventData {
   double counter_value = 0;
   std::array<double, kMaxNumExtraCounters> extra_counter_values = {};
 };
+static_assert(sizeof(TracePacketData) % 8 == 0);
 
-}  // namespace trace_processor
-}  // namespace perfetto
+struct alignas(8) LegacyV8CpuProfileEvent {
+  uint64_t session_id;
+  uint32_t pid;
+  uint32_t tid;
+  uint32_t callsite_id;
+};
+static_assert(sizeof(LegacyV8CpuProfileEvent) % 8 == 0);
+
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_PARSER_TYPES_H_

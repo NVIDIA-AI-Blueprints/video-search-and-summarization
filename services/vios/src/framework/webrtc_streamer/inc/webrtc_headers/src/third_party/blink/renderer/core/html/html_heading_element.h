@@ -32,6 +32,10 @@ class HTMLHeadingElement final : public HTMLElement {
 
  public:
   HTMLHeadingElement(const QualifiedName&, Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLHeadingElement;
+  }
 };
 
 }  // namespace blink

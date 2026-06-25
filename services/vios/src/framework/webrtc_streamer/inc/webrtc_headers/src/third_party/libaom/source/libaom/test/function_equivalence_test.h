@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -14,7 +14,7 @@
 
 #include <ostream>
 
-#include "third_party/googletest/src/googletest/include/gtest/gtest.h"
+#include "gtest/gtest.h"
 #include "test/acm_random.h"
 #include "test/util.h"
 
@@ -55,11 +55,9 @@ class FunctionEquivalenceTest : public ::testing::TestWithParam<FuncParam<T> > {
  public:
   FunctionEquivalenceTest() : rng_(ACMRandom::DeterministicSeed()) {}
 
-  virtual ~FunctionEquivalenceTest() {}
+  ~FunctionEquivalenceTest() override = default;
 
-  virtual void SetUp() { params_ = this->GetParam(); }
-
-  virtual void TearDown() {}
+  void SetUp() override { params_ = this->GetParam(); }
 
  protected:
   ACMRandom rng_;

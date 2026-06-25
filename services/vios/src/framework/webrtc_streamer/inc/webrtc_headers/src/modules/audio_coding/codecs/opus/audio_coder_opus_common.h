@@ -11,37 +11,39 @@
 #ifndef MODULES_AUDIO_CODING_CODECS_OPUS_AUDIO_CODER_OPUS_COMMON_H_
 #define MODULES_AUDIO_CODING_CODECS_OPUS_AUDIO_CODER_OPUS_COMMON_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/audio_codecs/audio_decoder.h"
 #include "api/audio_codecs/audio_format.h"
+#include "rtc_base/buffer.h"
 #include "rtc_base/string_to_number.h"
 
 namespace webrtc {
 
-absl::optional<std::string> GetFormatParameter(const SdpAudioFormat& format,
-                                               absl::string_view param);
+std::optional<std::string> GetFormatParameter(const SdpAudioFormat& format,
+                                              absl::string_view param);
 
 template <typename T>
-absl::optional<T> GetFormatParameter(const SdpAudioFormat& format,
-                                     absl::string_view param) {
-  return rtc::StringToNumber<T>(GetFormatParameter(format, param).value_or(""));
+std::optional<T> GetFormatParameter(const SdpAudioFormat& format,
+                                    absl::string_view param) {
+  return StringToNumber<T>(GetFormatParameter(format, param).value_or(""));
 }
 
 template <>
-absl::optional<std::vector<unsigned char>> GetFormatParameter(
+std::optional<std::vector<unsigned char>> GetFormatParameter(
     const SdpAudioFormat& format,
     absl::string_view param);
 
 class OpusFrame : public AudioDecoder::EncodedAudioFrame {
  public:
-  OpusFrame(AudioDecoder* decoder,
-            rtc::Buffer&& payload,
-            bool is_primary_payload)
+  OpusFrame(AudioDecoder* decoder, Buffer&& payload, bool is_primary_payload)
       : decoder_(decoder),
         payload_(std::move(payload)),
         is_primary_payload_(is_primary_payload) {}
@@ -58,8 +60,8 @@ class OpusFrame : public AudioDecoder::EncodedAudioFrame {
 
   bool IsDtxPacket() const override { return payload_.size() <= 2; }
 
-  absl::optional<DecodeResult> Decode(
-      rtc::ArrayView<int16_t> decoded) const override {
+  std::optional<DecodeResult> Decode(
+      std::span<int16_t> decoded) const override {
     AudioDecoder::SpeechType speech_type = AudioDecoder::kSpeech;
     int ret;
     if (is_primary_payload_) {
@@ -73,14 +75,15 @@ class OpusFrame : public AudioDecoder::EncodedAudioFrame {
     }
 
     if (ret < 0)
-      return absl::nullopt;
+      return std::nullopt;
 
-    return DecodeResult{static_cast<size_t>(ret), speech_type};
+    return DecodeResult{.num_decoded_samples = static_cast<size_t>(ret),
+                        .speech_type = speech_type};
   }
 
  private:
   AudioDecoder* const decoder_;
-  const rtc::Buffer payload_;
+  const Buffer payload_;
   const bool is_primary_payload_;
 };
 

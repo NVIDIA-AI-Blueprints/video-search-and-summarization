@@ -8,12 +8,15 @@
 #include <memory>
 
 #include "base/synchronization/waitable_event.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/blink/public/common/loader/worker_main_script_load_parameters.h"
 #include "third_party/blink/public/mojom/v8_cache_options.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_gc_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/core/event_target_names.h"
+#include "third_party/blink/renderer/core/execution_context/security_context_init.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
@@ -32,17 +35,13 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/network/content_security_policy_parsers.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/testing/scoped_fake_ukm_recorder.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "v8/include/v8.h"
-
-#include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/receiver_set.h"
-#include "third_party/blink/renderer/platform/testing/scoped_fake_ukm_recorder.h"
 
 namespace blink {
 
@@ -58,12 +57,12 @@ class FakeWorkerGlobalScope : public WorkerGlobalScope {
     ReadyToRunWorkerScript();
     GetBrowserInterfaceBroker().SetBinderForTesting(
         ukm::mojom::UkmRecorderFactory::Name_,
-        WTF::BindRepeating(
+        BindRepeating(
             [](ScopedFakeUkmRecorder* interface,
                mojo::ScopedMessagePipeHandle handle) {
               interface->SetHandle(std::move(handle));
             },
-            WTF::Unretained(&scoped_fake_ukm_recorder_)));
+            Unretained(&scoped_fake_ukm_recorder_)));
   }
 
   ~FakeWorkerGlobalScope() override {
@@ -81,6 +80,7 @@ class FakeWorkerGlobalScope : public WorkerGlobalScope {
       const KURL& response_url,
       network::mojom::ReferrerPolicy response_referrer_policy,
       Vector<network::mojom::blink::ContentSecurityPolicyPtr> response_csp,
+      DocumentPolicy::DocumentPolicyBundle response_document_policy,
       const Vector<String>* response_origin_trial_tokens) override {
     InitializeURL(response_url);
     SetReferrerPolicy(response_referrer_policy);
@@ -88,12 +88,18 @@ class FakeWorkerGlobalScope : public WorkerGlobalScope {
     InitContentSecurityPolicyFromVector(std::move(response_csp));
     BindContentSecurityPolicyToExecutionContext();
 
+    SecurityContextInit security_init(this);
+    security_init.ApplyDocumentPolicy(
+        response_document_policy.policy,
+        String(response_document_policy.report_only_header.c_str()));
+
     OriginTrialContext::AddTokens(this, response_origin_trial_tokens);
 
     // This should be called after OriginTrialContext::AddTokens() to install
     // origin trial features in JavaScript's global object.
     ScriptController()->PrepareForEvaluation();
   }
+
   void FetchAndRunClassicScript(
       const KURL& script_url,
       std::unique_ptr<WorkerMainScriptLoadParameters>
@@ -111,8 +117,7 @@ class FakeWorkerGlobalScope : public WorkerGlobalScope {
       std::unique_ptr<PolicyContainer> policy_container,
       const FetchClientSettingsObjectSnapshot& outside_settings_object,
       WorkerResourceTimingNotifier& outside_resource_timing_notifier,
-      network::mojom::CredentialsMode,
-      RejectCoepUnsafeNone reject_coep_unsafe_none) override {
+      network::mojom::CredentialsMode) override {
     NOTREACHED();
   }
   bool IsOffMainThreadScriptFetchDisabled() override { return true; }
@@ -146,7 +151,6 @@ class WorkerThreadForTest : public WorkerThread {
   WorkerBackingThread& GetWorkerBackingThread() override {
     return *worker_backing_thread_;
   }
-  void ClearWorkerBackingThread() override { worker_backing_thread_.reset(); }
 
   void StartWithSourceCode(const SecurityOrigin* security_origin,
                            const String& source,
@@ -158,7 +162,8 @@ class WorkerThreadForTest : public WorkerThread {
         nullptr /* web_worker_fetch_context */,
         Vector<network::mojom::blink::ContentSecurityPolicyPtr>(),
         Vector<network::mojom::blink::ContentSecurityPolicyPtr>(),
-        network::mojom::ReferrerPolicy::kDefault, security_origin,
+        network::mojom::ReferrerPolicy::kDefault,
+        DocumentPolicy::DocumentPolicyBundle{}, security_origin,
         false /* starter_secure_context */,
         CalculateHttpsState(security_origin), worker_clients,
         nullptr /* content_settings_client */,

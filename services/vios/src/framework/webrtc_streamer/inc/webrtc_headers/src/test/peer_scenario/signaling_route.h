@@ -10,10 +10,10 @@
 #ifndef TEST_PEER_SCENARIO_SIGNALING_ROUTE_H_
 #define TEST_PEER_SCENARIO_SIGNALING_ROUTE_H_
 
-#include <string>
-#include <utility>
+#include <functional>
 
-#include "test/network/network_emulation_manager.h"
+#include "api/jsep.h"
+#include "api/test/network_emulation/cross_traffic.h"
 #include "test/peer_scenario/peer_scenario_client.h"
 
 namespace webrtc {
@@ -23,7 +23,8 @@ namespace test {
 // ad SDP negotiation.
 class SignalingRoute {
  public:
-  SignalingRoute(PeerScenarioClient* caller,
+  SignalingRoute(bool send_sdp_via_network,
+                 PeerScenarioClient* caller,
                  PeerScenarioClient* callee,
                  CrossTrafficRoute* send_route,
                  CrossTrafficRoute* ret_route);
@@ -35,9 +36,17 @@ class SignalingRoute {
   // The `munge_offer` callback is used to modify an offer between its creation
   // and set local description. This behavior is forbidden according to the spec
   // but available here in order to allow test coverage on corner cases.
-  // The `exchange_finished` callback is called with the answer produced after
-  // SDP negotations has completed.
-  // TODO(srte): Handle lossy links.
+  // `callee_remote_description_set` is invoked when callee has applied the
+  // offer but not yet created an answer. The purpose is to allow tests to
+  // modify transceivers created from the offer.  The `exchange_finished`
+  // callback is called with the answer produced after SDP negotations has
+  // completed.
+  void NegotiateSdp(
+      std::function<void(SessionDescriptionInterface* offer)> munge_offer,
+      std::function<void(SessionDescriptionInterface* offer)> modify_offer,
+      std::function<void()> callee_remote_description_set,
+      std::function<void(const SessionDescriptionInterface& answer)>
+          exchange_finished);
   void NegotiateSdp(
       std::function<void(SessionDescriptionInterface* offer)> munge_offer,
       std::function<void(SessionDescriptionInterface* offer)> modify_offer,
@@ -48,13 +57,19 @@ class SignalingRoute {
       std::function<void(const SessionDescriptionInterface& answer)>
           exchange_finished);
   void NegotiateSdp(
+      std::function<void()> remote_description_set,
+      std::function<void(const SessionDescriptionInterface& answer)>
+          exchange_finished);
+  void NegotiateSdp(
       std::function<void(const SessionDescriptionInterface& answer)>
           exchange_finished);
   SignalingRoute reverse() {
-    return SignalingRoute(callee_, caller_, ret_route_, send_route_);
+    return SignalingRoute(send_sdp_via_network_, callee_, caller_, ret_route_,
+                          send_route_);
   }
 
  private:
+  const bool send_sdp_via_network_ = true;
   PeerScenarioClient* const caller_;
   PeerScenarioClient* const callee_;
   CrossTrafficRoute* const send_route_;

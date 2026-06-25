@@ -31,7 +31,8 @@ class CORE_EXPORT CullRectUpdater {
   STACK_ALLOCATED();
 
  public:
-  explicit CullRectUpdater(PaintLayer& starting_layer);
+  explicit CullRectUpdater(PaintLayer& starting_layer,
+                           bool disable_expansion = false);
 
   void Update();
 
@@ -74,7 +75,7 @@ class CORE_EXPORT CullRectUpdater {
   CullRect ComputeFragmentCullRect(Context&,
                                    PaintLayer&,
                                    const FragmentData& fragment,
-                                   const FragmentData& parent_fragment);
+                                   const FragmentData* parent_fragment);
   CullRect ComputeFragmentContentsCullRect(Context&,
                                            PaintLayer&,
                                            const FragmentData& fragment,
@@ -82,9 +83,9 @@ class CORE_EXPORT CullRectUpdater {
   bool ShouldProactivelyUpdate(const Context&, const PaintLayer&) const;
 
   PaintLayer& starting_layer_;
-  PropertyTreeState root_state_ = PropertyTreeState::Uninitialized();
+  PropertyTreeState root_state_{PropertyTreeState::kUninitialized};
   ViewTransitionSupplement* view_transition_supplement_;
-  bool disable_expansion_ = false;
+  float expansion_ratio_;
 };
 
 // Used when painting with a custom top-level cull rect, e.g. when printing a

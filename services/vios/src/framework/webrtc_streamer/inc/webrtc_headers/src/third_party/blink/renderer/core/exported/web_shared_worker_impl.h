@@ -31,8 +31,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EXPORTED_WEB_SHARED_WORKER_IMPL_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EXPORTED_WEB_SHARED_WORKER_IMPL_H_
 
-#include "third_party/blink/public/web/web_shared_worker.h"
-
 #include <memory>
 
 #include "base/memory/scoped_refptr.h"
@@ -42,12 +40,15 @@
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/mojom/content_security_policy.mojom-blink-forward.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
+#include "services/network/public/mojom/source_location.mojom-blink.h"
 #include "third_party/blink/public/mojom/browser_interface_broker.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/reporting_observer.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink.h"
 #include "third_party/blink/public/mojom/user_agent/user_agent_metadata.mojom-blink.h"
 #include "third_party/blink/public/mojom/worker/shared_worker_host.mojom-blink.h"
 #include "third_party/blink/public/mojom/worker/worker_content_settings_proxy.mojom-blink.h"
 #include "third_party/blink/public/platform/web_fetch_client_settings_object.h"
+#include "third_party/blink/public/web/web_shared_worker.h"
 #include "third_party/blink/public/web/web_shared_worker_client.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/workers/shared_worker_reporting_proxy.h"
@@ -78,9 +79,17 @@ class CORE_EXPORT WebSharedWorkerImpl final : public WebSharedWorker {
   // WebSharedWorker methods:
   void Connect(int connection_request_id, MessagePortDescriptor port) override;
   void TerminateWorkerContext() override;
+  void Freeze() override;
+  void Resume() override;
 
   // Callback methods for SharedWorkerReportingProxy.
   void CountFeature(WebFeature);
+  void ReportException(const WebString& error_message,
+                       const WebString& source_url,
+                       int line_number,
+                       int column_number,
+                       int exception_id,
+                       bool is_eval_error);
   void DidFailToFetchClassicScript();
   void DidFailToFetchModuleScript();
   void DidEvaluateTopLevelScript(bool success);
@@ -102,10 +111,11 @@ class CORE_EXPORT WebSharedWorkerImpl final : public WebSharedWorker {
       network::mojom::CredentialsMode,
       const WebString& name,
       WebSecurityOrigin constructor_origin,
+      WebSecurityOrigin origin_from_browser,
       bool is_constructor_secure_context,
       const WebString& user_agent,
       const blink::UserAgentMetadata& ua_metadata,
-      const WebVector<WebContentSecurityPolicy>& content_security_policies,
+      const std::vector<WebContentSecurityPolicy>& content_security_policies,
       const WebFetchClientSettingsObject& outside_fetch_client_settings_object,
       const base::UnguessableToken& devtools_worker_token,
       CrossVariantMojoRemote<
@@ -118,7 +128,13 @@ class CORE_EXPORT WebSharedWorkerImpl final : public WebSharedWorker {
           worker_main_script_load_params,
       std::unique_ptr<blink::WebPolicyContainer> policy_container,
       scoped_refptr<WebWorkerFetchContext> web_worker_fetch_context,
-      ukm::SourceId ukm_source_id);
+      ukm::SourceId ukm_source_id,
+      bool require_cross_site_request_for_cookies,
+      CrossVariantMojoReceiver<mojom::blink::ReportingObserverInterfaceBase>
+          coep_reporting_observer,
+      CrossVariantMojoReceiver<mojom::blink::ReportingObserverInterfaceBase>
+          dip_reporting_observer,
+      bool is_cross_origin_isolated);
 
   void DispatchPendingConnections();
   void ConnectToChannel(int connection_request_id,

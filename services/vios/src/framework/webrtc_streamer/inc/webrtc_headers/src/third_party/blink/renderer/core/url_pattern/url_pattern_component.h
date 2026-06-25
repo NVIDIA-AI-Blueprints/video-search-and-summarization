@@ -5,9 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_URL_PATTERN_URL_PATTERN_COMPONENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_URL_PATTERN_URL_PATTERN_COMPONENT_H_
 
+#include <optional>
+#include <unordered_map>
+#include <utility>
+
 #include "base/types/pass_key.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_regexp.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/bindings/script_regexp.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/heap/trace_traits.h"
@@ -40,6 +44,7 @@ class Component final : public GarbageCollected<Component> {
     kSearch,
     kHash,
   };
+  Type type() const { return type_; }
 
   // A utility function that takes a given `pattern` and compiles it into a
   // Component structure.  If the `pattern` is null, then it will be defaulted
@@ -47,7 +52,8 @@ class Component final : public GarbageCollected<Component> {
   // compiled for.  This will select the correct encoding callback,
   // liburlpattern options, and populate errors messages with the correct
   // component string.
-  static Component* Compile(StringView pattern,
+  static Component* Compile(v8::Isolate* isolate,
+                            StringView pattern,
                             Type type,
                             Component* protocol_component,
                             const URLPatternOptions& external_options,
@@ -81,8 +87,31 @@ class Component final : public GarbageCollected<Component> {
 
   // Method to determine if the URL associated with this component should be
   // treated as a "standard" URL like `https://foo` vs a "path" URL like
-  // `data:foo`.  This should only be called for kProtocol components.
+  // `data:foo`.  This should only be called for `kProtocol` components.
+  //
+  // This function checks if the protocol pattern matches any of the known
+  // standard protocol strings.  So an exact pattern of `http` will match, but
+  // so will `http{s}?` and `*`.  Typical non-standard protocols are `data`,
+  // `javascript`, `about`, and any other custom protocol strings.  The
+  // computation cost of this function may be a bit expensive for the first
+  // call, but the result is cached once computed.
   bool ShouldTreatAsStandardURL() const;
+
+  // Returns if this component has at least one part that uses an ECMAScript
+  // regular expression.
+  bool HasRegExpGroups() const { return pattern_.HasRegexGroups(); }
+
+  // Generates a valid component string by filling non-fixed-text parts using
+  // `groups` as a look-up table from names to substituting strings.  `groups`
+  // should not have overlaps in their names (first elements).
+  // `should_treat_as_standard_url` must be the result of calling
+  // `ShouldTreatAsStandardURL()` for the corresponding "protocol" object.
+  std::optional<String> Generate(
+      const Vector<std::pair<String, String>>& groups,
+      bool should_treat_as_standard_url,
+      ExceptionState& exception_state) const;
+
+  const std::vector<liburlpattern::Part>& PartList() const;
 
   void Trace(Visitor* visitor) const;
 
@@ -105,7 +134,7 @@ class Component final : public GarbageCollected<Component> {
   // The cached result of computing if a protocol component should cause the
   // pattern to be treated as a standard URL.  This should only be set and read
   // by protocol components executing ShouldTreatAsStandardURL().
-  mutable absl::optional<bool> should_treat_as_standard_url_;
+  mutable std::optional<bool> should_treat_as_standard_url_;
 };
 
 }  // namespace url_pattern

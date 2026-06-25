@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -37,6 +37,7 @@ enum {
 // number of parameters used by each transformation in TransformationTypes
 static const int trans_model_params[TRANS_TYPES] = { 0, 2, 4, 6 };
 
+// Available methods which can be used for global motion estimation
 typedef enum {
   GLOBAL_MOTION_METHOD_FEATURE_MATCH,
   GLOBAL_MOTION_METHOD_DISFLOW,
@@ -60,10 +61,11 @@ typedef struct {
   double rx, ry;
 } Correspondence;
 
-// For each global motion method, how many pyramid levels should we allocate?
-// Note that this is a maximum, and fewer levels will be allocated if the frame
-// is not large enough to need all of the specified levels
-extern const int global_motion_pyr_levels[GLOBAL_MOTION_METHODS];
+// Which global motion method should we use in practice?
+// Disflow is both faster and gives better results than feature matching in
+// practically all cases, so we use disflow by default
+static const GlobalMotionMethod default_global_motion_method =
+    GLOBAL_MOTION_METHOD_DISFLOW;
 
 extern const double kIdentityParams[MAX_PARAMDIM];
 
@@ -78,8 +80,8 @@ extern const double kIdentityParams[MAX_PARAMDIM];
 bool aom_compute_global_motion(TransformationType type, YV12_BUFFER_CONFIG *src,
                                YV12_BUFFER_CONFIG *ref, int bit_depth,
                                GlobalMotionMethod gm_method,
-                               MotionModel *motion_models,
-                               int num_motion_models);
+                               int downsample_level, MotionModel *motion_models,
+                               int num_motion_models, bool *mem_alloc_failed);
 
 #ifdef __cplusplus
 }

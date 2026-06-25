@@ -59,21 +59,23 @@ class ColorInputType final : public InputType,
   ColorChooserClient* GetColorChooserClient() override;
   bool TypeMismatchFor(const String&) const;
 
+  bool SupportsBaseAppearance(Element::BaseAppearanceValue) const override;
+
  private:
   InputTypeView* CreateView() override;
   ValueMode GetValueMode() const override;
   void ValueAttributeChanged() override;
   void CountUsage() override;
-  const AtomicString& FormControlType() const override;
   bool SupportsRequired() const override;
   String SanitizeValue(const String&) const override;
   void CreateShadowSubtree() override;
   void DidSetValue(const String&, bool value_changed) override;
   void HandleDOMActivateEvent(Event&) override;
-  ControlPart AutoAppearance() const override;
+  AppearanceValue AutoAppearance() const override;
   void OpenPopupView() override;
   void ClosePopupView() override;
   bool HasOpenedPopup() const override;
+  bool IsPickerVisible() const override;
   bool ShouldRespectListAttribute() override;
   void WarnIfValueIsInvalid(const String&) const override;
   void UpdateView() override;

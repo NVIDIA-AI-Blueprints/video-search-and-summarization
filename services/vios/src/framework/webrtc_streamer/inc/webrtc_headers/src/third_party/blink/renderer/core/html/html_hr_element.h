@@ -29,26 +29,38 @@ namespace blink {
 
 class HTMLSelectElement;
 
-class HTMLHRElement final : public HTMLElement {
+class CORE_EXPORT HTMLHRElement final : public HTMLElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   explicit HTMLHRElement(Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLHRElement;
+  }
+
   bool CanContainRangeEndPoint() const override { return HasChildren(); }
 
   bool IsRichlyEditableForAccessibility() const override { return false; }
 
+  HTMLOptGroupElement* NearestAncestorOptgroup() const;
+
+  void Trace(Visitor*) const override;
+
  private:
   HTMLSelectElement* OwnerSelectElement() const;
+  void UpdateAncestors();
 
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
   InsertionNotificationRequest InsertedInto(ContainerNode&) override;
   void RemovedFrom(ContainerNode&) override;
+
+  Member<HTMLSelectElement> nearest_ancestor_select_;
+  Member<HTMLOptGroupElement> nearest_ancestor_optgroup_;
 };
 
 }  // namespace blink

@@ -16,6 +16,7 @@
 
 #import "sdk/objc/base/RTCMacros.h"
 
+#include "api/environment/environment.h"
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
@@ -40,14 +41,16 @@ class ObjCCallClient {
    public:
     explicit PCObserver(ObjCCallClient* client);
 
-    void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) override;
-    void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) override;
+    void OnSignalingChange(
+        webrtc::PeerConnectionInterface::SignalingState new_state) override;
+    void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface>
+                           data_channel) override;
     void OnRenegotiationNeeded() override;
     void OnIceConnectionChange(
         webrtc::PeerConnectionInterface::IceConnectionState new_state) override;
     void OnIceGatheringChange(
         webrtc::PeerConnectionInterface::IceGatheringState new_state) override;
-    void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) override;
+    void OnIceCandidate(const webrtc::IceCandidate* candidate) override;
 
    private:
     ObjCCallClient* const client_;
@@ -57,24 +60,30 @@ class ObjCCallClient {
   void CreatePeerConnection() RTC_RUN_ON(thread_checker_);
   void Connect() RTC_RUN_ON(thread_checker_);
 
+  webrtc::Environment env_;
   webrtc::SequenceChecker thread_checker_;
 
   bool call_started_ RTC_GUARDED_BY(thread_checker_);
 
   const std::unique_ptr<PCObserver> pc_observer_;
 
-  rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pcf_ RTC_GUARDED_BY(thread_checker_);
-  std::unique_ptr<rtc::Thread> network_thread_ RTC_GUARDED_BY(thread_checker_);
-  std::unique_ptr<rtc::Thread> worker_thread_ RTC_GUARDED_BY(thread_checker_);
-  std::unique_ptr<rtc::Thread> signaling_thread_ RTC_GUARDED_BY(thread_checker_);
-
-  std::unique_ptr<rtc::VideoSinkInterface<webrtc::VideoFrame>> remote_sink_
+  webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pcf_
       RTC_GUARDED_BY(thread_checker_);
-  rtc::scoped_refptr<webrtc::VideoTrackSourceInterface> video_source_
+  std::unique_ptr<webrtc::Thread> network_thread_
+      RTC_GUARDED_BY(thread_checker_);
+  std::unique_ptr<webrtc::Thread> worker_thread_
+      RTC_GUARDED_BY(thread_checker_);
+  std::unique_ptr<webrtc::Thread> signaling_thread_
+      RTC_GUARDED_BY(thread_checker_);
+
+  std::unique_ptr<webrtc::VideoSinkInterface<webrtc::VideoFrame>> remote_sink_
+      RTC_GUARDED_BY(thread_checker_);
+  webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> video_source_
       RTC_GUARDED_BY(thread_checker_);
 
   webrtc::Mutex pc_mutex_;
-  rtc::scoped_refptr<webrtc::PeerConnectionInterface> pc_ RTC_GUARDED_BY(pc_mutex_);
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc_
+      RTC_GUARDED_BY(pc_mutex_);
 };
 
 }  // namespace webrtc_examples

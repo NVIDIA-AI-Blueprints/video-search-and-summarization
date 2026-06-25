@@ -30,9 +30,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_GLYPH_METRICS_MAP_H_
 
 #include <memory>
+#include <optional>
 
+#include "base/compiler_specific.h"
 #include "base/memory/ptr_util.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/fonts/glyph.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
@@ -48,7 +49,7 @@ class GlyphMetricsMap {
   GlyphMetricsMap() : filled_primary_page_(false) {}
   GlyphMetricsMap(const GlyphMetricsMap&) = delete;
   GlyphMetricsMap& operator=(const GlyphMetricsMap&) = delete;
-  absl::optional<T> MetricsForGlyph(Glyph glyph) {
+  std::optional<T> MetricsForGlyph(Glyph glyph) {
     return LocatePage(glyph / GlyphMetricsPage::kSize)->MetricsForGlyph(glyph);
   }
 
@@ -68,18 +69,24 @@ class GlyphMetricsMap {
         256;  // Usually covers Latin-1 in a single page.
     GlyphMetricsPage() {}
 
-    absl::optional<T> MetricsForGlyph(Glyph glyph) const {
-      T value = metrics_[glyph % kSize];
+    std::optional<T> MetricsForGlyph(Glyph glyph) const {
+      // SAFETY: `glyph` is unsigned, `kSize` is the size of the
+      // `metrics_` array, so `glyph % kSize` is in-bounds.
+      T value = UNSAFE_BUFFERS(metrics_[glyph % kSize]);
       if (value == UnknownMetrics())
-        return absl::nullopt;
+        return std::nullopt;
       return value;
     }
     void SetMetricsForGlyph(Glyph glyph, const T& metrics) {
-      SetMetricsForIndex(glyph % kSize, metrics);
+      // SAFETY: `glyph` is unsigned, `kSize` is the size of the
+      // `metrics_` array, so `glyph % kSize` is in-bounds.
+      UNSAFE_BUFFERS(SetMetricsForIndex(glyph % kSize, metrics));
     }
-    void SetMetricsForIndex(unsigned index, const T& metrics) {
+    UNSAFE_BUFFER_USAGE void SetMetricsForIndex(unsigned index,
+                                                const T& metrics) {
+      // SAFETY: required from caller, enforced by UNSAFE_BUFFER_USAGE.
       SECURITY_DCHECK(index < kSize);
-      metrics_[index] = metrics;
+      UNSAFE_BUFFERS(metrics_[index] = metrics);
     }
 
    private:
@@ -134,9 +141,10 @@ GlyphMetricsMap<T>::LocatePageSlowCase(unsigned page_number) {
   }
 
   // Fill in the whole page with the unknown glyph information.
-  for (unsigned i = 0; i < GlyphMetricsPage::kSize; i++)
-    page->SetMetricsForIndex(i, UnknownMetrics());
-
+  for (unsigned i = 0; i < GlyphMetricsPage::kSize; i++) {
+    // SAFETY: `kSize` is the size of the metrics array to be indexed.
+    UNSAFE_BUFFERS(page->SetMetricsForIndex(i, UnknownMetrics()));
+  }
   return page;
 }
 

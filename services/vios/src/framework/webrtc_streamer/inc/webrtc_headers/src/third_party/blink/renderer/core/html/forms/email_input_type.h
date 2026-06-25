@@ -41,19 +41,18 @@ class EmailInputType final : public BaseTextInputType {
   explicit EmailInputType(HTMLInputElement&);
 
   // They are public for unit testing.
-  CORE_EXPORT static String ConvertEmailAddressToASCII(const ScriptRegexp&,
-                                                       const String&);
+  CORE_EXPORT static String ConvertEmailAddressToAscii(const ScriptRegexp&,
+                                                       const StringView&);
   CORE_EXPORT static bool IsValidEmailAddress(const ScriptRegexp&,
-                                              const String&);
-  CORE_EXPORT static ScriptRegexp* CreateEmailRegexp();
+                                              const StringView&);
+  CORE_EXPORT static ScriptRegexp* CreateEmailRegexp(v8::Isolate* isolate);
 
-  static Vector<String> ParseMultipleValues(const String& value);
+  static Vector<StringView> ParseMultipleValues(const StringView& value);
 
   bool TypeMismatchFor(const String&) const;
 
  private:
   void CountUsage() override;
-  const AtomicString& FormControlType() const override;
   bool TypeMismatch() const override;
   String TypeMismatchText() const override;
   bool SupportsSelectionAPI() const override;

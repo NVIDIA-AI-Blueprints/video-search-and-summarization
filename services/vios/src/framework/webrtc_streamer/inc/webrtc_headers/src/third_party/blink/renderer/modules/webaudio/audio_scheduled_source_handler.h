@@ -12,16 +12,13 @@
 #include "base/thread_annotations.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node.h"
-#include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
 namespace blink {
 
 class BaseAudioContext;
 class AudioBus;
 
-class AudioScheduledSourceHandler
-    : public AudioHandler,
-      public base::SupportsWeakPtr<AudioScheduledSourceHandler> {
+class AudioScheduledSourceHandler : public AudioHandler {
  public:
   // These are the possible states an AudioScheduledSourceNode can be in:
   //
@@ -138,9 +135,13 @@ class AudioScheduledSourceHandler
   // stopped.  This should be at least one rendering quantum, but we add one
   // more quantum for good measure.  This doesn't need to be extra precise, just
   // more than one rendering quantum.  See `HandleStoppableSourceNode()`.
+  // TODO(crbug.com/40637820) Use the actual rendering quantum size instead of a
+  // hardcoded value.
   static constexpr int kExtraStopFrames = 256;
 
  private:
+  virtual base::WeakPtr<AudioScheduledSourceHandler> AsWeakPtr() = 0;
+
   // This is accessed by both the main thread and audio thread.  Use the setter
   // and getter to protect the access to this.
   std::atomic<PlaybackState> playback_state_;
