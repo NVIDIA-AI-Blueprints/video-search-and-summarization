@@ -31,7 +31,7 @@ _saved_path = sys.path[:]
 sys.path = [p for p in sys.path if os.path.abspath(p) != _repo_root and p != ""]
 sys.path.insert(0, _web_root)
 try:
-    import app.main  # noqa: F401
+    import web.main  # noqa: F401
     from web.service import ondemand_verification_service as _svc_mod
     from web.service.ondemand_verification_service import (
         AlertTypeNotFoundError,

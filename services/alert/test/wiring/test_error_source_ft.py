@@ -325,10 +325,10 @@ class TestVSTDownloadSetsMediaDownload:
 def _load_direct_media_handler():
     here = os.path.dirname(os.path.abspath(__file__))
     handler_path = os.path.normpath(
-        os.path.join(here, "..", "handlers", "direct_media", "direct_media_handler.py")
+        os.path.join(here, "..", "..", "src", "handlers", "direct_media", "direct_media_handler.py")
     )
     downloader_path = os.path.normpath(
-        os.path.join(here, "..", "handlers", "direct_media", "media_downloader.py")
+        os.path.join(here, "..", "..", "src", "handlers", "direct_media", "media_downloader.py")
     )
 
     pkg_name = "_errsrc_dmh_pkg"
@@ -437,6 +437,9 @@ class TestMode3DownloadFailureSetsMediaDownload:
 
     def test_vlm_api_error_sets_vlm_api(self):
         handler = _make_mode3_handler()
+        # Let the test URL past the image-URL SSRF policy check so the VLM call
+        # (and its APITimeoutError) is actually reached.
+        handler.downloader.validate_url = Mock(return_value=(True, None))
         handler.vlm_client.analyze_multiple_image_urls = Mock(
             side_effect=APITimeoutError(request=Mock())
         )

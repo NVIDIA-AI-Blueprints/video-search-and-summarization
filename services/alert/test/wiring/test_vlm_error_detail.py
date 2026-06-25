@@ -141,6 +141,14 @@ def _make_enhancer():
     stub.vlm_client.config = {'num_frames': 10}
     stub.vlm_client.model = "nvidia/cosmos-reason2-8b"
     stub.vlm_client.base_url = "http://localhost:30082/v1"
+    # Upstream refactor reads VLM params (max_retries, num_frames, …) from the
+    # merged per-category config rather than self.config['vlm'] directly. Stub
+    # it so ``range(max_retries + 1)`` doesn't hit a bare Mock.
+    stub._get_merged_vlm_config = Mock(return_value={
+        'model': 'test', 'max_retries': 0, 'dynamic_frame_count': False,
+        'num_frames': 10,
+    })
+    stub.set_max_frames = Mock(return_value=10)
     stub.prompt_manager = Mock()
     stub.prompt_manager.alert_config_loader = None
     stub.prompt_manager.get_prompts_for_message.return_value = ("u", "s")
@@ -301,8 +309,9 @@ class TestVLMErrorStatus:
     def test_generic_error_status(self):
         """Errors outside the retry loop reach the outer generic except handler."""
         stub = _make_enhancer()
-        stub.vlm_client.config = Mock(side_effect=RuntimeError("config broken"))
-        stub.vlm_client.config.get = Mock(side_effect=RuntimeError("config broken"))
+        # Raise before the retry loop (the merged-config lookup happens outside
+        # it) so the failure reaches the outer generic except handler.
+        stub._get_merged_vlm_config = Mock(side_effect=RuntimeError("config broken"))
         info = _run(stub)
 
         assert info['verificationResponseCode'] == '500'
