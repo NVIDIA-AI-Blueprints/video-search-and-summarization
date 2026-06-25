@@ -72,10 +72,10 @@ def _fresh_real_direct_media_handler():
     """
     here = os.path.dirname(os.path.abspath(__file__))
     handler_path = os.path.normpath(
-        os.path.join(here, "..", "handlers", "direct_media", "direct_media_handler.py")
+        os.path.join(here, "..", "src", "handlers", "direct_media", "direct_media_handler.py")
     )
     downloader_path = os.path.normpath(
-        os.path.join(here, "..", "handlers", "direct_media", "media_downloader.py")
+        os.path.join(here, "..", "src", "handlers", "direct_media", "media_downloader.py")
     )
 
     pkg_name = "_runtime_module_dmh_pkg"
