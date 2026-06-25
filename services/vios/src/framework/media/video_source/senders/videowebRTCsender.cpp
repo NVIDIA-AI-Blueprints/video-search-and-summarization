@@ -18,7 +18,17 @@
 #include "videowebRTCsender.h"
 #include "modules/video_coding/codecs/nvidia/NvVideoFrameBuffer.h"
 #include "rtc_base/ref_counted_object.h"
+#include "rtc_base/time_utils.h"
+#include "api/make_ref_counted.h"
 using namespace std;
+
+namespace
+{
+uint32_t ToVideoRtpTimestamp(int64_t timestamp_us)
+{
+    return static_cast<uint32_t>((timestamp_us * 90) / 1000);
+}
+}
 
 void VideoWebRTCSender::unRefDataStructure(void *ptr)
 {
@@ -76,7 +86,7 @@ int VideoWebRTCSender::createPassThroughMode(std::string& device_id)
     return 1;
 }
 
-void VideoWebRTCSender::appendWebrtcBroacaster(const std::string& peerid, rtc::VideoBroadcaster* broadcaster)
+void VideoWebRTCSender::appendWebrtcBroacaster(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster)
 {
     std::lock_guard<std::mutex> lock(m_videoSinkLock);
     std::map<std::string, std::shared_ptr<VideoSink>>::iterator it = m_videoSinkList.find(peerid);
@@ -235,7 +245,7 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
         }
         string unique_id = it->first + string("_out");
         m_fpsDisplay->displayFPS(getCurrentUnixTimestampInMs(), unique_id);
-        rtc::scoped_refptr<NvVideoFrameBuffer> nv_video_frame_buffer(new rtc::RefCountedObject<NvVideoFrameBuffer>((int)frame_params.m_width, (int)frame_params.m_height));
+        webrtc::scoped_refptr<NvVideoFrameBuffer> nv_video_frame_buffer(new webrtc::RefCountedObject<NvVideoFrameBuffer>((int)frame_params.m_width, (int)frame_params.m_height));
         NvVideoFrameBuffer* nv_video_frame_buffer_ptr = nv_video_frame_buffer.get();
 
         /* This is being freed in webRTC stack */
@@ -258,10 +268,14 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
             nv_video_frame_buffer->rtspToWebrtcStartTime.tv_sec = std::numeric_limits<time_t>::max();
         }
 
+        const int64_t frame_timestamp_us = nextWebrtcFrameTimestampUs();
+        const uint32_t frame_rtp_timestamp = ToVideoRtpTimestamp(frame_timestamp_us);
+
         webrtc::VideoFrame decodedImage  = webrtc::VideoFrame::Builder()
                                         .set_video_frame_buffer(nv_video_frame_buffer)
                                         .set_rotation(webrtc::kVideoRotation_0)
-                                        .set_timestamp_rtp(0)
+                                        .set_timestamp_us(frame_timestamp_us)
+                                        .set_timestamp_rtp(frame_rtp_timestamp)
                                         .build();
         
         // Validate broadcaster and state before calling OnFrame to prevent crashes
@@ -271,6 +285,23 @@ void VideoWebRTCSender::onFrame(FrameParams& frame_params)
             LOG(verbose) << "Skipping frame for peer " << it->first 
                          << " - broadcaster: " << (sink->m_broadcaster ? "valid" : "null")
                          << ", state: " << sink->m_state << endl;
+        }
+    }
+}
+
+int64_t VideoWebRTCSender::nextWebrtcFrameTimestampUs()
+{
+    int64_t last_timestamp_us = m_lastWebrtcFrameTimestampUs.load();
+    while (true)
+    {
+        int64_t timestamp_us = webrtc::TimeMicros();
+        if (timestamp_us <= last_timestamp_us)
+        {
+            timestamp_us = last_timestamp_us + 1;
+        }
+        if (m_lastWebrtcFrameTimestampUs.compare_exchange_weak(last_timestamp_us, timestamp_us))
+        {
+            return timestamp_us;
         }
     }
 }
@@ -369,5 +400,3 @@ string VideoWebRTCSender::getPlaybackState(const std::string& peerid)
     }
     return state;
 }
-
-
