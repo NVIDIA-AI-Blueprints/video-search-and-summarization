@@ -121,8 +121,14 @@ def test_publish_picks_up_store_edits_without_restart(monkeypatch):
         captured.append(dict(doc))
         return MagicMock(SerializeToString=lambda: b"")
 
-    monkeypatch.setattr(
-        "mdx.sink.vlm_enhanced_sink.sink_kafka."
+    # Patch the name in the exact module namespace the sink method resolves
+    # against (``_produce.__globals__``) rather than by dotted string. Other
+    # tests in the full suite can leave a re-imported ``sink_kafka`` in
+    # ``sys.modules`` whose identity differs from the module that defined the
+    # ``VLMEnhancedKafkaSink`` class bound here; a string-target patch would
+    # then update the wrong module object and the real converter would run.
+    monkeypatch.setitem(
+        VLMEnhancedKafkaSink._produce.__globals__,
         "convert_incident_to_protobuf_incident",
         fake_convert,
     )
