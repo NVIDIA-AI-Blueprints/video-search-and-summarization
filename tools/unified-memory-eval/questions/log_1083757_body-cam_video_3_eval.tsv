@@ -1,0 +1,12 @@
+qid	question	expected_answer_target	expected_event_ids
+1	Where is the police vehicle first shown parked, and what nearby vehicle is visible?	At a gas station at night with flashing blue lights, near a white car under the canopy.	2
+2	What is the individual in the plaid shirt doing near the beginning of the scene?	Moving near the gas pump and the car while police activity continues outside.	3
+3	What items are visible during the police vehicle interior inspection around 40 to 49 seconds?	A blue water bottle, a red can, and miscellaneous objects on or near the dashboard and center console.	4
+4	What part of the police vehicle interior is highlighted by the focused light around 60 to 69 seconds?	The cluttered center console area with dashboard controls, steering wheel, and personal belongings.	5
+5	Who exits the white car around 80 to 90 seconds, and where do they go?	A person wearing a plaid shirt and cap exits the white car and walks toward the police vehicle.	6
+6	What does the officer inspect after approaching and opening the driver's side door?	The steering wheel and dashboard area of the vehicle.	8
+7	What location and lighting context are visible during the driver's-side inspection near 100 to 119 seconds?	A nighttime setting with exterior streetlights and a lit building visible outside the dimly lit vehicle interior.	8
+8	What details indicate an officer is inside the police vehicle near 110 to 121 seconds?	A partially visible head or helmet appears inside the cabin while a detailed inspection is underway.	9
+9	Which event directly describes close-up handling of items such as a blue-lidded container and gold chain?	The broad vehicle-search segment showing a gloved search and close-up handling of small items including a blue-lidded container and gold chain.	1
+10	Does the event set describe any vehicle pursuit or high-speed chase?	No. The events describe stationary vehicles, searches, and inspection activity; absence across the event set supports the answer.	
+11	Which events describe the police vehicle itself, including exterior presence, flashing lights, stationary positioning, or interior cabin inspection?	All events focused on the police vehicle's exterior presence, emergency lights, stationary position, or interior inspection.	2,3,4,5,7,9

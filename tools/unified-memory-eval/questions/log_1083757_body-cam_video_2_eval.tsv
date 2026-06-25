@@ -1,0 +1,12 @@
+qid	question	expected_answer_target	expected_event_ids
+1	What activity is shown inside the vehicle at the very start of the video?	A gloved person reaches into the vehicle interior and manipulates items around the dashboard and center console, suggesting a search or inspection.	1
+2	What setting is established when the camera first shows the exterior scene?	The scene is a nighttime gas station area with fuel pumps, artificial lighting, and a police vehicle with flashing lights nearby.	3
+3	Who is visible in the silver sedan during the initial approach?	A person in a red jacket with white stripes is inside the silver sedan while officers approach under flashlight and emergency lighting.	4,5
+4	What physical action occurs during the initial arrest interaction near the silver sedan?	The red-jacketed suspect is physically restrained by someone in a plaid shirt and raises their hands in compliance.	4
+5	How does the arrest progress after the suspect in red is taken to the ground?	Officers secure the person on the ground, handcuff them, move them against a vehicle for control, and leave them fully restrained.	6
+6	What object and location context appear in the background during the prolonged arrest of the red-jacketed person?	Police vehicles with flashing lights, a trash can, and a gas pump are visible around the gas station arrest scene.	6
+7	What calm scene is shown before a later police vehicle enters near the building?	At night outside a brick convenience-store-like building, a person stands near the entrance with red bollards along the walkway.	11
+8	What does the silver police car do after entering the later building-side scene?	It enters slowly from the left and stops near the building with its rear facing the camera and lights on.	12,13
+9	What does the officer find or inspect during the later arrest near the gas pump?	The officer searches the vehicle interior and finds cash or documents on the driver's seat.	14
+10	Was medical aid or treatment described anywhere in the event set?	No medical aid or treatment is described; this is supported by absence across the provided events.	
+11	Which events describe police vehicles arriving or approaching the gas station/building scene?	All events that show police vehicles arriving, approaching, or moving into the scene near the gas station or building.	3,7,9,10,12,15

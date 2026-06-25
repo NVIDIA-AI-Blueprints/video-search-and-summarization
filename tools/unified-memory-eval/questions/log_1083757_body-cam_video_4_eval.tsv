@@ -1,0 +1,12 @@
+qid	question	expected_answer_target	expected_event_ids
+1	What was the shirtless restrained man wearing while seated in the lock-up room?	Blue shorts.	1
+2	Where was the restrained shirtless man positioned during the main lock-up scene?	Against a tiled or white wall, seated on a bench or under a metal table in a detention room.	1
+3	Who adjusted or secured the handcuffs on the restrained man?	A person with a visible tattoo.	1
+4	What object was shown by hands during the lock-up scene?	An ID card, possibly shown to the camera.	1
+5	What physical features of the restrained man are described?	Short dark hair and a beard.	1
+6	What room features establish that the setting is a jail or correctional facility?	Tiled walls, metal tables, barred windows, fluorescent lighting, and a glass partition/counter area.	1
+7	What movement did the restrained individual make near the end of the first event?	He moved toward a door, passing a counter with a glass partition.	1
+8	What happened when the person in a dark jacket and jeans reached the door?	The person opened the door and walked through it.	2
+9	Who was nearby when the person in the dark jacket and jeans walked through the door?	Another individual in a dark jacket and cap stood nearby, partially visible in the background.	2
+10	Which event covers the long initial lock-up sequence with the restrained shirtless man?	Event 1, spanning about 0.01 to 79.51 seconds.	1
+11	Which events describe activity in the lock-up or detention-facility setting?	All events shown are lock-up/detention-area activity, including the restrained man scene and the later doorway movement.	1,2

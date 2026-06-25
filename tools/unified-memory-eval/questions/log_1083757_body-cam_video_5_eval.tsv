@@ -1,0 +1,12 @@
+qid	question	expected_answer_target	expected_event_ids
+1	Where is the shirtless man seated during the interview?	He is seated on the floor against a white tiled or cinderblock wall in a detention room.	1
+2	What clothing is the seated man wearing?	The man is shirtless and wearing blue shorts.	1
+3	What items are on the floor around the seated man?	Clothing items are scattered on the floor around him.	1
+4	How does the seated man’s posture change during the interview segment?	He leans forward and downward and eventually rests his head on the pile of clothes.	1
+5	What emotional or physical state does the seated man appear to show?	He appears fatigued or resigned, with his head down and eyes closed.	1
+6	What room features indicate an institutional detention setting?	The room has plain white walls, a small window showing adjacent cells, minimal furnishings, and dim lighting.	1
+7	What obstructs the camera view in the hallway segment?	A hand in the foreground partially obstructs the view.	2
+8	What does the hallway segment show in the background?	It shows a tiled hallway with fluorescent lighting, doors, signs, and notices.	2
+9	What suggests the camera is body-mounted during the hallway segment?	The first-person perspective and movement through the corridor suggest the camera is mounted on a person’s body.	2
+10	Does any event describe the seated man standing up or leaving the detention room?	No; this is a negative-control question supported by absence across the event set.	
+11	Which events describe institutional police-interview environments or movement within them?	Events show a detention-room interview setting and a hallway or corridor in an institutional police facility.	1,2
