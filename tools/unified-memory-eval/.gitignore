@@ -1,5 +1,6 @@
 .env
 .venv/
+questions
 results/
 __pycache__/
 *.pyc
