@@ -21,14 +21,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
-
-from compare import compare_one
-from compare_total import compare_total
-
-
 # =============================================================================
 # Section 0 - Constants And Small Utilities
 # =============================================================================
@@ -36,15 +28,6 @@ from compare_total import compare_total
 DEFAULT_LVS_BACKEND_URL = "http://127.0.0.1:38112"
 DEFAULT_VIDEO_URL_TEMPLATE = "http://172.17.0.1:39080/{video_name}.mp4"
 DEFAULT_VLM_MODEL = "nim_nvidia_cosmos-reason2-8b_hf-1208"
-RAW_FIELDS = [
-    "QID",
-    "Question",
-    "Answer",
-    "Cited IDs",
-    "Citation Reason",
-    "Answer Match",
-    "Notes",
-]
 
 
 def log(message: str) -> None:
@@ -56,12 +39,9 @@ def read_tsv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
-def write_raw_tsv(path: Path, rows: list[dict[str, str]]) -> None:
+def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=RAW_FIELDS, delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
 def normalize_row(row: dict[str, str]) -> dict[str, str]:
@@ -207,7 +187,7 @@ def save_memory(
         f"\"event_count\": {event_count}"
         "}"
     )
-    output = run_openclaw(message, session_key, model, timeout, log_path)
+    output, _, _ = run_openclaw(message, session_key, model, timeout, log_path)
     parsed = extract_json_object(output)
     if parsed.get("saved") is not True:
         raise RuntimeError(f"OpenClaw did not confirm memory save: {parsed}")
@@ -256,7 +236,7 @@ def fetch_frozen_summary(
 # =============================================================================
 
 
-def run_openclaw(message: str, session_key: str, model: str, timeout: int, log_path: Path) -> str:
+def run_openclaw(message: str, session_key: str, model: str, timeout: int, log_path: Path) -> tuple[str, int, int]:
     command = [
         "openclaw",
         "agent",
@@ -270,7 +250,9 @@ def run_openclaw(message: str, session_key: str, model: str, timeout: int, log_p
         "--message",
         message,
     ]
+    start = time.perf_counter()
     result = subprocess.run(command, text=True, capture_output=True, env=openclaw_env(), timeout=timeout + 60)
+    latency_ms = int((time.perf_counter() - start) * 1000)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write("\n\n===== OPENCLAW CALL =====\n")
@@ -281,20 +263,20 @@ def run_openclaw(message: str, session_key: str, model: str, timeout: int, log_p
         handle.write(result.stderr)
     if result.returncode != 0:
         raise RuntimeError(f"OpenClaw failed with exit {result.returncode}; see {log_path}")
-    return result.stdout
+    return result.stdout, latency_ms, 1
 
 
 def seed_video_context(events_doc: dict[str, Any], video_name: str, session_key: str, model: str, timeout: int, log_path: Path) -> None:
     message = (
         "We are starting one VSS eval conversation for a single video.\n"
         f"Video name: {video_name}\n"
-        "Use only the frozen summary/events JSON below when answering the upcoming TSV questions.\n"
+        "Use only the frozen summary/events JSON below when answering the upcoming eval questions.\n"
         "Do not use outside knowledge. Preserve event IDs exactly.\n\n"
         "Frozen summary/events JSON:\n"
         f"{json.dumps(events_doc, indent=2)}\n\n"
         "Reply with only this JSON: {\"ready\": true}"
     )
-    output = run_openclaw(message, session_key, model, timeout, log_path)
+    output, _, _ = run_openclaw(message, session_key, model, timeout, log_path)
     parsed = extract_json_object(output)
     if parsed.get("ready") is not True:
         raise RuntimeError(f"OpenClaw seed response did not confirm readiness: {parsed}")
@@ -307,7 +289,7 @@ def answer_question(
     model: str,
     timeout: int,
     log_path: Path,
-) -> tuple[str, list[int], str]:
+) -> tuple[str, list[int], str, int, int]:
     schema = {
         "type": "object",
         "additionalProperties": False,
@@ -356,7 +338,7 @@ def answer_question(
         f"QID: {qid}\n"
         f"Question: {question}\n"
     )
-    output = run_openclaw(message, session_key, model, timeout, log_path)
+    output, latency_ms, tool_calls = run_openclaw(message, session_key, model, timeout, log_path)
     parsed = extract_json_object(output)
     answer = str(parsed.get("answer", "")).strip()
     cited = parsed.get("cited_event_ids", [])
@@ -364,7 +346,7 @@ def answer_question(
         cited = []
     cited_ids = [int(value) for value in cited if isinstance(value, int) or str(value).isdigit()]
     citation_reason = str(parsed.get("citation_reason", "")).strip()
-    return answer, cited_ids, citation_reason
+    return answer, cited_ids, citation_reason, latency_ms, tool_calls
 
 
 # =============================================================================
@@ -409,22 +391,191 @@ def judge_answer(question: str, expected_target: str, answer: str, judge_model: 
 
 
 # =============================================================================
-# Section 5 - Write Raw TSV, Run compare.py, And Run compare_total.py
+# Section 5 - Score And Write JSON/Markdown Reports
 # =============================================================================
 
 
-def run_compare(script_dir: Path, question_file: Path, raw_tsv: Path, video_name: str, report: Path, metrics_json: Path) -> dict:
-    return compare_one(
-        questions=question_file,
-        answers=raw_tsv,
-        video_name=video_name,
-        report=report,
-        metrics_json=metrics_json,
-    )
+def parse_event_ids(value: str | None) -> list[int]:
+    if not value:
+        return []
+    return [int(match.group(0)) for match in re.finditer(r"\d+", value)]
 
 
-def run_compare_total(script_dir: Path, run_dir: Path) -> None:
-    compare_total(run_dir=run_dir, output=run_dir / "total.md")
+def prf(expected: set[int], predicted: set[int]) -> tuple[float, float, float]:
+    if not expected and not predicted:
+        return 1.0, 1.0, 1.0
+    correct = expected & predicted
+    precision = len(correct) / len(predicted) if predicted else 0.0
+    recall = len(correct) / len(expected) if expected else 0.0
+    f1 = 0.0 if precision + recall == 0 else (2 * precision * recall) / (precision + recall)
+    return precision, recall, f1
+
+
+def summarize_single_raw(raw_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    question_count = len(raw_rows)
+    correct_answers = sum(int(row["answer_accuracy"]) for row in raw_rows)
+    exact_evidence_matches = sum(int(row["exact_evidence_match"]) for row in raw_rows)
+    correct_cited_ids = 0
+    total_cited_ids = 0
+    expected_ids_count = 0
+    for row in raw_rows:
+        expected = set(row["expected_event_ids"])
+        predicted = set(row["predicted_event_ids"])
+        correct_cited_ids += len(expected & predicted)
+        total_cited_ids += len(predicted)
+        expected_ids_count += len(expected)
+    precision = correct_cited_ids / total_cited_ids if total_cited_ids else 0.0
+    recall = correct_cited_ids / expected_ids_count if expected_ids_count else 0.0
+    f1 = 0.0 if precision + recall == 0 else (2 * precision * recall) / (precision + recall)
+    return {
+        "question_count": question_count,
+        "correct_answers": correct_answers,
+        "exact_evidence_matches": exact_evidence_matches,
+        "correct_cited_ids": correct_cited_ids,
+        "total_cited_ids": total_cited_ids,
+        "expected_ids_count": expected_ids_count,
+        "answer_accuracy": correct_answers / question_count if question_count else 0.0,
+        "exact_evidence_match": exact_evidence_matches / question_count if question_count else 0.0,
+        "mean_evidence_precision": precision,
+        "mean_evidence_recall": recall,
+        "mean_evidence_f1_score": f1,
+    }
+
+
+def fmt_float(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def fmt_ratio(num: int, den: int) -> str:
+    if den == 0:
+        return "n/a"
+    return f"{num}/{den} = {fmt_float(num / den)}"
+
+
+def write_video_report_md(path: Path, video_id: str, metrics: dict[str, Any], raw_rows: list[dict[str, Any]]) -> None:
+    lines = [
+        f"# {video_id} Eval Report",
+        "",
+        "| Metric | Result |",
+        "|---|---:|",
+        f"| Answer Accuracy | `{fmt_ratio(metrics['correct_answers'], metrics['question_count'])}` |",
+        f"| Exact Evidence Match | `{fmt_ratio(metrics['exact_evidence_matches'], metrics['question_count'])}` |",
+        f"| Mean Evidence Precision | `{fmt_float(metrics['mean_evidence_precision'])}` |",
+        f"| Mean Evidence Recall | `{fmt_float(metrics['mean_evidence_recall'])}` |",
+        f"| Mean Evidence F1 Score | `{fmt_float(metrics['mean_evidence_f1_score'])}` |",
+        "",
+        "| QID | Question | Expected IDs | Predicted IDs | Answer Accuracy | Exact Evidence | Precision | Recall | F1 |",
+        "|---:|---|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in raw_rows:
+        safe_question = str(row["question"]).replace("|", "\\|").replace("\n", " ")
+        lines.append(
+            f"| {row['qid']} | {safe_question} | {','.join(map(str, row['expected_event_ids']))} | "
+            f"{','.join(map(str, row['predicted_event_ids']))} | {row['answer_accuracy']} | "
+            f"{row['exact_evidence_match']} | {fmt_float(row['precision'])} | "
+            f"{fmt_float(row['recall'])} | {fmt_float(row['f1_score'])} |"
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def build_video_report_json(run_id: str, video_id: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "eval_type": "single_video_qa",
+        "video_id": video_id,
+        "summary": {
+            "question_count": metrics["question_count"],
+            "answer_accuracy": metrics["answer_accuracy"],
+            "exact_evidence_match": metrics["exact_evidence_match"],
+            "mean_evidence_precision": metrics["mean_evidence_precision"],
+            "mean_evidence_recall": metrics["mean_evidence_recall"],
+            "mean_evidence_f1_score": metrics["mean_evidence_f1_score"],
+        },
+        "counts": {
+            "questions": metrics["question_count"],
+            "correct_answers": metrics["correct_answers"],
+            "exact_evidence_matches": metrics["exact_evidence_matches"],
+        },
+        "artifacts": {
+            "raw_json": "raw.json",
+            "report_md": "report.md",
+            "summary": "debug/summary.json",
+            "summary_events": "debug/summary_events.json",
+            "openclaw_log": "debug/openclaw.log",
+        },
+    }
+
+
+def build_total_report(run_id: str, video_reports: list[dict[str, Any]], video_metrics: list[dict[str, Any]]) -> dict[str, Any]:
+    videos = len(video_reports)
+    questions = sum(item["question_count"] for item in video_metrics)
+    correct_answers = sum(item["correct_answers"] for item in video_metrics)
+    exact_evidence_matches = sum(item["exact_evidence_matches"] for item in video_metrics)
+    correct_cited_ids = sum(item["correct_cited_ids"] for item in video_metrics)
+    total_cited_ids = sum(item["total_cited_ids"] for item in video_metrics)
+    expected_ids_count = sum(item["expected_ids_count"] for item in video_metrics)
+    precision = correct_cited_ids / total_cited_ids if total_cited_ids else 0.0
+    recall = correct_cited_ids / expected_ids_count if expected_ids_count else 0.0
+    f1 = 0.0 if precision + recall == 0 else (2 * precision * recall) / (precision + recall)
+    return {
+        "run_id": run_id,
+        "eval_type": "single_video_qa_total",
+        "summary": {
+            "video_count": videos,
+            "question_count": questions,
+            "answer_accuracy": correct_answers / questions if questions else 0.0,
+            "exact_evidence_match": exact_evidence_matches / questions if questions else 0.0,
+            "mean_evidence_precision": precision,
+            "mean_evidence_recall": recall,
+            "mean_evidence_f1_score": f1,
+        },
+        "counts": {
+            "videos": videos,
+            "questions": questions,
+            "correct_answers": correct_answers,
+            "exact_evidence_matches": exact_evidence_matches,
+        },
+        "videos": [
+            {
+                "video_id": report["video_id"],
+                "question_count": report["summary"]["question_count"],
+                "answer_accuracy": report["summary"]["answer_accuracy"],
+                "exact_evidence_match": report["summary"]["exact_evidence_match"],
+                "mean_evidence_precision": report["summary"]["mean_evidence_precision"],
+                "mean_evidence_recall": report["summary"]["mean_evidence_recall"],
+                "mean_evidence_f1_score": report["summary"]["mean_evidence_f1_score"],
+                "report_json": f"{report['video_id']}/report.json",
+            }
+            for report in video_reports
+        ],
+        "artifacts": {
+            "report_md": "total.md",
+            "videos_root": ".",
+        },
+    }
+
+
+def write_total_report_md(path: Path, total: dict[str, Any]) -> None:
+    summary = total["summary"]
+    counts = total["counts"]
+    lines = [
+        "# Total Eval Report",
+        "",
+        f"Videos evaluated: {counts['videos']}",
+        "",
+        "| Metric | Result |",
+        "|---|---:|",
+        f"| Answer Accuracy | `{fmt_ratio(counts['correct_answers'], counts['questions'])}` |",
+        f"| Exact Evidence Match | `{fmt_ratio(counts['exact_evidence_matches'], counts['questions'])}` |",
+        f"| Mean Evidence Precision | `{fmt_float(summary['mean_evidence_precision'])}` |",
+        f"| Mean Evidence Recall | `{fmt_float(summary['mean_evidence_recall'])}` |",
+        f"| Mean Evidence F1 Score | `{fmt_float(summary['mean_evidence_f1_score'])}` |",
+        "",
+        "## Videos",
+        "",
+    ]
+    lines.extend(f"- [{video['video_id']}]({video['video_id']}/report.md)" for video in total["videos"])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # =============================================================================
@@ -451,26 +602,31 @@ def main() -> int:
     args = parser.parse_args()
 
     questions_dir = args.eval_root / "questions"
-    scripts_dir = args.eval_root / "scripts"
     results_root = args.eval_root / "results"
     question_files = discover_question_files(questions_dir)
     run_id, run_dir = make_run_dir(results_root, args.run_id)
+    debug_dir = run_dir / "debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
     log(f"Run directory: {run_dir}")
     if args.save_memory:
         log("Resetting OpenClaw durable memory for eval")
-        reset_memory(run_dir / "memory_reset.log")
+        reset_memory(debug_dir / "memory_reset.log")
 
-    reports: list[Path] = []
+    video_reports: list[dict[str, Any]] = []
+    video_metrics: list[dict[str, Any]] = []
     for question_file in question_files:
         video_name = question_file.name.removesuffix("_eval.tsv")
         video_url = args.video_url_template.format(video_name=video_name)
         session_key = f"vss-eval-single-{run_id}-{video_name}"
-        log_path = run_dir / f"{video_name}_openclaw.log"
-        raw_tsv = run_dir / f"{video_name}_raw.tsv"
-        report = run_dir / f"{video_name}_report.md"
-        metrics_json = run_dir / f"{video_name}_metrics.json"
-        summary_json = run_dir / f"{video_name}_summary.json"
-        events_json = run_dir / f"{video_name}_frozen_summary_events.json"
+        video_dir = run_dir / video_name
+        video_debug_dir = video_dir / "debug"
+        video_debug_dir.mkdir(parents=True, exist_ok=True)
+        log_path = video_debug_dir / "openclaw.log"
+        raw_json = video_dir / "raw.json"
+        report_md = video_dir / "report.md"
+        report_json = video_dir / "report.json"
+        summary_json = video_debug_dir / "summary.json"
+        events_json = video_debug_dir / "summary_events.json"
 
         log(f"Processing {video_name}")
         events_doc = fetch_frozen_summary(
@@ -492,14 +648,15 @@ def main() -> int:
                 log_path,
             )
 
-        raw_rows: list[dict[str, str]] = []
+        raw_rows: list[dict[str, Any]] = []
         for row in read_tsv(question_file):
             norm = normalize_row(row)
             qid = norm.get("qid", "")
             question = norm.get("question", "")
             expected_target = norm.get("expected_answer_target", "")
+            expected_event_ids = parse_event_ids(norm.get("expected_event_ids", ""))
             log(f"  Q{qid}: answering")
-            answer, cited_ids, citation_reason = answer_question(
+            answer, cited_ids, citation_reason, latency_ms, tool_calls = answer_question(
                 qid,
                 question,
                 session_key,
@@ -509,29 +666,45 @@ def main() -> int:
             )
             log(f"  Q{qid}: judging")
             answer_match, notes = judge_answer(question, expected_target, answer, args.judge_model, args.judge_timeout)
+            precision, recall, f1 = prf(set(expected_event_ids), set(cited_ids))
             raw_rows.append(
                 {
-                    "QID": qid,
-                    "Question": question,
-                    "Answer": answer,
-                    "Cited IDs": ",".join(map(str, cited_ids)),
-                    "Citation Reason": citation_reason,
-                    "Answer Match": str(answer_match).lower(),
-                    "Notes": notes,
+                    "qid": qid,
+                    "question": question,
+                    "expected_answer_target": expected_target,
+                    "answer": answer,
+                    "expected_event_ids": expected_event_ids,
+                    "predicted_event_ids": sorted(cited_ids),
+                    "answer_accuracy": int(answer_match),
+                    "exact_evidence_match": int(set(expected_event_ids) == set(cited_ids)),
+                    "precision": precision,
+                    "recall": recall,
+                    "f1_score": f1,
+                    "judge_notes": notes,
+                    "latency_ms": latency_ms,
+                    "num_tool_calls": tool_calls,
+                    "citation_reason": citation_reason,
                 }
             )
-            write_raw_tsv(raw_tsv, raw_rows)
+            write_json(raw_json, raw_rows)
 
-        run_compare(scripts_dir, question_file, raw_tsv, video_name, report, metrics_json)
-        reports.append(report)
+        metrics = summarize_single_raw(raw_rows)
+        video_report = build_video_report_json(run_id, video_name, metrics)
+        write_video_report_md(report_md, video_name, metrics, raw_rows)
+        write_json(report_json, video_report)
+        video_reports.append(video_report)
+        video_metrics.append(metrics)
 
-    run_compare_total(scripts_dir, run_dir)
+    total_report = build_total_report(run_id, video_reports, video_metrics)
+    write_total_report_md(run_dir / "total.md", total_report)
+    write_json(run_dir / "total.json", total_report)
     log("")
     log(f"Final output directory: {run_dir}")
     log("Video report files written:")
-    for report in reports:
-        log(str(report))
+    for report in video_reports:
+        log(str(run_dir / report["video_id"] / "report.md"))
     log(f"Aggregate report: {run_dir / 'total.md'}")
+    log(f"Aggregate JSON: {run_dir / 'total.json'}")
     return 0
 
 

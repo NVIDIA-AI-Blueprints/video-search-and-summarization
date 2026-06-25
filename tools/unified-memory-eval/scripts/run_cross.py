@@ -30,29 +30,6 @@ from typing import Any
 DEFAULT_SUMMARY_DIR = Path("/home/ubuntu/frozen-summarization-endpoint/data")
 DEFAULT_QUESTION_FILE = Path("questions/cross-incidents.tsv")
 
-RAW_FIELDS = [
-    "Scenario ID",
-    "Turn ID",
-    "Family",
-    "Question",
-    "Expected Answer Target",
-    "Expected Video IDs",
-    "Expected Event IDs",
-    "Answer",
-    "Predicted Video IDs",
-    "Predicted Event IDs",
-    "Confidence",
-    "Not Stated",
-    "Locator Accuracy",
-    "Answer Accuracy",
-    "Precision",
-    "Recall",
-    "F1 Score",
-    "Judge Notes",
-    "Latency MS",
-    "Num Tool Calls",
-]
-
 
 def log(message: str) -> None:
     print(message, flush=True)
@@ -63,12 +40,9 @@ def read_tsv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
-def write_tsv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None:
+def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t", extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
 def normalize_row(row: dict[str, str]) -> dict[str, str]:
@@ -235,6 +209,13 @@ def format_evidence(evidence: set[tuple[str, int]]) -> str:
     for video_id, event_id in sorted(evidence):
         grouped[video_id].append(event_id)
     return ";".join(f"{video_id}:{','.join(map(str, ids))}" for video_id, ids in grouped.items())
+
+
+def evidence_to_json(evidence: set[tuple[str, int]]) -> dict[str, list[int]]:
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for video_id, event_id in sorted(evidence):
+        grouped[video_id].append(event_id)
+    return dict(grouped)
 
 
 def prf(expected: set[tuple[str, int]], predicted: set[tuple[str, int]]) -> tuple[float, float, float]:
@@ -545,45 +526,125 @@ def fmt_float(value: float) -> str:
 
 
 def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    locator_rows = [row for row in rows if row["Turn ID"] == "1"]
-    answer_rows = [row for row in rows if row["Turn ID"] != "1" and row["Answer Accuracy"] != ""]
+    locator_rows = [row for row in rows if row["turn_id"] == 1]
+    answer_rows = [row for row in rows if row["turn_id"] != 1 and row["answer_accuracy"] is not None]
     return {
         "total_turns": len(rows),
         "locator_turns": len(locator_rows),
-        "locator_correct": sum(int(row["Locator Accuracy"]) for row in locator_rows if row["Locator Accuracy"] != ""),
+        "locator_correct": sum(int(row["locator_accuracy"]) for row in locator_rows if row["locator_accuracy"] is not None),
         "judged_answers": len(answer_rows),
-        "correct_answers": sum(int(row["Answer Accuracy"]) for row in answer_rows),
-        "mean_precision": sum(float(row["Precision"]) for row in rows) / len(rows) if rows else 0.0,
-        "mean_recall": sum(float(row["Recall"]) for row in rows) / len(rows) if rows else 0.0,
-        "mean_f1_score": sum(float(row["F1 Score"]) for row in rows) / len(rows) if rows else 0.0,
-        "mean_latency_ms": int(sum(int(row["Latency MS"]) for row in rows) / len(rows)) if rows else 0,
-        "mean_num_tool_calls": sum(int(row["Num Tool Calls"]) for row in rows) / len(rows) if rows else 0.0,
+        "correct_answers": sum(int(row["answer_accuracy"]) for row in answer_rows),
+        "mean_precision": sum(float(row["precision"]) for row in rows) / len(rows) if rows else 0.0,
+        "mean_recall": sum(float(row["recall"]) for row in rows) / len(rows) if rows else 0.0,
+        "mean_f1_score": sum(float(row["f1_score"]) for row in rows) / len(rows) if rows else 0.0,
+        "mean_latency_ms": int(sum(int(row["latency_ms"]) for row in rows) / len(rows)) if rows else 0,
+        "mean_num_tool_calls": sum(int(row["num_tool_calls"]) for row in rows) / len(rows) if rows else 0.0,
     }
 
 
-def write_report(path: Path, metrics: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+def summarize_group(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    metrics = summarize_rows(rows)
+    return {
+        "total_turns": metrics["total_turns"],
+        "locator_accuracy": (
+            metrics["locator_correct"] / metrics["locator_turns"]
+            if metrics["locator_turns"]
+            else None
+        ),
+        "answer_accuracy": (
+            metrics["correct_answers"] / metrics["judged_answers"]
+            if metrics["judged_answers"]
+            else None
+        ),
+        "mean_evidence_precision": metrics["mean_precision"],
+        "mean_evidence_recall": metrics["mean_recall"],
+        "mean_evidence_f1_score": metrics["mean_f1_score"],
+        "mean_latency_ms": metrics["mean_latency_ms"],
+        "mean_num_tool_calls": metrics["mean_num_tool_calls"],
+    }
+
+
+def build_report_json(run_id: str, rows: list[dict[str, Any]], scenario_count: int) -> dict[str, Any]:
+    metrics = summarize_rows(rows)
+    by_scenario = []
+    for scenario_id in sorted({row["scenario_id"] for row in rows}):
+        summary = summarize_group([row for row in rows if row["scenario_id"] == scenario_id])
+        summary["scenario_id"] = scenario_id
+        by_scenario.append(summary)
+    by_family = []
+    for family in sorted({row["family"] for row in rows}):
+        summary = summarize_group([row for row in rows if row["family"] == family])
+        summary["family"] = family
+        by_family.append(summary)
+    return {
+        "run_id": run_id,
+        "eval_type": "cross_conversation_memory",
+        "summary": {
+            "total_turns": metrics["total_turns"],
+            "scenario_count": scenario_count,
+            "locator_accuracy": (
+                metrics["locator_correct"] / metrics["locator_turns"]
+                if metrics["locator_turns"]
+                else 0.0
+            ),
+            "answer_accuracy": (
+                metrics["correct_answers"] / metrics["judged_answers"]
+                if metrics["judged_answers"]
+                else 0.0
+            ),
+            "mean_evidence_precision": metrics["mean_precision"],
+            "mean_evidence_recall": metrics["mean_recall"],
+            "mean_evidence_f1_score": metrics["mean_f1_score"],
+            "mean_latency_ms": metrics["mean_latency_ms"],
+            "mean_num_tool_calls": metrics["mean_num_tool_calls"],
+        },
+        "counts": {
+            "locator_turns": metrics["locator_turns"],
+            "correct_locator_turns": metrics["locator_correct"],
+            "judged_answer_turns": metrics["judged_answers"],
+            "correct_answer_turns": metrics["correct_answers"],
+        },
+        "breakdown": {
+            "by_scenario": by_scenario,
+            "by_family": by_family,
+        },
+        "artifacts": {
+            "raw_json": "raw.json",
+            "report_md": "report.md",
+            "validation_warnings": "debug/validation_warnings.txt",
+            "memory_save_log": "debug/memory_save_openclaw.log",
+        },
+    }
+
+
+def write_report(path: Path, report_json: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    summary = report_json["summary"]
+    counts = report_json["counts"]
     lines = [
         "# Cross-Conversation Memory Eval Report",
         "",
         "| Metric | Result |",
         "|---|---:|",
-        f"| Locator Accuracy | `{metrics['locator_correct']}/{metrics['locator_turns']} = {fmt_float(metrics['locator_correct'] / metrics['locator_turns'] if metrics['locator_turns'] else 0.0)}` |",
-        f"| Answer Accuracy | `{metrics['correct_answers']}/{metrics['judged_answers']} = {fmt_float(metrics['correct_answers'] / metrics['judged_answers'] if metrics['judged_answers'] else 0.0)}` |",
-        f"| Mean Evidence Precision | `{fmt_float(metrics['mean_precision'])}` |",
-        f"| Mean Evidence Recall | `{fmt_float(metrics['mean_recall'])}` |",
-        f"| Mean Evidence F1 Score | `{fmt_float(metrics['mean_f1_score'])}` |",
-        f"| Mean Latency MS | `{metrics['mean_latency_ms']}` |",
-        f"| Mean Tool Calls | `{fmt_float(metrics['mean_num_tool_calls'])}` |",
+        f"| Locator Accuracy | `{counts['correct_locator_turns']}/{counts['locator_turns']} = {fmt_float(summary['locator_accuracy'])}` |",
+        f"| Answer Accuracy | `{counts['correct_answer_turns']}/{counts['judged_answer_turns']} = {fmt_float(summary['answer_accuracy'])}` |",
+        f"| Mean Evidence Precision | `{fmt_float(summary['mean_evidence_precision'])}` |",
+        f"| Mean Evidence Recall | `{fmt_float(summary['mean_evidence_recall'])}` |",
+        f"| Mean Evidence F1 Score | `{fmt_float(summary['mean_evidence_f1_score'])}` |",
+        f"| Mean Latency MS | `{summary['mean_latency_ms']}` |",
+        f"| Mean Tool Calls | `{fmt_float(summary['mean_num_tool_calls'])}` |",
         "",
         "| Scenario | Turn | Family | Expected Videos | Predicted Videos | Expected Evidence | Predicted Evidence | Locator Accuracy | Answer Accuracy | Precision | Recall | F1 |",
         "|---|---:|---|---|---|---|---|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
-        safe = {key: str(value).replace("|", "\\|").replace("\n", " ") for key, value in row.items()}
+        expected_evidence = ";".join(f"{video}:{','.join(map(str, ids))}" for video, ids in row["expected_event_ids"].items())
+        predicted_evidence = ";".join(f"{video}:{','.join(map(str, ids))}" for video, ids in row["predicted_event_ids"].items())
         lines.append(
-            "| {Scenario ID} | {Turn ID} | {Family} | {Expected Video IDs} | {Predicted Video IDs} | {Expected Event IDs} | {Predicted Event IDs} | {Locator Accuracy} | {Answer Accuracy} | {Precision} | {Recall} | {F1 Score} |".format(
-                **safe
-            )
+            f"| {row['scenario_id']} | {row['turn_id']} | {row['family']} | {','.join(row['expected_video_ids'])} | "
+            f"{','.join(row['predicted_video_ids'])} | {expected_evidence} | {predicted_evidence} | "
+            f"{'' if row['locator_accuracy'] is None else row['locator_accuracy']} | "
+            f"{'' if row['answer_accuracy'] is None else row['answer_accuracy']} | "
+            f"{fmt_float(row['precision'])} | {fmt_float(row['recall'])} | {fmt_float(row['f1_score'])} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -616,6 +677,8 @@ def main() -> int:
     question_file = args.question_file or args.eval_root / DEFAULT_QUESTION_FILE
     results_root = args.eval_root / "results"
     run_id, run_dir = make_run_dir(results_root, args.run_id)
+    debug_dir = run_dir / "debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
     log(f"Run directory: {run_dir}")
 
     summaries = load_summaries(args.summary_dir)
@@ -624,7 +687,7 @@ def main() -> int:
     question_rows = read_tsv(question_file)
     grouped = group_scenarios(question_rows)
     warnings = validate_questions(question_rows, summaries)
-    validation_path = run_dir / "validation_warnings.txt"
+    validation_path = debug_dir / "validation_warnings.txt"
     validation_path.write_text("\n".join(warnings) + ("\n" if warnings else ""), encoding="utf-8")
     if warnings:
         log("Validation warnings:")
@@ -633,10 +696,13 @@ def main() -> int:
     else:
         log("Question validation passed with no missing expected videos/events.")
 
-    save_log = run_dir / "memory_save_openclaw.log"
+    save_log = debug_dir / "memory_save_openclaw.log"
     if args.reset_memory:
         log("Resetting OpenClaw durable memory for cross eval")
-        reset_memory(run_dir / "memory_reset.log")
+        reset_memory(debug_dir / "memory_reset.log")
+    if args.skip_ingest or args.seed_each_scenario:
+        reason = "--skip-ingest" if args.skip_ingest else "--seed-each-scenario"
+        save_log.write_text(f"Memory save skipped because {reason} was used.\n", encoding="utf-8")
     if not args.skip_ingest and not args.seed_each_scenario:
         log("Saving summaries into OpenClaw durable memory")
         for video_id, summary_doc in summaries.items():
@@ -651,12 +717,12 @@ def main() -> int:
             )
 
     raw_rows: list[dict[str, Any]] = []
-    raw_tsv = run_dir / "cross_raw.tsv"
+    raw_json = run_dir / "raw.json"
 
     for scenario_id, scenario_rows in grouped.items():
         log(f"Processing {scenario_id}")
         session_key = f"vss-eval-cross-{run_id}-{scenario_id}"
-        log_path = run_dir / f"{scenario_id}_openclaw.log"
+        log_path = debug_dir / f"{scenario_id}_openclaw.log"
         if args.seed_each_scenario:
             seed_scenario_context(summaries, session_key, args.openclaw_model, args.openclaw_timeout, log_path)
 
@@ -676,11 +742,12 @@ def main() -> int:
             predicted_evidence = parse_predicted_evidence(parsed.get("event_ids"), predicted_videos)
             precision, recall, f1 = prf(expected_evidence, predicted_evidence)
 
-            locator_accuracy = ""
+            turn_id = int(row["turn_id"])
+            locator_accuracy: int | None = None
             if row["turn_id"] == "1":
-                locator_accuracy = "1" if set(expected_videos).issubset(set(predicted_videos)) else "0"
+                locator_accuracy = 1 if set(expected_videos).issubset(set(predicted_videos)) else 0
 
-            answer_accuracy = ""
+            answer_accuracy: int | None = None
             notes = ""
             if row["turn_id"] != "1" and not args.skip_judge:
                 log(f"  {scenario_id} T{row['turn_id']}: judging")
@@ -691,46 +758,46 @@ def main() -> int:
                     args.judge_model,
                     args.judge_timeout,
                 )
-                answer_accuracy = "1" if answer_match else "0"
+                answer_accuracy = 1 if answer_match else 0
             elif row["turn_id"] != "1" and args.skip_judge:
                 notes = "judge skipped"
 
             raw_rows.append(
                 {
-                    "Scenario ID": scenario_id,
-                    "Turn ID": row["turn_id"],
-                    "Family": row.get("family", ""),
-                    "Question": row.get("question", ""),
-                    "Expected Answer Target": row.get("expected_answer_target", ""),
-                    "Expected Video IDs": ",".join(expected_videos),
-                    "Expected Event IDs": format_evidence(expected_evidence),
-                    "Answer": answer,
-                    "Predicted Video IDs": format_video_ids(predicted_videos),
-                    "Predicted Event IDs": format_evidence(predicted_evidence),
-                    "Confidence": str(parsed.get("confidence", "")).strip(),
-                    "Not Stated": str(bool(parsed.get("not_stated", False))).lower(),
-                    "Locator Accuracy": locator_accuracy,
-                    "Answer Accuracy": answer_accuracy,
-                    "Precision": fmt_float(precision),
-                    "Recall": fmt_float(recall),
-                    "F1 Score": fmt_float(f1),
-                    "Judge Notes": notes,
-                    "Latency MS": str(latency_ms),
-                    "Num Tool Calls": str(tool_calls),
+                    "scenario_id": scenario_id,
+                    "turn_id": turn_id,
+                    "family": row.get("family", ""),
+                    "question": row.get("question", ""),
+                    "expected_answer_target": row.get("expected_answer_target", ""),
+                    "answer": answer,
+                    "expected_video_ids": expected_videos,
+                    "predicted_video_ids": predicted_videos,
+                    "expected_event_ids": evidence_to_json(expected_evidence),
+                    "predicted_event_ids": evidence_to_json(predicted_evidence),
+                    "locator_accuracy": locator_accuracy,
+                    "answer_accuracy": answer_accuracy,
+                    "precision": precision,
+                    "recall": recall,
+                    "f1_score": f1,
+                    "confidence": str(parsed.get("confidence", "")).strip(),
+                    "not_stated": bool(parsed.get("not_stated", False)),
+                    "judge_notes": notes,
+                    "latency_ms": latency_ms,
+                    "num_tool_calls": tool_calls,
                 }
             )
-            write_tsv(raw_tsv, raw_rows, RAW_FIELDS)
+            write_json(raw_json, raw_rows)
 
-    metrics = summarize_rows(raw_rows)
-    metrics_path = run_dir / "cross_metrics.json"
-    report_path = run_dir / "cross_report.md"
-    metrics_path.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
-    write_report(report_path, metrics, raw_rows)
+    report_json = build_report_json(run_id, raw_rows, len(grouped))
+    report_json_path = run_dir / "report.json"
+    report_path = run_dir / "report.md"
+    write_json(report_json_path, report_json)
+    write_report(report_path, report_json, raw_rows)
 
     log("")
     log(f"Final output directory: {run_dir}")
-    log(f"Raw results: {raw_tsv}")
-    log(f"Metrics: {metrics_path}")
+    log(f"Raw results: {raw_json}")
+    log(f"Report JSON: {report_json_path}")
     log(f"Report: {report_path}")
     return 0
 
