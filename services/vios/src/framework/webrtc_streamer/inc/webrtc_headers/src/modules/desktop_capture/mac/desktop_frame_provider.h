@@ -41,10 +41,12 @@ class DesktopFrameProvider {
   // OS sends the latest IOSurfaceRef through
   // CGDisplayStreamFrameAvailableHandler callback; we store it here.
   void InvalidateIOSurface(CGDirectDisplayID display_id,
-                           rtc::ScopedCFTypeRef<IOSurfaceRef> io_surface);
+                           ScopedCFTypeRef<IOSurfaceRef> io_surface);
 
   // Expected to be called before stopping the CGDisplayStreamRef streams.
   void Release();
+
+  bool allow_iosurface() const { return allow_iosurface_; }
 
  private:
   SequenceChecker thread_checker_;

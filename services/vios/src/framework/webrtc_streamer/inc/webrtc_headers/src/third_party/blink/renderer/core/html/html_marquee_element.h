@@ -29,13 +29,17 @@
 
 namespace blink {
 
-class HTMLMarqueeElement final : public HTMLElement {
+class CORE_EXPORT HTMLMarqueeElement final : public HTMLElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   void Trace(Visitor*) const override;
 
   explicit HTMLMarqueeElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLMarqueeElement;
+  }
 
   InsertionNotificationRequest InsertedInto(ContainerNode&) final;
   void RemovedFrom(ContainerNode&) final;
@@ -55,13 +59,17 @@ class HTMLMarqueeElement final : public HTMLElement {
   void stop();
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(HTMLMarqueeElementTest,
+                           GetMetricsWithExplicitSizesAndContent);
+  FRIEND_TEST_ALL_PREFIXES(HTMLMarqueeElementTest, GetMetricsForEmptyMarquee);
+
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
 
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
 
   class RequestAnimationFrameCallback;
   class AnimationFinished;

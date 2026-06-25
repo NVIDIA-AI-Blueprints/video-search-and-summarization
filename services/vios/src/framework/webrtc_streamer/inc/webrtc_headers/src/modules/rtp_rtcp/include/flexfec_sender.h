@@ -11,26 +11,32 @@
 #ifndef MODULES_RTP_RTCP_INCLUDE_FLEXFEC_SENDER_H_
 #define MODULES_RTP_RTCP_INCLUDE_FLEXFEC_SENDER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
+#include "api/environment/environment.h"
 #include "api/rtp_parameters.h"
+#include "api/units/data_rate.h"
 #include "api/units/timestamp.h"
+#include "modules/include/module_fec_types.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtp_header_extension_size.h"
 #include "modules/rtp_rtcp/source/ulpfec_generator.h"
 #include "modules/rtp_rtcp/source/video_fec_generator.h"
+#include "rtc_base/bitrate_tracker.h"
 #include "rtc_base/random.h"
-#include "rtc_base/rate_statistics.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
-class Clock;
 class RtpPacketToSend;
 
 // Note that this class is not thread safe, and thus requires external
@@ -38,20 +44,20 @@ class RtpPacketToSend;
 
 class FlexfecSender : public VideoFecGenerator {
  public:
-  FlexfecSender(int payload_type,
+  FlexfecSender(const Environment& env,
+                int payload_type,
                 uint32_t ssrc,
                 uint32_t protected_media_ssrc,
                 absl::string_view mid,
                 const std::vector<RtpExtension>& rtp_header_extensions,
-                rtc::ArrayView<const RtpExtensionSize> extension_sizes,
-                const RtpState* rtp_state,
-                Clock* clock);
-  ~FlexfecSender();
+                std::span<const RtpExtensionSize> extension_sizes,
+                const RtpState* rtp_state);
+  ~FlexfecSender() override;
 
   FecType GetFecType() const override {
     return VideoFecGenerator::FecType::kFlexFec;
   }
-  absl::optional<uint32_t> FecSsrc() override { return ssrc_; }
+  std::optional<uint32_t> FecSsrc() override { return ssrc_; }
 
   // Sets the FEC rate, max frames sent before FEC packets are sent,
   // and what type of generator matrices are used.
@@ -72,11 +78,11 @@ class FlexfecSender : public VideoFecGenerator {
   DataRate CurrentFecRate() const override;
 
   // Only called on the VideoSendStream queue, after operation has shut down.
-  absl::optional<RtpState> GetRtpState() override;
+  std::optional<RtpState> GetRtpState() override;
 
  private:
   // Utility.
-  Clock* const clock_;
+  const Environment env_;
   Random random_;
   Timestamp last_generated_packet_ = Timestamp::MinusInfinity();
 
@@ -96,7 +102,7 @@ class FlexfecSender : public VideoFecGenerator {
   const size_t header_extensions_size_;
 
   mutable Mutex mutex_;
-  RateStatistics fec_bitrate_ RTC_GUARDED_BY(mutex_);
+  BitrateTracker fec_bitrate_ RTC_GUARDED_BY(mutex_);
 };
 
 }  // namespace webrtc

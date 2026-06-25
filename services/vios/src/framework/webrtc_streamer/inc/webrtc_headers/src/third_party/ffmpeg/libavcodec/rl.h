@@ -80,7 +80,7 @@ void ff_rl_init(RLTable *rl, uint8_t static_store[2][2*MAX_RUN + MAX_LEVEL + 3])
  */
 void ff_rl_init_vlc(RLTable *rl, unsigned static_size);
 
-#define INIT_VLC_RL(rl, static_size)\
+#define VLC_INIT_RL(rl, static_size)\
 {\
     static RL_VLC_ELEM rl_vlc_table[32][static_size];\
 \
@@ -100,13 +100,9 @@ do {                                                    \
 
 static inline int get_rl_index(const RLTable *rl, int last, int run, int level)
 {
-    int index;
-    index = rl->index_run[last][run];
-    if (index >= rl->n)
-        return rl->n;
     if (level > rl->max_level[last][run])
         return rl->n;
-    return index + level - 1;
+    return rl->index_run[last][run] + level - 1;
 }
 
 #endif /* AVCODEC_RL_H */

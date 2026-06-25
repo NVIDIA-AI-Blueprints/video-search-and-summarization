@@ -21,6 +21,7 @@
 
 #include <AMF/core/Factory.h>
 
+#include <AMF/components/ColorSpace.h>
 #include <AMF/components/VideoEncoderVCE.h>
 #include <AMF/components/VideoEncoderHEVC.h>
 #include <AMF/components/VideoEncoderAV1.h>
@@ -30,64 +31,51 @@
 #include "avcodec.h"
 #include "hwconfig.h"
 
-
-/**
-* AMF trace writer callback class
-* Used to capture all AMF logging
-*/
-
-typedef struct AmfTraceWriter {
-    AMFTraceWriterVtbl *vtbl;
-    AVCodecContext     *avctx;
-} AmfTraceWriter;
+#define  MAX_LOOKAHEAD_DEPTH 41
 
 /**
 * AMF encoder context
 */
 
-typedef struct AmfContext {
+typedef struct AMFEncoderContext {
     AVClass            *avclass;
     // access to AMF runtime
-    amf_handle          library; ///< handle to DLL library
-    AMFFactory         *factory; ///< pointer to AMF factory
-    AMFDebug           *debug;   ///< pointer to AMF debug interface
-    AMFTrace           *trace;   ///< pointer to AMF trace interface
+    AVBufferRef        *device_ctx_ref;
 
-    amf_uint64          version; ///< version of AMF runtime
-    AmfTraceWriter      tracer;  ///< AMF writer registered with AMF
-    AMFContext         *context; ///< AMF context
     //encoder
     AMFComponent       *encoder; ///< AMF encoder object
     amf_bool            eof;     ///< flag indicating EOF happened
     AMF_SURFACE_FORMAT  format;  ///< AMF surface format
-
-    AVBufferRef        *hw_device_ctx; ///< pointer to HW accelerator (decoder)
-    AVBufferRef        *hw_frames_ctx; ///< pointer to HW accelerator (frame allocator)
+    wchar_t             *pts_property_name;
+    wchar_t             *av_frame_property_name;
 
     int                 hwsurfaces_in_queue;
     int                 hwsurfaces_in_queue_max;
+    int                 query_timeout_supported;
 
     // helpers to handle async calls
     int                 delayed_drain;
-    AMFSurface         *delayed_surface;
-    AVFrame            *delayed_frame;
 
     // shift dts back by max_b_frames in timing
     AVFifo             *timestamp_list;
     int64_t             dts_delay;
+    int64_t             submitted_frame;
+    int64_t             encoded_frame;
+    AVFifo             *output_list;
 
-    // common encoder option options
-
-    int                 log_to_dbg;
+    // common encoder options
 
     // Static options, have to be set before Init() call
     int                 usage;
     int                 profile;
     int                 level;
-    int                 preanalysis;
+    int                 latency;
+    int                 preencode;
     int                 quality;
     int                 b_frame_delta_qp;
     int                 ref_b_frame_delta_qp;
+    int                 bit_depth;
+    int                 smart_access_video;
 
     // Dynamic options, can be set after Init() call
 
@@ -107,6 +95,11 @@ typedef struct AmfContext {
     int                 me_half_pel;
     int                 me_quarter_pel;
     int                 aud;
+    int                 max_consecutive_b_frames;
+    int                 max_b_frames;
+    int                 qvbr_quality_level;
+    int                 hw_high_motion_quality_boost;
+    int                 forced_idr;
 
     // HEVC - specific options
 
@@ -116,13 +109,38 @@ typedef struct AmfContext {
     int                 max_qp_i;
     int                 min_qp_p;
     int                 max_qp_p;
+    int                 min_qp_b;
+    int                 max_qp_b;
     int                 tier;
 
     // AV1 - specific options
 
-    enum AMF_VIDEO_ENCODER_AV1_ALIGNMENT_MODE_ENUM                 align;
+    /* enum AMF_VIDEO_ENCODER_AV1_ALIGNMENT_MODE_ENUM, use int for AVOption */
+    int                 align;
+    /* enum AMF_VIDEO_ENCODER_AV1_AQ_MODE_ENUM */
+    int                 aq_mode;
 
-} AmfContext;
+    // Preanalysis - specific options
+
+    int                 preanalysis;
+    int                 pa_activity_type;
+    int                 pa_scene_change_detection;
+    int                 pa_scene_change_detection_sensitivity;
+    int                 pa_static_scene_detection;
+    int                 pa_static_scene_detection_sensitivity;
+    int                 pa_initial_qp;
+    int                 pa_max_qp;
+    int                 pa_caq_strength;
+    int                 pa_frame_sad;
+    int                 pa_ltr;
+    int                 pa_lookahead_buffer_depth;
+    int                 pa_paq_mode;
+    int                 pa_taq_mode;
+    int                 pa_high_motion_quality_boost_mode;
+    int                 pa_adaptive_mini_gop;
+
+
+} AMFEncoderContext;
 
 extern const AVCodecHWConfigInternal *const ff_amfenc_hw_configs[];
 

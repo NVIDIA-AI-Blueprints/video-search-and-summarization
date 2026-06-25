@@ -55,21 +55,23 @@ class LayoutSVGContainer : public LayoutSVGModelObject {
   }
 
   void Paint(const PaintInfo&) const override;
-  void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
-  void SetNeedsBoundariesUpdate() final {
-    NOT_DESTROYED();
-    needs_boundaries_update_ = true;
-  }
-  bool DidScreenScaleFactorChange() const {
-    NOT_DESTROYED();
-    return did_screen_scale_factor_change_;
-  }
+  void StyleDidChange(StyleDifference,
+                      const ComputedStyle* old_style,
+                      const StyleChangeContext&) override;
+  void SetNeedsTransformUpdate() override;
   bool IsObjectBoundingBoxValid() const {
     NOT_DESTROYED();
-    return object_bounding_box_valid_;
+    return content_.ObjectBoundingBoxValid();
   }
 
   bool HasNonIsolatedBlendingDescendants() const final;
+
+  // Whether this container itself (excluding descendants) depends on the
+  // viewport dimensions. Computed during UpdateSVGLayout().
+  bool SelfHasViewportDependence() const {
+    NOT_DESTROYED();
+    return self_has_viewport_dependence_;
+  }
 
   const char* GetName() const override {
     NOT_DESTROYED();
@@ -94,17 +96,35 @@ class LayoutSVGContainer : public LayoutSVGModelObject {
     NOT_DESTROYED();
     return content_;
   }
-
-  bool IsOfType(LayoutObjectType type) const override {
+  const SVGContentContainer& Content() const {
     NOT_DESTROYED();
-    return type == kLayoutObjectSVGContainer ||
-           LayoutSVGModelObject::IsOfType(type);
+    return content_;
   }
-  void UpdateLayout() override;
+
+  bool IsSVGContainer() const final {
+    NOT_DESTROYED();
+    return true;
+  }
+  SVGLayoutResult UpdateSVGLayout(const SVGLayoutInfo&) override;
+  // Update LayoutObject state after layout has completed. Returns true if
+  // boundaries needs to be propagated (because of a change to the transform).
+  bool UpdateAfterSVGLayout(const SVGLayoutInfo&,
+                            SVGTransformChange transform_change,
+                            bool bbox_changed);
+
+  void SetTransformUsesReferenceBox(bool transform_uses_reference_box) {
+    NOT_DESTROYED();
+    transform_uses_reference_box_ = transform_uses_reference_box;
+  }
 
   void AddChild(LayoutObject* child,
                 LayoutObject* before_child = nullptr) final;
   void RemoveChild(LayoutObject*) final;
+
+  gfx::RectF StrokeBoundingBox() const final {
+    NOT_DESTROYED();
+    return content_.ComputeStrokeBoundingBox();
+  }
 
   gfx::RectF DecoratedBoundingBox() const final {
     NOT_DESTROYED();
@@ -117,19 +137,18 @@ class LayoutSVGContainer : public LayoutSVGModelObject {
                    HitTestPhase) override;
 
   // Called during layout to update the local transform.
-  virtual SVGTransformChange CalculateLocalTransform(bool bounds_changed);
-
-  bool UpdateCachedBoundaries();
+  virtual SVGTransformChange UpdateLocalTransform(
+      const gfx::RectF& reference_box);
 
   void DescendantIsolationRequirementsChanged(DescendantIsolationState) final;
 
  private:
   SVGContentContainer content_;
-  bool object_bounding_box_valid_;
-  bool needs_boundaries_update_ : 1;
-  bool did_screen_scale_factor_change_ : 1;
+  bool needs_transform_update_ : 1;
+  bool transform_uses_reference_box_ : 1;
   mutable bool has_non_isolated_blending_descendants_ : 1;
   mutable bool has_non_isolated_blending_descendants_dirty_ : 1;
+  bool self_has_viewport_dependence_ : 1 = false;
 };
 
 template <>

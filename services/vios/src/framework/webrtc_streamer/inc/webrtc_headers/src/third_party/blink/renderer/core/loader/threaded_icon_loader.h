@@ -5,9 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_THREADED_ICON_LOADER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_THREADED_ICON_LOADER_H_
 
-#include "base/memory/scoped_refptr.h"
+#include <optional>
+
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/threadable_loader.h"
 #include "third_party/blink/renderer/core/loader/threadable_loader_client.h"
@@ -37,7 +37,7 @@ class CORE_EXPORT ThreadedIconLoader final
   // those dimensions.
   void Start(ExecutionContext* execution_context,
              const ResourceRequestHead& resource_request,
-             const absl::optional<gfx::Size>& resize_dimensions,
+             const std::optional<gfx::Size>& resize_dimensions,
              IconCallback callback);
 
   // Stops the background task. The provided callback will not be run if
@@ -46,7 +46,7 @@ class CORE_EXPORT ThreadedIconLoader final
 
   // ThreadableLoaderClient interface.
   void DidReceiveResponse(uint64_t, const ResourceResponse& response) override;
-  void DidReceiveData(const char* data, unsigned length) override;
+  void DidReceiveData(base::span<const char> data) override;
   void DidFinishLoading(uint64_t resource_identifier) override;
   void DidFail(uint64_t, const ResourceError& error) override;
   void DidFailRedirectCheck(uint64_t) override;
@@ -60,11 +60,11 @@ class CORE_EXPORT ThreadedIconLoader final
 
   // Data received from |threadable_loader_|. Will be invalidated when decoding
   // of the image data starts.
-  scoped_refptr<SharedBuffer> data_;
+  SegmentedBuffer data_;
 
   String response_mime_type_;
 
-  absl::optional<gfx::Size> resize_dimensions_;
+  std::optional<gfx::Size> resize_dimensions_;
 
   IconCallback icon_callback_;
 

@@ -5,6 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_INPUT_METHOD_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_INPUT_METHOD_CONTROLLER_H_
 
+#include <vector>
+
+#include "third_party/blink/public/mojom/input/input_handler.mojom-forward.h"
 #include "third_party/blink/public/platform/web_text_input_info.h"
 #include "third_party/blink/public/web/web_range.h"
 #include "third_party/blink/public/web/web_widget.h"
@@ -17,8 +20,6 @@ class Rect;
 namespace blink {
 
 class WebString;
-template <typename T>
-class WebVector;
 
 class WebInputMethodController {
  public:
@@ -35,18 +36,26 @@ class WebInputMethodController {
   // text will be canceled. |replacementRange| (when not null) is the range in
   // current text which should be replaced by |text|. Returns true if the
   // composition text was set successfully.
-  virtual bool SetComposition(const WebString& text,
-                              const WebVector<ui::ImeTextSpan>& ime_text_spans,
-                              const WebRange& replacement_range,
-                              int selection_start,
-                              int selection_end) = 0;
+  virtual bool SetComposition(
+      const WebString& text,
+      const std::vector<ui::ImeTextSpan>& ime_text_spans,
+      const WebRange& replacement_range,
+      int selection_start,
+      int selection_end,
+      mojom::ImeState ime_state) = 0;
+  virtual bool SetComposition(
+      const WebString& text,
+      const std::vector<ui::ImeTextSpan>& ime_text_spans,
+      const WebRange& replacement_range,
+      int selection_start,
+      int selection_end) = 0;
 
   // Called to inform the controller to delete the ongoing composition if any,
   // insert |text|, and move the caret according to |relativeCaretPosition|.
   // |replacementRange| (when not null) is the range in current text which
   // should be replaced by |text|.
   virtual bool CommitText(const WebString& text,
-                          const WebVector<ui::ImeTextSpan>& ime_text_spans,
+                          const std::vector<ui::ImeTextSpan>& ime_text_spans,
                           const WebRange& replacement_range,
                           int relative_caret_position) = 0;
 
@@ -80,7 +89,7 @@ class WebInputMethodController {
   // Populate |bounds| with the composition character bounds for the ongoing
   // composition. Returns false if there is no focused input or any ongoing
   // composition.
-  virtual bool GetCompositionCharacterBounds(WebVector<gfx::Rect>& bounds) {
+  virtual bool GetCompositionCharacterBounds(std::vector<gfx::Rect>& bounds) {
     return false;
   }
 
@@ -89,10 +98,6 @@ class WebInputMethodController {
   // these bounds are empty.
   virtual void GetLayoutBounds(gfx::Rect* control_bounds,
                                gfx::Rect* selection_bounds) = 0;
-  // Returns true if the inputPanelPolicy flag is set as manual in
-  // |EditContext|, which indicates that the software input panel(Virtual
-  // Keyboard) shouldn't come up on focus of the EditControl.
-  virtual bool IsVirtualKeyboardPolicyManual() const = 0;
   // Returns true if there is an active |EditContext|.
   virtual bool IsEditContextActive() const = 0;
 

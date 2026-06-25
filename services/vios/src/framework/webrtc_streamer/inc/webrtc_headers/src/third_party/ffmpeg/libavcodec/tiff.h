@@ -30,9 +30,6 @@
 #ifndef AVCODEC_TIFF_H
 #define AVCODEC_TIFF_H
 
-#include <stdint.h>
-#include "tiff_common.h"
-
 /** TIFF types in ascenting priority (last in the list is highest) */
 enum TiffType {
     /** TIFF image based on the TIFF 6.0 or TIFF/EP (ISO 12234-2) specifications */
@@ -57,6 +54,7 @@ enum TiffTags {
     TIFF_MAKE               = 0x10F,
     TIFF_MODEL              = 0x110,
     TIFF_STRIP_OFFS         = 0x111,
+    TIFF_ORIENTATION        = 0x112,
     TIFF_SAMPLES_PER_PIXEL  = 0x115,
     TIFF_ROWSPERSTRIP       = 0x116,
     TIFF_STRIP_SIZE,
@@ -224,10 +222,5 @@ typedef struct TiffGeoTagKeyName {
     const enum TiffGeoTagKey key;
     const char *const name;
 } TiffGeoTagKeyName;
-
-typedef struct TiffGeoTagNameType {
-    const char *const name;
-    const enum TiffGeoTagType type;
-} TiffGeoTagNameType;
 
 #endif /* AVCODEC_TIFF_H */

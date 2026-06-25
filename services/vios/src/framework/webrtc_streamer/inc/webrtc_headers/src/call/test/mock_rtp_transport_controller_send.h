@@ -11,21 +11,31 @@
 #ifndef CALL_TEST_MOCK_RTP_TRANSPORT_CONTROLLER_SEND_H_
 #define CALL_TEST_MOCK_RTP_TRANSPORT_CONTROLLER_SEND_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
-#include <string>
-#include <vector>
+#include <optional>
 
 #include "absl/strings/string_view.h"
-#include "api/crypto/crypto_options.h"
-#include "api/crypto/frame_encryptor_interface.h"
+#include "api/fec_controller.h"
 #include "api/frame_transformer_interface.h"
+#include "api/rtp_parameters.h"
+#include "api/scoped_refptr.h"
+#include "api/transport/bandwidth_estimation_settings.h"
 #include "api/transport/bitrate_settings.h"
+#include "api/transport/network_control.h"
+#include "api/transport/network_types.h"
+#include "api/units/timestamp.h"
+#include "call/rtp_config.h"
 #include "call/rtp_transport_controller_send_interface.h"
+#include "modules/congestion_controller/rtp/congestion_controller_feedback_stats.h"
 #include "modules/pacing/packet_router.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "modules/rtp_rtcp/source/rtp_rtcp_interface.h"
+#include "rtc_base/containers/flat_map.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/network_route.h"
-#include "rtc_base/rate_limiter.h"
 #include "test/gmock.h"
 
 namespace webrtc {
@@ -41,28 +51,32 @@ class MockRtpTransportControllerSend
                int rtcp_report_interval_ms,
                Transport*,
                const RtpSenderObservers&,
-               RtcEventLog*,
                std::unique_ptr<FecController>,
                const RtpSenderFrameEncryptionConfig&,
-               rtc::scoped_refptr<FrameTransformerInterface>),
+               scoped_refptr<FrameTransformerInterface>),
               (override));
   MOCK_METHOD(void,
               DestroyRtpVideoSender,
               (RtpVideoSenderInterface*),
+              (override));
+  MOCK_METHOD(void, RegisterSendingRtpStream, (RtpRtcpInterface&), (override));
+  MOCK_METHOD(void,
+              DeRegisterSendingRtpStream,
+              (RtpRtcpInterface&),
               (override));
   MOCK_METHOD(PacketRouter*, packet_router, (), (override));
   MOCK_METHOD(NetworkStateEstimateObserver*,
               network_state_estimate_observer,
               (),
               (override));
-  MOCK_METHOD(TransportFeedbackObserver*,
-              transport_feedback_observer,
-              (),
-              (override));
   MOCK_METHOD(RtpPacketSender*, packet_sender, (), (override));
   MOCK_METHOD(void,
               SetAllocatedSendBitrateLimits,
               (BitrateAllocationLimits),
+              (override));
+  MOCK_METHOD(void,
+              ReconfigureBandwidthEstimation,
+              (const BandwidthEstimationSettings&),
               (override));
   MOCK_METHOD(void, SetPacingFactor, (float), (override));
   MOCK_METHOD(void, SetQueueTimeLimit, (int), (override));
@@ -76,17 +90,17 @@ class MockRtpTransportControllerSend
               (override));
   MOCK_METHOD(void,
               OnNetworkRouteChanged,
-              (absl::string_view, const rtc::NetworkRoute&),
+              (absl::string_view, const webrtc::NetworkRoute&),
               (override));
   MOCK_METHOD(void, OnNetworkAvailability, (bool), (override));
   MOCK_METHOD(NetworkLinkRtcpObserver*, GetRtcpObserver, (), (override));
   MOCK_METHOD(int64_t, GetPacerQueuingDelayMs, (), (const, override));
-  MOCK_METHOD(absl::optional<Timestamp>,
+  MOCK_METHOD(std::optional<Timestamp>,
               GetFirstPacketTime,
               (),
               (const, override));
   MOCK_METHOD(void, EnablePeriodicAlrProbing, (bool), (override));
-  MOCK_METHOD(void, OnSentPacket, (const rtc::SentPacket&), (override));
+  MOCK_METHOD(void, OnSentPacket, (const SentPacketInfo&), (override));
   MOCK_METHOD(void,
               SetSdpBitrateParameters,
               (const BitrateConstraints&),
@@ -100,6 +114,23 @@ class MockRtpTransportControllerSend
   MOCK_METHOD(void, IncludeOverheadInPacedSender, (), (override));
   MOCK_METHOD(void, OnReceivedPacket, (const ReceivedPacket&), (override));
   MOCK_METHOD(void, EnsureStarted, (), (override));
+  MOCK_METHOD(NetworkControllerInterface*,
+              GetNetworkController,
+              (),
+              (override));
+  MOCK_METHOD(void, SetPreferredRtcpCcAckType, (RtcpFeedbackType), (override));
+  MOCK_METHOD(std::optional<int>,
+              ReceivedCongestionControlFeedbackCount,
+              (),
+              (const, override));
+  MOCK_METHOD((flat_map<uint32_t, ReceivedCongestionControlFeedbackStats>),
+              GetCongestionControlFeedbackStatsPerSsrc,
+              (),
+              (const, override));
+  MOCK_METHOD(std::optional<int>,
+              ReceivedTransportCcFeedbackCount,
+              (),
+              (const, override));
 };
 }  // namespace webrtc
 #endif  // CALL_TEST_MOCK_RTP_TRANSPORT_CONTROLLER_SEND_H_

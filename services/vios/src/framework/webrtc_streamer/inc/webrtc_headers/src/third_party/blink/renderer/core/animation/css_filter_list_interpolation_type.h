@@ -11,7 +11,7 @@ namespace blink {
 
 class CSSFilterListInterpolationType : public CSSInterpolationType {
  public:
-  CSSFilterListInterpolationType(PropertyHandle property)
+  explicit CSSFilterListInterpolationType(PropertyHandle property)
       : CSSInterpolationType(property) {}
 
   InterpolationValue MaybeConvertStandardPropertyUnderlyingValue(
@@ -40,17 +40,17 @@ class CSSFilterListInterpolationType : public CSSInterpolationType {
   InterpolationValue MaybeConvertInherit(const StyleResolverState&,
                                          ConversionCheckers&) const final;
   InterpolationValue MaybeConvertValue(const CSSValue&,
-                                       const StyleResolverState*,
+                                       const StyleResolverState&,
                                        ConversionCheckers&) const final;
 
   // Helper methods to perform either additive or accumulative composition, as
   // defined in https://drafts.fxtf.org/filter-effects-1/#addition and
   // https://drafts.fxtf.org/filter-effects-1/#accumulation
   InterpolationValue PerformAdditiveComposition(
-      std::unique_ptr<InterpolableList> interpolable_list,
+      InterpolableList* interpolable_list,
       const InterpolableList& underlying_list) const;
   InterpolationValue PerformAccumulativeComposition(
-      std::unique_ptr<InterpolableList> interpolable_list,
+      InterpolableList* interpolable_list,
       const InterpolableList& underlying_list) const;
 };
 

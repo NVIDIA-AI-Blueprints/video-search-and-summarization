@@ -13,12 +13,12 @@
 
 #include <memory>
 
-#include "api/array_view.h"
 #include "api/audio_codecs/audio_encoder.h"
+#include "test/fuzzers/fuzz_data_helper.h"
 
 namespace webrtc {
 
-void FuzzAudioEncoder(rtc::ArrayView<const uint8_t> data_view,
+void FuzzAudioEncoder(FuzzDataHelper data,
                       std::unique_ptr<AudioEncoder> encoder);
 
 }  // namespace webrtc

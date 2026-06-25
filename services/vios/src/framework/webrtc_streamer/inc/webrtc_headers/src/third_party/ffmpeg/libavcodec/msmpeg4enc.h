@@ -22,25 +22,36 @@
 #ifndef AVCODEC_MSMPEG4ENC_H
 #define AVCODEC_MSMPEG4ENC_H
 
-#include "mpegvideo.h"
+#include "mpegvideoenc.h"
 #include "put_bits.h"
 #include "rl.h"
 
 typedef struct MSMPEG4EncContext {
-    MpegEncContext s;
+    MPVMainEncContext m;
+
+    int mv_table_index;
+    int rl_table_index;
+    int rl_chroma_table_index;
+    int dc_table_index;
+    int use_skip_mb_code;
+    int per_mb_rl_table;
+    int esc3_run_length;
 
     /** [mb_intra][isChroma][level][run][last] */
     unsigned ac_stats[2][2][MAX_LEVEL + 1][MAX_RUN + 1][2];
 } MSMPEG4EncContext;
 
-void ff_msmpeg4_encode_init(MpegEncContext *s);
-void ff_msmpeg4_encode_picture_header(MpegEncContext *s);
-void ff_msmpeg4_encode_ext_header(MpegEncContext *s);
-void ff_msmpeg4_encode_mb(MpegEncContext *s, int16_t block[6][64],
-                          int motion_x, int motion_y);
-void ff_msmpeg4_encode_block(MpegEncContext * s, int16_t * block, int n);
-void ff_msmpeg4_handle_slices(MpegEncContext *s);
-void ff_msmpeg4_encode_motion(MpegEncContext * s, int mx, int my);
+static inline MSMPEG4EncContext *mpv_to_msmpeg4(MPVEncContext *s)
+{
+    // Only legal because no MSMPEG-4 decoder uses slice-threading.
+    return (MSMPEG4EncContext*)s;
+}
+
+void ff_msmpeg4_encode_init(MPVMainEncContext *m);
+void ff_msmpeg4_encode_ext_header(MPVEncContext *s);
+void ff_msmpeg4_encode_block(MPVEncContext * s, int16_t * block, int n);
+void ff_msmpeg4_handle_slices(MPVEncContext *s);
+void ff_msmpeg4_encode_motion(MSMPEG4EncContext *ms, int mx, int my);
 
 void ff_msmpeg4_code012(PutBitContext *pb, int n);
 

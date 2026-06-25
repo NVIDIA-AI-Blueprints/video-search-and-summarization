@@ -6,7 +6,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBCODECS_BACKGROUND_READBACK_H_
 
 #include "base/functional/callback.h"
-#include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
@@ -18,7 +17,7 @@
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame_layout.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
-#include "third_party/skia/include/gpu/GrTypes.h"
+#include "third_party/skia/include/gpu/ganesh/GrTypes.h"
 
 namespace blink {
 

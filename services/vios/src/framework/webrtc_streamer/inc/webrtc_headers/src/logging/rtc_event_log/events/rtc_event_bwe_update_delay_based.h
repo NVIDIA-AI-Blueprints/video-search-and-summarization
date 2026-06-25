@@ -15,14 +15,19 @@
 
 #include <limits>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "api/network_state_predictor.h"
 #include "api/rtc_event_log/rtc_event.h"
+#include "api/transport/bandwidth_usage.h"
 #include "api/units/timestamp.h"
 #include "logging/rtc_event_log/events/rtc_event_definition.h"
+#include "logging/rtc_event_log/events/rtc_event_field_encoding.h"
+#include "logging/rtc_event_log/events/rtc_event_field_extraction.h"
+#include "logging/rtc_event_log/events/rtc_event_log_parse_status.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -99,7 +104,7 @@ class RtcEventBweUpdateDelayBased final : public RtcEvent {
   int32_t bitrate_bps() const { return bitrate_bps_; }
   BandwidthUsage detector_state() const { return detector_state_; }
 
-  static std::string Encode(rtc::ArrayView<const RtcEvent*> batch) {
+  static std::string Encode(std::span<const RtcEvent*> batch) {
     return RtcEventBweUpdateDelayBased::definition_.EncodeBatch(batch);
   }
 
@@ -112,7 +117,7 @@ class RtcEventBweUpdateDelayBased final : public RtcEvent {
   }
 
  private:
-  RtcEventBweUpdateDelayBased(const RtcEventBweUpdateDelayBased& other);
+  RtcEventBweUpdateDelayBased(const RtcEventBweUpdateDelayBased&) = default;
 
   const int32_t bitrate_bps_;
   const BandwidthUsage detector_state_;
@@ -122,13 +127,19 @@ class RtcEventBweUpdateDelayBased final : public RtcEvent {
                                       int32_t,
                                       BandwidthUsage>
       definition_{
-          {"BweDelayBased", RtcEventBweUpdateDelayBased::kType},
-          {&RtcEventBweUpdateDelayBased::bitrate_bps_,
-           &LoggedBweDelayBasedUpdate::bitrate_bps,
-           {"bitrate_bps", /*id=*/1, FieldType::kVarInt, /*width=*/32}},
-          {&RtcEventBweUpdateDelayBased::detector_state_,
-           &LoggedBweDelayBasedUpdate::detector_state,
-           {"detector_state", /*id=*/2, FieldType::kVarInt, /*width=*/64}}};
+          {.name = "BweDelayBased", .id = RtcEventBweUpdateDelayBased::kType},
+          {.event_member = &RtcEventBweUpdateDelayBased::bitrate_bps_,
+           .logged_member = &LoggedBweDelayBasedUpdate::bitrate_bps,
+           .params = {.name = "bitrate_bps",
+                      /*id=*/.field_id = 1,
+                      .field_type = FieldType::kVarInt,
+                      /*width=*/.value_width = 32}},
+          {.event_member = &RtcEventBweUpdateDelayBased::detector_state_,
+           .logged_member = &LoggedBweDelayBasedUpdate::detector_state,
+           .params = {.name = "detector_state",
+                      /*id=*/.field_id = 2,
+                      .field_type = FieldType::kVarInt,
+                      /*width=*/.value_width = 64}}};
 };
 
 }  // namespace webrtc

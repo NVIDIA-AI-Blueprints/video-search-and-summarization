@@ -9,11 +9,12 @@
 #include "third_party/blink/renderer/core/editing/editing_boundary.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
+#include "third_party/blink/renderer/core/layout/inline/caret_rect.h"
 
 namespace blink {
 
 class LayoutObject;
-class NGPhysicalBoxFragment;
+class PhysicalBoxFragment;
 
 // A transient struct representing a caret rect local to |layout_object|.
 struct LocalCaretRect {
@@ -22,12 +23,12 @@ struct LocalCaretRect {
  public:
   const LayoutObject* layout_object = nullptr;
   PhysicalRect rect;
-  const NGPhysicalBoxFragment* root_box_fragment = nullptr;
+  const PhysicalBoxFragment* root_box_fragment = nullptr;
 
   LocalCaretRect() = default;
   LocalCaretRect(const LayoutObject* layout_object,
                  const PhysicalRect& rect,
-                 const NGPhysicalBoxFragment* root_box_fragment = nullptr)
+                 const PhysicalBoxFragment* root_box_fragment = nullptr)
       : layout_object(layout_object),
         rect(rect),
         root_box_fragment(root_box_fragment) {}
@@ -38,9 +39,11 @@ struct LocalCaretRect {
 // Rect is local to the returned layoutObject
 CORE_EXPORT LocalCaretRect LocalCaretRectOfPosition(
     const PositionWithAffinity&,
+    CaretShape = CaretShape::kBar,
     EditingBoundaryCrossingRule = kCanCrossEditingBoundary);
 CORE_EXPORT LocalCaretRect LocalCaretRectOfPosition(
     const PositionInFlatTreeWithAffinity&,
+    CaretShape = CaretShape::kBar,
     EditingBoundaryCrossingRule = kCanCrossEditingBoundary);
 
 LocalCaretRect LocalSelectionRectOfPosition(const PositionWithAffinity&);
@@ -48,10 +51,11 @@ LocalCaretRect LocalSelectionRectOfPosition(const PositionWithAffinity&);
 // Bounds of (possibly transformed) caret in absolute coords
 CORE_EXPORT gfx::Rect AbsoluteCaretBoundsOf(
     const PositionWithAffinity&,
-    LayoutUnit* extra_width_to_end_of_line = nullptr,
+    CaretShape = CaretShape::kBar,
     EditingBoundaryCrossingRule rule = kCanCrossEditingBoundary);
 CORE_EXPORT gfx::Rect AbsoluteCaretBoundsOf(
-    const PositionInFlatTreeWithAffinity&);
+    const PositionInFlatTreeWithAffinity&,
+    CaretShape = CaretShape::kBar);
 
 CORE_EXPORT gfx::Rect AbsoluteSelectionBoundsOf(const VisiblePosition&);
 

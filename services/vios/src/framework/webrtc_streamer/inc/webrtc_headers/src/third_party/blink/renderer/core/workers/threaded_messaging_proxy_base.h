@@ -5,14 +5,18 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_WORKERS_THREADED_MESSAGING_PROXY_BASE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_WORKERS_THREADED_MESSAGING_PROXY_BASE_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
+#include "base/sequence_checker.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
+#include "third_party/blink/renderer/core/inspector/worker_devtools_params.h"
 #include "third_party/blink/renderer/core/workers/parent_execution_context_task_runners.h"
 #include "third_party/blink/renderer/core/workers/worker_backing_thread_startup_data.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
+#include "third_party/blink/renderer/platform/bindings/cross_thread_source_location.h"
 #include "third_party/blink/renderer/platform/heap/self_keep_alive.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_or_worker_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -26,7 +30,6 @@ class WaitableEvent;
 namespace blink {
 
 class ExecutionContext;
-class SourceLocation;
 struct GlobalScopeCreationParams;
 
 // The base proxy class to talk to Worker/WorkletGlobalScope on a worker thread
@@ -55,11 +58,12 @@ class CORE_EXPORT ThreadedMessagingProxyBase
   void ParentObjectDestroyed();
 
   void CountFeature(WebFeature);
+  void CountWebDXFeature(mojom::blink::WebDXFeature);
 
   void ReportConsoleMessage(mojom::ConsoleMessageSource,
                             mojom::ConsoleMessageLevel,
                             const String& message,
-                            std::unique_ptr<SourceLocation>);
+                            const CrossThreadSourceLocation&);
 
   virtual void WorkerThreadTerminated();
 
@@ -74,10 +78,19 @@ class CORE_EXPORT ThreadedMessagingProxyBase
       scoped_refptr<base::SingleThreadTaskRunner>
           parent_agent_group_task_runner = nullptr);
 
-  void InitializeWorkerThread(
+  // Normally, for dedicated worker and for worklets created in-process, the
+  // devtools params will be derived within this function, based on the parent
+  // (Window) context and/or based on the dedicated worker token. When worklet
+  // creation is proxied via the browser process (e.g. shared storage worklet),
+  // where the original Window context isn't directly accessible,
+  // `client_provided_devtools_params` will be pre-calculated and passed to this
+  // function, and this param will be used directly to start the worklet thread.
+  bool InitializeWorkerThread(
       std::unique_ptr<GlobalScopeCreationParams>,
-      const absl::optional<WorkerBackingThreadStartupData>&,
-      const absl::optional<const blink::DedicatedWorkerToken>&);
+      const std::optional<WorkerBackingThreadStartupData>&,
+      const std::optional<const blink::DedicatedWorkerToken>&,
+      std::unique_ptr<WorkerDevToolsParams> client_provided_devtools_params =
+          nullptr);
 
   ExecutionContext* GetExecutionContext() const;
   ParentExecutionContextTaskRunners* GetParentExecutionContextTaskRunners()
@@ -106,6 +119,7 @@ class CORE_EXPORT ThreadedMessagingProxyBase
       parent_execution_context_task_runners_;
   scoped_refptr<base::SingleThreadTaskRunner> parent_agent_group_task_runner_;
 
+  SEQUENCE_CHECKER(sequence_checker_);
   std::unique_ptr<WorkerThread> worker_thread_;
 
   bool asked_to_terminate_ = false;
@@ -113,9 +127,6 @@ class CORE_EXPORT ThreadedMessagingProxyBase
   // Used to terminate the synchronous resource loading (XMLHttpRequest) on the
   // worker thread from the main thread.
   base::WaitableEvent terminate_sync_load_event_;
-
-  FrameOrWorkerScheduler::SchedulingAffectingFeatureHandle
-      feature_handle_for_scheduler_;
 
   // Used to keep this alive until the worker thread gets terminated. This is
   // necessary because the co-owner (i.e., Worker or Worklet object) can be

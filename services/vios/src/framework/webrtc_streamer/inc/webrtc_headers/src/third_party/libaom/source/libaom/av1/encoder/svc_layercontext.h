@@ -1,11 +1,12 @@
 /*
- *  Copyright (c) 2019, Alliance for Open Media. All Rights Reserved.
+ * Copyright (c) 2019, Alliance for Open Media. All rights reserved.
  *
- *  Use of this source code is governed by a BSD-style license
- *  that can be found in the LICENSE file in the root of the source
- *  tree. An additional intellectual property rights grant can be found
- *  in the file PATENTS.  All contributing project authors may
- *  be found in the AUTHORS file in the root of the source tree.
+ * This source code is subject to the terms of the BSD 2 Clause License and
+ * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
+ * was not distributed with this source code in the LICENSE file, you can
+ * obtain it at www.aomedia.org/license/software. If the Alliance for Open
+ * Media Patent License 1.0 was not distributed with this source code in the
+ * PATENTS file, you can obtain it at www.aomedia.org/license/patent.
  */
 
 #ifndef AOM_AV1_ENCODER_SVC_LAYERCONTEXT_H_
@@ -92,6 +93,7 @@ typedef struct SVC {
   int number_spatial_layers;
   int number_temporal_layers;
   int prev_number_spatial_layers;
+  int prev_number_temporal_layers;
   int use_flexible_mode;
   int ksvc_fixed_mode;
   /*!\endcond */
@@ -107,8 +109,6 @@ typedef struct SVC {
   int num_encoded_top_layer;
   int first_layer_denoise;
   YV12_BUFFER_CONFIG source_last_TL0;
-  int mi_cols_full_resoln;
-  int mi_rows_full_resoln;
   /*!\endcond */
 
   /*!
@@ -139,6 +139,31 @@ typedef struct SVC {
    * Force zero-mv in mode search for the spatial/inter-layer reference.
    */
   int force_zero_mode_spatial_ref;
+
+  /*!
+   * Flag to indicate that current spatial layer has a lower quality layer
+   * (at the same timestamp) that can be used as a reference.
+   * Lower quality layer refers to the same resolution but encoded at
+   * different/lower bitrate.
+   */
+  int has_lower_quality_layer;
+
+  /*!
+   * Flag to indicate the frame drop mode for SVC: one of the two settings:
+   * AOM_LAYER_DROP (default) or AOM_FULL_SUPERFRAME_DROP.
+   */
+  AOM_SVC_FRAME_DROP_MODE framedrop_mode;
+
+  /*!
+   * Flag to indicate if frame was dropped for a given spatial_layer_id on
+   * previous superframe.
+   */
+  bool last_layer_dropped[AOM_MAX_SS_LAYERS];
+
+  /*!
+   * Flag to indicate if a previous spatial was dropped for the same superframe.
+   */
+  bool drop_spatial_layer[AOM_MAX_SS_LAYERS];
 } SVC;
 
 struct AV1_COMP;
@@ -197,6 +222,21 @@ void av1_update_layer_context_change_config(struct AV1_COMP *const cpi,
  layer are updated.
  */
 void av1_update_temporal_layer_framerate(struct AV1_COMP *const cpi);
+
+/*!\brief Prior to check if reference is lower spatial layer at the same
+ *        timestamp/superframe.
+ *
+ * \ingroup SVC
+ * \callgraph
+ * \callergraph
+ *
+ * \param[in]       cpi  Top level encoder structure
+ * \param[in]       ref_frame Reference frame
+ *
+ * \return  True if the ref_frame if lower spatial layer, otherwise false.
+ */
+bool av1_check_ref_is_low_spatial_res_super_frame(struct AV1_COMP *const cpi,
+                                                  int ref_frame);
 
 /*!\brief Prior to encoding the frame, set the layer context, for the current
  layer to be encoded, to the cpi struct.

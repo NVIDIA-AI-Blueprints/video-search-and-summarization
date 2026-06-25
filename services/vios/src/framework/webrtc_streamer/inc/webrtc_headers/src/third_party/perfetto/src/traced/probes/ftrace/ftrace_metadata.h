@@ -22,7 +22,6 @@
 #include <unistd.h>
 
 #include <bitset>
-#include <unordered_map>
 
 #include "perfetto/base/flat_set.h"
 #include "perfetto/base/logging.h"
@@ -66,17 +65,9 @@ struct FtraceMetadata {
     kernel_addrs.reserve(256);
   }
 
-  void AddDevice(BlockDeviceID device_id) {
-    last_seen_device_id = device_id;
-#if PERFETTO_DCHECK_IS_ON()
-    seen_device_id = true;
-#endif
-  }
+  void AddDevice(BlockDeviceID device_id) { last_seen_device_id = device_id; }
 
   void AddInode(Inode inode_number) {
-#if PERFETTO_DCHECK_IS_ON()
-    PERFETTO_DCHECK(seen_device_id);
-#endif
     static int32_t cached_pid = 0;
     if (!cached_pid)
       cached_pid = getpid();
@@ -134,15 +125,9 @@ struct FtraceMetadata {
   void FinishEvent() {
     last_seen_device_id = 0;
     last_seen_common_pid = 0;
-#if PERFETTO_DCHECK_IS_ON()
-    seen_device_id = false;
-#endif
   }
 
   BlockDeviceID last_seen_device_id = 0;
-#if PERFETTO_DCHECK_IS_ON()
-  bool seen_device_id = false;
-#endif
   int32_t last_seen_common_pid = 0;
   uint32_t last_kernel_addr_index_written = 0;
 

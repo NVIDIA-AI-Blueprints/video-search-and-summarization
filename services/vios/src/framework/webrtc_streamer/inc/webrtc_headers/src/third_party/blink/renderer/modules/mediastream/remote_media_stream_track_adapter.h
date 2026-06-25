@@ -33,7 +33,7 @@ class TrackObserver;
 // (RemoteAudioTrackAdapter) and video (RemoteVideoTrackAdapter) track.
 template <typename WebRtcMediaStreamTrackType>
 class MODULES_EXPORT RemoteMediaStreamTrackAdapter
-    : public WTF::ThreadSafeRefCounted<
+    : public ThreadSafeRefCounted<
           RemoteMediaStreamTrackAdapter<WebRtcMediaStreamTrackType>> {
  public:
   RemoteMediaStreamTrackAdapter(
@@ -43,7 +43,7 @@ class MODULES_EXPORT RemoteMediaStreamTrackAdapter
       : main_thread_(main_thread),
         webrtc_track_(webrtc_track),
         track_execution_context_(track_execution_context),
-        id_(String::FromUTF8(webrtc_track->id())) {}
+        id_(String::FromUtf8(webrtc_track->id())) {}
 
   RemoteMediaStreamTrackAdapter(const RemoteMediaStreamTrackAdapter&) = delete;
   RemoteMediaStreamTrackAdapter& operator=(
@@ -74,7 +74,7 @@ class MODULES_EXPORT RemoteMediaStreamTrackAdapter
   }
 
  protected:
-  friend class WTF::ThreadSafeRefCounted<
+  friend class ThreadSafeRefCounted<
       RemoteMediaStreamTrackAdapter<WebRtcMediaStreamTrackType>>;
 
   virtual ~RemoteMediaStreamTrackAdapter() {
@@ -99,10 +99,14 @@ class MODULES_EXPORT RemoteMediaStreamTrackAdapter
         To<LocalDOMWindow>(track_execution_context_.Get())->GetFrame()) {
       // IsWindow() being true means that the ExecutionContext is a
       // LocalDOMWindow, so these casts should be safe.
-      component_->SetCreationFrame(
-          WebFrame::FromCoreFrame(
-              To<LocalDOMWindow>(track_execution_context_.Get())->GetFrame())
-              ->ToWebLocalFrame());
+      component_->SetCreationFrameGetter(BindRepeating(
+          [](LocalFrame* local_frame) {
+            return local_frame
+                       ? WebFrame::FromCoreFrame(local_frame)->ToWebLocalFrame()
+                       : nullptr;
+          },
+          WrapWeakPersistent(
+              To<LocalDOMWindow>(track_execution_context_.Get())->GetFrame())));
     }
     DCHECK(component_);
   }

@@ -33,8 +33,8 @@
 
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "v8/include/v8-exception.h"
 
 namespace blink {
 
@@ -49,6 +49,11 @@ class PLATFORM_EXPORT ExceptionMessages {
     kExclusiveBound,
   };
 
+  static String AddContextToMessage(v8::ExceptionContext type,
+                                    const char* class_name,
+                                    const String& property_name,
+                                    const String& message);
+
   static String ArgumentNullOrIncorrectType(int argument_index,
                                             const String& expected_type);
   static String ArgumentNotOfType(int argument_index,
@@ -62,22 +67,39 @@ class PLATFORM_EXPORT ExceptionMessages {
   static String FailedToEnumerate(const char* type, const String& detail);
   static String FailedToExecute(const char* method,
                                 const char* type,
+                                const String& detail) {
+    return FailedToExecute(String(method), type, detail);
+  }
+  static String FailedToExecute(const String& method,
+                                const char* type,
                                 const String& detail);
-  static String FailedToGet(const char* property,
+  static String FailedToGet(const String& property,
                             const char* type,
                             const String& detail);
-  static String FailedToSet(const char* property,
+  static String FailedToSet(const String& property,
                             const char* type,
                             const String& detail);
-  static String FailedToDelete(const char* property,
+  static String FailedToDelete(const String& property,
                                const char* type,
                                const String& detail);
-  static String FailedToGetIndexed(const char* type, const String& detail);
-  static String FailedToSetIndexed(const char* type, const String& detail);
-  static String FailedToDeleteIndexed(const char* type, const String& detail);
-  static String FailedToGetNamed(const char* type, const String& detail);
-  static String FailedToSetNamed(const char* type, const String& detail);
-  static String FailedToDeleteNamed(const char* type, const String& detail);
+  static String FailedToGetIndexed(const String& property,
+                                   const char* type,
+                                   const String& detail);
+  static String FailedToSetIndexed(const String& property,
+                                   const char* type,
+                                   const String& detail);
+  static String FailedToDeleteIndexed(const String& property,
+                                      const char* type,
+                                      const String& detail);
+  static String FailedToGetNamed(const String& property,
+                                 const char* type,
+                                 const String& detail);
+  static String FailedToSetNamed(const String& property,
+                                 const char* type,
+                                 const String& detail);
+  static String FailedToDeleteNamed(const String& property,
+                                    const char* type,
+                                    const String& detail);
 
   template <typename NumType>
   static String FormatNumber(NumType number) {
@@ -132,8 +154,6 @@ class PLATFORM_EXPORT ExceptionMessages {
   static String ResizableArrayBufferNotAllowed(const char* expected_type);
 
   static String ValueNotOfType(const char* expected_type);
-
-  static String InputArrayTooLong(unsigned expected_size, unsigned actual_size);
 
  private:
   template <typename NumType>

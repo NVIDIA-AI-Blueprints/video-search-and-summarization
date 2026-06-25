@@ -12,9 +12,13 @@
 #ifndef API_TRANSPORT_DATA_CHANNEL_TRANSPORT_INTERFACE_H_
 #define API_TRANSPORT_DATA_CHANNEL_TRANSPORT_INTERFACE_H_
 
-#include "absl/types/optional.h"
+#include <cstddef>
+#include <optional>
+
+#include "api/priority.h"
 #include "api/rtc_error.h"
 #include "rtc_base/copy_on_write_buffer.h"
+#include "rtc_base/ssl_stream_adapter.h"
 
 namespace webrtc {
 
@@ -46,14 +50,14 @@ struct SendDataParams {
   // Setting this value to zero disables retransmission.
   // Valid values are in the range [0-UINT16_MAX].
   // `max_rtx_count` and `max_rtx_ms` may not be set simultaneously.
-  absl::optional<int> max_rtx_count;
+  std::optional<int> max_rtx_count;
 
   // If set, the maximum number of milliseconds for which the transport
   // may retransmit this message before it is dropped.
   // Setting this value to zero disables retransmission.
   // Valid values are in the range [0-UINT16_MAX].
   // `max_rtx_count` and `max_rtx_ms` may not be set simultaneously.
-  absl::optional<int> max_rtx_ms;
+  std::optional<int> max_rtx_ms;
 };
 
 // Sink for callbacks related to a data channel.
@@ -61,10 +65,13 @@ class DataChannelSink {
  public:
   virtual ~DataChannelSink() = default;
 
+  // Callback issued when the transport is first connected.
+  virtual void OnTransportConnected() = 0;
+
   // Callback issued when data is received by the transport.
   virtual void OnDataReceived(int channel_id,
                               DataMessageType type,
-                              const rtc::CopyOnWriteBuffer& buffer) = 0;
+                              const CopyOnWriteBuffer& buffer) = 0;
 
   // Callback issued when a remote data channel begins the closing procedure.
   // Messages sent after the closing procedure begins will not be transmitted.
@@ -83,9 +90,15 @@ class DataChannelSink {
   virtual void OnReadyToSend() = 0;
 
   // Callback issued when the data channel becomes unusable (closed).
-  // TODO(https://crbug.com/webrtc/10360): Make pure virtual when all
-  // consumers updated.
-  virtual void OnTransportClosed(RTCError error) {}
+  virtual void OnTransportClosed(RTCError /* error */) = 0;
+
+  // The data channel's buffered_amount has fallen to or below the threshold
+  // set when calling `SetBufferedAmountLowThreshold`
+  virtual void OnBufferedAmountLow(int channel_id) = 0;
+
+  // The data channel's max-message-size has changed as a result of SDP
+  // negotiation.
+  virtual void OnMaxMessageSize(int max_message_size) = 0;
 };
 
 // Transport for data channels.
@@ -95,14 +108,14 @@ class DataChannelTransportInterface {
 
   // Opens a data `channel_id` for sending.  May return an error if the
   // specified `channel_id` is unusable.  Must be called before `SendData`.
-  virtual RTCError OpenChannel(int channel_id) = 0;
+  virtual RTCError OpenChannel(int channel_id, PriorityValue priority) = 0;
 
   // Sends a data buffer to the remote endpoint using the given send parameters.
   // `buffer` may not be larger than 256 KiB. Returns an error if the send
   // fails.
   virtual RTCError SendData(int channel_id,
                             const SendDataParams& params,
-                            const rtc::CopyOnWriteBuffer& buffer) = 0;
+                            const CopyOnWriteBuffer& buffer) = 0;
 
   // Closes `channel_id` gracefully.  Returns an error if `channel_id` is not
   // open.  Data sent after the closing procedure begins will not be
@@ -115,9 +128,16 @@ class DataChannelTransportInterface {
   virtual void SetDataSink(DataChannelSink* sink) = 0;
 
   // Returns whether this data channel transport is ready to send.
-  // Note: the default implementation always returns false (as it assumes no one
-  // has implemented the interface).  This default implementation is temporary.
   virtual bool IsReadyToSend() const = 0;
+
+  virtual size_t buffered_amount(int channel_id) const = 0;
+  virtual size_t buffered_amount_low_threshold(int channel_id) const = 0;
+  virtual void SetBufferedAmountLowThreshold(int channel_id, size_t bytes) = 0;
+
+  // These values are determined during the DTLS and SCTP negotiation.
+  // They are std::nullopt until decided, and don't change afterwards.
+  virtual std::optional<int> MaxChannels() = 0;
+  virtual std::optional<SSLRole> DtlsRole() = 0;
 };
 
 }  // namespace webrtc

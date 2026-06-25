@@ -50,6 +50,12 @@ public:
     void TestBinaryCharacterProperties();
     void TestIntCharacterProperties();
     void TestPropertyNames();
+    void TestIDSUnaryOperator();
+    void TestIDCompatMath();
+    void TestPropertiesUsingPpucd();
+    void TestIDStatus();
+    void TestIDType();
+    void TestScriptExtensionsCodePoints();
 
 private:
 

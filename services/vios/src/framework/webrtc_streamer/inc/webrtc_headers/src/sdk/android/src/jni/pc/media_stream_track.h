@@ -19,11 +19,10 @@
 namespace webrtc {
 namespace jni {
 
-ScopedJavaLocalRef<jobject> NativeToJavaMediaType(
-    JNIEnv* jni,
-    cricket::MediaType media_type);
-cricket::MediaType JavaToNativeMediaType(JNIEnv* jni,
-                                         const JavaRef<jobject>& j_media_type);
+ScopedJavaLocalRef<jobject> NativeToJavaMediaType(JNIEnv* jni,
+                                                  webrtc::MediaType media_type);
+webrtc::MediaType JavaToNativeMediaType(JNIEnv* jni,
+                                        const JavaRef<jobject>& j_media_type);
 
 }  // namespace jni
 }  // namespace webrtc

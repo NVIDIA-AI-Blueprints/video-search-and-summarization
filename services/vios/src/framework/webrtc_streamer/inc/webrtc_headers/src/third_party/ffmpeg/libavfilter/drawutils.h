@@ -29,6 +29,7 @@
 #include "libavutil/pixfmt.h"
 
 int ff_fill_rgba_map(uint8_t *rgba_map, enum AVPixelFormat pix_fmt);
+int ff_fill_ayuv_map(uint8_t *ayuv_map, enum AVPixelFormat pix_fmt);
 
 #define MAX_PLANES 4
 
@@ -44,6 +45,7 @@ typedef struct FFDrawContext {
     enum AVColorRange range;
     unsigned flags;
     enum AVColorSpace csp;
+    enum AVAlphaMode alpha;
     double rgb2yuv[3][3];
 } FFDrawContext;
 
@@ -77,7 +79,14 @@ typedef struct FFDrawColor {
  * @return        0 for success, < 0 for error
  */
 int ff_draw_init2(FFDrawContext *draw, enum AVPixelFormat format, enum AVColorSpace csp,
-                  enum AVColorRange range, unsigned flags);
+                  enum AVColorRange range, enum AVAlphaMode alpha, unsigned flags);
+
+/**
+ * Init a draw context, taking the format, colorspace and range from the given
+ * filter link.
+ */
+int ff_draw_init_from_link(FFDrawContext *draw, const AVFilterLink *link,
+                           unsigned flags);
 
 /*
  * Legacy wrapper for ff_draw_init2.

@@ -14,14 +14,18 @@ enum class ResourceRequestBlockedReason {
   kMixedContent,
   kOrigin,
   kInspector,
+  kIntegrity,
   kSubresourceFilter,
   kContentType,
   kCoepFrameResourceNeedsCoepHeader,
   kCoopSandboxedIFrameCannotNavigateToCoopPage,
   kCorpNotSameOrigin,
   kCorpNotSameOriginAfterDefaultedToSameOriginByCoep,
+  kCorpNotSameOriginAfterDefaultedToSameOriginByDip,
+  kCorpNotSameOriginAfterDefaultedToSameOriginByCoepAndDip,
   kCorpNotSameSite,
   kConversionRequest,
+  kSRIMessageSignatureMismatch,
   kMax = kConversionRequest,
 };
 

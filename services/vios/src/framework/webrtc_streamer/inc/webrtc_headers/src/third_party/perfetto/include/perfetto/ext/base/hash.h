@@ -17,85 +17,73 @@
 #ifndef INCLUDE_PERFETTO_EXT_BASE_HASH_H_
 #define INCLUDE_PERFETTO_EXT_BASE_HASH_H_
 
-#include <stddef.h>
-#include <stdint.h>
-#include <string>
-#include <type_traits>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <tuple>
 #include <utility>
 
-namespace perfetto {
-namespace base {
+namespace perfetto::base {
 
-// A helper class which computes a 64-bit hash of the input data.
-// The algorithm used is FNV-1a as it is fast and easy to implement and has
-// relatively few collisions.
-// WARNING: This hash function should not be used for any cryptographic purpose.
-class Hasher {
- public:
-  // Creates an empty hash object
-  Hasher() {}
+// ============================================================================
+// Absl-style hash customization point
+// ============================================================================
+//
+// To make a type hashable with Perfetto hash functions, define a friend
+// function template:
+//
+//   template <typename H>
+//   friend H PerfettoHashValue(H h, const MyType& value) {
+//     return H::Combine(std::move(h), value.field1, value.field2);
+//   }
+//
+// This function will be found via ADL (Argument Dependent Lookup) when hashing
+// your type. No forward declaration is needed - ADL finds it in your type's
+// namespace.
 
-  // Hashes a numeric value.
-  template <
-      typename T,
-      typename std::enable_if<std::is_arithmetic<T>::value, bool>::type = true>
-  void Update(T data) {
-    Update(reinterpret_cast<const char*>(&data), sizeof(data));
+// ============================================================================
+// Built-in PerfettoHashValue implementations for common standard library
+// types. These allow standard library types to work seamlessly with the
+// absl-style hash API without requiring users to define their own
+// implementations.
+// ============================================================================
+
+// Hash function for std::optional - hashes the value if present, or a sentinel
+// if not.
+template <typename H, typename T>
+H PerfettoHashValue(H h, const std::optional<T>& value) {
+  if (value.has_value()) {
+    return H::Combine(H::Combine(std::move(h), true), *value);
   }
+  return H::Combine(std::move(h), false, 0);
+}
 
-  // Using the loop instead of "Update(str, strlen(str))" to avoid looping twice
-  void Update(const char* str) {
-    for (const auto* p = str; *p; ++p)
-      Update(*p);
-  }
+// Hash function for std::pair - combines hashes of both elements.
+template <typename H, typename T1, typename T2>
+H PerfettoHashValue(H h, const std::pair<T1, T2>& value) {
+  return H::Combine(std::move(h), value.first, value.second);
+}
 
-  // Hashes a byte array.
-  void Update(const char* data, size_t size) {
-    for (size_t i = 0; i < size; i++) {
-      result_ ^= static_cast<uint8_t>(data[i]);
-      // Note: Arithmetic overflow of unsigned integers is well defined in C++
-      // standard unlike signed integers.
-      // https://stackoverflow.com/a/41280273
-      result_ *= kFnv1a64Prime;
-    }
-  }
+// Hash function for std::tuple - combines hashes of all elements.
+template <typename H, typename... Ts>
+H PerfettoHashValue(H h, const std::tuple<Ts...>& value) {
+  return std::apply(
+      [&h](const auto&... elements) {
+        return H::Combine(std::move(h), elements...);
+      },
+      value);
+}
 
-  // Allow hashing anything that has a |data| field, a |size| field,
-  // and has the kHashable trait (e.g., base::StringView).
-  template <typename T, typename = std::enable_if<T::kHashable>>
-  void Update(const T& t) {
-    Update(t.data(), t.size());
-  }
-
-  void Update(const std::string& s) { Update(s.data(), s.size()); }
-
-  uint64_t digest() const { return result_; }
-
-  // Usage:
-  // uint64_t hashed_value = Hash::Combine(33, false, "ABC", 458L, 3u, 'x');
-  template <typename... Ts>
-  static uint64_t Combine(Ts&&... args) {
-    Hasher hasher;
-    hasher.UpdateAll(std::forward<Ts>(args)...);
-    return hasher.digest();
-  }
-
-  // `hasher.UpdateAll(33, false, "ABC")` is shorthand for:
-  // `hasher.Update(33); hasher.Update(false); hasher.Update("ABC");`
-  void UpdateAll() {}
-
-  template <typename T, typename... Ts>
-  void UpdateAll(T&& arg, Ts&&... args) {
-    Update(arg);
-    UpdateAll(std::forward<Ts>(args)...);
-  }
-
- private:
-  static constexpr uint64_t kFnv1a64OffsetBasis = 0xcbf29ce484222325;
-  static constexpr uint64_t kFnv1a64Prime = 0x100000001b3;
-
-  uint64_t result_ = kFnv1a64OffsetBasis;
-};
+// Hash function for pointers - hashes the pointer value as an integer.
+template <typename H, typename T>
+H PerfettoHashValue(H h, const std::unique_ptr<T>& ptr) {
+  return H::Combine(std::move(h), ptr.get());
+}
+template <typename H, typename T>
+H PerfettoHashValue(H h, const std::shared_ptr<T>& ptr) {
+  return H::Combine(std::move(h), ptr.get());
+}
 
 // This is for using already-hashed key into std::unordered_map and avoid the
 // cost of re-hashing. Example:
@@ -105,33 +93,6 @@ struct AlreadyHashed {
   size_t operator()(const T& x) const { return static_cast<size_t>(x); }
 };
 
-// base::Hash uses base::Hasher for integer values and falls base to std::hash
-// for other types. This is needed as std::hash for integers is just the
-// identity function and Perfetto uses open-addressing hash table, which are
-// very sensitive to hash quality and are known to degrade in performance
-// when using std::hash.
-template <typename T>
-struct Hash {
-  // Version for ints, using base::Hasher.
-  template <typename U = T>
-  auto operator()(const U& x) ->
-      typename std::enable_if<std::is_arithmetic<U>::value, size_t>::type
-      const {
-    Hasher hash;
-    hash.Update(x);
-    return static_cast<size_t>(hash.digest());
-  }
-
-  // Version for non-ints, falling back to std::hash.
-  template <typename U = T>
-  auto operator()(const U& x) ->
-      typename std::enable_if<!std::is_arithmetic<U>::value, size_t>::type
-      const {
-    return std::hash<U>()(x);
-  }
-};
-
-}  // namespace base
-}  // namespace perfetto
+}  // namespace perfetto::base
 
 #endif  // INCLUDE_PERFETTO_EXT_BASE_HASH_H_

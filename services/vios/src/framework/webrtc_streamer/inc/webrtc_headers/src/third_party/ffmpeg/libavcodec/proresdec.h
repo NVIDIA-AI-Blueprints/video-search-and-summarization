@@ -22,9 +22,14 @@
 #ifndef AVCODEC_PRORESDEC_H
 #define AVCODEC_PRORESDEC_H
 
+#include <stdint.h>
+
 #include "get_bits.h"
 #include "blockdsp.h"
 #include "proresdsp.h"
+
+#include "libavutil/frame.h"
+#include "libavutil/pixfmt.h"
 
 typedef struct {
     const uint8_t *data;
@@ -39,6 +44,7 @@ typedef struct {
     BlockDSPContext bdsp;
     ProresDSPContext prodsp;
     AVFrame *frame;
+    void *hwaccel_picture_private;
     int frame_type;              ///< 0 = progressive, 1 = tff, 2 = bff
     uint8_t qmat_luma[64];
     uint8_t qmat_chroma[64];
@@ -46,6 +52,8 @@ typedef struct {
     int slice_count;             ///< number of slices in the current picture
     unsigned mb_width;           ///< width of the current picture in mb
     unsigned mb_height;          ///< height of the current picture in mb
+    unsigned slice_mb_width;     ///< maximum width of a slice in mb
+    unsigned slice_mb_height;    ///< maximum height of a slice in mb
     uint8_t progressive_scan[64];
     uint8_t interlaced_scan[64];
     const uint8_t *scan;

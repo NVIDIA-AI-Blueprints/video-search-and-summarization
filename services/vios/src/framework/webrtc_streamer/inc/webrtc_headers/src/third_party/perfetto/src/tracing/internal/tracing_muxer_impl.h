@@ -37,6 +37,7 @@
 #include "perfetto/ext/tracing/core/basic_types.h"
 #include "perfetto/ext/tracing/core/consumer.h"
 #include "perfetto/ext/tracing/core/producer.h"
+#include "perfetto/ext/tracing/core/tracing_service.h"
 #include "perfetto/tracing/backend_type.h"
 #include "perfetto/tracing/core/data_source_descriptor.h"
 #include "perfetto/tracing/core/forward_decls.h"
@@ -112,8 +113,8 @@ class TracingMuxerImpl : public TracingMuxer {
   struct RegisteredDataSource {
     DataSourceDescriptor descriptor;
     DataSourceFactory factory{};
-    bool supports_multiple_instances = false;
-    bool requires_callbacks_under_lock = false;
+    DataSourceParams params;
+    bool no_flush = false;
     DataSourceStaticState* static_state = nullptr;
   };
 
@@ -125,6 +126,7 @@ class TracingMuxerImpl : public TracingMuxer {
   bool RegisterDataSource(const DataSourceDescriptor&,
                           DataSourceFactory,
                           DataSourceParams,
+                          bool no_flush,
                           DataSourceStaticState*) override;
   void UpdateDataSourceDescriptor(const DataSourceDescriptor&,
                                   const DataSourceStaticState*) override;
@@ -167,6 +169,9 @@ class TracingMuxerImpl : public TracingMuxer {
                            const std::shared_ptr<TraceConfig>&,
                            base::ScopedFile trace_fd = base::ScopedFile());
   void StartTracingSession(TracingSessionGlobalID);
+  void CloneTracingSession(TracingSessionGlobalID,
+                           TracingSession::CloneTraceArgs,
+                           TracingSession::CloneTraceCallback);
   void ChangeTracingSessionConfig(TracingSessionGlobalID, const TraceConfig&);
   void StopTracingSession(TracingSessionGlobalID);
   void DestroyTracingSession(TracingSessionGlobalID);
@@ -209,7 +214,8 @@ class TracingMuxerImpl : public TracingMuxer {
    public:
     ProducerImpl(TracingMuxerImpl*,
                  TracingBackendId,
-                 uint32_t shmem_batch_commits_duration_ms);
+                 uint32_t shmem_batch_commits_duration_ms,
+                 bool shmem_direct_patching_enabled);
     ~ProducerImpl() override;
 
     void Initialize(std::unique_ptr<ProducerEndpoint> endpoint);
@@ -228,7 +234,10 @@ class TracingMuxerImpl : public TracingMuxer {
     void StartDataSource(DataSourceInstanceID,
                          const DataSourceConfig&) override;
     void StopDataSource(DataSourceInstanceID) override;
-    void Flush(FlushRequestID, const DataSourceInstanceID*, size_t) override;
+    void Flush(FlushRequestID,
+               const DataSourceInstanceID*,
+               size_t,
+               FlushFlags) override;
     void ClearIncrementalState(const DataSourceInstanceID*, size_t) override;
 
     bool SweepDeadServices();
@@ -247,6 +256,7 @@ class TracingMuxerImpl : public TracingMuxer {
     bool producer_provided_smb_failed_ = false;
 
     const uint32_t shmem_batch_commits_duration_ms_ = 0;
+    const bool shmem_direct_patching_enabled_ = false;
 
     // Set of data sources that have been actually registered on this producer.
     // This can be a subset of the global |data_sources_|, because data sources
@@ -327,6 +337,10 @@ class TracingMuxerImpl : public TracingMuxer {
     // consumer wasn't connected yet.
     bool get_trace_stats_pending_ = false;
 
+    // Similarly we need to buffer a session cloning args if the session is
+    // cloning another sesison before the consumer was connected.
+    std::optional<ConsumerEndpoint::CloneSessionArgs> session_to_clone_;
+
     // Whether this session was already stopped. This will happen in response to
     // Stop{,Blocking}, but also if the service stops the session for us
     // automatically (e.g., when there are no data sources).
@@ -354,6 +368,9 @@ class TracingMuxerImpl : public TracingMuxer {
 
     // An internal callback used to implement StopBlocking().
     std::function<void()> blocking_stop_complete_callback_;
+
+    // Callback for a pending call to CloneTrace().
+    TracingSession::CloneTraceCallback clone_trace_callback_;
 
     // Callback passed to ReadTrace().
     std::function<void(TracingSession::ReadTraceCallbackArgs)>
@@ -383,6 +400,7 @@ class TracingMuxerImpl : public TracingMuxer {
     void Setup(const TraceConfig&, int fd) override;
     void Start() override;
     void StartBlocking() override;
+    void CloneTrace(CloneTraceArgs args, CloneTraceCallback) override;
     void SetOnStartCallback(std::function<void()>) override;
     void SetOnErrorCallback(std::function<void(TracingError)>) override;
     void Stop() override;
@@ -511,7 +529,8 @@ class TracingMuxerImpl : public TracingMuxer {
                                const FindDataSourceRes&);
   bool FlushDataSource_AsyncBegin(TracingBackendId,
                                   DataSourceInstanceID,
-                                  FlushRequestID);
+                                  FlushRequestID,
+                                  FlushFlags);
   void FlushDataSource_AsyncEnd(TracingBackendId,
                                 uint32_t backend_connection_id,
                                 DataSourceInstanceID,

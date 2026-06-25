@@ -7,7 +7,7 @@
 
 #include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/heap_observer_set.h"
+#include "third_party/blink/renderer/platform/heap_observer_list.h"
 
 namespace blink {
 
@@ -18,8 +18,8 @@ class PLATFORM_EXPORT ContextLifecycleNotifier : public GarbageCollectedMixin {
  public:
   virtual ~ContextLifecycleNotifier();
 
-  virtual void AddContextLifecycleObserver(ContextLifecycleObserver*);
-  virtual void RemoveContextLifecycleObserver(ContextLifecycleObserver*);
+  void AddContextLifecycleObserver(ContextLifecycleObserver*);
+  void RemoveContextLifecycleObserver(ContextLifecycleObserver*);
 
   void Trace(Visitor* visitor) const override;
 
@@ -30,13 +30,13 @@ class PLATFORM_EXPORT ContextLifecycleNotifier : public GarbageCollectedMixin {
   // destroyed.
   void NotifyContextDestroyed();
 
-  const HeapObserverSet<ContextLifecycleObserver>& observers() const {
+  const HeapObserverList<ContextLifecycleObserver>& observers() const {
     return observers_;
   }
-  HeapObserverSet<ContextLifecycleObserver>& observers() { return observers_; }
+  HeapObserverList<ContextLifecycleObserver>& observers() { return observers_; }
 
  private:
-  HeapObserverSet<ContextLifecycleObserver> observers_;
+  HeapObserverList<ContextLifecycleObserver> observers_;
   bool context_destroyed_ = false;
 };
 

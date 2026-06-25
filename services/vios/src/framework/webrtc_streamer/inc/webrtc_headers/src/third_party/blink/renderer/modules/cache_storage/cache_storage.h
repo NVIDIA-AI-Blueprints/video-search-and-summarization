@@ -5,10 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CACHE_STORAGE_CACHE_STORAGE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CACHE_STORAGE_CACHE_STORAGE_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_typedefs.h"
 #include "third_party/blink/renderer/core/fetch/global_fetch.h"
 #include "third_party/blink/renderer/modules/cache_storage/cache.h"
@@ -17,7 +20,7 @@
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
-
+class Cache;
 class CacheStorageBlobClientList;
 class MultiCacheQueryOptions;
 class ScriptState;
@@ -38,20 +41,20 @@ class CacheStorage final : public ScriptWrappable,
 
   ~CacheStorage() override;
 
-  ScriptPromise open(ScriptState*,
-                     const String& cache_name,
-                     ExceptionState& exception_state);
-  ScriptPromise has(ScriptState*,
-                    const String& cache_name,
-                    ExceptionState& exception_state);
-  ScriptPromise Delete(ScriptState*,
-                       const String& cache_name,
-                       ExceptionState& exception_state);
-  ScriptPromise keys(ScriptState*, ExceptionState& exception_state);
-  ScriptPromise match(ScriptState* script_state,
-                      const V8RequestInfo* request,
-                      const MultiCacheQueryOptions* options,
-                      ExceptionState& exception_state);
+  ScriptPromise<Cache> open(ScriptState*,
+                            const String& cache_name,
+                            ExceptionState& exception_state);
+  ScriptPromise<IDLBoolean> has(ScriptState*,
+                                const String& cache_name,
+                                ExceptionState& exception_state);
+  ScriptPromise<IDLBoolean> Delete(ScriptState*,
+                                   const String& cache_name,
+                                   ExceptionState& exception_state);
+  ScriptPromise<IDLSequence<IDLString>> keys(ScriptState*, ExceptionState&);
+  ScriptPromise<Response> match(ScriptState* script_state,
+                                const V8RequestInfo* request,
+                                const MultiCacheQueryOptions* options,
+                                ExceptionState& exception_state);
 
   bool HasPendingActivity() const override;
   void Trace(Visitor*) const override;
@@ -65,39 +68,40 @@ class CacheStorage final : public ScriptWrappable,
   // The callback passed into IsCacheStorageAllowed is invoked upon success,
   // and the resolver is rejected upon failure.
   void IsCacheStorageAllowed(ExecutionContext* context,
-                             ScriptPromiseResolver* resolver,
+                             ScriptPromiseResolverBase* resolver,
                              base::OnceCallback<void()> callback);
   void OnCacheStorageAllowed(base::OnceCallback<void()> callback,
-                             ScriptPromiseResolver* resolver,
+                             ScriptPromiseResolverBase* resolver,
                              bool allow_access);
 
   void OpenImpl(const String& cache_name,
                 int64_t trace_id,
-                ScriptPromiseResolver* resolver);
+                ScriptPromiseResolver<Cache>* resolver);
   void HasImpl(const String& cache_name,
                int64_t trace_id,
-               ScriptPromiseResolver* resolver);
+               ScriptPromiseResolver<IDLBoolean>* resolver);
   void DeleteImpl(const String& cache_name,
                   int64_t trace_id,
-                  ScriptPromiseResolver* resolver);
-  void KeysImpl(int64_t trace_id, ScriptPromiseResolver* resolver);
-  ScriptPromise MatchImpl(ScriptState*,
-                          const Request*,
-                          const MultiCacheQueryOptions*,
-                          ExceptionState& exception_state);
+                  ScriptPromiseResolver<IDLBoolean>* resolver);
+  void KeysImpl(int64_t trace_id,
+                ScriptPromiseResolver<IDLSequence<IDLString>>* resolver);
+  ScriptPromise<Response> MatchImpl(ScriptState*,
+                                    const Request*,
+                                    const MultiCacheQueryOptions*,
+                                    ExceptionState& exception_state);
   void MatchImplHelper(const MultiCacheQueryOptions* options,
                        mojom::blink::FetchAPIRequestPtr mojo_request,
                        mojom::blink::MultiCacheQueryOptionsPtr mojo_options,
                        bool in_related_fetch_event,
                        bool in_range_fetch_event,
                        int64_t trace_id,
-                       ScriptPromiseResolver* resolver);
+                       ScriptPromiseResolver<Response>* resolver);
 
   Member<GlobalFetch::ScopedFetcher> scoped_fetcher_;
   Member<CacheStorageBlobClientList> blob_client_list_;
 
   HeapMojoRemote<mojom::blink::CacheStorage> cache_storage_remote_;
-  absl::optional<bool> allowed_;
+  std::optional<bool> allowed_;
   bool ever_used_ = false;
 };
 

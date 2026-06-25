@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_COMMANDS_EDIT_COMMAND_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_COMMANDS_EDIT_COMMAND_H_
 
+#include "base/types/strong_alias.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/events/input_event.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -39,6 +40,17 @@ class EditingState;
 
 class CORE_EXPORT EditCommand : public GarbageCollected<EditCommand> {
  public:
+  // Specifies which password echo setting to be used when executing text
+  // insertion or replacement operations within a password field.
+  enum class PasswordEchoBehavior {
+    kEchoIfPasswordEchoPhysicalEnabled,
+    kEchoIfPasswordEchoTouchEnabled,
+    // Password characters should only be echoed interactively during typing.
+    // Editing operations like pasting from clipboard should not trigger the
+    // password echo animation.
+    kDoNotEcho
+  };
+
   virtual ~EditCommand();
 
   virtual void SetParent(CompositeEditCommand*);
@@ -65,7 +77,7 @@ class CORE_EXPORT EditCommand : public GarbageCollected<EditCommand> {
   explicit EditCommand(Document&);
 
   Document& GetDocument() const { return *document_.Get(); }
-  CompositeEditCommand* Parent() const { return parent_; }
+  CompositeEditCommand* Parent() const { return parent_.Get(); }
 
   static bool IsRenderedCharacter(const Position&);
 
@@ -75,15 +87,15 @@ class CORE_EXPORT EditCommand : public GarbageCollected<EditCommand> {
   bool selection_is_directional_ = false;
 };
 
-enum ShouldAssumeContentIsAlwaysEditable {
-  kAssumeContentIsAlwaysEditable,
-  kDoNotAssumeContentIsAlwaysEditable,
-};
+using ShouldAssumeContentIsAlwaysEditable =
+    base::StrongAlias<class ShouldAssumeContentIsAlwaysEditableTag, bool>;
 
 class CORE_EXPORT SimpleEditCommand : public EditCommand {
  public:
   virtual void DoUnapply() = 0;
   virtual void DoReapply();  // calls doApply()
+
+  virtual String ToString() const = 0;
 
  protected:
   explicit SimpleEditCommand(Document& document) : EditCommand(document) {}

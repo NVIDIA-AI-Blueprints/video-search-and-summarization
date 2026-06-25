@@ -26,7 +26,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_VALUE_POOL_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_VALUE_POOL_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "base/types/pass_key.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_color.h"
@@ -41,6 +40,7 @@
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/css_revert_layer_value.h"
+#include "third_party/blink/renderer/core/css/css_revert_rule_value.h"
 #include "third_party/blink/renderer/core/css/css_revert_value.h"
 #include "third_party/blink/renderer/core/css/css_unset_value.h"
 #include "third_party/blink/renderer/core/css/css_value_list.h"
@@ -63,10 +63,11 @@ class CORE_EXPORT CSSValuePool final : public GarbageCollected<CSSValuePool> {
   using CSSUnsetValue = cssvalue::CSSUnsetValue;
   using CSSRevertValue = cssvalue::CSSRevertValue;
   using CSSRevertLayerValue = cssvalue::CSSRevertLayerValue;
+  using CSSRevertRuleValue = cssvalue::CSSRevertRuleValue;
 
   // Special keys for deleted and empty values. Use white and transparent as
   // they're common colors and worth having an early-out for.
-  struct ColorHashTraitsForCSSValuePool : WTF::GenericHashTraits<Color> {
+  struct ColorHashTraitsForCSSValuePool : GenericHashTraits<Color> {
     STATIC_ONLY(ColorHashTraitsForCSSValuePool);
     static unsigned GetHash(const Color& key) { return key.GetHash(); }
     static Color EmptyValue() { return Color::kTransparent; }
@@ -82,53 +83,60 @@ class CORE_EXPORT CSSValuePool final : public GarbageCollected<CSSValuePool> {
   CSSValuePool& operator=(const CSSValuePool&) = delete;
 
   // Cached individual values.
-  CSSColor* TransparentColor() { return color_transparent_; }
-  CSSColor* WhiteColor() { return color_white_; }
-  CSSColor* BlackColor() { return color_black_; }
-  CSSInheritedValue* InheritedValue() { return inherited_value_; }
-  CSSInitialValue* InitialValue() { return initial_value_; }
-  CSSUnsetValue* UnsetValue() { return unset_value_; }
-  CSSRevertValue* RevertValue() { return revert_value_; }
-  CSSRevertLayerValue* RevertLayerValue() { return revert_layer_value_; }
+  CSSColor* TransparentColor() { return color_transparent_.Get(); }
+  CSSColor* WhiteColor() { return color_white_.Get(); }
+  CSSColor* BlackColor() { return color_black_.Get(); }
+  CSSInheritedValue* InheritedValue() { return inherited_value_.Get(); }
+  CSSInitialValue* InitialValue() { return initial_value_.Get(); }
+  CSSUnsetValue* UnsetValue() { return unset_value_.Get(); }
+  CSSRevertValue* RevertValue() { return revert_value_.Get(); }
+  CSSRevertLayerValue* RevertLayerValue() { return revert_layer_value_.Get(); }
+  CSSRevertRuleValue* RevertRuleValue() { return revert_rule_value_.Get(); }
   CSSInvalidVariableValue* InvalidVariableValue() {
-    return invalid_variable_value_;
+    return invalid_variable_value_.Get();
   }
   CSSCyclicVariableValue* CyclicVariableValue() {
-    return cyclic_variable_value_;
+    return cyclic_variable_value_.Get();
   }
-  CSSInitialColorValue* InitialColorValue() { return initial_color_value_; }
+  CSSInitialColorValue* InitialColorValue() {
+    return initial_color_value_.Get();
+  }
 
   // Vector caches.
   CSSIdentifierValue* IdentifierCacheValue(CSSValueID ident) {
-    return identifier_value_cache_[static_cast<int>(ident)];
+    return identifier_value_cache_[static_cast<int>(ident)].Get();
   }
   CSSIdentifierValue* SetIdentifierCacheValue(CSSValueID ident,
                                               CSSIdentifierValue* css_value) {
-    return identifier_value_cache_[static_cast<int>(ident)] = css_value;
+    identifier_value_cache_[static_cast<int>(ident)] = css_value;
+    return css_value;
   }
   CSSNumericLiteralValue* PixelCacheValue(int int_value) {
-    return pixel_value_cache_[int_value];
+    return pixel_value_cache_[int_value].Get();
   }
   CSSNumericLiteralValue* SetPixelCacheValue(
       int int_value,
       CSSNumericLiteralValue* css_value) {
-    return pixel_value_cache_[int_value] = css_value;
+    pixel_value_cache_[int_value] = css_value;
+    return css_value;
   }
   CSSNumericLiteralValue* PercentCacheValue(int int_value) {
-    return percent_value_cache_[int_value];
+    return percent_value_cache_[int_value].Get();
   }
   CSSNumericLiteralValue* SetPercentCacheValue(
       int int_value,
       CSSNumericLiteralValue* css_value) {
-    return percent_value_cache_[int_value] = css_value;
+    percent_value_cache_[int_value] = css_value;
+    return css_value;
   }
   CSSNumericLiteralValue* NumberCacheValue(int int_value) {
-    return number_value_cache_[int_value];
+    return number_value_cache_[int_value].Get();
   }
   CSSNumericLiteralValue* SetNumberCacheValue(
       int int_value,
       CSSNumericLiteralValue* css_value) {
-    return number_value_cache_[int_value] = css_value;
+    number_value_cache_[int_value] = css_value;
+    return css_value;
   }
 
   // Hash map caches.
@@ -149,10 +157,11 @@ class CORE_EXPORT CSSValuePool final : public GarbageCollected<CSSValuePool> {
 
     unsigned hash = color.GetHash();
     if (Member<CSSColor>* found = color_value_cache_.Find(color, hash); found) {
-      return *found;
+      return found->Get();
     }
-    return color_value_cache_.Insert(
-        color, MakeGarbageCollected<CSSColor>(color), hash);
+    return color_value_cache_
+        .Insert(color, MakeGarbageCollected<CSSColor>(color), hash)
+        .Get();
   }
   FontFamilyValueCache::AddResult GetFontFamilyCacheEntry(
       const String& family_name) {
@@ -176,6 +185,7 @@ class CORE_EXPORT CSSValuePool final : public GarbageCollected<CSSValuePool> {
   Member<CSSUnsetValue> unset_value_;
   Member<CSSRevertValue> revert_value_;
   Member<CSSRevertLayerValue> revert_layer_value_;
+  Member<CSSRevertRuleValue> revert_rule_value_;
   Member<CSSInvalidVariableValue> invalid_variable_value_;
   Member<CSSCyclicVariableValue> cyclic_variable_value_;
   Member<CSSInitialColorValue> initial_color_value_;
@@ -184,7 +194,7 @@ class CORE_EXPORT CSSValuePool final : public GarbageCollected<CSSValuePool> {
   Member<CSSColor> color_black_;
 
   // Vector caches.
-  HeapVector<Member<CSSIdentifierValue>, numCSSValueKeywords>
+  HeapVector<Member<CSSIdentifierValue>, kNumCSSValueKeywords>
       identifier_value_cache_;
   HeapVector<Member<CSSNumericLiteralValue>, kMaximumCacheableIntegerValue + 1>
       pixel_value_cache_;

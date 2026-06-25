@@ -26,24 +26,29 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/svg/svg_geometry_element.h"
 #include "third_party/blink/renderer/core/svg/svg_graphics_element.h"
+#include "third_party/blink/renderer/core/svg/svg_resource_document_observer.h"
 #include "third_party/blink/renderer/core/svg/svg_uri_reference.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/loader/fetch/resource_client.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
 
 namespace blink {
 
+class IncrementLoadEventDelayCount;
 class SVGAnimatedLength;
 class SVGResourceDocumentContent;
 
 class SVGUseElement final : public SVGGraphicsElement,
                             public SVGURIReference,
-                            public ResourceClient {
+                            public SVGResourceDocumentObserver {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   explicit SVGUseElement(Document&);
   ~SVGUseElement() override;
+
+  ElementType GetElementType() const final {
+    return ElementType::kSVGUseElement;
+  }
 
   void InvalidateShadowTree();
   void InvalidateTargetReference();
@@ -66,11 +71,6 @@ class SVGUseElement final : public SVGGraphicsElement,
 
  private:
   gfx::RectF GetBBox() override;
-
-  void CollectStyleForPresentationAttribute(
-      const QualifiedName&,
-      const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
 
   bool IsStructurallyExternal() const override;
 
@@ -104,17 +104,22 @@ class SVGUseElement final : public SVGGraphicsElement,
                               const SVGElement& new_target) const;
 
   void QueueOrDispatchPendingEvent(const AtomicString&);
-  void NotifyFinished(Resource*) override;
-  String DebugName() const override;
+
+  // SVGResourceDocumentObserver:
+  void ResourceNotifyFinished(SVGResourceDocumentContent*) override;
+  void ResourceContentChanged(SVGResourceDocumentContent*) override {}
+
+  void UpdateDocumentContent(SVGResourceDocumentContent*);
   void UpdateTargetReference();
 
   SVGAnimatedPropertyBase* PropertyFromAttribute(
       const QualifiedName& attribute_name) const override;
   void SynchronizeAllSVGAttributes() const override;
   void CollectExtraStyleForPresentationAttribute(
-      MutableCSSPropertyValueSet* style) override;
+      HeapVector<CSSPropertyValue, 8>& style) override;
 
   Member<SVGResourceDocumentContent> document_content_;
+  Member<SVGResourceTarget> external_resource_target_;
 
   Member<SVGAnimatedLength> x_;
   Member<SVGAnimatedLength> y_;
@@ -122,9 +127,19 @@ class SVGUseElement final : public SVGGraphicsElement,
   Member<SVGAnimatedLength> height_;
 
   TaskHandle pending_event_;
+  // For delaying any 'load' event dispatch until after an external resource
+  // load completed.
+  std::unique_ptr<IncrementLoadEventDelayCount> resource_load_event_delayer_;
+  // For delaying any 'load' event dispatch until after the shadow tree has
+  // been attached after an external resource load completed.
+  std::unique_ptr<IncrementLoadEventDelayCount> attach_load_event_delayer_;
   KURL element_url_;
   bool element_url_is_local_;
   bool needs_shadow_tree_recreation_;
+  // Tracks whether this element initiated a resource fetch and expects a call
+  // to `ResourceNotifyFinished()`. Used to filter out (redundant) multiple
+  // notifications for the same resource.
+  bool notification_pending_ = false;
   Member<IdTargetObserver> target_id_observer_;
 
   FRIEND_TEST_ALL_PREFIXES(SVGUseElementTest,

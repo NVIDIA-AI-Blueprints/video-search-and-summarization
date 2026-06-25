@@ -10,27 +10,28 @@
 #ifndef SDK_ANDROID_SRC_JNI_LOGGING_LOG_SINK_H_
 #define SDK_ANDROID_SRC_JNI_LOGGING_LOG_SINK_H_
 
+#include <jni.h>
+
 #include <string>
 
 #include "absl/strings/string_view.h"
 #include "rtc_base/logging.h"
-#include "sdk/android/native_api/jni/java_types.h"
-#include "sdk/android/src/jni/jni_helpers.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
 namespace jni {
 
-class JNILogSink : public rtc::LogSink {
+class JNILogSink : public LogSink {
  public:
   JNILogSink(JNIEnv* env, const JavaRef<jobject>& j_logging);
   ~JNILogSink() override;
 
   void OnLogMessage(const std::string& msg) override;
   void OnLogMessage(const std::string& msg,
-                    rtc::LoggingSeverity severity,
+                    LoggingSeverity severity,
                     const char* tag) override;
   void OnLogMessage(absl::string_view msg,
-                    rtc::LoggingSeverity severity,
+                    LoggingSeverity severity,
                     const char* tag) override;
 
  private:

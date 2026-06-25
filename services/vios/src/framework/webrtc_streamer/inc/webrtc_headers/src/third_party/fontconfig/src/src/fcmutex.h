@@ -33,11 +33,11 @@
 #define _FCMUTEX_H_
 
 #ifdef HAVE_CONFIG_H
-#include <config.h>
+#  include <config.h>
 #endif
 
 #define FC_STMT_START do
-#define FC_STMT_END while (0)
+#define FC_STMT_END   while (0)
 
 /* mutex */
 
@@ -45,83 +45,105 @@
 
 #if 0
 
-
 #elif !defined(FC_NO_MT) && defined(_MSC_VER) || defined(__MINGW32__)
 
-#include "fcwindows.h"
+#  include "fcwindows.h"
 typedef CRITICAL_SECTION fc_mutex_impl_t;
-#define FC_MUTEX_IMPL_INIT	{ NULL, 0, 0, NULL, NULL, 0 }
-#define fc_mutex_impl_init(M)	InitializeCriticalSection (M)
-#define fc_mutex_impl_lock(M)	EnterCriticalSection (M)
-#define fc_mutex_impl_unlock(M)	LeaveCriticalSection (M)
-#define fc_mutex_impl_finish(M)	DeleteCriticalSection (M)
-
+#  define FC_MUTEX_IMPL_INIT      { NULL, 0, 0, NULL, NULL, 0 }
+#  define fc_mutex_impl_init(M)   InitializeCriticalSection (M)
+#  define fc_mutex_impl_lock(M)   EnterCriticalSection (M)
+#  define fc_mutex_impl_unlock(M) LeaveCriticalSection (M)
+#  define fc_mutex_impl_finish(M) DeleteCriticalSection (M)
 
 #elif !defined(FC_NO_MT) && (defined(HAVE_PTHREAD) || defined(__APPLE__))
 
-#include <pthread.h>
+#  include <pthread.h>
 typedef pthread_mutex_t fc_mutex_impl_t;
-#define FC_MUTEX_IMPL_INIT	PTHREAD_MUTEX_INITIALIZER
-#define fc_mutex_impl_init(M)	pthread_mutex_init (M, NULL)
-#define fc_mutex_impl_lock(M)	pthread_mutex_lock (M)
-#define fc_mutex_impl_unlock(M)	pthread_mutex_unlock (M)
-#define fc_mutex_impl_finish(M)	pthread_mutex_destroy (M)
-
+#  define FC_MUTEX_IMPL_INIT      PTHREAD_MUTEX_INITIALIZER
+#  define fc_mutex_impl_init(M)   pthread_mutex_init (M, NULL)
+#  define fc_mutex_impl_lock(M)   pthread_mutex_lock (M)
+#  define fc_mutex_impl_unlock(M) pthread_mutex_unlock (M)
+#  define fc_mutex_impl_finish(M) pthread_mutex_destroy (M)
 
 #elif !defined(FC_NO_MT) && defined(HAVE_INTEL_ATOMIC_PRIMITIVES)
 
-#if defined(HAVE_SCHED_H) && defined(HAVE_SCHED_YIELD)
-# include <sched.h>
-# define FC_SCHED_YIELD() sched_yield ()
-#else
-# define FC_SCHED_YIELD() FC_STMT_START {} FC_STMT_END
-#endif
+#  if defined(HAVE_SCHED_H) && defined(HAVE_SCHED_YIELD)
+#    include <sched.h>
+#    define FC_SCHED_YIELD() sched_yield()
+#  else
+#    define FC_SCHED_YIELD() \
+	FC_STMT_START {}     \
+	FC_STMT_END
+#  endif
 
 /* This actually is not a totally awful implementation. */
 typedef volatile int fc_mutex_impl_t;
-#define FC_MUTEX_IMPL_INIT	0
-#define fc_mutex_impl_init(M)	*(M) = 0
-#define fc_mutex_impl_lock(M)	FC_STMT_START { while (__sync_lock_test_and_set((M), 1)) FC_SCHED_YIELD (); } FC_STMT_END
-#define fc_mutex_impl_unlock(M)	__sync_lock_release (M)
-#define fc_mutex_impl_finish(M)	FC_STMT_START {} FC_STMT_END
-
+#  define FC_MUTEX_IMPL_INIT    0
+#  define fc_mutex_impl_init(M) *(M) = 0
+#  define fc_mutex_impl_lock(M)                     \
+      FC_STMT_START                                 \
+      {                                             \
+	  while (__sync_lock_test_and_set ((M), 1)) \
+	      FC_SCHED_YIELD();                     \
+      }                                             \
+      FC_STMT_END
+#  define fc_mutex_impl_unlock(M) __sync_lock_release (M)
+#  define fc_mutex_impl_finish(M) \
+      FC_STMT_START {}            \
+      FC_STMT_END
 
 #elif !defined(FC_NO_MT)
 
-#if defined(HAVE_SCHED_H) && defined(HAVE_SCHED_YIELD)
-# include <sched.h>
-# define FC_SCHED_YIELD() sched_yield ()
-#else
-# define FC_SCHED_YIELD() FC_STMT_START {} FC_STMT_END
-#endif
+#  if defined(HAVE_SCHED_H) && defined(HAVE_SCHED_YIELD)
+#    include <sched.h>
+#    define FC_SCHED_YIELD() sched_yield()
+#  else
+#    define FC_SCHED_YIELD() \
+	FC_STMT_START {}     \
+	FC_STMT_END
+#  endif
 
-#define FC_MUTEX_INT_NIL 1 /* Warn that fallback implementation is in use. */
+#  define FC_MUTEX_INT_NIL      1 /* Warn that fallback implementation is in use. */
 typedef volatile int fc_mutex_impl_t;
-#define FC_MUTEX_IMPL_INIT	0
-#define fc_mutex_impl_init(M)	*(M) = 0
-#define fc_mutex_impl_lock(M)	FC_STMT_START { while (*(M)) FC_SCHED_YIELD (); (*(M))++; } FC_STMT_END
-#define fc_mutex_impl_unlock(M)	(*(M))--;
-#define fc_mutex_impl_finish(M)	FC_STMT_START {} FC_STMT_END
-
+#  define FC_MUTEX_IMPL_INIT    0
+#  define fc_mutex_impl_init(M) *(M) = 0
+#  define fc_mutex_impl_lock(M) \
+      FC_STMT_START             \
+      {                         \
+	  while (*(M))          \
+	      FC_SCHED_YIELD(); \
+	  (*(M))++;             \
+      }                         \
+      FC_STMT_END
+#  define fc_mutex_impl_unlock(M) (*(M))--;
+#  define fc_mutex_impl_finish(M) \
+      FC_STMT_START {}            \
+      FC_STMT_END
 
 #else /* FC_NO_MT */
 
 typedef int fc_mutex_impl_t;
-#define FC_MUTEX_IMPL_INIT	0
-#define fc_mutex_impl_init(M)	FC_STMT_START {} FC_STMT_END
-#define fc_mutex_impl_lock(M)	FC_STMT_START {} FC_STMT_END
-#define fc_mutex_impl_unlock(M)	FC_STMT_START {} FC_STMT_END
-#define fc_mutex_impl_finish(M)	FC_STMT_START {} FC_STMT_END
+#  define FC_MUTEX_IMPL_INIT 0
+#  define fc_mutex_impl_init(M) \
+      FC_STMT_START {}          \
+      FC_STMT_END
+#  define fc_mutex_impl_lock(M) \
+      FC_STMT_START {}          \
+      FC_STMT_END
+#  define fc_mutex_impl_unlock(M) \
+      FC_STMT_START {}            \
+      FC_STMT_END
+#  define fc_mutex_impl_finish(M) \
+      FC_STMT_START {}            \
+      FC_STMT_END
 
 #endif
 
-
-#define FC_MUTEX_INIT		{FC_MUTEX_IMPL_INIT}
+#define FC_MUTEX_INIT { FC_MUTEX_IMPL_INIT }
 typedef fc_mutex_impl_t FcMutex;
-static inline void FcMutexInit   (FcMutex *m) { fc_mutex_impl_init (m);   }
-static inline void FcMutexLock   (FcMutex *m) { fc_mutex_impl_lock (m);   }
-static inline void FcMutexUnlock (FcMutex *m) { fc_mutex_impl_unlock (m); }
-static inline void FcMutexFinish (FcMutex *m) { fc_mutex_impl_finish (m); }
-
+static inline void      FcMutexInit (FcMutex *m) { fc_mutex_impl_init (m); }
+static inline void      FcMutexLock (FcMutex *m) { fc_mutex_impl_lock (m); }
+static inline void      FcMutexUnlock (FcMutex *m) { fc_mutex_impl_unlock (m); }
+static inline void      FcMutexFinish (FcMutex *m) { fc_mutex_impl_finish (m); }
 
 #endif /* _FCMUTEX_H_ */

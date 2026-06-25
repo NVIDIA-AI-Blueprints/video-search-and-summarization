@@ -6,10 +6,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_STORAGE_BLINK_STORAGE_KEY_H_
 
 #include <iosfwd>
+#include <optional>
 
 #include "base/memory/scoped_refptr.h"
 #include "base/unguessable_token.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/storage_key/ancestor_chain_bit.mojom-blink-forward.h"
 #include "third_party/blink/renderer/platform/network/blink_schemeful_site.h"
@@ -59,7 +59,7 @@ class PLATFORM_EXPORT BlinkStorageKey {
   // Only in StorageKey, but could be added if needed.
 
   // (1F) Construct a first-party storage key for tests.
-  static BlinkStorageKey CreateFromStringForTesting(const WTF::String& origin);
+  static BlinkStorageKey CreateFromStringForTesting(const String& origin);
 
   // (1G) Copy, move, and destruct.
   BlinkStorageKey(const BlinkStorageKey& other) = default;
@@ -108,7 +108,7 @@ class PLATFORM_EXPORT BlinkStorageKey {
       scoped_refptr<const SecurityOrigin> origin,
       const BlinkSchemefulSite& top_level_site,
       const BlinkSchemefulSite& top_level_site_if_third_party_enabled,
-      const absl::optional<base::UnguessableToken>& nonce,
+      const std::optional<base::UnguessableToken>& nonce,
       mojom::blink::AncestorChainBit ancestor_chain_bit,
       mojom::blink::AncestorChainBit ancestor_chain_bit_if_third_party_enabled,
       BlinkStorageKey& out);
@@ -127,7 +127,11 @@ class PLATFORM_EXPORT BlinkStorageKey {
 
   const BlinkSchemefulSite& GetTopLevelSite() const { return top_level_site_; }
 
-  const absl::optional<base::UnguessableToken>& GetNonce() const {
+  // Returns true if unpartitioned storage access is forbidden for the current
+  // storage key.
+  bool ForbidsUnpartitionedStorageAccess() const { return nonce_.has_value(); }
+
+  const std::optional<base::UnguessableToken>& GetNonce() const {
     return nonce_;
   }
 
@@ -179,13 +183,17 @@ class PLATFORM_EXPORT BlinkStorageKey {
 
   // (7B) Operators.
   // Note that not all must be friends, but all are to consolidate the header.
-  PLATFORM_EXPORT
   friend bool operator==(const BlinkStorageKey& lhs,
-                         const BlinkStorageKey& rhs);
-  PLATFORM_EXPORT
-  friend bool operator!=(const BlinkStorageKey& lhs,
-                         const BlinkStorageKey& rhs);
-  // If there were a need for an operator< it would go here.
+                         const BlinkStorageKey& rhs) {
+    DCHECK(lhs.origin_);
+    DCHECK(rhs.origin_);
+
+    return lhs.origin_->IsSameOriginWith(rhs.origin_.get()) &&
+           lhs.nonce_ == rhs.nonce_ &&
+           lhs.top_level_site_ == rhs.top_level_site_ &&
+           lhs.ancestor_chain_bit_ == rhs.ancestor_chain_bit_;
+  }
+  // If there were a need for `operator<=>()` it would go here.
   PLATFORM_EXPORT
   friend std::ostream& operator<<(std::ostream& ostream,
                                   const BlinkStorageKey& sk);
@@ -217,7 +225,7 @@ class PLATFORM_EXPORT BlinkStorageKey {
 
   // Optional, forcing partitioned storage and used by anonymous iframes:
   // https://github.com/camillelamy/explainers/blob/master/anonymous_iframes.md
-  absl::optional<base::UnguessableToken> nonce_;
+  std::optional<base::UnguessableToken> nonce_;
 
   // kSameSite if the entire ancestor chain is same-site with the current frame.
   // kCrossSite otherwise. Used by service workers.

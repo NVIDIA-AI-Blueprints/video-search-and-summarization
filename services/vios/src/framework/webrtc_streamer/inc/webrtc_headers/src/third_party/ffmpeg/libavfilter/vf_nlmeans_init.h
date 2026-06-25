@@ -79,8 +79,8 @@ static void compute_weights_line_c(const uint32_t *const iia,
                                    float *total_weight,
                                    float *sum,
                                    const float *const weight_lut,
-                                   int max_meaningful_diff,
-                                   int startx, int endx)
+                                   ptrdiff_t max_meaningful_diff,
+                                   ptrdiff_t startx, ptrdiff_t endx)
 {
     for (int x = startx; x < endx; x++) {
         /*
@@ -124,14 +124,14 @@ static void compute_weights_line_c(const uint32_t *const iia,
     }
 }
 
-static av_unused void ff_nlmeans_init(NLMeansDSPContext *dsp)
+av_unused static void ff_nlmeans_init(NLMeansDSPContext *dsp)
 {
     dsp->compute_safe_ssd_integral_image = compute_safe_ssd_integral_image_c;
     dsp->compute_weights_line = compute_weights_line_c;
 
 #if ARCH_AARCH64
     ff_nlmeans_init_aarch64(dsp);
-#elif ARCH_X86
+#elif ARCH_X86 && HAVE_X86ASM
     ff_nlmeans_init_x86(dsp);
 #endif
 }

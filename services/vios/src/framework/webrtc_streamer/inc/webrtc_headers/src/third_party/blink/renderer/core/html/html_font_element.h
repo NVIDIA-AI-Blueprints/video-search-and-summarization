@@ -32,16 +32,19 @@ class HTMLFontElement final : public HTMLElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static bool CssValueFromFontSizeNumber(const String&, CSSValueID&);
+  static std::optional<CSSValueID> CssValueFromFontSizeNumber(const String&);
 
   explicit HTMLFontElement(Document&);
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLFontElement;
+  }
 
  private:
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
 };
 
 }  // namespace blink

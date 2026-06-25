@@ -5,9 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_PROFILER_TRACE_BUILDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_PROFILER_TRACE_BUILDER_H_
 
+#include <optional>
+
 #include "base/gtest_prod_util.h"
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_profiler_marker.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -52,10 +53,10 @@ struct ProfilerNodeFrameHashTraits : HashTraits<const v8::CpuProfileNode*> {
   }
 
   static unsigned GetHash(const v8::CpuProfileNode* node) {
-    return WTF::GetHash(node->GetFunctionNameStr()) ^
-           WTF::GetHash(node->GetScriptResourceNameStr()) ^
-           WTF::GetHash(node->GetLineNumber()) ^
-           WTF::GetHash(node->GetColumnNumber());
+    return blink::GetHash(node->GetFunctionNameStr()) ^
+           blink::GetHash(node->GetScriptResourceNameStr()) ^
+           blink::GetHash(node->GetLineNumber()) ^
+           blink::GetHash(node->GetColumnNumber());
   }
 
   static constexpr bool kSafeToCompareToEmptyOrDeleted = false;
@@ -93,7 +94,7 @@ class CORE_EXPORT ProfilerTraceBuilder final
                  const v8::EmbedderStateTag embedder_state);
   // Obtains the stack ID of the substack with the given node as its leaf,
   // performing origin-based filtering.
-  absl::optional<wtf_size_t> GetOrInsertStackId(const v8::CpuProfileNode* node);
+  std::optional<wtf_size_t> GetOrInsertStackId(const v8::CpuProfileNode* node);
   // Obtains the frame ID of the stack frame represented by the given node.
   wtf_size_t GetOrInsertFrameId(const v8::CpuProfileNode* node);
   // Obtains the resource ID for the given resource name.
@@ -101,7 +102,7 @@ class CORE_EXPORT ProfilerTraceBuilder final
 
   ProfilerTrace* GetTrace() const;
 
-  inline absl::optional<V8ProfilerMarker> VMStateToMarker(v8::StateTag state) {
+  inline std::optional<V8ProfilerMarker> VMStateToMarker(v8::StateTag state) {
     switch (state) {
       case v8::GC:
         return V8ProfilerMarker(V8ProfilerMarker::Enum::kGc);
@@ -109,11 +110,11 @@ class CORE_EXPORT ProfilerTraceBuilder final
       case v8::ATOMICS_WAIT:
         return V8ProfilerMarker(V8ProfilerMarker::Enum::kScript);
       default:
-        return absl::optional<V8ProfilerMarker>();
+        return std::optional<V8ProfilerMarker>();
     }
   }
 
-  inline absl::optional<V8ProfilerMarker> BlinkStateToMarker(
+  inline std::optional<V8ProfilerMarker> BlinkStateToMarker(
       const v8::EmbedderStateTag state_tag,
       const v8::StateTag fallback_state) {
     auto blink_state = static_cast<BlinkState>(state_tag);
@@ -128,6 +129,22 @@ class CORE_EXPORT ProfilerTraceBuilder final
         return VMStateToMarker(fallback_state);
     }
   }
+
+  inline std::optional<V8ProfilerMarker> ProfileMarkerToPublicMarker(
+      const V8ProfilerMarker::Enum marker) {
+    switch (marker) {
+      case V8ProfilerMarker::Enum::kStyle:
+        return V8ProfilerMarker(V8ProfilerMarker::Enum::kStyle);
+      case V8ProfilerMarker::Enum::kLayout:
+        return V8ProfilerMarker(V8ProfilerMarker::Enum::kLayout);
+      default:
+        return std::optional<V8ProfilerMarker>();
+    }
+  }
+  std::optional<V8ProfilerMarker> GetMarker(
+      const v8::EmbedderStateTag state_tag,
+      const v8::StateTag fallback_state);
+
   // Discards metadata frames and performs an origin check on the given stack
   // frame, returning true if it either has the same origin as the profiler, or
   // if it should be shared cross origin.
@@ -137,6 +154,7 @@ class CORE_EXPORT ProfilerTraceBuilder final
 
   const SecurityOrigin* allowed_origin_;
   const base::TimeTicks time_origin_;
+  bool is_cross_origin_isolated_ = false;
 
   Vector<String> resources_;
   HeapVector<Member<ProfilerFrame>> frames_;
@@ -154,8 +172,14 @@ class CORE_EXPORT ProfilerTraceBuilder final
   // same-origin policy for the ScriptState that the trace belongs to.
   HashMap<int, bool> script_same_origin_cache_;
 
+  FRIEND_TEST_ALL_PREFIXES(ProfilerTraceBuilderTest,
+                           AddVMStateMarkerCrossOriginIsolated);
+  FRIEND_TEST_ALL_PREFIXES(ProfilerTraceBuilderTest,
+                           AddEmbedderStateMarkerCrossOriginIsolated);
   FRIEND_TEST_ALL_PREFIXES(ProfilerTraceBuilderTest, AddVMStateMarker);
   FRIEND_TEST_ALL_PREFIXES(ProfilerTraceBuilderTest, AddEmbedderStateMarker);
+  FRIEND_TEST_ALL_PREFIXES(ProfilerTraceBuilderTest,
+                           AddEmbedderStateMarkerFeatureDisabled);
 };
 
 }  // namespace blink

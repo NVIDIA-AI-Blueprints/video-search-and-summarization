@@ -96,30 +96,37 @@ class TestCustomElementDefinition : public CustomElementDefinition {
   ScriptValue GetConstructorForScript() override { return ScriptValue(); }
 
   V8CustomElementConstructor* GetV8CustomElementConstructor() override {
-    return constructor_;
+    return constructor_.Get();
   }
 
   bool RunConstructor(Element& element) override;
 
   HTMLElement* CreateAutonomousCustomElementSync(
       Document& document,
-      const QualifiedName&) override {
+      const QualifiedName&,
+      CustomElementRegistry* = nullptr) override {
     return CreateElementForConstructor(document);
   }
 
   bool HasConnectedCallback() const override { return false; }
   bool HasDisconnectedCallback() const override { return false; }
+  bool HasConnectedMoveCallback() const override { return false; }
   bool HasAdoptedCallback() const override { return false; }
   bool HasFormAssociatedCallback() const override { return false; }
   bool HasFormResetCallback() const override { return false; }
   bool HasFormDisabledCallback() const override { return false; }
   bool HasFormStateRestoreCallback() const override { return false; }
+  bool HasToolFillCallback() const override { return false; }
 
   void RunConnectedCallback(Element&) override {
     NOTREACHED() << "definition does not have connected callback";
   }
 
   void RunDisconnectedCallback(Element&) override {
+    NOTREACHED() << "definition does not have disconnected callback";
+  }
+
+  void RunConnectedMoveCallback(Element&) override {
     NOTREACHED() << "definition does not have disconnected callback";
   }
 
@@ -152,6 +159,10 @@ class TestCustomElementDefinition : public CustomElementDefinition {
                                    const V8ControlValue* value,
                                    const String& mode) override {
     NOTREACHED() << "definition does not have restoreValueCallback";
+  }
+
+  void RunToolFillCallback(Element& element, const String& mode) override {
+    NOTREACHED() << "definition does not have toolFillCallback";
   }
 
  private:
@@ -195,7 +206,8 @@ class CreateElement {
     NonThrowableExceptionState no_exceptions;
     Element* element = document->CreateElement(
         QualifiedName(g_null_atom, local_name_, namespace_uri_),
-        CreateElementFlags::ByCreateElement(), is_value_);
+        CreateElementFlags::ByCreateElement(), is_value_,
+        CustomElementRegistry::DefaultRegistry(*document));
     for (const auto& attribute : attributes_)
       element->setAttribute(attribute.first, attribute.second);
     return element;

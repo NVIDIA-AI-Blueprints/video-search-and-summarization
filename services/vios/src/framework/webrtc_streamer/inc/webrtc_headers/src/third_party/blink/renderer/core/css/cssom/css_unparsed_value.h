@@ -11,43 +11,51 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/cssom/css_style_value.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
-class CSSCustomPropertyDeclaration;
+class CSSUnparsedDeclarationValue;
 class CSSVariableData;
-class CSSVariableReferenceValue;
 
 class CORE_EXPORT CSSUnparsedValue final : public CSSStyleValue {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   static CSSUnparsedValue* Create(
-      const HeapVector<Member<V8CSSUnparsedSegment>>& tokens) {
-    return MakeGarbageCollected<CSSUnparsedValue>(tokens);
+      const HeapVector<Member<V8CSSUnparsedSegment>>& segments) {
+    return MakeGarbageCollected<CSSUnparsedValue>(segments);
   }
 
   // Blink-internal constructor
   static CSSUnparsedValue* Create() {
     return Create(HeapVector<Member<V8CSSUnparsedSegment>>());
   }
-  static CSSUnparsedValue* FromCSSValue(const CSSVariableReferenceValue&);
-  static CSSUnparsedValue* FromCSSValue(const CSSCustomPropertyDeclaration&);
+  static CSSUnparsedValue* FromCSSValue(const CSSUnparsedDeclarationValue&);
   static CSSUnparsedValue* FromCSSVariableData(const CSSVariableData&);
   static CSSUnparsedValue* FromString(const String& string) {
-    HeapVector<Member<V8CSSUnparsedSegment>> tokens;
-    tokens.push_back(MakeGarbageCollected<V8CSSUnparsedSegment>(string));
-    return Create(tokens);
+    HeapVector<Member<V8CSSUnparsedSegment>> segments;
+    segments.push_back(MakeGarbageCollected<V8CSSUnparsedSegment>(string));
+    return Create(segments);
   }
 
   explicit CSSUnparsedValue(
-      const HeapVector<Member<V8CSSUnparsedSegment>>& tokens)
-      : tokens_(tokens) {}
+      const HeapVector<Member<V8CSSUnparsedSegment>>& segments)
+      : segments_(segments) {}
   CSSUnparsedValue(const CSSUnparsedValue&) = delete;
   CSSUnparsedValue& operator=(const CSSUnparsedValue&) = delete;
 
+  // True if this CSSUnparsedValue can be converted into
+  // a CSSUnparsedDeclarationValue.
+  //
+  // We may want to ban some invalid values earlier, see:
+  // https://github.com/w3c/csswg-drafts/issues/13547
+  bool IsValidDeclarationValue() const;
+
+  // Requires IsValidDeclarationValue()==true.
   const CSSValue* ToCSSValue() const override;
 
   StyleValueType GetType() const override { return kUnparsedType; }
@@ -60,21 +68,25 @@ class CORE_EXPORT CSSUnparsedValue final : public CSSStyleValue {
       V8CSSUnparsedSegment* segment,
       ExceptionState& exception_state);
 
-  wtf_size_t length() const { return tokens_.size(); }
+  wtf_size_t length() const { return segments_.size(); }
 
   void Trace(Visitor* visitor) const override {
-    visitor->Trace(tokens_);
+    visitor->Trace(segments_);
     CSSStyleValue::Trace(visitor);
   }
 
-  String ToString() const { return ToStringInternal(/*separate_tokens=*/true); }
-
  private:
-  String ToStringInternal(bool separate_tokens) const;
+  static bool IsValidDeclarationValue(const String&);
+  String ToStringInternal() const;
+  String SerializeSegments() const;
+  // Return 'false' if there is a cycle in the serialization.
+  bool AppendUnparsedString(
+      StringBuilder&,
+      HeapHashSet<Member<const CSSUnparsedValue>>& values_on_stack) const;
 
-  HeapVector<Member<V8CSSUnparsedSegment>> tokens_;
+  HeapVector<Member<V8CSSUnparsedSegment>> segments_;
 
-  FRIEND_TEST_ALL_PREFIXES(CSSVariableReferenceValueTest, MixedList);
+  FRIEND_TEST_ALL_PREFIXES(CSSUnparsedDeclarationValueTest, MixedList);
 };
 
 template <>

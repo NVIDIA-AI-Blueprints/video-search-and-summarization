@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -12,8 +12,11 @@
 #ifndef AOM_AV1_ENCODER_AV1_QUANTIZE_H_
 #define AOM_AV1_ENCODER_AV1_QUANTIZE_H_
 
+#include <stdbool.h>
+
 #include "config/aom_config.h"
 
+#include "aom/aomcx.h"
 #include "av1/common/quant_common.h"
 #include "av1/common/scan.h"
 #include "av1/encoder/block.h"
@@ -88,6 +91,7 @@ typedef struct {
   int u_ac_delta_q;
   int v_dc_delta_q;
   int v_ac_delta_q;
+  int sharpness;
 } DeltaQuantParams;
 
 typedef struct {
@@ -112,15 +116,16 @@ void av1_init_plane_quantizers(const struct AV1_COMP *cpi, MACROBLOCK *x,
 void av1_build_quantizer(aom_bit_depth_t bit_depth, int y_dc_delta_q,
                          int u_dc_delta_q, int u_ac_delta_q, int v_dc_delta_q,
                          int v_ac_delta_q, QUANTS *const quants,
-                         Dequants *const deq);
+                         Dequants *const deq, int sharpness);
 
 void av1_init_quantizer(EncQuantDequantParams *const enc_quant_dequant_params,
-                        const CommonQuantParams *quant_params,
-                        aom_bit_depth_t bit_depth);
+                        CommonQuantParams *quant_params,
+                        aom_bit_depth_t bit_depth, int sharpness);
 
 void av1_set_quantizer(struct AV1Common *const cm, int min_qmlevel,
                        int max_qmlevel, int q, int enable_chroma_deltaq,
-                       int enable_hdr_deltaq);
+                       int enable_hdr_deltaq, bool is_allintra,
+                       aom_tune_metric tuning);
 
 int av1_quantizer_to_qindex(int quantizer);
 
@@ -169,29 +174,6 @@ void av1_quantize_dc_facade(const tran_low_t *coeff_ptr, intptr_t n_coeffs,
                             const MACROBLOCK_PLANE *p, tran_low_t *qcoeff_ptr,
                             tran_low_t *dqcoeff_ptr, uint16_t *eob_ptr,
                             const SCAN_ORDER *sc, const QUANT_PARAM *qparam);
-
-/*!\brief Update quantize parameters in MACROBLOCK
- *
- * \param[in]  enc_quant_dequant_params This parameter cached the quantize and
- *                                      dequantize parameters for all q
- *                                      indices.
- * \param[in]  qindex                   Quantize index used for the current
- *                                      superblock.
- * \param[out] x                        A superblock data structure for
- *                                      encoder.
- */
-void av1_set_q_index(const EncQuantDequantParams *enc_quant_dequant_params,
-                     int qindex, MACROBLOCK *x);
-
-/*!\brief Update quantize matrix in MACROBLOCKD based on segment id
- *
- * \param[in]  quant_params  Quantize parameters used by encoder and decoder
- * \param[in]  segment_id    Segment id.
- * \param[out] xd            A superblock data structure used by encoder and
- * decoder.
- */
-void av1_set_qmatrix(const CommonQuantParams *quant_params, int segment_id,
-                     MACROBLOCKD *xd);
 
 #if CONFIG_AV1_HIGHBITDEPTH
 void av1_highbd_quantize_fp_facade(const tran_low_t *coeff_ptr,

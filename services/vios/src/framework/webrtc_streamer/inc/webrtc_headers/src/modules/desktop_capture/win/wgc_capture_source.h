@@ -16,8 +16,8 @@
 #include <wrl/client.h>
 
 #include <memory>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "modules/desktop_capture/desktop_geometry.h"
 
@@ -33,6 +33,10 @@ class WgcCaptureSource {
   virtual ~WgcCaptureSource();
 
   virtual DesktopVector GetTopLeft() = 0;
+  // Lightweight version of IsCapturable which avoids allocating/deallocating
+  // COM objects for each call. As such may return a different value than
+  // IsCapturable.
+  virtual bool ShouldBeCapturable();
   virtual bool IsCapturable();
   virtual bool FocusOnSource();
   virtual ABI::Windows::Graphics::SizeInt32 GetSize();
@@ -99,6 +103,7 @@ class WgcWindowSource final : public WgcCaptureSource {
 
   DesktopVector GetTopLeft() override;
   ABI::Windows::Graphics::SizeInt32 GetSize() override;
+  bool ShouldBeCapturable() override;
   bool IsCapturable() override;
   bool FocusOnSource() override;
 
@@ -133,7 +138,7 @@ class WgcScreenSource final : public WgcCaptureSource {
   // device index as it's SourceId. However, WGC requires we use an HMONITOR to
   // describe which screen to capture. So, we internally convert the supplied
   // device index into an HMONITOR when `IsCapturable()` is called.
-  absl::optional<HMONITOR> hmonitor_;
+  std::optional<HMONITOR> hmonitor_;
 };
 
 }  // namespace webrtc

@@ -44,6 +44,10 @@ class CORE_EXPORT HTMLOutputElement final : public HTMLFormControlElement {
   explicit HTMLOutputElement(Document&);
   ~HTMLOutputElement() override;
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLOutputElement;
+  }
+
   bool willValidate() const override { return false; }
 
   String value() const;
@@ -62,12 +66,13 @@ class CORE_EXPORT HTMLOutputElement final : public HTMLFormControlElement {
 
  private:
   void ParseAttribute(const AttributeModificationParams&) override;
-  const AtomicString& FormControlType() const override;
+  mojom::blink::FormControlType FormControlType() const override;
+  const AtomicString& FormControlTypeAsString() const override;
   bool IsDisabledFormControl() const override;
   bool MatchesEnabledPseudoClass() const override;
   bool IsEnumeratable() const override { return true; }
   bool IsLabelable() const override { return true; }
-  bool SupportsFocus() const override;
+  FocusableState SupportsFocus(UpdateBehavior update_behavior) const override;
   void ResetImpl() override;
 
   bool is_default_value_mode_;

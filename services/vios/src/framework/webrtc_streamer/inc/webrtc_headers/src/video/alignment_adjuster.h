@@ -11,6 +11,9 @@
 #ifndef VIDEO_ALIGNMENT_ADJUSTER_H_
 #define VIDEO_ALIGNMENT_ADJUSTER_H_
 
+#include <cstddef>
+#include <optional>
+
 #include "api/video_codecs/video_encoder.h"
 #include "video/config/video_encoder_config.h"
 
@@ -34,7 +37,7 @@ class AlignmentAdjuster {
   static int GetAlignmentAndMaybeAdjustScaleFactors(
       const VideoEncoder::EncoderInfo& info,
       VideoEncoderConfig* config,
-      absl::optional<size_t> max_layers);
+      std::optional<size_t> max_layers);
 };
 
 }  // namespace webrtc

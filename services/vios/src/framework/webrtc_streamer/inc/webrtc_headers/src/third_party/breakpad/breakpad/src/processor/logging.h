@@ -57,9 +57,10 @@
 #define PROCESSOR_LOGGING_H__
 
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <iomanip>
 
-#include "common/using_std_string.h"
 #include "google_breakpad/common/breakpad_types.h"
 
 #ifdef BP_LOGGING_INCLUDE
@@ -119,14 +120,17 @@ class LogMessageVoidify {
 };
 
 // Returns number formatted as a hexadecimal string, such as "0x7b".
-string HexString(uint32_t number);
-string HexString(uint64_t number);
-string HexString(int number);
+template <typename T>
+std::string HexString(T number) {
+  std::stringstream stream;
+  stream << "0x" << std::hex << number;
+  return stream.str();
+}
 
 // Returns the error code as set in the global errno variable, and sets
 // error_string, a required argument, to a string describing that error
 // code.
-int ErrnoString(string* error_string);
+int ErrnoString(std::string* error_string);
 
 }  // namespace google_breakpad
 

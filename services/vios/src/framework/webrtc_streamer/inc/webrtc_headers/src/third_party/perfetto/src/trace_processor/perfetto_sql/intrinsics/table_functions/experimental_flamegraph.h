@@ -17,45 +17,59 @@
 #ifndef SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_EXPERIMENTAL_FLAMEGRAPH_H_
 #define SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_EXPERIMENTAL_FLAMEGRAPH_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "perfetto/trace_processor/basic_types.h"
+#include "src/trace_processor/core/dataframe/specs.h"
 #include "src/trace_processor/perfetto_sql/intrinsics/table_functions/flamegraph_construction_algorithms.h"
-#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/table_function.h"
+#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/static_table_function.h"
+#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/tables_py.h"
 #include "src/trace_processor/storage/trace_storage.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TraceProcessorContext;
 
-class ExperimentalFlamegraph : public TableFunction {
+class ExperimentalFlamegraph : public StaticTableFunction {
  public:
-  enum class ProfileType { kGraph, kHeapProfile, kPerf };
+  enum class ProfileType : uint8_t { kGraph, kHeapProfile, kPerf };
 
   struct InputValues {
     ProfileType profile_type;
-    int64_t ts;
+    std::optional<int64_t> ts;
     std::vector<TimeConstraints> time_constraints;
     std::optional<UniquePid> upid;
     std::optional<std::string> upid_group;
-    std::string focus_str;
+    std::optional<std::string> focus_str;
+  };
+
+  class Cursor : public StaticTableFunction::Cursor {
+   public:
+    explicit Cursor(TraceProcessorContext* context);
+    bool Run(const std::vector<SqlValue>& arguments) override;
+
+   private:
+    TraceProcessorContext* context_ = nullptr;
+    tables::ExperimentalFlamegraphTable table_;
   };
 
   explicit ExperimentalFlamegraph(TraceProcessorContext* context);
   virtual ~ExperimentalFlamegraph() override;
 
-  Table::Schema CreateSchema() override;
+  std::unique_ptr<StaticTableFunction::Cursor> MakeCursor() override;
+  dataframe::DataframeSpec CreateSpec() override;
   std::string TableName() override;
-  uint32_t EstimateRowCount() override;
-  base::Status ValidateConstraints(const QueryConstraints&) override;
-  base::Status ComputeTable(const std::vector<Constraint>& cs,
-                            const std::vector<Order>& ob,
-                            const BitVector& cols_used,
-                            std::unique_ptr<Table>& table_return) override;
+  uint32_t GetArgumentCount() const override;
 
  private:
   TraceProcessorContext* context_ = nullptr;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_EXPERIMENTAL_FLAMEGRAPH_H_

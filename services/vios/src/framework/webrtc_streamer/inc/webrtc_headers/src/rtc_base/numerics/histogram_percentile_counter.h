@@ -15,11 +15,10 @@
 #include <stdint.h>
 
 #include <map>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
-
-namespace rtc {
+namespace webrtc {
 // Calculates percentiles on the stream of data. Use `Add` methods to add new
 // values. Use `GetPercentile` to get percentile of the currently added values.
 class HistogramPercentileCounter {
@@ -32,7 +31,7 @@ class HistogramPercentileCounter {
   void Add(uint32_t value, size_t count);
   void Add(const HistogramPercentileCounter& other);
   // Argument should be from 0 to 1.
-  absl::optional<uint32_t> GetPercentile(float fraction);
+  std::optional<uint32_t> GetPercentile(float fraction);
 
  private:
   std::vector<size_t> histogram_low_;
@@ -41,5 +40,6 @@ class HistogramPercentileCounter {
   size_t total_elements_;
   size_t total_elements_low_;
 };
-}  // namespace rtc
+}  //  namespace webrtc
+
 #endif  // RTC_BASE_NUMERICS_HISTOGRAM_PERCENTILE_COUNTER_H_

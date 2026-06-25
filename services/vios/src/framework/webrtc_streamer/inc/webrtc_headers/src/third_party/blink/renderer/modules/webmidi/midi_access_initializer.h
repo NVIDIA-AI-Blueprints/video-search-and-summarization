@@ -14,6 +14,7 @@
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/webmidi/midi_dispatcher.h"
 #include "third_party/blink/renderer/modules/webmidi/midi_port.h"
+#include "third_party/blink/renderer/platform/heap/self_keep_alive.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -21,9 +22,9 @@ namespace blink {
 
 class ScriptState;
 
-class MODULES_EXPORT MIDIAccessInitializer : public ScriptPromiseResolver,
-                                             public MIDIDispatcher::Client {
-
+class MODULES_EXPORT MIDIAccessInitializer
+    : public GarbageCollected<MIDIAccessInitializer>,
+      public MIDIDispatcher::Client {
  public:
   struct PortDescriptor {
     DISALLOW_NEW();
@@ -48,16 +49,10 @@ class MODULES_EXPORT MIDIAccessInitializer : public ScriptPromiseResolver,
           state(state) {}
   };
 
-  static ScriptPromise Start(ScriptState* script_state,
-                             const MIDIOptions* options) {
-    MIDIAccessInitializer* resolver =
-        MakeGarbageCollected<MIDIAccessInitializer>(script_state, options);
-    resolver->KeepAliveWhilePending();
-    return resolver->Start();
-  }
-
   MIDIAccessInitializer(ScriptState*, const MIDIOptions*);
-  ~MIDIAccessInitializer() override = default;
+  virtual ~MIDIAccessInitializer() = default;
+
+  ScriptPromise<MIDIAccess> Start(LocalDOMWindow*);
 
   // MIDIDispatcher::Client
   void DidAddInputPort(const String& id,
@@ -75,29 +70,25 @@ class MODULES_EXPORT MIDIAccessInitializer : public ScriptPromiseResolver,
   void DidSetOutputPortState(unsigned port_index,
                              midi::mojom::PortState) override;
   void DidStartSession(midi::mojom::Result) override;
+  void OnSessionStartFailed() override;
   void DidReceiveMIDIData(unsigned port_index,
-                          const unsigned char* data,
-                          wtf_size_t length,
+                          base::span<const uint8_t> data,
                           base::TimeTicks time_stamp) override {}
 
   void Trace(Visitor*) const override;
 
  private:
-  ExecutionContext* GetExecutionContext() const;
-  ScriptPromise Start();
-
-  void ContextDestroyed() override;
-
   void StartSession();
 
-  void OnPermissionsUpdated(mojom::blink::PermissionStatus);
-  void OnPermissionUpdated(mojom::blink::PermissionStatus);
+  void OnPermissionRequestResult(mojom::blink::PermissionStatusWithDetailsPtr);
 
+  Member<ScriptPromiseResolver<MIDIAccess>> resolver_;
   Member<MIDIDispatcher> dispatcher_;
   Vector<PortDescriptor> port_descriptors_;
   Member<const MIDIOptions> options_;
 
   HeapMojoRemote<mojom::blink::PermissionService> permission_service_;
+  SelfKeepAlive<MIDIAccessInitializer> self_keep_alive_;
 };
 
 }  // namespace blink

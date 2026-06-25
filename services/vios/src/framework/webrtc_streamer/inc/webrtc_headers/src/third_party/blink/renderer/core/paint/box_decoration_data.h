@@ -5,11 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_BOX_DECORATION_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_BOX_DECORATION_DATA_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/core/css/properties/longhands.h"
 #include "third_party/blink/renderer/core/layout/background_bleed_avoidance.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
+#include "third_party/blink/renderer/core/layout/layout_replaced.h"
+#include "third_party/blink/renderer/core/layout/physical_box_fragment.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
@@ -21,14 +23,15 @@ class BoxDecorationData {
   STACK_ALLOCATED();
 
  public:
-  BoxDecorationData(const PaintInfo& paint_info, const LayoutBox& layout_box)
+  BoxDecorationData(const PaintInfo& paint_info,
+                    const LayoutReplaced& layout_replaced)
       : BoxDecorationData(paint_info,
-                          layout_box,
-                          layout_box.StyleRef(),
-                          layout_box.HasNonCollapsedBorderDecoration()) {}
+                          layout_replaced,
+                          layout_replaced.StyleRef(),
+                          layout_replaced.StyleRef().HasBorderDecoration()) {}
 
   BoxDecorationData(const PaintInfo& paint_info,
-                    const NGPhysicalFragment& fragment,
+                    const PhysicalFragment& fragment,
                     const ComputedStyle& style)
       : BoxDecorationData(
             paint_info,
@@ -37,7 +40,7 @@ class BoxDecorationData {
             !fragment.HasCollapsedBorders() && style.HasBorderDecoration()) {}
 
   BoxDecorationData(const PaintInfo& paint_info,
-                    const NGPhysicalFragment& fragment)
+                    const PhysicalFragment& fragment)
       : BoxDecorationData(paint_info, fragment, fragment.Style()) {}
 
   BoxDecorationData BackgroundOnly() const {
@@ -58,6 +61,9 @@ class BoxDecorationData {
   bool ShouldPaintBackground() const { return should_paint_background_; }
   bool ShouldPaintBorder() const { return should_paint_border_; }
   bool ShouldPaintShadow() const { return should_paint_shadow_; }
+  bool ShouldPaintGapDecorations() const {
+    return should_paint_gap_decorations_;
+  }
 
   BackgroundBleedAvoidance GetBackgroundBleedAvoidance() const {
     if (!bleed_avoidance_)
@@ -67,7 +73,7 @@ class BoxDecorationData {
 
   bool ShouldPaint() const {
     return HasAppearance() || ShouldPaintBackground() || ShouldPaintBorder() ||
-           ShouldPaintShadow();
+           ShouldPaintShadow() || ShouldPaintGapDecorations();
   }
 
   // This is not cached because the caller is unlikely to call this repeatedly.
@@ -87,7 +93,8 @@ class BoxDecorationData {
         should_paint_background_(ComputeShouldPaintBackground()),
         should_paint_border_(
             ComputeShouldPaintBorder(has_non_collapsed_border_decoration)),
-        should_paint_shadow_(ComputeShouldPaintShadow()) {}
+        should_paint_shadow_(ComputeShouldPaintShadow()),
+        should_paint_gap_decorations_(ComputeShouldPaintGapDecorations()) {}
 
   // For BackgroundOnly() and BorderOnly().
   BoxDecorationData(const BoxDecorationData& data,
@@ -99,13 +106,30 @@ class BoxDecorationData {
         has_appearance_(false),
         should_paint_background_(should_paint_background),
         should_paint_border_(should_paint_border),
-        should_paint_shadow_(false) {
+        should_paint_shadow_(false),
+        should_paint_gap_decorations_(false) {
     DCHECK(!data.has_appearance_);
     DCHECK(!data.should_paint_shadow_);
+    DCHECK(!data.should_paint_gap_decorations_);
   }
 
   bool ComputeShouldPaintBackground() const {
-    return style_.HasBackground() && !layout_box_.BackgroundTransfersToView() &&
+    // The page border box fragment paints the document background, so we cannot
+    // trust its computed style when it comes to background properties.
+    //
+    // See https://drafts.csswg.org/css-page-3/#painting
+    //
+    // When not compositing a backdrop filter needs to have a display item for
+    // the background even if it is transparent or otherwise paints nothing.
+    //
+    // TODO(crbug.com/40286153): This is a false positive. We should be able to
+    // remove this once we have a better way to determine whether there is a
+    // background.
+    bool has_background =
+        style_.HasBackground() ||
+        GetBoxFragmentType() == PhysicalFragment::kPageBorderBox ||
+        (paint_info_.ShouldOmitCompositingInfo() && style_.HasBackdropFilter());
+    return has_background && !layout_box_.BackgroundTransfersToView() &&
            !paint_info_.ShouldSkipBackground();
   }
 
@@ -121,8 +145,17 @@ class BoxDecorationData {
            style_.BoxShadow();
   }
 
+  bool ComputeShouldPaintGapDecorations() const { return style_.HasGapRule(); }
+
   bool BorderObscuresBackgroundEdge() const;
   BackgroundBleedAvoidance ComputeBleedAvoidance() const;
+
+  PhysicalFragment::BoxType GetBoxFragmentType() const {
+    if (!layout_box_.PhysicalFragmentCount()) {
+      return PhysicalFragment::kNormalBox;
+    }
+    return layout_box_.GetPhysicalFragment(0)->GetBoxType();
+  }
 
   // Inputs.
   const PaintInfo& paint_info_;
@@ -134,8 +167,9 @@ class BoxDecorationData {
   const bool should_paint_background_;
   const bool should_paint_border_;
   const bool should_paint_shadow_;
+  const bool should_paint_gap_decorations_;
   // This is lazily initialized.
-  mutable absl::optional<BackgroundBleedAvoidance> bleed_avoidance_;
+  mutable std::optional<BackgroundBleedAvoidance> bleed_avoidance_;
 };
 
 }  // namespace blink

@@ -31,7 +31,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_REMOTE_WINDOW_PROXY_H_
 #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_REMOTE_WINDOW_PROXY_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/bindings/core/v8/window_proxy.h"
 #include "third_party/blink/renderer/core/frame/remote_frame.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
@@ -42,7 +41,7 @@ namespace blink {
 // Subclass of WindowProxy that only handles RemoteFrame.
 class RemoteWindowProxy final : public WindowProxy {
  public:
-  RemoteWindowProxy(v8::Isolate*, RemoteFrame&, scoped_refptr<DOMWrapperWorld>);
+  RemoteWindowProxy(v8::Isolate*, RemoteFrame&, DOMWrapperWorld*);
 
  private:
   // WindowProxy overrides:

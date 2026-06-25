@@ -18,18 +18,20 @@
 #define SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_TRANSLATION_TABLE_MODULE_H_
 
 #include <cstdint>
-#include <optional>
 
+#include "perfetto/protozero/field.h"
+#include "perfetto/trace_processor/ref_counted.h"
 #include "protos/perfetto/trace/trace_packet.pbzero.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
 #include "src/trace_processor/importers/proto/proto_importer_module.h"
 #include "src/trace_processor/types/trace_processor_context.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TranslationTableModule : public ProtoImporterModule {
  public:
-  explicit TranslationTableModule(TraceProcessorContext* context);
+  explicit TranslationTableModule(ProtoImporterModuleContext* module_context,
+                                  TraceProcessorContext* context);
 
   ~TranslationTableModule() override;
 
@@ -37,7 +39,7 @@ class TranslationTableModule : public ProtoImporterModule {
       const protos::pbzero::TracePacket_Decoder& decoder,
       TraceBlobView* packet,
       int64_t packet_timestamp,
-      PacketSequenceState* state,
+      RefPtr<PacketSequenceStateGeneration> state,
       uint32_t field_id) override;
 
  private:
@@ -45,11 +47,12 @@ class TranslationTableModule : public ProtoImporterModule {
   void ParseChromeUserEventRules(protozero::ConstBytes bytes);
   void ParseChromePerformanceMarkRules(protozero::ConstBytes bytes);
   void ParseSliceNameRules(protozero::ConstBytes bytes);
+  void ParseProcessTrackNameRules(protozero::ConstBytes bytes);
+  void ParseChromeStudyRules(protozero::ConstBytes bytes);
 
   TraceProcessorContext* context_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_TRANSLATION_TABLE_MODULE_H_

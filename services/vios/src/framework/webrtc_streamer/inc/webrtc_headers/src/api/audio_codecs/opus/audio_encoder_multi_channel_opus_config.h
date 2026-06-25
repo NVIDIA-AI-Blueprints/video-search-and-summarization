@@ -15,51 +15,44 @@
 
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/audio_codecs/opus/audio_encoder_opus_config.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
 struct RTC_EXPORT AudioEncoderMultiChannelOpusConfig {
   static constexpr int kDefaultFrameSizeMs = 20;
+  static constexpr int kDefaultComplexity = 9;
 
   // Opus API allows a min bitrate of 500bps, but Opus documentation suggests
   // bitrate should be in the range of 6000 to 510000, inclusive.
   static constexpr int kMinBitrateBps = 6000;
   static constexpr int kMaxBitrateBps = 510000;
 
-  AudioEncoderMultiChannelOpusConfig();
-  AudioEncoderMultiChannelOpusConfig(const AudioEncoderMultiChannelOpusConfig&);
-  ~AudioEncoderMultiChannelOpusConfig();
-  AudioEncoderMultiChannelOpusConfig& operator=(
-      const AudioEncoderMultiChannelOpusConfig&);
+  bool IsOk() const;
 
-  int frame_size_ms;
-  size_t num_channels;
+  int frame_size_ms = kDefaultFrameSizeMs;
+  size_t num_channels = 1;
   enum class ApplicationMode { kVoip, kAudio };
-  ApplicationMode application;
-  int bitrate_bps;
-  bool fec_enabled;
-  bool cbr_enabled;
-  bool dtx_enabled;
-  int max_playback_rate_hz;
+  ApplicationMode application = ApplicationMode::kVoip;
+  int bitrate_bps = 32000;
+  bool fec_enabled = false;
+  bool cbr_enabled = false;
+  bool dtx_enabled = false;
+  int max_playback_rate_hz = 48000;
   std::vector<int> supported_frame_lengths_ms;
 
-  int complexity;
+  int complexity = kDefaultComplexity;
 
   // Number of mono/stereo Opus streams.
-  int num_streams;
+  int num_streams = -1;
 
   // Number of channel pairs coupled together, see RFC 7845 section
   // 5.1.1. Has to be less than the number of streams
-  int coupled_streams;
+  int coupled_streams = -1;
 
   // Channel mapping table, defines the mapping from encoded streams to input
   // channels. See RFC 7845 section 5.1.1.
   std::vector<unsigned char> channel_mapping;
-
-  bool IsOk() const;
 };
 
 }  // namespace webrtc

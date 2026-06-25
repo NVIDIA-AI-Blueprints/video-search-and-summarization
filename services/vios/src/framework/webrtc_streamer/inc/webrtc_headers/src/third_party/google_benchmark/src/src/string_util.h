@@ -6,24 +6,17 @@
 #include <utility>
 #include <vector>
 
+#include "benchmark/counter.h"
 #include "benchmark/export.h"
 #include "check.h"
-#include "internal_macros.h"
 
 namespace benchmark {
 
-void AppendHumanReadable(int n, std::string* str);
-
-std::string HumanReadableNumber(double n, double one_k = 1024.0);
+BENCHMARK_EXPORT
+std::string HumanReadableNumber(double n, Counter::OneK one_k);
 
 BENCHMARK_EXPORT
-#if defined(__MINGW32__)
-__attribute__((format(__MINGW_PRINTF_FORMAT, 1, 2)))
-#elif defined(__GNUC__)
-__attribute__((format(printf, 1, 2)))
-#endif
-std::string
-StrFormat(const char* format, ...);
+std::string StrFormat(const char* format, ...) PRINTF_FORMAT_STRING_FUNC(1, 2);
 
 inline std::ostream& StrCatImp(std::ostream& out) BENCHMARK_NOEXCEPT {
   return out;

@@ -29,7 +29,25 @@
 #define IDeckLinkProfileAttributes IDeckLinkAttributes
 #endif
 
+#if BLACKMAGIC_DECKLINK_API_VERSION < 0x0e030000
+#define IDeckLinkInput_v14_2_1 IDeckLinkInput
+#define IDeckLinkInputCallback_v14_2_1 IDeckLinkInputCallback
+#define IDeckLinkMemoryAllocator_v14_2_1 IDeckLinkMemoryAllocator
+#define IDeckLinkOutput_v14_2_1 IDeckLinkOutput
+#define IDeckLinkVideoFrame_v14_2_1 IDeckLinkVideoFrame
+#define IDeckLinkVideoInputFrame_v14_2_1 IDeckLinkVideoInputFrame
+#define IDeckLinkVideoOutputCallback_v14_2_1 IDeckLinkVideoOutputCallback
+#define IID_IDeckLinkInput_v14_2_1 IID_IDeckLinkInput
+#define IID_IDeckLinkInputCallback_v14_2_1 IID_IDeckLinkInputCallback
+#define IID_IDeckLinkMemoryAllocator_v14_2_1 IID_IDeckLinkMemoryAllocator
+#define IID_IDeckLinkOutput_v14_2_1 IID_IDeckLinkOutput
+#define IID_IDeckLinkVideoFrame_v14_2_1 IID_IDeckLinkVideoFrame
+#define IID_IDeckLinkVideoInputFrame_v14_2_1 IID_IDeckLinkVideoInputFrame
+#define IID_IDeckLinkVideoOutputCallback_v14_2_1 IID_IDeckLinkVideoOutputCallback
+#endif
+
 extern "C" {
+#include "libavutil/mem.h"
 #include "libavcodec/packet_internal.h"
 #include "libavfilter/ccfifo.h"
 }
@@ -75,6 +93,16 @@ static char *dup_cfstring_to_utf8(CFStringRef w)
 #define DECKLINK_FREE(s) free((void *) s)
 #endif
 
+#ifdef _WIN32
+#include <guiddef.h>    // REFIID, IsEqualIID()
+#define DECKLINK_IsEqualIID IsEqualIID
+#else
+static inline bool DECKLINK_IsEqualIID(const REFIID& riid1, const REFIID& riid2)
+{
+    return memcmp(&riid1, &riid2, sizeof(REFIID)) == 0;
+}
+#endif
+
 class decklink_output_callback;
 class decklink_input_callback;
 
@@ -92,8 +120,8 @@ typedef struct DecklinkPacketQueue {
 struct decklink_ctx {
     /* DeckLink SDK interfaces */
     IDeckLink *dl;
-    IDeckLinkOutput *dlo;
-    IDeckLinkInput *dli;
+    IDeckLinkOutput_v14_2_1 *dlo;
+    IDeckLinkInput_v14_2_1 *dli;
     IDeckLinkConfiguration *cfg;
     IDeckLinkProfileAttributes *attr;
     decklink_output_callback *output_callback;
@@ -114,6 +142,9 @@ struct decklink_ctx {
     DecklinkPacketQueue queue;
 
     CCFifo cc_fifo;      ///< closed captions
+
+    /* Output VANC queue */
+    DecklinkPacketQueue vanc_queue;
 
     /* Streams present */
     int audio;
@@ -143,6 +174,7 @@ struct decklink_ctx {
     DecklinkPtsSource video_pts_source;
     int draw_bars;
     BMDPixelFormat raw_format;
+    DecklinkSignalLossAction signal_loss_action;
 
     int frames_preroll;
     int frames_buffer;
@@ -235,11 +267,12 @@ int ff_decklink_list_formats(AVFormatContext *avctx, decklink_direction_t direct
 void ff_decklink_cleanup(AVFormatContext *avctx);
 int ff_decklink_init_device(AVFormatContext *avctx, const char* name);
 
-void ff_decklink_packet_queue_init(AVFormatContext *avctx, DecklinkPacketQueue *q);
+void ff_decklink_packet_queue_init(AVFormatContext *avctx, DecklinkPacketQueue *q, int64_t queue_size);
 void ff_decklink_packet_queue_flush(DecklinkPacketQueue *q);
 void ff_decklink_packet_queue_end(DecklinkPacketQueue *q);
 unsigned long long ff_decklink_packet_queue_size(DecklinkPacketQueue *q);
 int ff_decklink_packet_queue_put(DecklinkPacketQueue *q, AVPacket *pkt);
 int ff_decklink_packet_queue_get(DecklinkPacketQueue *q, AVPacket *pkt, int block);
+int64_t ff_decklink_packet_queue_peekpts(DecklinkPacketQueue *q);
 
 #endif /* AVDEVICE_DECKLINK_COMMON_H */

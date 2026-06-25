@@ -31,7 +31,29 @@ namespace scheduler {
 class PLATFORM_EXPORT WidgetScheduler
     : public ThreadSafeRefCounted<WidgetScheduler> {
  public:
+  class Delegate {
+   public:
+    virtual ~Delegate() = default;
+
+    // Controls whether or not BeginMainFrameNotExpected messages are sent from
+    // the compositor to the `WidgetScheduler`.
+    virtual void RequestBeginMainFrameNotExpected(bool new_state) = 0;
+
+    // Returns true if main frames updates are paused or deferred for any reason
+    // and false otherwise.
+    virtual bool AreMainFramesPausedOrDeferred() const = 0;
+
+    // Android: controls whether ADPF should schedule this thread for low power
+    // usage.
+    virtual void RequestEfficientScheduling(
+        bool prefer_efficient_scheduling) const = 0;
+  };
+
   virtual ~WidgetScheduler() = default;
+
+  // Must be called prior to `Shutdown` on the main thread. The associated
+  // `Delegate` must be kept alive until this is called.
+  virtual void WillShutdown() = 0;
 
   // Shutdown the WidgetScheduler on the main thread.
   virtual void Shutdown() = 0;
@@ -89,11 +111,8 @@ class PLATFORM_EXPORT WidgetScheduler
   // called from the main thread.
   virtual void DidHandleInputEventOnMainThread(
       const WebInputEvent& web_input_event,
-      WebInputEventResult result) = 0;
-
-  // Tells the scheduler that the system is displaying an input animation (e.g.
-  // a fling). Called by the compositor (impl) thread.
-  virtual void DidAnimateForInputOnCompositorThread() = 0;
+      WebInputEventResult result,
+      bool frame_requested) = 0;
 
   // Tells the scheduler that the main thread processed a BeginMainFrame task
   // from its queue. Note that DidRunBeginMainFrame will be called
@@ -103,9 +122,6 @@ class PLATFORM_EXPORT WidgetScheduler
 
   // The Widget changed hidden state. Called from the main thread.
   virtual void SetHidden(bool hidden) = 0;
-
-  // The Widget has changed having touch handlers. Called from the main thread.
-  virtual void SetHasTouchHandler(bool has_touch_handler) = 0;
 };
 
 }  // namespace scheduler

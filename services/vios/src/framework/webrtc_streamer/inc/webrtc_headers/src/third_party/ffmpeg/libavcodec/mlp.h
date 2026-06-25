@@ -70,6 +70,15 @@
 /** Code that signals end of a stream. */
 #define END_OF_STREAM       0xd234d234
 
+#define PARAM_BLOCKSIZE     (1 << 7)
+#define PARAM_MATRIX        (1 << 6)
+#define PARAM_OUTSHIFT      (1 << 5)
+#define PARAM_QUANTSTEP     (1 << 4)
+#define PARAM_FIR           (1 << 3)
+#define PARAM_IIR           (1 << 2)
+#define PARAM_HUFFOFFSET    (1 << 1)
+#define PARAM_PRESENCE      (1 << 0)
+
 #define FIR 0
 #define IIR 1
 
@@ -137,9 +146,6 @@ typedef struct {
  */
 extern const ChannelInformation ff_mlp_ch_info[21];
 
-#if FF_API_OLD_CHANNEL_LAYOUT
-extern const uint64_t ff_mlp_channel_layouts[12];
-#endif
 extern const AVChannelLayout ff_mlp_ch_layouts[12];
 
 /** MLP uses checksums that seem to be based on the standard CRC algorithm, but

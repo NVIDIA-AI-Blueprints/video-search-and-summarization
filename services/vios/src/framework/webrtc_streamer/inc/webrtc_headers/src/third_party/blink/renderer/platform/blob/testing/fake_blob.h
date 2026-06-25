@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BLOB_TESTING_FAKE_BLOB_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BLOB_TESTING_FAKE_BLOB_H_
 
+#include "base/memory/raw_ptr.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom-blink.h"
 
@@ -20,6 +21,9 @@ class FakeBlob : public mojom::blink::Blob {
 
   FakeBlob(const String& uuid,
            const String& body = String(),
+           State* state = nullptr);
+  FakeBlob(const String& uuid,
+           const Vector<uint8_t>& body_bytes,
            State* state = nullptr);
 
   void Clone(mojo::PendingReceiver<mojom::blink::Blob>) override;
@@ -42,8 +46,8 @@ class FakeBlob : public mojom::blink::Blob {
 
  protected:
   String uuid_;
-  String body_;
-  State* state_;
+  Vector<uint8_t> body_;
+  raw_ptr<State, DanglingUntriaged> state_;
 };
 
 }  // namespace blink

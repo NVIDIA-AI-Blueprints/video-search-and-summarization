@@ -33,6 +33,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
@@ -105,17 +106,25 @@ class ServiceWorkerGlobalScopeProxy final : public WebServiceWorkerContextProxy,
   bool IsWindowInteractionAllowed() override;
   void PauseEvaluation() override;
   void ResumeEvaluation() override;
+  void DeferPrepareForEvaluation() override;
+  void RunDeferredPrepareForEvaluation() override;
   mojom::blink::ServiceWorkerFetchHandlerType FetchHandlerType() override;
+  bool HasHidEventHandlers() override;
+  bool HasUsbEventHandlers() override;
+  void GetRemoteAssociatedInterface(
+      const WebString& name,
+      mojo::ScopedInterfaceEndpointHandle handle) override;
+  blink::AssociatedInterfaceRegistry& GetAssociatedInterfaceRegistry() override;
 
   // WorkerReportingProxy overrides:
   void CountFeature(WebFeature) override;
   void ReportException(const String& error_message,
-                       std::unique_ptr<SourceLocation>,
+                       const SourceLocation*,
                        int exception_id) override;
   void ReportConsoleMessage(mojom::ConsoleMessageSource,
                             mojom::ConsoleMessageLevel,
                             const String& message,
-                            SourceLocation*) override;
+                            const SourceLocation*) override;
   void WillInitializeWorkerContext() override;
   void DidCreateWorkerGlobalScope(WorkerOrWorkletGlobalScope*) override;
   void DidLoadClassicScript() override;
@@ -135,7 +144,7 @@ class ServiceWorkerGlobalScopeProxy final : public WebServiceWorkerContextProxy,
       const KURL& url,
       mojo::PendingReceiver<network::mojom::blink::URLLoaderClient>
           preload_url_loader_client_receiver);
-  void RequestTermination(WTF::CrossThreadOnceFunction<void(bool)> callback);
+  void RequestTermination(CrossThreadOnceFunction<void(bool)> callback);
 
   bool ShouldNotifyServiceWorkerOnWebSocketActivity(
       v8::Local<v8::Context> context);
@@ -155,12 +164,12 @@ class ServiceWorkerGlobalScopeProxy final : public WebServiceWorkerContextProxy,
 
   // Non-null until the WebEmbeddedWorkerImpl explicitly detach()es
   // as part of its finalization.
-  WebEmbeddedWorkerImpl* embedded_worker_;
+  raw_ptr<WebEmbeddedWorkerImpl> embedded_worker_;
 
   scoped_refptr<base::SingleThreadTaskRunner>
       parent_thread_default_task_runner_;
 
-  WebServiceWorkerContextClient* client_;
+  raw_ptr<WebServiceWorkerContextClient> client_;
 
   CrossThreadPersistent<ServiceWorkerGlobalScope> worker_global_scope_;
 

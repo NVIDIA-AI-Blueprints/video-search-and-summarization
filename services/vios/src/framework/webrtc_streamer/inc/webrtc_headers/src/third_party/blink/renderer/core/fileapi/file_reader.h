@@ -45,6 +45,9 @@
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
+namespace scheduler {
+class TaskAttributionInfo;
+}  // namespace scheduler
 
 class Blob;
 class ExceptionState;
@@ -52,7 +55,7 @@ class ExecutionContext;
 class V8UnionArrayBufferOrString;
 enum class FileErrorCode;
 
-class CORE_EXPORT FileReader final : public EventTargetWithInlineData,
+class CORE_EXPORT FileReader final : public EventTarget,
                                      public ActiveScriptWrappable<FileReader>,
                                      public ExecutionContextLifecycleObserver,
                                      public FileReaderAccumulator {
@@ -74,7 +77,7 @@ class CORE_EXPORT FileReader final : public EventTargetWithInlineData,
   void abort();
 
   ReadyState getReadyState() const { return state_; }
-  DOMException* error() { return error_; }
+  DOMException* error() { return error_.Get(); }
   V8UnionArrayBufferOrString* result() const;
   probe::AsyncTaskContext* async_task_context() { return &async_task_context_; }
 
@@ -110,7 +113,12 @@ class CORE_EXPORT FileReader final : public EventTargetWithInlineData,
 
   void Terminate();
   void ReadInternal(Blob*, FileReadType, ExceptionState&);
-  void FireEvent(const AtomicString& type);
+  // Dispatching an event can trigger another read, which would override
+  // `task_state_`. Pass `task_state` here rather than using `task_state_`
+  // directly so it can be cleared beforehand, since clearing it after dispatch
+  // risks overwriting state for the such reads.
+  void FireEvent(const AtomicString& type,
+                 scheduler::TaskAttributionInfo* task_state);
 
   void ExecutePendingRead();
 
@@ -136,7 +144,8 @@ class CORE_EXPORT FileReader final : public EventTargetWithInlineData,
   Member<FileReaderLoader> loader_;
   Member<V8UnionArrayBufferOrString> result_ = nullptr;
   Member<DOMException> error_;
-  absl::optional<base::ElapsedTimer> last_progress_notification_time_;
+  Member<scheduler::TaskAttributionInfo> task_state_;
+  std::optional<base::ElapsedTimer> last_progress_notification_time_;
 };
 
 }  // namespace blink

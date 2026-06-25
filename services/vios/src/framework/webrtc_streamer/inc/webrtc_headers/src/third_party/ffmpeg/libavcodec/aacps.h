@@ -27,7 +27,6 @@
 #include "libavutil/mem_internal.h"
 
 #include "aacpsdsp.h"
-#include "avcodec.h"
 #include "get_bits.h"
 
 #define PS_MAX_NUM_ENV 5
@@ -94,9 +93,14 @@ extern const int8_t ff_k_to_i_34[];
 
 void ff_ps_init_common(void);
 void AAC_RENAME(ff_ps_init)(void);
-void AAC_RENAME(ff_ps_ctx_init)(PSContext *ps);
-int ff_ps_read_data(AVCodecContext *avctx, GetBitContext *gb,
+
+static inline void AAC_RENAME(ff_ps_ctx_init)(PSContext *ps)
+{
+    AAC_RENAME(ff_psdsp_init)(&ps->dsp);
+}
+
+int ff_ps_read_data(void *logctx, GetBitContext *gb,
                      PSCommonContext *ps, int bits_left);
-int AAC_RENAME(ff_ps_apply)(AVCodecContext *avctx, PSContext *ps, INTFLOAT L[2][38][64], INTFLOAT R[2][38][64], int top);
+int AAC_RENAME(ff_ps_apply)(PSContext *ps, INTFLOAT L[2][38][64], INTFLOAT R[2][38][64], int top);
 
 #endif /* AVCODEC_AACPS_H */

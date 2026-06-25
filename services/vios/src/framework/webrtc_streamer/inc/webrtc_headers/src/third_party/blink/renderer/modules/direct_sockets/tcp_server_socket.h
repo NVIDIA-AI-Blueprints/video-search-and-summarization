@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_DIRECT_SOCKETS_TCP_SERVER_SOCKET_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_DIRECT_SOCKETS_TCP_SERVER_SOCKET_H_
 
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
 #include "third_party/blink/renderer/modules/direct_sockets/socket.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -12,9 +13,9 @@
 namespace blink {
 
 class ExceptionState;
-class ScriptPromise;
 class ScriptState;
 class TCPServerReadableStreamWrapper;
+class TCPServerSocketOpenInfo;
 class TCPServerSocketOptions;
 
 class MODULES_EXPORT TCPServerSocket final : public ScriptWrappable,
@@ -29,7 +30,8 @@ class MODULES_EXPORT TCPServerSocket final : public ScriptWrappable,
                                  ExceptionState&);
 
   // Socket:
-  ScriptPromise close(ScriptState*, ExceptionState&) override;
+  ScriptPromise<TCPServerSocketOpenInfo> opened(ScriptState*) const;
+  ScriptPromise<IDLUndefined> close(ScriptState*, ExceptionState&) override;
 
   explicit TCPServerSocket(ScriptState*);
   ~TCPServerSocket() override;
@@ -44,7 +46,7 @@ class MODULES_EXPORT TCPServerSocket final : public ScriptWrappable,
   void OnTCPServerSocketOpened(
       mojo::PendingRemote<network::mojom::blink::TCPServerSocket>,
       int32_t result,
-      const absl::optional<net::IPEndPoint>& local_addr);
+      const std::optional<net::IPEndPoint>& local_addr);
 
   void Trace(Visitor*) const override;
 
@@ -55,7 +57,9 @@ class MODULES_EXPORT TCPServerSocket final : public ScriptWrappable,
   // Resets mojo resources held by this class.
   void ReleaseResources();
 
-  void OnReadableStreamClosed(ScriptValue exception);
+  void OnReadableStreamClosed(v8::Local<v8::Value> exception, int net_error);
+
+  Member<ScriptPromiseProperty<TCPServerSocketOpenInfo, DOMException>> opened_;
 
   Member<TCPServerReadableStreamWrapper> readable_stream_wrapper_;
 };

@@ -14,13 +14,14 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "modules/video_coding/codecs/nvidia/libnv_passthrough_decoder.h"
 //#include "common_types.h"
 #include "absl/strings/match.h"
 #include "media/base/codec.h"
-#include "media/base/h264_profile_level_id.h"
+#include "api/video_codecs/h264_profile_level_id.h"
 #include "media/base/media_constants.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
@@ -31,14 +32,14 @@ struct LibNvPassthroughVideoDecoderTemplateAdapter {
     webrtc::H264Profile profile,
     webrtc::H264Level level,
     const std::string& packetization_mode) {
-      const absl::optional<std::string> profile_string =
+      const std::optional<std::string> profile_string =
         webrtc::H264ProfileLevelIdToString(webrtc::H264ProfileLevelId(profile, level));
       RTC_CHECK(profile_string);
       return webrtc::SdpVideoFormat(
-        cricket::kH264CodecName,
-        {{cricket::kH264FmtpProfileLevelId, *profile_string},
-        {cricket::kH264FmtpLevelAsymmetryAllowed, "1"},
-        {cricket::kH264FmtpPacketizationMode, packetization_mode}
+        webrtc::kH264CodecName,
+        {{webrtc::kH264FmtpProfileLevelId, *profile_string},
+        {webrtc::kH264FmtpLevelAsymmetryAllowed, "1"},
+        {webrtc::kH264FmtpPacketizationMode, packetization_mode}
         });
 }
 
@@ -66,17 +67,15 @@ struct LibNvPassthroughVideoDecoderTemplateAdapter {
       CreateH264Format(webrtc::H264Profile::kProfileHigh, webrtc::H264Level::kLevel4_2, "0")
     };
 
-    formats.push_back(webrtc::SdpVideoFormat(cricket::kH264CodecName));
-#ifndef DISABLE_H265
-    formats.push_back(webrtc::SdpVideoFormat(cricket::kH265CodecName));
-#endif
+    formats.push_back(webrtc::SdpVideoFormat(webrtc::kH264CodecName));
+    formats.push_back(webrtc::SdpVideoFormat(webrtc::kH265CodecName));
     return formats;
   }
 
   static std::unique_ptr<VideoDecoder> CreateDecoder(
       const webrtc::SdpVideoFormat& format) {
     if (!IsFormatSupported(SupportedFormats(), format)) {
-      auto param = format.parameters.find(cricket::kH264FmtpProfileLevelId);
+      auto param = format.parameters.find(webrtc::kH264FmtpProfileLevelId);
       if (param != format.parameters.end()) {
         printf("\nTrying to create decoder for unsupported format: %s %s %s\n",
           format.name.c_str(),

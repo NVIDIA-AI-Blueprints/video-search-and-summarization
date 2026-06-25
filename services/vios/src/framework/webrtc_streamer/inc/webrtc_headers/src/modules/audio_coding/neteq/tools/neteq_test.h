@@ -11,19 +11,23 @@
 #ifndef MODULES_AUDIO_CODING_NETEQ_TOOLS_NETEQ_TEST_H_
 #define MODULES_AUDIO_CODING_NETEQ_TOOLS_NETEQ_TEST_H_
 
+#include <cstdint>
 #include <fstream>
 #include <map>
 #include <memory>
-#include <string>
-#include <utility>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "api/audio_codecs/audio_decoder_factory.h"
+#include "api/audio_codecs/audio_format.h"
+#include "api/environment/environment.h"
+#include "api/field_trials_view.h"
 #include "api/neteq/neteq.h"
 #include "api/neteq/neteq_factory.h"
+#include "api/scoped_refptr.h"
 #include "api/test/neteq_simulator.h"
 #include "modules/audio_coding/neteq/tools/audio_sink.h"
 #include "modules/audio_coding/neteq/tools/neteq_input.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
@@ -32,19 +36,19 @@ namespace test {
 class NetEqTestErrorCallback {
  public:
   virtual ~NetEqTestErrorCallback() = default;
-  virtual void OnInsertPacketError(const NetEqInput::PacketData& packet) {}
+  virtual void OnInsertPacketError(const RtpPacketReceived& /* packet */) {}
   virtual void OnGetAudioError() {}
 };
 
 class DefaultNetEqTestErrorCallback : public NetEqTestErrorCallback {
-  void OnInsertPacketError(const NetEqInput::PacketData& packet) override;
+  void OnInsertPacketError(const RtpPacketReceived& packet) override;
   void OnGetAudioError() override;
 };
 
 class NetEqPostInsertPacket {
  public:
   virtual ~NetEqPostInsertPacket() = default;
-  virtual void AfterInsertPacket(const NetEqInput::PacketData& packet,
+  virtual void AfterInsertPacket(const RtpPacketReceived& packet,
                                  NetEq* neteq) = 0;
 };
 
@@ -81,13 +85,14 @@ class NetEqTest : public NetEqSimulator {
   // Sets up the test with given configuration, codec mappings, input, ouput,
   // and callback objects for error reporting.
   NetEqTest(const NetEq::Config& config,
-            rtc::scoped_refptr<AudioDecoderFactory> decoder_factory,
+            scoped_refptr<AudioDecoderFactory> decoder_factory,
             const DecoderMap& codecs,
             std::unique_ptr<std::ofstream> text_log,
             NetEqFactory* neteq_factory,
             std::unique_ptr<NetEqInput> input,
             std::unique_ptr<AudioSink> output,
-            Callbacks callbacks);
+            Callbacks callbacks,
+            const FieldTrialsView* field_trials = nullptr);
 
   ~NetEqTest() override;
 
@@ -100,6 +105,7 @@ class NetEqTest : public NetEqSimulator {
 
   void SetNextAction(Action next_operation) override;
   NetEqState GetNetEqState() override;
+  NetEq* GetNetEq() override { return neteq_.get(); }
 
   // Returns the statistics from NetEq.
   NetEqNetworkStatistics SimulationStats();
@@ -111,8 +117,9 @@ class NetEqTest : public NetEqSimulator {
   void RegisterDecoders(const DecoderMap& codecs);
   std::unique_ptr<NetEqInput> input_;
   SimulatedClock clock_;
-  absl::optional<Action> next_action_;
-  absl::optional<int> last_packet_time_ms_;
+  const Environment env_;
+  std::optional<Action> next_action_;
+  std::optional<int> last_packet_time_ms_;
   std::unique_ptr<NetEq> neteq_;
   std::unique_ptr<AudioSink> output_;
   Callbacks callbacks_;
@@ -120,7 +127,7 @@ class NetEqTest : public NetEqSimulator {
   NetEqState current_state_;
   NetEqOperationsAndState prev_ops_state_;
   NetEqLifetimeStatistics prev_lifetime_stats_;
-  absl::optional<uint32_t> last_packet_timestamp_;
+  std::optional<uint32_t> last_packet_timestamp_;
   std::unique_ptr<std::ofstream> text_log_;
 };
 

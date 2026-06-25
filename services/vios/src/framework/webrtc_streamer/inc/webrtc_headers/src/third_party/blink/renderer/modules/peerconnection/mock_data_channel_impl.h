@@ -9,6 +9,8 @@
 
 #include <string>
 
+#include "base/memory/raw_ptr.h"
+#include "base/notreached.h"
 #include "third_party/webrtc/api/peer_connection_interface.h"
 
 namespace blink {
@@ -26,7 +28,12 @@ class MockDataChannel : public webrtc::DataChannelInterface {
   void RegisterObserver(webrtc::DataChannelObserver* observer) override;
   void UnregisterObserver() override;
   std::string label() const override;
-  bool reliable() const override;
+  // Deprecated method.
+  // Reliability is controlled by maxPacketLifetime and maxRetransmits.
+  bool reliable() const override {
+    NOTREACHED();
+    return false;  // Not all compilers know this is unreachable.
+  }
   bool ordered() const override;
   std::string protocol() const override;
   bool negotiated() const override;
@@ -51,10 +58,9 @@ class MockDataChannel : public webrtc::DataChannelInterface {
 
  private:
   std::string label_;
-  bool reliable_;
   webrtc::DataChannelInterface::DataState state_;
   webrtc::DataChannelInit config_;
-  webrtc::DataChannelObserver* observer_;
+  raw_ptr<webrtc::DataChannelObserver> observer_;
 };
 
 }  // namespace blink

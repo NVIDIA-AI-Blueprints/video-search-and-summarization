@@ -5,14 +5,16 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_STREAM_ALGORITHMS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_STREAM_ALGORITHMS_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
+#include "base/containers/span.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "v8/include/v8.h"
 
 namespace blink {
 
-class ExceptionState;
 class ScriptState;
 
 // Base class for algorithms that calculate the size of a given chunk as part of
@@ -25,9 +27,8 @@ class StrategySizeAlgorithm : public GarbageCollected<StrategySizeAlgorithm> {
  public:
   virtual ~StrategySizeAlgorithm() = default;
 
-  virtual absl::optional<double> Run(ScriptState*,
-                                     v8::Local<v8::Value> chunk,
-                                     ExceptionState&) = 0;
+  virtual std::optional<double> Run(ScriptState*,
+                                    v8::Local<v8::Value> chunk) = 0;
 
   virtual void Trace(Visitor*) const {}
 };
@@ -40,7 +41,7 @@ class StreamStartAlgorithm : public GarbageCollected<StreamStartAlgorithm> {
  public:
   virtual ~StreamStartAlgorithm() = default;
 
-  virtual v8::MaybeLocal<v8::Promise> Run(ScriptState*, ExceptionState&) = 0;
+  virtual ScriptPromise<IDLUndefined> Run(ScriptState*) = 0;
 
   virtual void Trace(Visitor*) const {}
 };
@@ -53,9 +54,9 @@ class StreamAlgorithm : public GarbageCollected<StreamAlgorithm> {
  public:
   virtual ~StreamAlgorithm() = default;
 
-  virtual v8::Local<v8::Promise> Run(ScriptState*,
-                                     int argc,
-                                     v8::Local<v8::Value> argv[]) = 0;
+  virtual ScriptPromise<IDLUndefined> Run(
+      ScriptState*,
+      base::span<v8::Local<v8::Value>> argv) = 0;
 
   virtual void Trace(Visitor*) const {}
 };

@@ -11,6 +11,7 @@
 #ifndef VIDEO_QUALITY_LIMITATION_REASON_TRACKER_H_
 #define VIDEO_QUALITY_LIMITATION_REASON_TRACKER_H_
 
+#include <cstdint>
 #include <map>
 
 #include "common_video/include/quality_limitation_reason.h"
@@ -41,6 +42,9 @@ class QualityLimitationReasonTracker {
   QualityLimitationReason current_reason() const;
   void SetReason(QualityLimitationReason reason);
   std::map<QualityLimitationReason, int64_t> DurationsMs() const;
+  // Used to initialize state from a previous tracker.
+  void SetDurationMs(std::map<QualityLimitationReason, int64_t>
+                         quality_limitation_durations_ms);
 
  private:
   Clock* const clock_;

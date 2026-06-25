@@ -13,14 +13,16 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
-#include "api/array_view.h"
 #include "api/task_queue/task_queue_base.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "net/dcsctp/public/dcsctp_message.h"
 #include "net/dcsctp/public/dcsctp_socket.h"
 #include "net/dcsctp/public/timeout.h"
@@ -58,7 +60,7 @@ class MockDcSctpSocketCallbacks : public DcSctpSocketCallbacks {
         random_(internal::GetUniqueSeed()),
         timeout_manager_([this]() { return now_; }) {
     ON_CALL(*this, SendPacketWithStatus)
-        .WillByDefault([this](rtc::ArrayView<const uint8_t> data) {
+        .WillByDefault([this](std::span<const uint8_t> data) {
           sent_packets_.emplace_back(
               std::vector<uint8_t>(data.begin(), data.end()));
           return SendPacketStatus::kSuccess;
@@ -80,26 +82,27 @@ class MockDcSctpSocketCallbacks : public DcSctpSocketCallbacks {
               << log_prefix_ << "Socket abort: " << ToString(error) << "; "
               << message;
         });
-    ON_CALL(*this, TimeMillis).WillByDefault([this]() { return now_; });
+    ON_CALL(*this, Now).WillByDefault([this]() { return now_; });
   }
 
   MOCK_METHOD(SendPacketStatus,
               SendPacketWithStatus,
-              (rtc::ArrayView<const uint8_t> data),
+              (std::span<const uint8_t> data),
               (override));
 
   std::unique_ptr<Timeout> CreateTimeout(
-      webrtc::TaskQueueBase::DelayPrecision precision) override {
+      webrtc::TaskQueueBase::DelayPrecision /* precision */) override {
     // The fake timeout manager does not implement |precision|.
     return timeout_manager_.CreateTimeout();
   }
 
-  MOCK_METHOD(TimeMs, TimeMillis, (), (override));
+  MOCK_METHOD(webrtc::Timestamp, Now, (), (override));
   uint32_t GetRandomInt(uint32_t low, uint32_t high) override {
     return random_.Rand(low, high);
   }
 
   MOCK_METHOD(void, OnMessageReceived, (DcSctpMessage message), (override));
+  MOCK_METHOD(void, OnMessageReady, (), (override));
   MOCK_METHOD(void,
               OnError,
               (ErrorKind error, absl::string_view message),
@@ -113,16 +116,16 @@ class MockDcSctpSocketCallbacks : public DcSctpSocketCallbacks {
   MOCK_METHOD(void, OnConnectionRestarted, (), (override));
   MOCK_METHOD(void,
               OnStreamsResetFailed,
-              (rtc::ArrayView<const StreamID> outgoing_streams,
+              (std::span<const StreamID> outgoing_streams,
                absl::string_view reason),
               (override));
   MOCK_METHOD(void,
               OnStreamsResetPerformed,
-              (rtc::ArrayView<const StreamID> outgoing_streams),
+              (std::span<const StreamID> outgoing_streams),
               (override));
   MOCK_METHOD(void,
               OnIncomingStreamsReset,
-              (rtc::ArrayView<const StreamID> incoming_streams),
+              (std::span<const StreamID> incoming_streams),
               (override));
   MOCK_METHOD(void, OnBufferedAmountLow, (StreamID stream_id), (override));
   MOCK_METHOD(void, OnTotalBufferedAmountLow, (), (override));
@@ -150,25 +153,29 @@ class MockDcSctpSocketCallbacks : public DcSctpSocketCallbacks {
     sent_packets_.pop_front();
     return ret;
   }
-  absl::optional<DcSctpMessage> ConsumeReceivedMessage() {
+  std::optional<DcSctpMessage> ConsumeReceivedMessage() {
     if (received_messages_.empty()) {
-      return absl::nullopt;
+      return std::nullopt;
     }
     DcSctpMessage ret = std::move(received_messages_.front());
     received_messages_.pop_front();
     return ret;
   }
 
-  void AdvanceTime(DurationMs duration_ms) { now_ = now_ + duration_ms; }
-  void SetTime(TimeMs now) { now_ = now; }
+  void AdvanceTime(webrtc::TimeDelta duration) { now_ = now_ + duration; }
+  void SetTime(webrtc::Timestamp now) { now_ = now; }
 
-  absl::optional<TimeoutID> GetNextExpiredTimeout() {
+  std::optional<TimeoutID> GetNextExpiredTimeout() {
     return timeout_manager_.GetNextExpiredTimeout();
+  }
+
+  webrtc::TimeDelta GetTimeToNextTimeout() const {
+    return timeout_manager_.GetTimeToNextTimeout();
   }
 
  private:
   const std::string log_prefix_;
-  TimeMs now_ = TimeMs(0);
+  webrtc::Timestamp now_ = webrtc::Timestamp::Zero();
   webrtc::Random random_;
   FakeTimeoutManager timeout_manager_;
   std::deque<std::vector<uint8_t>> sent_packets_;

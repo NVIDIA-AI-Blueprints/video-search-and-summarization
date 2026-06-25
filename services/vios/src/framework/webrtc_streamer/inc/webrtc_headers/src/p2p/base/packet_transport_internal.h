@@ -11,22 +11,26 @@
 #ifndef P2P_BASE_PACKET_TRANSPORT_INTERNAL_H_
 #define P2P_BASE_PACKET_TRANSPORT_INTERNAL_H_
 
+#include <cstddef>
+#include <optional>
 #include <string>
-#include <vector>
+#include <utility>
 
-#include "absl/types/optional.h"
-#include "p2p/base/port.h"
+#include "absl/functional/any_invocable.h"
+#include "api/sequence_checker.h"
+#include "api/task_queue/task_queue_base.h"
 #include "rtc_base/async_packet_socket.h"
+#include "rtc_base/callback_list.h"
+#include "rtc_base/network/received_packet.h"
+#include "rtc_base/network/sent_packet.h"
 #include "rtc_base/network_route.h"
 #include "rtc_base/socket.h"
 #include "rtc_base/system/rtc_export.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
+#include "rtc_base/thread_annotations.h"
 
-namespace rtc {
-struct PacketOptions;
-struct SentPacket;
+namespace webrtc {
 
-class RTC_EXPORT PacketTransportInternal : public sigslot::has_slots<> {
+class RTC_EXPORT PacketTransportInternal {
  public:
   virtual const std::string& transport_name() const = 0;
 
@@ -47,62 +51,105 @@ class RTC_EXPORT PacketTransportInternal : public sigslot::has_slots<> {
   // TODO(johan): Remove the default argument once channel code is updated.
   virtual int SendPacket(const char* data,
                          size_t len,
-                         const rtc::PacketOptions& options,
+                         const AsyncSocketPacketOptions& options,
                          int flags = 0) = 0;
 
   // Sets a socket option. Note that not all options are
   // supported by all transport types.
-  virtual int SetOption(rtc::Socket::Option opt, int value) = 0;
+  virtual int SetOption(Socket::Option opt, int value) = 0;
 
   // TODO(pthatcher): Once Chrome's MockPacketTransportInterface implements
   // this, remove the default implementation.
-  virtual bool GetOption(rtc::Socket::Option opt, int* value);
+  virtual bool GetOption(Socket::Option opt, int* value);
 
   // Returns the most recent error that occurred on this channel.
   virtual int GetError() = 0;
 
   // Returns the current network route with transport overhead.
   // TODO(zhihuang): Make it pure virtual once the Chrome/remoting is updated.
-  virtual absl::optional<NetworkRoute> network_route() const;
+  virtual std::optional<NetworkRoute> network_route() const;
 
   // Emitted when the writable state, represented by `writable()`, changes.
-  sigslot::signal1<PacketTransportInternal*> SignalWritableState;
+  void SubscribeWritableState(
+      void* tag,
+      absl::AnyInvocable<void(PacketTransportInternal*)> callback);
+  void UnsubscribeWritableState(void* tag);
+  void NotifyWritableState(PacketTransportInternal* packet_transport);
 
   //  Emitted when the PacketTransportInternal is ready to send packets. "Ready
   //  to send" is more sensitive than the writable state; a transport may be
   //  writable, but temporarily not able to send packets. For example, the
   //  underlying transport's socket buffer may be full, as indicated by
   //  SendPacket's return code and/or GetError.
-  sigslot::signal1<PacketTransportInternal*> SignalReadyToSend;
+  void SubscribeReadyToSend(
+      void* tag,
+      absl::AnyInvocable<void(PacketTransportInternal*)> callback);
+  void UnsubscribeReadyToSend(void* tag);
+  void NotifyReadyToSend(PacketTransportInternal* packet_transport);
 
   // Emitted when receiving state changes to true.
-  sigslot::signal1<PacketTransportInternal*> SignalReceivingState;
+  [[deprecated]] void SubscribeReceivingState(
+      absl::AnyInvocable<void(PacketTransportInternal*)> callback);
+  void SubscribeReceivingState(
+      void* tag,
+      absl::AnyInvocable<void(PacketTransportInternal*)> callback);
+  void NotifyReceivingState(PacketTransportInternal* packet_transport);
 
-  // Signalled each time a packet is received on this channel.
-  sigslot::signal5<PacketTransportInternal*,
-                   const char*,
-                   size_t,
-                   // TODO(bugs.webrtc.org/9584): Change to passing the int64_t
-                   // timestamp by value.
-                   const int64_t&,
-                   int>
-      SignalReadPacket;
+  // Callback is invoked each time a packet is received on this channel.
+  void RegisterReceivedPacketCallback(
+      void* id,
+      absl::AnyInvocable<void(PacketTransportInternal*,
+                              const ReceivedIpPacket&)> callback);
+
+  void DeregisterReceivedPacketCallback(void* id);
 
   // Signalled each time a packet is sent on this channel.
-  sigslot::signal2<PacketTransportInternal*, const rtc::SentPacket&>
-      SignalSentPacket;
-
+  void NotifySentPacket(PacketTransportInternal* transport,
+                        const SentPacketInfo& info) {
+    sent_packet_callbacks_.Send(transport, info);
+  }
+  void SubscribeSentPacket(
+      void* tag,
+      absl::AnyInvocable<void(PacketTransportInternal*, const SentPacketInfo&)>
+          callback) {
+    sent_packet_callbacks_.AddReceiver(tag, std::move(callback));
+  }
+  void UnsubscribeSentPacket(void* tag) {
+    sent_packet_callbacks_.RemoveReceivers(tag);
+  }
   // Signalled when the current network route has changed.
-  sigslot::signal1<absl::optional<rtc::NetworkRoute>> SignalNetworkRouteChanged;
+  void SubscribeNetworkRouteChanged(
+      void* tag,
+      absl::AnyInvocable<void(std::optional<NetworkRoute>)> callback);
+  void UnsubscribeNetworkRouteChanged(void* tag);
+  void NotifyNetworkRouteChanged(
+      std::optional<webrtc::NetworkRoute> network_route);
 
   // Signalled when the transport is closed.
-  sigslot::signal1<PacketTransportInternal*> SignalClosed;
+  void SetOnCloseCallback(absl::AnyInvocable<void() &&> callback);
+
+  virtual ~PacketTransportInternal();
 
  protected:
-  PacketTransportInternal();
-  ~PacketTransportInternal() override;
+  explicit PacketTransportInternal(TaskQueueBase* attached_queue = nullptr);
+
+  void NotifyPacketReceived(const ReceivedIpPacket& packet);
+  void NotifyOnClose();
+
+  SequenceChecker network_checker_{SequenceChecker::kDetached};
+
+ private:
+  CallbackList<PacketTransportInternal*, const ReceivedIpPacket&>
+      received_packet_callback_list_ RTC_GUARDED_BY(&network_checker_);
+  absl::AnyInvocable<void() &&> on_close_;
+  CallbackList<PacketTransportInternal*, const SentPacketInfo&>
+      sent_packet_callbacks_;
+  CallbackList<std::optional<NetworkRoute>> network_route_changed_callbacks_;
+  CallbackList<PacketTransportInternal*> writable_state_callbacks_;
+  CallbackList<PacketTransportInternal*> ready_to_send_callbacks_;
+  CallbackList<PacketTransportInternal*> receiving_state_callbacks_;
 };
 
-}  // namespace rtc
+}  //  namespace webrtc
 
 #endif  // P2P_BASE_PACKET_TRANSPORT_INTERNAL_H_

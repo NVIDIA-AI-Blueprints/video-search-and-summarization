@@ -11,9 +11,11 @@
 #ifndef NET_DCSCTP_PACKET_BOUNDED_BYTE_READER_H_
 #define NET_DCSCTP_PACKET_BOUNDED_BYTE_READER_H_
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 
-#include "api/array_view.h"
+#include "rtc_base/checks.h"
 
 namespace dcsctp {
 
@@ -37,7 +39,7 @@ inline uint32_t LoadBigEndian32(const uint8_t* data) {
 }
 }  // namespace internal
 
-// BoundedByteReader wraps an ArrayView and divides it into two parts; A fixed
+// BoundedByteReader wraps an std::span and divides it into two parts; A fixed
 // size - which is the template parameter - and a variable size, which is what
 // remains in `data` after the `FixedSize`.
 //
@@ -47,11 +49,11 @@ inline uint32_t LoadBigEndian32(const uint8_t* data) {
 //
 // The variable sized portion can either be used to create sub-readers, which
 // themselves would provide compile-time bounds-checking, or the entire variable
-// sized portion can be retrieved as an ArrayView.
+// sized portion can be retrieved as an std::span.
 template <int FixedSize>
 class BoundedByteReader {
  public:
-  explicit BoundedByteReader(rtc::ArrayView<const uint8_t> data) : data_(data) {
+  explicit BoundedByteReader(std::span<const uint8_t> data) : data_(data) {
     RTC_CHECK(data.size() >= FixedSize);
   }
 
@@ -79,19 +81,19 @@ class BoundedByteReader {
   BoundedByteReader<SubSize> sub_reader(size_t variable_offset) const {
     RTC_CHECK(FixedSize + variable_offset + SubSize <= data_.size());
 
-    rtc::ArrayView<const uint8_t> sub_span =
-        data_.subview(FixedSize + variable_offset, SubSize);
+    std::span<const uint8_t> sub_span =
+        data_.subspan(FixedSize + variable_offset, SubSize);
     return BoundedByteReader<SubSize>(sub_span);
   }
 
   size_t variable_data_size() const { return data_.size() - FixedSize; }
 
-  rtc::ArrayView<const uint8_t> variable_data() const {
-    return data_.subview(FixedSize, data_.size() - FixedSize);
+  std::span<const uint8_t> variable_data() const {
+    return data_.subspan(FixedSize);
   }
 
  private:
-  const rtc::ArrayView<const uint8_t> data_;
+  const std::span<const uint8_t> data_;
 };
 
 }  // namespace dcsctp

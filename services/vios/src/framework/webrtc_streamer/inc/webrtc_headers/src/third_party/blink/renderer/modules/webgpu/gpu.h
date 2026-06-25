@@ -5,50 +5,53 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGPU_GPU_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGPU_GPU_H_
 
-#include <dawn/webgpu.h>
-
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/graphics/gpu/webgpu_cpp.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 
-// Forward declarations from webgpu.h
-typedef struct WGPUBufferImpl* WGPUBuffer;
-// Forward declaration from dawn_proc.h
-struct DawnProcTable;
-
 namespace blink {
+
+template <>
+struct HashTraits<wgpu::Buffer> : GenericHashTraits<wgpu::Buffer> {
+  STATIC_ONLY(HashTraits);
+  static unsigned GetHash(const wgpu::Buffer& buffer) {
+    return HashPointer(buffer.Get());
+  }
+  static bool Equal(const wgpu::Buffer& a, const wgpu::Buffer& b) {
+    return a.Get() == b.Get();
+  }
+
+  static constexpr bool kEmptyValueIsZero = true;
+  static std::nullptr_t EmptyValue() { return nullptr; }
+  static std::nullptr_t DeletedValue() { return nullptr; }
+};
 
 class GPUAdapter;
 class GPUBuffer;
 class GPURequestAdapterOptions;
 class NavigatorBase;
-class ScriptPromiseResolver;
 class ScriptState;
 class DawnControlClientHolder;
+class V8GPUTextureFormat;
 class WGSLLanguageFeatures;
 
 struct BoxedMappableWGPUBufferHandles
     : public RefCounted<BoxedMappableWGPUBufferHandles> {
  public:
-  // Basic typed wrapper around |contents_|.
-  void insert(WGPUBuffer buffer) { contents_.insert(buffer); }
+  void insert(const wgpu::Buffer& buffer) { contents_.insert(buffer); }
+  void erase(const wgpu::Buffer& buffer) { contents_.erase(buffer); }
 
-  // Basic typed wrapper around |contents_|.
-  void erase(WGPUBuffer buffer) { contents_.erase(buffer); }
-
-  void ClearAndDestroyAll(const DawnProcTable& procs);
+  void ClearAndDestroyAll();
 
  private:
-  // void* because HashSet tries to infer if T is GarbageCollected,
-  // but WGPUBufferImpl has no real definition. We could define
-  // IsGarbageCollectedType<struct WGPUBufferImpl> but it could easily
-  // lead to a ODR violation.
-  HashSet<void*> contents_;
+  HashSet<wgpu::Buffer> contents_;
 };
 
 class MODULES_EXPORT GPU final : public ScriptWrappable,
@@ -75,13 +78,15 @@ class MODULES_EXPORT GPU final : public ScriptWrappable,
   // ExecutionContextLifecycleObserver overrides
   void ContextDestroyed() override;
 
-  // gpu.idl
-  ScriptPromise requestAdapter(ScriptState* script_state,
-                               const GPURequestAdapterOptions* options);
-  String getPreferredCanvasFormat();
+  // gpu.idl {{{
+  ScriptPromise<IDLNullable<GPUAdapter>> requestAdapter(
+      ScriptState* script_state,
+      const GPURequestAdapterOptions* options);
+  V8GPUTextureFormat getPreferredCanvasFormat();
   WGSLLanguageFeatures* wgslLanguageFeatures() const;
+  // }}} End of WebIDL binding implementation.
 
-  static WGPUTextureFormat preferred_canvas_format();
+  static wgpu::TextureFormat GetPreferredCanvasFormat();
 
   // Store the buffer in a weak hash set so we can destroy it when the
   // context is destroyed.
@@ -90,7 +95,7 @@ class MODULES_EXPORT GPU final : public ScriptWrappable,
   // destroyed.
   void UntrackMappableBuffer(GPUBuffer* buffer);
 
-  BoxedMappableWGPUBufferHandles* mappable_buffer_handles() const {
+  BoxedMappableWGPUBufferHandles* GetMappableBufferHandles() const {
     return mappable_buffer_handles_.get();
   }
 
@@ -98,26 +103,22 @@ class MODULES_EXPORT GPU final : public ScriptWrappable,
       scoped_refptr<DawnControlClientHolder> dawn_control_client);
 
  private:
-  void OnRequestAdapterCallback(ScriptState* script_state,
-                                const GPURequestAdapterOptions* options,
-                                ScriptPromiseResolver* resolver,
-                                WGPURequestAdapterStatus status,
-                                WGPUAdapter adapter,
-                                const char* error_message);
-
-  void RecordAdapterForIdentifiability(ScriptState* script_state,
-                                       const GPURequestAdapterOptions* options,
-                                       GPUAdapter* adapter) const;
+  void OnRequestAdapterCallback(
+      ScriptState* script_state,
+      const GPURequestAdapterOptions* options,
+      ScriptPromiseResolver<IDLNullable<GPUAdapter>>* resolver,
+      wgpu::RequestAdapterStatus status,
+      wgpu::Adapter adapter,
+      wgpu::StringView error_message);
 
   void RequestAdapterImpl(ScriptState* script_state,
                           const GPURequestAdapterOptions* options,
-                          ScriptPromiseResolver* resolver);
+                          ScriptPromiseResolver<IDLNullable<GPUAdapter>>*);
 
   Member<WGSLLanguageFeatures> wgsl_language_features_;
 
   scoped_refptr<DawnControlClientHolder> dawn_control_client_;
-  WTF::Vector<base::OnceCallback<void()>>
-      dawn_control_client_initialized_callbacks_;
+  Vector<base::OnceCallback<void()>> dawn_control_client_initialized_callbacks_;
   HeapHashSet<WeakMember<GPUBuffer>> mappable_buffers_;
   // Mappable buffers remove themselves from this set on destruction.
   // It is boxed in a scoped_refptr so GPUBuffer can access it in its

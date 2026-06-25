@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -18,7 +18,7 @@
 #include <memory.h>
 
 #include "aom_dsp/pyramid.h"
-#include "aom_util/aom_thread.h"
+#include "aom_util/aom_pthread.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,11 +53,12 @@ typedef struct corner_list {
   int corners[2 * MAX_CORNERS];
 } CornerList;
 
-size_t av1_get_corner_list_size();
+size_t av1_get_corner_list_size(void);
 
-CornerList *av1_alloc_corner_list();
+CornerList *av1_alloc_corner_list(void);
 
-void av1_compute_corner_list(const ImagePyramid *pyr, CornerList *corners);
+bool av1_compute_corner_list(const YV12_BUFFER_CONFIG *frame, int bit_depth,
+                             int downsample_level, CornerList *corners);
 
 #ifndef NDEBUG
 // Check if a corner list has already been computed.

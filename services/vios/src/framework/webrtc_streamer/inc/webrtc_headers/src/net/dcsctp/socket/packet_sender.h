@@ -10,6 +10,10 @@
 #ifndef NET_DCSCTP_SOCKET_PACKET_SENDER_H_
 #define NET_DCSCTP_SOCKET_PACKET_SENDER_H_
 
+#include <cstdint>
+#include <functional>
+#include <span>
+
 #include "net/dcsctp/packet/sctp_packet.h"
 #include "net/dcsctp/public/dcsctp_socket.h"
 
@@ -21,18 +25,18 @@ namespace dcsctp {
 class PacketSender {
  public:
   PacketSender(DcSctpSocketCallbacks& callbacks,
-               std::function<void(rtc::ArrayView<const uint8_t>,
-                                  SendPacketStatus)> on_sent_packet);
+               std::function<void(std::span<const uint8_t>, SendPacketStatus)>
+                   on_sent_packet);
 
   // Sends the packet, and returns true if it was sent successfully.
-  bool Send(SctpPacket::Builder& builder);
+  bool Send(SctpPacket::Builder& builder, bool write_checksum = true);
 
  private:
   DcSctpSocketCallbacks& callbacks_;
 
   // Callback that will be triggered for every send attempt, indicating the
   // status of the operation.
-  std::function<void(rtc::ArrayView<const uint8_t>, SendPacketStatus)>
+  std::function<void(std::span<const uint8_t>, SendPacketStatus)>
       on_sent_packet_;
 };
 }  // namespace dcsctp

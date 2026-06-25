@@ -17,27 +17,66 @@
 #ifndef SRC_TRACE_PROCESSOR_SQLITE_SQLITE_UTILS_H_
 #define SRC_TRACE_PROCESSOR_SQLITE_SQLITE_UTILS_H_
 
-#include <math.h>
 #include <sqlite3.h>
 #include <bitset>
 #include <cstddef>
 #include <cstring>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "perfetto/base/logging.h"
 #include "perfetto/base/status.h"
+#include "perfetto/ext/base/status_macros.h"  // IWYU pragma: keep
 #include "perfetto/ext/base/status_or.h"
-#include "perfetto/ext/base/string_utils.h"
-#include "perfetto/ext/base/string_view.h"
 #include "perfetto/trace_processor/basic_types.h"
-#include "src/trace_processor/sqlite/scoped_db.h"
-#include "src/trace_processor/sqlite/sqlite_table.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_result.h"
 
-namespace perfetto {
-namespace trace_processor {
-namespace sqlite_utils {
+// Analogous to ASSIGN_OR_RETURN macro. Returns an sqlite error.
+#define SQLITE_RETURN_IF_ERROR(vtab, expr)                                  \
+  do {                                                                      \
+    const base::Status& status_macro_internal_status = (expr);              \
+    if (!status_macro_internal_status.ok())                                 \
+      return sqlite::utils::SetError((vtab), status_macro_internal_status); \
+  } while (0)
+
+// Analogous to ASSIGN_OR_RETURN macro. Returns an sqlite error.
+#define SQLITE_ASSIGN_OR_RETURN(vtab, lhs, rhs)                            \
+  PERFETTO_INTERNAL_MACRO_CONCAT(auto status_or, __LINE__) = rhs;          \
+  SQLITE_RETURN_IF_ERROR(                                                  \
+      vtab, PERFETTO_INTERNAL_MACRO_CONCAT(status_or, __LINE__).status()); \
+  lhs = std::move(PERFETTO_INTERNAL_MACRO_CONCAT(status_or, __LINE__).value())
+
+namespace perfetto::trace_processor::sqlite::utils {
+
+// Helper class to use with the SQLite pointer passing APIs.
+//
+// The problem: SQLite is responsible for managing the lifetime of all pointers
+// using the pointer passing APIs which means we don't have an easy way to
+// have an object passed between functions that is *moved* between the calls.
+//
+// This class wraps a value of type T and allows it to be moved out of the
+// wrapper. The wrapper itself will be managed with a unique_ptr and enforces
+// that the only way to extract the value is to move it out.
+template <typename T>
+struct MovePointer {
+ public:
+  explicit MovePointer(T value) : value_(std::move(value)) {}
+
+  T Take() {
+    PERFETTO_CHECK(!taken_);
+    taken_ = true;
+    return std::move(value_);
+  }
+
+  bool taken() const { return taken_; }
+
+ private:
+  T value_;
+  bool taken_ = false;
+};
 
 const auto kSqliteStatic = reinterpret_cast<sqlite3_destructor_type>(0);
 const auto kSqliteTransient = reinterpret_cast<sqlite3_destructor_type>(-1);
@@ -47,31 +86,6 @@ inline bool IsOpEq(int op) {
 }
 inline bool IsOpLe(int op) {
   return op == SQLITE_INDEX_CONSTRAINT_LE;
-}
-inline bool IsOpLt(int op) {
-  return op == SQLITE_INDEX_CONSTRAINT_LT;
-}
-inline bool IsOpGe(int op) {
-  return op == SQLITE_INDEX_CONSTRAINT_GE;
-}
-inline bool IsOpGt(int op) {
-  return op == SQLITE_INDEX_CONSTRAINT_GT;
-}
-
-inline SqlValue::Type SqliteTypeToSqlValueType(int sqlite_type) {
-  switch (sqlite_type) {
-    case SQLITE_NULL:
-      return SqlValue::Type::kNull;
-    case SQLITE_BLOB:
-      return SqlValue::Type::kBytes;
-    case SQLITE_INTEGER:
-      return SqlValue::Type::kLong;
-    case SQLITE_FLOAT:
-      return SqlValue::Type::kDouble;
-    case SQLITE_TEXT:
-      return SqlValue::Type::kString;
-  }
-  PERFETTO_FATAL("Unknown SQLite type %d", sqlite_type);
 }
 
 inline SqlValue SqliteValueToSqlValue(sqlite3_value* value) {
@@ -114,70 +128,127 @@ inline std::optional<std::string> SqlValueToString(SqlValue value) {
   PERFETTO_FATAL("For GCC");
 }
 
-inline void ReportSqlValue(
-    sqlite3_context* ctx,
-    const SqlValue& value,
-    sqlite3_destructor_type string_destructor = kSqliteTransient,
-    sqlite3_destructor_type bytes_destructor = kSqliteTransient) {
-  switch (value.type) {
-    case SqlValue::Type::kLong:
-      sqlite3_result_int64(ctx, value.long_value);
-      break;
-    case SqlValue::Type::kDouble:
-      sqlite3_result_double(ctx, value.double_value);
-      break;
-    case SqlValue::Type::kString: {
-      sqlite3_result_text(ctx, value.string_value, -1, string_destructor);
-      break;
-    }
-    case SqlValue::Type::kBytes:
-      sqlite3_result_blob(ctx, value.bytes_value,
-                          static_cast<int>(value.bytes_count),
-                          bytes_destructor);
-      break;
-    case SqlValue::Type::kNull:
-      sqlite3_result_null(ctx);
-      break;
-  }
+inline int SetError(sqlite3_vtab* tab, const char* status) {
+  sqlite3_free(tab->zErrMsg);
+  tab->zErrMsg = sqlite3_mprintf("%s", status);
+  return SQLITE_ERROR;
 }
 
-inline void SetSqliteError(sqlite3_context* ctx, const base::Status& status) {
+inline void SetError(sqlite3_context* ctx, const char* status) {
+  sqlite::result::Error(ctx, status);
+}
+
+inline int SetError(sqlite3_vtab* tab, base::Status s) {
+  return SetError(tab, s.c_message());
+}
+
+inline void SetError(sqlite3_context* ctx, const base::Status& status) {
   PERFETTO_CHECK(!status.ok());
-  sqlite3_result_error(ctx, status.c_message(), -1);
+  sqlite::result::Error(ctx, status.c_message());
 }
 
-inline void SetSqliteError(sqlite3_context* ctx,
-                           const std::string& function_name,
-                           const base::Status& status) {
-  SetSqliteError(ctx, base::ErrStatus("%s: %s", function_name.c_str(),
-                                      status.c_message()));
+inline void SetError(sqlite3_context* ctx,
+                     const std::string& function_name,
+                     const base::Status& status) {
+  SetError(ctx, base::ErrStatus("%s: %s", function_name.c_str(),
+                                status.c_message()));
 }
 
-// Exracts the given type from the SqlValue if |value| can fit
-// in the provided optional. Note that SqlValue::kNull will always
-// succeed and cause std::nullopt to be set.
+// Return NULL from a SQLite function implementation. This is more efficient
+// than calling sqlite::result::Null(ctx) because SQLite functions automatically
+// return NULL by default when no result is set.
+// IMPORTANT: Only use this inside SQLite function Step() implementations.
+inline void ReturnNullFromFunction(sqlite3_context*) {
+  // Intentionally empty - SQLite functions return NULL by default
+}
+
+// Return from a void SQLite function implementation. This sets a special "VOID"
+// pointer type to prevent the function result from being included in query
+// output. Use this for functions that perform side effects but don't return
+// values. IMPORTANT: Only use this inside SQLite function Step()
+// implementations.
+inline void ReturnVoidFromFunction(sqlite3_context* ctx) {
+  // Set the "VOID" pointer type to a non-null value. Note that because of the
+  // weird way |sqlite3_value_pointer| works, we need to set some value even if
+  // we don't actually read it - just set it to a pointer to an empty string for
+  // this reason.
+  static char kVoidValue[] = "";
+  sqlite::result::StaticPointer(ctx, kVoidValue, "VOID");
+}
+
+// For a given |sqlite3_index_info| struct received in a BestIndex call, returns
+// whether all |arg_count| arguments (with |is_arg_column| indicating whether a
+// given column is a function argument) have exactly one equality constraint
+// associated with them.
 //
-// Returns base::ErrStatus if the type does not match or does not
-// fit in the width of the provided optional type (i.e. int64 value
-// not fitting in int32 optional).
-base::Status ExtractFromSqlValue(const SqlValue& value,
-                                 std::optional<int64_t>&);
-base::Status ExtractFromSqlValue(const SqlValue& value,
-                                 std::optional<int32_t>&);
-base::Status ExtractFromSqlValue(const SqlValue& value,
-                                 std::optional<uint32_t>&);
-base::Status ExtractFromSqlValue(const SqlValue& value, std::optional<double>&);
-base::Status ExtractFromSqlValue(const SqlValue& value,
-                                 std::optional<const char*>&);
+// If so, the associated constraint is omitted and the argvIndex is mapped to
+// the corresponding argument's index.
+inline base::Status ValidateFunctionArguments(
+    sqlite3_index_info* info,
+    size_t arg_count,
+    const std::function<bool(size_t)>& is_arg_column) {
+  std::vector<bool> present;
+  size_t present_count = 0;
+  for (int i = 0; i < info->nConstraint; ++i) {
+    const auto& in = info->aConstraint[i];
+    if (!in.usable) {
+      continue;
+    }
+    auto cs_col = static_cast<size_t>(in.iColumn);
+    if (!is_arg_column(cs_col)) {
+      continue;
+    }
+    if (!IsOpEq(in.op)) {
+      return base::ErrStatus(
+          "Unexpected non equality constraints for column %zu", cs_col);
+    }
+    if (cs_col >= present.size()) {
+      present.resize(cs_col + 1);
+    }
+    if (present[cs_col]) {
+      return base::ErrStatus("Unexpected multiple constraints for column %zu",
+                             cs_col);
+    }
+    present[cs_col] = true;
+    present_count++;
+
+    auto& out = info->aConstraintUsage[i];
+    out.argvIndex = static_cast<int>(present_count);
+    out.omit = true;
+  }
+  if (present_count != arg_count) {
+    return base::ErrStatus(
+        "Unexpected missing argument: expected %zu, actual %zu", arg_count,
+        present_count);
+  }
+  return base::OkStatus();
+}
+
+// Converts the given SqlValue type to the type string SQLite understands.
+inline std::string SqlValueTypeToSqliteTypeName(SqlValue::Type type) {
+  switch (type) {
+    case SqlValue::Type::kString:
+      return "TEXT";
+    case SqlValue::Type::kLong:
+      return "BIGINT";
+    case SqlValue::Type::kDouble:
+      return "DOUBLE";
+    case SqlValue::Type::kBytes:
+      return "BLOB";
+    case SqlValue::Type::kNull:
+      // Default to BIGINT for columns which contains only NULLs - if we don't
+      // specify the type, sqlite will default to BLOB, which is going to trip
+      // a number of various checks.
+      return "BIGINT";
+  }
+  PERFETTO_FATAL("Not reached");  // For gcc
+}
 
 // Returns the column names for the table named by |raw_table_name|.
-base::Status GetColumnsForTable(sqlite3* db,
-                                const std::string& raw_table_name,
-                                std::vector<SqliteTable::Column>& columns);
-
-// Reads a `SQLITE_TEXT` value and returns it as a wstring (UTF-16) in the
-// default byte order. `value` must be a `SQLITE_TEXT`.
-std::wstring SqliteValueToWString(sqlite3_value* value);
+base::Status GetColumnsForTable(
+    sqlite3* db,
+    const std::string& raw_table_name,
+    std::vector<std::pair<SqlValue::Type, std::string>>& columns);
 
 // Given an SqlValue::Type, converts it to a human-readable string.
 // This should really only be used for debugging messages.
@@ -191,19 +262,13 @@ base::Status CheckArgCount(const char* function_name,
 
 // Type-safe helpers to extract an arg value from a sqlite3_value*, returning an
 // appropriate message if it fails.
-base::StatusOr<int64_t> ExtractIntArg(const char* function_name,
-                                      const char* arg_name,
-                                      sqlite3_value* value);
-base::StatusOr<double> ExtractDoubleArg(const char* function_name,
-                                        const char* arg_name,
-                                        sqlite3_value* value);
 base::StatusOr<std::string> ExtractStringArg(const char* function_name,
                                              const char* arg_name,
                                              sqlite3_value* value);
 
 // Verifies if |value| has the type represented by |expected_type|.
 // Returns base::OkStatus if it does or an base::ErrStatus with an
-// appropriate error mesage (incorporating |expected_type_str| if specified).
+// appropriate error message (incorporating |expected_type_str| if specified).
 base::Status TypeCheckSqliteValue(sqlite3_value* value,
                                   SqlValue::Type expected_type);
 base::Status TypeCheckSqliteValue(sqlite3_value* value,
@@ -250,7 +315,7 @@ base::Status MissingArgumentError(const char* argument_name);
 
 base::Status ToInvalidArgumentError(const char* argument_name,
                                     size_t arg_index,
-                                    const base::Status error);
+                                    const base::Status& error);
 
 template <typename... args>
 base::StatusOr<SqlValue> ExtractArgument(size_t argc,
@@ -264,8 +329,6 @@ base::StatusOr<SqlValue> ExtractArgument(size_t argc,
       internal::ToExpectedTypesSet(expected_type, expected_type_args...));
 }
 
-}  // namespace sqlite_utils
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor::sqlite::utils
 
 #endif  // SRC_TRACE_PROCESSOR_SQLITE_SQLITE_UTILS_H_

@@ -38,7 +38,7 @@ class CORE_EXPORT PaintWorkletStylePropertyMap
   // TODO(xidachen): consider making the input_property_ids as part of the
   // return value. Or make both CrossThreadData and input_property_ids as
   // params and return a bool.
-  static absl::optional<CrossThreadData> BuildCrossThreadData(
+  static std::optional<CrossThreadData> BuildCrossThreadData(
       const Document&,
       UniqueObjectId unique_object_id,
       const ComputedStyle&,
@@ -54,9 +54,9 @@ class CORE_EXPORT PaintWorkletStylePropertyMap
   PaintWorkletStylePropertyMap& operator=(const PaintWorkletStylePropertyMap&) =
       delete;
 
-  CSSStyleValue* get(const ExecutionContext*,
-                     const String& property_name,
-                     ExceptionState&) const override;
+  V8UnionCSSStyleValueOrUndefined* get(const ExecutionContext*,
+                                       const String& property_name,
+                                       ExceptionState&) const override;
 
   CSSStyleValueVector getAll(const ExecutionContext*,
                              const String& property_name,
@@ -75,8 +75,7 @@ class CORE_EXPORT PaintWorkletStylePropertyMap
   CrossThreadData& StyleMapData() { return data_; }
 
  private:
-  IterationSource* CreateIterationSource(ScriptState*,
-                                         ExceptionState&) override;
+  IterationSource* CreateIterationSource(ScriptState*) override;
 
   CrossThreadData data_;
 };

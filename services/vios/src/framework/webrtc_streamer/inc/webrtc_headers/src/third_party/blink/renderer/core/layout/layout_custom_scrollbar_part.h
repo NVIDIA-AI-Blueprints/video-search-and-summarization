@@ -70,26 +70,20 @@ class CORE_EXPORT LayoutCustomScrollbarPart final : public LayoutReplaced {
   // available.
   int ComputeLength() const;
 
-  // Update the overridden location and size.
-  void SetOverriddenFrameRect(const LayoutRect& rect);
-  // Rerturn the overridden location set by SetOverriddenFrameRect();
-  LayoutPoint Location() const override;
-  // Rerturn the overridden size set by SetOverriddenFrameRect();
-  LayoutSize Size() const override;
+  // Update the overridden size.
+  void SetOverriddenSize(const PhysicalSize& size);
+  // Rerturn the overridden size set by SetOverriddenSize();
+  PhysicalSize StitchedSize() const override;
 
-  LayoutUnit MarginTop() const override;
-  LayoutUnit MarginBottom() const override;
-  LayoutUnit MarginLeft() const override;
-  LayoutUnit MarginRight() const override;
+  PhysicalBoxStrut MarginOutsets() const override;
 
-  bool IsOfType(LayoutObjectType type) const override {
+  bool IsLayoutCustomScrollbarPart() const final {
     NOT_DESTROYED();
-    return type == kLayoutObjectCustomScrollbarPart ||
-           LayoutReplaced::IsOfType(type);
+    return true;
   }
   ScrollableArea* GetScrollableArea() const {
     NOT_DESTROYED();
-    return scrollable_area_;
+    return scrollable_area_.Get();
   }
 
   LayoutCustomScrollbarPart(ScrollableArea*,
@@ -98,61 +92,56 @@ class CORE_EXPORT LayoutCustomScrollbarPart final : public LayoutReplaced {
                             bool suppress_use_counters);
 
  private:
+  bool ShouldBeHandledAsInline(const ComputedStyle&) const override {
+    NOT_DESTROYED();
+    return false;
+  }
+  bool ShouldBeHandledAsFloating(const ComputedStyle&) const override {
+    NOT_DESTROYED();
+    return false;
+  }
   void UpdateFromStyle() override;
-  void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
+  void StyleDidChange(StyleDifference,
+                      const ComputedStyle* old_style,
+                      const StyleChangeContext&) override;
   void ImageChanged(WrappedImagePtr, CanDeferInvalidation) override;
 
-  // A scrollbar part's Location() and PhysicalLocation() are relative to the
-  // scrollbar (instead of relative to any LayoutBox ancestor), and both are
-  // in physical coordinates.
+  // A scrollbar part's PhysicalLocation() is relative to the scrollbar
+  // (instead of relative to any LayoutBox ancestor), so it doesn't have a
+  // meaningful location container as a LayoutBox.
   LayoutBox* LocationContainer() const override {
     NOT_DESTROYED();
     return nullptr;
   }
 
-  // A scrollbar part is not in the layout tree and is not laid out like other
-  // layout objects. CustomScrollbar will call scrollbar parts' SetFrameRect()
-  // from its SetFrameRect() when needed.
-  void UpdateLayout() override {
-    NOT_DESTROYED();
-    NOTREACHED();
-  }
-
-  // Have all padding getters return 0. The important point here is to avoid
+  // Have our padding resolve to zero. The important point here is to avoid
   // resolving percents against the containing block, since scroll bar corners
   // don't always have one (so it would crash). Scroll bar corners are not
   // actually laid out, and they don't have child content, so what we return
   // here doesn't really matter.
-  LayoutUnit PaddingTop() const override {
+  PhysicalBoxStrut PaddingOutsets() const override {
     NOT_DESTROYED();
-    return LayoutUnit();
-  }
-  LayoutUnit PaddingBottom() const override {
-    NOT_DESTROYED();
-    return LayoutUnit();
-  }
-  LayoutUnit PaddingLeft() const override {
-    NOT_DESTROYED();
-    return LayoutUnit();
-  }
-  LayoutUnit PaddingRight() const override {
-    NOT_DESTROYED();
-    return LayoutUnit();
+    return PhysicalBoxStrut();
   }
 
   void SetNeedsPaintInvalidation();
 
   void RecordPercentLengthStats() const;
 
-  int ComputeSize(SizeType size_type,
-                  const Length& length,
-                  int container_size) const;
-  int ComputeWidth(int container_width) const;
-  int ComputeHeight(int container_height) const;
+  PhysicalNaturalSizingInfo GetNaturalDimensions() const override;
+
+  enum class ScrollbarSizeComputeMode { kThickness, kLength };
+  int ComputeSize(const Length& length,
+                  int container_size,
+                  ScrollbarSizeComputeMode compute_mode) const;
+  int ComputeWidth(int container_width,
+                   ScrollbarSizeComputeMode compute_mode) const;
+  int ComputeHeight(int container_height,
+                    ScrollbarSizeComputeMode compute_mode) const;
 
   Member<ScrollableArea> scrollable_area_;
   Member<CustomScrollbar> scrollbar_;
-  LayoutRect overridden_rect_;
+  PhysicalSize overridden_size_;
   ScrollbarPart part_;
   bool suppress_use_counters_ = false;
 };

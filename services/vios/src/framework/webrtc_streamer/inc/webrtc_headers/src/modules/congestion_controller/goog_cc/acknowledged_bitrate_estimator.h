@@ -12,12 +12,13 @@
 #define MODULES_CONGESTION_CONTROLLER_GOOG_CC_ACKNOWLEDGED_BITRATE_ESTIMATOR_H_
 
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/field_trials_view.h"
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
+#include "api/units/timestamp.h"
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator_interface.h"
 #include "modules/congestion_controller/goog_cc/bitrate_estimator.h"
 
@@ -36,13 +37,13 @@ class AcknowledgedBitrateEstimator
 
   void IncomingPacketFeedbackVector(
       const std::vector<PacketResult>& packet_feedback_vector) override;
-  absl::optional<DataRate> bitrate() const override;
-  absl::optional<DataRate> PeekRate() const override;
+  std::optional<DataRate> bitrate() const override;
+  std::optional<DataRate> PeekRate() const override;
   void SetAlr(bool in_alr) override;
   void SetAlrEndedTime(Timestamp alr_ended_time) override;
 
  private:
-  absl::optional<Timestamp> alr_ended_time_;
+  std::optional<Timestamp> alr_ended_time_;
   bool in_alr_;
   std::unique_ptr<BitrateEstimator> bitrate_estimator_;
 };

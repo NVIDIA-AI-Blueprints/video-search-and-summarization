@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_BORDER_EDGE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_BORDER_EDGE_H_
 
+#include <array>
+
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -52,6 +54,8 @@ class BorderEdge {
   EBorderStyle style_;
   int width_;
 };
+
+using BorderEdgeArray = std::array<BorderEdge, 4>;
 
 }  // namespace blink
 

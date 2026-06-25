@@ -5,7 +5,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_PAUSABLE_SCRIPT_EXECUTOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_PAUSABLE_SCRIPT_EXECUTOR_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/public/mojom/script/script_evaluation_params.mojom-blink.h"
 #include "third_party/blink/public/web/web_script_execution_callback.h"
 #include "third_party/blink/public/web/web_script_source.h"
@@ -54,7 +53,7 @@ class CORE_EXPORT PausableScriptExecutor final
    public:
     virtual ~Executor() = default;
 
-    virtual Vector<v8::Local<v8::Value>> Execute(ScriptState*) = 0;
+    virtual v8::LocalVector<v8::Value> Execute(ScriptState*) = 0;
 
     virtual void Trace(Visitor* visitor) const {}
   };
@@ -79,7 +78,7 @@ class CORE_EXPORT PausableScriptExecutor final
   void ExecuteAndDestroySelf();
   void Dispose();
 
-  void HandleResults(const Vector<v8::Local<v8::Value>>& results);
+  void HandleResults(const v8::LocalVector<v8::Value>& results);
 
   Member<ScriptState> script_state_;
   WebScriptExecutionCallback callback_;

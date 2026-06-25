@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,18 +19,18 @@ class RTCEncodedVideoUnderlyingSource;
 class MODULES_EXPORT RtcEncodedVideoSenderSourceOptimizer
     : public ReadableStreamTransferringOptimizer {
  public:
-  using UnderlyingSourceSetter = WTF::CrossThreadFunction<void(
-      RTCEncodedVideoUnderlyingSource*,
-      scoped_refptr<base::SingleThreadTaskRunner>)>;
+  using UnderlyingSourceSetter =
+      CrossThreadFunction<void(RTCEncodedVideoUnderlyingSource*,
+                               scoped_refptr<base::SingleThreadTaskRunner>)>;
   RtcEncodedVideoSenderSourceOptimizer(
       UnderlyingSourceSetter,
-      WTF::CrossThreadOnceClosure disconnect_callback);
+      CrossThreadOnceClosure disconnect_callback);
   UnderlyingSourceBase* PerformInProcessOptimization(
       ScriptState* script_state) override;
 
  private:
   UnderlyingSourceSetter set_underlying_source_;
-  WTF::CrossThreadOnceClosure disconnect_callback_;
+  CrossThreadOnceClosure disconnect_callback_;
 };
 
 }  // namespace blink

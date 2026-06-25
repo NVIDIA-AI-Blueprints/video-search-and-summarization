@@ -14,6 +14,7 @@
 #include <atomic>
 #include <memory>
 
+#include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/pending_task_safety_flag.h"
@@ -33,6 +34,11 @@ class FineAudioBuffer;
 
 namespace ios_adm {
 
+// A callback handler for audio device rendering errors.
+// Note: Called on a realtime thread.
+// Note: Only applies to input rendering errors, not output.
+typedef void (^AudioDeviceIOSRenderErrorHandler)(OSStatus error);
+
 // Implements full duplex 16-bit mono PCM audio support for iOS using a
 // Voice-Processing (VP) I/O audio unit in Core Audio. The VP I/O audio unit
 // supports audio echo cancellation. It also adds automatic gain control,
@@ -50,7 +56,11 @@ class AudioDeviceIOS : public AudioDeviceGeneric,
                        public AudioSessionObserver,
                        public VoiceProcessingAudioUnitObserver {
  public:
-  explicit AudioDeviceIOS(bool bypass_voice_processing);
+  explicit AudioDeviceIOS(
+      const Environment& env,
+      bool bypass_voice_processing,
+      AudioDeviceModule::MutedSpeechEventHandler muted_speech_event_handler,
+      AudioDeviceIOSRenderErrorHandler render_error_handler);
   ~AudioDeviceIOS() override;
 
   void AttachAudioBuffer(AudioDeviceBuffer* audioBuffer) override;
@@ -159,8 +169,12 @@ class AudioDeviceIOS : public AudioDeviceGeneric,
                             UInt32 bus_number,
                             UInt32 num_frames,
                             AudioBufferList* io_data) override;
+  void OnReceivedMutedSpeechActivity(
+      AUVoiceIOSpeechActivityEvent event) override;
 
   bool IsInterrupted();
+
+  std::optional<AudioDeviceModule::Stats> GetStats() const;
 
  private:
   // Called by the relevant AudioSessionObserver methods on `thread_`.
@@ -169,7 +183,7 @@ class AudioDeviceIOS : public AudioDeviceGeneric,
   void HandleValidRouteChange();
   void HandleCanPlayOrRecordChange(bool can_play_or_record);
   void HandleSampleRateChange();
-  void HandlePlayoutGlitchDetected();
+  void HandlePlayoutGlitchDetected(uint64_t glitch_duration_ms);
   void HandleOutputVolumeChange();
 
   // Uses current `playout_parameters_` and `record_parameters_` to inform the
@@ -208,14 +222,26 @@ class AudioDeviceIOS : public AudioDeviceGeneric,
   // Resets thread-checkers before a call is restarted.
   void PrepareForNewStart();
 
+  const Environment env_;
+
   // Determines whether voice processing should be enabled or disabled.
   const bool bypass_voice_processing_;
+
+  // Handle a user speaking during muted event
+  AudioDeviceModule::MutedSpeechEventHandler muted_speech_event_handler_;
+
+  // Handle microphone rendering errors.
+  AudioDeviceIOSRenderErrorHandler render_error_handler_;
+
+  // Copying microphone data (rendering to a buffer) may keep failing. This
+  // field makes sure subsequent errors are not reported.
+  bool disregard_next_render_error_;
 
   // Native I/O audio thread checker.
   SequenceChecker io_thread_checker_;
 
   // Thread that this object is created on.
-  rtc::Thread* thread_;
+  webrtc::Thread* thread_;
 
   // Raw pointer handle provided to us in AttachAudioBuffer(). Owned by the
   // AudioDeviceModuleImpl class and called by AudioDeviceModule::Create().
@@ -258,7 +284,7 @@ class AudioDeviceIOS : public AudioDeviceGeneric,
   // On real iOS devices, the size will be fixed and set once. For iOS
   // simulators, the size can vary from callback to callback and the size
   // will be changed dynamically to account for this behavior.
-  rtc::BufferT<int16_t> record_audio_buffer_;
+  webrtc::BufferT<int16_t> record_audio_buffer_;
 
   // Set to 1 when recording is active and 0 otherwise.
   std::atomic<int> recording_;
@@ -284,7 +310,8 @@ class AudioDeviceIOS : public AudioDeviceGeneric,
   bool has_configured_session_ RTC_GUARDED_BY(thread_);
 
   // Counts number of detected audio glitches on the playout side.
-  int64_t num_detected_playout_glitches_ RTC_GUARDED_BY(thread_);
+  std::atomic<uint64_t> num_detected_playout_glitches_;
+  std::atomic<uint64_t> total_playout_glitches_duration_ms_;
   int64_t last_playout_time_ RTC_GUARDED_BY(io_thread_checker_);
 
   // Counts number of playout callbacks per call.
@@ -297,8 +324,15 @@ class AudioDeviceIOS : public AudioDeviceGeneric,
   int64_t last_output_volume_change_time_ RTC_GUARDED_BY(thread_);
 
   // Avoids running pending task after `this` is Terminated.
-  rtc::scoped_refptr<PendingTaskSafetyFlag> safety_ =
+  webrtc::scoped_refptr<PendingTaskSafetyFlag> safety_ =
       PendingTaskSafetyFlag::Create();
+
+  // Playout stats.
+  std::atomic<uint64_t> total_playout_samples_count_;
+  std::atomic<uint64_t> total_playout_samples_duration_ms_;
+  std::atomic<uint64_t> total_playout_delay_ms_;
+  std::atomic<double> hw_output_latency_;
+  int last_hw_output_latency_update_sample_count_;
 };
 }  // namespace ios_adm
 }  // namespace webrtc

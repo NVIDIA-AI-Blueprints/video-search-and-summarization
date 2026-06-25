@@ -44,6 +44,7 @@ class CORE_EXPORT ApplyStyleCommand final : public CompositeEditCommand {
   enum PropertyLevel { kPropertyDefault, kForceBlockProperties };
   enum InlineStyleRemovalMode { kRemoveIfNeeded, kRemoveAlways, kRemoveNone };
   enum AddStyledElement { kAddStyledElement, kDoNotAddStyledElement };
+  enum MergeSiblings { kMergeSiblings, kDoNotMergeSiblings };
   typedef bool (*IsInlineElementToRemoveFunction)(const Element*);
 
   ApplyStyleCommand(Document&,
@@ -99,6 +100,7 @@ class CORE_EXPORT ApplyStyleCommand final : public CompositeEditCommand {
                       EditingStyle* extracted_style = nullptr);
   HTMLElement* HighestAncestorWithConflictingInlineStyle(EditingStyle*, Node*);
   void ApplyInlineStyleToPushDown(Node*, EditingStyle*, EditingState*);
+  void FilterContainerLevelStyles(EditingStyle*);
   void PushDownInlineStyleAroundNode(EditingStyle*, Node*, EditingState*);
   void RemoveInlineStyle(EditingStyle*,
                          const EphemeralRange& range,
@@ -151,7 +153,8 @@ class CORE_EXPORT ApplyStyleCommand final : public CompositeEditCommand {
   void SurroundNodeRangeWithElement(Node* start,
                                     Node* end,
                                     Element*,
-                                    EditingState*);
+                                    EditingState*,
+                                    MergeSiblings = kMergeSiblings);
   float ComputedFontSize(Node*);
   void JoinChildTextNodes(ContainerNode*,
                           const Position& start,

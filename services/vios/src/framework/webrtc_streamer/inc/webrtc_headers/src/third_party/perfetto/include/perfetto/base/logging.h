@@ -25,8 +25,18 @@
 #include "perfetto/base/export.h"
 
 #if defined(__GNUC__) || defined(__clang__)
+#if defined(__clang__)
+#pragma clang diagnostic push
+// Fix 'error: #pragma system_header ignored in main file' for clang in Google3.
+#pragma clang diagnostic ignored "-Wpragma-system-header-outside-header"
+#endif
+
 // Ignore GCC warning about a missing argument for a variadic macro parameter.
 #pragma GCC system_header
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #endif
 
 #if PERFETTO_BUILDFLAG(PERFETTO_FORCE_DCHECK_ON)
@@ -89,16 +99,16 @@ constexpr const char* StrEnd(const char* s) {
   return *s ? StrEnd(s + 1) : s;
 }
 
-constexpr const char* BasenameRecursive(const char* s,
-                                        const char* begin,
-                                        const char* end) {
+constexpr const char* LoggingBasenameRecursive(const char* s,
+                                               const char* begin,
+                                               const char* end) {
   return (*s == '/' && s < end)
              ? (s + 1)
-             : ((s > begin) ? BasenameRecursive(s - 1, begin, end) : s);
+             : ((s > begin) ? LoggingBasenameRecursive(s - 1, begin, end) : s);
 }
 
-constexpr const char* Basename(const char* str) {
-  return BasenameRecursive(StrEnd(str), str, StrEnd(str));
+constexpr const char* LoggingBasename(const char* str) {
+  return LoggingBasenameRecursive(StrEnd(str), str, StrEnd(str));
 }
 
 enum LogLev { kLogDebug = 0, kLogInfo, kLogImportant, kLogError };
@@ -141,18 +151,19 @@ inline void MaybeSerializeLastLogsForCrashReporting() {}
 #endif
 
 #if defined(PERFETTO_ANDROID_ASYNC_SAFE_LOG)
-#define PERFETTO_XLOG(level, fmt, ...)                                        \
-  do {                                                                        \
-    async_safe_format_log((ANDROID_LOG_DEBUG + level), "perfetto",            \
-                          "%s:%d " fmt, ::perfetto::base::Basename(__FILE__), \
-                          __LINE__, ##__VA_ARGS__);                           \
+#define PERFETTO_XLOG(level, fmt, ...)                                         \
+  do {                                                                         \
+    async_safe_format_log(                                                     \
+        (ANDROID_LOG_DEBUG + level), "perfetto", "%s:%d " fmt,                 \
+        ::perfetto::base::LoggingBasename(__FILE__), __LINE__, ##__VA_ARGS__); \
   } while (0)
 #elif defined(PERFETTO_DISABLE_LOG)
-#define PERFETTO_XLOG(level, fmt, ...) ::perfetto::base::ignore_result(level, \
-                                fmt, ##__VA_ARGS__)
+#define PERFETTO_XLOG(level, fmt, ...) \
+  ::perfetto::base::ignore_result(level, fmt, ##__VA_ARGS__)
 #else
 #define PERFETTO_XLOG(level, fmt, ...)                                      \
-  ::perfetto::base::LogMessage(level, ::perfetto::base::Basename(__FILE__), \
+  ::perfetto::base::LogMessage(level,                                       \
+                               ::perfetto::base::LoggingBasename(__FILE__), \
                                __LINE__, fmt, ##__VA_ARGS__)
 #endif
 

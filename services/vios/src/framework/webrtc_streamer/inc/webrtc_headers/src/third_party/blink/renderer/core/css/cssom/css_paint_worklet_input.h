@@ -22,7 +22,7 @@ namespace blink {
 // until the cc-Raster phase (and even then run the JavaScript on a separate
 // worklet thread).
 //
-// TODO: WTF::Strings are now thread-safe. Consider refactoring this code.
+// TODO: blink::Strings are now thread-safe. Consider refactoring this code.
 class CORE_EXPORT CSSPaintWorkletInput : public PaintWorkletInput {
  public:
   CSSPaintWorkletInput(
@@ -52,6 +52,8 @@ class CORE_EXPORT CSSPaintWorkletInput : public PaintWorkletInput {
   PaintWorkletInputType GetType() const override {
     return PaintWorkletInputType::kCSS;
   }
+
+  bool NeedsLayer() const override { return true; }
 
  private:
   const String name_;

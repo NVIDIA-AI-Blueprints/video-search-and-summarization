@@ -20,6 +20,7 @@
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "modules/desktop_capture/desktop_geometry.h"
 #include "modules/desktop_capture/mac/desktop_configuration.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
@@ -29,14 +30,14 @@ namespace webrtc {
 // failed. Menus, dock (if `only_zero_layer`), minimized windows (if
 // `ignore_minimized` is true) and any windows which do not have a valid window
 // id or title will be ignored.
-bool GetWindowList(rtc::FunctionView<bool(CFDictionaryRef)> on_window,
-                   bool ignore_minimized,
-                   bool only_zero_layer);
+bool RTC_EXPORT GetWindowList(FunctionView<bool(CFDictionaryRef)> on_window,
+                              bool ignore_minimized,
+                              bool only_zero_layer);
 
 // Another helper function to get the on-screen windows.
-bool GetWindowList(DesktopCapturer::SourceList* windows,
-                   bool ignore_minimized,
-                   bool only_zero_layer);
+bool RTC_EXPORT GetWindowList(DesktopCapturer::SourceList* windows,
+                              bool ignore_minimized,
+                              bool only_zero_layer);
 
 // Returns true if the window is occupying a full screen.
 bool IsWindowFullScreen(const MacDesktopConfiguration& desktop_config,
@@ -80,7 +81,7 @@ int GetWindowOwnerPid(CFDictionaryRef window);
 
 // Returns the pid of the process owning the window `id`. Return 0 if `id`
 // cannot be found or no valid owner can be retrieved.
-int GetWindowOwnerPid(CGWindowID id);
+int RTC_EXPORT GetWindowOwnerPid(CGWindowID id);
 
 // Returns the DIP to physical pixel scale at `position`. `position` is in
 // *unscaled* system coordinate, i.e. it's device-independent and the primary

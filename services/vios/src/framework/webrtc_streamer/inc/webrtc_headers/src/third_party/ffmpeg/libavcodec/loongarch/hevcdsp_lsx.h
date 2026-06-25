@@ -23,7 +23,7 @@
 #ifndef AVCODEC_LOONGARCH_HEVCDSP_LSX_H
 #define AVCODEC_LOONGARCH_HEVCDSP_LSX_H
 
-#include "libavcodec/hevcdsp.h"
+#include "libavcodec/hevc/dsp.h"
 
 #define MC(PEL, DIR, WIDTH)                                               \
 void ff_hevc_put_hevc_##PEL##_##DIR##WIDTH##_8_lsx(int16_t *dst,          \
@@ -126,15 +126,21 @@ BI_MC(qpel, hv, 32);
 BI_MC(qpel, hv, 48);
 BI_MC(qpel, hv, 64);
 
+BI_MC(epel, h, 4);
+BI_MC(epel, h, 6);
+BI_MC(epel, h, 8);
+BI_MC(epel, h, 12);
+BI_MC(epel, h, 16);
 BI_MC(epel, h, 24);
 BI_MC(epel, h, 32);
+BI_MC(epel, h, 48);
+BI_MC(epel, h, 64);
 
 BI_MC(epel, v, 12);
 BI_MC(epel, v, 16);
 BI_MC(epel, v, 24);
 BI_MC(epel, v, 32);
 
-BI_MC(epel, hv, 6);
 BI_MC(epel, hv, 8);
 BI_MC(epel, hv, 16);
 BI_MC(epel, hv, 24);
@@ -151,7 +157,14 @@ void ff_hevc_put_hevc_uni_##PEL##_##DIR##WIDTH##_8_lsx(uint8_t *dst,         \
                                                        intptr_t mx,          \
                                                        intptr_t my,          \
                                                        int width)
-
+UNI_MC(qpel, h, 4);
+UNI_MC(qpel, h, 6);
+UNI_MC(qpel, h, 8);
+UNI_MC(qpel, h, 12);
+UNI_MC(qpel, h, 16);
+UNI_MC(qpel, h, 24);
+UNI_MC(qpel, h, 32);
+UNI_MC(qpel, h, 48);
 UNI_MC(qpel, h, 64);
 
 UNI_MC(qpel, v, 24);
@@ -226,5 +239,87 @@ void ff_hevc_idct_4x4_lsx(int16_t *coeffs, int col_limit);
 void ff_hevc_idct_8x8_lsx(int16_t *coeffs, int col_limit);
 void ff_hevc_idct_16x16_lsx(int16_t *coeffs, int col_limit);
 void ff_hevc_idct_32x32_lsx(int16_t *coeffs, int col_limit);
+
+void ff_hevc_add_residual4x4_8_lsx(uint8_t *dst, const int16_t *res, ptrdiff_t stride);
+void ff_hevc_add_residual8x8_8_lsx(uint8_t *dst, const int16_t *res, ptrdiff_t stride);
+void ff_hevc_add_residual16x16_8_lsx(uint8_t *dst, const int16_t *res, ptrdiff_t stride);
+void ff_hevc_add_residual32x32_8_lsx(uint8_t *dst, const int16_t *res, ptrdiff_t stride);
+
+#define PEL_UNI_W(PEL, DIR, WIDTH)                                      \
+void ff_hevc_put_hevc_##PEL##_uni_w_##DIR##WIDTH##_8_lsx(uint8_t *dst,  \
+                                                         ptrdiff_t      \
+                                                         dst_stride,    \
+                                                         const uint8_t *src,  \
+                                                         ptrdiff_t      \
+                                                         src_stride,    \
+                                                         int height,    \
+                                                         int denom,     \
+                                                         int wx,        \
+                                                         int ox,        \
+                                                         intptr_t mx,   \
+                                                         intptr_t my,   \
+                                                         int width)
+
+PEL_UNI_W(pel, pixels, 4);
+PEL_UNI_W(pel, pixels, 6);
+PEL_UNI_W(pel, pixels, 8);
+PEL_UNI_W(pel, pixels, 12);
+PEL_UNI_W(pel, pixels, 16);
+PEL_UNI_W(pel, pixels, 24);
+PEL_UNI_W(pel, pixels, 32);
+PEL_UNI_W(pel, pixels, 48);
+PEL_UNI_W(pel, pixels, 64);
+
+PEL_UNI_W(qpel, v, 4);
+PEL_UNI_W(qpel, v, 6);
+PEL_UNI_W(qpel, v, 8);
+PEL_UNI_W(qpel, v, 12);
+PEL_UNI_W(qpel, v, 16);
+PEL_UNI_W(qpel, v, 24);
+PEL_UNI_W(qpel, v, 32);
+PEL_UNI_W(qpel, v, 48);
+PEL_UNI_W(qpel, v, 64);
+
+PEL_UNI_W(qpel, h, 4);
+PEL_UNI_W(qpel, h, 6);
+PEL_UNI_W(qpel, h, 8);
+PEL_UNI_W(qpel, h, 12);
+PEL_UNI_W(qpel, h, 16);
+PEL_UNI_W(qpel, h, 24);
+PEL_UNI_W(qpel, h, 32);
+PEL_UNI_W(qpel, h, 48);
+PEL_UNI_W(qpel, h, 64);
+
+PEL_UNI_W(epel, hv, 4);
+PEL_UNI_W(epel, hv, 6);
+PEL_UNI_W(epel, hv, 8);
+PEL_UNI_W(epel, hv, 12);
+PEL_UNI_W(epel, hv, 16);
+PEL_UNI_W(epel, hv, 24);
+PEL_UNI_W(epel, hv, 32);
+PEL_UNI_W(epel, hv, 48);
+PEL_UNI_W(epel, hv, 64);
+
+PEL_UNI_W(epel, h, 4);
+PEL_UNI_W(epel, h, 6);
+PEL_UNI_W(epel, h, 8);
+PEL_UNI_W(epel, h, 12);
+PEL_UNI_W(epel, h, 16);
+PEL_UNI_W(epel, h, 24);
+PEL_UNI_W(epel, h, 32);
+PEL_UNI_W(epel, h, 48);
+PEL_UNI_W(epel, h, 64);
+
+PEL_UNI_W(epel, v, 4);
+PEL_UNI_W(epel, v, 6);
+PEL_UNI_W(epel, v, 8);
+PEL_UNI_W(epel, v, 12);
+PEL_UNI_W(epel, v, 16);
+PEL_UNI_W(epel, v, 24);
+PEL_UNI_W(epel, v, 32);
+PEL_UNI_W(epel, v, 48);
+PEL_UNI_W(epel, v, 64);
+
+#undef PEL_UNI_W
 
 #endif  // #ifndef AVCODEC_LOONGARCH_HEVCDSP_LSX_H

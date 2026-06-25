@@ -40,7 +40,7 @@ struct WorkerDevToolsParams;
 class CORE_EXPORT DevToolsAgent : public GarbageCollected<DevToolsAgent>,
                                   public mojom::blink::DevToolsAgent {
  public:
-  class Client {
+  class Client : public GarbageCollectedMixin {
    public:
     virtual ~Client() = default;
     virtual void AttachSession(DevToolsSession*, bool restore) = 0;
@@ -48,6 +48,7 @@ class CORE_EXPORT DevToolsAgent : public GarbageCollected<DevToolsAgent>,
     virtual void InspectElement(const gfx::Point&) = 0;
     virtual void DebuggerTaskStarted() = 0;
     virtual void DebuggerTaskFinished() = 0;
+    virtual bool IsPausedForNewWindow() { return false; }
   };
 
   static std::unique_ptr<WorkerDevToolsParams> WorkerThreadCreated(
@@ -55,7 +56,7 @@ class CORE_EXPORT DevToolsAgent : public GarbageCollected<DevToolsAgent>,
       WorkerThread*,
       const KURL&,
       const String& global_scope_name,
-      const absl::optional<const DedicatedWorkerToken>& token);
+      const std::optional<const DedicatedWorkerToken>& token);
   static void WorkerThreadTerminated(ExecutionContext* parent_context,
                                      WorkerThread*);
 
@@ -68,6 +69,9 @@ class CORE_EXPORT DevToolsAgent : public GarbageCollected<DevToolsAgent>,
 
   void Dispose();
   void FlushProtocolNotifications();
+  void DebuggerPaused();
+  void DebuggerResumed();
+  void BringDevToolsWindowToFocus();
   // For workers, we use the IO thread similar to DevToolsSession::IOSession to
   // ensure that we can always interrupt a worker that is stuck in JS. We don't
   // use an associated channel for workers, meaning we don't have the ordering
@@ -95,16 +99,15 @@ class CORE_EXPORT DevToolsAgent : public GarbageCollected<DevToolsAgent>,
           main_session,
       mojo::PendingReceiver<mojom::blink::DevToolsSession> io_session,
       mojom::blink::DevToolsSessionStatePtr reattach_session_state,
+      const String& script_to_evaluate_on_load,
       bool client_expects_binary_responses,
       bool client_is_trusted,
-      const WTF::String& session_id,
+      const String& session_id,
       bool session_waits_for_debugger) override;
   void InspectElement(const gfx::Point& point) override;
   void ReportChildTargets(bool report,
                           bool wait_for_debugger,
                           base::OnceClosure callback) override;
-  void GetUniqueFormControlId(int nodeId,
-                              GetUniqueFormControlIdCallback callback) override;
 
   void ReportChildTargetsPostCallbackToIO(bool report,
                                           bool wait_for_debugger,
@@ -129,15 +132,17 @@ class CORE_EXPORT DevToolsAgent : public GarbageCollected<DevToolsAgent>,
           main_session,
       mojo::PendingReceiver<mojom::blink::DevToolsSession> io_session,
       mojom::blink::DevToolsSessionStatePtr reattach_session_state,
+      const String& script_to_evaluate_on_load,
       bool client_expects_binary_responses,
       bool client_is_trusted,
-      const WTF::String& session_id,
+      const String& session_id,
       bool session_waits_for_debugger);
+  void DetachDevToolsSession(DevToolsSession* session);
   void InspectElementImpl(const gfx::Point& point);
   void ReportChildTargetsImpl(bool report,
                               bool wait_for_debugger,
                               base::OnceClosure callback);
-  Client* client_;
+  Member<Client> const client_;
   // DevToolsAgent is not tied to ExecutionContext
   HeapMojoAssociatedReceiver<mojom::blink::DevToolsAgent, DevToolsAgent>
       associated_receiver_{this, nullptr};

@@ -14,19 +14,18 @@ namespace blink {
 class LocalDOMWindow;
 
 // Interface exposing additional per-screen information.
-// https://w3c.github.io/window-placement/
+// https://w3c.github.io/window-management/
 class MODULES_EXPORT ScreenDetailed final : public Screen {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  ScreenDetailed(LocalDOMWindow* window,
-                 int64_t display_id,
-                 bool label_is_internal,
-                 uint32_t label_idx);
+  ScreenDetailed(LocalDOMWindow* window, int64_t display_id);
 
   static bool AreWebExposedScreenDetailedPropertiesEqual(
       const display::ScreenInfo& prev,
       const display::ScreenInfo& current);
+  static bool AreHdrHeadroomEqual(const display::ScreenInfo& prev,
+                                  const display::ScreenInfo& current);
 
   // Web-exposed interface (additional per-screen information):
   int left() const;
@@ -35,6 +34,10 @@ class MODULES_EXPORT ScreenDetailed final : public Screen {
   bool isInternal() const;
   float devicePixelRatio() const;
   String label() const;
+  float hdrHeadroom() const;
+
+  // Fired when the hdrHeadroom attribute changes.
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(hdrheadroomchange, kHdrheadroomchange)
 
   // Attributes exposed for HDR canvas.
   // https://github.com/w3c/ColorWeb-CG/blob/main/hdr_html_canvas_element.md
@@ -47,13 +50,6 @@ class MODULES_EXPORT ScreenDetailed final : public Screen {
   float bluePrimaryY() const;
   float whitePointX() const;
   float whitePointY() const;
-
-  uint32_t label_idx() const { return label_idx_; }
-  bool label_is_internal() const { return label_is_internal_; }
-
- private:
-  uint32_t label_idx_;
-  bool label_is_internal_;
 };
 
 }  // namespace blink

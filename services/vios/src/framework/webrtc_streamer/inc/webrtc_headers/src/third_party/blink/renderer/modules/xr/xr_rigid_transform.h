@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -38,9 +39,9 @@ class MODULES_EXPORT XRRigidTransform : public ScriptWrappable {
 
   ~XRRigidTransform() override = default;
 
-  DOMPointReadOnly* position() const { return position_; }
-  DOMPointReadOnly* orientation() const { return orientation_; }
-  DOMFloat32Array* matrix();
+  DOMPointReadOnly* position() const { return position_.Get(); }
+  DOMPointReadOnly* orientation() const { return orientation_.Get(); }
+  NotShared<DOMFloat32Array> matrix();
   XRRigidTransform* inverse();
 
   gfx::Transform InverseTransformMatrix();
@@ -56,7 +57,7 @@ class MODULES_EXPORT XRRigidTransform : public ScriptWrappable {
   Member<DOMPointReadOnly> position_;
   Member<DOMPointReadOnly> orientation_;
   Member<XRRigidTransform> inverse_;
-  Member<DOMFloat32Array> matrix_array_;
+  NotShared<DOMFloat32Array> matrix_array_;
   std::unique_ptr<gfx::Transform> matrix_;
 };
 

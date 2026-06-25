@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PAINT_FLOAT_CLIP_RECT_H_
 
 #include "third_party/blink/renderer/platform/geometry/float_rounded_rect.h"
-#include "third_party/blink/renderer/platform/geometry/layout_rect.h"
+#include "third_party/blink/renderer/platform/geometry/infinite_int_rect.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/transform.h"
@@ -18,7 +18,7 @@ class PLATFORM_EXPORT FloatClipRect {
 
  public:
   FloatClipRect()
-      : rect_(LayoutRect::InfiniteIntRect()),
+      : rect_(InfiniteIntRect()),
         has_radius_(false),
         is_tight_(true),
         is_infinite_(true) {}
@@ -126,10 +126,6 @@ inline bool operator==(const FloatClipRect& a, const FloatClipRect& b) {
     return true;
   return !a.IsInfinite() && !b.IsInfinite() && a.HasRadius() == b.HasRadius() &&
          a.Rect() == b.Rect();
-}
-
-inline bool operator!=(const FloatClipRect& a, const FloatClipRect& b) {
-  return !(a == b);
 }
 
 // The difference between FloatClipRect() (infinite by default) and

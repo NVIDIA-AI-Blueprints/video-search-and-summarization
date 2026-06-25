@@ -9,15 +9,14 @@
  */
 #ifndef NET_DCSCTP_PACKET_PARAMETER_STATE_COOKIE_PARAMETER_H_
 #define NET_DCSCTP_PACKET_PARAMETER_STATE_COOKIE_PARAMETER_H_
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "net/dcsctp/packet/parameter/parameter.h"
 #include "net/dcsctp/packet/tlv_trait.h"
 
@@ -35,16 +34,16 @@ class StateCookieParameter : public Parameter,
  public:
   static constexpr int kType = StateCookieParameterConfig::kType;
 
-  explicit StateCookieParameter(rtc::ArrayView<const uint8_t> data)
+  explicit StateCookieParameter(std::span<const uint8_t> data)
       : data_(data.begin(), data.end()) {}
 
-  static absl::optional<StateCookieParameter> Parse(
-      rtc::ArrayView<const uint8_t> data);
+  static std::optional<StateCookieParameter> Parse(
+      std::span<const uint8_t> data);
 
   void SerializeTo(std::vector<uint8_t>& out) const override;
   std::string ToString() const override;
 
-  rtc::ArrayView<const uint8_t> data() const { return data_; }
+  std::span<const uint8_t> data() const { return data_; }
 
  private:
   std::vector<uint8_t> data_;

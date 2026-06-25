@@ -9,13 +9,13 @@
 
 #include "base/check_op.h"
 #include "base/dcheck_is_on.h"
+#include "cc/trees/property_tree.h"
 #include "cc/trees/sticky_position_constraint.h"
 #include "third_party/blink/renderer/platform/graphics/compositing_reasons.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_element_id.h"
 #include "third_party/blink/renderer/platform/graphics/paint/geometry_mapper_clip_cache.h"
 #include "third_party/blink/renderer/platform/graphics/paint/geometry_mapper_transform_cache.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_property_node.h"
-#include "third_party/blink/renderer/platform/graphics/paint/scroll_paint_property_node.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "ui/gfx/geometry/point3_f.h"
@@ -23,6 +23,7 @@
 
 namespace blink {
 
+class ScrollPaintPropertyNode;
 using CompositorStickyConstraint = cc::StickyPositionConstraint;
 
 // A transform (e.g., created by css "transform" or "perspective", or for
@@ -36,8 +37,8 @@ using CompositorStickyConstraint = cc::StickyPositionConstraint;
 class TransformPaintPropertyNode;
 
 class PLATFORM_EXPORT TransformPaintPropertyNodeOrAlias
-    : public PaintPropertyNode<TransformPaintPropertyNodeOrAlias,
-                               TransformPaintPropertyNode> {
+    : public PaintPropertyNodeBase<TransformPaintPropertyNodeOrAlias,
+                                   TransformPaintPropertyNode> {
  public:
   // If |relative_to_node| is an ancestor of |this|, returns true if any node is
   // marked changed, at least significance of |change|, along the path from
@@ -46,38 +47,45 @@ class PLATFORM_EXPORT TransformPaintPropertyNodeOrAlias
   bool Changed(PaintPropertyChangeType change,
                const TransformPaintPropertyNodeOrAlias& relative_to_node) const;
 
-  void AddChanged(PaintPropertyChangeType changed) {
+  void AddChanged(PaintPropertyChangeType changed) final {
     DCHECK_NE(PaintPropertyChangeType::kUnchanged, changed);
     GeometryMapperTransformCache::ClearCache();
     GeometryMapperClipCache::ClearCache();
     PaintPropertyNode::AddChanged(changed);
   }
 
+  // See PaintPropertyNode::ChangedSequenceNumber().
+  void ClearChangedToRoot(int sequence_number) const;
+
  protected:
-  using PaintPropertyNode::PaintPropertyNode;
+  using PaintPropertyNodeBase::PaintPropertyNodeBase;
 };
 
-class TransformPaintPropertyNodeAlias
+class TransformPaintPropertyNodeAlias final
     : public TransformPaintPropertyNodeOrAlias {
  public:
-  static scoped_refptr<TransformPaintPropertyNodeAlias> Create(
+  static TransformPaintPropertyNodeAlias* Create(
       const TransformPaintPropertyNodeOrAlias& parent) {
-    return base::AdoptRef(new TransformPaintPropertyNodeAlias(parent));
+    return MakeGarbageCollected<TransformPaintPropertyNodeAlias>(kParentAlias,
+                                                                 parent);
   }
 
- private:
-  explicit TransformPaintPropertyNodeAlias(
+  // This is public required by MakeGarbageCollected, but the protected tag
+  // prevents this from being called from outside.
+  TransformPaintPropertyNodeAlias(
+      ParentAliasTag,
       const TransformPaintPropertyNodeOrAlias& parent)
-      : TransformPaintPropertyNodeOrAlias(parent, kParentAlias) {}
+      : TransformPaintPropertyNodeOrAlias(kParentAlias, parent) {}
 };
 
-class PLATFORM_EXPORT TransformPaintPropertyNode
+class PLATFORM_EXPORT TransformPaintPropertyNode final
     : public TransformPaintPropertyNodeOrAlias {
  public:
   enum class BackfaceVisibility : unsigned char {
     // backface-visibility is not inherited per the css spec. However, for an
-    // element that don't create a new plane, for now we let the element
-    // inherit the parent backface-visibility.
+    // element that don't create a new plane, we let the element inherit the
+    // parent backface-visibility and use the parent's transform to determine
+    // whether the backface is facing forward.
     kInherited,
     // backface-visibility: hidden for the new plane.
     kHidden,
@@ -99,32 +107,26 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   // To make it less verbose and more readable to construct and update a node,
   // a struct with default values is used to represent the state.
   struct PLATFORM_EXPORT State {
+    DISALLOW_NEW();
+
+   public:
     TransformAndOrigin transform_and_origin;
-    scoped_refptr<const ScrollPaintPropertyNode> scroll;
-    scoped_refptr<const TransformPaintPropertyNode>
-        scroll_translation_for_fixed;
+    Member<const ScrollPaintPropertyNode> scroll;
+    Member<const TransformPaintPropertyNode> scroll_translation_for_fixed;
 
-    // Use bitfield packing instead of separate bools to save space.
-    struct Flags {
-      DISALLOW_NEW();
-
-     public:
-      bool flattens_inherited_transform : 1;
-      bool in_subtree_of_page_scale : 1;
-      bool animation_is_axis_aligned : 1;
-      bool delegates_to_parent_for_backface : 1;
-      // Set if a frame is rooted at this node.
-      bool is_frame_paint_offset_translation : 1;
-      bool is_for_svg_child : 1;
-    } flags = {false, true, false, false, false, false};
+    bool flattens_inherited_transform : 1 = false;
+    bool in_subtree_of_page_scale : 1 = true;
+    bool animation_is_axis_aligned : 1 = false;
+    // Set if a frame is rooted at this node.
+    bool is_frame_paint_offset_translation : 1 = false;
+    bool is_for_svg_child : 1 = false;
 
     BackfaceVisibility backface_visibility = BackfaceVisibility::kInherited;
     unsigned rendering_context_id = 0;
     CompositingReasons direct_compositing_reasons = CompositingReason::kNone;
     CompositorElementId compositor_element_id;
     std::unique_ptr<CompositorStickyConstraint> sticky_constraint;
-    std::unique_ptr<cc::AnchorScrollContainersData>
-        anchor_scroll_containers_data;
+    std::unique_ptr<cc::AnchorPositionScrollData> anchor_position_scroll_data;
     // If a visible frame is rooted at this node, this represents the element
     // ID of the containing document.
     CompositorElementId visible_frame_element_id;
@@ -143,17 +145,25 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
       return direct_compositing_reasons &
              CompositingReason::kRequiresCullRectExpansion;
     }
+
+    void Trace(Visitor*) const;
   };
 
   // This node is really a sentinel, and does not represent a real transform
   // space.
   static const TransformPaintPropertyNode& Root();
 
-  static scoped_refptr<TransformPaintPropertyNode> Create(
+  static TransformPaintPropertyNode* Create(
       const TransformPaintPropertyNodeOrAlias& parent,
       State&& state) {
-    return base::AdoptRef(
-        new TransformPaintPropertyNode(&parent, std::move(state)));
+    return MakeGarbageCollected<TransformPaintPropertyNode>(
+        kNonParentAlias, parent, std::move(state));
+  }
+
+  void Trace(Visitor* visitor) const final {
+    TransformPaintPropertyNodeOrAlias::Trace(visitor);
+    visitor->Trace(state_);
+    visitor->Trace(transform_cache_);
   }
 
   const TransformPaintPropertyNode& Unalias() const = delete;
@@ -204,11 +214,11 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
 
   // The associated scroll node, or nullptr otherwise.
   const ScrollPaintPropertyNode* ScrollNode() const {
-    return state_.scroll.get();
+    return state_.scroll.Get();
   }
 
   const TransformPaintPropertyNode* ScrollTranslationForFixed() const {
-    return state_.scroll_translation_for_fixed.get();
+    return state_.scroll_translation_for_fixed.Get();
   }
 
   // If true, this node is translated by the viewport bounds delta, which is
@@ -219,18 +229,23 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
            CompositingReason::kAffectedByOuterViewportBoundsDelta;
   }
 
+  bool IsAffectedBySafeAreaBottom() const {
+    return DirectCompositingReasons() &
+           CompositingReason::kAffectedBySafeAreaBottom;
+  }
+
   // If true, this node is a descendant of the page scale transform. This is
   // important for avoiding raster during pinch-zoom (see: crbug.com/951861).
   bool IsInSubtreeOfPageScale() const {
-    return state_.flags.in_subtree_of_page_scale;
+    return state_.in_subtree_of_page_scale;
   }
 
   const CompositorStickyConstraint* GetStickyConstraint() const {
     return state_.sticky_constraint.get();
   }
 
-  const cc::AnchorScrollContainersData* GetAnchorScrollContainersData() const {
-    return state_.anchor_scroll_containers_data.get();
+  const cc::AnchorPositionScrollData* GetAnchorPositionScrollData() const {
+    return state_.anchor_position_scroll_data.get();
   }
 
   // If this is a scroll offset translation (i.e., has an associated scroll
@@ -238,6 +253,25 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   // scrolls with respect to.
   const TransformPaintPropertyNode& NearestScrollTranslationNode() const {
     return GetTransformCache().nearest_scroll_translation();
+  }
+  // Similar to the above, but excludes this node.
+  const TransformPaintPropertyNode* ParentScrollTranslationNode() const {
+    const auto* parent = UnaliasedParent();
+    return parent ? &parent->NearestScrollTranslationNode() : nullptr;
+  }
+
+  // The root of the 2d translation subtree containing this node.
+  const TransformPaintPropertyNode* RootOf2dTranslation() const {
+    return GetTransformCache().root_of_2d_translation();
+  }
+
+  // This is different from NearestScrollTranslationNode in that for a
+  // fixed-position paint offset translation, this returns
+  // ScrollTranslationForFixed() instead of the ancestor scroll translation
+  // because a scroll gesture on a fixed-position element should scroll the
+  // containing view.
+  const TransformPaintPropertyNode& ScrollTranslationState() const {
+    return GetTransformCache().scroll_translation_state();
   }
 
   // Returns the nearest ancestor node (including |this|) that has direct
@@ -250,7 +284,7 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   // the plane of its parent. This is implemented by flattening the total
   // accumulated transform from its ancestors.
   bool FlattensInheritedTransform() const {
-    return state_.flags.flattens_inherited_transform;
+    return state_.flattens_inherited_transform;
   }
 
   // Returns the local BackfaceVisibility value set on this node. To be used
@@ -282,8 +316,8 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   bool FlattensInheritedTransformSameAsParent() const {
     if (IsRoot())
       return true;
-    return state_.flags.flattens_inherited_transform ==
-           Parent()->Unalias().state_.flags.flattens_inherited_transform;
+    return state_.flattens_inherited_transform ==
+           Parent()->Unalias().state_.flattens_inherited_transform;
   }
 
   bool HasDirectCompositingReasons() const {
@@ -308,6 +342,13 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   bool RequiresCompositingForFixedPosition() const {
     return DirectCompositingReasons() & CompositingReason::kFixedPosition;
   }
+  bool RequiresCompositingForFixedPositionOnly() const {
+    return RequiresCompositingForFixedPosition() &&
+           (DirectCompositingReasons() &
+            ~CompositingReason::kFixedPositionReasons) ==
+               CompositingReason::kNone;
+  }
+  bool CanMergeForFixedPosition(const TransformPaintPropertyNode& other) const;
 
   bool RequiresCompositingForFixedToViewport() const {
     return DirectCompositingReasons() & CompositingReason::kUndoOverscroll;
@@ -316,9 +357,13 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   bool RequiresCompositingForStickyPosition() const {
     return DirectCompositingReasons() & CompositingReason::kStickyPosition;
   }
+  bool RequiresCompositingForStickyPositionOnly() const {
+    return DirectCompositingReasons() == CompositingReason::kStickyPosition;
+  }
+  bool CanMergeForStickyPosition(const TransformPaintPropertyNode& other) const;
 
-  bool RequiresCompositingForAnchorScroll() const {
-    return DirectCompositingReasons() & CompositingReason::kAnchorScroll;
+  bool RequiresCompositingForAnchorPosition() const {
+    return DirectCompositingReasons() & CompositingReason::kAnchorPosition;
   }
 
   CompositingReasons DirectCompositingReasonsForDebugging() const {
@@ -326,7 +371,7 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   }
 
   bool TransformAnimationIsAxisAligned() const {
-    return state_.flags.animation_is_axis_aligned;
+    return state_.animation_is_axis_aligned;
   }
 
   bool RequiresCompositingForRootScroller() const {
@@ -356,11 +401,11 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   }
 
   bool IsFramePaintOffsetTranslation() const {
-    return state_.flags.is_frame_paint_offset_translation;
+    return state_.is_frame_paint_offset_translation;
   }
 
   bool DelegatesToParentForBackface() const {
-    return state_.flags.delegates_to_parent_for_backface;
+    return state_.backface_visibility == BackfaceVisibility::kInherited;
   }
 
   // Content whose transform nodes have a common rendering context ID are 3D
@@ -368,20 +413,22 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   unsigned RenderingContextId() const { return state_.rendering_context_id; }
   bool HasRenderingContext() const { return state_.rendering_context_id; }
 
-  bool IsForSVGChild() const { return state_.flags.is_for_svg_child; }
+  bool IsForSVGChild() const { return state_.is_for_svg_child; }
 
-  std::unique_ptr<JSONObject> ToJSON() const;
+  std::unique_ptr<JSONObject> ToJSON() const final;
 
- private:
-  friend class PaintPropertyNode<TransformPaintPropertyNodeOrAlias,
-                                 TransformPaintPropertyNode>;
-
-  TransformPaintPropertyNode(const TransformPaintPropertyNodeOrAlias* parent,
+  // These are public required by MakeGarbageCollected, but the protected tags
+  // prevent these from being called from outside.
+  explicit TransformPaintPropertyNode(RootTag);
+  TransformPaintPropertyNode(NonParentAliasTag,
+                             const TransformPaintPropertyNodeOrAlias& parent,
                              State&& state)
-      : TransformPaintPropertyNodeOrAlias(parent), state_(std::move(state)) {
+      : TransformPaintPropertyNodeOrAlias(kNonParentAlias, parent),
+        state_(std::move(state)) {
     Validate();
   }
 
+ private:
   CompositingReasons DirectCompositingReasons() const {
     return state_.direct_compositing_reasons;
   }
@@ -412,8 +459,9 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   friend class PaintPropertyTreeBuilderTest;
 
   const GeometryMapperTransformCache& GetTransformCache() const {
-    if (!transform_cache_)
-      transform_cache_ = std::make_unique<GeometryMapperTransformCache>();
+    if (!transform_cache_) {
+      transform_cache_ = MakeGarbageCollected<GeometryMapperTransformCache>();
+    }
     transform_cache_->UpdateIfNeeded(*this);
     return *transform_cache_;
   }
@@ -423,7 +471,7 @@ class PLATFORM_EXPORT TransformPaintPropertyNode
   }
 
   State state_;
-  mutable std::unique_ptr<GeometryMapperTransformCache> transform_cache_;
+  mutable Member<GeometryMapperTransformCache> transform_cache_;
 };
 
 }  // namespace blink

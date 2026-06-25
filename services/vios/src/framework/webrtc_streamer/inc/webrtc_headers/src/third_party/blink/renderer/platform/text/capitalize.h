@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_CAPITALIZE_H_
 
 #include <unicode/utypes.h>
+
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 

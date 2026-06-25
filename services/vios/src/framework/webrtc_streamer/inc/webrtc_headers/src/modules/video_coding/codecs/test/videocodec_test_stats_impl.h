@@ -14,10 +14,12 @@
 #include <stddef.h>
 
 #include <map>
-#include <string>
+#include <optional>
 #include <vector>
 
 #include "api/test/videocodec_test_stats.h"  // NOLINT(build/include)
+#include "api/units/data_rate.h"
+#include "api/units/frequency.h"
 
 namespace webrtc {
 namespace test {
@@ -75,8 +77,8 @@ class VideoCodecTestStatsImpl : public VideoCodecTestStats {
       size_t spatial_idx,
       size_t temporal_idx,
       bool aggregate_independent_layers,
-      absl::optional<DataRate> target_bitrate,
-      absl::optional<Frequency> target_framerate);
+      std::optional<DataRate> target_bitrate,
+      std::optional<Frequency> target_framerate);
 
   void GetNumberOfEncodedLayers(size_t first_frame_num,
                                 size_t last_frame_num,

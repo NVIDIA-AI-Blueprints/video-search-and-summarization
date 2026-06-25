@@ -15,6 +15,10 @@ class CORE_EXPORT HTMLDataElement final : public HTMLElement {
 
  public:
   HTMLDataElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLDataElement;
+  }
 };
 
 }  // namespace blink

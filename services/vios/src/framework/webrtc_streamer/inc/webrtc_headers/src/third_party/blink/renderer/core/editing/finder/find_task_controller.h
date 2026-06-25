@@ -21,7 +21,6 @@ const int kInvalidFindIdentifier = -1;
 class LocalFrame;
 class Range;
 class TextFinder;
-class WebString;
 class WebLocalFrameImpl;
 
 class CORE_EXPORT FindTaskController final
@@ -32,7 +31,7 @@ class CORE_EXPORT FindTaskController final
   // Starts an effort of finding |search_text| in |owner_frame|,
   // which will be done asynchronously with idle tasks.
   void StartRequest(int identifier,
-                    const WebString& search_text,
+                    const String& search_text,
                     const mojom::blink::FindOptions& options);
 
   // Cancels the current effort, canceling the idle task request
@@ -61,7 +60,7 @@ class CORE_EXPORT FindTaskController final
   // One run of idle task finishes, so we need to update our state and
   // notify |text_finder_| accordingly. Also schedules next task if needed.
   void DidFinishTask(int identifier,
-                     const WebString& search_text,
+                     const String& search_text,
                      const mojom::blink::FindOptions& options,
                      bool finished_whole_request,
                      PositionInFlatTree next_starting_position,
@@ -69,7 +68,9 @@ class CORE_EXPORT FindTaskController final
                      bool aborted,
                      base::TimeTicks task_start_time);
 
-  Range* ResumeFindingFromRange() const { return resume_finding_from_range_; }
+  Range* ResumeFindingFromRange() const {
+    return resume_finding_from_range_.Get();
+  }
   int CurrentMatchCount() const { return current_match_count_; }
 
   // When invoked this will search for a given text and notify us
@@ -81,15 +82,11 @@ class CORE_EXPORT FindTaskController final
 
   void ResetLastFindRequestCompletedWithNoMatches();
 
-  void InvokeFind(int identifier,
-                  const WebString& search_text_,
-                  mojom::blink::FindOptionsPtr options_);
-
   int GetMatchYieldCheckInterval() const;
 
  private:
   void RequestFindTask(int identifier,
-                       const WebString& search_text,
+                       const String& search_text,
                        const mojom::blink::FindOptions& options);
 
   enum class RequestEndState {
@@ -131,18 +128,11 @@ class CORE_EXPORT FindTaskController final
   // that have the same identifier as this.
   int current_find_identifier_ = kInvalidFindIdentifier;
 
-  // The start time of the current find-in-page request.
-  base::TimeTicks current_request_start_time_;
-  // The combined duration of all the tasks done for the current request.
-  base::TimeDelta total_task_duration_for_current_request_;
-  // The number of find-in-page tasks the current request has made.
-  int task_count_for_current_request_;
-
   // Keeps track of the last string this frame searched for. This is used for
   // short-circuiting searches in the following scenarios: When a frame has
   // been searched and returned 0 results, we don't need to search that frame
   // again if the user is just adding to the search (making it more specific).
-  WTF::String last_search_string_;
+  String last_search_string_;
 
   int match_yield_check_interval_;
 };

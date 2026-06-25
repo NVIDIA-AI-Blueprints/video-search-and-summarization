@@ -33,6 +33,7 @@
 
 #include "third_party/blink/renderer/core/svg/properties/svg_listable_property.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
+#include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "ui/gfx/geometry/point_f.h"
 
 namespace blink {
@@ -47,7 +48,6 @@ class SVGPoint final : public SVGListablePropertyBase {
   explicit SVGPoint(const gfx::PointF&);
 
   SVGPoint* Clone() const;
-  SVGPropertyBase* CloneForAnimation(const String&) const override;
 
   const gfx::PointF& Value() const { return value_; }
   void SetValue(const gfx::PointF& value) { value_ = value; }
@@ -59,7 +59,7 @@ class SVGPoint final : public SVGListablePropertyBase {
 
   String ValueAsString() const override;
 
-  void Add(const SVGPropertyBase*, const SVGElement*) override;
+  bool Add(const SVGPropertyBase*, const SVGElement*) override;
   void CalculateAnimatedValue(
       const SMILAnimationEffectParameters&,
       float percentage,

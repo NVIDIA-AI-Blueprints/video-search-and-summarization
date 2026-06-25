@@ -33,8 +33,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_INPUT_TYPE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_INPUT_TYPE_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+#include <utility>
+
+#include "third_party/blink/public/mojom/forms/form_control_type.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
 #include "third_party/blink/renderer/core/html/forms/color_chooser_client.h"
 #include "third_party/blink/renderer/core/html/forms/step_range.h"
@@ -54,40 +58,46 @@ class InputTypeView;
 // other than HTMLInputElement.
 class CORE_EXPORT InputType : public GarbageCollected<InputType> {
  public:
-  enum class Type : uint8_t {
-    kButton,
-    kColor,
-    kFile,
-    kHidden,
-    kImage,
-    kNumber,
-    kRange,
-    kReset,
-    kSubmit,
+  // The type attribute of HTMLInputElement is an enumerated attribute:
+  // https://html.spec.whatwg.org/multipage/input.html#attr-input-type
+  // These values are a subset of the `FormControlType` enum. They have the same
+  // binary representation so that FormControlType() reduces to a type cast.
+  enum class Type : std::underlying_type_t<mojom::blink::FormControlType> {
+    kButton = std::to_underlying(mojom::blink::FormControlType::kInputButton),
+    kColor = std::to_underlying(mojom::blink::FormControlType::kInputColor),
+    kFile = std::to_underlying(mojom::blink::FormControlType::kInputFile),
+    kHidden = std::to_underlying(mojom::blink::FormControlType::kInputHidden),
+    kImage = std::to_underlying(mojom::blink::FormControlType::kInputImage),
+    kNumber = std::to_underlying(mojom::blink::FormControlType::kInputNumber),
+    kRange = std::to_underlying(mojom::blink::FormControlType::kInputRange),
+    kReset = std::to_underlying(mojom::blink::FormControlType::kInputReset),
+    kSubmit = std::to_underlying(mojom::blink::FormControlType::kInputSubmit),
 
     // BaseCheckable
-    kRadio,
-    kCheckbox,
+    kRadio = std::to_underlying(mojom::blink::FormControlType::kInputRadio),
+    kCheckbox =
+        std::to_underlying(mojom::blink::FormControlType::kInputCheckbox),
 
     // BaseTemporal
-    kDate,
-    kFirstBaseTemporalType = kDate,
-    kDateTimeLocal,
-    kMonth,
-    kTime,
-    kWeek,
-    kLastBaseTemporalType = kWeek,
+    kDate = std::to_underlying(mojom::blink::FormControlType::kInputDate),
+    kDateTimeLocal =
+        std::to_underlying(mojom::blink::FormControlType::kInputDatetimeLocal),
+    kMonth = std::to_underlying(mojom::blink::FormControlType::kInputMonth),
+    kTime = std::to_underlying(mojom::blink::FormControlType::kInputTime),
+    kWeek = std::to_underlying(mojom::blink::FormControlType::kInputWeek),
 
     // BaseText
-    kEmail,
-    kFirstBaseTextType = kEmail,
-    kPassword,
-    kSearch,
-    kTelephone,
-    kURL,
-    kText,
-    kLastBaseTextType = kText
+    kEmail = std::to_underlying(mojom::blink::FormControlType::kInputEmail),
+    kPassword =
+        std::to_underlying(mojom::blink::FormControlType::kInputPassword),
+    kSearch = std::to_underlying(mojom::blink::FormControlType::kInputSearch),
+    kTelephone =
+        std::to_underlying(mojom::blink::FormControlType::kInputTelephone),
+    kURL = std::to_underlying(mojom::blink::FormControlType::kInputUrl),
+    kText = std::to_underlying(mojom::blink::FormControlType::kInputText),
   };
+
+  static const AtomicString& TypeToString(Type);
 
   static InputType* Create(HTMLInputElement&, const AtomicString&);
   static const AtomicString& NormalizeTypeName(const AtomicString&);
@@ -97,21 +107,26 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
   virtual void Trace(Visitor*) const;
 
   virtual InputTypeView* CreateView() = 0;
-  virtual const AtomicString& FormControlType() const = 0;
 
-  // Type query functions
+  Type type() const { return type_; }
 
-  // Any time we are using one of these functions it's best to refactor
-  // to add a virtual function to allow the input type object to do the
-  // work instead, or at least make a query function that asks a higher
-  // level question. These functions make the HTMLInputElement class
-  // inflexible because it's harder to add new input types if there is
-  // scattered code with special cases for various types.
+  const AtomicString& FormControlTypeAsString() const;
+  mojom::blink::FormControlType FormControlType() const {
+    return static_cast<mojom::blink::FormControlType>(
+        std::to_underlying(type_));
+  }
 
   virtual bool IsInteractiveContent() const;
-  virtual bool IsTextButton() const;
-  virtual bool IsTextField() const;
+  virtual bool IsAutoDirectionalityFormAssociated() const;
 
+  bool IsButton() const {
+    return type_ == Type::kButton || type_ == Type::kImage ||
+           type_ == Type::kReset || type_ == Type::kSubmit;
+  }
+  bool IsTextButton() const {
+    return type_ == Type::kButton || type_ == Type::kReset ||
+           type_ == Type::kSubmit;
+  }
   bool IsButtonInputType() const { return type_ == Type::kButton; }
   bool IsColorInputType() const { return type_ == Type::kColor; }
   bool IsFileInputType() const { return type_ == Type::kFile; }
@@ -134,8 +149,9 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
   bool IsTimeInputType() const { return type_ == Type::kTime; }
   bool IsWeekInputType() const { return type_ == Type::kWeek; }
   bool IsBaseTemporalInputType() const {
-    return type_ >= Type::kFirstBaseTemporalType &&
-           type_ <= Type::kLastBaseTemporalType;
+    return type_ == Type::kDate || type_ == Type::kDateTimeLocal ||
+           type_ == Type::kMonth || type_ == Type::kTime ||
+           type_ == Type::kWeek;
   }
   bool IsEmailInputType() const { return type_ == Type::kEmail; }
   bool IsPasswordInputType() const { return type_ == Type::kPassword; }
@@ -144,8 +160,9 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
   bool IsTextInputType() const { return type_ == Type::kText; }
   bool IsURLInputType() const { return type_ == Type::kURL; }
   bool IsBaseTextInputType() const {
-    return type_ >= Type::kFirstBaseTextType &&
-           type_ <= Type::kLastBaseTextType;
+    return type_ == Type::kEmail || type_ == Type::kPassword ||
+           type_ == Type::kSearch || type_ == Type::kTelephone ||
+           type_ == Type::kURL || type_ == Type::kText;
   }
   bool IsTextFieldInputType() const {
     return IsBaseTextInputType() || IsNumberInputType();
@@ -173,15 +190,13 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
   virtual ValueMode GetValueMode() const = 0;
 
   virtual double ValueAsDate() const;
-  virtual void SetValueAsDate(const absl::optional<base::Time>&,
+  virtual void SetValueAsDate(const std::optional<base::Time>&,
                               ExceptionState&) const;
   virtual double ValueAsDouble() const;
   virtual void SetValueAsDouble(double,
                                 TextFieldEventBehavior,
                                 ExceptionState&) const;
-  virtual void SetValueAsDecimal(const Decimal&,
-                                 TextFieldEventBehavior,
-                                 ExceptionState&) const;
+  virtual void SetValueAsDecimal(const Decimal&, TextFieldEventBehavior) const;
 
   // Functions related to 'checked'
 
@@ -233,6 +248,7 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
   bool CanSetStringValue() const;
   virtual String LocalizeValue(const String&) const;
   virtual String VisibleValue() const;
+  virtual String ConvertFromVisibleValue(const String&) const;
   // Returing the null string means "use the default value."
   // This function must be called only by HTMLInputElement::sanitizeValue().
   virtual String SanitizeValue(const String&) const;
@@ -240,7 +256,9 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
   virtual void WarnIfValueIsInvalid(const String&) const;
   void WarnIfValueIsInvalidAndElementIsVisible(const String&) const;
 
-  virtual bool IsKeyboardFocusable() const;
+  virtual bool IsKeyboardFocusableSlow(
+      Element::UpdateBehavior update_behavior =
+          Element::UpdateBehavior::kStyleAndLayout) const;
   virtual bool MayTriggerVirtualKeyboard() const;
   virtual bool CanBeSuccessfulSubmitButton();
   virtual bool MatchesDefaultPseudoClass();
@@ -249,6 +267,7 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
 
   virtual bool LayoutObjectIsNeeded();
   virtual void CountUsage();
+  virtual void DidRecalcStyle(const StyleRecalcChange);
   virtual void SanitizeValueInResponseToMinOrMaxAttributeChange();
   virtual bool ShouldRespectAlignAttribute();
   virtual FileList* Files();
@@ -282,9 +301,9 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
   virtual String DefaultToolTip(const InputTypeView&) const;
   virtual Decimal FindClosestTickMarkValue(const Decimal&);
   virtual bool HasLegalLinkAttribute(const QualifiedName&) const;
-  virtual const QualifiedName& SubResourceAttributeName() const;
   virtual void CopyNonAttributeProperties(const HTMLInputElement&);
   virtual void OnAttachWithLayoutObject();
+  virtual bool SupportsBaseAppearance(Element::BaseAppearanceValue value) const;
 
   // Parses the specified string for the type, and return
   // the Decimal value for the parsing result if the parsing
@@ -342,7 +361,8 @@ class CORE_EXPORT InputType : public GarbageCollected<InputType> {
  private:
   // Helper for stepUp()/stepDown(). Adds step value * count to the current
   // value.
-  void ApplyStep(const Decimal&,
+  void ApplyStep(const Decimal& current,
+                 const bool current_was_invalid,
                  double count,
                  AnyStepHandling,
                  TextFieldEventBehavior,

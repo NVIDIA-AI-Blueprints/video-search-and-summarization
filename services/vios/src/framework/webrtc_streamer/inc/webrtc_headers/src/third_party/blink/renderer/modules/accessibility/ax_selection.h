@@ -7,14 +7,14 @@
 
 #include <stdint.h>
 
+#include <optional>
 #include <ostream>
 
 #include "base/dcheck_is_on.h"
-#include "base/logging.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/html/forms/text_control_element.h"
+#include "third_party/blink/renderer/modules/accessibility/ax_object_cache_impl.h"
 #include "third_party/blink/renderer/modules/accessibility/ax_position.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -41,22 +41,28 @@ class MODULES_EXPORT AXSelection final {
 
   static void ClearCurrentSelection(Document&);
 
+  // These constructors will use the default AXObjectCache for the
+  // document unless a different one is passed in.
   static AXSelection FromCurrentSelection(
       const Document&,
+      const AXObjectCacheImpl& ax_object_cache,
       const AXSelectionBehavior = AXSelectionBehavior::kExtendToValidRange);
 
-  static AXSelection FromCurrentSelection(const TextControlElement&);
+  static AXSelection FromCurrentSelection(
+      const TextControlElement&,
+      const AXObjectCacheImpl& ax_object_cache);
 
   static AXSelection FromSelection(
       const SelectionInDOMTree&,
+      const AXObjectCacheImpl& ax_object_cache,
       const AXSelectionBehavior = AXSelectionBehavior::kExtendToValidRange);
 
   AXSelection(const AXSelection&) = default;
   AXSelection& operator=(const AXSelection&) = default;
   ~AXSelection() = default;
 
-  const AXPosition Base() const { return base_; }
-  const AXPosition Extent() const { return extent_; }
+  const AXPosition Anchor() const { return anchor_; }
+  const AXPosition Focus() const { return focus_; }
 
   // The selection is invalid if either the anchor or the focus position is
   // invalid, or if the positions are in two separate documents.
@@ -102,13 +108,13 @@ class MODULES_EXPORT AXSelection final {
   // Determines whether this selection is targeted to the contents of a text
   // field, and returns the start and end text offsets, as well as its
   // direction. |start| should always be less than equal to |end|.
-  absl::optional<TextControlSelection> AsTextControlSelection() const;
+  std::optional<TextControlSelection> AsTextControlSelection() const;
 
   // The |AXPosition| where the selection starts.
-  AXPosition base_;
+  AXPosition anchor_;
 
   // The |AXPosition| where the selection ends.
-  AXPosition extent_;
+  AXPosition focus_;
 
 #if DCHECK_IS_ON()
   // TODO(accessibility): Use layout tree version in place of DOM and style
@@ -124,21 +130,22 @@ class MODULES_EXPORT AXSelection::Builder final {
   STACK_ALLOCATED();
 
  public:
-  Builder() = default;
+  Builder(const AXObjectCacheImpl& ax_object_cache)
+      : ax_object_cache_(ax_object_cache) {}
   ~Builder() = default;
-  Builder& SetBase(const AXPosition&);
-  Builder& SetBase(const Position&);
-  Builder& SetExtent(const AXPosition&);
-  Builder& SetExtent(const Position&);
+  Builder& SetAnchor(const AXPosition&);
+  Builder& SetAnchor(const Position&);
+  Builder& SetFocus(const AXPosition&);
+  Builder& SetFocus(const Position&);
   Builder& SetSelection(const SelectionInDOMTree&);
   const AXSelection Build();
 
  private:
   AXSelection selection_;
+  const AXObjectCacheImpl& ax_object_cache_;
 };
 
 MODULES_EXPORT bool operator==(const AXSelection&, const AXSelection&);
-MODULES_EXPORT bool operator!=(const AXSelection&, const AXSelection&);
 MODULES_EXPORT std::ostream& operator<<(std::ostream&, const AXSelection&);
 
 }  // namespace blink

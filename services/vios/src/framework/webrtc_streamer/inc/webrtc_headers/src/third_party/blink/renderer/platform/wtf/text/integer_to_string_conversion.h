@@ -22,66 +22,84 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_INTEGER_TO_STRING_CONVERSION_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_INTEGER_TO_STRING_CONVERSION_H_
 
+#include <array>
 #include <limits>
 #include <type_traits>
 
 #include "base/check_op.h"
+#include "base/containers/span.h"
 #include "base/numerics/safe_conversions.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_uchar.h"
 
-namespace WTF {
+namespace blink {
 
 // TODO(esprehn): See if we can generalize IntToStringT in
 // base/strings/string_number_conversions.cc, and use unsigned type expansion
 // optimization here instead of base::CheckedNumeric::UnsignedAbs().
-template <typename IntegerType>
+template <typename IntegerType, int base = 10, bool is_uppercase = false>
 class IntegerToStringConverter {
   USING_FAST_MALLOC(IntegerToStringConverter);
 
  public:
   static_assert(std::is_integral<IntegerType>::value,
                 "IntegerType must be a type of integer.");
+  static_assert(base == 10 || base == 16, "Unsupported base");
 
   explicit IntegerToStringConverter(IntegerType input) {
-    LChar* end = buffer_ + kBufferSize;
-    begin_ = end;
+    UnsignedIntegerType value;
+    bool is_negative = false;
 
-    // We need to switch to the unsigned type when negating the value since
-    // abs(INT_MIN) == INT_MAX + 1.
-    bool is_negative = base::IsValueNegative(input);
-    UnsignedIntegerType value = is_negative ? 0u - static_cast<UnsignedIntegerType>(input) : input;
-
-    do {
-      --begin_;
-      DCHECK_GE(begin_, buffer_);
-      *begin_ = static_cast<LChar>((value % 10) + '0');
-      value /= 10;
-    } while (value);
-
-    if (is_negative) {
-      --begin_;
-      DCHECK_GE(begin_, buffer_);
-      *begin_ = static_cast<LChar>('-');
+    if constexpr (base == 16) {
+      value = static_cast<UnsignedIntegerType>(input);
+    } else {
+      // We need to switch to the unsigned type when negating the value since
+      // abs(INT_MIN) == INT_MAX + 1.
+      is_negative = base::IsValueNegative(input);
+      value =
+          is_negative ? 0u - static_cast<UnsignedIntegerType>(input) : input;
     }
 
-    length_ = static_cast<unsigned>(end - begin_);
+    size_t pos = buffer_.size();
+    auto digits = is_uppercase ? base::span_from_cstring("0123456789ABCDEF")
+                               : base::span_from_cstring("0123456789abcdef");
+
+    do {
+      --pos;
+      if constexpr (base == 10) {
+        buffer_[pos] = static_cast<LChar>((value % 10) + '0');
+      } else {
+        buffer_[pos] = static_cast<LChar>(digits[value % base]);
+      }
+      value /= base;
+    } while (value);
+
+    if constexpr (base == 10) {
+      if (is_negative) {
+        --pos;
+        buffer_[pos] = static_cast<LChar>('-');
+      }
+    }
+
+    length_ = static_cast<unsigned>(buffer_.size() - pos);
   }
 
-  const LChar* Characters8() const { return begin_; }
-  unsigned length() const { return length_; }
+  base::span<const LChar> Span() const {
+    return base::span(buffer_).last(length_);
+  }
 
  private:
   using UnsignedIntegerType = typename std::make_unsigned<IntegerType>::type;
-  static const size_t kBufferSize = 3 * sizeof(UnsignedIntegerType) +
-                                    std::numeric_limits<IntegerType>::is_signed;
+  static const size_t kBufferSize =
+      (base == 16 ? sizeof(UnsignedIntegerType) * 2
+                  : 3 * sizeof(UnsignedIntegerType) +
+                        std::numeric_limits<IntegerType>::is_signed);
 
-  LChar buffer_[kBufferSize];
-  LChar* begin_;
+  std::array<LChar, kBufferSize> buffer_;
   unsigned length_;
 };
 
-}  // namespace WTF
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_INTEGER_TO_STRING_CONVERSION_H_

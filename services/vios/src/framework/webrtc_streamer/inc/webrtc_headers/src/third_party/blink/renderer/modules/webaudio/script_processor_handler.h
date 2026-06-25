@@ -19,6 +19,7 @@
 
 namespace base {
 class SingleThreadTaskRunner;
+class WaitableEvent;
 }
 
 namespace blink {
@@ -26,11 +27,8 @@ namespace blink {
 class AudioBuffer;
 class BaseAudioContext;
 class SharedAudioBuffer;
-class WaitableEvent;
 
-class ScriptProcessorHandler final
-    : public AudioHandler,
-      public base::SupportsWeakPtr<ScriptProcessorHandler> {
+class ScriptProcessorHandler final : public AudioHandler {
  public:
   static scoped_refptr<ScriptProcessorHandler> Create(
       AudioNode&,
@@ -40,20 +38,20 @@ class ScriptProcessorHandler final
       uint32_t number_of_output_channels,
       const HeapVector<Member<AudioBuffer>>& input_buffers,
       const HeapVector<Member<AudioBuffer>>& output_buffers);
+  ScriptProcessorHandler(const ScriptProcessorHandler&) = delete;
+  ScriptProcessorHandler& operator=(const ScriptProcessorHandler&) = delete;
   ~ScriptProcessorHandler() override;
 
   // AudioHandler
   void Process(uint32_t frames_to_process) override;
   void Initialize() override;
 
-  uint32_t BufferSize() const { return buffer_size_; }
-
   void SetChannelCount(uint32_t, ExceptionState&) override;
-  void SetChannelCountMode(const String&, ExceptionState&) override;
+  void SetChannelCountMode(V8ChannelCountMode::Enum, ExceptionState&) override;
 
-  uint32_t NumberOfOutputChannels() const override {
-    return number_of_output_channels_;
-  }
+  uint32_t NumberOfOutputChannels() const { return number_of_output_channels_; }
+
+  uint32_t BufferSize() const { return buffer_size_; }
 
   base::Lock& GetBufferLock() LOCK_RETURNED(buffer_lock_) {
     return buffer_lock_;
@@ -67,9 +65,10 @@ class ScriptProcessorHandler final
                          uint32_t number_of_output_channels,
                          const HeapVector<Member<AudioBuffer>>& input_buffers,
                          const HeapVector<Member<AudioBuffer>>& output_buffers);
+
   double TailTime() const override;
   double LatencyTime() const override;
-  bool RequiresTailProcessing() const final;
+  bool RequiresTailProcessing() const override;
 
   void FireProcessEvent(uint32_t);
   void FireProcessEventForOfflineAudioContext(uint32_t, base::WaitableEvent*);
@@ -80,9 +79,9 @@ class ScriptProcessorHandler final
   uint32_t double_buffer_index_ = 0;
 
   mutable base::Lock buffer_lock_;
-  WTF::Vector<std::unique_ptr<SharedAudioBuffer>> shared_input_buffers_
+  Vector<std::unique_ptr<SharedAudioBuffer>> shared_input_buffers_
       GUARDED_BY(buffer_lock_);
-  WTF::Vector<std::unique_ptr<SharedAudioBuffer>> shared_output_buffers_
+  Vector<std::unique_ptr<SharedAudioBuffer>> shared_output_buffers_
       GUARDED_BY(buffer_lock_);
 
   uint32_t buffer_size_;
@@ -93,6 +92,8 @@ class ScriptProcessorHandler final
   scoped_refptr<AudioBus> internal_input_bus_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  base::WeakPtrFactory<ScriptProcessorHandler> weak_ptr_factory_{this};
 
   FRIEND_TEST_ALL_PREFIXES(ScriptProcessorNodeTest, BufferLifetime);
 };

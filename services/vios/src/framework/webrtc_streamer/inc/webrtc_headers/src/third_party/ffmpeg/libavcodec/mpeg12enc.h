@@ -22,14 +22,16 @@
 #ifndef AVCODEC_MPEG12ENC_H
 #define AVCODEC_MPEG12ENC_H
 
-#include <stdint.h>
+#include "mpegvideoenc.h"
 
-#include "mpegvideo.h"
+void ff_mpeg1_encode_slice_header(MPVEncContext *s);
 
-void ff_mpeg1_encode_picture_header(MpegEncContext *s);
-void ff_mpeg1_encode_mb(MpegEncContext *s, int16_t block[8][64],
-                        int motion_x, int motion_y);
-void ff_mpeg1_encode_init(MpegEncContext *s);
-void ff_mpeg1_encode_slice_header(MpegEncContext *s);
+static inline void ff_mpeg1_clean_buffers(MPVEncContext *s)
+{
+    s->last_dc[0] = 128 << s->c.intra_dc_precision;
+    s->last_dc[1] = s->last_dc[0];
+    s->last_dc[2] = s->last_dc[0];
+    memset(s->c.last_mv, 0, sizeof(s->c.last_mv));
+}
 
 #endif /* AVCODEC_MPEG12ENC_H */

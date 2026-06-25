@@ -11,8 +11,11 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_MOCK_MOCK_RENDER_DELAY_CONTROLLER_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_MOCK_MOCK_RENDER_DELAY_CONTROLLER_H_
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include <cstddef>
+#include <optional>
+
+#include "modules/audio_processing/aec3/block.h"
+#include "modules/audio_processing/aec3/delay_estimate.h"
 #include "modules/audio_processing/aec3/downsampled_render_buffer.h"
 #include "modules/audio_processing/aec3/render_delay_controller.h"
 #include "test/gmock.h"
@@ -23,11 +26,11 @@ namespace test {
 class MockRenderDelayController : public RenderDelayController {
  public:
   MockRenderDelayController();
-  virtual ~MockRenderDelayController();
+  ~MockRenderDelayController() override;
 
   MOCK_METHOD(void, Reset, (bool reset_delay_statistics), (override));
   MOCK_METHOD(void, LogRenderCall, (), (override));
-  MOCK_METHOD(absl::optional<DelayEstimate>,
+  MOCK_METHOD(std::optional<DelayEstimate>,
               GetDelay,
               (const DownsampledRenderBuffer& render_buffer,
                size_t render_delay_buffer_delay,

@@ -148,9 +148,6 @@ typedef enum {
   // a 64X64 SB.
   VAR_BASED_PARTITION,
 
-  // Use non-fixed partitions based on source variance.
-  SOURCE_VAR_BASED_PARTITION,
-
   // Make partition decisions with machine learning models.
   ML_BASED_PARTITION
 } PARTITION_SEARCH_TYPE;
@@ -306,7 +303,7 @@ typedef struct SPEED_FEATURES {
   // Turned off when (row_mt_bit_exact == 1 && adaptive_rd_thresh_row_mt == 0).
   int adaptive_rd_thresh;
 
-  // Flag to use adaptive_rd_thresh when row-mt it enabled, only for non-rd
+  // Flag to use adaptive_rd_thresh when row-mt is enabled, only for non-rd
   // pickmode.
   int adaptive_rd_thresh_row_mt;
 
@@ -364,7 +361,7 @@ typedef struct SPEED_FEATURES {
 
   PARTITION_SEARCH_TYPE partition_search_type;
 
-  // Used if partition_search_type = FIXED_SIZE_PARTITION
+  // Used if partition_search_type = FIXED_PARTITION
   BLOCK_SIZE always_this_block_size;
 
   // Skip rectangular partition test when partition type none gives better
@@ -516,10 +513,6 @@ typedef struct SPEED_FEATURES {
   // used in inter frames.
   // TODO(aconverse): Fold this into one of the other many mode skips
   BLOCK_SIZE max_intra_bsize;
-
-  // The frequency that we check if SOURCE_VAR_BASED_PARTITION or
-  // FIXED_PARTITION search type should be used.
-  int search_type_check_frequency;
 
   // When partition is pre-set, the inter prediction result from pick_inter_mode
   // can be reused in final block encoding process. It is enabled only for real-

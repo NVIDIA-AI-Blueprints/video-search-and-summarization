@@ -35,6 +35,10 @@ class CORE_EXPORT HTMLHeadElement final : public HTMLElement {
  public:
   explicit HTMLHeadElement(Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLHeadElement;
+  }
+
   bool HasNonInBodyInsertionMode() const override { return true; }
 };
 

@@ -10,7 +10,6 @@
 #include "base/synchronization/lock.h"
 #include "base/thread_annotations.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
 namespace blink {
 
@@ -29,6 +28,8 @@ class PLATFORM_EXPORT BackForwardCacheBufferLimitTracker {
       LOCKS_EXCLUDED(lock_);
 
   bool IsUnderPerProcessBufferLimit() LOCKS_EXCLUDED(lock_);
+
+  size_t total_bytes_buffered_for_testing() LOCKS_EXCLUDED(lock_);
 
   BackForwardCacheBufferLimitTracker(BackForwardCacheBufferLimitTracker&) =
       delete;

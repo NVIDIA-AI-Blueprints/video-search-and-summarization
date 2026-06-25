@@ -30,6 +30,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_AUDIO_REVERB_CONVOLVER_STAGE_H_
 
 #include <memory>
+
+#include "base/containers/span.h"
+#include "base/memory/raw_ptr.h"
 #include "third_party/blink/renderer/platform/audio/audio_array.h"
 #include "third_party/blink/renderer/platform/audio/fft_frame.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -45,15 +48,14 @@ class DirectConvolver;
 // sub-section of a large impulse response.  It incorporates a delay line to
 // account for the offset of the sub-section within the larger impulse
 // response.
-class ReverbConvolverStage {
+class ReverbConvolverStage final {
   USING_FAST_MALLOC(ReverbConvolverStage);
 
  public:
   // renderPhase is useful to know so that we can manipulate the pre versus post
   // delay so that stages will perform their heavy work (FFT processing) on
   // different slices to balance the load in a real-time thread.
-  ReverbConvolverStage(const float* impulse_response,
-                       size_t response_length,
+  ReverbConvolverStage(base::span<const float> impulse_response,
                        size_t reverb_total_latency,
                        size_t stage_offset,
                        unsigned stage_length,
@@ -66,9 +68,9 @@ class ReverbConvolverStage {
   ReverbConvolverStage(const ReverbConvolverStage&) = delete;
   ReverbConvolverStage& operator=(const ReverbConvolverStage&) = delete;
 
-  // WARNING: framesToProcess must be such that it evenly divides the delay
+  // WARNING: `source.size()` must be such that it evenly divides the delay
   // buffer size (stage_offset).
-  void Process(const float* source, uint32_t frames_to_process);
+  void Process(base::span<const float> source);
 
   void ProcessInBackground(ReverbConvolver* convolver,
                            uint32_t frames_to_process);
@@ -84,7 +86,7 @@ class ReverbConvolverStage {
 
   AudioFloatArray pre_delay_buffer_;
 
-  ReverbAccumulationBuffer* accumulation_buffer_;
+  raw_ptr<ReverbAccumulationBuffer> accumulation_buffer_;
   uint32_t accumulation_read_index_;
   size_t input_read_index_;
 

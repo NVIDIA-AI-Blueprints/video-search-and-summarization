@@ -13,7 +13,7 @@
 #import <UIKit/UIKit.h>
 #endif
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -35,7 +35,8 @@ RTC_OBJC_EXPORT
 @protocol RTC_OBJC_TYPE
 (RTCVideoViewDelegate)
 
-    - (void)videoView : (id<RTC_OBJC_TYPE(RTCVideoRenderer)>)videoView didChangeVideoSize
+    - (void)videoView
+    : (id<RTC_OBJC_TYPE(RTCVideoRenderer)>)videoView didChangeVideoSize
     : (CGSize)size;
 
 @end

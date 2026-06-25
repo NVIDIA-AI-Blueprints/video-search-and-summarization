@@ -19,17 +19,16 @@ class CORE_EXPORT LocationReportBody : public ReportBody {
  private:
   struct ReportLocation {
     String file;
-    absl::optional<uint32_t> line_number;
-    absl::optional<uint32_t> column_number;
+    std::optional<uint32_t> line_number;
+    std::optional<uint32_t> column_number;
   };
 
   static ReportLocation CreateReportLocation(
       const String& file,
-      absl::optional<uint32_t> line_number,
-      absl::optional<uint32_t> column_number);
+      std::optional<uint32_t> line_number,
+      std::optional<uint32_t> column_number);
 
-  static ReportLocation CreateReportLocation(
-      std::unique_ptr<SourceLocation> location);
+  static ReportLocation CreateReportLocation(SourceLocation* location);
 
   explicit LocationReportBody(const ReportLocation& location)
       : source_file_(location.file),
@@ -37,13 +36,13 @@ class CORE_EXPORT LocationReportBody : public ReportBody {
         column_number_(location.column_number) {}
 
  protected:
-  explicit LocationReportBody(std::unique_ptr<SourceLocation> location)
-      : LocationReportBody(CreateReportLocation(std::move(location))) {}
+  explicit LocationReportBody(SourceLocation* location)
+      : LocationReportBody(CreateReportLocation(location)) {}
 
   explicit LocationReportBody(
       const String& source_file = g_empty_string,
-      absl::optional<uint32_t> line_number = absl::nullopt,
-      absl::optional<uint32_t> column_number = absl::nullopt)
+      std::optional<uint32_t> line_number = std::nullopt,
+      std::optional<uint32_t> column_number = std::nullopt)
       : LocationReportBody(
             CreateReportLocation(source_file, line_number, column_number)) {}
 
@@ -52,17 +51,19 @@ class CORE_EXPORT LocationReportBody : public ReportBody {
 
   const String& sourceFile() const { return source_file_; }
 
-  absl::optional<uint32_t> lineNumber() const { return line_number_; }
-  absl::optional<uint32_t> columnNumber() const { return column_number_; }
+  std::optional<uint32_t> lineNumber() const { return line_number_; }
+  std::optional<uint32_t> columnNumber() const { return column_number_; }
 
   void BuildJSONValue(V8ObjectBuilder& builder) const override;
 
   unsigned MatchId() const override;
 
+  bool IsExtensionSource() const override;
+
  protected:
   const String source_file_;
-  const absl::optional<uint32_t> line_number_;
-  const absl::optional<uint32_t> column_number_;
+  const std::optional<uint32_t> line_number_;
+  const std::optional<uint32_t> column_number_;
 };
 
 }  // namespace blink

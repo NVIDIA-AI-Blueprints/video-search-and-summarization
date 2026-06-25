@@ -34,6 +34,7 @@ namespace blink {
 class ExceptionState;
 class LayoutText;
 class WhitespaceAttacher;
+struct TextDiffRange;
 
 class CORE_EXPORT Text : public CharacterData {
   DEFINE_WRAPPERTYPEINFO();
@@ -70,8 +71,7 @@ class CORE_EXPORT Text : public CharacterData {
   bool TextLayoutObjectIsNeeded(const AttachContext&,
                                 const ComputedStyle&) const;
   LayoutText* CreateTextLayoutObject();
-  void UpdateTextLayoutObject(unsigned offset_of_replaced_data,
-                              unsigned length_of_replaced_data);
+  void UpdateTextLayoutObject(const TextDiffRange&);
 
   void AttachLayoutTree(AttachContext&) final;
   void ReattachLayoutTreeIfNeeded(AttachContext&);
@@ -82,12 +82,11 @@ class CORE_EXPORT Text : public CharacterData {
 
  private:
   String nodeName() const override;
-  Node* Clone(Document&, CloneChildrenFlag) const override;
 
-  bool IsTextNode() const =
-      delete;  // This will catch anyone doing an unnecessary check.
+  // This will catch anyone doing an unnecessary check.
+  bool IsTextNode() const = delete;
 
-  virtual Text* CloneWithData(Document&, const String&) const;
+  CharacterData* CloneWithData(Document&, const String&) const override;
 };
 
 template <>

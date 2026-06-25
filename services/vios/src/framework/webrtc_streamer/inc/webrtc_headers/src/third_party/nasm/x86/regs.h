@@ -30,8 +30,24 @@ enum reg_enum {
     R_CR13,
     R_CR14,
     R_CR15,
+    R_CR16,
+    R_CR17,
+    R_CR18,
+    R_CR19,
     R_CR2,
+    R_CR20,
+    R_CR21,
+    R_CR22,
+    R_CR23,
+    R_CR24,
+    R_CR25,
+    R_CR26,
+    R_CR27,
+    R_CR28,
+    R_CR29,
     R_CR3,
+    R_CR30,
+    R_CR31,
     R_CR4,
     R_CR5,
     R_CR6,
@@ -52,8 +68,24 @@ enum reg_enum {
     R_DR13,
     R_DR14,
     R_DR15,
+    R_DR16,
+    R_DR17,
+    R_DR18,
+    R_DR19,
     R_DR2,
+    R_DR20,
+    R_DR21,
+    R_DR22,
+    R_DR23,
+    R_DR24,
+    R_DR25,
+    R_DR26,
+    R_DR27,
+    R_DR28,
+    R_DR29,
     R_DR3,
+    R_DR30,
+    R_DR31,
     R_DR4,
     R_DR5,
     R_DR6,
@@ -113,6 +145,70 @@ enum reg_enum {
     R_R15B,
     R_R15D,
     R_R15W,
+    R_R16,
+    R_R16B,
+    R_R16D,
+    R_R16W,
+    R_R17,
+    R_R17B,
+    R_R17D,
+    R_R17W,
+    R_R18,
+    R_R18B,
+    R_R18D,
+    R_R18W,
+    R_R19,
+    R_R19B,
+    R_R19D,
+    R_R19W,
+    R_R20,
+    R_R20B,
+    R_R20D,
+    R_R20W,
+    R_R21,
+    R_R21B,
+    R_R21D,
+    R_R21W,
+    R_R22,
+    R_R22B,
+    R_R22D,
+    R_R22W,
+    R_R23,
+    R_R23B,
+    R_R23D,
+    R_R23W,
+    R_R24,
+    R_R24B,
+    R_R24D,
+    R_R24W,
+    R_R25,
+    R_R25B,
+    R_R25D,
+    R_R25W,
+    R_R26,
+    R_R26B,
+    R_R26D,
+    R_R26W,
+    R_R27,
+    R_R27B,
+    R_R27D,
+    R_R27W,
+    R_R28,
+    R_R28B,
+    R_R28D,
+    R_R28W,
+    R_R29,
+    R_R29B,
+    R_R29D,
+    R_R29W,
+    R_R30,
+    R_R30B,
+    R_R30D,
+    R_R30W,
+    R_R31,
+    R_R31B,
+    R_R31D,
+    R_R31W,
     R_R8,
     R_R8B,
     R_R8D,
@@ -144,6 +240,14 @@ enum reg_enum {
     R_ST5,
     R_ST6,
     R_ST7,
+    R_TMM0,
+    R_TMM1,
+    R_TMM2,
+    R_TMM3,
+    R_TMM4,
+    R_TMM5,
+    R_TMM6,
+    R_TMM7,
     R_TR0,
     R_TR1,
     R_TR2,
@@ -251,7 +355,7 @@ enum reg_enum {
     REG_ENUM_LIMIT
 };
 
-#define EXPR_REG_END 240
+#define EXPR_REG_END 344
 
 #define REG_NUM_AH       4
 #define REG_NUM_AL       0
@@ -275,8 +379,24 @@ enum reg_enum {
 #define REG_NUM_CR13    13
 #define REG_NUM_CR14    14
 #define REG_NUM_CR15    15
+#define REG_NUM_CR16    16
+#define REG_NUM_CR17    17
+#define REG_NUM_CR18    18
+#define REG_NUM_CR19    19
 #define REG_NUM_CR2      2
+#define REG_NUM_CR20    20
+#define REG_NUM_CR21    21
+#define REG_NUM_CR22    22
+#define REG_NUM_CR23    23
+#define REG_NUM_CR24    24
+#define REG_NUM_CR25    25
+#define REG_NUM_CR26    26
+#define REG_NUM_CR27    27
+#define REG_NUM_CR28    28
+#define REG_NUM_CR29    29
 #define REG_NUM_CR3      3
+#define REG_NUM_CR30    30
+#define REG_NUM_CR31    31
 #define REG_NUM_CR4      4
 #define REG_NUM_CR5      5
 #define REG_NUM_CR6      6
@@ -297,8 +417,24 @@ enum reg_enum {
 #define REG_NUM_DR13    13
 #define REG_NUM_DR14    14
 #define REG_NUM_DR15    15
+#define REG_NUM_DR16    16
+#define REG_NUM_DR17    17
+#define REG_NUM_DR18    18
+#define REG_NUM_DR19    19
 #define REG_NUM_DR2      2
+#define REG_NUM_DR20    20
+#define REG_NUM_DR21    21
+#define REG_NUM_DR22    22
+#define REG_NUM_DR23    23
+#define REG_NUM_DR24    24
+#define REG_NUM_DR25    25
+#define REG_NUM_DR26    26
+#define REG_NUM_DR27    27
+#define REG_NUM_DR28    28
+#define REG_NUM_DR29    29
 #define REG_NUM_DR3      3
+#define REG_NUM_DR30    30
+#define REG_NUM_DR31    31
 #define REG_NUM_DR4      4
 #define REG_NUM_DR5      5
 #define REG_NUM_DR6      6
@@ -358,6 +494,70 @@ enum reg_enum {
 #define REG_NUM_R15B    15
 #define REG_NUM_R15D    15
 #define REG_NUM_R15W    15
+#define REG_NUM_R16     16
+#define REG_NUM_R16B    16
+#define REG_NUM_R16D    16
+#define REG_NUM_R16W    16
+#define REG_NUM_R17     17
+#define REG_NUM_R17B    17
+#define REG_NUM_R17D    17
+#define REG_NUM_R17W    17
+#define REG_NUM_R18     18
+#define REG_NUM_R18B    18
+#define REG_NUM_R18D    18
+#define REG_NUM_R18W    18
+#define REG_NUM_R19     19
+#define REG_NUM_R19B    19
+#define REG_NUM_R19D    19
+#define REG_NUM_R19W    19
+#define REG_NUM_R20     20
+#define REG_NUM_R20B    20
+#define REG_NUM_R20D    20
+#define REG_NUM_R20W    20
+#define REG_NUM_R21     21
+#define REG_NUM_R21B    21
+#define REG_NUM_R21D    21
+#define REG_NUM_R21W    21
+#define REG_NUM_R22     22
+#define REG_NUM_R22B    22
+#define REG_NUM_R22D    22
+#define REG_NUM_R22W    22
+#define REG_NUM_R23     23
+#define REG_NUM_R23B    23
+#define REG_NUM_R23D    23
+#define REG_NUM_R23W    23
+#define REG_NUM_R24     24
+#define REG_NUM_R24B    24
+#define REG_NUM_R24D    24
+#define REG_NUM_R24W    24
+#define REG_NUM_R25     25
+#define REG_NUM_R25B    25
+#define REG_NUM_R25D    25
+#define REG_NUM_R25W    25
+#define REG_NUM_R26     26
+#define REG_NUM_R26B    26
+#define REG_NUM_R26D    26
+#define REG_NUM_R26W    26
+#define REG_NUM_R27     27
+#define REG_NUM_R27B    27
+#define REG_NUM_R27D    27
+#define REG_NUM_R27W    27
+#define REG_NUM_R28     28
+#define REG_NUM_R28B    28
+#define REG_NUM_R28D    28
+#define REG_NUM_R28W    28
+#define REG_NUM_R29     29
+#define REG_NUM_R29B    29
+#define REG_NUM_R29D    29
+#define REG_NUM_R29W    29
+#define REG_NUM_R30     30
+#define REG_NUM_R30B    30
+#define REG_NUM_R30D    30
+#define REG_NUM_R30W    30
+#define REG_NUM_R31     31
+#define REG_NUM_R31B    31
+#define REG_NUM_R31D    31
+#define REG_NUM_R31W    31
 #define REG_NUM_R8       8
 #define REG_NUM_R8B      8
 #define REG_NUM_R8D      8
@@ -389,6 +589,14 @@ enum reg_enum {
 #define REG_NUM_ST5      5
 #define REG_NUM_ST6      6
 #define REG_NUM_ST7      7
+#define REG_NUM_TMM0     0
+#define REG_NUM_TMM1     1
+#define REG_NUM_TMM2     2
+#define REG_NUM_TMM3     3
+#define REG_NUM_TMM4     4
+#define REG_NUM_TMM5     5
+#define REG_NUM_TMM6     6
+#define REG_NUM_TMM7     7
 #define REG_NUM_TR0      0
 #define REG_NUM_TR1      1
 #define REG_NUM_TR2      2

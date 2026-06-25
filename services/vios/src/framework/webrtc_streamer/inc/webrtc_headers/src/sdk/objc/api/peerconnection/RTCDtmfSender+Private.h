@@ -11,18 +11,20 @@
 #import "RTCDtmfSender.h"
 
 #include "api/dtmf_sender_interface.h"
+#include "api/scoped_refptr.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface RTC_OBJC_TYPE (RTCDtmfSender) : NSObject <RTC_OBJC_TYPE(RTCDtmfSender)>
 
-@property(nonatomic, readonly) rtc::scoped_refptr<webrtc::DtmfSenderInterface> nativeDtmfSender;
+@property(nonatomic, readonly) webrtc::scoped_refptr<webrtc::DtmfSenderInterface> nativeDtmfSender;
 
 - (instancetype)init NS_UNAVAILABLE;
 
 /** Initialize an RTCDtmfSender with a native DtmfSenderInterface. */
 - (instancetype)initWithNativeDtmfSender:
-    (rtc::scoped_refptr<webrtc::DtmfSenderInterface>)nativeDtmfSender NS_DESIGNATED_INITIALIZER;
+    (webrtc::scoped_refptr<webrtc::DtmfSenderInterface>)nativeDtmfSender
+    NS_DESIGNATED_INITIALIZER;
 
 @end
 

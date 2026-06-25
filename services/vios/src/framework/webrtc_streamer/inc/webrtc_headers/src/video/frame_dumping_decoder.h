@@ -13,15 +13,15 @@
 
 #include <memory>
 
+#include "absl/strings/string_view.h"
 #include "api/video_codecs/video_decoder.h"
-#include "rtc_base/system/file_wrapper.h"
 
 namespace webrtc {
 
 // Creates a decoder wrapper that writes the encoded frames to an IVF file.
 std::unique_ptr<VideoDecoder> CreateFrameDumpingDecoderWrapper(
     std::unique_ptr<VideoDecoder> decoder,
-    FileWrapper file);
+    absl::string_view filename);
 
 }  // namespace webrtc
 

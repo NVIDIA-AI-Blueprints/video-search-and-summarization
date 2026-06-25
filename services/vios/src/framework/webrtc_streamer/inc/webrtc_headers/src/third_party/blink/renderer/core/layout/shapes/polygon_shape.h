@@ -65,12 +65,12 @@ class OffsetPolygonEdge final : public VertexPair {
 
 class PolygonShape final : public Shape {
  public:
-  PolygonShape(Vector<gfx::PointF> vertices, WindRule fill_rule)
+  explicit PolygonShape(Vector<gfx::PointF> vertices)
       : Shape(), polygon_(std::move(vertices)) {}
   PolygonShape(const PolygonShape&) = delete;
   PolygonShape& operator=(const PolygonShape&) = delete;
 
-  LayoutRect ShapeMarginLogicalBoundingBox() const override;
+  LogicalRect ShapeMarginLogicalBoundingBox() const override;
   bool IsEmpty() const override { return polygon_.IsEmpty(); }
   LineSegment GetExcludedInterval(LayoutUnit logical_top,
                                   LayoutUnit logical_height) const override;

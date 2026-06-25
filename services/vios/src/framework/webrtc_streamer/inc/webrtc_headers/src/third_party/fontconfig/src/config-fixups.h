@@ -27,14 +27,14 @@
  * https://bugs.freedesktop.org/show_bug.cgi?id=20208
  */
 #ifdef __APPLE__
-# include <machine/endian.h>
-# undef SIZEOF_VOID_P
-# undef ALIGNOF_DOUBLE
-# ifdef __LP64__
-#  define SIZEOF_VOID_P 8
-#  define ALIGNOF_DOUBLE 8
-# else
-#  define SIZEOF_VOID_P 4
-#  define ALIGNOF_DOUBLE 4
-# endif
+#  include <machine/endian.h>
+#  undef SIZEOF_VOID_P
+#  undef ALIGNOF_DOUBLE
+#  ifdef __LP64__
+#    define SIZEOF_VOID_P  8
+#    define ALIGNOF_DOUBLE 8
+#  else
+#    define SIZEOF_VOID_P  4
+#    define ALIGNOF_DOUBLE 4
+#  endif
 #endif

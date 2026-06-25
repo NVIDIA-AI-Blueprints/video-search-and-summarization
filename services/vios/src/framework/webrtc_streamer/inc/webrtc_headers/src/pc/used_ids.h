@@ -13,12 +13,10 @@
 #include <set>
 #include <vector>
 
-#include "api/rtp_parameters.h"
 #include "media/base/codec.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/logging.h"
 
-namespace cricket {
+namespace webrtc {
 template <typename IdStruct>
 class UsedIds {
  public:
@@ -96,6 +94,16 @@ class UsedPayloadTypes : public UsedIds<Codec> {
       : UsedIds<Codec>(kFirstDynamicPayloadTypeLowerRange,
                        kLastDynamicPayloadTypeUpperRange) {}
 
+  // Check if a payload type is valid. The range [64-95] is forbidden
+  // when rtcp-mux is used.
+  static bool IsIdValid(Codec codec, bool rtcp_mux) {
+    if (rtcp_mux && (codec.id > kLastDynamicPayloadTypeLowerRange &&
+                     codec.id < kFirstDynamicPayloadTypeUpperRange)) {
+      return false;
+    }
+    return codec.id >= 0 && codec.id <= kLastDynamicPayloadTypeUpperRange;
+  }
+
  protected:
   bool IsIdUsed(int new_id) override {
     // Range marked for RTCP avoidance is "used".
@@ -113,70 +121,6 @@ class UsedPayloadTypes : public UsedIds<Codec> {
   static const int kLastDynamicPayloadTypeUpperRange = 127;
 };
 
-// Helper class used for finding duplicate RTP Header extension ids among
-// audio and video extensions.
-class UsedRtpHeaderExtensionIds : public UsedIds<webrtc::RtpExtension> {
- public:
-  enum class IdDomain {
-    // Only allocate IDs that fit in one-byte header extensions.
-    kOneByteOnly,
-    // Prefer to allocate one-byte header extension IDs, but overflow to
-    // two-byte if none are left.
-    kTwoByteAllowed,
-  };
-
-  explicit UsedRtpHeaderExtensionIds(IdDomain id_domain)
-      : UsedIds<webrtc::RtpExtension>(
-            webrtc::RtpExtension::kMinId,
-            id_domain == IdDomain::kTwoByteAllowed
-                ? webrtc::RtpExtension::kMaxId
-                : webrtc::RtpExtension::kOneByteHeaderExtensionMaxId),
-        id_domain_(id_domain),
-        next_extension_id_(webrtc::RtpExtension::kOneByteHeaderExtensionMaxId) {
-  }
-
- private:
-  // Returns the first unused id in reverse order from the max id of one byte
-  // header extensions. This hopefully reduce the risk of more collisions. We
-  // want to change the default ids as little as possible. If no unused id is
-  // found and two byte header extensions are enabled (i.e.,
-  // `extmap_allow_mixed_` is true), search for unused ids from 15 to 255.
-  int FindUnusedId() override {
-    if (next_extension_id_ <=
-        webrtc::RtpExtension::kOneByteHeaderExtensionMaxId) {
-      // First search in reverse order from the max id of one byte header
-      // extensions.
-      while (IsIdUsed(next_extension_id_) &&
-             next_extension_id_ >= min_allowed_id_) {
-        --next_extension_id_;
-      }
-    }
-
-    if (id_domain_ == IdDomain::kTwoByteAllowed) {
-      if (next_extension_id_ < min_allowed_id_) {
-        // We have searched among all one-byte IDs without finding an unused ID,
-        // continue at the first two-byte ID.
-        next_extension_id_ =
-            webrtc::RtpExtension::kOneByteHeaderExtensionMaxId + 1;
-      }
-
-      if (next_extension_id_ >
-          webrtc::RtpExtension::kOneByteHeaderExtensionMaxId) {
-        while (IsIdUsed(next_extension_id_) &&
-               next_extension_id_ <= max_allowed_id_) {
-          ++next_extension_id_;
-        }
-      }
-    }
-    RTC_DCHECK(next_extension_id_ >= min_allowed_id_);
-    RTC_DCHECK(next_extension_id_ <= max_allowed_id_);
-    return next_extension_id_;
-  }
-
-  const IdDomain id_domain_;
-  int next_extension_id_;
-};
-
-}  // namespace cricket
+}  //  namespace webrtc
 
 #endif  // PC_USED_IDS_H_

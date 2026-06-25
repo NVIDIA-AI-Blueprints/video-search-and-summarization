@@ -30,10 +30,11 @@
 #include "perfetto/ext/tracing/core/consumer.h"
 #include "perfetto/ext/tracing/core/shared_memory_arbiter.h"
 #include "perfetto/ext/tracing/core/trace_packet.h"
+#include "perfetto/ext/tracing/core/tracing_service.h"
 #include "perfetto/ext/tracing/ipc/consumer_ipc_client.h"
-#include "perfetto/ext/tracing/ipc/default_socket.h"
 #include "perfetto/ext/tracing/ipc/service_ipc_host.h"
 #include "perfetto/tracing/core/trace_config.h"
+#include "perfetto/tracing/default_socket.h"
 #include "src/base/test/test_task_runner.h"
 #include "test/fake_producer.h"
 
@@ -118,8 +119,11 @@ class TestEnvCleaner {
 class ServiceThread {
  public:
   ServiceThread(const std::string& producer_socket,
-                const std::string& consumer_socket)
-      : producer_socket_(producer_socket), consumer_socket_(consumer_socket) {}
+                const std::string& consumer_socket,
+                bool enable_relay_endpoint = false)
+      : producer_socket_(producer_socket),
+        consumer_socket_(consumer_socket),
+        enable_relay_endpoint_(enable_relay_endpoint) {}
 
   ~ServiceThread() { Stop(); }
 
@@ -128,9 +132,15 @@ class ServiceThread {
         {"PERFETTO_PRODUCER_SOCK_NAME", "PERFETTO_CONSUMER_SOCK_NAME"});
     runner_ = base::ThreadTaskRunner::CreateAndStart("perfetto.svc");
     runner_->PostTaskAndWaitForTesting([this]() {
-      svc_ = ServiceIPCHost::CreateInstance(runner_->get());
+      TracingService::InitOpts init_opts = {};
+      if (enable_relay_endpoint_)
+        init_opts.enable_relay_endpoint = true;
+      svc_ = ServiceIPCHost::CreateInstance(runner_->get(), init_opts);
       auto producer_sockets = TokenizeProducerSockets(producer_socket_.c_str());
       for (const auto& producer_socket : producer_sockets) {
+        // In some cases the socket is a TCP or abstract unix.
+        if (!base::FileExists(producer_socket))
+          continue;
         if (remove(producer_socket.c_str()) == -1) {
           if (errno != ENOENT)
             PERFETTO_FATAL("Failed to remove %s", producer_socket_.c_str());
@@ -166,6 +176,7 @@ class ServiceThread {
 
   std::string producer_socket_;
   std::string consumer_socket_;
+  bool enable_relay_endpoint_ = false;
   std::unique_ptr<ServiceIPCHost> svc_;
 };
 
@@ -197,6 +208,8 @@ class ProbesProducerThread {
       producer_->ConnectWithRetries(producer_socket_.c_str(), runner_->get());
     });
   }
+
+  base::ThreadTaskRunner* runner() { return runner_ ? &*runner_ : nullptr; }
 
  private:
   std::optional<base::ThreadTaskRunner> runner_;  // Keep first.
@@ -246,7 +259,8 @@ class FakeProducerThread {
     PosixSharedMemory::Factory factory;
 #endif
     shm_ = factory.CreateSharedMemory(1024 * 1024);
-    shm_arbiter_ = SharedMemoryArbiter::CreateUnboundInstance(shm_.get(), 4096);
+    shm_arbiter_ = SharedMemoryArbiter::CreateUnboundInstance(
+        shm_.get(), 4096, SharedMemoryABI::ShmemMode::kDefault);
   }
 
   void ProduceStartupEventBatch(const protos::gen::TestConfig& config,
@@ -285,7 +299,8 @@ class TestHelper : public Consumer {
 
   explicit TestHelper(base::TestTaskRunner* task_runner,
                       Mode mode,
-                      const char* producer_socket);
+                      const char* producer_socket,
+                      bool enable_relay_endpoint = false);
 
   // Consumer implementation.
   void OnConnect() override;
@@ -313,7 +328,7 @@ class TestHelper : public Consumer {
   void StartTracing(const TraceConfig& config,
                     base::ScopedFile = base::ScopedFile());
   void DisableTracing();
-  void FlushAndWait(uint32_t timeout_ms);
+  void FlushAndWait(uint32_t timeout_ms, FlushFlags = FlushFlags());
   void ReadData(uint32_t read_count = 0);
   void FreeBuffers();
   void DetachConsumer(const std::string& key);
@@ -332,6 +347,7 @@ class TestHelper : public Consumer {
   void WaitForTracingDisabled(uint32_t timeout_ms = kDefaultTestTimeoutMs);
   void WaitForReadData(uint32_t read_count = 0,
                        uint32_t timeout_ms = kDefaultTestTimeoutMs);
+  void WaitForAllDataSourceStarted(uint32_t timeout_ms = kDefaultTestTimeoutMs);
   void SyncAndWaitProducer(size_t idx = 0);
   TracingServiceState QueryServiceStateAndWait();
 
@@ -376,6 +392,7 @@ class TestHelper : public Consumer {
   int cur_consumer_num_ = 0;
   uint64_t trace_count_ = 0;
 
+  std::function<void()> on_all_ds_started_callback_;
   std::function<void()> on_connect_callback_;
   std::function<void()> on_packets_finished_callback_;
   std::function<void()> on_stop_tracing_callback_;
@@ -462,6 +479,7 @@ class Exec {
       pass_env("TMPDIR", &subprocess_);
       pass_env("TMP", &subprocess_);
       pass_env("TEMP", &subprocess_);
+      pass_env("LD_LIBRARY_PATH", &subprocess_);
       cmd.push_back(base::GetCurExecutableDir() + "/" + argv0);
       cmd.insert(cmd.end(), args.begin(), args.end());
     }

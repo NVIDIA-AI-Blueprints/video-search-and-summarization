@@ -17,49 +17,78 @@
 #ifndef SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_ANCESTOR_H_
 #define SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_ANCESTOR_H_
 
-#include <optional>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
-#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/table_function.h"
+#include "perfetto/base/status.h"
+#include "perfetto/trace_processor/basic_types.h"
+#include "src/trace_processor/core/dataframe/specs.h"
+#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/static_table_function.h"
+#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/tables_py.h"
 #include "src/trace_processor/storage/trace_storage.h"
+#include "src/trace_processor/tables/profiler_tables_py.h"
+#include "src/trace_processor/tables/slice_tables_py.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TraceProcessorContext;
 
 // Implements the following dynamic tables:
 // * ancestor_slice
 // * experimental_ancestor_stack_profile_callsite
-// * ancestor_slice_by_stack
 //
 // See docs/analysis/trace-processor for usage.
-class Ancestor : public TableFunction {
+class Ancestor : public StaticTableFunction {
  public:
-  enum class Type { kSlice = 1, kStackProfileCallsite = 2, kSliceByStack = 3 };
+  enum class Type : uint8_t {
+    kSlice = 1,
+    kStackProfileCallsite = 3,
+  };
+  class SliceCursor : public StaticTableFunction::Cursor {
+   public:
+    SliceCursor(Type type, TraceStorage* storage);
+    bool Run(const std::vector<SqlValue>& arguments) override;
 
-  Ancestor(Type type, const TraceStorage* storage);
+   private:
+    Type type_;
+    TraceStorage* storage_ = nullptr;
+    tables::SliceSubsetTable table_;
+    std::vector<tables::SliceTable::RowNumber> ancestors_;
+  };
+  class StackProfileCursor : public StaticTableFunction::Cursor {
+   public:
+    explicit StackProfileCursor(TraceStorage* storage);
+    bool Run(const std::vector<SqlValue>& arguments) override;
 
-  Table::Schema CreateSchema() override;
+   private:
+    TraceStorage* storage_ = nullptr;
+    tables::AncestorStackProfileCallsiteTable table_;
+    std::vector<tables::StackProfileCallsiteTable::RowNumber> ancestors_;
+  };
+
+  Ancestor(Type type, TraceStorage* storage);
+
+  std::unique_ptr<StaticTableFunction::Cursor> MakeCursor() override;
+  dataframe::DataframeSpec CreateSpec() override;
   std::string TableName() override;
-  uint32_t EstimateRowCount() override;
-  base::Status ValidateConstraints(const QueryConstraints&) override;
-  base::Status ComputeTable(const std::vector<Constraint>& cs,
-                            const std::vector<Order>& ob,
-                            const BitVector& cols_used,
-                            std::unique_ptr<Table>& table_return) override;
+  uint32_t GetArgumentCount() const override;
 
   // Returns a vector of rows numbers which are ancestors of |slice_id|.
   // Returns std::nullopt if an invalid |slice_id| is given. This is used by
   // ConnectedFlow to traverse flow indirectly connected flow events.
-  static std::optional<std::vector<tables::SliceTable::RowNumber>>
-  GetAncestorSlices(const tables::SliceTable& slices, SliceId slice_id);
+  static bool GetAncestorSlices(const tables::SliceTable& slices,
+                                SliceId slice_id,
+                                std::vector<tables::SliceTable::RowNumber>&,
+                                base::Status&);
 
  private:
   Type type_;
-  const TraceStorage* storage_ = nullptr;
+  TraceStorage* storage_ = nullptr;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_TABLE_FUNCTIONS_ANCESTOR_H_

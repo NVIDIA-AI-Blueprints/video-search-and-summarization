@@ -27,11 +27,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_MEMORY_CACHE_H_
 
 #include "base/gtest_prod_util.h"
+#include "base/memory/memory_pressure_listener.h"
+#include "base/memory_coordinator/memory_consumer.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_linked_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/forward.h"
+#include "third_party/blink/renderer/platform/heap/prefinalizer.h"
+#include "third_party/blink/renderer/platform/instrumentation/memory_coordinator/memory_consumer_registration.h"
 #include "third_party/blink/renderer/platform/instrumentation/memory_pressure_listener.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/memory_cache_dump_provider.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
@@ -56,7 +61,7 @@ class MemoryCacheEntry final : public GarbageCollected<MemoryCacheEntry> {
   explicit MemoryCacheEntry(Resource* resource) : resource_(resource) {}
 
   void Trace(Visitor*) const;
-  Resource* GetResource() const { return resource_; }
+  Resource* GetResource() const { return resource_.Get(); }
 
  private:
   void ClearResourceWeak(const LivenessBroker&);
@@ -69,7 +74,10 @@ class MemoryCacheEntry final : public GarbageCollected<MemoryCacheEntry> {
 // stylesheets, etc.
 class PLATFORM_EXPORT MemoryCache final : public GarbageCollected<MemoryCache>,
                                           public MemoryCacheDumpClient,
-                                          public MemoryPressureListener {
+                                          public base::MemoryPressureListener,
+                                          public base::MemoryConsumer {
+  USING_PRE_FINALIZER(MemoryCache, Dispose);
+
  public:
   explicit MemoryCache(scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   MemoryCache(const MemoryCache&) = delete;
@@ -81,6 +89,8 @@ class PLATFORM_EXPORT MemoryCache final : public GarbageCollected<MemoryCache>,
   static MemoryCache* Get();
 
   void Trace(Visitor*) const override;
+
+  void Dispose();
 
   struct TypeStatistic {
     STACK_ALLOCATED();
@@ -118,7 +128,11 @@ class PLATFORM_EXPORT MemoryCache final : public GarbageCollected<MemoryCache>,
     TypeStatistic other;
   };
 
-  Resource* ResourceForURL(const KURL&) const;
+  // Do not use this method outside test purposes.
+  // A resourfe URL is not enough to do a correct MemoryCache lookup, and
+  // relying on the method would likely yield wrong results.
+  Resource* ResourceForURLForTesting(const KURL&) const;
+
   Resource* ResourceForURL(const KURL&, const String& cache_identifier) const;
   HeapVector<Member<Resource>> ResourcesForURL(const KURL&) const;
 
@@ -130,19 +144,15 @@ class PLATFORM_EXPORT MemoryCache final : public GarbageCollected<MemoryCache>,
 
   static String DefaultCacheIdentifier();
 
-  // Sets the cache's memory capacities, in bytes. These will hold only
-  // approximately, since the decoded cost of resources like scripts and
-  // stylesheets is not known.
-  //  - totalBytes: The maximum number of bytes that the cache should consume
-  //    overall.
-  void SetCapacity(size_t total_bytes);
-  void SetDelayBeforeLiveDecodedPrune(base::TimeDelta seconds) {
-    delay_before_live_decoded_prune_ = seconds;
-  }
-
+  // Evicts all resources in the cache, such that they can no longer be
+  // retrieved with `ResourceForURL`, `ResourcesForURL` or `Contains`. Also
+  // releases all strong references held by the cache.
   void EvictResources();
 
-  void Prune();
+  // Evicts all resources corresponding to a specific cache identifier in the
+  // cache, such that they can no longer be retrieved with `ResourceForURL`,
+  // `ResourcesForURL` or `Contains`.
+  void EvictResourcesForCacheIdentifier(const String& cache_identifier);
 
   // Called to update MemoryCache::size().
   void Update(Resource*, size_t old_size, size_t new_size);
@@ -151,79 +161,128 @@ class PLATFORM_EXPORT MemoryCache final : public GarbageCollected<MemoryCache>,
 
   Statistics GetStatistics() const;
 
-  size_t Capacity() const { return capacity_; }
   size_t size() const { return size_; }
 
-  void PruneAll();
+  void SaveStrongReference(Resource* resource);
 
-  void UpdateFramePaintTimestamp();
-
-  // Called by the loader to notify that a new page is being loaded.
-  // The strong references the memory cache is holding for the current page
-  // will be moved to the previous generation.
-  void SavePageResourceStrongReferences(HeapVector<Member<Resource>> resources);
+  // Save a data URI resource as a strong reference to prevent GC across
+  // navigations. Data URIs are immutable so caching is always safe.
+  void SaveDataURIStrongReference(Resource* resource);
 
   // Take memory usage snapshot for tracing.
   bool OnMemoryDump(WebMemoryDumpLevelOfDetail, WebProcessMemoryDump*) override;
 
-  void OnMemoryPressure(
-      base::MemoryPressureListener::MemoryPressureLevel) override;
+  // base::MemoryPressureListener:
+  void OnMemoryPressure(base::MemoryPressureLevel) override;
+
+  // base::MemoryConsumer:
+  void OnReleaseMemory() override;
+  void OnUpdateMemoryLimit() override;
+
+  bool HasStrongReferenceForTesting(Resource*) const;
 
  private:
-  enum PruneStrategy {
-    // Automatically decide how much to prune.
-    kAutomaticPrune,
-    // Maximally prune resources.
-    kMaximalPrune
-  };
-
   // A URL-based map of all resources that are in the cache (including the
   // freshest version of objects that are currently being referenced by a Web
   // page). removeFragmentIdentifierIfNeeded() should be called for the url
   // before using it as a key for the map.
-  using ResourceMap = HeapHashMap<String, Member<MemoryCacheEntry>>;
+  using ResourceMap = GCedHeapHashMap<String, Member<MemoryCacheEntry>>;
   using ResourceMapIndex = HeapHashMap<String, Member<ResourceMap>>;
   ResourceMap* EnsureResourceMap(const String& cache_identifier);
   ResourceMapIndex resource_maps_;
 
   void AddInternal(ResourceMap*, MemoryCacheEntry*);
   void RemoveInternal(ResourceMap*, const ResourceMap::iterator&);
+  void RemoveAllResourcesFromMap(ResourceMap* resources);
 
-  void PruneResources(PruneStrategy);
-  void PruneNow(PruneStrategy);
+  // Multi-tiered pruning strategy for strong references.
+  //
+  // This strategy intentionally uses a two-pass system to separate two distinct
+  // eviction goals:
+  // 1. Staleness Prevention: A chronological pass removes any resource older
+  //    than a hard max lifetime. This guarantees that no resource, regardless
+  //    of its value, remains in the cache indefinitely.
+  // 2. Memory Management: If the cache is still over budget, a value-based
+  //    pass evicts the lowest-value items (scored by type, frequency, and
+  //    cost) until the size limit is met.
+  //
+  // TODO(crbug.com/429719026): In the future, consider making the
+  // chronological pass use a resource's specific expiration time (from its
+  // HTTP headers) instead of the global max_lifetime. This would allow for
+  // more precise eviction.
+  void PruneTieredStrongReferences();
 
-  void RemovePageResourceStrongReference(
-      const base::UnguessableToken& saved_page_token);
+  void PruneStrongReferences();
+  void ClearStrongReferences();
+  void ClearDataURIStrongReferences();
 
-  bool in_prune_resources_ = false;
-  bool prune_pending_ = false;
-  base::TimeDelta max_prune_deferral_delay_;
-  base::TimeTicks prune_time_stamp_;
-  base::TimeTicks prune_frame_time_stamp_;
-  base::TimeTicks last_frame_paint_time_stamp_;  // used for detecting decoded
-                                                 // resource thrash in the cache
+  // Helper for saving a resource to the tiered cache.
+  void SaveTieredStrongReference(Resource* resource);
 
-  size_t capacity_;
-  base::TimeDelta delay_before_live_decoded_prune_;
+  double CalculateResourceValue(const Resource* resource) const;
+
+  MemoryPressureListenerRegistration memory_pressure_listener_registration_;
+
+  MemoryConsumerRegistration memory_consumer_registration_;
 
   // The number of bytes currently consumed by resources in the cache.
-  size_t size_;
+  size_t size_ = 0;
 
-  // The size of strong reference to resources is not limited.
-  // The strong references will be removed when memory pressure is signaled.
-  HeapHashMap<String, Member<HeapVector<Member<Resource>>>>
-      saved_page_resources_;
+  // The maximum size of `strong_references_` or `tiered_strong_references_`.
+  // This limit decreases or increases when notified by the MemoryConsumer
+  // interface.
+  size_t strong_references_max_size_;
+
+  // An LRU linked list. The tail contains the most recent items. When
+  // an item is accessed via `ResourceAccessed` it is moved to the end
+  // of the list. This list is pruned from the front based on size and
+  // age.
+  HeapLinkedHashSet<Member<Resource>> strong_references_;
+
+  HeapVector<Member<Resource>> tiered_strong_references_;
+
+  // Strong references specifically for data URI resources. These are kept
+  // separate from the main strong_references_ to avoid evicting critical
+  // resources (scripts, fonts, CSS). Uses LRU - oldest entries are at the
+  // front.
+  HeapLinkedHashSet<Member<Resource>> data_uri_strong_references_;
+  size_t data_uri_strong_references_total_bytes_ = 0;
+
+  base::TimeTicks strong_references_prune_time_;
+  base::TimeDelta strong_references_prune_duration_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   friend class MemoryCacheTest;
   FRIEND_TEST_ALL_PREFIXES(MemoryCacheStrongReferenceTest, ResourceTimeout);
-  FRIEND_TEST_ALL_PREFIXES(MemoryCacheStrongReferenceTest, SaveSinglePage);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheStrongReferenceTest, LRU);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheStrongReferenceTest,
+                           ClearStrongReferences);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheStrongReferenceTest,
+                           ChangeMemoryCacheSize);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheDataURIStrongReferenceTest,
+                           DataURIStrongReference);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheDataURIStrongReferenceTest, DataURILRU);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheDataURIStrongReferenceTest,
+                           DataURIClearStrongReferences);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheDataURIStrongReferenceTest,
+                           DataURIRemovedFromStrongRefsOnRemove);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheDataURIEvictionTest,
+                           EvictsOldestWhenOverCapacity);
+  FRIEND_TEST_ALL_PREFIXES(MemoryCacheDataURIEvictionTest,
+                           LRUTouchPreventsEviction);
 };
 
-// Sets the global cache, used to swap in a test instance. Returns the old
-// MemoryCache object.
-PLATFORM_EXPORT MemoryCache* ReplaceMemoryCacheForTesting(MemoryCache*);
+// Sets the global cache, used to swap in a test instance. Saves the old
+// MemoryCache object and restores it in the destructor..
+class PLATFORM_EXPORT ScopedMemoryCacheForTesting {
+ public:
+  explicit ScopedMemoryCacheForTesting(Persistent<MemoryCache>);
+  ~ScopedMemoryCacheForTesting();
+
+ private:
+  Persistent<MemoryCache> stored_cache_;
+};
 
 }  // namespace blink
 

@@ -12,17 +12,18 @@
 
 namespace blink {
 
-// Represents a blink::NGGridTrackList, converted into a form that can be
+class CSSProperty;
+
+// Represents a blink::GridTrackList, converted into a form that can be
 // interpolated from/to.
 class CORE_EXPORT InterpolableGridTrackList : public InterpolableValue {
  public:
-  InterpolableGridTrackList(std::unique_ptr<InterpolableList> values,
-                            double progress);
-  static std::unique_ptr<InterpolableGridTrackList> MaybeCreate(
-      const NGGridTrackList& track_list,
-      float zoom);
+  InterpolableGridTrackList(InterpolableList* values, double progress);
+  static InterpolableGridTrackList* MaybeCreate(const GridTrackList& track_list,
+                                                const CSSProperty& property,
+                                                float zoom);
 
-  NGGridTrackList CreateNGGridTrackList(
+  GridTrackList CreateGridTrackList(
       const CSSToLengthConversionData& conversion_data) const;
 
   // InterpolableValue implementation:
@@ -41,12 +42,17 @@ class CORE_EXPORT InterpolableGridTrackList : public InterpolableValue {
   bool IsCompatibleWith(const InterpolableValue& other) const;
   double GetProgress() const { return progress_; }
 
+  void Trace(Visitor* v) const override {
+    InterpolableValue::Trace(v);
+    v->Trace(values_);
+  }
+
  private:
   InterpolableGridTrackList* RawClone() const final;
   InterpolableGridTrackList* RawCloneAndZero() const final;
 
   // Represents a list of repeaters.
-  std::unique_ptr<InterpolableList> values_;
+  Member<InterpolableList> values_;
   // Represents the progress of the interpolation, this is needed to flip
   // |CSSGridTrackListNonInterpolableValue|.
   double progress_;

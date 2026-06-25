@@ -12,6 +12,8 @@
 #define MODULES_AUDIO_PROCESSING_AEC3_SUPPRESSION_FILTER_H_
 
 #include <array>
+#include <cstddef>
+#include <span>
 #include <vector>
 
 #include "modules/audio_processing/aec3/aec3_common.h"
@@ -31,11 +33,11 @@ class SuppressionFilter {
   SuppressionFilter(const SuppressionFilter&) = delete;
   SuppressionFilter& operator=(const SuppressionFilter&) = delete;
 
-  void ApplyGain(rtc::ArrayView<const FftData> comfort_noise,
-                 rtc::ArrayView<const FftData> comfort_noise_high_bands,
+  void ApplyGain(std::span<const FftData> comfort_noise,
+                 std::span<const FftData> comfort_noise_high_bands,
                  const std::array<float, kFftLengthBy2Plus1>& suppression_gain,
                  float high_bands_gain,
-                 rtc::ArrayView<const FftData> E_lowest_band,
+                 std::span<const FftData> E_lowest_band,
                  Block* e);
 
  private:

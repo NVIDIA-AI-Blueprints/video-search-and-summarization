@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PARKABLE_IMAGE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PARKABLE_IMAGE_H_
 
-#include "base/debug/stack_trace.h"
+#include "base/containers/span.h"
 #include "base/feature_list.h"
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
@@ -13,15 +13,16 @@
 #include "base/time/time.h"
 #include "third_party/blink/public/platform/web_data.h"
 #include "third_party/blink/renderer/platform/disk_data_metadata.h"
-#include "third_party/blink/renderer/platform/graphics/rw_buffer.h"
+#include "third_party/blink/renderer/platform/image-decoders/rw_buffer.h"
 #include "third_party/blink/renderer/platform/image-decoders/segment_reader.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
-#include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
 namespace blink {
 
 class SegmentReader;
 class ParkableImageManager;
+class ParkableImage;
+class ParkableImageSegmentReader;
 
 PLATFORM_EXPORT BASE_DECLARE_FEATURE(kDelayParkingImages);
 
@@ -38,6 +39,13 @@ class PLATFORM_EXPORT ParkableImageImpl final
   // Smallest encoded size that will actually be parked.
   static constexpr size_t kMinSizeToPark = 1024;  // 1 KiB
   // How long to wait before parking an image.
+  //
+  // Chosen arbitrarily, did not regress metrics in field trials in 2022. From
+  // local experiments, images are typically only decoded once, to raster the
+  // tile(s) they are a part of, then never used as long as the image decode
+  // cache is not emptied and the tiles are not re-rasterized. This is set to
+  // something longer than e.g. 1s in case there is a looping GIF for instance,
+  // and/or the decoded image cache is too small.
   static constexpr base::TimeDelta kParkingDelay = base::Seconds(30);
 
  private:
@@ -60,15 +68,11 @@ class PLATFORM_EXPORT ParkableImageImpl final
 
   // Implementations of the methods of the same name from ParkableImage.
   void Freeze() LOCKS_EXCLUDED(lock_);
-  void Append(WTF::SharedBuffer* buffer, size_t offset = 0)
-      LOCKS_EXCLUDED(lock_);
+  void Append(SharedBuffer* buffer, size_t offset = 0) LOCKS_EXCLUDED(lock_);
   scoped_refptr<SharedBuffer> Data() LOCKS_EXCLUDED(lock_);
   void LockData() EXCLUSIVE_LOCKS_REQUIRED(lock_);
   void UnlockData() EXCLUSIVE_LOCKS_REQUIRED(lock_);
   size_t size() const;
-
-  // Returns a ROBufferSegmentReader, wrapping the internal RWBuffer.
-  scoped_refptr<SegmentReader> GetROBufferSegmentReader() LOCKS_EXCLUDED(lock_);
 
   bool is_frozen() const { return !frozen_time_.is_null(); }
 
@@ -95,10 +99,9 @@ class PLATFORM_EXPORT ParkableImageImpl final
       LOCKS_EXCLUDED(lock_);
 
   // Writes the data referred to by |on_disk_metadata| from disk into the
-  // provided |buffer|. |capacity| is the size of the provided buffer.
+  // provided |buffer|.
   static size_t ReadFromDiskIntoBuffer(DiskDataMetadata* on_disk_metadata,
-                                       void* buffer,
-                                       size_t capacity);
+                                       base::span<uint8_t> buffer);
 
   // Attempt to discard the data. This should only be called after we've written
   // the data to disk. Fails if the image can not be parked at the time this is
@@ -128,6 +131,7 @@ class PLATFORM_EXPORT ParkableImageImpl final
 
   std::unique_ptr<RWBuffer> rw_buffer_ GUARDED_BY(lock_);
 
+  std::unique_ptr<ReservedChunk> reserved_chunk_ GUARDED_BY(lock_);
   // Non-null iff we have the data from |rw_buffer_| saved to disk.
   std::unique_ptr<DiskDataMetadata> on_disk_metadata_ GUARDED_BY(lock_);
   // |size_| is only modified on the main thread.
@@ -166,7 +170,7 @@ class PLATFORM_EXPORT ParkableImage final
 
   // Appends data to the ParkableImage. Cannot be called after the ParkableImage
   // has been frozen. (see: Freeze())
-  void Append(WTF::SharedBuffer* buffer, size_t offset = 0)
+  void Append(SharedBuffer* buffer, size_t offset = 0)
       LOCKS_EXCLUDED(impl_->lock_);
 
   // Returns a copy of the data stored in ParkableImage. Calling this will
@@ -177,6 +181,8 @@ class PLATFORM_EXPORT ParkableImage final
   // be called even if the image is currently parked, and will not unpark it.
   size_t size() const;
 
+  scoped_refptr<SegmentReader> CreateSegmentReader();
+
  private:
   friend class ThreadSafeRefCounted<ParkableImage>;
   template <typename T, typename... Args>
@@ -184,6 +190,7 @@ class PLATFORM_EXPORT ParkableImage final
   friend class ParkableImageManager;
   friend class ParkableImageBaseTest;
   friend class ParkableImageSegmentReader;
+  friend class ThreadSafeRefCounted<ParkableImageImpl>;
 
   explicit ParkableImage(size_t initial_capacity = 0);
   ~ParkableImage();

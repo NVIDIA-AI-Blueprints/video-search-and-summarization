@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "net/nqe/effective_connection_type.h"
 #include "third_party/blink/public/common/common_export.h"
@@ -16,12 +17,11 @@
 #include "third_party/blink/public/mojom/css/preferred_contrast.mojom-shared.h"
 #include "third_party/blink/public/mojom/v8_cache_options.mojom-forward.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-shared.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
 namespace blink {
-
-class WebView;
 
 namespace web_pref {
 
@@ -43,140 +43,175 @@ BLINK_COMMON_EXPORT extern const char kCommonScript[];
 // browser/profiles/profile.cc, and
 // content/public/common/common_param_traits_macros.h
 struct BLINK_COMMON_EXPORT WebPreferences {
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+  static constexpr float kDefaultMinimumPageScaleFactor = 0.25f;
+  static constexpr bool kShrinksViewportContentsToFit = true;
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+
   ScriptFontFamilyMap standard_font_family_map;
+  // The value for Osaka font should be "Osaka", not "Osaka-Mono".
   ScriptFontFamilyMap fixed_font_family_map;
   ScriptFontFamilyMap serif_font_family_map;
   ScriptFontFamilyMap sans_serif_font_family_map;
   ScriptFontFamilyMap cursive_font_family_map;
   ScriptFontFamilyMap fantasy_font_family_map;
   ScriptFontFamilyMap math_font_family_map;
-  int default_font_size;
-  int default_fixed_font_size;
-  int minimum_font_size;
-  int minimum_logical_font_size;
-  std::string default_encoding;
-  bool context_menu_on_mouse_up;
-  bool javascript_enabled;
-  bool web_security_enabled;
-  bool loads_images_automatically;
-  bool images_enabled;
-  bool plugins_enabled;
-  bool dom_paste_enabled;
-  bool shrinks_standalone_images_to_fit;
-  bool text_areas_are_resizable;
-  bool allow_scripts_to_close_windows;
-  bool remote_fonts_enabled;
-  bool javascript_can_access_clipboard;
+  int default_font_size = 16;
+  int default_fixed_font_size = 13;
+  int minimum_font_size = 0;
+  int minimum_logical_font_size = 6;
+  std::string default_encoding = "ISO-8859-1";
+  bool context_menu_on_mouse_up = BUILDFLAG(IS_WIN);
+  bool javascript_enabled = true;
+  bool web_security_enabled = true;
+  bool loads_images_automatically = true;
+  bool images_enabled = true;
+  bool plugins_enabled = true;
+  bool dom_paste_enabled = false;
+  bool shrinks_standalone_images_to_fit = true;
+  bool text_areas_are_resizable = true;
+  bool allow_scripts_to_close_windows = false;
+  bool allow_unrestricted_window_focus = false;
+  bool remote_fonts_enabled = true;
+  bool javascript_can_access_clipboard = false;
   // We don't use dns_prefetching_enabled to disable DNS prefetching.  Instead,
-  // we disable the feature at a lower layer so that we catch non-WebKit uses
-  // of DNS prefetch as well.
-  bool dns_prefetching_enabled;
+  // we disable the feature at a lower layer so that we catch non-WebKit uses of
+  // DNS prefetch as well.
+  bool dns_prefetching_enabled = true;
   // Preference to save data. When enabled, requests will contain the header
   // 'Save-Data: on'.
-  bool data_saver_enabled;
-  bool local_storage_enabled;
-  bool databases_enabled;
-  bool tabs_to_links;
-  bool disable_ipc_flooding_protection;
-  bool hyperlink_auditing_enabled;
-  bool allow_universal_access_from_file_urls;
-  bool allow_file_access_from_file_urls;
-  bool webgl1_enabled;
-  bool webgl2_enabled;
-  bool pepper_3d_enabled;
-  bool privileged_webgl_extensions_enabled;
-  bool webgl_errors_to_console_enabled;
-  bool hide_scrollbars;
-  // If false, ignore ::-webkit-scrollbar-* CSS pseudo-elements in stylesheets.
-  bool enable_webkit_scrollbar_styling = true;
-  bool accelerated_2d_canvas_enabled;
+  bool data_saver_enabled = false;
+  bool local_storage_enabled = false;
+  bool tabs_to_links = true;
+  bool disable_ipc_flooding_protection = false;
+  bool hyperlink_auditing_enabled = true;
+  bool allow_universal_access_from_file_urls = false;
+  bool allow_file_access_from_file_urls = false;
+  bool webgl1_enabled = true;
+  bool webgl2_enabled = true;
+  bool privileged_webgl_extensions_enabled = false;
+  bool webgl_errors_to_console_enabled = true;
+  bool hide_scrollbars = false;
+  // If true, ignore ::-webkit-scrollbar-* CSS pseudo-elements in stylesheets
+  // and use default values for `ScrollbarWidth` and `ScrollbarColor`
+  // CSS properties.
+  bool prefers_default_scrollbar_styles = false;
+  bool accelerated_2d_canvas_enabled = false;
   bool canvas_2d_layers_enabled = false;
-  bool antialiased_2d_canvas_disabled;
-  bool antialiased_clips_2d_canvas_enabled;
-  bool accelerated_filters_enabled;
-  bool deferred_filters_enabled;
-  bool container_culling_enabled;
-  bool allow_running_insecure_content;
+  bool antialiased_2d_canvas_disabled = false;
+  bool antialiased_clips_2d_canvas_enabled = true;
+  bool accelerated_filters_enabled = false;
+  bool deferred_filters_enabled = false;
+  bool container_culling_enabled = false;
+  bool allow_running_insecure_content = false;
   // If true, taints all <canvas> elements, regardless of origin.
-  bool disable_reading_from_canvas;
+  bool disable_reading_from_canvas = false;
   // Strict mixed content checking disables both displaying and running insecure
   // mixed content, and disables embedder notifications that such content was
   // requested (thereby preventing user override).
-  bool strict_mixed_content_checking;
-  // Strict powerful feature restrictions block insecure usage of powerful
-  // features (like device orientation) that we haven't yet disabled for the web
-  // at large.
-  bool strict_powerful_feature_restrictions;
+  bool strict_mixed_content_checking = false;
   // TODO(jww): Remove when WebView no longer needs this exception.
-  bool allow_geolocation_on_insecure_origins;
+  bool allow_geolocation_on_insecure_origins = false;
   // Disallow user opt-in for blockable mixed content.
-  bool strictly_block_blockable_mixed_content;
-  bool block_mixed_plugin_content;
-  bool password_echo_enabled;
-  bool should_print_backgrounds;
-  bool should_clear_document_background;
-  bool enable_scroll_animator;
-  bool threaded_scrolling_enabled;
-  bool prefers_reduced_motion;
-  bool touch_event_feature_detection_enabled;
-  int pointer_events_max_touch_points;
-  int available_pointer_types;
-  blink::mojom::PointerType primary_pointer_type;
-  int available_hover_types;
-  blink::mojom::HoverType primary_hover_type;
-  blink::mojom::OutputDeviceUpdateAbilityType output_device_update_ability_type;
-  bool dont_send_key_events_to_javascript;
+  bool strictly_block_blockable_mixed_content = false;
+  bool block_mixed_plugin_content = false;
+  bool password_echo_enabled_physical = false;
+  bool password_echo_enabled_touch = false;
+  bool should_print_backgrounds = false;
+  bool should_clear_document_background = true;
+  bool enable_scroll_animator = false;
+  bool prefers_reduced_motion = false;
+  bool prefers_reduced_transparency = false;
+  bool inverted_colors = false;
+  bool touch_event_feature_detection_enabled = false;
+  int pointer_events_max_touch_points = 0;
+  int available_pointer_types = 0;
+  blink::mojom::PointerType primary_pointer_type =
+      blink::mojom::PointerType::kPointerNone;
+  int available_hover_types = 0;
+  blink::mojom::HoverType primary_hover_type =
+      blink::mojom::HoverType::kHoverNone;
+  blink::mojom::OutputDeviceUpdateAbilityType
+      output_device_update_ability_type =
+          blink::mojom::OutputDeviceUpdateAbilityType::kFastType;
+  bool dont_send_key_events_to_javascript = false;
   bool barrel_button_for_drag_enabled = false;
-  bool sync_xhr_in_documents_enabled;
+  bool sync_xhr_in_documents_enabled = true;
   // TODO(https://crbug.com/1163644): Remove once Chrome Apps are deprecated.
   bool target_blank_implies_no_opener_enabled_will_be_removed = true;
-  // TODO(https://crbug.com/1172495): Remove once Chrome Apps are deprecated.
-  bool allow_non_empty_navigator_plugins = false;
-  int number_of_cpu_cores;
-  blink::mojom::EditingBehavior editing_behavior;
-  bool supports_multiple_windows;
-  bool viewport_enabled;
-  bool viewport_meta_enabled;
-  bool auto_zoom_focused_editable_to_legible_scale;
+  // TODO(https://crbug.com/404106817): Remove once Chrome Apps are deprecated.
+  bool ignore_permission_for_device_changed_event = false;
+  int number_of_cpu_cores = 1;
+  blink::mojom::EditingBehavior editing_behavior =
+#if BUILDFLAG(IS_APPLE)
+      mojom::EditingBehavior::kEditingMacBehavior;
+#elif BUILDFLAG(IS_WIN)
+      mojom::EditingBehavior::kEditingWindowsBehavior;
+#elif BUILDFLAG(IS_ANDROID)
+      mojom::EditingBehavior::kEditingAndroidBehavior;
+#elif BUILDFLAG(IS_CHROMEOS)
+      mojom::EditingBehavior::kEditingChromeOSBehavior;
+#elif BUILDFLAG(IS_POSIX)
+      mojom::EditingBehavior::kEditingUnixBehavior;
+#else
+      mojom::EditingBehavior::kEditingMacBehavior;
+#endif
+
+  bool supports_multiple_windows = true;
+  bool viewport_enabled = false;
+  bool viewport_meta_enabled = BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS);
+  bool auto_zoom_focused_editable_to_legible_scale =
+      BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS);
 
   // If true - Blink will clamp the minimum scale factor to the content width,
   // preventing zoom beyond the visible content. This is really only needed if
-  // viewport_enabled is on.
-  bool shrinks_viewport_contents_to_fit;
+  // `viewport_enabled` is on.
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+  bool shrinks_viewport_contents_to_fit = kShrinksViewportContentsToFit;
+#else
+  bool shrinks_viewport_contents_to_fit = false;
+#endif
 
-  blink::mojom::ViewportStyle viewport_style;
-  bool always_show_context_menu_on_touch;
-  bool smooth_scroll_for_find_enabled;
-  bool main_frame_resizes_are_orientation_changes;
-  bool initialize_at_minimum_page_scale;
-  bool smart_insert_delete_enabled;
-  bool spatial_navigation_enabled;
-  bool navigate_on_drag_drop;
-  bool fake_no_alloc_direct_call_for_testing_enabled;
-  blink::mojom::V8CacheOptions v8_cache_options;
-  bool record_whole_document;
+  blink::mojom::ViewportStyle viewport_style =
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+      mojom::ViewportStyle::kMobile;
+#else
+      mojom::ViewportStyle::kDefault;
+#endif
+  bool always_show_context_menu_on_touch =
+      !(BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS));
+  bool smooth_scroll_for_find_enabled =
+      BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS);
+  bool main_frame_resizes_are_orientation_changes =
+      BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS);
+  bool initialize_at_minimum_page_scale = true;
+  bool smart_insert_delete_enabled = BUILDFLAG(IS_MAC);
+  bool spatial_navigation_enabled = false;
+  blink::mojom::V8CacheOptions v8_cache_options =
+      blink::mojom::V8CacheOptions::kDefault;
+  bool record_whole_document = false;
 
   // If true, stylus handwriting recognition to text input will be available in
   // editable input fields which are non-password type.
-  bool stylus_handwriting_enabled;
+  bool stylus_handwriting_enabled = false;
 
   // This flags corresponds to a Page's Settings' setCookieEnabled state. It
   // only controls whether or not the "document.cookie" field is properly
   // connected to the backing store, for instance if you wanted to be able to
   // define custom getters and setters from within a unique security content
   // without raising a DOM security exception.
-  bool cookie_enabled;
+  bool cookie_enabled = true;
 
   // This flag indicates whether H/W accelerated video decode is enabled.
   // Defaults to false.
-  bool accelerated_video_decode_enabled;
+  bool accelerated_video_decode_enabled = false;
 
   blink::mojom::ImageAnimationPolicy animation_policy =
       blink::mojom::ImageAnimationPolicy::kImageAnimationPolicyAllowed;
 
-  bool user_gesture_required_for_presentation;
+  bool user_gesture_required_for_presentation = true;
 
-  bool text_tracks_enabled;
+  bool text_tracks_enabled = false;
 
   // These fields specify the foreground and background color for WebVTT text
   // tracks. Their values can be any legal CSS color descriptor.
@@ -203,57 +238,69 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // Specifies the margin for WebVTT text tracks as a percentage of media
   // element height/width (for horizontal/vertical text respectively).
   // Cues will not be placed in this margin area.
-  float text_track_margin_percentage;
+  float text_track_margin_percentage = 0.0f;
 
-  bool immersive_mode_enabled;
+  bool immersive_mode_enabled = false;
+  bool immersive_video_playback_enabled = false;
 
-  bool double_tap_to_zoom_enabled;
+  bool double_tap_to_zoom_enabled =
+      BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_APPLE);
 
-  bool fullscreen_supported;
+  bool fullscreen_supported = true;
 
-  bool text_autosizing_enabled;
+  bool text_size_adjust_enabled = BUILDFLAG(IS_ANDROID);
 
   // Representation of the Web App Manifest scope if any.
   GURL web_app_scope;
 
+  // Whether this renderer is associated with the browser's initial ("Default")
+  // profile.
+  bool is_initial_profile = false;
+
 #if BUILDFLAG(IS_ANDROID)
-  float font_scale_factor;
-  float device_scale_adjustment;
-  bool force_enable_zoom;
+  float font_scale_factor = 1.0f;
+  int font_weight_adjustment = 0;
+  int text_size_contrast_factor = 0;
+  bool force_enable_zoom = false;
+  bool enable_touchpad_overscroll_history_navigation = true;
   GURL default_video_poster_url;
-  bool support_deprecated_target_density_dpi;
-  bool use_legacy_background_size_shorthand_behavior;
-  bool wide_viewport_quirk;
-  bool use_wide_viewport;
-  bool force_zero_layout_height;
-  bool viewport_meta_merge_content_quirk;
-  bool viewport_meta_non_user_scalable_quirk;
-  bool viewport_meta_zero_values_quirk;
-  bool clobber_user_agent_initial_scale_quirk;
-  bool ignore_main_frame_overflow_hidden_quirk;
-  bool report_screen_size_in_physical_pixels_quirk;
+  bool support_deprecated_target_density_dpi = false;
+  bool wide_viewport_quirk = false;
+  bool use_wide_viewport = true;
+  bool force_zero_layout_height = false;
+  bool viewport_meta_merge_content_quirk = false;
+  bool viewport_meta_non_user_scalable_quirk = false;
+  bool viewport_meta_zero_values_quirk = false;
+  bool clobber_user_agent_initial_scale_quirk = false;
+  bool ignore_main_frame_overflow_hidden_quirk = false;
+  bool report_screen_size_in_physical_pixels_quirk = false;
   // Used by Android_WebView only to support legacy apps that inject script into
   // a top-level initial empty document and expect it to persist on navigation.
-  bool reuse_global_for_unowned_main_frame;
+  bool reuse_global_for_unowned_main_frame = false;
   // Specifies default setting for spellcheck when the spellcheck attribute is
   // not explicitly specified.
-  bool spellcheck_enabled_by_default;
+  bool spellcheck_enabled_by_default = true;
   // If enabled, when a video goes fullscreen, the orientation should be locked.
-  bool video_fullscreen_orientation_lock_enabled;
+  bool video_fullscreen_orientation_lock_enabled = false;
   // If enabled, fullscreen should be entered/exited when the device is rotated
   // to/from the orientation of the video.
-  bool video_rotate_to_fullscreen_enabled;
-  bool embedded_media_experience_enabled;
+  bool video_rotate_to_fullscreen_enabled = false;
+  bool embedded_media_experience_enabled = false;
   // Enable 8 (#RRGGBBAA) and 4 (#RGBA) value hex colors in CSS Android
   // WebView quirk (http://crbug.com/618472).
-  bool css_hex_alpha_color_enabled;
+  bool css_hex_alpha_color_enabled = true;
   // Enable support for document.scrollingElement
   // WebView sets this to false to retain old documentElement behaviour
   // (http://crbug.com/761016).
-  bool scroll_top_left_interop_enabled;
+  bool scroll_top_left_interop_enabled = true;
 
   // Don't accelerate small canvases to avoid crashes TODO(crbug.com/1004304)
-  bool disable_accelerated_small_canvases;
+  bool disable_accelerated_small_canvases = false;
+
+  // Long press on links selects text instead of triggering context menu.
+  bool long_press_link_select_text = false;
+  // Support WebView font scaling behavior that differs from Chrome.
+  bool scale_all_fonts_if_no_meta_text_scale_tag = false;
 #endif  // BUILDFLAG(IS_ANDROID)
 
 // TODO(crbug.com/1284805): Remove IS_ANDROID once WebView supports WebAuthn.
@@ -271,36 +318,71 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // Default (used if the page or UA doesn't override these) values for page
   // scale limits. These are set directly on the WebView so there's no analogue
   // in WebSettings.
-  float default_minimum_page_scale_factor;
-  float default_maximum_page_scale_factor;
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+  float default_minimum_page_scale_factor = kDefaultMinimumPageScaleFactor;
+  float default_maximum_page_scale_factor = 5.f;
+#elif BUILDFLAG(IS_MAC)
+  float default_minimum_page_scale_factor = 1.f;
+  float default_maximum_page_scale_factor = 3.f;
+#else
+  float default_minimum_page_scale_factor = 1.f;
+  float default_maximum_page_scale_factor = 4.f;
+#endif
 
   // Whether download UI should be hidden on this page.
-  bool hide_download_ui;
+  bool hide_download_ui = false;
 
   // Whether it is a presentation receiver.
-  bool presentation_receiver;
+  bool presentation_receiver = false;
 
   // If disabled, media controls should never be used.
-  bool media_controls_enabled;
+  bool media_controls_enabled = true;
 
   // Whether we want to disable updating selection on mutating selection range.
   // This is to work around Samsung's email app issue. See
   // https://crbug.com/699943 for details.
   // TODO(changwan): remove this once we no longer support Android N.
-  bool do_not_update_selection_on_mutating_selection_range;
+  bool do_not_update_selection_on_mutating_selection_range = false;
 
   // Defines the current autoplay policy.
   blink::mojom::AutoplayPolicy autoplay_policy =
-      blink::mojom::AutoplayPolicy::kNoUserGestureRequired;
+      blink::mojom::AutoplayPolicy::kDocumentUserActivationRequired;
 
   // `getDisplayMedia()`'s transient activation requirement can be bypassed via
   // `ScreenCaptureWithoutGestureAllowedForOrigins` policy.
-  bool require_transient_activation_for_get_display_media;
+  bool require_transient_activation_for_get_display_media = true;
 
   // `show{OpenFile|SaveFile|Directory}Picker()`'s transient activation
   // requirement can be bypassed via
   // `FileOrDirectoryPickerWithoutGestureAllowedForOrigins` policy.
-  bool require_transient_activation_for_show_file_or_directory_picker;
+  bool require_transient_activation_for_show_file_or_directory_picker = true;
+
+  // `navigator.subApps.{add|remove|list}()`'s user gesture and authorization
+  // can be bypassed via
+  // `SubAppsAPIsAllowedWithoutGestureAndAuthorizationForOrigins` policy.
+  bool subapps_apis_require_user_gesture_and_authorization = true;
+
+  // The forced colors state for the web content. The forced colors state
+  // is used to evaluate the forced-colors media query, as well as determining
+  // when to apply system color overrides to author specified styles.
+  bool in_forced_colors = false;
+
+  // Indicates if Forced Colors mode should be disabled for this page.
+  // This allows users opt out of forced colors on specific sites.
+  // Forced colors are disabled for sites in the `kPageColorsBlockList` pref.
+  bool is_forced_colors_disabled = false;
+
+  // Holds the browser's theme color to be used to render root non-overlay
+  // Fluent scrollbars. Stored from an SkColor as ARGB.
+  std::optional<SkColor> root_scrollbar_theme_color;
+
+  // The preferred color scheme set by the user's browser settings. The variable
+  // follows the browser's color mode setting unless a browser theme (custom or
+  // not) is defined, in which case the color scheme is set to the default
+  // value. This value is used to evaluate the used color scheme in non overlay
+  // root scrollbars.
+  blink::mojom::PreferredColorScheme preferred_root_scrollbar_color_scheme =
+      blink::mojom::PreferredColorScheme::kLight;
 
   // The preferred color scheme for the web content. The scheme is used to
   // evaluate the prefers-color-scheme media query and resolve UA color scheme
@@ -315,15 +397,19 @@ struct BLINK_COMMON_EXPORT WebPreferences {
 
   // Network quality threshold below which resources from iframes are assigned
   // either kVeryLow or kVeryLow Blink priority.
-  EffectiveConnectionType low_priority_iframes_threshold;
+  EffectiveConnectionType low_priority_iframes_threshold =
+      EffectiveConnectionType::kEffectiveConnectionUnknownType;
 
   // Whether Picture-in-Picture is enabled.
-  bool picture_in_picture_enabled;
+  bool picture_in_picture_enabled = true;
 
   // Whether a translate service is available.
   // blink's hrefTranslate attribute existence relies on the result.
   // See https://github.com/dtapuska/html-translate
-  bool translate_service_available;
+  bool translate_service_available = false;
+
+  // Whether to highlight ads on the page.
+  bool highlight_ads = false;
 
   // A value other than
   // mojom::EffectiveConnectionType::kEffectiveConnectionUnknownType implies
@@ -331,26 +417,27 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // mode. When the holdback is enabled, the related Web APIs return network
   // quality estimate corresponding to |network_quality_estimator_web_holdback|
   // regardless of the actual quality.
-  EffectiveConnectionType network_quality_estimator_web_holdback;
+  EffectiveConnectionType network_quality_estimator_web_holdback =
+      EffectiveConnectionType::kEffectiveConnectionUnknownType;
 
   // Whether lazy loading of frames and images is enabled.
   bool lazy_load_enabled = true;
 
   // Setting to false disables upgrades to HTTPS for HTTP resources in HTTPS
   // sites.
-  bool allow_mixed_content_upgrades;
+  bool allow_mixed_content_upgrades = true;
 
   // Whether the focused element should always be indicated (for example, by
   // forcing :focus-visible to match regardless of focus method).
-  bool always_show_focus;
+  bool always_show_focus = false;
 
   // Whether touch input can trigger HTML drag-and-drop operations. The
   // default value depends on the platform.
-  bool touch_drag_drop_enabled;
+  bool touch_drag_drop_enabled = false;
 
   // Whether the end of a drag fires a contextmenu event and possibly shows a
-  // context-menu (depends on how the event is handled).  Currently touch-drags
-  // cannot show context menus, see crbug.com/1096189.
+  // context-menu (depends on how the event is handled). Follows
+  // `touch_drag_drop_enabled` in Windows.
   bool touch_dragend_context_menu = false;
 
   // By default, WebXR's immersive-ar session creation is allowed, but this can
@@ -369,6 +456,41 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // Whether modal context menu is used. A modal context menu meaning it is
   // blocking user's access to the background web content.
   bool modal_context_menu = true;
+
+  // Whether the safe-area-insets should be changed dynamically based on
+  // browser controls shown ratio on Android.
+  bool dynamic_safe_area_insets_enabled = false;
+
+  // Whether PaymentRequest is enabled. Controlled by WebView settings on
+  // WebView and by `kWebPayments` feature flag everywhere.
+  bool payment_request_enabled = false;
+
+  // Enables the origin trial Built-in AI APIs, for use within DevTools and
+  // devtools extension panels.
+  bool ai_ot_apis_enabled = false;
+
+  // Whether IgnoreDuplicateNav is enabled. Controlled by WebView settings on
+  // WebView and by `kIgnoreDuplicateNav` feature flag everywhere.
+  bool ignore_duplicate_nav_enabled = false;
+
+  // Threshold for IgnoreDuplicateNavs. Controlled by WebView settings on
+  // WebView and by `kDuplicateNavThreshold` feature param everywhere.
+  base::TimeDelta duplicate_nav_threshold;
+
+#if BUILDFLAG(IS_MAC)
+  bool should_disable_external_popups = false;
+#endif  // BUILDFLAG(IS_MAC)
+
+#if BUILDFLAG(IS_ANDROID)
+  // Whether a screenshot will be take for every traversable mainframe same-doc
+  // navigation. This will increment the `viz::LocalSurfaceId` from the impl
+  // thread as a side-effect.
+  bool should_screenshot_on_mainframe_same_doc_navigation = true;
+#endif  // BUILDFLAG(IS_ANDROID)
+
+  // Set if this is in a WebView for chrome/browser/indigo/onboarding/.
+  // Consumed only in chrome/renderer/ (not by Blink).
+  bool is_indigo_onboarding = false;
 
   // We try to keep the default values the same as the default values in
   // chrome, except for the cases where it would require lots of extra work for

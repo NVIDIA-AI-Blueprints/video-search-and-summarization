@@ -14,8 +14,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include <optional>
+#include <span>
 
 namespace webrtc {
 
@@ -44,8 +44,8 @@ class RmsLevel {
   void Reset();
 
   // Pass each chunk of audio to Analyze() to accumulate the level.
-  void Analyze(rtc::ArrayView<const int16_t> data);
-  void Analyze(rtc::ArrayView<const float> data);
+  void Analyze(std::span<const int16_t> data);
+  void Analyze(std::span<const float> data);
 
   // If all samples with the given `length` have a magnitude of zero, this is
   // a shortcut to avoid some computation.
@@ -69,7 +69,7 @@ class RmsLevel {
   float sum_square_;
   size_t sample_count_;
   float max_sum_square_;
-  absl::optional<size_t> block_size_;
+  std::optional<size_t> block_size_;
 };
 
 }  // namespace webrtc

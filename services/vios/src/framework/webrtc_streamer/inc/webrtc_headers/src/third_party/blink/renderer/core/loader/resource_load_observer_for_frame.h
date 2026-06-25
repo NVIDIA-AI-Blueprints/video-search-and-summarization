@@ -8,9 +8,11 @@
 #include <inttypes.h>
 
 #include "base/containers/span.h"
+#include "third_party/blink/public/mojom/permissions_policy/policy_disposition.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_observer.h"
+#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
 
@@ -45,15 +47,14 @@ class CORE_EXPORT ResourceLoadObserverForFrame final
                           const Resource* resource,
                           ResponseSource) override;
   void DidReceiveData(uint64_t identifier,
-                      base::span<const char> chunk) override;
+                      base::SpanOrSize<const char> chunk) override;
   void DidReceiveTransferSizeUpdate(uint64_t identifier,
                                     int transfer_size_diff) override;
   void DidDownloadToBlob(uint64_t identifier, BlobDataHandle*) override;
   void DidFinishLoading(uint64_t identifier,
                         base::TimeTicks finish_time,
                         int64_t encoded_data_length,
-                        int64_t decoded_body_length,
-                        bool should_report_corb_blocking) override;
+                        int64_t decoded_body_length) override;
   void DidFailLoading(const KURL&,
                       uint64_t identifier,
                       const ResourceError&,
@@ -61,17 +62,33 @@ class CORE_EXPORT ResourceLoadObserverForFrame final
                       IsInternalRequest) override;
   void DidChangeRenderBlockingBehavior(Resource* resource,
                                        const FetchParameters& params) override;
+  bool InterestedInAllRequests() override;
   void Trace(Visitor*) const override;
 
  private:
   CoreProbeSink* GetProbe();
   void CountUsage(WebFeature);
+  void CheckGuardrailsPolicyForSizeLimit(uint64_t identifier, uint64_t bytes);
 
   // There are some overlap between |document_loader_|, |document_| and
   // |fetcher_properties_|. Use |fetcher_properties_| whenever possible.
   const Member<DocumentLoader> document_loader_;
   const Member<Document> document_;
   const Member<const ResourceFetcherProperties> fetcher_properties_;
+
+  // Track resource metrics by identifier for network-efficiency-guardrails
+  // byte limit enforcement.
+  struct ResourceMetrics {
+    uint64_t accumulated_bytes = 0;
+    KURL url;
+
+    ResourceMetrics() = default;
+    explicit ResourceMetrics(const KURL& resource_url) : url(resource_url) {}
+  };
+
+  HashMap<uint64_t, ResourceMetrics> resource_metrics_by_identifier_;
+  std::optional<mojom::blink::PolicyDisposition> guardrails_policy_state_;
+  bool guardrails_policy_state_initialized_ = false;
 };
 
 }  // namespace blink

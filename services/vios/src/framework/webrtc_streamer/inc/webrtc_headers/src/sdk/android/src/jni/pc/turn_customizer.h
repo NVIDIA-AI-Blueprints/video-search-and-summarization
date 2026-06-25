@@ -11,6 +11,8 @@
 #ifndef SDK_ANDROID_SRC_JNI_PC_TURN_CUSTOMIZER_H_
 #define SDK_ANDROID_SRC_JNI_PC_TURN_CUSTOMIZER_H_
 
+#include <jni.h>
+
 #include "api/turn_customizer.h"
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 

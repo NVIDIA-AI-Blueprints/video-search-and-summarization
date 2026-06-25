@@ -10,6 +10,8 @@
 #ifndef SDK_ANDROID_SRC_JNI_SCOPED_JAVA_REF_COUNTED_H_
 #define SDK_ANDROID_SRC_JNI_SCOPED_JAVA_REF_COUNTED_H_
 
+#include <jni.h>
+
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {

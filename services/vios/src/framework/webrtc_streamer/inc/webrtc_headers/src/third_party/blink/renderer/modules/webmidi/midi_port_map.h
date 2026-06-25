@@ -31,18 +31,15 @@ class MIDIPortMap : public ScriptWrappable, public Maplike<InterfaceType> {
  private:
   // We use HeapVector here to keep the entry order.
   using Entries = HeapVector<Member<ValueType>>;
-  using IteratorType = typename Entries::const_iterator;
 
   typename PairSyncIterable<InterfaceType>::IterationSource*
-  CreateIterationSource(ScriptState*, ExceptionState&) override {
-    return MakeGarbageCollected<MapIterationSource>(this, entries_.begin(),
-                                                    entries_.end());
+  CreateIterationSource(ScriptState*) override {
+    return MakeGarbageCollected<MapIterationSource>(this);
   }
 
   bool GetMapEntry(ScriptState*,
                    const String& key,
-                   ValueType*& value,
-                   ExceptionState&) override {
+                   ValueType*& value) override {
     // FIXME: This function is not O(1). Perhaps it's OK because in typical
     // cases not so many ports are connected.
     for (const auto& p : entries_) {
@@ -59,20 +56,20 @@ class MIDIPortMap : public ScriptWrappable, public Maplike<InterfaceType> {
   class MapIterationSource final
       : public PairSyncIterable<InterfaceType>::IterationSource {
    public:
-    MapIterationSource(MIDIPortMap<InterfaceType, ValueType>* map,
-                       IteratorType iterator,
-                       IteratorType end)
-        : map_(map), iterator_(iterator), end_(end) {}
+    explicit MapIterationSource(MIDIPortMap<InterfaceType, ValueType>* map)
+        : map_(map) {}
 
     bool FetchNextItem(ScriptState* script_state,
                        String& key,
-                       ValueType*& value,
-                       ExceptionState&) override {
-      if (iterator_ == end_)
+                       ValueType*& value) override {
+      const Entries& entries = map_->entries_;
+      if (index_ == entries.size()) {
         return false;
-      key = (*iterator_)->id();
-      value = *iterator_;
-      ++iterator_;
+      }
+      auto& entry = entries[index_];
+      key = entry->id();
+      value = entry;
+      ++index_;
       return true;
     }
 
@@ -85,8 +82,7 @@ class MIDIPortMap : public ScriptWrappable, public Maplike<InterfaceType> {
     // map_ is stored just for keeping it alive. It needs to be kept
     // alive while JavaScript holds the iterator to it.
     const Member<const MIDIPortMap<InterfaceType, ValueType>> map_;
-    IteratorType iterator_;
-    const IteratorType end_;
+    wtf_size_t index_ = 0;
   };
 
   const Entries entries_;

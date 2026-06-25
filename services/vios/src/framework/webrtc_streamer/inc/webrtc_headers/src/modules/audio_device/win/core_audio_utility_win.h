@@ -23,9 +23,9 @@
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "api/audio/audio_device_defines.h"
 #include "api/units/time_delta.h"
 #include "modules/audio_device/audio_device_name.h"
-#include "modules/audio_device/include/audio_device_defines.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/string_utils.h"
 
@@ -84,7 +84,8 @@ class ScopedMMCSSRegistration {
   }
 
   explicit ScopedMMCSSRegistration(const wchar_t* task_name) {
-    RTC_DLOG(LS_INFO) << "ScopedMMCSSRegistration: " << rtc::ToUtf8(task_name);
+    RTC_DLOG(LS_INFO) << "ScopedMMCSSRegistration: "
+                      << webrtc::ToUtf8(task_name);
     // Register the calling thread with MMCSS for the supplied `task_name`.
     DWORD mmcss_task_index = 0;
     mmcss_handle_ = AvSetMmThreadCharacteristicsW(task_name, &mmcss_task_index);

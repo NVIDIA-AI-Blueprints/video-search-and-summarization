@@ -60,6 +60,12 @@ class PaintArtifactCompositor;
 class CORE_EXPORT PendingAnimations final
     : public GarbageCollected<PendingAnimations> {
  public:
+  // Compositor group reserved for animations which are to be auto-assigned
+  // groups.
+  static const int kCompositorGroupAutoAssign = 0;
+  // Compositor group reserved for animations which already have a start time.
+  static const int kCompositorGroupHasStartTime = 1;
+
   explicit PendingAnimations(Document& document)
       : timer_(document.GetTaskRunner(TaskType::kInternalDefault),
                this,
@@ -95,9 +101,10 @@ class CORE_EXPORT PendingAnimations final
 
   void Trace(Visitor*) const;
 
+  int NextCompositorGroup();
+
  private:
   void TimerFired(TimerBase*);
-  int NextCompositorGroup();
   void FlushWaitingNonCompositedAnimations();
 
   HeapVector<Member<Animation>> pending_;

@@ -5,7 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_SCROLLING_STICKY_POSITION_SCROLLING_CONSTRAINTS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_SCROLLING_STICKY_POSITION_SCROLLING_CONSTRAINTS_H_
 
+#include <optional>
+
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/layout/geometry/axis.h"
+#include "third_party/blink/renderer/core/layout/geometry/box_edge.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -13,7 +17,9 @@
 
 namespace blink {
 
+class LayoutBox;
 class LayoutBoxModelObject;
+class LayoutObject;
 class PaintLayer;
 
 // Encapsulates the constraint information for a position: sticky element and
@@ -70,35 +76,10 @@ class PaintLayer;
 // already being shifted by its ancestor. To correctly handle such situations we
 // apply more complicated logic which is explained in the implementation of
 // |ComputeStickyOffset|.
-struct CORE_EXPORT StickyPositionScrollingConstraints final
-    : public GarbageCollected<StickyPositionScrollingConstraints> {
+struct CORE_EXPORT StickyPositionScrollingConstraints final {
+  STACK_ALLOCATED();
+
  public:
-  // Computes the sticky offset for a given scroll position of the containing
-  // scroll container. When the scroll position changed in a ScrollableArea,
-  // this method must be called for all affected sticky objects in pre-tree
-  // order.
-  void ComputeStickyOffset(const gfx::PointF& scroll_position);
-
-  // Returns the last-computed offset of the sticky box from its original
-  // position before scroll.
-  PhysicalOffset StickyOffset() const { return sticky_offset_; }
-
-  void Trace(Visitor* visitor) const;
-
-  bool is_anchored_left = false;
-  bool is_anchored_right = false;
-  bool is_anchored_top = false;
-  bool is_anchored_bottom = false;
-
-  LayoutUnit left_offset;
-  LayoutUnit right_offset;
-  LayoutUnit top_offset;
-  LayoutUnit bottom_offset;
-
-  // The rectangle in which the sticky box is able to be positioned. This may be
-  // smaller than the scroller viewport due to things like padding.
-  PhysicalRect constraining_rect;
-
   // The containing block rect and sticky box rect are the basic components
   // for calculating the sticky offset to apply after a scroll. Consider the
   // following setup:
@@ -108,72 +89,218 @@ struct CORE_EXPORT StickyPositionScrollingConstraints final
   //     <sticky-element>
   //
   // (*) <containing-block> may be the same as <scroll-container>.
-
-  // The layout position of the containing block relative to the scroll
-  // container. When calculating the sticky offset it is used to ensure the
-  // sticky element stays bounded by its containing block.
-  PhysicalRect scroll_container_relative_containing_block_rect;
-
-  // The layout position of the sticky element relative to the scroll container.
-  // When calculating the sticky offset it is used to determine how large the
-  // offset needs to be to satisfy the sticky constraints.
-  PhysicalRect scroll_container_relative_sticky_box_rect;
-
-  // In the case of nested sticky elements the layout position of the sticky
-  // element and its containing block are not accurate (as they are affected by
-  // ancestor sticky offsets). To ensure a correct sticky offset calculation in
-  // that case we must track any sticky ancestors between the sticky element and
-  // its containing block, and between its containing block and the overflow
-  // clip ancestor.
   //
-  // See the implementation of |ComputeStickyOffset| for documentation on how
-  // these ancestors are used to correct the offset calculation.
-  Member<const LayoutBoxModelObject> nearest_sticky_layer_shifting_sticky_box =
-      nullptr;
-  Member<const LayoutBoxModelObject>
-      nearest_sticky_layer_shifting_containing_block = nullptr;
+  // Constraint data for a specific physical axis (horizontal or vertical).
+  struct CORE_EXPORT PerAxisData : public GarbageCollected<PerAxisData> {
+    PerAxisData(PhysicalAxis axis,
+                const PhysicalRect& containing_block,
+                const PhysicalRect& sticky_box,
+                const PhysicalRect& constraining,
+                const LayoutObject* location_container,
+                const LayoutBox* sticky_container,
+                const PaintLayer* containing_scroll_container_layer,
+                bool is_fixed_to_view,
+                std::optional<LayoutUnit> min_inset,
+                std::optional<LayoutUnit> max_inset,
+                std::optional<LayoutUnit> min_inset_for_get_computed_style,
+                std::optional<LayoutUnit> max_inset_for_get_computed_style);
 
-  // These fields cache the result of
-  // PaintLayer::ContainingScrollContainerLayer().
-  Member<const PaintLayer> containing_scroll_container_layer = nullptr;
-  bool is_fixed_to_view = false;
+    // The axis this data represents.
+    const PhysicalAxis axis;
+
+    // The distances from the scroll container edges that the sticky box is
+    // constrained to stay within.
+    const std::optional<LayoutUnit> min_inset;
+    const std::optional<LayoutUnit> max_inset;
+
+    // Used to return the "used value" for getComputedStyle(). The same as
+    // above but without correcting for the over-constrained cases.
+    const std::optional<LayoutUnit> min_inset_for_get_computed_style;
+    const std::optional<LayoutUnit> max_inset_for_get_computed_style;
+
+    // The layout position of the containing block relative to the scroll
+    // container. When calculating the sticky offset it is used to ensure the
+    // sticky element stays bounded by its containing block.
+    const BoxEdge scroll_container_relative_containing_block_range;
+
+    // The layout position of the sticky element relative to the scroll
+    // container. When calculating the sticky offset it is used to determine
+    // how large the offset needs to be to satisfy the sticky constraints.
+    const BoxEdge scroll_container_relative_sticky_box_range;
+
+    // The rectangle in which the sticky box is able to be positioned. This may
+    // be smaller than the scroller viewport due to things like padding.
+    const BoxEdge constraining_range;
+
+    // In the case of nested sticky elements the layout position of the sticky
+    // element and its containing block are not accurate (as they are affected
+    // by ancestor sticky offsets). To ensure a correct sticky offset
+    // calculation in that case we must find any sticky ancestors between the
+    // sticky element and its containing block, and between its containing block
+    // and the overflow clip ancestor.
+    //
+    // These members store the search range endpoints so the nearest sticky
+    // ancestors can be recomputed on demand. The scroll-container endpoint is
+    // retrieved from |containing_scroll_container_layer|.
+    const Member<const LayoutObject> location_container;
+    const Member<const LayoutBox> sticky_container;
+
+    // These fields cache the result of
+    // PaintLayer::ContainingScrollContainerLayer() for this axis.
+    const Member<const PaintLayer> containing_scroll_container_layer;
+
+    // Whether or not a `position: fixed` element exists in the chain up to
+    // the parent `containing_scroll_container_layer`. If so - the sticky
+    // element (for this axis) will not be affected by scrolling from that
+    // parent.
+    const bool is_fixed_to_view;
+
+    // For performance we cache our accumulated sticky offset to allow
+    // descendant sticky elements to offset their constraint rects. Because we
+    // can either affect a descendant element's sticky box constraint rect or
+    // containing block constraint rect, we need to accumulate two offsets.
+    //
+    // The sticky box offset accumulates the chain of sticky elements that are
+    // between this sticky element and its containing block. Any descendant
+    // using |total_sticky_box_sticky_offset| has the same containing block as
+    // this element, so |total_sticky_box_sticky_offset| does not accumulate
+    // containing block sticky offsets. For example, consider the following
+    // chain:
+    //
+    // <div style="position: sticky;">
+    //   <div id="outerInline" style="position: sticky; display: inline;">
+    //     <div id="innerInline" style="position: sticky; display:
+    //     inline;"><div>
+    //   </div>
+    // </div>
+    //
+    // In the above example, both outerInline and innerInline have the same
+    // containing block - the outermost <div>.
+    LayoutUnit total_sticky_box_sticky_offset;
+
+    // The containing block offset accumulates all sticky-related offsets
+    // between this element and the ancestor scroller. If this element is a
+    // containing block shifting ancestor for some descendant, it shifts the
+    // descendant's constraint rects by its entire offset.
+    LayoutUnit total_containing_block_sticky_offset;
+
+    // This is the real sticky offset which is |total_sticky_box_sticky_offset|
+    // - |AncestorStickyBoxOffset()|. It's stored to avoid access to the
+    // Member<PaintLayer> fields from StickyOffset() in case it's called during
+    // layout.
+    LayoutUnit sticky_offset;
+
+    void ComputeOffset(float scroll_position);
+
+    void Trace(Visitor* visitor) const;
+
+   private:
+    LayoutUnit AncestorStickyBoxOffset() const;
+    LayoutUnit AncestorContainingBlockOffset() const;
+  };
+
+  StickyPositionScrollingConstraints() = default;
+  StickyPositionScrollingConstraints(PerAxisData* x_data, PerAxisData* y_data)
+      : x_data_(x_data), y_data_(y_data) {}
+
+  bool HasAnyConstraint() const { return x_data_ || y_data_; }
+
+  // Computes the sticky offset for a given scroll position of the containing
+  // scroll container. When the scroll position changed in a ScrollableArea,
+  // this method must be called for all affected sticky objects in pre-tree
+  // order.
+  void ComputeStickyOffset(const gfx::PointF& scroll_position,
+                           PhysicalAxes scroll_axes);
+
+  const PerAxisData* AxisData(PhysicalAxis axis) const {
+    return (axis == PhysicalAxis::kHorizontal) ? x_data_ : y_data_;
+  }
+
+  bool HasScrollDependentOffset() const;
+
+  // Returns the last-computed offset of the sticky box from its original
+  // position before scroll.
+  PhysicalOffset StickyOffset() const;
+
+  // TODO(crbug.com/481019005): Remove 2D rect reconstruction once the
+  // compositor supports independent axes.
+  PhysicalRect ConstrainingRect() const {
+    return BuildRect(x_data_ ? &x_data_->constraining_range : nullptr,
+                     y_data_ ? &y_data_->constraining_range : nullptr);
+  }
+  PhysicalRect ScrollContainerRelativeContainingBlockRect() const {
+    return BuildRect(
+        x_data_ ? &x_data_->scroll_container_relative_containing_block_range
+                : nullptr,
+        y_data_ ? &y_data_->scroll_container_relative_containing_block_range
+                : nullptr);
+  }
+  PhysicalRect ScrollContainerRelativeStickyBoxRect() const {
+    return BuildRect(
+        x_data_ ? &x_data_->scroll_container_relative_sticky_box_range
+                : nullptr,
+        y_data_ ? &y_data_->scroll_container_relative_sticky_box_range
+                : nullptr);
+  }
+
+  std::optional<LayoutUnit> LeftInset() const {
+    return x_data_ ? x_data_->min_inset : std::nullopt;
+  }
+  std::optional<LayoutUnit> RightInset() const {
+    return x_data_ ? x_data_->max_inset : std::nullopt;
+  }
+  std::optional<LayoutUnit> TopInset() const {
+    return y_data_ ? y_data_->min_inset : std::nullopt;
+  }
+  std::optional<LayoutUnit> BottomInset() const {
+    return y_data_ ? y_data_->max_inset : std::nullopt;
+  }
+
+  std::optional<LayoutUnit> LeftInsetForGetComputedStyle() const {
+    return x_data_ ? x_data_->min_inset_for_get_computed_style : std::nullopt;
+  }
+  std::optional<LayoutUnit> RightInsetForGetComputedStyle() const {
+    return x_data_ ? x_data_->max_inset_for_get_computed_style : std::nullopt;
+  }
+  std::optional<LayoutUnit> TopInsetForGetComputedStyle() const {
+    return y_data_ ? y_data_->min_inset_for_get_computed_style : std::nullopt;
+  }
+  std::optional<LayoutUnit> BottomInsetForGetComputedStyle() const {
+    return y_data_ ? y_data_->max_inset_for_get_computed_style : std::nullopt;
+  }
+
+  const PaintLayer* ContainingScrollContainerLayer() const {
+    if (const auto* data = PreferredAxisData()) {
+      return data->containing_scroll_container_layer.Get();
+    }
+    return nullptr;
+  }
+
+  const LayoutBoxModelObject* NearestStickyLayerShiftingStickyBox() const;
+  const LayoutBoxModelObject* NearestStickyLayerShiftingContainingBlock() const;
 
  private:
-  // For performance we cache our accumulated sticky offset to allow descendant
-  // sticky elements to offset their constraint rects. Because we can either
-  // affect a descendant element's sticky box constraint rect or containing
-  // block constraint rect, we need to accumulate two offsets.
+  const PerAxisData* PreferredAxisData() const;
 
-  // The sticky box offset accumulates the chain of sticky elements that are
-  // between this sticky element and its containing block. Any descendant using
-  // |total_sticky_box_sticky_offset_| has the same containing block as this
-  // element, so |total_sticky_box_sticky_offset_| does not accumulate
-  // containing block sticky offsets. For example, consider the following chain:
-  //
-  // <div style="position: sticky;">
-  //   <div id="outerInline" style="position: sticky; display: inline;">
-  //     <div id="innerInline" style="position: sticky; display: inline;"><div>
-  //   </div>
-  // </div>
-  //
-  // In the above example, both outerInline and innerInline have the same
-  // containing block - the outermost <div>.
-  PhysicalOffset total_sticky_box_sticky_offset_;
+  // Safely builds a 2D rect from 1D ranges, falling back to 0 if an axis is
+  // missing.
+  PhysicalRect BuildRect(const BoxEdge* x, const BoxEdge* y) const {
+    return PhysicalRect(x ? x->offset : LayoutUnit(),
+                        y ? y->offset : LayoutUnit(),
+                        x ? x->size : LayoutUnit(), y ? y->size : LayoutUnit());
+  }
 
-  // The containing block offset accumulates all sticky-related offsets between
-  // this element and the ancestor scroller. If this element is a containing
-  // block shifting ancestor for some descendant, it shifts the descendant's
-  // constraint rects by its entire offset.
-  PhysicalOffset total_containing_block_sticky_offset_;
+  PerAxisData* x_data_ = nullptr;
+  PerAxisData* y_data_ = nullptr;
+};
 
-  // This is the real sticky offset which is  total_sticky_box_sticky_offset_ -
-  // AncestorStickyBoxOffset(). It's stored to avoid access to the
-  // Member<PaintLayer> fields from StickyOffset() in case it's called during
-  // layout. See the TODO in LayoutBoxModelObject::StickyPositionOffset().
-  PhysicalOffset sticky_offset_;
+// Per-axis sticky constraints update payload.
+struct CORE_EXPORT StickyConstraintsData {
+  STACK_ALLOCATED();
 
-  PhysicalOffset AncestorStickyBoxOffset() const;
-  PhysicalOffset AncestorContainingBlockOffset() const;
+ public:
+  StickyPositionScrollingConstraints::PerAxisData* x_data = nullptr;
+  StickyPositionScrollingConstraints::PerAxisData* y_data = nullptr;
 };
 
 }  // namespace blink

@@ -26,33 +26,47 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_CONTENT_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_CONTENT_DATA_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/core/style/style_image.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
+#include "third_party/blink/renderer/platform/wtf/text/strcat.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
 
-class ComputedStyle;
 class LayoutObject;
-class PseudoElement;
 class TreeScope;
+class StyleEngine;
+class CountersAttachmentContext;
 
 class ContentData : public GarbageCollected<ContentData> {
  public:
   virtual ~ContentData() = default;
 
   virtual bool IsCounter() const { return false; }
+  virtual bool IsAltCounter() const { return false; }
   virtual bool IsImage() const { return false; }
   virtual bool IsQuote() const { return false; }
   virtual bool IsText() const { return false; }
   virtual bool IsAltText() const { return false; }
   virtual bool IsNone() const { return false; }
+  virtual bool IsAlt() const { return IsAltText() || IsAltCounter(); }
 
-  virtual LayoutObject* CreateLayoutObject(PseudoElement&,
-                                           const ComputedStyle&) const = 0;
+  // Returns true if this content data list contains any AltCounterContentData.
+  bool HasAltCounterContent() const;
+
+  CORE_EXPORT static String ConcatenateAltText(
+      const ContentData& first_alt_data);
+
+  // Create a layout object for this piece of content. `owner` is the layout
+  // object that has the content property, e.g. a pseudo-element, or an @page
+  // margin box.
+  virtual LayoutObject* CreateLayoutObject(LayoutObject& owner) const = 0;
 
   virtual ContentData* Clone() const;
 
@@ -67,15 +81,31 @@ class ContentData : public GarbageCollected<ContentData> {
 
   virtual void Trace(Visitor*) const;
 
+  // For debugging/logging only.
+  virtual String DebugString() const { return "<unknown>"; }
+
  private:
   virtual ContentData* CloneInternal() const = 0;
 
   Member<ContentData> next_;
+
+  friend std::ostream& operator<<(std::ostream& stream,
+                                  const ContentData& content_data);
 };
 
-class ImageContentData final : public ContentData {
-  friend class ContentData;
+inline std::ostream& operator<<(std::ostream& stream,
+                                const ContentData& content_data) {
+  const ContentData* ptr = &content_data;
+  stream << "ContentData{";
+  while (ptr) {
+    stream << content_data.DebugString();
+    stream << ",";
+    ptr = ptr->next_.Get();
+  }
+  return stream << "}";
+}
 
+class ImageContentData final : public ContentData {
  public:
   explicit ImageContentData(StyleImage* image) : image_(image) {
     DCHECK(image_);
@@ -89,18 +119,43 @@ class ImageContentData final : public ContentData {
   }
 
   bool IsImage() const override { return true; }
-  LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&) const override;
+  LayoutObject* CreateLayoutObject(LayoutObject& owner) const override;
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsImage()) {
-      return false;
-    }
-    return *static_cast<const ImageContentData&>(data).GetImage() ==
-           *GetImage();
+    const auto* other = DynamicTo<ImageContentData>(data);
+    return other && *other->GetImage() == *GetImage();
   }
 
   void Trace(Visitor*) const override;
+
+  String DebugString() const override {
+    StringBuilder str;
+    str.Append("<image: ");
+    if (image_->IsImageResource()) {
+      str.Append("[is_resource]");
+    }
+    if (image_->IsPendingImage()) {
+      str.Append("[pending]");
+    }
+    if (image_->IsGeneratedImage()) {
+      str.Append("[generated]");
+    }
+    if (image_->IsContentful()) {
+      str.Append("[contentful]");
+    }
+    if (image_->IsImageResourceSet()) {
+      str.Append("[resourceset]");
+    }
+    if (image_->IsPaintImage()) {
+      str.Append("[paint]");
+    }
+    if (image_->IsCrossfadeImage()) {
+      str.Append("[crossfade]");
+    }
+    str.Append(image_->CssValue()->CssText());
+    str.Append(">");
+    return str.ReleaseString();
+  }
 
  private:
   ContentData* CloneInternal() const override {
@@ -119,8 +174,6 @@ struct DowncastTraits<ImageContentData> {
 };
 
 class TextContentData final : public ContentData {
-  friend class ContentData;
-
  public:
   explicit TextContentData(const String& text) : text_(text) {}
 
@@ -128,15 +181,14 @@ class TextContentData final : public ContentData {
   void SetText(const String& text) { text_ = text; }
 
   bool IsText() const override { return true; }
-  LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&) const override;
+  LayoutObject* CreateLayoutObject(LayoutObject& owner) const override;
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsText()) {
-      return false;
-    }
-    return static_cast<const TextContentData&>(data).GetText() == GetText();
+    const auto* other = DynamicTo<TextContentData>(data);
+    return other && other->GetText() == GetText();
   }
+
+  String DebugString() const override { return text_; }
 
  private:
   ContentData* CloneInternal() const override {
@@ -152,8 +204,6 @@ struct DowncastTraits<TextContentData> {
 };
 
 class AltTextContentData final : public ContentData {
-  friend class ContentData;
-
  public:
   explicit AltTextContentData(const String& text) : text_(text) {}
 
@@ -161,15 +211,14 @@ class AltTextContentData final : public ContentData {
   void SetText(const String& text) { text_ = text; }
 
   bool IsAltText() const override { return true; }
-  LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&) const override;
+  LayoutObject* CreateLayoutObject(LayoutObject& owner) const override;
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsAltText()) {
-      return false;
-    }
-    return static_cast<const AltTextContentData&>(data).GetText() == GetText();
+    const auto* other = DynamicTo<AltTextContentData>(data);
+    return other && other->GetText() == GetText();
   }
+
+  String DebugString() const override { return StrCat({"<alt: ", text_, ">"}); }
 
  private:
   ContentData* CloneInternal() const override {
@@ -185,52 +234,70 @@ struct DowncastTraits<AltTextContentData> {
   }
 };
 
-class CounterContentData final : public ContentData {
+struct CounterData {
+  DISALLOW_NEW();
+
+ public:
+  CounterData(const AtomicString& identifier,
+              const AtomicString& style,
+              const AtomicString& separator,
+              const TreeScope* tree_scope)
+      : identifier(identifier),
+        list_style(style),
+        separator(separator),
+        tree_scope(tree_scope) {}
+
+  void Trace(Visitor* v) const { v->Trace(tree_scope); }
+
+  AtomicString identifier;
+  AtomicString list_style;
+  AtomicString separator;
+  Member<const TreeScope> tree_scope;
+};
+
+class CounterContentData : public ContentData {
   friend class ContentData;
 
  public:
-  explicit CounterContentData(const AtomicString& identifier,
-                              const AtomicString& style,
-                              const AtomicString& separator,
-                              const TreeScope* tree_scope)
-      : identifier_(identifier),
-        list_style_(style),
-        separator_(separator),
-        tree_scope_(tree_scope) {}
+  CounterContentData(const AtomicString& identifier,
+                     const AtomicString& style,
+                     const AtomicString& separator,
+                     const TreeScope* tree_scope)
+      : counter_data_(identifier, style, separator, tree_scope) {}
+
+  explicit CounterContentData(CounterData counter_data)
+      : counter_data_(std::move(counter_data)) {}
 
   bool IsCounter() const override { return true; }
-  LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&) const override;
+  LayoutObject* CreateLayoutObject(LayoutObject& owner) const override;
 
-  const AtomicString& Identifier() const { return identifier_; }
-  const AtomicString& ListStyle() const { return list_style_; }
-  const AtomicString& Separator() const { return separator_; }
-  const TreeScope* GetTreeScope() const { return tree_scope_; }
+  const AtomicString& Identifier() const { return counter_data_.identifier; }
+  const AtomicString& ListStyle() const { return counter_data_.list_style; }
+  const AtomicString& Separator() const { return counter_data_.separator; }
+  const TreeScope* GetTreeScope() const { return counter_data_.tree_scope; }
 
   void Trace(Visitor*) const override;
 
+  String DebugString() const override { return "<counter>"; }
+
  private:
   ContentData* CloneInternal() const override {
-    return MakeGarbageCollected<CounterContentData>(identifier_, list_style_,
-                                                    separator_, tree_scope_);
+    return MakeGarbageCollected<CounterContentData>(counter_data_);
   }
 
+ protected:
   bool Equals(const ContentData& data) const override {
-    if (!data.IsCounter()) {
+    const auto* other = DynamicTo<CounterContentData>(data);
+    if (!other) {
       return false;
     }
-    const CounterContentData& other =
-        static_cast<const CounterContentData&>(data);
-    return Identifier() == other.Identifier() &&
-           ListStyle() == other.ListStyle() &&
-           Separator() == other.Separator() &&
-           GetTreeScope() == other.GetTreeScope();
+    return Identifier() == other->Identifier() &&
+           ListStyle() == other->ListStyle() &&
+           Separator() == other->Separator() &&
+           GetTreeScope() == other->GetTreeScope();
   }
 
-  AtomicString identifier_;
-  AtomicString list_style_;
-  AtomicString separator_;
-  Member<const TreeScope> tree_scope_;
+  CounterData counter_data_;
 };
 
 template <>
@@ -240,9 +307,48 @@ struct DowncastTraits<CounterContentData> {
   }
 };
 
-class QuoteContentData final : public ContentData {
-  friend class ContentData;
+class AltCounterContentData : public CounterContentData {
+  using CounterContentData::CounterContentData;
 
+ public:
+  bool IsAltCounter() const override { return true; }
+
+  LayoutObject* CreateLayoutObject(LayoutObject& owner) const override;
+
+  const String& GetText() const { return counter_value_text_; }
+  void UpdateText(CountersAttachmentContext& context,
+                  const StyleEngine& style_engine,
+                  const LayoutObject& content_generating_object);
+
+  String DebugString() const override { return "<alt-counter>"; }
+
+ private:
+  void SetText(const String& text) { counter_value_text_ = text; }
+
+  ContentData* CloneInternal() const override {
+    auto* data = MakeGarbageCollected<AltCounterContentData>(counter_data_);
+    data->SetText(GetText());
+    return data;
+  }
+
+  bool Equals(const ContentData& data) const override {
+    const auto* other = DynamicTo<AltCounterContentData>(data);
+    return other && CounterContentData::Equals(*other) &&
+           GetText() == other->GetText();
+  }
+
+  // Text value of counter() or counters() to be used in ax object.
+  String counter_value_text_;
+};
+
+template <>
+struct DowncastTraits<AltCounterContentData> {
+  static bool AllowFrom(const ContentData& content) {
+    return content.IsAltCounter();
+  }
+};
+
+class QuoteContentData final : public ContentData {
  public:
   explicit QuoteContentData(QuoteType quote) : quote_(quote) {}
 
@@ -250,15 +356,14 @@ class QuoteContentData final : public ContentData {
   void SetQuote(QuoteType quote) { quote_ = quote; }
 
   bool IsQuote() const override { return true; }
-  LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&) const override;
+  LayoutObject* CreateLayoutObject(LayoutObject& owner) const override;
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsQuote()) {
-      return false;
-    }
-    return static_cast<const QuoteContentData&>(data).Quote() == Quote();
+    const auto* other = DynamicTo<QuoteContentData>(data);
+    return other && other->Quote() == Quote();
   }
+
+  String DebugString() const override { return "<quote>"; }
 
  private:
   ContentData* CloneInternal() const override {
@@ -276,16 +381,15 @@ struct DowncastTraits<QuoteContentData> {
 };
 
 class NoneContentData final : public ContentData {
-  friend class ContentData;
-
  public:
   explicit NoneContentData() {}
 
   bool IsNone() const override { return true; }
-  LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&) const override;
+  LayoutObject* CreateLayoutObject(LayoutObject& owner) const override;
 
   bool Equals(const ContentData& data) const override { return data.IsNone(); }
+
+  String DebugString() const override { return "<none>"; }
 
  private:
   ContentData* CloneInternal() const override {
@@ -320,7 +424,7 @@ inline bool ShouldUseContentDataForElement(const ContentData* content_data) {
   if (!content_data->IsImage()) {
     return false;
   }
-  if (content_data->Next() && !content_data->Next()->IsAltText()) {
+  if (content_data->Next() && !content_data->Next()->IsAlt()) {
     return false;
   }
 

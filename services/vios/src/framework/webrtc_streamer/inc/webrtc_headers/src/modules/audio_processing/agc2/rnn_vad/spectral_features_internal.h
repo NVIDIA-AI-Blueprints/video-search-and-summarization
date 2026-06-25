@@ -14,9 +14,9 @@
 #include <stddef.h>
 
 #include <array>
+#include <span>
 #include <vector>
 
-#include "api/array_view.h"
 #include "modules/audio_processing/agc2/rnn_vad/common.h"
 
 namespace webrtc {
@@ -55,8 +55,8 @@ class SpectralCorrelator {
   //  - be encoded as vectors of interleaved real-complex FFT coefficients
   //    where x[1] = y[1] = 0 (the Nyquist frequency coefficient is omitted).
   void ComputeAutoCorrelation(
-      rtc::ArrayView<const float> x,
-      rtc::ArrayView<float, kOpusBands24kHz> auto_corr) const;
+      std::span<const float> x,
+      std::span<float, kOpusBands24kHz> auto_corr) const;
 
   // Computes the band-wise spectral cross-correlations.
   // `x` and `y` must:
@@ -64,9 +64,9 @@ class SpectralCorrelator {
   //  - be encoded as vectors of interleaved real-complex FFT coefficients where
   //    x[1] = y[1] = 0 (the Nyquist frequency coefficient is omitted).
   void ComputeCrossCorrelation(
-      rtc::ArrayView<const float> x,
-      rtc::ArrayView<const float> y,
-      rtc::ArrayView<float, kOpusBands24kHz> cross_corr) const;
+      std::span<const float> x,
+      std::span<const float> y,
+      std::span<float, kOpusBands24kHz> cross_corr) const;
 
  private:
   const std::vector<float> weights_;  // Weights for each Fourier coefficient.
@@ -77,8 +77,8 @@ class SpectralCorrelator {
 // computes the log magnitude spectrum applying smoothing both over time and
 // over frequency. Declared here for unit testing.
 void ComputeSmoothedLogMagnitudeSpectrum(
-    rtc::ArrayView<const float> bands_energy,
-    rtc::ArrayView<float, kNumBands> log_bands_energy);
+    std::span<const float> bands_energy,
+    std::span<float, kNumBands> log_bands_energy);
 
 // TODO(bugs.webrtc.org/10480): Move to anonymous namespace in
 // spectral_features.cc. Creates a DCT table for arrays having size equal to
@@ -90,9 +90,9 @@ std::array<float, kNumBands * kNumBands> ComputeDctTable();
 // In-place computation is not allowed and `out` can be smaller than `in` in
 // order to only compute the first DCT coefficients. Declared here for unit
 // testing.
-void ComputeDct(rtc::ArrayView<const float> in,
-                rtc::ArrayView<const float, kNumBands * kNumBands> dct_table,
-                rtc::ArrayView<float> out);
+void ComputeDct(std::span<const float> in,
+                std::span<const float, kNumBands * kNumBands> dct_table,
+                std::span<float> out);
 
 }  // namespace rnn_vad
 }  // namespace webrtc

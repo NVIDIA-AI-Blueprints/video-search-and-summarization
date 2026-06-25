@@ -51,7 +51,8 @@ class CORE_EXPORT SharedWorkerGlobalScope final : public WorkerGlobalScope {
       std::unique_ptr<GlobalScopeCreationParams> creation_params,
       SharedWorkerThread* thread,
       base::TimeTicks time_origin,
-      const SharedWorkerToken& token);
+      const SharedWorkerToken& token,
+      bool require_cross_site_request_for_cookies);
 
   ~SharedWorkerGlobalScope() override;
 
@@ -65,6 +66,7 @@ class CORE_EXPORT SharedWorkerGlobalScope final : public WorkerGlobalScope {
       const KURL& response_url,
       network::mojom::ReferrerPolicy response_referrer_policy,
       Vector<network::mojom::blink::ContentSecurityPolicyPtr> response_csp,
+      DocumentPolicy::DocumentPolicyBundle response_document_policy,
       const Vector<String>* response_origin_trial_tokens) override;
   void FetchAndRunClassicScript(
       const KURL& script_url,
@@ -81,8 +83,7 @@ class CORE_EXPORT SharedWorkerGlobalScope final : public WorkerGlobalScope {
       std::unique_ptr<PolicyContainer> policy_container,
       const FetchClientSettingsObjectSnapshot& outside_settings_object,
       WorkerResourceTimingNotifier& outside_resource_timing_notifier,
-      network::mojom::CredentialsMode,
-      RejectCoepUnsafeNone reject_coep_unsafe_none) override;
+      network::mojom::CredentialsMode) override;
 
   // shared_worker_global_scope.idl
   const String name() const;
@@ -101,6 +102,14 @@ class CORE_EXPORT SharedWorkerGlobalScope final : public WorkerGlobalScope {
     return token_;
   }
 
+  // If true, then all requests made must have an empty site_for_cookies to
+  // ensure only SameSite=None cookies can be attached to the request.
+  // For context on usage see:
+  // https://privacycg.github.io/saa-non-cookie-storage/shared-workers.html
+  bool DoesRequireCrossSiteRequestForCookies() const {
+    return require_cross_site_request_for_cookies_;
+  }
+
  private:
   void DidReceiveResponseForClassicScript(
       WorkerClassicScriptLoader* classic_script_loader);
@@ -110,6 +119,8 @@ class CORE_EXPORT SharedWorkerGlobalScope final : public WorkerGlobalScope {
   void ExceptionThrown(ErrorEvent*) override;
 
   const SharedWorkerToken token_;
+
+  const bool require_cross_site_request_for_cookies_;
 };
 
 template <>

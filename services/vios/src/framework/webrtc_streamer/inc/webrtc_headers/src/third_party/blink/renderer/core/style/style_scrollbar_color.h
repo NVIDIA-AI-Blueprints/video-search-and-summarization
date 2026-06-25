@@ -11,12 +11,15 @@
 
 namespace blink {
 
-class CORE_EXPORT StyleScrollbarColor {
-  DISALLOW_NEW();
-
+class CORE_EXPORT StyleScrollbarColor
+    : public GarbageCollected<StyleScrollbarColor> {
  public:
-  StyleScrollbarColor();
   StyleScrollbarColor(StyleColor thumb_color, StyleColor track_color);
+
+  void Trace(Visitor* visitor) const {
+    visitor->Trace(thumb_color_);
+    visitor->Trace(track_color_);
+  }
 
   StyleColor GetThumbColor() const { return thumb_color_; }
   StyleColor GetTrackColor() const { return track_color_; }
@@ -24,8 +27,6 @@ class CORE_EXPORT StyleScrollbarColor {
   bool operator==(const StyleScrollbarColor& o) const {
     return thumb_color_ == o.thumb_color_ && track_color_ == o.track_color_;
   }
-
-  bool operator!=(const StyleScrollbarColor& o) const { return !(*this == o); }
 
  private:
   StyleColor thumb_color_;

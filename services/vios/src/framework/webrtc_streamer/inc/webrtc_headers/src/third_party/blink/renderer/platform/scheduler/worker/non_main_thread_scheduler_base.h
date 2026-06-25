@@ -9,7 +9,6 @@
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
-#include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/scheduler/common/single_thread_idle_task_runner.h"
 #include "third_party/blink/renderer/platform/scheduler/common/thread_scheduler_base.h"
@@ -64,7 +63,7 @@ class PLATFORM_EXPORT NonMainThreadSchedulerBase : public ThreadSchedulerBase {
 
  protected:
   // ThreadSchedulerBase:
-  WTF::Vector<base::OnceClosure>& GetOnTaskCompletionCallbacks() override;
+  Vector<base::OnceClosure>& GetOnTaskCompletionCallbacks() override;
 
   // |sequence_manager| must remain valid for the entire lifetime of
   // this object.
@@ -80,7 +79,7 @@ class PLATFORM_EXPORT NonMainThreadSchedulerBase : public ThreadSchedulerBase {
   NonMainThreadSchedulerHelper helper_;
 
   // List of callbacks to execute after the current task.
-  WTF::Vector<base::OnceClosure> on_task_completion_callbacks_;
+  Vector<base::OnceClosure> on_task_completion_callbacks_;
 };
 
 }  // namespace blink::scheduler

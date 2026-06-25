@@ -18,14 +18,19 @@
 #define SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_SLICE_TRACKER_H_
 
 #include <stdint.h>
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <vector>
 
+#include "perfetto/base/logging.h"
 #include "perfetto/ext/base/flat_hash_map.h"
 #include "src/trace_processor/importers/common/args_tracker.h"
 #include "src/trace_processor/importers/common/slice_translation_table.h"
 #include "src/trace_processor/storage/trace_storage.h"
+#include "src/trace_processor/tables/slice_tables_py.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class ArgsTracker;
 class TraceProcessorContext;
@@ -65,7 +70,7 @@ class SliceTracker {
     if (row.name) {
       row.name = context_->slice_translation_table->TranslateName(*row.name);
     }
-    return StartSlice(row.ts, row.track_id, args_callback,
+    return StartSlice(row.ts, row.dur, row.track_id, args_callback,
                       [table, &row]() { return table->Insert(row).id; });
   }
 
@@ -87,7 +92,7 @@ class SliceTracker {
     if (row.name) {
       row.name = context_->slice_translation_table->TranslateName(*row.name);
     }
-    return StartSlice(row.ts, row.track_id, args_callback,
+    return StartSlice(row.ts, row.dur, row.track_id, args_callback,
                       [table, &row]() { return table->Insert(row).id; });
   }
 
@@ -142,6 +147,7 @@ class SliceTracker {
 
   // virtual for testing.
   virtual std::optional<SliceId> StartSlice(int64_t timestamp,
+                                            int64_t duration,
                                             TrackId track_id,
                                             SetArgsCallback args_callback,
                                             std::function<SliceId()> inserter);
@@ -152,17 +158,17 @@ class SliceTracker {
       SetArgsCallback args_callback,
       std::function<std::optional<uint32_t>(const SlicesStack&)> finder);
 
-  void MaybeCloseStack(int64_t end_ts, const SlicesStack&, TrackId track_id);
+  [[nodiscard]] bool MaybeCloseStack(int64_t ts,
+                                     int64_t dur,
+                                     const SlicesStack&,
+                                     TrackId track_id);
 
   std::optional<uint32_t> MatchingIncompleteSliceIndex(const SlicesStack& stack,
                                                        StringId name,
                                                        StringId category);
 
-  int64_t GetStackHash(const SlicesStack&);
-
   void StackPop(TrackId track_id);
   void StackPush(TrackId track_id, tables::SliceTable::RowReference);
-  void FlowTrackerUpdate(TrackId track_id);
 
   // If args need translation, adds them to a list of pending translatable args,
   // so that they are translated at the end of the trace. Takes ownership of the
@@ -172,10 +178,6 @@ class SliceTracker {
 
   OnSliceBeginCallback on_slice_begin_callback_;
 
-  // Timestamp of the previous event. Used to discard events arriving out
-  // of order.
-  int64_t prev_timestamp_ = std::numeric_limits<int64_t>::min();
-
   const StringId legacy_unnestable_begin_count_string_id_;
   const StringId legacy_unnestable_last_begin_ts_string_id_;
 
@@ -184,7 +186,6 @@ class SliceTracker {
   std::vector<TranslatableArgs> translatable_args_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_SLICE_TRACKER_H_

@@ -17,26 +17,28 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_METADATA_MINIMAL_MODULE_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_METADATA_MINIMAL_MODULE_H_
 
-#include "src/trace_processor/importers/common/trace_parser.h"
-#include "src/trace_processor/importers/proto/proto_importer_module.h"
+#include <cstdint>
 
-#include "src/trace_processor/storage/trace_storage.h"
+#include "perfetto/protozero/field.h"
+#include "perfetto/trace_processor/ref_counted.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
+#include "src/trace_processor/importers/proto/proto_importer_module.h"
 
 #include "protos/perfetto/trace/trace_packet.pbzero.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class MetadataMinimalModule : public ProtoImporterModule {
  public:
   using ConstBytes = protozero::ConstBytes;
-  explicit MetadataMinimalModule(TraceProcessorContext* context);
+  explicit MetadataMinimalModule(ProtoImporterModuleContext* module_context,
+                                 TraceProcessorContext* context);
 
   ModuleResult TokenizePacket(
       const protos::pbzero::TracePacket::Decoder& decoder,
       TraceBlobView* packet,
       int64_t packet_timestamp,
-      PacketSequenceState* state,
+      RefPtr<PacketSequenceStateGeneration> state,
       uint32_t field_id) override;
 
  private:
@@ -44,9 +46,10 @@ class MetadataMinimalModule : public ProtoImporterModule {
   void ParseChromeMetadataPacket(ConstBytes);
 
   TraceProcessorContext* context_;
+
+  uint32_t chrome_metadata_count_ = 0;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_METADATA_MINIMAL_MODULE_H_

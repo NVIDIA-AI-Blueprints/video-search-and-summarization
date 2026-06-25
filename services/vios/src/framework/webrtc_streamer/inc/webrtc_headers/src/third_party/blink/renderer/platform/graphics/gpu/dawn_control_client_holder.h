@@ -6,13 +6,17 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_GPU_DAWN_CONTROL_CLIENT_HOLDER_H_
 
 #include <dawn/dawn_proc_table.h>
-#include <dawn/webgpu.h>
 
+#include <vector>
+
+#include "base/memory/weak_ptr.h"
 #include "gpu/command_buffer/client/webgpu_interface.h"
+#include "third_party/blink/renderer/platform/graphics/gpu/webgpu_cpp.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/webgpu_resource_provider_cache.h"
 #include "third_party/blink/renderer/platform/graphics/web_graphics_context_3d_provider_wrapper.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace base {
 
@@ -25,6 +29,8 @@ namespace blink {
 namespace scheduler {
 class EventLoop;
 }  // namespace scheduler
+
+class WebGPUMailboxTexture;
 
 // This class holds the WebGraphicsContext3DProviderWrapper and a strong
 // reference to the WebGPU APIChannel.
@@ -50,17 +56,22 @@ class PLATFORM_EXPORT DawnControlClientHolder
   // the WebGPU interface.
   base::WeakPtr<WebGraphicsContext3DProviderWrapper> GetContextProviderWeakPtr()
       const;
-  const DawnProcTable& GetProcs() const { return procs_; }
-  WGPUInstance GetWGPUInstance() const;
+  wgpu::Instance GetWGPUInstance() const;
   void MarkContextLost();
   bool IsContextLost() const;
   std::unique_ptr<RecyclableCanvasResource> GetOrCreateCanvasResource(
-      const SkImageInfo& info);
+      viz::SharedImageFormat format,
+      gfx::Size size,
+      const gfx::ColorSpace& color_space,
+      SkAlphaType alpha_type);
 
   // Flush commands on this client immediately.
   void Flush();
   // Ensure commands on this client are flushed by the end of the task.
   void EnsureFlush(scheduler::EventLoop& event_loop);
+
+  void TrackMailboxTexture(base::WeakPtr<WebGPUMailboxTexture>);
+  void UntrackMailboxTexture(base::WeakPtr<WebGPUMailboxTexture>);
 
  private:
   friend class RefCounted<DawnControlClientHolder>;
@@ -70,11 +81,19 @@ class PLATFORM_EXPORT DawnControlClientHolder
   std::unique_ptr<WebGraphicsContext3DProviderWrapper> context_provider_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   scoped_refptr<gpu::webgpu::APIChannel> api_channel_;
-  DawnProcTable procs_;
   WebGPURecyclableResourceCache recyclable_resource_cache_;
+  Vector<base::WeakPtr<WebGPUMailboxTexture>> mailbox_textures_;
 
   base::WeakPtrFactory<DawnControlClientHolder> weak_ptr_factory_{this};
 };
+
+// Slightly hacky way to get the wgslLanguageFeatures without accessing the
+// DawnControlClient because it is initialized asynchronously on workers.
+// TODO(crbug.com/1246805): Remove this hack when the DawnControlClient can be
+// initialized synchronously on workers and query from its wgpu::Instance
+// instead.
+PLATFORM_EXPORT std::vector<wgpu::WGSLLanguageFeatureName>
+GatherWGSLLanguageFeatures();
 
 }  // namespace blink
 

@@ -21,7 +21,10 @@
 
 #include <string.h>
 
-#include "objpool.h"
+enum ThreadQueueType {
+    THREAD_QUEUE_FRAMES,
+    THREAD_QUEUE_PACKETS,
+};
 
 typedef struct ThreadQueue ThreadQueue;
 
@@ -32,12 +35,9 @@ typedef struct ThreadQueue ThreadQueue;
  *                   maintained
  * @param queue_size number of items that can be stored in the queue without
  *                   blocking
- * @param obj_pool object pool that will be used to allocate items stored in the
- *                 queue; the pool becomes owned by the queue
- * @param callback that moves the contents between two data pointers
  */
 ThreadQueue *tq_alloc(unsigned int nb_streams, size_t queue_size,
-                      ObjPool *obj_pool, void (*obj_move)(void *dst, void *src));
+                      enum ThreadQueueType type);
 void         tq_free(ThreadQueue **tq);
 
 /**
@@ -57,6 +57,15 @@ int tq_send(ThreadQueue *tq, unsigned int stream_idx, void *data);
  * Mark the given stream finished from the sending side.
  */
 void tq_send_finish(ThreadQueue *tq, unsigned int stream_idx);
+
+/**
+ * Prevent further reads from the thread queue until it is unchoked. Threads
+ * attempting to read from the queue will block, similar to when the queue is
+ * empty.
+ *
+ * @param choked 1 to choke, 0 to unchoke
+ */
+void tq_choke(ThreadQueue *tq, int choked);
 
 /**
  * Read the next item from the queue.

@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_VIEW_OBSERVER_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_VIEW_OBSERVER_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list_types.h"
 #include "third_party/blink/public/mojom/page/page_visibility_state.mojom-shared.h"
 #include "third_party/blink/public/platform/web_common.h"
@@ -12,6 +13,7 @@
 namespace blink {
 class WebView;
 class WebViewImpl;
+struct RendererPreferences;
 
 // Base class for objects that want to get notified of changes to the view.
 class BLINK_EXPORT WebViewObserver : public base::CheckedObserver {
@@ -38,6 +40,10 @@ class BLINK_EXPORT WebViewObserver : public base::CheckedObserver {
   virtual void OnPageVisibilityChanged(
       blink::mojom::PageVisibilityState visibility_state) {}
 
+  // Called when render preferences have updated.
+  virtual void OnRendererPreferencesUpdated(
+      const RendererPreferences& preferences) {}
+
   // Retrieves the WebView that is being observed. Can be null.
   WebView* GetWebView() const;
 
@@ -55,7 +61,7 @@ class BLINK_EXPORT WebViewObserver : public base::CheckedObserver {
   void Observe(WebView* web_view);
 
  private:
-  WebViewImpl* web_view_;
+  raw_ptr<WebViewImpl> web_view_;
 };
 
 }  // namespace blink

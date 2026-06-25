@@ -24,7 +24,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_HTML_FRAME_SET_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_HTML_FRAME_SET_ELEMENT_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/window_event_handlers.h"
@@ -42,6 +43,10 @@ class HTMLFrameSetElement final : public HTMLElement,
 
  public:
   explicit HTMLFrameSetElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLFrameSetElement;
+  }
 
   // HTMLElement override
   bool IsHTMLFrameSetElement() const override { return true; }
@@ -88,7 +93,7 @@ class HTMLFrameSetElement final : public HTMLElement,
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
 
   void AttachLayoutTree(AttachContext&) override;
   bool LayoutObjectIsNeeded(const DisplayStyle&) const override;
@@ -150,8 +155,8 @@ class HTMLFrameSetElement final : public HTMLElement,
   Vector<bool> allow_border_rows_;
   Vector<bool> allow_border_cols_;
 
-  absl::optional<int> border_;
-  absl::optional<bool> frameborder_;
+  std::optional<int> border_;
+  std::optional<bool> frameborder_;
   bool is_edge_info_dirty_ = true;
   bool is_resizing_ = false;
 };

@@ -13,7 +13,7 @@
 
 namespace blink {
 
-using StyleImageList = HeapVector<Member<StyleImage>, 1>;
+using StyleImageList = GCedHeapVector<Member<StyleImage>, 1>;
 
 class ImageListPropertyFunctions {
  public:
@@ -29,12 +29,11 @@ class ImageListPropertyFunctions {
       case CSSPropertyID::kBackgroundImage:
         fill_layer = &style.BackgroundLayers();
         break;
-      case CSSPropertyID::kWebkitMaskImage:
+      case CSSPropertyID::kMaskImage:
         fill_layer = &style.MaskLayers();
         break;
       default:
         NOTREACHED();
-        return;
     }
 
     result->clear();
@@ -52,12 +51,11 @@ class ImageListPropertyFunctions {
       case CSSPropertyID::kBackgroundImage:
         fill_layer = &builder.AccessBackgroundLayers();
         break;
-      case CSSPropertyID::kWebkitMaskImage:
+      case CSSPropertyID::kMaskImage:
         fill_layer = &builder.AccessMaskLayers();
         break;
       default:
         NOTREACHED();
-        return;
     }
 
     FillLayer* prev = nullptr;

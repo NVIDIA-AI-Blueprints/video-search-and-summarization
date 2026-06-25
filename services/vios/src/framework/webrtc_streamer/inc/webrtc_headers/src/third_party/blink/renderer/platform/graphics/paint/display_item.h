@@ -7,13 +7,15 @@
 
 #include "base/check_op.h"
 #include "base/dcheck_is_on.h"
-#include "third_party/blink/renderer/platform/graphics/graphics_types.h"
+#include "third_party/blink/renderer/platform/graphics/paint/display_item_client_types.h"
 #include "third_party/blink/renderer/platform/graphics/paint_invalidation_reason.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
+#include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/hash_functions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_traits.h"
+#include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 #include "ui/gfx/geometry/rect.h"
 
 #if DCHECK_IS_ON()
@@ -125,17 +127,21 @@ class PLATFORM_EXPORT DisplayItem {
     // include content that does not paint. Hit test data ensure a layer exists
     // and is sized properly even if no content would otherwise be painted.
     kHitTest,
+    // Web plugin needs a separate id to avoid conflict with the hit test data
+    // for LayoutReplaced.
+    kWebPluginHitTest,
 
     // Used for paint chunks that contain region capture data.
     kRegionCapture,
+
+    // Used for paint chunks that contain tracking highlight data.
+    kTrackedElement,
 
     // Used both for specifying the paint-order scroll location, and for non-
     // composited scroll hit testing (see: hit_test_data.h).
     kScrollHitTest,
     // Used to prevent composited scrolling on the resize handle.
     kResizerScrollHitTest,
-    // Used to prevent composited scrolling on plugins with wheel handlers.
-    kPluginScrollHitTest,
     // Used to prevent composited scrolling and set touch action region, on
     // custom scrollbars and non-composited native scrollbars.
     kScrollbarHitTest,
@@ -280,9 +286,7 @@ class PLATFORM_EXPORT DisplayItem {
   static String TypeAsDebugString(DisplayItem::Type);
   String AsDebugString(const PaintArtifact&) const;
   String IdAsString(const PaintArtifact&) const;
-  void PropertiesAsJSON(JSONObject&,
-                        const PaintArtifact&,
-                        bool client_known_to_be_alive = false) const;
+  void PropertiesAsJSON(JSONObject&, const PaintArtifact&) const;
 #endif
 
  protected:
@@ -348,10 +352,6 @@ inline bool operator==(const DisplayItem::Id& a, const DisplayItem::Id& b) {
          a.fragment == b.fragment;
 }
 
-inline bool operator!=(const DisplayItem::Id& a, const DisplayItem::Id& b) {
-  return !(a == b);
-}
-
 PLATFORM_EXPORT std::ostream& operator<<(std::ostream&, DisplayItem::Type);
 // These are mainly for DCHECK and unit tests. They don't output debug names of
 // DisplayItemClients. Use the argumented version of DisplayItem::Id::ToString()
@@ -359,14 +359,10 @@ PLATFORM_EXPORT std::ostream& operator<<(std::ostream&, DisplayItem::Type);
 PLATFORM_EXPORT std::ostream& operator<<(std::ostream&, const DisplayItem::Id&);
 PLATFORM_EXPORT std::ostream& operator<<(std::ostream&, const DisplayItem&);
 
-}  // namespace blink
-
-namespace WTF {
-
 template <>
-struct HashTraits<blink::DisplayItem::Id::HashKey>
-    : GenericHashTraits<blink::DisplayItem::Id::HashKey> {
-  using Key = blink::DisplayItem::Id::HashKey;
+struct HashTraits<DisplayItem::Id::HashKey>
+    : GenericHashTraits<DisplayItem::Id::HashKey> {
+  using Key = DisplayItem::Id::HashKey;
   static constexpr bool kEmptyValueIsZero = true;
   static void ConstructDeletedValue(Key& slot) {
     const_cast<wtf_size_t&>(slot.fragment) = kNotFound;
@@ -374,14 +370,14 @@ struct HashTraits<blink::DisplayItem::Id::HashKey>
   static bool IsDeletedValue(const Key& id) { return id.fragment == kNotFound; }
 
   static unsigned GetHash(const Key& id) {
-    unsigned hash = WTF::GetHash(id.client_id);
-    WTF::AddIntToHash(hash, id.type);
-    WTF::AddIntToHash(hash, id.fragment);
+    unsigned hash = blink::GetHash(id.client_id);
+    AddIntToHash(hash, id.type);
+    AddIntToHash(hash, id.fragment);
     return hash;
   }
   static constexpr bool kSafeToCompareToEmptyOrDeleted = false;
 };
 
-}  // namespace WTF
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PAINT_DISPLAY_ITEM_H_

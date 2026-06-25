@@ -26,7 +26,9 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/forms/form_associated.h"
 #include "third_party/blink/renderer/core/html/forms/listed_element.h"
+#include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
+#include "third_party/blink/renderer/core/html_names.h"
 
 namespace blink {
 
@@ -46,19 +48,24 @@ class CORE_EXPORT HTMLObjectElement final : public HTMLPlugInElement,
   ~HTMLObjectElement() override = default;
   void Trace(Visitor*) const override;
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLObjectElement;
+  }
+
   // Returns attributes that should be checked against Trusted Types
   const AttrNameToTrustedType& GetCheckedAttributeTypes() const override;
 
   const String& ClassId() const { return class_id_; }
 
   HTMLFormElement* formOwner() const override;
+  HTMLElement* formForBinding() const override;
 
   bool ContainsJavaApplet() const;
 
   bool HasFallbackContent() const override;
   bool UseFallbackContent() const override;
 
-  bool IsFormControlElement() const override { return false; }
+  bool IsObjectElement() const override { return true; }
 
   bool IsEnumeratable() const override { return true; }
 
@@ -70,10 +77,8 @@ class CORE_EXPORT HTMLObjectElement final : public HTMLPlugInElement,
 
   // Implementations of constraint validation API.
   // Note that the object elements are always barred from constraint validation.
-  String validationMessage() const override { return String(); }
   bool checkValidity() { return true; }
   bool reportValidity() { return true; }
-  void setCustomValidity(const String&) override {}
 
   bool CanContainRangeEndPoint() const override { return UseFallbackContent(); }
 
@@ -94,7 +99,10 @@ class CORE_EXPORT HTMLObjectElement final : public HTMLPlugInElement,
   };
   void RenderFallbackContent(ErrorEventPolicy should_dispatch_error_event);
 
-  static bool IsClassOf(const FrameOwner& owner);
+  String data();
+  void setData(const V8UnionTrustedScriptURLOrUSVString*, ExceptionState&);
+  String codeBase();
+  void setCodeBase(const V8UnionTrustedScriptURLOrUSVString*, ExceptionState&);
 
  private:
   void ParseAttribute(const AttributeModificationParams&) override;
@@ -102,7 +110,7 @@ class CORE_EXPORT HTMLObjectElement final : public HTMLPlugInElement,
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
 
   InsertionNotificationRequest InsertedInto(ContainerNode&) override;
   void RemovedFrom(ContainerNode&) override;
@@ -141,12 +149,27 @@ class CORE_EXPORT HTMLObjectElement final : public HTMLPlugInElement,
   bool use_fallback_content_ : 1;
 };
 
-// Like To<HTMLObjectElement>() but accepts a ListedElement as input
-// instead of a Node.
-const HTMLObjectElement* ToHTMLObjectElementFromListedElement(
-    const ListedElement*);
-const HTMLObjectElement& ToHTMLObjectElementFromListedElement(
-    const ListedElement&);
+template <>
+struct DowncastTraits<HTMLObjectElement> {
+  static bool AllowFrom(const HTMLFrameOwnerElement& element) {
+    return element.HasTagName(html_names::kObjectTag);
+  }
+  static bool AllowFrom(const FrameOwner& owner) {
+    return IsA<HTMLObjectElement>(DynamicTo<HTMLFrameOwnerElement>(owner));
+  }
+  static bool AllowFrom(const Element& element) {
+    return element.HasTagName(html_names::kObjectTag);
+  }
+  static bool AllowFrom(const Node& node) {
+    // UnsafeTo<> is safe because Is*Element(), by definition, only returns
+    // true if `node` is derived from `Element`.
+    return node.IsHTMLElement() &&
+           IsA<HTMLObjectElement>(UnsafeTo<HTMLElement>(node));
+  }
+  static bool AllowFrom(const ListedElement& control) {
+    return control.IsObjectElement();
+  }
+};
 
 }  // namespace blink
 

@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BREAKOUT_BOX_PUSHABLE_MEDIA_STREAM_VIDEO_SOURCE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_BREAKOUT_BOX_PUSHABLE_MEDIA_STREAM_VIDEO_SOURCE_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/lock.h"
 #include "base/task/sequenced_task_runner.h"
@@ -27,7 +28,7 @@ class MODULES_EXPORT PushableMediaStreamVideoSource
   // PushableMediaStreamVideoSource from multiple threads. This also includes
   // safely posting tasks to/from outside the main thread.
   // The public methods of this class can be called on any thread.
-  class MODULES_EXPORT Broker : public WTF::ThreadSafeRefCounted<Broker> {
+  class MODULES_EXPORT Broker : public ThreadSafeRefCounted<Broker> {
    public:
     Broker(const Broker&) = delete;
     Broker& operator=(const Broker&) = delete;
@@ -66,7 +67,7 @@ class MODULES_EXPORT PushableMediaStreamVideoSource
     // |main_task_runner_|. It is not necessary to guard it with |lock_| to
     // read its value on |main_task_runner_|. This helps avoid deadlocks in
     // Stop()/OnSourceDestroyedOrStopped() interactions.
-    PushableMediaStreamVideoSource* source_;
+    raw_ptr<PushableMediaStreamVideoSource> source_;
     // The same apples to |frame_callback_|, but since it does not have
     // complex interactions with owners, like |source_| does, we always guard
     // it for simplicity.
@@ -85,7 +86,7 @@ class MODULES_EXPORT PushableMediaStreamVideoSource
   ~PushableMediaStreamVideoSource() override;
 
   // See the definition of VideoCaptureDeliverFrameCB in
-  // third_party/blink/public/common/media/video_capture.h
+  // third_party/blink/public/platform/media/video_capture.h
   // for the documentation of |estimated_capture_time| and the difference with
   // media::VideoFrame::timestamp().
   // This function can be called on any thread.
@@ -98,9 +99,7 @@ class MODULES_EXPORT PushableMediaStreamVideoSource
 
   // MediaStreamVideoSource
   void StartSourceImpl(
-      VideoCaptureDeliverFrameCB frame_callback,
-      EncodedVideoFrameCB encoded_frame_callback,
-      VideoCaptureCropVersionCB crop_version_callback) override;
+      MediaStreamVideoSourceCallbacks media_stream_callbacks) override;
   void StopSourceImpl() override;
   base::WeakPtr<MediaStreamVideoSource> GetWeakPtr() override;
   void OnSourceCanDiscardAlpha(bool can_discard_alpha) override;

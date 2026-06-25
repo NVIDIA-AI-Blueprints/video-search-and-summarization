@@ -158,6 +158,11 @@ typedef struct AVPixFmtDescriptor {
 #define AV_PIX_FMT_FLAG_FLOAT        (1 << 9)
 
 /**
+ * The pixel format contains XYZ-like data (as opposed to YUV/RGB/grayscale).
+ */
+#define AV_PIX_FMT_FLAG_XYZ          (1 << 10)
+
+/**
  * Return the number of bits per pixel used by the pixel format
  * described by pixdesc. Note that this is not the same as the number
  * of bits per sample.
@@ -285,6 +290,16 @@ int av_chroma_location_enum_to_pos(int *xpos, int *ypos, enum AVChromaLocation p
  * @param ypos  vertical   chroma sample position
  */
 enum AVChromaLocation av_chroma_location_pos_to_enum(int xpos, int ypos);
+
+/**
+ * @return the name for provided alpha mode or NULL if unknown.
+ */
+const char *av_alpha_mode_name(enum AVAlphaMode mode);
+
+/**
+ * @return the AVAlphaMode value for name or an AVError if not found.
+ */
+enum AVAlphaMode av_alpha_mode_from_name(const char *name);
 
 /**
  * Return the pixel format corresponding to name.

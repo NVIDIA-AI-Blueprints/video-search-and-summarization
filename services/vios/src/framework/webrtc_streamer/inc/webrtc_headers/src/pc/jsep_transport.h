@@ -11,15 +11,12 @@
 #ifndef PC_JSEP_TRANSPORT_H_
 #define PC_JSEP_TRANSPORT_H_
 
-#include <functional>
-#include <map>
 #include <memory>
-#include <string>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/candidate.h"
-#include "api/crypto_params.h"
+#include "absl/functional/any_invocable.h"
+#include "absl/strings/string_view.h"
 #include "api/ice_transport_interface.h"
 #include "api/jsep.h"
 #include "api/rtc_error.h"
@@ -27,41 +24,30 @@
 #include "api/sequence_checker.h"
 #include "api/transport/data_channel_transport_interface.h"
 #include "media/sctp/sctp_transport_internal.h"
-#include "p2p/base/dtls_transport.h"
-#include "p2p/base/dtls_transport_internal.h"
 #include "p2p/base/ice_transport_internal.h"
-#include "p2p/base/p2p_constants.h"
 #include "p2p/base/transport_description.h"
-#include "p2p/base/transport_info.h"
-#include "pc/dtls_srtp_transport.h"
+#include "p2p/dtls/dtls_transport_internal.h"
 #include "pc/dtls_transport.h"
 #include "pc/rtcp_mux_filter.h"
 #include "pc/rtp_transport.h"
 #include "pc/rtp_transport_internal.h"
 #include "pc/sctp_transport.h"
 #include "pc/session_description.h"
-#include "pc/srtp_filter.h"
-#include "pc/srtp_transport.h"
 #include "pc/transport_stats.h"
-#include "rtc_base/checks.h"
 #include "rtc_base/rtc_certificate.h"
 #include "rtc_base/ssl_fingerprint.h"
 #include "rtc_base/ssl_stream_adapter.h"
-#include "rtc_base/thread.h"
+#include "rtc_base/system/no_unique_address.h"
 #include "rtc_base/thread_annotations.h"
 
-namespace cricket {
-
-class DtlsTransportInternal;
+namespace webrtc {
 
 struct JsepTransportDescription {
  public:
   JsepTransportDescription();
   JsepTransportDescription(
       bool rtcp_mux_enabled,
-      const std::vector<CryptoParams>& cryptos,
       const std::vector<int>& encrypted_header_extension_ids,
-      int rtp_abs_sendtime_extn_id,
       const TransportDescription& transport_description);
   JsepTransportDescription(const JsepTransportDescription& from);
   ~JsepTransportDescription();
@@ -69,9 +55,7 @@ struct JsepTransportDescription {
   JsepTransportDescription& operator=(const JsepTransportDescription& from);
 
   bool rtcp_mux_enabled = true;
-  std::vector<CryptoParams> cryptos;
   std::vector<int> encrypted_header_extension_ids;
-  int rtp_abs_sendtime_extn_id = -1;
   // TODO(zhihuang): Add the ICE and DTLS related variables and methods from
   // TransportDescription and remove this extra layer of abstraction.
   TransportDescription transport_desc;
@@ -87,54 +71,47 @@ struct JsepTransportDescription {
 // so its methods should only be called on the network thread.
 class JsepTransport {
  public:
-  // `mid` is just used for log statements in order to identify the Transport.
-  // Note that `local_certificate` is allowed to be null since a remote
-  // description may be set before a local certificate is generated.
-  JsepTransport(
-      const std::string& mid,
-      const rtc::scoped_refptr<rtc::RTCCertificate>& local_certificate,
-      rtc::scoped_refptr<webrtc::IceTransportInterface> ice_transport,
-      rtc::scoped_refptr<webrtc::IceTransportInterface> rtcp_ice_transport,
-      std::unique_ptr<webrtc::RtpTransport> unencrypted_rtp_transport,
-      std::unique_ptr<webrtc::SrtpTransport> sdes_transport,
-      std::unique_ptr<webrtc::DtlsSrtpTransport> dtls_srtp_transport,
-      std::unique_ptr<DtlsTransportInternal> rtp_dtls_transport,
-      std::unique_ptr<DtlsTransportInternal> rtcp_dtls_transport,
-      std::unique_ptr<SctpTransportInternal> sctp_transport,
-      std::function<void()> rtcp_mux_active_callback);
+  // `local_certificate` is allowed to be null since a remote description may be
+  // set before a local certificate is generated.
+  JsepTransport(const scoped_refptr<RTCCertificate>& local_certificate,
+                std::unique_ptr<RtpTransport> rtp_transport,
+                scoped_refptr<DtlsTransport> rtp_dtls_transport,
+                std::unique_ptr<SctpTransportInternal> sctp_transport,
+                absl::AnyInvocable<void()> rtcp_mux_active_callback);
 
   ~JsepTransport();
 
   JsepTransport(const JsepTransport&) = delete;
   JsepTransport& operator=(const JsepTransport&) = delete;
 
-  // Returns the MID of this transport. This is only used for logging.
-  const std::string& mid() const { return mid_; }
+  // Returns the name of this transport. This is used for uniquely identifying
+  // the transport, logging, error reporting and transport stats.
+  absl::string_view name() const {
+    return dtls_transport_internal()->ice_transport()->transport_name();
+  }
 
   // Must be called before applying local session description.
   // Needed in order to verify the local fingerprint.
   void SetLocalCertificate(
-      const rtc::scoped_refptr<rtc::RTCCertificate>& local_certificate) {
-    RTC_DCHECK_RUN_ON(network_thread_);
+      const scoped_refptr<RTCCertificate>& local_certificate) {
+    RTC_DCHECK_RUN_ON(&transport_sequence_);
     local_certificate_ = local_certificate;
   }
 
   // Return the local certificate provided by SetLocalCertificate.
-  rtc::scoped_refptr<rtc::RTCCertificate> GetLocalCertificate() const {
-    RTC_DCHECK_RUN_ON(network_thread_);
+  scoped_refptr<RTCCertificate> GetLocalCertificate() const {
+    RTC_DCHECK_RUN_ON(&transport_sequence_);
     return local_certificate_;
   }
 
-  webrtc::RTCError SetLocalJsepTransportDescription(
-      const JsepTransportDescription& jsep_description,
-      webrtc::SdpType type);
+  RTCError SetLocalJsepTransportDescription(
+      const JsepTransportDescription& jsep_description, SdpType type);
 
   // Set the remote TransportDescription to be used by DTLS and ICE channels
   // that are part of this Transport.
-  webrtc::RTCError SetRemoteJsepTransportDescription(
-      const JsepTransportDescription& jsep_description,
-      webrtc::SdpType type);
-  webrtc::RTCError AddRemoteCandidates(const Candidates& candidates);
+  RTCError SetRemoteJsepTransportDescription(
+      const JsepTransportDescription& jsep_description, SdpType type);
+  RTCError AddRemoteCandidates(const Candidates& candidates);
 
   // Set the "needs-ice-restart" flag as described in JSEP. After the flag is
   // set, offers should generate new ufrags/passwords until an ICE restart
@@ -147,82 +124,60 @@ class JsepTransport {
   // occurred yet for this transport (by applying a local description with
   // changed ufrag/password).
   bool needs_ice_restart() const {
-    RTC_DCHECK_RUN_ON(network_thread_);
+    RTC_DCHECK_RUN_ON(&transport_sequence_);
     return needs_ice_restart_;
   }
 
-  // Returns role if negotiated, or empty absl::optional if it hasn't been
+  // Returns role if negotiated, or empty std::optional if it hasn't been
   // negotiated yet.
-  absl::optional<rtc::SSLRole> GetDtlsRole() const;
+  std::optional<SSLRole> GetDtlsRole() const;
 
-  // TODO(deadbeef): Make this const. See comment in transportcontroller.h.
-  bool GetStats(TransportStats* stats);
+  bool GetStats(TransportStats* stats) const;
 
   const JsepTransportDescription* local_description() const {
-    RTC_DCHECK_RUN_ON(network_thread_);
+    RTC_DCHECK_RUN_ON(&transport_sequence_);
     return local_description_.get();
   }
 
   const JsepTransportDescription* remote_description() const {
-    RTC_DCHECK_RUN_ON(network_thread_);
+    RTC_DCHECK_RUN_ON(&transport_sequence_);
     return remote_description_.get();
   }
 
   // Returns the rtp transport, if any.
-  webrtc::RtpTransportInternal* rtp_transport() const {
-    if (dtls_srtp_transport_) {
-      return dtls_srtp_transport_.get();
-    }
-    if (sdes_transport_) {
-      return sdes_transport_.get();
-    }
-    if (unencrypted_rtp_transport_) {
-      return unencrypted_rtp_transport_.get();
-    }
-    return nullptr;
-  }
+  RtpTransportInternal* rtp_transport() const { return rtp_transport_.get(); }
 
   const DtlsTransportInternal* rtp_dtls_transport() const {
-    if (rtp_dtls_transport_) {
-      return rtp_dtls_transport_->internal();
-    }
-    return nullptr;
+    return dtls_transport_internal();
   }
 
   DtlsTransportInternal* rtp_dtls_transport() {
-    if (rtp_dtls_transport_) {
-      return rtp_dtls_transport_->internal();
-    }
-    return nullptr;
+    return dtls_transport_internal();
   }
 
-  const DtlsTransportInternal* rtcp_dtls_transport() const {
-    RTC_DCHECK_RUN_ON(network_thread_);
-    if (rtcp_dtls_transport_) {
-      return rtcp_dtls_transport_->internal();
-    }
-    return nullptr;
+  DtlsTransportInternal* rtcp_dtls_transport() const {
+    RTC_DCHECK_RUN_ON(&transport_sequence_);
+    return static_cast<DtlsTransportInternal*>(
+        rtp_transport_->rtcp_packet_transport());
   }
 
   DtlsTransportInternal* rtcp_dtls_transport() {
-    RTC_DCHECK_RUN_ON(network_thread_);
-    if (rtcp_dtls_transport_) {
-      return rtcp_dtls_transport_->internal();
-    }
-    return nullptr;
+    RTC_DCHECK_RUN_ON(&transport_sequence_);
+    return static_cast<DtlsTransportInternal*>(
+        rtp_transport_->rtcp_packet_transport());
   }
 
-  rtc::scoped_refptr<webrtc::DtlsTransport> RtpDtlsTransport() {
+  scoped_refptr<DtlsTransport> RtpDtlsTransport() {
     return rtp_dtls_transport_;
   }
 
-  rtc::scoped_refptr<webrtc::SctpTransport> SctpTransport() const {
+  scoped_refptr<::webrtc::SctpTransport> SctpTransport() const {
     return sctp_transport_;
   }
 
   // TODO(bugs.webrtc.org/9719): Delete method, update callers to use
   // SctpTransport() instead.
-  webrtc::DataChannelTransportInterface* data_channel_transport() const {
+  DataChannelTransportInterface* data_channel_transport() const {
     return sctp_transport_.get();
   }
 
@@ -232,99 +187,81 @@ class JsepTransport {
 
   // Returns an error if the certificate's identity does not match the
   // fingerprint, or either is NULL.
-  webrtc::RTCError VerifyCertificateFingerprint(
-      const rtc::RTCCertificate* certificate,
-      const rtc::SSLFingerprint* fingerprint) const;
-
-  void SetActiveResetSrtpParams(bool active_reset_srtp_params);
+  RTCError VerifyCertificateFingerprint(
+      const RTCCertificate* certificate,
+      const SSLFingerprint* fingerprint) const;
 
  private:
-  bool SetRtcpMux(bool enable, webrtc::SdpType type, ContentSource source);
+  bool SetRtcpMux(bool enable, SdpType type, ContentSource source);
 
-  void ActivateRtcpMux() RTC_RUN_ON(network_thread_);
-
-  bool SetSdes(const std::vector<CryptoParams>& cryptos,
-               const std::vector<int>& encrypted_extension_ids,
-               webrtc::SdpType type,
-               ContentSource source);
+  void ActivateRtcpMux() RTC_RUN_ON(transport_sequence_);
 
   // Negotiates and sets the DTLS parameters based on the current local and
   // remote transport description, such as the DTLS role to use, and whether
   // DTLS should be activated.
   //
   // Called when an answer TransportDescription is applied.
-  webrtc::RTCError NegotiateAndSetDtlsParameters(
-      webrtc::SdpType local_description_type);
+  RTCError NegotiateAndSetDtlsParameters(SdpType local_description_type);
 
   // Negotiates the DTLS role based off the offer and answer as specified by
   // RFC 4145, section-4.1. Returns an RTCError if role cannot be determined
   // from the local description and remote description.
-  webrtc::RTCError NegotiateDtlsRole(
-      webrtc::SdpType local_description_type,
-      ConnectionRole local_connection_role,
-      ConnectionRole remote_connection_role,
-      absl::optional<rtc::SSLRole>* negotiated_dtls_role);
+  RTCError NegotiateDtlsRole(SdpType local_description_type,
+                             ConnectionRole local_connection_role,
+                             ConnectionRole remote_connection_role,
+                             std::optional<SSLRole>* negotiated_dtls_role);
 
   // Pushes down the ICE parameters from the remote description.
   void SetRemoteIceParameters(const IceParameters& ice_parameters,
                               IceTransportInternal* ice);
 
   // Pushes down the DTLS parameters obtained via negotiation.
-  static webrtc::RTCError SetNegotiatedDtlsParameters(
+  static RTCError SetNegotiatedDtlsParameters(
       DtlsTransportInternal* dtls_transport,
-      absl::optional<rtc::SSLRole> dtls_role,
-      rtc::SSLFingerprint* remote_fingerprint);
+      std::optional<SSLRole> dtls_role,
+      SSLFingerprint* remote_fingerprint);
 
   bool GetTransportStats(DtlsTransportInternal* dtls_transport,
                          int component,
-                         TransportStats* stats);
+                         TransportStats* stats) const;
+
+  DtlsTransportInternal* dtls_transport_internal() const {
+    // This cast is safe because JsepTransportController always creates the
+    // RtpTransport with a DtlsTransportInternal as the packet transport, even
+    // when encryption is disabled.
+    return static_cast<DtlsTransportInternal*>(
+        rtp_transport_->rtp_packet_transport());
+  }
 
   // Owning thread, for safety checks
-  const rtc::Thread* const network_thread_;
-  const std::string mid_;
+  RTC_NO_UNIQUE_ADDRESS SequenceChecker transport_sequence_;
   // needs-ice-restart bit as described in JSEP.
-  bool needs_ice_restart_ RTC_GUARDED_BY(network_thread_) = false;
-  rtc::scoped_refptr<rtc::RTCCertificate> local_certificate_
-      RTC_GUARDED_BY(network_thread_);
+  bool needs_ice_restart_ RTC_GUARDED_BY(transport_sequence_) = false;
+  scoped_refptr<RTCCertificate> local_certificate_
+      RTC_GUARDED_BY(transport_sequence_);
   std::unique_ptr<JsepTransportDescription> local_description_
-      RTC_GUARDED_BY(network_thread_);
+      RTC_GUARDED_BY(transport_sequence_);
   std::unique_ptr<JsepTransportDescription> remote_description_
-      RTC_GUARDED_BY(network_thread_);
-
-  // Ice transport which may be used by any of upper-layer transports (below).
-  // Owned by JsepTransport and guaranteed to outlive the transports below.
-  const rtc::scoped_refptr<webrtc::IceTransportInterface> ice_transport_;
-  const rtc::scoped_refptr<webrtc::IceTransportInterface> rtcp_ice_transport_;
+      RTC_GUARDED_BY(transport_sequence_);
 
   // To avoid downcasting and make it type safe, keep three unique pointers for
   // different SRTP mode and only one of these is non-nullptr.
-  const std::unique_ptr<webrtc::RtpTransport> unencrypted_rtp_transport_;
-  const std::unique_ptr<webrtc::SrtpTransport> sdes_transport_;
-  const std::unique_ptr<webrtc::DtlsSrtpTransport> dtls_srtp_transport_;
+  const std::unique_ptr<RtpTransport> rtp_transport_;
 
-  const rtc::scoped_refptr<webrtc::DtlsTransport> rtp_dtls_transport_;
+  const scoped_refptr<DtlsTransport> rtp_dtls_transport_;
   // The RTCP transport is const for all usages, except that it is cleared
   // when RTCP multiplexing is turned on; this happens on the network thread.
-  rtc::scoped_refptr<webrtc::DtlsTransport> rtcp_dtls_transport_
-      RTC_GUARDED_BY(network_thread_);
 
-  const rtc::scoped_refptr<webrtc::SctpTransport> sctp_transport_;
+  const scoped_refptr<::webrtc::SctpTransport> sctp_transport_;
 
-  SrtpFilter sdes_negotiator_ RTC_GUARDED_BY(network_thread_);
-  RtcpMuxFilter rtcp_mux_negotiator_ RTC_GUARDED_BY(network_thread_);
-
-  // Cache the encrypted header extension IDs for SDES negoitation.
-  absl::optional<std::vector<int>> send_extension_ids_
-      RTC_GUARDED_BY(network_thread_);
-  absl::optional<std::vector<int>> recv_extension_ids_
-      RTC_GUARDED_BY(network_thread_);
+  RtcpMuxFilter rtcp_mux_negotiator_ RTC_GUARDED_BY(transport_sequence_);
 
   // This is invoked when RTCP-mux becomes active and
   // `rtcp_dtls_transport_` is destroyed. The JsepTransportController will
   // receive the callback and update the aggregate transport states.
-  std::function<void()> rtcp_mux_active_callback_;
+  absl::AnyInvocable<void()> rtcp_mux_active_callback_;
 };
 
-}  // namespace cricket
+}  //  namespace webrtc
 
 #endif  // PC_JSEP_TRANSPORT_H_

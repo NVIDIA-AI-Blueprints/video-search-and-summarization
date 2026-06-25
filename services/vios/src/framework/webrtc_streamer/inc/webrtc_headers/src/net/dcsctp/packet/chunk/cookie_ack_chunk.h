@@ -9,14 +9,14 @@
  */
 #ifndef NET_DCSCTP_PACKET_CHUNK_COOKIE_ACK_CHUNK_H_
 #define NET_DCSCTP_PACKET_CHUNK_COOKIE_ACK_CHUNK_H_
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "net/dcsctp/packet/chunk/chunk.h"
 #include "net/dcsctp/packet/tlv_trait.h"
 
@@ -35,8 +35,7 @@ class CookieAckChunk : public Chunk, public TLVTrait<CookieAckChunkConfig> {
 
   CookieAckChunk() {}
 
-  static absl::optional<CookieAckChunk> Parse(
-      rtc::ArrayView<const uint8_t> data);
+  static std::optional<CookieAckChunk> Parse(std::span<const uint8_t> data);
 
   void SerializeTo(std::vector<uint8_t>& out) const override;
   std::string ToString() const override;

@@ -5,10 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_OUTLINE_RECT_COLLECTOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_OUTLINE_RECT_COLLECTOR_H_
 
+#include <memory>
+
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
-#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/heap/heap_traits.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -20,31 +20,42 @@ class OutlineRectCollector {
  public:
   enum class Type { kUnion, kVector };
 
+  virtual ~OutlineRectCollector() = default;
+
   virtual Type GetType() const = 0;
+
+  // Collects a rect. Empty rect should be respected because an empty box
+  // can still have an outline.
   virtual void AddRect(const PhysicalRect&) = 0;
-  virtual OutlineRectCollector* ForDescendantCollector() const = 0;
-  virtual void Combine(OutlineRectCollector*,
+
+  virtual std::unique_ptr<OutlineRectCollector> ForDescendantCollector()
+      const = 0;
+
+  // Combines outline rects from `collector` into this collector.
+  // The values in `collector` may be cleared or mutated, so it
+  // should not be used any more after this function.
+  virtual void Combine(OutlineRectCollector* collector,
                        const LayoutObject& descendant,
                        const LayoutBoxModelObject* ancestor,
                        const PhysicalOffset& post_offset) = 0;
-  virtual void Combine(OutlineRectCollector*,
+  virtual void Combine(OutlineRectCollector* collector,
                        const PhysicalOffset& additional_offset) = 0;
+
+  // Returns true if the collector has not collected any rects.
   virtual bool IsEmpty() const = 0;
 };
 
-class CORE_EXPORT UnionOutlineRectCollector
-    : public GarbageCollected<UnionOutlineRectCollector>,
-      public OutlineRectCollector {
+class CORE_EXPORT UnionOutlineRectCollector : public OutlineRectCollector {
  public:
-  virtual ~UnionOutlineRectCollector() = default;
+  ~UnionOutlineRectCollector() override = default;
 
   Type GetType() const final { return Type::kUnion; }
 
-  void AddRect(const PhysicalRect& r) final { rect_.Unite(r); }
-  const PhysicalRect& Rect() const { return rect_; }
+  void AddRect(const PhysicalRect& r) final;
+  PhysicalRect Rect() const { return rect_.value_or(PhysicalRect()); }
 
-  OutlineRectCollector* ForDescendantCollector() const final {
-    return MakeGarbageCollected<UnionOutlineRectCollector>();
+  std::unique_ptr<OutlineRectCollector> ForDescendantCollector() const final {
+    return std::make_unique<UnionOutlineRectCollector>();
   }
 
   void Combine(OutlineRectCollector* collector,
@@ -54,27 +65,23 @@ class CORE_EXPORT UnionOutlineRectCollector
   void Combine(OutlineRectCollector*,
                const PhysicalOffset& additional_offset) final;
 
-  bool IsEmpty() const final { return rect_.IsEmpty(); }
-
-  void Trace(Visitor* visitor) const {}
+  bool IsEmpty() const final { return !rect_.has_value(); }
 
  private:
-  PhysicalRect rect_;
+  std::optional<PhysicalRect> rect_;
 };
 
-class CORE_EXPORT VectorOutlineRectCollector
-    : public GarbageCollected<VectorOutlineRectCollector>,
-      public OutlineRectCollector {
+class CORE_EXPORT VectorOutlineRectCollector : public OutlineRectCollector {
  public:
-  virtual ~VectorOutlineRectCollector() = default;
+  ~VectorOutlineRectCollector() override = default;
 
   Type GetType() const final { return Type::kVector; }
 
   void AddRect(const PhysicalRect& r) override { rects_.push_back(r); }
-  VectorOf<PhysicalRect> TakeRects() { return std::move(rects_); }
+  Vector<PhysicalRect> TakeRects() { return std::move(rects_); }
 
-  OutlineRectCollector* ForDescendantCollector() const final {
-    return MakeGarbageCollected<VectorOutlineRectCollector>();
+  std::unique_ptr<OutlineRectCollector> ForDescendantCollector() const final {
+    return std::make_unique<VectorOutlineRectCollector>();
   }
 
   void Combine(OutlineRectCollector* collector,
@@ -86,10 +93,8 @@ class CORE_EXPORT VectorOutlineRectCollector
 
   bool IsEmpty() const final { return rects_.empty(); }
 
-  void Trace(Visitor* visitor) const {}
-
  private:
-  VectorOf<PhysicalRect> rects_;
+  Vector<PhysicalRect> rects_;
 };
 
 }  // namespace blink

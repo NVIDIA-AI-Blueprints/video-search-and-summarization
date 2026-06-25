@@ -31,10 +31,14 @@
 #include "third_party/blink/renderer/bindings/core/v8/world_safe_v8_reference.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/event_interface_names.h"
+#include "third_party/blink/renderer/core/loader/frame_loader_types.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
+class ExceptionState;
 class History;
 class SerializedScriptValue;
 
@@ -48,19 +52,27 @@ class CORE_EXPORT PopStateEvent final : public Event {
                                const PopStateEventInit* initializer);
   static PopStateEvent* Create(
       scoped_refptr<SerializedScriptValue> serialized_state,
-      History* history);
+      History* history,
+      bool has_ua_visual_transition,
+      UserNavigationInvolvement involvement);
 
   PopStateEvent() = default;
   PopStateEvent(ScriptState* script_state,
                 const AtomicString& type,
                 const PopStateEventInit* initializer);
   PopStateEvent(scoped_refptr<SerializedScriptValue> serialized_state,
-                History* history);
+                History* history,
+                bool has_ua_visual_transition,
+                UserNavigationInvolvement involvement);
   ~PopStateEvent() override = default;
 
   ScriptValue state(ScriptState* script_state, ExceptionState& exception_state);
+  bool hasUAVisualTransition() const { return has_ua_visual_transition_; }
   bool IsStateDirty() const { return false; }
 
+  bool IsUserInitiated() const {
+    return user_navigation_involvement_ != UserNavigationInvolvement::kNone;
+  }
   const AtomicString& InterfaceName() const override;
 
   void Trace(Visitor*) const override;
@@ -69,6 +81,16 @@ class CORE_EXPORT PopStateEvent final : public Event {
   WorldSafeV8Reference<v8::Value> state_;
   scoped_refptr<SerializedScriptValue> serialized_state_;
   Member<History> history_;
+  const bool has_ua_visual_transition_ = false;
+  const UserNavigationInvolvement user_navigation_involvement_ =
+      UserNavigationInvolvement::kNone;
+};
+
+template <>
+struct DowncastTraits<PopStateEvent> {
+  static bool AllowFrom(const Event& event) {
+    return event.InterfaceName() == event_interface_names::kPopStateEvent;
+  }
 };
 
 }  // namespace blink

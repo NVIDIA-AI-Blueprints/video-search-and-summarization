@@ -20,6 +20,7 @@ class V8CustomElementConstructor;
 class V8CustomElementFormAssociatedCallback;
 class V8CustomElementFormDisabledCallback;
 class V8CustomElementFormStateRestoreCallback;
+class V8CustomElementToolFillCallback;
 class V8VoidFunction;
 
 class CORE_EXPORT ScriptCustomElementDefinition final
@@ -38,19 +39,24 @@ class CORE_EXPORT ScriptCustomElementDefinition final
 
   v8::Local<v8::Object> Constructor() const;
 
-  HTMLElement* CreateAutonomousCustomElementSync(Document&,
-                                                 const QualifiedName&) override;
+  HTMLElement* CreateAutonomousCustomElementSync(
+      Document&,
+      const QualifiedName&,
+      CustomElementRegistry*) override;
 
   bool HasConnectedCallback() const override;
   bool HasDisconnectedCallback() const override;
+  bool HasConnectedMoveCallback() const override;
   bool HasAdoptedCallback() const override;
   bool HasFormAssociatedCallback() const override;
   bool HasFormResetCallback() const override;
   bool HasFormDisabledCallback() const override;
   bool HasFormStateRestoreCallback() const override;
+  bool HasToolFillCallback() const override;
 
   void RunConnectedCallback(Element&) override;
   void RunDisconnectedCallback(Element&) override;
+  void RunConnectedMoveCallback(Element&) override;
   void RunAdoptedCallback(Element&,
                           Document& old_owner,
                           Document& new_owner) override;
@@ -65,33 +71,31 @@ class CORE_EXPORT ScriptCustomElementDefinition final
   void RunFormStateRestoreCallback(Element& element,
                                    const V8ControlValue* value,
                                    const String& mode) override;
+  void RunToolFillCallback(Element& element, const String& value) override;
 
  private:
   // Implementations of |CustomElementDefinition|
   ScriptValue GetConstructorForScript() final;
   bool RunConstructor(Element&) override;
   V8CustomElementConstructor* GetV8CustomElementConstructor() final {
-    return constructor_;
+    return constructor_.Get();
   }
 
   // Calls the constructor. The script scope, etc. must already be set up.
   Element* CallConstructor();
 
-  HTMLElement* HandleCreateElementSyncException(Document&,
-                                                const QualifiedName& tag_name,
-                                                v8::Isolate*,
-                                                ExceptionState&);
-
   Member<ScriptState> script_state_;
   Member<V8CustomElementConstructor> constructor_;
   Member<V8VoidFunction> connected_callback_;
   Member<V8VoidFunction> disconnected_callback_;
+  Member<V8VoidFunction> connected_move_callback_;
   Member<V8CustomElementAdoptedCallback> adopted_callback_;
   Member<V8CustomElementAttributeChangedCallback> attribute_changed_callback_;
   Member<V8CustomElementFormAssociatedCallback> form_associated_callback_;
   Member<V8VoidFunction> form_reset_callback_;
   Member<V8CustomElementFormDisabledCallback> form_disabled_callback_;
   Member<V8CustomElementFormStateRestoreCallback> form_state_restore_callback_;
+  Member<V8CustomElementToolFillCallback> tool_fill_callback_;
 };
 
 }  // namespace blink

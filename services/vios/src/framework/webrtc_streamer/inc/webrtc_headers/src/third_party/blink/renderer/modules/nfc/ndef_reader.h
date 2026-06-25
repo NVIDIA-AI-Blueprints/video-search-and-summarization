@@ -11,6 +11,7 @@
 #include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_typedefs.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
@@ -29,12 +30,13 @@ class NDEFMakeReadOnlyOptions;
 class NDEFWriteOptions;
 class NFCProxy;
 class ScopedAbortState;
-class ScriptPromiseResolver;
 
-class MODULES_EXPORT NDEFReader : public EventTargetWithInlineData,
+class MODULES_EXPORT NDEFReader : public EventTarget,
                                   public ActiveScriptWrappable<NDEFReader>,
                                   public ExecutionContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
+
+  USING_PRE_FINALIZER(NDEFReader, Dispose);
 
  public:
   static NDEFReader* Create(ExecutionContext*);
@@ -53,22 +55,25 @@ class MODULES_EXPORT NDEFReader : public EventTargetWithInlineData,
   DEFINE_ATTRIBUTE_EVENT_LISTENER(readingerror, kReadingerror)
 
   // Scan from an NFC tag.
-  ScriptPromise scan(ScriptState* script_state,
-                     const NDEFScanOptions* options,
-                     ExceptionState& exception_state);
+  ScriptPromise<IDLUndefined> scan(ScriptState* script_state,
+                                   const NDEFScanOptions* options,
+                                   ExceptionState& exception_state);
 
   // Write NDEFMessageSource asynchronously to NFC tag.
-  ScriptPromise write(ScriptState* script_state,
-                      const V8NDEFMessageSource* write_message,
-                      const NDEFWriteOptions* options,
-                      ExceptionState& exception_state);
+  ScriptPromise<IDLUndefined> write(ScriptState* script_state,
+                                    const V8NDEFMessageSource* write_message,
+                                    const NDEFWriteOptions* options,
+                                    ExceptionState& exception_state);
 
   // Make NFC tag permanently read-only.
-  ScriptPromise makeReadOnly(ScriptState* script_state,
-                             const NDEFMakeReadOnlyOptions* options,
-                             ExceptionState& exception_state);
+  ScriptPromise<IDLUndefined> makeReadOnly(
+      ScriptState* script_state,
+      const NDEFMakeReadOnlyOptions* options,
+      ExceptionState& exception_state);
 
   void Trace(Visitor*) const override;
+
+  void Dispose();
 
   // Called by NFCProxy for dispatching events.
   virtual void OnReading(const String& serial_number,
@@ -93,41 +98,41 @@ class MODULES_EXPORT NDEFReader : public EventTargetWithInlineData,
 
   void WriteAbort();
   void WriteOnRequestCompleted(
-      ScriptPromiseResolver* resolver,
+      ScriptPromiseResolver<IDLUndefined>* resolver,
       std::unique_ptr<ScopedAbortState> scoped_abort_state,
       device::mojom::blink::NDEFErrorPtr error);
 
   void MakeReadOnlyAbort();
   void MakeReadOnlyOnRequestCompleted(
-      ScriptPromiseResolver* resolver,
+      ScriptPromiseResolver<IDLUndefined>* resolver,
       std::unique_ptr<ScopedAbortState> scoped_abort_state,
       device::mojom::blink::NDEFErrorPtr error);
 
   // Read Permission handling
   void ReadOnRequestPermission(const NDEFScanOptions* options,
-                               mojom::blink::PermissionStatus status);
+                               mojom::blink::PermissionStatusWithDetailsPtr);
 
   // Write Permission handling
   void WriteOnRequestPermission(
-      ScriptPromiseResolver* resolver,
+      ScriptPromiseResolver<IDLUndefined>* resolver,
       std::unique_ptr<ScopedAbortState> scoped_abort_state,
       const NDEFWriteOptions* options,
       device::mojom::blink::NDEFMessagePtr ndef_message,
-      mojom::blink::PermissionStatus status);
+      mojom::blink::PermissionStatusWithDetailsPtr);
 
   // Make read-only permission handling
   void MakeReadOnlyOnRequestPermission(
-      ScriptPromiseResolver* resolver,
+      ScriptPromiseResolver<IDLUndefined>* resolver,
       std::unique_ptr<ScopedAbortState> scoped_abort_state,
       const NDEFMakeReadOnlyOptions* options,
-      mojom::blink::PermissionStatus status);
+      mojom::blink::PermissionStatusWithDetailsPtr);
 
   Member<NFCProxy> nfc_proxy_;
 
   // |scan_resolver_| is kept here to handle Mojo connection failures because in
   // that case the callback passed to Watch() won't be called and
   // mojo::WrapCallbackWithDefaultInvokeIfNotRun() is forbidden in Blink.
-  Member<ScriptPromiseResolver> scan_resolver_;
+  Member<ScriptPromiseResolver<IDLUndefined>> scan_resolver_;
   Member<AbortSignal> scan_signal_;
   // The abort algorithm added during scan() needs to be valid while reading,
   // after resolving the scan() promise.
@@ -139,12 +144,13 @@ class MODULES_EXPORT NDEFReader : public EventTargetWithInlineData,
   // |write_requests_| are kept here to handle Mojo connection failures because
   // in that case the callback passed to Push() won't be called and
   // mojo::WrapCallbackWithDefaultInvokeIfNotRun() is forbidden in Blink.
-  HeapHashSet<Member<ScriptPromiseResolver>> write_requests_;
+  HeapHashSet<Member<ScriptPromiseResolver<IDLUndefined>>> write_requests_;
 
   // |make_read_only_requests_| are kept here to handle Mojo connection failures
   // because in that case the callback passed to MakeReadOnly() won't be called
   // and mojo::WrapCallbackWithDefaultInvokeIfNotRun() is forbidden in Blink.
-  HeapHashSet<Member<ScriptPromiseResolver>> make_read_only_requests_;
+  HeapHashSet<Member<ScriptPromiseResolver<IDLUndefined>>>
+      make_read_only_requests_;
 };
 
 }  // namespace blink

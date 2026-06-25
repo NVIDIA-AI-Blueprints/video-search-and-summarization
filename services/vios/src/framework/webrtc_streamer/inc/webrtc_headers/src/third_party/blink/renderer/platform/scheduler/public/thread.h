@@ -26,16 +26,18 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_PUBLIC_THREAD_H_
 
 #include <stdint.h>
+
 #include "base/functional/callback_forward.h"
-#include "base/memory/scoped_refptr.h"
+#include "base/memory/raw_ptr.h"
+#include "base/notimplemented.h"
 #include "base/task/task_observer.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_type.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace base {
-class TimeTicks;
 namespace sequence_manager {
 class TaskTimeObserver;
 }
@@ -64,11 +66,16 @@ struct PLATFORM_EXPORT ThreadCreationParams {
 
   ThreadType thread_type;
   const char* name;
-  FrameOrWorkerScheduler* frame_or_worker_scheduler;  // NOT OWNED
+  raw_ptr<FrameOrWorkerScheduler> frame_or_worker_scheduler;  // NOT OWNED
 
   // Do NOT set the thread priority for non-WebAudio usages. Please consult
   // scheduler-dev@ first in order to use an elevated thread priority.
   base::ThreadType base_thread_type = base::ThreadType::kDefault;
+
+  // The interval at which the thread expects to have work to do. Zero if
+  // unknown. Used when configuring a thread with `base_thread_type`
+  // base::ThreadType::kRealtimeAudio.
+  base::TimeDelta realtime_period;
 
   bool supports_gc = false;
 };
@@ -127,6 +134,13 @@ class PLATFORM_EXPORT Thread {
   virtual void AddTaskTimeObserver(base::sequence_manager::TaskTimeObserver*) {}
   virtual void RemoveTaskTimeObserver(
       base::sequence_manager::TaskTimeObserver*) {}
+
+  // Returns the start time for the current task. Can be used instead of
+  // TaskTimeObserver if only task start time is needed.
+  virtual base::TimeTicks CurrentTaskStartTime() const {
+    NOTIMPLEMENTED();
+    return base::TimeTicks();
+  }
 
   // Returns the scheduler associated with the thread.
   virtual ThreadScheduler* Scheduler() = 0;

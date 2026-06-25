@@ -11,11 +11,10 @@
 #ifndef TEST_FAKE_VP8_DECODER_H_
 #define TEST_FAKE_VP8_DECODER_H_
 
-#include <stdint.h>
+#include <cstdint>
 
 #include "api/video/encoded_image.h"
 #include "api/video_codecs/video_decoder.h"
-#include "modules/video_coding/include/video_codec_interface.h"
 
 namespace webrtc {
 namespace test {
@@ -27,9 +26,7 @@ class FakeVp8Decoder : public VideoDecoder {
 
   bool Configure(const Settings& settings) override;
 
-  int32_t Decode(const EncodedImage& input,
-                 bool missing_frames,
-                 int64_t render_time_ms) override;
+  int32_t Decode(const EncodedImage& input, int64_t render_time_ms) override;
 
   int32_t RegisterDecodeCompleteCallback(
       DecodedImageCallback* callback) override;
@@ -38,7 +35,8 @@ class FakeVp8Decoder : public VideoDecoder {
 
   DecoderInfo GetDecoderInfo() const override;
   const char* ImplementationName() const override;
-  static const char* kImplementationName;
+
+  static constexpr char kImplementationName[] = "fake_vp8_decoder";
 
  private:
   DecodedImageCallback* callback_;

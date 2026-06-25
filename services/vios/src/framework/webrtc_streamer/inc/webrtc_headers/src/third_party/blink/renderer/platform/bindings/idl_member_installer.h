@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_IDL_MEMBER_INSTALLER_H_
 
 #include "base/containers/span.h"
-#include "base/memory/raw_ptr_exclusion.h"
+#include "base/memory/raw_ptr.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "v8/include/v8-fast-api-calls.h"
@@ -51,7 +51,7 @@ class PLATFORM_EXPORT IDLMemberInstaller final {
   struct AttributeConfig {
     AttributeConfig& operator=(const AttributeConfig&) = delete;
 
-    const char* name;
+    const char* property_name;
     v8::FunctionCallback callback_for_get;
     v8::FunctionCallback callback_for_set;
     unsigned v8_property_attribute : 3;       // v8::PropertyAttribute
@@ -69,6 +69,7 @@ class PLATFORM_EXPORT IDLMemberInstaller final {
                                 v8::Local<v8::Template> prototype_template,
                                 v8::Local<v8::Template> interface_template,
                                 v8::Local<v8::Signature> signature,
+                                const char* interface_name,
                                 base::span<const AttributeConfig> configs);
   static void InstallAttributes(v8::Isolate* isolate,
                                 const DOMWrapperWorld& world,
@@ -76,23 +77,35 @@ class PLATFORM_EXPORT IDLMemberInstaller final {
                                 v8::Local<v8::Object> prototype_object,
                                 v8::Local<v8::Object> interface_object,
                                 v8::Local<v8::Signature> signature,
+                                const char* interface_name,
                                 base::span<const AttributeConfig> configs);
 
-  // Web IDL constant
-  struct ConstantCallbackConfig {
-    ConstantCallbackConfig& operator=(const ConstantCallbackConfig&) = delete;
+  struct NoAllocDirectCallAttributeConfig {
+    NoAllocDirectCallAttributeConfig& operator=(
+        const NoAllocDirectCallAttributeConfig&) = delete;
 
-    const char* name;
-    v8::AccessorNameGetterCallback callback;
+    AttributeConfig attribute_config;
+    raw_ptr<const v8::CFunction> v8_cfunction_for_set;
   };
-  static void InstallConstants(
+
+  static void InstallAttributes(
       v8::Isolate* isolate,
       const DOMWrapperWorld& world,
       v8::Local<v8::Template> instance_template,
       v8::Local<v8::Template> prototype_template,
       v8::Local<v8::Template> interface_template,
       v8::Local<v8::Signature> signature,
-      base::span<const ConstantCallbackConfig> configs);
+      const char* interface_name,
+      base::span<const NoAllocDirectCallAttributeConfig> configs);
+  static void InstallAttributes(
+      v8::Isolate* isolate,
+      const DOMWrapperWorld& world,
+      v8::Local<v8::Object> instance_object,
+      v8::Local<v8::Object> prototype_object,
+      v8::Local<v8::Object> interface_object,
+      v8::Local<v8::Signature> signature,
+      const char* interface_name,
+      base::span<const NoAllocDirectCallAttributeConfig> configs);
 
   struct ConstantValueConfig {
     ConstantValueConfig& operator=(const ConstantValueConfig&) = delete;
@@ -112,7 +125,7 @@ class PLATFORM_EXPORT IDLMemberInstaller final {
   struct OperationConfig {
     OperationConfig& operator=(const OperationConfig&) = delete;
 
-    const char* name;
+    const char* property_name;
     v8::FunctionCallback callback;
     unsigned length : 8;
     unsigned v8_property_attribute : 3;  // v8::PropertyAttribute
@@ -128,6 +141,7 @@ class PLATFORM_EXPORT IDLMemberInstaller final {
                                 v8::Local<v8::Template> prototype_template,
                                 v8::Local<v8::Template> interface_template,
                                 v8::Local<v8::Signature> signature,
+                                const char* interface_name,
                                 base::span<const OperationConfig> configs);
   static void InstallOperations(v8::Isolate* isolate,
                                 const DOMWrapperWorld& world,
@@ -135,14 +149,12 @@ class PLATFORM_EXPORT IDLMemberInstaller final {
                                 v8::Local<v8::Object> prototype_object,
                                 v8::Local<v8::Object> interface_object,
                                 v8::Local<v8::Signature> signature,
+                                const char* interface_name,
                                 base::span<const OperationConfig> configs);
 
   struct NoAllocDirectCallOperationConfig {
     OperationConfig operation_config;
-    // Generated code creates a static global
-    // `NoAllocDirectCallOperationConfig`. Using `raw_ptr` here would
-    // force it to have a nontrivial destructor, which is forbidden.
-    RAW_PTR_EXCLUSION const v8::CFunction* v8_cfunction_table_data;
+    raw_ptr<const v8::CFunction> v8_cfunction_table_data;
     uint32_t v8_cfunction_table_size;
   };
   static void InstallOperations(
@@ -152,6 +164,7 @@ class PLATFORM_EXPORT IDLMemberInstaller final {
       v8::Local<v8::Template> prototype_template,
       v8::Local<v8::Template> interface_template,
       v8::Local<v8::Signature> signature,
+      const char* interface_name,
       base::span<const NoAllocDirectCallOperationConfig> configs);
   static void InstallOperations(
       v8::Isolate* isolate,
@@ -160,6 +173,7 @@ class PLATFORM_EXPORT IDLMemberInstaller final {
       v8::Local<v8::Object> prototype_object,
       v8::Local<v8::Object> interface_object,
       v8::Local<v8::Signature> signature,
+      const char* interface_name,
       base::span<const NoAllocDirectCallOperationConfig> configs);
 
   // Global property reference

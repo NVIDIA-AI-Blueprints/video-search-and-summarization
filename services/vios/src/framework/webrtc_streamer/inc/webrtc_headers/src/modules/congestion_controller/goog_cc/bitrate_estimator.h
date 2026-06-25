@@ -13,9 +13,11 @@
 
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "api/field_trials_view.h"
 #include "api/units/data_rate.h"
+#include "api/units/data_size.h"
 #include "api/units/timestamp.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
@@ -32,8 +34,8 @@ class BitrateEstimator {
   virtual ~BitrateEstimator();
   virtual void Update(Timestamp at_time, DataSize amount, bool in_alr);
 
-  virtual absl::optional<DataRate> bitrate() const;
-  absl::optional<DataRate> PeekRate() const;
+  virtual std::optional<DataRate> bitrate() const;
+  std::optional<DataRate> PeekRate() const;
 
   virtual void ExpectFastRateChange();
 

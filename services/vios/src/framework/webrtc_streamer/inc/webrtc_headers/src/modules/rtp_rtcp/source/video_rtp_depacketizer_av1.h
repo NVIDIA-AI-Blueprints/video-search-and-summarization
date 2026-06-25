@@ -14,8 +14,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include <optional>
+#include <span>
+
 #include "api/scoped_refptr.h"
 #include "api/video/encoded_image.h"
 #include "modules/rtp_rtcp/source/video_rtp_depacketizer.h"
@@ -30,12 +31,10 @@ class VideoRtpDepacketizerAv1 : public VideoRtpDepacketizer {
   VideoRtpDepacketizerAv1& operator=(const VideoRtpDepacketizerAv1&) = delete;
   ~VideoRtpDepacketizerAv1() override = default;
 
-  rtc::scoped_refptr<EncodedImageBuffer> AssembleFrame(
-      rtc::ArrayView<const rtc::ArrayView<const uint8_t>> rtp_payloads)
-      override;
+  scoped_refptr<EncodedImageBuffer> AssembleFrame(
+      std::span<const std::span<const uint8_t>> rtp_payloads) override;
 
-  absl::optional<ParsedRtpPayload> Parse(
-      rtc::CopyOnWriteBuffer rtp_payload) override;
+  std::optional<ParsedRtpPayload> Parse(CopyOnWriteBuffer rtp_payload) override;
 };
 
 }  // namespace webrtc

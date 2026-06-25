@@ -13,22 +13,24 @@
 
 #include <stdint.h>
 
+#include <memory>
+
+#include "api/environment/environment.h"
 #include "api/sequence_checker.h"
-#include "api/task_queue/task_queue_factory.h"
+#include "api/task_queue/task_queue_base.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_sink_interface.h"
 #include "rtc_base/race_checker.h"
-#include "rtc_base/task_queue.h"
 #include "rtc_base/thread_annotations.h"
 #include "video/render/video_render_frames.h"
 
 namespace webrtc {
 
-class IncomingVideoStream : public rtc::VideoSinkInterface<VideoFrame> {
+class IncomingVideoStream : public VideoSinkInterface<VideoFrame> {
  public:
-  IncomingVideoStream(TaskQueueFactory* task_queue_factory,
+  IncomingVideoStream(const Environment& env,
                       int32_t delay_ms,
-                      rtc::VideoSinkInterface<VideoFrame>* callback);
+                      VideoSinkInterface<VideoFrame>* callback);
   ~IncomingVideoStream() override;
 
  private:
@@ -36,11 +38,11 @@ class IncomingVideoStream : public rtc::VideoSinkInterface<VideoFrame> {
   void Dequeue();
 
   SequenceChecker main_thread_checker_;
-  rtc::RaceChecker decoder_race_checker_;
+  RaceChecker decoder_race_checker_;
 
-  VideoRenderFrames render_buffers_ RTC_GUARDED_BY(&incoming_render_queue_);
-  rtc::VideoSinkInterface<VideoFrame>* const callback_;
-  rtc::TaskQueue incoming_render_queue_;
+  VideoRenderFrames render_buffers_ RTC_GUARDED_BY(incoming_render_queue_);
+  VideoSinkInterface<VideoFrame>* const callback_;
+  std::unique_ptr<TaskQueueBase, TaskQueueDeleter> incoming_render_queue_;
 };
 
 }  // namespace webrtc

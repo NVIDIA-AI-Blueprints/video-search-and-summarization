@@ -17,25 +17,37 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_PROTO_IMPORTER_MODULE_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_PROTO_IMPORTER_MODULE_H_
 
+#include <cstdint>
+#include <functional>
+#include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
+#include "perfetto/base/logging.h"
 #include "perfetto/base/status.h"
-#include "src/trace_processor/importers/common/trace_parser.h"
+#include "perfetto/trace_processor/ref_counted.h"
+#include "src/trace_processor/importers/common/parser_types.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
+#include "src/trace_processor/sorter/trace_sorter.h"
 
 namespace perfetto {
 
-namespace protos {
-namespace pbzero {
+namespace protos::pbzero {
 class TraceConfig_Decoder;
 class TracePacket_Decoder;
-}  // namespace pbzero
-}  // namespace protos
+}  // namespace protos::pbzero
 
 namespace trace_processor {
 
-class PacketSequenceState;
+class EtwModule;
+class FtraceModule;
+class TrackEventModule;
 class TraceBlobView;
 class TraceProcessorContext;
+class TrackEventModule;
+struct InlineSchedSwitch;
+struct InlineSchedWaking;
 
 // This file contains a base class for ProtoTraceReader/Parser modules.
 // A module implements support for a subset of features of the TracePacket
@@ -52,8 +64,8 @@ class TraceProcessorContext;
 
 class ModuleResult {
  public:
-  // Allow auto conversion from util::Status to Handled / Error result.
-  ModuleResult(base::Status status)
+  // Allow auto conversion from base::Status to Handled / Error result.
+  ModuleResult(const base::Status& status)
       : ignored_(false),
         error_(status.ok() ? std::nullopt
                            : std::make_optional(status.message())) {}
@@ -92,10 +104,12 @@ class ModuleResult {
   std::optional<std::string> error_;
 };
 
+struct ProtoImporterModuleContext;
+
 // Base class for modules.
 class ProtoImporterModule {
  public:
-  ProtoImporterModule();
+  explicit ProtoImporterModule(ProtoImporterModuleContext* module_context);
 
   virtual ~ProtoImporterModule();
 
@@ -108,7 +122,7 @@ class ProtoImporterModule {
       const protos::pbzero::TracePacket_Decoder&,
       TraceBlobView* packet,
       int64_t packet_timestamp,
-      PacketSequenceState*,
+      RefPtr<PacketSequenceStateGeneration> sequence_state,
       uint32_t field_id);
 
   // Called by ProtoTraceReader during the tokenization stage i.e. before
@@ -121,7 +135,7 @@ class ProtoImporterModule {
   // Called by ProtoTraceReader during the tokenization stage i.e. before
   // sorting. Indicates that sequence with id |packet_sequence_id| has a packet
   // with first_packet_on_sequence = true. This implies that there was no data
-  // loss, including ring buffer overwrittes, on this sequence.
+  // loss, including ring buffer overwrites, on this sequence.
   virtual void OnFirstPacketOnSequence(uint32_t /* packet_sequence_id */) {}
 
   // ParsePacket functions are called by ProtoTraceParser after the sorting
@@ -136,14 +150,66 @@ class ProtoImporterModule {
   // stage, on all existing modules.
   virtual void ParseTraceConfig(const protos::pbzero::TraceConfig_Decoder&);
 
-  virtual void NotifyEndOfFile() {}
+  // Phase 3 - called after sorter extraction for cleanup.
+  // Modules do post-extraction processing here (e.g., finalizing heap profiles,
+  // flushing shell transitions).
+  virtual void OnEventsFullyExtracted() {
+    // Default: no-op
+  }
 
  protected:
-  void RegisterForField(uint32_t field_id, TraceProcessorContext*);
-  // Primarily intended for special modules that need to get all TracePacket's,
-  // for example for trace proto content analysis. Most modules need to register
-  // for specific fields using the method above.
-  void RegisterForAllFields(TraceProcessorContext*);
+  void RegisterForField(uint32_t field_id);
+
+  ProtoImporterModuleContext* module_context_;
+};
+
+// Contains the common state for all proto modules and the proto parser.
+//
+// Used to store per-trace state in a place where everyone can access it.
+struct ProtoImporterModuleContext {
+  void PushFtraceEvent(uint32_t cpu, int64_t ts, TracePacketData data);
+  void PushEtwEvent(uint32_t cpu, int64_t ts, TracePacketData data);
+  void PushInlineSchedSwitch(uint32_t cpu, int64_t ts, InlineSchedSwitch data);
+  void PushInlineSchedWaking(uint32_t cpu, int64_t ts, InlineSchedWaking data);
+
+  // The module at the index N is registered to handle field id N in
+  // TracePacket.
+  std::vector<std::vector<ProtoImporterModule*>> modules_by_field;
+  std::vector<std::unique_ptr<ProtoImporterModule>> modules;
+  FtraceModule* ftrace_module = nullptr;
+  EtwModule* etw_module = nullptr;
+  TrackEventModule* track_module = nullptr;
+
+  std::unique_ptr<TraceSorter::Stream<TracePacketData>> trace_packet_stream;
+  std::unique_ptr<TraceSorter::Stream<TrackEventData>> track_event_stream;
+
+  using FtraceStreamFactory =
+      std::function<std::unique_ptr<TraceSorter::Stream<TracePacketData>>(
+          uint32_t)>;
+  FtraceStreamFactory ftrace_stream_factory;
+  std::vector<std::unique_ptr<TraceSorter::Stream<TracePacketData>>>
+      ftrace_event_streams;
+
+  using EtwStreamFactory =
+      std::function<std::unique_ptr<TraceSorter::Stream<TracePacketData>>(
+          uint32_t)>;
+  EtwStreamFactory etw_stream_factory;
+  std::vector<std::unique_ptr<TraceSorter::Stream<TracePacketData>>>
+      etw_event_streams;
+
+  using InlineSchedSwitchStreamFactory =
+      std::function<std::unique_ptr<TraceSorter::Stream<InlineSchedSwitch>>(
+          uint32_t)>;
+  InlineSchedSwitchStreamFactory inline_sched_switch_stream_factory;
+  std::vector<std::unique_ptr<TraceSorter::Stream<InlineSchedSwitch>>>
+      inline_sched_switch_streams;
+
+  using InlineSchedWakingStreamFactory =
+      std::function<std::unique_ptr<TraceSorter::Stream<InlineSchedWaking>>(
+          uint32_t)>;
+  InlineSchedWakingStreamFactory inline_sched_waking_stream_factory;
+  std::vector<std::unique_ptr<TraceSorter::Stream<InlineSchedWaking>>>
+      inline_sched_waking_streams;
 };
 
 }  // namespace trace_processor

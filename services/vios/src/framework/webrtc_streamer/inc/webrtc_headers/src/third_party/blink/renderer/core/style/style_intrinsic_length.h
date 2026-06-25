@@ -10,16 +10,21 @@
 
 namespace blink {
 
+// Style data for `contain-intrinsic-size`:
+//   `[ auto | from-element ]? [ none | <length [0,∞]> ]`.
+// https://drafts.csswg.org/css-sizing-4/#intrinsic-size-override
 class StyleIntrinsicLength {
   DISALLOW_NEW();
 
  public:
-  // Style data for contain-intrinsic-size:
-  //  none | <length> | auto && <length> | auto && none.
-  StyleIntrinsicLength(bool has_auto, const absl::optional<double>& length)
-      : has_auto_(has_auto),
-        length_(length ? absl::optional<LayoutUnit>(LayoutUnit(*length))
-                       : absl::nullopt) {}
+  struct Options {
+    bool has_auto = false;
+  };
+
+  // Create data for `auto? [ none | <length [0,∞]> ]`.
+  explicit StyleIntrinsicLength(const std::optional<Length>& length,
+                                Options options = {.has_auto = false})
+      : has_auto_(options.has_auto), length_(length) {}
 
   StyleIntrinsicLength() = default;
 
@@ -29,17 +34,17 @@ class StyleIntrinsicLength {
 
   bool HasAuto() const { return has_auto_; }
 
-  const absl::optional<LayoutUnit>& GetLength() const { return length_; }
+  void SetHasAuto() { has_auto_ = true; }
+
+  const std::optional<Length>& GetLength() const { return length_; }
 
   bool operator==(const StyleIntrinsicLength& o) const {
     return has_auto_ == o.has_auto_ && length_ == o.length_;
   }
 
-  bool operator!=(const StyleIntrinsicLength& o) const { return !(*this == o); }
-
  private:
   bool has_auto_ = false;
-  absl::optional<LayoutUnit> length_;
+  std::optional<Length> length_;
 };
 
 }  // namespace blink

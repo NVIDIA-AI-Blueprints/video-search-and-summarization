@@ -11,16 +11,16 @@
 #ifndef LOGGING_RTC_EVENT_LOG_EVENTS_RTC_EVENT_BEGIN_LOG_H_
 #define LOGGING_RTC_EVENT_LOG_EVENTS_RTC_EVENT_BEGIN_LOG_H_
 
+#include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "api/rtc_event_log/rtc_event.h"
 #include "api/units/timestamp.h"
 #include "logging/rtc_event_log/events/rtc_event_field_encoding.h"
-#include "logging/rtc_event_log/events/rtc_event_field_encoding_parser.h"
-#include "logging/rtc_event_log/events/rtc_event_field_extraction.h"
+#include "logging/rtc_event_log/events/rtc_event_log_parse_status.h"
 
 namespace webrtc {
 
@@ -53,21 +53,24 @@ class RtcEventBeginLog final : public RtcEvent {
   Type GetType() const override { return kType; }
   bool IsConfigEvent() const override { return false; }
 
-  static std::string Encode(rtc::ArrayView<const RtcEvent*> batch);
+  static std::string Encode(std::span<const RtcEvent*> batch);
 
   static RtcEventLogParseStatus Parse(absl::string_view encoded_bytes,
                                       bool batched,
                                       std::vector<LoggedStartEvent>& output);
 
  private:
-  RtcEventBeginLog(const RtcEventBeginLog& other);
+  RtcEventBeginLog(const RtcEventBeginLog&) = default;
 
   int64_t utc_start_time_ms_;
 
-  static constexpr EventParameters event_params_{"BeginLog",
-                                                 RtcEventBeginLog::kType};
+  static constexpr EventParameters event_params_{.name = "BeginLog",
+                                                 .id = RtcEventBeginLog::kType};
   static constexpr FieldParameters utc_start_time_params_{
-      "utc_start_time_ms", /*id=*/1, FieldType::kVarInt, /*width=*/64};
+      .name = "utc_start_time_ms",
+      /*id=*/.field_id = 1,
+      .field_type = FieldType::kVarInt,
+      /*width=*/.value_width = 64};
 };
 
 }  // namespace webrtc

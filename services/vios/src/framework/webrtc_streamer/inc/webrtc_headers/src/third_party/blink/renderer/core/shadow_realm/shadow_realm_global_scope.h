@@ -8,18 +8,24 @@
 #include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/universal_global_scope.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
-class CORE_EXPORT ShadowRealmGlobalScope final
-    : public EventTargetWithInlineData,
-      public ExecutionContext {
+class CORE_EXPORT ShadowRealmGlobalScope final : public EventTarget,
+                                                 public UniversalGlobalScope,
+                                                 public ExecutionContext {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   explicit ShadowRealmGlobalScope(
       ExecutionContext* initiator_execution_context);
+
+  // Get the root execution context where the outermost shadow realm was
+  // initialized.
+  ExecutionContext* GetRootInitiatorExecutionContext() const;
 
   void Trace(Visitor* visitor) const override;
 
@@ -35,6 +41,7 @@ class CORE_EXPORT ShadowRealmGlobalScope final
   // UseCounter:
   void CountUse(mojom::blink::WebFeature feature) override;
   void CountDeprecation(mojom::blink::WebFeature feature) override;
+  void CountWebDXFeature(mojom::blink::WebDXFeature feature) override;
 
   // ExecutionContext:
   bool IsShadowRealmGlobalScope() const override;
@@ -47,7 +54,6 @@ class CORE_EXPORT ShadowRealmGlobalScope final
   HttpsState GetHttpsState() const override;
   ResourceFetcher* Fetcher() override;
   void ExceptionThrown(ErrorEvent* error_event) override;
-  void AddInspectorIssue(mojom::blink::InspectorIssueInfoPtr issue) override;
   void AddInspectorIssue(AuditsIssue issue) override;
   EventTarget* ErrorEventTarget() override;
   FrameOrWorkerScheduler* GetScheduler() override;
@@ -56,6 +62,7 @@ class CORE_EXPORT ShadowRealmGlobalScope final
   ukm::UkmRecorder* UkmRecorder() override;
   ukm::SourceId UkmSourceID() const override;
   ExecutionContextToken GetExecutionContextToken() const override;
+  bool IsSecureContext() const override;
 
  private:
   void AddConsoleMessageImpl(ConsoleMessage* message,
@@ -64,6 +71,13 @@ class CORE_EXPORT ShadowRealmGlobalScope final
   const Member<ExecutionContext> initiator_execution_context_;
   KURL url_;
   ShadowRealmToken token_;
+};
+
+template <>
+struct DowncastTraits<ShadowRealmGlobalScope> {
+  static bool AllowFrom(const ExecutionContext& context) {
+    return context.IsShadowRealmGlobalScope();
+  }
 };
 
 }  // namespace blink

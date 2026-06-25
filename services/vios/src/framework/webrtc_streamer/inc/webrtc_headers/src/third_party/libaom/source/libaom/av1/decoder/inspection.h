@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2017, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -55,6 +55,7 @@ struct insp_mi_data {
   int16_t intrabc;
   int16_t palette;
   int16_t uv_palette;
+  int16_t sb_bits;
 };
 
 typedef struct insp_frame_data insp_frame_data;

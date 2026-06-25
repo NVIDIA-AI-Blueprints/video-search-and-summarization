@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -53,9 +53,9 @@ void av1_accumulate_frame_counts(struct FRAME_COUNTS *acc_counts,
 
 void av1_row_mt_mem_dealloc(AV1_COMP *cpi);
 
-void av1_global_motion_estimation_mt(AV1_COMP *cpi);
+void av1_row_mt_sync_mem_dealloc(AV1EncRowMultiThreadSync *row_mt_sync);
 
-void av1_gm_dealloc(AV1GlobalMotionSync *gm_sync_data);
+void av1_global_motion_estimation_mt(AV1_COMP *cpi);
 
 #if !CONFIG_REALTIME_ONLY
 void av1_tpl_row_mt_sync_read_dummy(AV1TplRowMultiThreadSync *tpl_mt_sync,
@@ -88,6 +88,8 @@ int av1_get_max_num_workers(const AV1_COMP *cpi);
 
 void av1_create_workers(AV1_PRIMARY *ppi, int num_workers);
 
+void av1_terminate_workers(AV1_PRIMARY *ppi);
+
 void av1_init_frame_mt(AV1_PRIMARY *ppi, AV1_COMP *cpi);
 
 void av1_init_cdef_worker(AV1_COMP *cpi);
@@ -100,13 +102,12 @@ void av1_init_lr_mt_buffers(AV1_COMP *cpi);
 void av1_init_mt_sync(AV1_COMP *cpi, int is_first_pass);
 #endif  // CONFIG_MULTITHREAD
 
-int av1_get_num_mod_workers_for_alloc(PrimaryMultiThreadInfo *const p_mt_info,
+int av1_get_num_mod_workers_for_alloc(const PrimaryMultiThreadInfo *p_mt_info,
                                       MULTI_THREADED_MODULES mod_name);
 
 void av1_init_tile_thread_data(AV1_PRIMARY *ppi, int is_first_pass);
 
-void av1_cdef_mse_calc_frame_mt(AV1_COMMON *cm, MultiThreadInfo *mt_info,
-                                CdefSearchCtx *cdef_search_ctx);
+void av1_cdef_mse_calc_frame_mt(AV1_COMP *cpi);
 
 void av1_cdef_mt_dealloc(AV1CdefSync *cdef_sync);
 
@@ -117,14 +118,13 @@ void av1_write_tile_obu_mt(
     unsigned int *max_tile_size, uint32_t *const obu_header_size,
     uint8_t **tile_data_start, const int num_workers);
 
-int av1_compute_num_enc_workers(AV1_COMP *cpi, int max_workers);
-
 int av1_compute_num_fp_contexts(AV1_PRIMARY *ppi, AV1EncoderConfig *oxcf);
 
-int av1_check_fpmt_config(AV1_PRIMARY *const ppi, AV1EncoderConfig *const oxcf);
+int av1_check_fpmt_config(AV1_PRIMARY *const ppi,
+                          const AV1EncoderConfig *const oxcf);
 
-int av1_compress_parallel_frames(AV1_PRIMARY *const ppi,
-                                 AV1_COMP_DATA *const first_cpi_data);
+void av1_compress_parallel_frames(AV1_PRIMARY *const ppi,
+                                  AV1_COMP_DATA *const first_cpi_data);
 #ifdef __cplusplus
 }  // extern "C"
 #endif

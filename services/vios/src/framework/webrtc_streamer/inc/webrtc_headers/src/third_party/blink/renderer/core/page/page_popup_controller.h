@@ -31,6 +31,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_PAGE_POPUP_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_PAGE_POPUP_CONTROLLER_H_
 
+#include <optional>
+
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -56,7 +58,9 @@ class PagePopupController : public ScriptWrappable, public Supplement<Page> {
 
   static PagePopupController* From(Page&);
 
-  void setValueAndClosePopup(int num_value, const String& string_value);
+  void setValueAndClosePopup(int num_value,
+                             const String& string_value,
+                             bool is_keyboard_event);
   void setValue(const String&);
   void closePopup();
   String localizeNumberString(const String&);
@@ -72,13 +76,23 @@ class PagePopupController : public ScriptWrappable, public Supplement<Page> {
 
   void Trace(Visitor*) const override;
 
+  // Set children_updated to true if additional children have been added to the
+  // menu list. The bounds are only sent to the tree if children_updated is
+  // true.
   void setMenuListOptionsBoundsInAXTree(
-      HeapVector<Member<DOMRect>>& options_bounds);
+      const HeapVector<Member<DOMRect>>& options_bounds,
+      bool children_updated);
+
+  // This methis is used to log messages from script running in the popup for
+  // debugging purposes because running console.log in the popup doesn't print
+  // to stdout or stderr.
+  void debugLog(const String&);
 
  private:
   PagePopup& popup_;
+  std::optional<gfx::Point> popup_origin_;
 
-  WTF::Vector<gfx::Rect> options_bounds_;
+  Vector<gfx::Rect> options_bounds_;
 
  protected:
   PagePopupClient* popup_client_;

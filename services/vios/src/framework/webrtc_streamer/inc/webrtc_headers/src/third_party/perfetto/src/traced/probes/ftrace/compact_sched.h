@@ -79,7 +79,7 @@ CompactSchedEventFormat InvalidCompactSchedEventFormatForTesting();
 
 // Compact encoding configuration used at ftrace reading & parsing time.
 struct CompactSchedConfig {
-  CompactSchedConfig(bool _enabled) : enabled(_enabled) {}
+  explicit CompactSchedConfig(bool _enabled) : enabled(_enabled) {}
 
   // If true, and sched_switch and/or sched_waking events are enabled, encode
   // them in a compact format instead of the normal form.
@@ -88,6 +88,7 @@ struct CompactSchedConfig {
 
 CompactSchedConfig CreateCompactSchedConfig(
     const FtraceConfig& request,
+    bool switch_requested,
     const CompactSchedEventFormat& compact_format);
 
 CompactSchedConfig EnabledCompactSchedConfigForTesting();
@@ -108,7 +109,7 @@ class CompactSchedSwitchBuffer {
     return timestamp_.size();
   }
 
-  inline void AppendTimestamp(uint64_t timestamp) {
+  void AppendTimestamp(uint64_t timestamp) {
     timestamp_.Append(timestamp - last_timestamp_);
     last_timestamp_ = timestamp;
   }
@@ -144,7 +145,7 @@ class CompactSchedWakingBuffer {
     return timestamp_.size();
   }
 
-  inline void AppendTimestamp(uint64_t timestamp) {
+  void AppendTimestamp(uint64_t timestamp) {
     timestamp_.Append(timestamp - last_timestamp_);
     last_timestamp_ = timestamp;
   }
@@ -229,6 +230,9 @@ class CompactSchedBuffer {
   // Writes out the currently buffered events, and starts the next batch
   // internally.
   void WriteAndReset(protos::pbzero::FtraceEventBundle* bundle);
+
+  // Not normally needed: reinitialise the buffer from an unknown state.
+  void Reset();
 
  private:
   CommInterner interner_;
