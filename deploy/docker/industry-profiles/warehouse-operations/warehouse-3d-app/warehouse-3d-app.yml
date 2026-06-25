@@ -248,6 +248,19 @@ services:
     #     condition: service_started
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs:/opt/data/ds-configurator
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os,socket; s=socket.create_connection(('127.0.0.1', int(os.environ.get('PORT', '9003'))), 3); s.close()"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   perception-3d:
     extends:
@@ -294,7 +307,7 @@ services:
       # bp-configurator-3d:
       #   condition: service_started
       ds-configurator-3d:
-        condition: service_completed_successfully
+        condition: service_healthy
 
   kibana-init-container-3d:
     build:
