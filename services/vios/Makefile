@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,7 @@ TOP := $(abspath $(lastword $(MAKEFILE_LIST))/..)
 # to the defaults below or override per build on the environment / command line:
 #   make cc=0 X86_BUILD_IMAGE=<image> <target>
 AARCH64_CC_IMAGE ?= vios-build:aarch64-cross-compiler
-X86_BUILD_IMAGE  ?= gitlab-master.nvidia.com:5005/l4tmm/vms_shim/cicd_images:x86_24.04_build_cuda13.0.0_pylon
+X86_BUILD_IMAGE  ?= vios-build:x86-24.04-cuda13.0.0
 
 ifeq ($(cc),1)
 all:
