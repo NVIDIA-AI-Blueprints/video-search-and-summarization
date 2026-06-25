@@ -4007,6 +4007,7 @@ void parseGlobalProperties(std::map<std::string, std::string, Compare>& opts, co
     opts["overlayOpacity"] = overlayJson.get("opacity", EMPTY_STRING).asString();
     opts["overlayDebug"] = overlayJson.get("debug", EMPTY_STRING).asString();
     opts["overlayPose"] = overlayJson.get("pose", EMPTY_STRING).asString();
+    opts["overlayDebugFontSize"] = overlayJson.get("debugFontSize", EMPTY_STRING).asString();
 
     // Parse proximityClass array
     Json::Value proximity_class_json = overlayJson.get("proximityClass", EMPTY_STRING);
