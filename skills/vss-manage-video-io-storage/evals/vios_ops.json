@@ -66,7 +66,7 @@
       ]
     },
     {
-      "query": "List all media files VIOS knows about and report the container, codec, **Width and Height as separate integers** (exactly as returned by `/storage/file/mediainfo`), and duration of the uploaded sample warehouse video.",
+      "query": "List all media files VIOS knows about and report the container, codec, resolution, and duration of the uploaded sample warehouse video.",
       "checks": [
         "GET /vst/api/v1/storage/file/list returns a JSON object keyed by sensorId; the uploaded sensor's id appears as a key",
         "The entry for the uploaded sensor contains `mediaFilePath`, `metadataFilePath`, and a `metadata` object with `id`, `sensorId`, and `timestamp`",
